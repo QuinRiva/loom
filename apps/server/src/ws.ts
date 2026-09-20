@@ -140,6 +140,7 @@ import {
   type ExhaustionMark,
   ProviderHealthRegistry,
 } from "./provider/Services/ProviderHealthRegistry.ts";
+import type { UsageLimitSourceSnapshot } from "@t3tools/contracts";
 import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
@@ -1269,6 +1270,7 @@ const makeWsRpcLayer = (
                   runtimeMode: command.runtimeMode,
                   activeTurnId: null,
                   lastError: detail.trim().length > 0 ? detail : "Worktree setup failed.",
+                  queuedMessages: { steering: [], followUp: [] },
                   updatedAt: failedAt,
                 },
                 createdAt: failedAt,
@@ -1674,6 +1676,7 @@ const makeWsRpcLayer = (
                     runtimeMode: command.runtimeMode,
                     activeTurnId: null,
                     lastError: null,
+                    queuedMessages: { steering: [], followUp: [] },
                     updatedAt: preparingAt,
                   },
                   createdAt: preparingAt,
@@ -4187,7 +4190,7 @@ const makeWsRpcLayer = (
               type ProviderStatusInput = {
                 readonly providers?: ReadonlyArray<ServerProvider>;
                 readonly marks?: ReadonlyArray<ExhaustionMark>;
-                readonly sources?: ReadonlyArray<UsageLimitSources.UsageLimitSourceSnapshot>;
+                readonly sources?: ReadonlyArray<UsageLimitSourceSnapshot>;
               };
               const providerStatuses = Stream.merge(
                 Stream.merge(

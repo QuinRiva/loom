@@ -3,6 +3,7 @@ import {
   PI_DEFAULT_MODEL, // loom: replaces upstream DEFAULT_MODEL for auto-bootstrap default
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
+  EventId,
   type ServerSettings as ServerSettingsValue,
   type ModelSelection,
   type OrchestrationProjectShell,
@@ -217,7 +218,7 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   if (serverConfig.autoBootstrapProjectFromCwd) {
     const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
     const defaultModelSelection =
-      settings.defaultModelSelection ?? getAutoBootstrapThreadModelSelection();
+      settings.defaultModelSelection ?? getAutoBootstrapDefaultModelSelection();
     yield* Effect.gen(function* () {
       const existingProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
         serverConfig.cwd,
@@ -236,16 +237,15 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
           projectId: nextProjectId,
           title: bootstrapProjectTitle,
           workspaceRoot: serverConfig.cwd,
-          defaultModelSelection: nextProjectDefaultModelSelection,
           createdAt,
         });
         // loom: a concurrent engine (another server process, a CLI running its
         // own engine, or a restart storm) can create a project for this same cwd
         // between our pre-check and this dispatch. The engine resolves a losing
         // same-workspace_root create to an idempotent success (reusing the
-        // winner) rather than a failure, so the dispatch returns cleanly — but it
+        // winner) rather than a failure, so the dispatch returns cleanly - but it
         // returns only a sequence, not the winner's id. Re-resolve the project
-        // authoritatively below so the welcome thread is created under the winning
+        // authoritatively here so the welcome thread is created under the winning
         // project id instead of the id whose create never committed. This makes
         // auto-bootstrap idempotent per workspace_root.
         const resolvedProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
@@ -253,33 +253,10 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
         );
         if (Option.isSome(resolvedProject)) {
           nextProjectId = resolvedProject.value.id;
-          nextProjectDefaultModelSelection =
-            resolvedProject.value.defaultModelSelection ?? nextProjectDefaultModelSelection;
+          nextThreadModelSelection =
+            resolveProjectSettings(settings, nextProjectId, resolvedProject.value).settings
+              .defaultModelSelection ?? defaultModelSelection;
         }
-      } else {
-        nextProjectId = existingProject.value.id;
-        nextProjectDefaultModelSelection =
-          existingProject.value.defaultModelSelection ?? getAutoBootstrapDefaultModelSelection();
-      }
-
-      const existingThreadId =
-        yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
-      if (Option.isNone(existingThreadId)) {
-        const createdAt = DateTime.formatIso(yield* DateTime.now);
-        const createdThreadId = ThreadId.make(yield* randomUUID);
-        yield* orchestrationEngine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make(yield* randomUUID),
-          threadId: createdThreadId,
-          projectId: nextProjectId,
-          title: "New thread",
-          modelSelection: nextProjectDefaultModelSelection,
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt,
-        });
         bootstrapProjectId = nextProjectId;
         bootstrapProjectCreated = true;
       } else {

@@ -59,6 +59,8 @@ export interface ProjectSetupScriptRunnerResultStarted {
   readonly scriptCommand: string;
   readonly terminalId: string;
   readonly cwd: string;
+  /** False when the script's `async` flag asks the agent to wait for it. */
+  readonly async: boolean;
   readonly completion: Effect.Effect<ProjectSetupScriptCompletion, ProjectSetupScriptRunnerError>;
 }
 
@@ -91,6 +93,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedError<Project
     worktreePath: Schema.String,
     operation: Schema.Literals([
       "resolveProject",
+      "readSettings",
       "openTerminal",
       "writeCommand",
       "waitForCommand",
@@ -203,6 +206,7 @@ const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallComm
 
 export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;
   const platform = yield* HostProcessPlatform;
   const fs = yield* FileSystem.FileSystem;
@@ -405,6 +409,7 @@ export const make = Effect.gen(function* () {
       scriptCommand: script.command,
       terminalId,
       cwd,
+      async: script.async !== false,
       completion: awaitCompletion,
     } as const;
   });
