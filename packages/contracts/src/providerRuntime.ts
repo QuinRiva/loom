@@ -573,11 +573,12 @@ export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
 const UserInputQuestionOption = Schema.Struct({
   label: TrimmedNonEmptyStringSchema,
-  description: TrimmedNonEmptyStringSchema,
-  preview: Schema.optional(TrimmedNonEmptyStringSchema),
-  recommended: Schema.optional(Schema.Boolean),
+  // Upstream widened this from a trimmed-non-empty string; loom's `preview`
+  // and `recommended` ride alongside upstream's `value`.
   description: Schema.String,
   value: Schema.optional(Schema.String),
+  preview: Schema.optional(TrimmedNonEmptyStringSchema),
+  recommended: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 

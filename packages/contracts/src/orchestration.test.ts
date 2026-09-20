@@ -1643,6 +1643,7 @@ it.effect("encodes compatible icons inside snapshots and client commands", () =>
       title: "Monogram",
       workspaceRoot: "/tmp/monogram",
       defaultModelSelection: null,
+      defaultStartFromOrigin: null, // loom:
       scripts: [],
       projectIcon,
       createdAt: "2026-01-01T00:00:00.000Z",

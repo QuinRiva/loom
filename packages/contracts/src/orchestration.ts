@@ -2613,7 +2613,7 @@ export class OrchestrationSearchThreadsError extends Schema.TaggedError<Orchestr
   },
 ) {}
 
-export class OrchestrationGetThreadLifecycleError extends Schema.TaggedErrorClass<OrchestrationGetThreadLifecycleError>()(
+export class OrchestrationGetThreadLifecycleError extends Schema.TaggedError<OrchestrationGetThreadLifecycleError>()(
   "OrchestrationGetThreadLifecycleError",
   {
     message: TrimmedNonEmptyString,

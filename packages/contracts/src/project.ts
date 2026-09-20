@@ -308,7 +308,7 @@ type ProjectAbsoluteFileFailureContext = {
   readonly cause?: unknown;
 };
 
-export class ProjectReadAbsoluteFileError extends Schema.TaggedErrorClass<ProjectReadAbsoluteFileError>()(
+export class ProjectReadAbsoluteFileError extends Schema.TaggedError<ProjectReadAbsoluteFileError>()(
   "ProjectReadAbsoluteFileError",
   {
     absolutePath: Schema.optional(TrimmedNonEmptyString),
@@ -359,7 +359,7 @@ export const ProjectStatPathsResult = Schema.Struct({
 });
 export type ProjectStatPathsResult = typeof ProjectStatPathsResult.Type;
 
-export class ProjectStatPathsError extends Schema.TaggedErrorClass<ProjectStatPathsError>()(
+export class ProjectStatPathsError extends Schema.TaggedError<ProjectStatPathsError>()(
   "ProjectStatPathsError",
   {
     message: TrimmedNonEmptyString,
@@ -403,7 +403,7 @@ export const ProjectListAbsoluteDirectoryResult = Schema.Struct({
 });
 export type ProjectListAbsoluteDirectoryResult = typeof ProjectListAbsoluteDirectoryResult.Type;
 
-export class ProjectListAbsoluteDirectoryError extends Schema.TaggedErrorClass<ProjectListAbsoluteDirectoryError>()(
+export class ProjectListAbsoluteDirectoryError extends Schema.TaggedError<ProjectListAbsoluteDirectoryError>()(
   "ProjectListAbsoluteDirectoryError",
   {
     absolutePath: Schema.optional(TrimmedNonEmptyString),
