@@ -578,6 +578,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.titleState !== undefined ? { titleState: payload.titleState } : {}),
             ...(payload.titleProvenance !== undefined
               ? { titleProvenance: payload.titleProvenance }
               : {}),
@@ -589,6 +590,14 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            // The manual active-list reorder lands here: without it the
+            // `thread.active.reorder` command is silently a no-op.
+            ...(payload.activeOrderKey !== undefined
+              ? { activeOrderKey: payload.activeOrderKey }
+              : {}),
+            ...(payload.branchPullRequest !== undefined
+              ? { branchPullRequest: payload.branchPullRequest }
+              : {}),
             // Post-completion engagement (plan §8 item 3): fan-in tip marker.
             ...(payload.finalCommitSha !== undefined
               ? { finalCommitSha: payload.finalCommitSha }
