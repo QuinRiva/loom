@@ -341,6 +341,8 @@ const attachmentSurface = (attachment: ChatFileAttachment): RightPanelSurface =>
   id: `attachment:${attachment.id}`,
   kind: "file",
   relativePath: attachment.name,
+  // An attachment lives in the thread's store, never at a host path.
+  absolutePath: null,
   revealLine: null,
   revealRequestId: 0,
   attachment,

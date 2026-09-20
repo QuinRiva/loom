@@ -240,7 +240,6 @@ function RootRouteView() {
         {/* loom: */}
         <GoalFormDialogHost />
         <HostedStaticEnvironmentBootstrap />
-        {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
         {appShell}
         {/* Above the router: a theme draft is judged by walking the app, so the

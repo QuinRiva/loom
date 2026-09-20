@@ -344,13 +344,10 @@ export function derivePendingUserInputs(
       activity.payload && typeof activity.payload === "object"
         ? (activity.payload as Record<string, unknown>)
         : null;
-    const requestId =
-      payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.make(payload.requestId)
-        : null;
-    if (requestId === null) {
+    if (payload === null || typeof payload.requestId !== "string") {
       continue;
     }
+    const requestId = ApprovalRequestId.make(payload.requestId);
 
     if (activity.kind === "user-input.resolved") {
       resolvedRequestIds.add(requestId);

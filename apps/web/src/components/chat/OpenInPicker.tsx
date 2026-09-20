@@ -111,13 +111,11 @@ export const resolveOpenInOptions = (
       kind: "brand",
     },
     {
-      label: "Zed (remote)",
       Icon: Zed,
       value: "zed-remote",
       kind: "brand",
     },
     {
-      label: "Antigravity",
       Icon: AntigravityIcon,
       value: "antigravity",
       kind: "brand",
