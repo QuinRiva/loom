@@ -10,6 +10,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettingsError,
+  TerminalProviderEnvironmentError,
   TerminalProviderInstanceNotFoundError,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -236,6 +237,13 @@ interface CreateManagerOptions {
     readonly terminalId: string;
     readonly processIds: ReadonlyArray<number>;
   }) => Effect.Effect<void>;
+  resolveProviderInstanceEnvironment?: (
+    providerInstanceId: string,
+    env: Record<string, string> | undefined,
+  ) => Effect.Effect<
+    Record<string, string>,
+    TerminalProviderInstanceNotFoundError | TerminalProviderEnvironmentError
+  >;
 }
 
 interface ManagerFixture {
@@ -280,6 +288,9 @@ const createManager = (
         processKillGraceMs: options.processKillGraceMs ?? 1,
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
+          : {}),
+        ...(options.resolveProviderInstanceEnvironment !== undefined
+          ? { resolveProviderInstanceEnvironment: options.resolveProviderInstanceEnvironment }
           : {}),
         ...(options.registerTerminalProcesses !== undefined
           ? { registerTerminalProcesses: options.registerTerminalProcesses }

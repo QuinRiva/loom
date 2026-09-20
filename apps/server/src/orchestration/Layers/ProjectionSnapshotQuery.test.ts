@@ -50,6 +50,15 @@ const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
+const encodeChatAttachments = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Array(ChatAttachment)),
+);
+const encodeThreadLinkedPullRequest = Schema.encodeSync(
+  Schema.fromJsonString(ThreadLinkedPullRequest),
+);
+const encodeMessageContext = Schema.encodeEffect(
+  Schema.fromJsonString(OrchestrationMessageContext),
+);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
 const asGoalId = (value: string): GoalId => GoalId.make(value);
 
