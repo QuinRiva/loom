@@ -277,18 +277,27 @@ const make = Effect.gen(function* () {
       ? baselineCheckpointRef
       : checkpointRefForThreadTurn(input.threadId, fromTurnCount);
 
-    if (!baselineExists) {
-      const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
-        cwd: input.cwd,
-        checkpointRef: fromCheckpointRef,
+    // Hoisted to function scope: the diff below needs it too, so a ref lookup
+    // failure must degrade to "no baseline" rather than fail the capture.
+    const fromCheckpointExists = baselineExists
+      ? true
+      : yield* checkpointStore
+          .hasCheckpointRef({ cwd: input.cwd, checkpointRef: fromCheckpointRef })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("checkpoint capture previous ref lookup failed", {
+                threadId: input.threadId,
+                checkpointRef: fromCheckpointRef,
+                category: error._tag,
+              }).pipe(Effect.as(false)),
+            ),
+          );
+    if (!fromCheckpointExists) {
+      yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
+        threadId: input.threadId,
+        turnId: input.turnId,
+        fromTurnCount,
       });
-      if (!fromCheckpointExists) {
-        yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
-          threadId: input.threadId,
-          turnId: input.turnId,
-          fromTurnCount,
-        });
-      }
     }
 
     yield* checkpointStore.captureCheckpoint({
@@ -645,6 +654,22 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Refreshing git status ends in a remote PR lookup under the vcs status
+  // write lock. Run it on its own worker so file capture for this turn (and
+  // checkpoints for other threads) never wait behind that network call.
+  const statusRefreshWorker = yield* makeDrainableWorker(
+    (event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>) =>
+      refreshLocalGitStatusFromTurnCompletion(event).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("failed to refresh git status after turn completion", {
+                threadId: event.threadId,
+              }),
+        ),
+      ),
+  );
+
   // Retry a missing PR after the agent finishes its push and PR creation.
   // Re-read the projected branch after drift adoption. A rejected metadata
   // update must not let this thread refresh another thread's checkout.
@@ -833,10 +858,13 @@ const make = Effect.gen(function* () {
 
     // Refuse to revert while any other live thread occupies this worktree —
     // restoring a whole-tree snapshot (plus clean) would destroy their
-    // uncommitted work. Cheap read-model check; no locking.
+    // uncommitted work. Cheap read-model check; no locking. Keyed off the
+    // checkpoint cwd upstream now resolves (session runtime preferred, thread
+    // worktree as fallback) rather than the session runtime alone.
     const shellSnapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
-    const revertCwd = NodePath.resolve(sessionRuntime.value.cwd);
+    const revertCwd = checkpointCwd === undefined ? undefined : NodePath.resolve(checkpointCwd);
     const occupants = shellSnapshot.threads.filter((occupant) => {
+      if (revertCwd === undefined) return false;
       if (
         occupant.id === event.payload.threadId ||
         occupant.planLane === "done" ||

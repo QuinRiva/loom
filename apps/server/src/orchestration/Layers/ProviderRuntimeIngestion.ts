@@ -13,6 +13,7 @@ import {
   type ThreadTokenUsageSnapshot,
   TurnId,
   type OrchestrationCheckpointSummary,
+  type OrchestrationThread,
   type OrchestrationThreadActivity,
   type ProjectId,
   type ProviderRequestKind,
@@ -1337,6 +1338,12 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (threadId: ThreadId) {
+    return yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId)
+      .pipe(Effect.map(Option.getOrUndefined));
+  });
+
   const resolveThreadRuntimeContext = Effect.fn("resolveThreadRuntimeContext")(function* (
     threadId: ThreadId,
   ) {
@@ -1801,17 +1808,16 @@ const make = Effect.gen(function* () {
         return false;
       }
 
-      const isReasoning = messageStreamRoleOf(input.messageId) === "reasoning";
+      // loom: reasoning never takes the durable delta path — it rides the
+      // ReasoningStreamBus and is persisted once by finalizeReasoningForMessage.
       yield* orchestrationEngine.dispatch({
-        type: isReasoning ? "thread.message.reasoning.delta" : "thread.message.assistant.delta",
+        type: "thread.message.assistant.delta",
         commandId: yield* providerCommandId(input.event, input.commandTag),
         threadId: input.threadId,
         messageId: input.messageId,
         delta: bufferedText,
         ...(input.turnId ? { turnId: input.turnId } : {}),
-        createdAt: isReasoning
-          ? yield* reasoningStartedAt(input.messageId, input.createdAt)
-          : input.createdAt,
+        createdAt: input.createdAt,
       });
       return true;
     });
@@ -1870,27 +1876,21 @@ const make = Effect.gen(function* () {
             : "";
       const hasRenderableText = hasRenderableAssistantText(text);
 
-      const isReasoning = messageStreamRoleOf(input.messageId) === "reasoning";
-
       if (hasRenderableText) {
         yield* orchestrationEngine.dispatch({
-          type: isReasoning ? "thread.message.reasoning.delta" : "thread.message.assistant.delta",
+          type: "thread.message.assistant.delta",
           commandId: yield* providerCommandId(input.event, input.finalDeltaCommandTag),
           threadId: input.threadId,
           messageId: input.messageId,
           delta: text,
           ...(input.turnId ? { turnId: input.turnId } : {}),
-          createdAt: isReasoning
-            ? yield* reasoningStartedAt(input.messageId, input.createdAt)
-            : input.createdAt,
+          createdAt: input.createdAt,
         });
       }
 
       if (input.hasProjectedMessage || hasRenderableText) {
         yield* orchestrationEngine.dispatch({
-          type: isReasoning
-            ? "thread.message.reasoning.complete"
-            : "thread.message.assistant.complete",
+          type: "thread.message.assistant.complete",
           commandId: yield* providerCommandId(input.event, input.commandTag),
           threadId: input.threadId,
           messageId: input.messageId,
@@ -2431,98 +2431,13 @@ const make = Effect.gen(function* () {
         event.type === "content.delta" && event.payload.streamKind === "assistant_text"
           ? event.payload.delta
           : undefined;
-      const reasoningDelta =
-        event.type === "content.delta" &&
-        (event.payload.streamKind === "reasoning_text" ||
-          event.payload.streamKind === "reasoning_summary_text")
-          ? {
-              streamKind: event.payload.streamKind,
-              delta: event.payload.delta,
-              summaryIndex: event.payload.summaryIndex,
-              contentIndex: event.payload.contentIndex,
-            }
-          : undefined;
       const proposedPlanDelta =
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
-
-      const reasoningTurnId = toTurnId(event.turnId);
-      // Every close path for a thinking block is keyed by turn. Without one the
-      // block could never be completed, and a row stuck mid-thought is worse
-      // than no row at all.
-      if (reasoningDelta && reasoningDelta.delta.length > 0 && reasoningTurnId) {
-        const turnId = reasoningTurnId;
-        const reasoningMessageId = yield* getOrCreateReasoningMessageId({
-          threadId: thread.id,
-          event,
-          baseKey: reasoningSegmentBaseKeyFromEvent(event, reasoningDelta.streamKind),
-          createdAt: now,
-          turnId,
-        });
-        yield* rememberAssistantMessageId(thread.id, turnId, reasoningMessageId);
-
-        if (
-          Option.getOrElse(
-            yield* Cache.getOption(reasoningStartedAtByMessageId, reasoningMessageId),
-            () => "",
-          ) === ""
-        ) {
-          yield* Cache.set(reasoningStartedAtByMessageId, reasoningMessageId, now);
-        }
-
-        let delta = reasoningDelta.delta;
-        const partIndex = reasoningDelta.summaryIndex ?? reasoningDelta.contentIndex;
-        if (partIndex !== undefined) {
-          const lastIndex = Option.getOrElse(
-            yield* Cache.getOption(reasoningPartIndexByMessageId, reasoningMessageId),
-            () => -1,
-          );
-          if (lastIndex >= 0 && lastIndex !== partIndex) {
-            delta = `\n\n${delta}`;
-          }
-          yield* Cache.set(reasoningPartIndexByMessageId, reasoningMessageId, partIndex);
-        }
-
-        // Reasoning is never delivered token by token, even when the project
-        // asks for it: the block is collapsed by default, so a command, an
-        // event-store write and a fan-out per token would buy nothing. Traces
-        // are longer than the answers they precede.
-        const streamingMode = yield* resolveResponseStreamingMode(thread.projectId);
-        const reasoningMode = streamingMode === "token" ? "paragraph" : streamingMode;
-        const spillChunk = yield* appendBufferedAssistantText(
-          reasoningMessageId,
-          delta,
-          reasoningMode,
-          yield* Clock.currentTimeMillis,
-        );
-        if (spillChunk.length > 0) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.message.reasoning.delta",
-            commandId: yield* providerCommandId(event, "reasoning-delta-buffer-spill"),
-            threadId: thread.id,
-            messageId: reasoningMessageId,
-            delta: spillChunk,
-            turnId,
-            createdAt: yield* reasoningStartedAt(reasoningMessageId, now),
-          });
-        }
-      }
 
       if (assistantDelta && assistantDelta.length > 0) {
         const turnId = toTurnId(event.turnId);
         // Visible text ends the thinking block that preceded it, so the next
         // block does not swallow this answer.
-        if (turnId) {
-          yield* finalizeActiveSegmentForTurn({
-            event,
-            threadId: thread.id,
-            turnId,
-            createdAt: now,
-            commandTag: "reasoning-complete-on-assistant-text",
-            finalDeltaCommandTag: "reasoning-delta-finalize-on-assistant-text",
-            hasProjectedMessage: false,
-            role: "reasoning",
-          });
-        }
         const assistantMessageId = yield* getOrCreateAssistantMessageId({
           threadId: thread.id,
           event,
@@ -2641,17 +2556,6 @@ const make = Effect.gen(function* () {
           threadId: thread.id,
           turnId: pauseForUserTurnId,
           createdAt: now,
-          commandTag: "reasoning-complete-on-pause",
-          finalDeltaCommandTag: "reasoning-delta-finalize-on-pause",
-          hasProjectedMessage: false,
-          role: "reasoning",
-          flushedMessageIds,
-        });
-        yield* finalizeActiveSegmentForTurn({
-          event,
-          threadId: thread.id,
-          turnId: pauseForUserTurnId,
-          createdAt: now,
           commandTag:
             event.type === "request.opened"
               ? "assistant-complete-on-request-opened"
@@ -2668,99 +2572,6 @@ const make = Effect.gen(function* () {
       if (proposedPlanDelta && proposedPlanDelta.length > 0) {
         const planId = proposedPlanIdFromEvent(event, thread.id);
         yield* appendBufferedProposedPlan(planId, proposedPlanDelta, now);
-      }
-
-      // Tool work ends the thinking block that led to it. Without this a
-      // provider that reuses one reasoning stream across a turn (Claude has no
-      // per-block id) would append post-tool thinking to a block that already
-      // sits above the tool row.
-      if (event.type === "item.started" && isToolLifecycleItemType(event.payload.itemType)) {
-        const toolTurnId = toTurnId(event.turnId);
-        if (toolTurnId) {
-          yield* finalizeActiveSegmentForTurn({
-            event,
-            threadId: thread.id,
-            turnId: toolTurnId,
-            createdAt: now,
-            commandTag: "reasoning-complete-on-tool-start",
-            finalDeltaCommandTag: "reasoning-delta-finalize-on-tool-start",
-            hasProjectedMessage: false,
-            role: "reasoning",
-          });
-        }
-      }
-
-      if (event.type === "item.completed" && event.payload.itemType === "reasoning") {
-        const turnId = toTurnId(event.turnId);
-        if (turnId) {
-          const activeReasoningMessageId = yield* getActiveAssistantMessageIdForTurn(
-            thread.id,
-            turnId,
-            "reasoning",
-          );
-          // The item detail is a whole-block snapshot, so it may only stand in
-          // for deltas that never arrived. Appending it to a streamed block
-          // would print the reasoning twice.
-          const existingReasoningMessage = Option.isSome(activeReasoningMessageId)
-            ? yield* getThreadMessageById(thread.id, activeReasoningMessageId.value)
-            : undefined;
-          const fallbackText =
-            event.payload.detail !== undefined &&
-            event.payload.detail.trim().length > 0 &&
-            (existingReasoningMessage === undefined || existingReasoningMessage.text.length === 0)
-              ? event.payload.detail
-              : undefined;
-
-          if (Option.isNone(activeReasoningMessageId)) {
-            // Segment state outlives a closed block, so its presence means this
-            // turn already streamed a trace and the snapshot would duplicate it.
-            const turnAlreadyStreamedReasoning = Option.isSome(
-              yield* getAssistantSegmentStateForTurn(thread.id, turnId, "reasoning"),
-            );
-            // A provider can report a whole block at once without streaming it.
-            // The id is derived from the item rather than the segment counter so
-            // a repeated completion rewrites that row instead of adding a copy.
-            if (fallbackText !== undefined && !turnAlreadyStreamedReasoning) {
-              const snapshotMessageId = assistantSegmentMessageId(
-                `snapshot:${event.itemId ?? event.eventId}`,
-                0,
-                "reasoning",
-              );
-              const existingSnapshot = yield* getThreadMessageById(thread.id, snapshotMessageId);
-              if (existingSnapshot === undefined) {
-                yield* orchestrationEngine.dispatch({
-                  type: "thread.message.reasoning.delta",
-                  commandId: yield* providerCommandId(event, "reasoning-delta-snapshot"),
-                  threadId: thread.id,
-                  messageId: snapshotMessageId,
-                  delta: fallbackText,
-                  turnId,
-                  createdAt: now,
-                });
-                yield* orchestrationEngine.dispatch({
-                  type: "thread.message.reasoning.complete",
-                  commandId: yield* providerCommandId(event, "reasoning-complete-snapshot"),
-                  threadId: thread.id,
-                  messageId: snapshotMessageId,
-                  turnId,
-                  createdAt: now,
-                });
-              }
-            }
-          } else {
-            yield* finalizeActiveSegmentForTurn({
-              event,
-              threadId: thread.id,
-              turnId,
-              createdAt: now,
-              commandTag: "reasoning-complete",
-              finalDeltaCommandTag: "reasoning-delta-finalize",
-              hasProjectedMessage: existingReasoningMessage !== undefined,
-              role: "reasoning",
-              ...(fallbackText !== undefined ? { fallbackText } : {}),
-            });
-          }
-        }
       }
 
       const assistantCompletion =
@@ -2783,18 +2594,6 @@ const make = Effect.gen(function* () {
 
       if (assistantCompletion) {
         const turnId = toTurnId(event.turnId);
-        if (turnId) {
-          yield* finalizeActiveSegmentForTurn({
-            event,
-            threadId: thread.id,
-            turnId,
-            createdAt: now,
-            commandTag: "reasoning-complete-on-assistant-completion",
-            finalDeltaCommandTag: "reasoning-delta-finalize-on-assistant-completion",
-            hasProjectedMessage: false,
-            role: "reasoning",
-          });
-        }
         const activeAssistantMessageId = turnId
           ? yield* getActiveAssistantMessageIdForTurn(thread.id, turnId)
           : Option.none<MessageId>();

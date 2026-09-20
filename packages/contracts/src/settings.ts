@@ -1101,11 +1101,12 @@ export const ServerSettings = Schema.Struct({
       Effect.succeed(Schema.decodeUnknownSync(StorageCleanupSettings)({})),
     ),
   ),
-  // Legacy token-by-token assistant output. Deliberately a fresh key (was
-  // `enableLegacyTokenStreaming`): decoding drops the old key, so everyone,
-  // including prior opt-ins, resets to the buffered default.
-  enableLegacyTokenStreaming: Schema.Boolean.pipe(
-    Schema.withDecodingDefault(Effect.succeed(false)),
+  // How assistant text reaches clients during a turn. Deliberately a fresh
+  // key (was `enableLegacyTokenStreaming`, before that
+  // `enableAssistantStreaming`): decoding drops the old key, so everyone,
+  // including prior token-streaming opt-ins, resets to the paragraph default.
+  responseStreamingMode: ResponseStreamingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Retain the update-era key; recovery now needs an environment-owned opt-in.

@@ -1304,27 +1304,9 @@ const make = Effect.gen(function* () {
     if (sharesWorktree) return;
     const targetBranch = buildGeneratedWorktreeBranchName(input.title);
     if (targetBranch === oldBranch) return;
+    // loom: the branch name is derived from the title we already generated — one
+    // model call for both, not upstream's separate generateBranchName round trip.
     yield* Effect.gen(function* () {
-      const settings = yield* projectSettingsForThread(input.threadId);
-      const modelSelection =
-        settings.sourceControlWriterModelSelection === null
-          ? settings.textGenerationModelSelection
-          : resolveSourceControlWriterModelSelection(
-              settings,
-              yield* providerRegistry.getProviders,
-            );
-
-      const generated = yield* textGeneration.generateBranchName({
-        cwd,
-        message: input.messageText,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection,
-      });
-      if (!generated) return;
-
-      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
-      if (targetBranch === oldBranch) return;
-
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
