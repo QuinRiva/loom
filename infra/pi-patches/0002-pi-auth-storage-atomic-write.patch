@@ -1,0 +1,66 @@
+--- a/dist/core/auth-storage.js
++++ b/dist/core/auth-storage.js
+@@ -2,7 +2,7 @@
+  * CredentialStore implementation backed by auth.json.
+  * Provider auth orchestration belongs to ModelRuntime and pi-ai Models.
+  */
+-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
++import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, } from "fs";
+ import { dirname, join } from "path";
+ import lockfile from "proper-lockfile";
+ import { setTimeout as sleep } from "timers/promises";
+@@ -30,6 +30,36 @@
+             writeFileSync(this.authPath, "{}", AUTH_FILE_WRITE_OPTIONS);
+         }
+     }
++    /**
++     * LOOM PATCH: atomic replace — write a sibling temp file, then rename() over
++     * the target. rename() is atomic on POSIX, so a concurrent reader sees either
++     * the complete old file or the complete new one, never the truncated state a
++     * plain writeFileSync (O_TRUNC, then stream) exposes. parseStorageData("")
++     * returns {} with no error, so that window is indistinguishable from "no
++     * credentials" for every lock-free reader (readStoredCredential,
++     * ReadOnlyAuthStorage) and is what makes a pi process boot without its
++     * auth-gated models. The temp file carries the target's mode so an
++     * administrator-managed mode survives the replace, and a crash between write
++     * and rename leaves the original intact.
++     */
++    writeFileAtomic(next) {
++        const tmp = `${this.authPath}.tmp-${process.pid}-${Date.now()}`;
++        try {
++            writeFileSync(tmp, next, AUTH_FILE_WRITE_OPTIONS);
++            chmodSync(tmp, existsSync(this.authPath) ? statSync(this.authPath).mode & 0o777 : 0o600);
++            renameSync(tmp, this.authPath);
++        }
++        catch (error) {
++            try {
++                if (existsSync(tmp))
++                    unlinkSync(tmp);
++            }
++            catch {
++                // Best-effort cleanup; the original file is still intact.
++            }
++            throw error;
++        }
++    }
+     acquireLockSyncWithRetry(path) {
+         const maxAttempts = 10;
+         const delayMs = 20;
+@@ -63,7 +93,7 @@
+             const current = existsSync(this.authPath) ? readFileSync(this.authPath, "utf-8") : undefined;
+             const { result, next } = fn(current);
+             if (next !== undefined) {
+-                writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
++                this.writeFileAtomic(next); // LOOM PATCH
+             }
+             return result;
+         }
+@@ -137,7 +167,7 @@
+             throwIfCompromised();
+             options?.signal?.throwIfAborted();
+             if (next !== undefined) {
+-                writeFileSync(this.authPath, next, AUTH_FILE_WRITE_OPTIONS);
++                this.writeFileAtomic(next); // LOOM PATCH
+             }
+             throwIfCompromised();
+             return result;

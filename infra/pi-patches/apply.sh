@@ -3,6 +3,11 @@
 # dist. pi ships compiled JS, so patches are applied to dist/ directly and must be
 # re-applied after every `pi update` / npm reinstall.
 #
+# Since pi 0.84 `bin.pi` is the pre-bundled dist/bundle/cli.js, so the readable
+# dist/ patches below are not enough on their own: patch-bundle.mjs applies the
+# same two changes to the bundle. `--revert` only reverts the readable dist;
+# reinstall the package to undo the bundle.
+#
 # Usage:
 #   infra/pi-patches/apply.sh [--check] [--revert] [--pi-root <dir>]
 #
@@ -30,8 +35,12 @@ if [[ -z "$PI_ROOT" ]]; then
     echo "pi not found on PATH; pass --pi-root <package dir>" >&2
     exit 1
   fi
-  # <root>/dist/cli.js -> <root>
-  PI_ROOT="$(cd "$(dirname "$(readlink -f "$pi_bin")")/.." && pwd)"
+  # <root>/dist/cli.js (pi < 0.84) or <root>/dist/bundle/cli.js (0.84+) -> <root>:
+  # walk up from the entry point to the package it belongs to.
+  PI_ROOT="$(cd "$(dirname "$(readlink -f "$pi_bin")")" && pwd)"
+  while [[ ! -f "$PI_ROOT/package.json" && "$PI_ROOT" != / ]]; do
+    PI_ROOT="$(dirname "$PI_ROOT")"
+  done
 fi
 
 if [[ ! -d "$PI_ROOT/dist" ]]; then
@@ -78,5 +87,11 @@ for patch in "$PATCH_DIR"/*.patch; do
       ;;
   esac
 done
+
+if [[ -d "$PI_ROOT/dist/bundle" && "$MODE" != revert ]]; then
+  bundle_args=("$PI_ROOT")
+  [[ "$MODE" == check ]] && bundle_args+=(--check)
+  node "$PATCH_DIR/patch-bundle.mjs" "${bundle_args[@]}" || status=1
+fi
 
 exit $status

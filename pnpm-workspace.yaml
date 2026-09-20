@@ -81,6 +81,12 @@ minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.65
   - effect@4.0.0-beta.103
   - "@legendapp/list@3.3.5"
+  - "@earendil-works/chord@0.86.0"
+  - "@earendil-works/pi-agent-core@0.86.0"
+  - "@earendil-works/pi-ai@0.86.0"
+  - "@earendil-works/pi-coding-agent@0.86.0"
+  - "@earendil-works/pi-telemetry@0.86.0"
+  - "@earendil-works/pi-tui@0.86.0"
 
 overrides:
   "@clerk/backend": "catalog:"
@@ -104,6 +110,12 @@ overrides:
   "@effect/sql-sqlite-bun": "catalog:"
   "@effect/vitest": "catalog:"
   "@effect/vitest>vitest": "-"
+  # esbuild is a peer of vite-plus-core, so every extra candidate in the graph
+  # splits it into another instance — and two `Plugin` types, which fails
+  # apps/web's vite.config.ts typecheck. pi 0.86 brought @earendil-works/chord,
+  # which pins esbuild at exactly 0.28.2; astro (the only other ^0.28 consumer)
+  # is pulled up to match so one instance serves both.
+  "astro>esbuild": 0.28.2
   "@expo/metro-config": 56.0.14
   "@pierre/diffs>@shikijs/transformers": ^4.2.0
   "@types/node": "catalog:"
@@ -130,7 +142,7 @@ packageExtensions:
 
 patchedDependencies:
   "@clerk/expo@4.2.0": patches/@clerk__expo@4.2.0.patch
-  "@earendil-works/pi-coding-agent@0.83.0": patches/@earendil-works__pi-coding-agent@0.83.0.patch
+  "@earendil-works/pi-coding-agent@0.86.0": patches/@earendil-works__pi-coding-agent@0.86.0.patch
   "@effect/vitest@4.0.0-beta.103": patches/@effect__vitest@4.0.0-beta.103.patch
   "@expo/metro-config@56.0.14": patches/@expo%2Fmetro-config@56.0.14.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch
