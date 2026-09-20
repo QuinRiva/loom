@@ -64,13 +64,51 @@ const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 
-const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5", "claude-opus-5", "claude-sonnet-5"]);
+const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5"]);
 
 export function isLegacyClaudeModel(model: string): boolean {
   return !CURRENT_CLAUDE_MODELS.has(model);
 }
 
 const CLAUDE_MODEL_CATALOG: ReadonlyArray<ServerProviderModel> = [
+  {
+    // Not version-gated: the Claude Code release that first serves Fable 5.1 is
+    // unknown, and (like claude-sonnet-5) offering it everywhere is better than
+    // hiding it from a CLI that can run it.
+    slug: "claude-fable-5-1",
+    name: "Claude Fable 5.1",
+    isCustom: false,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        buildSelectOptionDescriptor({
+          id: "effort",
+          label: "Reasoning",
+          options: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High", isDefault: true },
+            { value: "xhigh", label: "Extra High" },
+            { value: "max", label: "Max" },
+            {
+              value: "ultracode",
+              label: "Ultracode",
+              description: "xhigh effort plus multi-agent workflow orchestration",
+            },
+            { value: "ultrathink", label: "Ultrathink" },
+          ],
+          promptInjectedValues: ["ultrathink"],
+        }),
+        buildSelectOptionDescriptor({
+          id: "contextWindow",
+          label: "Context Window",
+          options: [
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
+          ],
+        }),
+      ],
+    }),
+  },
   {
     slug: "claude-fable-5",
     name: "Claude Fable 5",
@@ -438,6 +476,7 @@ export function normalizeClaudeCliEffort(
   }
   if (
     effort === "xhigh" &&
+    model !== "claude-fable-5-1" &&
     model !== "claude-fable-5" &&
     model !== "claude-opus-5" &&
     model !== "claude-opus-4-8" &&
