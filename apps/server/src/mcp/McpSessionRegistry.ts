@@ -128,7 +128,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        capabilities: new Set(["preview"]),
+        // Fork invariant: `workstream` gates every workstream/goal/task HTTP
+        // handler (httpScope.ts). Upstream issues `preview` only — an upstream
+        // pull that resolves this line to upstream's side silently 401s the
+        // whole orchestration toolkit (lost once in cadence pull 6).
+        capabilities: new Set(["preview", "workstream"]),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
