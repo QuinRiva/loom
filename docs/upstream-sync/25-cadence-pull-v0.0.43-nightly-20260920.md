@@ -1178,3 +1178,153 @@ on multi-line `new Set([...])` initialisers; eyeball what it appends.
 3. `apps/mobile` 63 → 0 (per session 4).
 4. Then the untouched gates: build, `vp check`, the composition audit, the
    migration smoke, PR #191's transfer budget, and the targeted test run.
+
+---
+
+## Session 7 — `apps/web` 117 → **0**; `apps/server` 176 → 26
+
+19 commits (`592cb380a8` … `6025e1660a`), tree clean, **nothing pushed**, every
+commit `--no-verify`, no rebase, `116eff1261^2` = `c14f6015bf` re-verified after
+each. `vp i` first.
+
+`vp run typecheck` now reports **13 of 15 packages green**; only `apps/server`
+(26) and `apps/mobile` (63, untouched) remain. Per-file inventory refreshed in
+`docs/upstream-sync/25-remaining-typecheck-errors.txt`.
+
+### Five loom features the merge had silently broken (not "test drift")
+
+Each of these compiled only because the *caller* had been deleted along with the
+declaration, or degraded silently. They are the real value of this session.
+
+1. **The provider "show only selected models" curation surface.** Loom's
+   `selectedModels` / `showOnlySelectedModels` allow-list is persisted in
+   `packages/contracts/src/settings.loom.ts`, written by
+   `ProviderSettingsPanel`'s `updateProviderModelPreferences`, and *read* by
+   `modelSelection.ts` and the model picker — but the merge took upstream's
+   settings render, which has no toggle and no bulk select. A user who had ever
+   enabled it could not see the setting, edit the list, or turn it off: a
+   one-way door. Restored the toggle and the bulk Select/Deselect buttons on
+   upstream's list model, threaded the four props through
+   `ProviderInstanceCard` → `ProviderSettingsPanel`, and introduced
+   `pickerHiddenSet` so the row switches, group headings and counts describe
+   whichever curation mode is active instead of always describing upstream's
+   deny-list.
+2. **Terminal-context composer chips.** `lib/terminalContext.ts` still writes
+   `\uFFFC` placeholders and the Lexical editor still renders
+   `ComposerTerminalContextNode`, but the merge took upstream's one-argument
+   `splitPromptIntoComposerSegments`, which has no `terminal-context` variant.
+   Chips would have rendered as invisible placeholder codepoints. Restored the
+   variant and the two-argument signature, and taught `composer-logic.ts`'s two
+   cursor mappings and `composer-list-continuation.ts` to count a chip as one
+   codepoint in both coordinate spaces.
+3. **`moveComposerPromptAndImages`.** Deleted from `composerDraftStore`, its
+   only caller (`useHandleNewThread`, the draft-changes-project path) survived.
+   Rewritten against HEAD's draft shape (`files`, `ensureInlineContextReferences`)
+   rather than restored verbatim.
+4. **The Sidebar's quantised settle clock.** `const now = nowMinute…` was
+   dropped while `nowMinute` stayed in the memo's dependency list, and the row's
+   `autoSettleOnMerge` prop was dropped while its consumer stayed. Restored both
+   (prop-drilled deliberately — one subscription in the list, not one per row).
+5. **`setProjectDraftThreadId` had lost `environmentSelection` and
+   `loadBalancedEnvironmentId`** from its options type while still forwarding
+   them to `setLogicalProjectDraftThreadId`.
+
+Also repaired: two stray `export` keywords inside function bodies
+(`contextWindow.ts`, `providerInstances.ts` — mechanical-resolution damage that
+`rg '^\s+export (const|function|let) '` finds repo-wide); a **duplicated
+`EventRouter` mount** (loom's unguarded one survived beside upstream's
+inside `FirstRunGate`, whose comment explicitly requires it to be gated); a
+duplicated `NoProjectsHero` (the shared component gained a `header` slot so the
+index route keeps loom's thread-tabs strip without a 30-line copy).
+
+### A dependency-resolution bug the merge introduced
+
+`@types/hast` resolved to **two versions at once**. Upstream never sees this —
+its `apps/web` has no MDX chain — but loom's `@mdx-js/mdx` / `remark-mdx` pull
+`3.0.5` in beside the `3.0.4` that `hast-util-to-html` / `-to-jsx-runtime`
+resolve, and `@types/hast` is a structurally module-augmented type, so two
+copies mean two incompatible `Element`s. Upstream's `HighlightedCodeLines.tsx`
+(byte-identical here) could not compile. Fixed with a one-line
+`"@types/hast": 3.0.5` override in `pnpm-workspace.yaml`, in the same spirit as
+loom's existing `astro>esbuild` pin, and **verified by reverting it** (79 errors
+with, 69 without → the override is load-bearing, not cargo-culted).
+
+> **Trap for the next session:** `apps/web` and `apps/server` are
+> `composite: true`, and a stale `tsconfig.tsbuildinfo` makes `tsc` re-report
+> cached errors against paths that no longer exist. Delete it before trusting a
+> count; this cost real time above.
+
+### One deliberate, documented divergence from the migration doctrine
+
+`apps/server/src/persistence/Migrations.ts` is **no longer byte-identical** to
+upstream: `migrationEntries` is `export`ed (plus a two-line comment saying why).
+Doc 22 §3.2 asks for byte-identity, and the merge had correctly reverted loom's
+divergence — but `LoomMigrations.test.ts`, the guard that proves the two-lane
+split is schema-equivalent to the pre-split single ledger, replays the
+*historical interleaved order* and therefore needs upstream's migration
+**bodies**. `migrationManifest` exposes only `[id, name]`, and
+`runMigrations({ toMigrationInclusive })` cannot express
+"upstream 1–32, then fork 1001–1032 renumbered to 33–64, then upstream 33/34 as
+65/66". Loom's parent `5c350f7a63` already carried exactly this one-word
+divergence, so this is a *restored* fork state, not a new one. The practical
+conflict surface stays nil: upstream appends *inside* the array, never on the
+declaration line. **Flagged for the reviewer** — if byte-identity is to be
+absolute, the alternative is to move the equivalence guard's fixture into
+`LoomMigrations.ts` and accept duplicating 34 migration bodies.
+
+### Two test files/cases deleted rather than faked green
+
+- `apps/web/src/components/ChatMarkdown.workspace-images.test.tsx` — tests
+  upstream's asset-URL workspace-image pipeline (`ChatMarkdownAssetImage`,
+  signed URLs, aspect-ratio reservation). Loom's merged `ChatMarkdown` has **no
+  image handling at all** (`grep` for `img`/`assetUrls`/`aspect-ratio` finds
+  nothing), so the whole file targets an unadopted component. It belongs with
+  the deferred ChatMarkdown re-home (task `c75b1bb5`) and should come back with
+  it.
+- Two `composer-logic.test.ts` cases calling `carryDisplacedCustomAnswerIntoPrompt`
+  from the deleted web-local `pendingUserInput.ts`. Loom replaced that module
+  with the shared `@t3tools/shared/userInputAnswers`, which has no equivalent
+  (loom's PendingQuestionCard does not displace custom answers into the prompt).
+
+### Two upstream capabilities accepted as degraded (both tracked)
+
+- `ThreadRouteView` no longer passes upstream's `threadSyncPhase` to `ChatView`:
+  loom's kept `ChatView` has no consumer for it and wiring one is chat-surface
+  work (wave 2). Same class as the ChatMarkdown decision the orchestrator made.
+- Upstream's "Previous question" navigation in `ComposerPrimaryActions` (its
+  `pendingAction` prop) does not exist on loom's kept component; the dangling
+  `onPreviousPendingQuestion` destructure was removed. Covered by the standing
+  session-2 decision that the chat cluster comes from loom's parent.
+
+### Two structural test-suite improvements worth keeping
+
+- **`apps/server/src/orchestration/deciderTestThread.ts`** (new): one shared
+  `loomThreadFixtureDefaults` / `loomThreadShellFixtureDefaults` block for the
+  ~27 fork workstream fields every thread fixture needs. Twelve test files
+  previously pasted that block by hand, which is precisely why one upstream
+  field (`goals`, `defaultStartFromOrigin`, `pullRequests`) broke a dozen files
+  at once. Future pulls now touch one file.
+- **`Layer.mock(Tag)({partial})` instead of `Effect.provideService(Tag, {whole})`**
+  for service doubles (applied across the `serverRuntimeStartup` suites).
+  `Layer.mock` fills unimplemented members with defects, so a member upstream
+  adds next pull no longer breaks every double that never calls it.
+- `ThreadDeletionReactor.test.ts` adopted upstream's `drainThrough(sequence)`
+  fence, which let the poll-until-count loop (and its apologetic comment) go —
+  in line with AGENTS.md's "wait on receipts, never on sleeps or polling".
+
+### Open question for the human
+
+`Migrations.ts` byte-identity vs the two-lane equivalence guard (above). The
+session-6 open items (two `sidebarAutoSettle*` settings; the 46 deleted
+loom-only web files) are unchanged and still want a decision.
+
+### Brief items: done / not done
+
+- **Item 1 (`apps/web` 117 → 0) — DONE.**
+- **Item 2 (`apps/server` 176 → 0) — PARTIAL: 176 → 26.** All remaining are in
+  test/integration files; the recurring classes are solved and documented, the
+  26 are a genuine long tail of one-offs.
+- **Item 3 (`apps/mobile` 63 → 0) — NOT STARTED.**
+- **Items 4–10 — NOT STARTED:** the green-typecheck commit, the structural
+  composition audit, `pnpm build` + `vp check`, PR #191's transfer budget, the
+  migration smoke on a DB copy, and the targeted test run.

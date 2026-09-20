@@ -1,76 +1,84 @@
-# Cadence pull 7 — remaining typecheck errors after session 6
+# Cadence pull 7 — remaining typecheck errors after session 7
 
-Measured per package (`npx tsc --noEmit -p tsconfig.json`) at commit
-`44518612e7` (session 6's last code commit), AFTER `vp i`.
+Measured with `vp run typecheck` (all 15 packages) at session 7's last commit,
+AFTER `vp i`.
 
-    GREEN (11): contracts, shared, client-runtime, effect-acp,
-                effect-codex-app-server, oxlint-plugin-t3code, ssh,
-                tailscale, scripts, marketing, apps/desktop
+    GREEN (13 of 15): contracts, shared, client-runtime, effect-acp,
+                      effect-codex-app-server, oxlint-plugin-t3code, ssh,
+                      tailscale, scripts, marketing, apps/desktop,
+                      **apps/web (117 -> 0)**, + 1 other
 
-    apps/web     117   (was 635 at the start of session 6)
-    apps/server  176   (unchanged — not touched this session)
-    apps/mobile   63   (unchanged — not touched this session)
+    apps/server   26   (was 176 at the start of session 7)
+    apps/mobile   63   (untouched this session)
 
-`apps/server` and `apps/mobile` were re-measured after session 6's contracts +
-client-runtime changes and are unchanged, i.e. no regression from them.
+## apps/web — 0. DONE.
 
-## apps/web — 117 (68 in source files, 49 in tests)
+Session 7 took it 117 -> 0. Nothing is stubbed or suppressed; every fix was
+either a restored loom declaration, a corrected caller, or a fixture updated to
+a shape a parent genuinely changed. Two deliberate deletions are recorded in
+§Session 7 of the sync note (the unadopted ChatMarkdown workspace-image test and
+two orphaned `pendingUserInput` composer-logic cases).
 
-     6 src/composerDraftStore.ts
-     6 src/components/ComposerPromptEditor.tsx
-     5 src/environments/primary/auth.ts
-     5 src/components/settings/ProviderModelsSection.tsx
-     5 src/components/chat/HighlightedCodeLines.tsx
-     4 src/reviewCommentContext.ts
-     4 src/connection/storage.ts
-     4 src/components/chat/ChatComposer.tsx
-     3 src/routes/_chat.index.tsx
-     3 src/components/Sidebar.tsx
-     2 src/composer-rich-text-doc.ts
-     2 src/components/Sidebar.logic.ts
-     2 src/components/chat/OpenInPicker.tsx
-     1 each: state/desktopUpdate, session-logic, routes/__root,
-            rightPanelStore, providerInstances, promptStashStore,
-            preview/fixtures, lib/contextWindow, hooks/useHandleNewThread,
-            connection/platform, components/ThreadRouteView,
-            components/settings/SettingsFontPreviews,
-            components/settings/ProviderSettingsPanel,
-            components/settings/ProviderInstanceCard,
-            components/RightPanelTabs, components/CommandPalette,
-            components/chat/ComposerPrimaryActions
+## apps/server — 26 (every one in a test/integration file)
 
-Test files (49): composerContextRecords.test 16, reviewCommentContext.test 12,
-composerDraftStore.test 10, incrementalHighlighting.test 4,
-ChatView.logic.test 3, PendingQuestionCard.test 3,
-ComposerPendingApprovalActions.test 3, ChangedFilesTree.test 3, plus 2s and 1s.
+     4 src/orchestration/Layers/ProviderCommandReactor.test.ts
+     3 src/orchestration/Layers/OrchestrationEngine.test.ts
+     2 src/provider/makeManagedServerProvider.test.ts        (maintenanceCapabilities)
+     2 src/project/AgentSessionImporter.test.ts              (missing layer: ProviderLaunchClaims | WorkspaceOccupancy)
+     2 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts (user-input `answers` payload shape)
+     2 src/orchestration/Layers/ProjectionSnapshotQuery.test.ts  (missing ServerConfig in layer)
+     2 integration/orphanedProviderSessionStartup.integration.test.ts (missing ExhaustionResumeSweep)
+     2 integration/OrchestrationEngineHarness.integration.ts (missing PullRequestSyncReactor in layer)
+     1 each: ProviderSessionReaper, ClaudeAdapter (requestId), AntigravityProtocol,
+            AgentSessionScanner, ThreadSettlementReactor, projector (Effect-aware
+            test API), HandoffDrafterReactor
 
-By error code: TS2345 26, TS2741 22, TS2304 13, TS2339 12, TS2322 11,
-TS2552 7, TS2739 6, TS2353 5.
+The bulk classes session 7 already cleared, for reference when they recur:
+  - whole-shape service doubles missing a member one parent added:
+    `removeIfStopped` (loom's), `readStreamEvents` / `readThreadEvents` /
+    `getThreadReplayStats` / `getSession` (upstream's). Fixed either by adding
+    the member or, better, by switching `Effect.provideService(Tag, {...})` to
+    `Effect.provide(Layer.mock(Tag)({...}))` — `Layer.mock` fills the rest with
+    unimplemented defects, so the NEXT pull's new members cannot break the test.
+  - thread fixtures missing the ~27 loom workstream fields. There is now ONE
+    shared block for this: `apps/server/src/orchestration/deciderTestThread.ts`
+    exports `loomThreadFixtureDefaults` (read-model row) and
+    `loomThreadShellFixtureDefaults` (shell row). Spread it first, override after.
+  - `defaultStartFromOrigin` (new required project field), `goals: []` (new
+    required read-model/snapshot field), `emitsExitOnStop` (new REQUIRED
+    provider capability — codex's real adapter says `true`).
+  - `{ ...base, ...overrides }` where `overrides: Partial<T>`: under
+    `exactOptionalPropertyTypes` that widens every field back to optional. Use
+    `Object.assign(base, overrides)`.
 
-The three biggest test clusters are all one root cause each and are mechanical:
-`composerContextRecords.test` / `reviewCommentContext.test` build flat review
-comments (add `kind: "line"`), `composerDraftStore.test` builds drafts with the
-now-removed `elementContexts` field.
+## apps/mobile — 63. NOT STARTED.
 
-## Method that worked this session (reuse it)
+    40 src/features/threads/PendingUserInputCard.tsx
+    18 src/state/use-selected-thread-requests.ts
+     1 each: pending-thread-creation.ts (needs loomThreadShellFixtureDefaults'
+            field set), threadActivity.test, ThreadDetailScreen,
+            QuestionAnswerHistory.test, environment-cache-store.test
 
-1. `docs/upstream-sync/pull7-tools/whatismissing.sh <file> <name>...` on every
-   TS2304/TS2305/TS2724 — it names which parent still declares the symbol.
-2. `docs/upstream-sync/pull7-tools/restoredecl.py <rev> <file> <name>...` (new)
-   extracts that declaration from the parent and appends it. It over-extracts on
-   multi-line `new Set([...])` initialisers — eyeball what it appends.
-3. Prop-shape errors (TS2741/TS2739 on a component) are almost always "loom's
-   caller, upstream's callee". Diff the props of the callee against BOTH parents
-   before touching the caller.
+Session 4's guidance stands, and the brief's is more specific:
+`use-selected-thread-requests.ts` needs the upstream-only declarations restored
+(`Atom` import, `scopedRequestKey`, `selectedThreadKey`, `dismissingUserInputId`)
+and then loom's `@t3tools/shared/userInputAnswers` hoist re-applied on top.
+`PendingUserInputCard.tsx` compiles as upstream's redesign (loom's option
+previews and multi-select are tracked separately as task `a4b1ddfa`); note its
+props are consumed by `ThreadDetailScreen.tsx:1023`, which still passes loom's
+`maxHeight` / `collapsed` / `onToggleCollapsed` / `onStopThread`, so caller and
+callee must be decided together.
 
-## apps/server — 176 (every one in a test/integration file)
+## Method that worked (reuse it)
 
-Unchanged from session 5's inventory; see §Session 5 of the sync note. Dominant
-class: whole-shape `Layer.succeed(<Service>, {...})` doubles missing members one
-parent added — `removeIfStopped` is loom's, `readStreamEvents` / `getSession`
-are upstream's. Switch the double to `Layer.mock(<Service>)({...})`.
-
-## apps/mobile — 63
-
-Unchanged. `PendingUserInputCard.tsx` 40, `use-selected-thread-requests.ts` 18,
-5 one-liners. Session 4's guidance stands.
+1. `docs/upstream-sync/pull7-tools/whatismissing.sh <repo-relative-path> <name>...`
+   on every TS2304/TS2305/TS2552/TS2724 — it names which parent still declares
+   the symbol. Note: the path must be relative to the REPO ROOT, and the tool
+   must be run from the repo root.
+2. Prop/member-shape errors (TS2739/TS2740/TS2741) are almost always "loom's
+   caller, upstream's callee" (or the reverse). Diff the callee against BOTH
+   parents before touching the caller.
+3. **Delete the stale `apps/<app>/tsconfig.tsbuildinfo` before believing a
+   count.** `composite: true` means tsc reports cached errors against paths that
+   no longer exist; session 7 lost time chasing a `@types/hast` mismatch that
+   the cache alone was reporting.
