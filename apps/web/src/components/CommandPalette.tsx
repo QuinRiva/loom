@@ -2245,7 +2245,6 @@ function OpenCommandPaletteDialog(props: {
             instanceId: ProviderInstanceId.make("pi"),
             model: PI_DEFAULT_MODEL,
           },
-          defaultModelSelection: null,
         },
       });
       if (createResult._tag === "Failure") {

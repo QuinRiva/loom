@@ -25,7 +25,6 @@ export function FileMarkdownPreview(props: {
     <ChatMarkdown
       text={props.text}
       cwd={props.cwd}
-      imageBaseDir={imageBaseDir}
       threadRef={props.threadRef}
       className="mx-auto max-w-4xl px-6 py-5"
       onTaskListChange={props.onTaskListChange}

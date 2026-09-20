@@ -35,8 +35,6 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
-  DiagnosticsLastChecked,
-  DiagnosticsRefreshButton,
   formatBytes,
   SettingsPageContainer,
   SettingsSection,

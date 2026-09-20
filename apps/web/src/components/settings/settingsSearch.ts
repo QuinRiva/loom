@@ -810,6 +810,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",
+  "/settings/worktrees": "project-defaults", // loom:
   "/settings/connections": "connections",
   "/settings/archived": "project-defaults",
 };

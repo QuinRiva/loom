@@ -1185,7 +1185,7 @@ export default function FilePreviewPanel({
   };
 
   const handleOpenInBrowser = useCallback(() => {
-    if (!openInEditorPath || !environmentHttpBaseUrl) return;
+    if (!absolutePath || !environmentHttpBaseUrl) return;
     void (async () => {
       const result = await openFileInPreview({
         threadRef,
@@ -1231,13 +1231,13 @@ export default function FilePreviewPanel({
               />
             </div>
           </ScrollArea>
-          {openInEditorPath &&
+          {absolutePath &&
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
               environmentId={environmentId}
               keybindings={keybindings}
               availableEditors={availableEditors}
-              openInCwd={openInEditorPath}
+              openInCwd={absolutePath}
               compact
               enableShortcut={false}
             />
@@ -1383,7 +1383,6 @@ export default function FilePreviewPanel({
                 contents={file.data.contents}
                 readOnly={isHostFile}
                 onPendingChange={onPendingChange}
-                readOnly={isAbsolute}
               />
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
