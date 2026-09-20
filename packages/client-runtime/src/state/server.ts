@@ -1041,6 +1041,13 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:workstream-worktrees",
       tag: WS_METHODS.serverGetWorkstreamWorktrees,
     }),
+    hostResources: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:server:host-resources",
+      idleTtlMs: 0,
+      staleTimeMs: 5_000,
+      execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverGetHostResources>) =>
+        request(WS_METHODS.serverGetHostResources, input).pipe(Effect.timeout("5 seconds")),
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,

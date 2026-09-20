@@ -206,9 +206,8 @@ function getAppModelOptions(
 ): AppModelOption[] {
   // Built-ins come from the server snapshot; custom rows come exclusively
   // from the config bucket below (see note in getAppModelOptionsForInstance).
-  const builtInServerModels = getProviderModels(providers, provider).filter(
-    (model) => !model.isCustom,
-  );
+  const rawModels = getProviderModels(providers, provider);
+  const builtInServerModels = rawModels.filter((model) => !model.isCustom);
   const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(builtInServerModels.map((model) => model.slug));
@@ -315,15 +314,6 @@ export function resolveAppModelSelectionForInstance(
   );
   if (!entry) return null;
   const options = getAppModelOptionsForInstance(settings, entry);
-  return (
-    resolveSelectableModel(entry.driverKind, selectedModel, options) ??
-    options.find((option) => !option.excluded)?.slug ??
-    options.find((option) => option.isDefault)?.slug ??
-    options[0]?.slug ??
-    entry.models.find((model) => model.isDefault)?.slug ??
-    entry.models[0]?.slug ??
-    null
-  );
   const resolvedSelection = resolveSelectableModel(entry.driverKind, selectedModel, options);
   if (resolvedSelection) {
     return resolvedSelection;
@@ -343,7 +333,16 @@ export function resolveAppModelSelectionForInstance(
       return unavailableSelection;
     }
   }
-  return options.find((option) => option.isDefault)?.slug ?? options[0]?.slug ?? null;
+  return (
+    // loom: an excluded option is hidden from the default views, so it must not
+    // become the resolved fallback selection.
+    options.find((option) => !option.excluded)?.slug ??
+    options.find((option) => option.isDefault)?.slug ??
+    options[0]?.slug ??
+    entry.models.find((model) => model.isDefault)?.slug ??
+    entry.models[0]?.slug ??
+    null
+  );
 }
 
 /**
