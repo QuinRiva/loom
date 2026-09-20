@@ -1329,3 +1329,103 @@ loom-only web files) are unchanged and still want a decision.
 - **Items 4–10 — NOT STARTED:** the green-typecheck commit, the structural
   composition audit, `pnpm build` + `vp check`, PR #191's transfer budget, the
   migration smoke on a DB copy, and the targeted test run.
+
+## Session 8 — every gate green: typecheck (15/15), `vp check` (0 errors), build (minus a host prerequisite), migration smoke
+
+Commits `e2d54f0b1d` … `9132eb93a8` on `t3code/upstream-sync-20260921`, all
+`--no-verify`, no rebase, `116eff1261^2` re-verified as `c14f6015bf` after each.
+Nothing pushed.
+
+| gate                             | result                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `vp run typecheck`               | **green, all 15 packages** (server 26 → 0, mobile 63 → 0, relay 3 → 0)                                                  |
+| `vp check`                       | **0 errors** (969 warnings, the standing baseline)                                                                      |
+| `pnpm build`                     | web, server, marketing ✓ — `apps/desktop` fails on a MISSING HOST PACKAGE (`libsecret-1-dev`), not on merge state       |
+| Migration smoke (4.2 GB DB copy) | **clean**: 041–053 applied exactly once, fork lane `1001+` untouched, relaunch applies zero, fresh-DB schema equivalent |
+| PR #191 transfer budget          | still cannot produce a number (below)                                                                                   |
+
+### Five runtime defects the gates caught that typecheck could not
+
+1. **`getTurnStartMessage` could never decode.** Upstream's new query is
+   byte-identical to its own, but it decodes into _loom's_ wider message row
+   schema, so the SELECT was missing `origin`, `control_payload_json` and the
+   three `reasoning_*` columns. Every turn start failed with a
+   `PersistenceDecodeError`, the provider command reactor stopped processing the
+   event, and no turn ever quiesced — the integration harness simply timed out.
+2. **`getShellSnapshot`'s thread query omitted `unsettled_at`**, failing every
+   shell-snapshot decode the same way.
+   → Both are one class, and there is now a sweep for it:
+   **`docs/upstream-sync/pull7-tools/sqlcolsweep.py`** (a SELECT that omits a
+   column its `Result` schema requires). Run it every pull; it is clean at HEAD.
+3. **The projector's `thread.meta-updated` arm took loom's side wholesale** and
+   lost upstream's `activeOrderKey`, `titleState` and `branchPullRequest`. The
+   decider still emits `activeOrderKey`, so **the manual active-list reorder was
+   a silent no-op**; `decider.active-order.test.ts` proves it again (8/8).
+4. **`ProviderUsageLimitsIngestionLive` was imported but never composed** —
+   found by the structural composition audit. Usage bars would have waited for
+   the next status probe instead of following live rate-limit telemetry.
+5. **`apps/web/src/index.css` did not parse.** The mechanical resolution left an
+   unterminated `:hover` rule and an unbalanced `@starting-style` block, and
+   separately dropped loom's whole `.chat-composer-glass-*` material while
+   `ChatView` still applies those classes (the composer would have lost its
+   glass). CSS never typechecks — only `pnpm build` sees this.
+
+### Structural composition audit (owed since session 4) — table
+
+Every entry present in either parent but absent from HEAD was accounted for:
+
+| surface                                                       | verdict                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server.ts` layer roots                                       | **1 real loss, fixed** (`ProviderUsageLimitsIngestionLive`); the other 14 names are all still composed                                                                                                                                       |
+| `bin.ts`, `serverRuntimeStartup.ts`                           | complete                                                                                                                                                                                                                                     |
+| `decider.ts` + `decider.loom.ts` arms vs `LOOM_COMMAND_TYPES` | complete — all 25 fork command types have arms; upstream's three "missing" arms are `reasoning.complete`/`user-input.dismiss` (in `decider.loom.ts`) and `reasoning.delta` (deliberately removed from contracts by loom's reasoning re-home) |
+| ws/rpc handler maps, `RpcAuthorization` scope map             | complete                                                                                                                                                                                                                                     |
+| `routeTree.gen.ts`                                            | 2 loom routes absent = upstream's own deletion (#11794 replaced the connect callback with Clerk's device grant); no loom feature lost                                                                                                        |
+| `client-runtime` environment-data / config projection         | complete — it moved to `state/serverConfigProjection.ts` with all arms plus two new upstream ones                                                                                                                                            |
+| contracts structs                                             | 6 field/struct deltas, **all upstream deletions** adopted deliberately (`AuthPairingLink.credential`, `ScopedThreadSessionRef`, two desktop IPC schemas, `enableLegacyTokenStreaming` → `responseStreamingMode`)                             |
+| every workspace `package.json` dependency line                | no loom dependency lost: each loom-only line absent from HEAD has zero importers in HEAD's source (`.repos/*` deltas are vendored-reference syncs)                                                                                           |
+| package `exports`                                             | one absent (`client-runtime/state/thread-settled`) — the documented pull-6 single-sourcing ruling                                                                                                                                            |
+| stray in-body `export`s                                       | none                                                                                                                                                                                                                                         |
+
+### Decisions implemented from session 7's list
+
+- `Migrations.ts` keeps the one-word `export` on `migrationEntries`; **doc 22
+  §3.2 now records that exception** and why (`LoomMigrations.test.ts` replays the
+  historical interleave and needs the bodies). `Migrations/` is otherwise
+  byte-identical to `c14f6015bf`.
+- Mobile question card: **upstream's redesign**, restored byte-identical from
+  `c14f6015bf` — the merged file was an interleaving of both sides. The caller
+  needed no change (it was already upstream's); the _dead_ loom props
+  (`activePendingUserInputCount`, `dismissingUserInputId`) were removed from the
+  `ThreadDetailScreen` → `ThreadRouteScreen` chain. `use-selected-thread-requests.ts`
+  and `lib/scopedEntities.ts` likewise restored to upstream's side.
+  **Note for the reviewer:** session 7's ledger recorded the ownership of these
+  props BACKWARDS (`maxHeight`/`collapsed`/`onToggleCollapsed`/`onStopThread` are
+  upstream's, not loom's). Loom's accepted losses here are its option previews,
+  multi-select, pending-count line and dismiss spinner (`a4b1ddfa`), plus its
+  persisted/evicting draft store (`state/user-input-drafts.ts` is now unused on
+  mobile — it is label-keyed, while upstream's card is option-_value_-keyed).
+- `@types/hast` override and the two deleted test files: accepted, unchanged.
+
+### New shared default block
+
+`loomThreadDefaults` / `loomThreadShellDefaults` now live in
+`packages/contracts/src/orchestration.loom.ts`, beside the schema that adds the
+fields; `apps/server/src/orchestration/deciderTestThread.ts` re-exports them
+under the fixture names the decider tests already use, and mobile's optimistic
+thread shell spreads the same block. One edit per future fork field.
+
+### Still open after this session
+
+- **PR #191's WS transfer budget still has no number.** Defect 1 above was
+  blocking it entirely; with that fixed the scenario now runs and fails later,
+  on `10 !== 20` messages — the replayed turns persist user messages but not
+  assistant ones. Nothing was re-baselined (`7f1902b3`).
+- `ProjectionSnapshotQuery.test.ts`: 22 of 58 fail on _fixture_ decode (nested
+  `MissingKey`), dormant since the merge because the file did not typecheck
+  until this session (`987cc80f`).
+- The merged projector has no `thread.pull-request-linked` arm and none of
+  upstream's `pullRequestsPatch`/`legacyLinkToPullRequests` machinery — a
+  deliberate-looking "kept loom's projector" outcome that needs adjudicating
+  (`67922fd8`).
+- `apps/desktop` build needs `libsecret-1-dev` on this host (`a7885190`).
