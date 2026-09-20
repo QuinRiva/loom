@@ -266,6 +266,9 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(StorageCleanup.layer),
   Layer.provideMerge(ThreadDeletionReactorLive),
+  Layer.provideMerge(ThreadSettlementReactor.layer),
+  Layer.provideMerge(PullRequestSyncReactor.layer),
+  Layer.provideMerge(ThreadPullRequestReactor.layer),
   // loom: fork reactors + transient reasoning bus (bundle in loom/serverLayers.ts).
   // Spliced here so the bundle's exported ReasoningStreamBus feeds the earlier
   // ProviderRuntimeIngestion + the routes layer, while the later AgentAwareness/
@@ -520,8 +523,15 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(Layer.mergeAll(CheckpointingLayerLive, LoomRuntimeCoreLive)),
   // loom: WorktreeMutationLock rides this later, dependency-free step so it feeds
   // both the provisioner (earlier step) and the fan-in reactor in the reactor layer.
+  // `GitHubCli` is the registry's own instance, exposed because the asset route fetches
+  // GitHub-hosted pull request media with the repository's credential.
   Layer.provideMerge(
-    Layer.mergeAll(SourceControlProviderRegistryLayerLive, LoomWorktreeMutationLockLive),
+    Layer.mergeAll(
+      SourceControlProviderRegistryLayerLive,
+      PullRequestServiceLive,
+      GitHubCli.layer,
+      LoomWorktreeMutationLockLive,
+    ),
   ),
   Layer.provideMerge(ServerSettingsLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -531,7 +541,9 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // runtime, so the one occupancy authority reaches both the provider service
   // that holds workspaces and the reactors that remove worktrees (later provides
   // to earlier); see loom/serverLayers.ts.
-  Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, LoomWorkspaceLeaseLive)),
+  Layer.provideMerge(
+    Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, DeviceLayerLive, LoomWorkspaceLeaseLive),
+  ),
   Layer.provideMerge(PersistenceLayerLive),
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
@@ -555,7 +567,17 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // loom: LoomProviderHealthLive (exhaustion state + nested account-usage store)
   // rides this step so it reaches the built-in drivers (PiDriver requires
   // ProviderHealthRegistry); see loom/serverLayers.ts for the full rationale.
-  Layer.provideMerge(Layer.mergeAll(ProviderEventLoggers.layer, LoomProviderHealthLive)),
+  // `ModelManifest.layer` is the legacy-model classification data, refreshed
+  // from the repo's `model-manifest.json` on `main` and applied by the
+  // Codex/Claude drivers.
+  Layer.provideMerge(
+    Layer.mergeAll(
+      ProviderEventLoggers.layer,
+      ModelManifest.layer,
+      CodexResetCredit.layer,
+      LoomProviderHealthLive,
+    ),
+  ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but
   // the rewritten registry reads snapshots off the instance registry and
