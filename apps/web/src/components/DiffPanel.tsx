@@ -686,9 +686,9 @@ export default function DiffPanel({
       lazySource
         ? null
         : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
-            compactPartialHunkOffsets: selectedTurnId === null,
+            compactPartialHunkOffsets: selectedRouteTurnId === null,
           }),
-    [lazySource, resolvedTheme, selectedPatch, selectedTurnId],
+    [lazySource, resolvedTheme, selectedPatch, selectedRouteTurnId],
   );
   const fileStats = useMemo(
     () => new Map(lazySource?.files?.map((file) => [file.path, file])),
@@ -1548,7 +1548,12 @@ export default function DiffPanel({
   );
 }
 
-export interface CoderDiffOption {
+export const EMPTY_CODER_CHECKPOINTS_BY_ID: ReadonlyMap<
+  ThreadId,
+  ReadonlyArray<TurnDiffSummary>
+> = new Map();
+
+interface CoderDiffOption {
   readonly thread: ThreadShell;
   readonly orderedCheckpoints: ReadonlyArray<TurnDiffSummary>;
   readonly inferredCheckpointTurnCountByTurnId: Record<string, number>;

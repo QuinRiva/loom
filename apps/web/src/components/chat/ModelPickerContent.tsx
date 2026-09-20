@@ -63,6 +63,13 @@ type ModelPickerItem = {
   name: string;
   shortName?: string;
   subProvider?: string;
+  /**
+   * loom: excluded by the instance's model preferences (hidden, or unselected
+   * in allow-list mode). Kept out of the default views but still reachable via
+   * search, where excluded matches render in a separated "All models" section
+   * below the curated results.
+   */
+  excluded?: boolean;
   badge?: "new";
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
@@ -202,7 +209,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     onToggleModel,
   } = props;
   const [searchQuery, setSearchQuery] = useState("");
-  const [focusSignal, setFocusSignal] = useState(0);
+  const [showTopScrollFade, setShowTopScrollFade] = useState(false);
+  const [showBottomScrollFade, setShowBottomScrollFade] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const modelListRef = useRef<LegendListRef | null>(null);
+  const highlightedModelKeyRef = useRef<string | null>(null);
   const favorites = useClientSettings((s) => s.favorites ?? []);
   const activeEntry = props.instanceEntries.find(
     (entry) => entry.instanceId === props.activeInstanceId,
@@ -279,10 +290,33 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const keybindings = providedKeybindings ?? serverKeybindings;
   const updateSettings = useUpdateClientSettings();
 
-  const handleSelectInstance = useCallback((instanceId: ProviderInstanceId | "favorites") => {
-    setSelectedInstanceId(instanceId);
-    setFocusSignal((signal) => signal + 1);
+  const focusSearchInput = useCallback(() => {
+    searchInputRef.current?.focus({ preventScroll: true });
   }, []);
+
+  const handleSelectInstance = useCallback(
+    (instanceId: ProviderInstanceId | "favorites") => {
+      setSelectedInstanceId(instanceId);
+      window.requestAnimationFrame(() => {
+        focusSearchInput();
+      });
+    },
+    [focusSearchInput],
+  );
+
+  useLayoutEffect(() => {
+    focusSearchInput();
+    const frame = window.requestAnimationFrame(() => {
+      focusSearchInput();
+    });
+    const timeout = window.setTimeout(() => {
+      focusSearchInput();
+    }, 0);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [focusSearchInput]);
 
   // Create a Set for efficient lookup. Favorites are keyed by
   // `${instanceId}:${slug}`; the storage schema widened from ProviderDriverKind
@@ -683,6 +717,15 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     const first = filteredModels.find((model) => model.excluded);
     return first ? modelPickerModelKey(first.instanceId, first.slug) : null;
   }, [filteredModels, isSearching]);
+  const updateModelListScrollFades = useCallback(() => {
+    const scrollElement = modelListRef.current?.getScrollableNode();
+    if (!(scrollElement instanceof HTMLElement)) {
+      return;
+    }
+    const maxScrollOffset = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+    setShowTopScrollFade(scrollElement.scrollTop > 1);
+    setShowBottomScrollFade(maxScrollOffset - scrollElement.scrollTop > 1);
+  }, []);
   const modelJumpShortcutContext = useMemo(
     () =>
       ({

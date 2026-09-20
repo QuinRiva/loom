@@ -122,6 +122,7 @@ interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddAgents: () => void;
+  onAddDevice: () => void;
   onAddTasks: () => void; // loom:
   onAddWorkstream: () => void; // loom:
   browserAvailable: boolean;
@@ -131,9 +132,10 @@ interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   agentsAvailable: boolean;
+  deviceAvailable: boolean;
   tasksAvailable: boolean; // loom:
   workstreamAvailable: boolean; // loom:
-  pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
+  pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
   children: ReactNode;
@@ -163,6 +165,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
   agents: "Agents are only available from a thread.",
+  device: "Devices are only available from a thread.",
   tasks: "Goal tasks are only available for threads linked to a goal.", // loom:
   workstream: "Workstream is only available for server threads.", // loom:
 } as const;
@@ -188,6 +191,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
   agents: "Available from a thread.",
+  device: "Available from a thread.",
   tasks: "Available when the thread has a goal.", // loom:
   workstream: "Available from a server thread.", // loom:
 } as const;
@@ -329,6 +333,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddAgents: () => void;
+  onAddDevice: () => void;
   onAddTasks: () => void; // loom:
   onAddWorkstream: () => void; // loom:
   browserAvailable: boolean;
@@ -338,6 +343,7 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   agentsAvailable: boolean;
+  deviceAvailable: boolean;
   tasksAvailable: boolean; // loom:
   workstreamAvailable: boolean; // loom:
   liveAgentCount: number;
@@ -656,6 +662,8 @@ function surfaceTitle(
       return "Pull requests";
     case "agents":
       return "Agents";
+    case "device":
+      return surface.title ?? surface.target?.name ?? "Device";
     case "tasks": // loom:
       return "Goal tasks";
     case "workstream": // loom:
