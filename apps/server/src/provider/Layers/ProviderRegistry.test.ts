@@ -1743,6 +1743,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           );
           const fable5 = status.models.find((model) => model.slug === "claude-fable-5");
           assert.strictEqual(fable5?.name, "Claude Fable 5");
+          // 5.1 postdates Opus 5, so a CLI that only just serves Fable 5 must
+          // not advertise its successor.
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "claude-fable-5-1"),
+            false,
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -1779,6 +1785,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.168\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("includes Claude Fable 5.1 on supported Claude Code versions", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities(),
+          );
+          const fable51 = status.models.find((model) => model.slug === "claude-fable-5-1");
+          assert.strictEqual(fable51?.name, "Claude Fable 5.1");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "2.1.219\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
                   stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',

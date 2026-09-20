@@ -134,7 +134,7 @@ const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
 const PI_DRIVER_KIND = ProviderDriverKind.make("pi");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
-export const DEFAULT_MODEL = "gpt-5.6-sol";
+export const DEFAULT_MODEL = "gpt-6-astra";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot
@@ -142,12 +142,13 @@ export const DEFAULT_MODEL = "gpt-5.6-sol";
  * default; when none are available, Codex's own `isDefault` flag wins.
  */
 export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ];
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
 // loom: pi is the default provider; keep loom's pi model default + thinking levels.
-export const PI_DEFAULT_MODEL = "google-vertex-claude/claude-opus-4-8";
+export const PI_DEFAULT_MODEL = "cliproxy/claude-opus-5";
 export const PI_THINKING_LEVEL_OPTIONS = [
   "off",
   "minimal",
