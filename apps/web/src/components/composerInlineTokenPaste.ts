@@ -134,3 +134,30 @@ export function registerComposerInlineTokenPaste(
     COMMAND_PRIORITY_HIGH,
   );
 }
+
+/** Imports the same structured clipboard payload for focused paste and paste-to-focus. */
+export function importPastedComposerText(
+  clipboardData: Pick<DataTransfer, "getData">,
+  importContextFragment?: (
+    fragment: ComposerContextClipboardFragment,
+  ) => ReadonlyMap<string, string>,
+): string {
+  export const pastedText = clipboardData.getData("text/plain");
+  const fragment = importContextFragment ? readPastedComposerContext(clipboardData) : null;
+  const rewrittenIds =
+    fragment && fragment.records.length > 0 ? importContextFragment!(fragment) : null;
+  const text =
+    rewrittenIds && rewrittenIds.size > 0
+      ? replaceComposerContextReferences(pastedText, (occurrence) => {
+          const nextId = rewrittenIds.get(occurrence.contextId);
+          return nextId
+            ? formatComposerContextReference({
+                ...occurrence,
+                contextId: ComposerContextId.make(nextId),
+                kind: occurrence.kind === "element" ? "preview-annotation" : occurrence.kind,
+              })
+            : occurrence.source;
+        })
+      : pastedText;
+  return text;
+}

@@ -378,3 +378,10 @@ export function replaceTextRange(
   const nextText = `${text.slice(0, safeStart)}${replacement}${text.slice(safeEnd)}`;
   return { text: nextText, cursor: safeStart + replacement.length };
 }
+
+export function shouldSubmitComposerOnEnter(input: {
+  isMobileViewport: boolean;
+  shiftKey: boolean;
+}): boolean {
+  return !input.isMobileViewport && !input.shiftKey;
+}

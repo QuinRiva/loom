@@ -798,3 +798,19 @@ export function ThreadRowTrailingStatus({ thread }: { thread: SidebarThreadSumma
     </span>
   );
 }
+
+export function resolveThreadPr(input: {
+  threadBranch: string | null;
+  gitStatus: VcsStatusResult | null;
+}): ThreadPr | null {
+  const { threadBranch, gitStatus } = input;
+  if (gitStatus === null) {
+    return null;
+  }
+
+  if (threadBranch === null || gitStatus.refName !== threadBranch) {
+    return null;
+  }
+
+  return gitStatus.pr ?? null;
+}

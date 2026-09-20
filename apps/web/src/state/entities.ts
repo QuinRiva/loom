@@ -245,3 +245,24 @@ export function readEnvironmentThreadRefs(
 export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
 }
+
+export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
+  return useAtomValue(
+    ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),
+  );
+}
+
+export function useThreadProposedPlans(
+  ref: ScopedThreadRef | null,
+): ReadonlyArray<OrchestrationProposedPlan> {
+  return useAtomValue(
+    ref === null ? EMPTY_PROPOSED_PLANS_ATOM : environmentThreadDetails.proposedPlansAtom(ref),
+  );
+}
+
+/** Last error reported by the thread's detail subscription (null while healthy). */
+export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
+  return useAtomValue(
+    ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
+  );
+}

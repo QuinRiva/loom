@@ -12,6 +12,7 @@ import {
   AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
+  AutocompleteSeparator,
 } from "~/components/ui/autocomplete";
 import { DIALOG_BACKDROP_CLASS, DIALOG_POPUP_CLASS } from "~/components/ui/dialog-styles";
 import { Button } from "~/components/ui/button";
@@ -229,3 +230,16 @@ export {
   CommandPanel,
   CommandShortcut,
 };
+
+export function CommandSeparator({
+  className,
+  ...props
+}: React.ComponentProps<typeof AutocompleteSeparator>) {
+  return (
+    <AutocompleteSeparator
+      className={cn("my-2", className)}
+      data-slot="command-separator"
+      {...props}
+    />
+  );
+}

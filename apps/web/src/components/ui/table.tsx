@@ -65,3 +65,13 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
 }
 
 export { Table, TableHeader, TableBody, TableHead, TableRow, TableCell };
+
+export function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
+  return (
+    <tfoot
+      data-slot="table-footer"
+      className={cn("border-t bg-muted/50 font-medium [&>tr]:last:border-b-0", className)}
+      {...props}
+    />
+  );
+}

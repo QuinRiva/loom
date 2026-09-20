@@ -1,6 +1,7 @@
 import {
   requestKindFromRequestType,
   type PendingApproval,
+  type PendingUserInput,
 } from "@t3tools/client-runtime/pending-requests";
 import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
@@ -21,6 +22,7 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
 import {
+  ApprovalRequestId,
   isToolLifecycleItemType,
   type AssetResource,
   type OrchestrationLatestTurn,
@@ -166,6 +168,13 @@ export type TimelineEntry =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
+  // loom: inline per-turn plan chip
+  | {
+      id: string;
+      kind: "turn-plan";
+      createdAt: string;
+      turnPlan: TurnPlanEntry;
+    }
   | {
       id: string;
       kind: "work";
@@ -242,22 +251,6 @@ export function deriveActiveWorkStartedAt(
     return latestTurn?.startedAt ?? sendStartedAt;
   }
   return sendStartedAt;
-}
-
-function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
-  switch (requestType) {
-    case "command_execution_approval":
-    case "exec_command_approval":
-    case "dynamic_tool_call":
-      return "command";
-    case "file_read_approval":
-      return "file-read";
-    case "file_change_approval":
-    case "apply_patch_approval":
-      return "file-change";
-    default:
-      return null;
-  }
 }
 
 // Approvals only. The user-input equivalent is deleted: the server now guarantees
@@ -374,6 +367,8 @@ export function derivePendingUserInputs(
         requestId,
         createdAt: activity.createdAt,
         questions,
+        // Async questions can be dismissed without a reply; native callbacks cannot.
+        dismissible: payload.responseMode === "message",
       });
     }
   }
@@ -509,6 +504,53 @@ export function deriveActivePlanState(
     (activity) => planStateFromActivity(activity) === null,
   );
   return addPlanStepDurations(plan, matchingActivities.slice(latestClearIndex + 1));
+}
+
+// loom: inline per-turn plan chips, consumed by loom's MessagesTimeline.
+export interface TurnPlanEntry {
+  /** Stable per-turn row id (plans rewrite constantly; the row must not churn). */
+  id: string;
+  /** Anchor timestamp: the turn's FIRST plan activity, so the chip renders where planning began. */
+  createdAt: string;
+  turnId: TurnId | null;
+  plan: ActivePlanState;
+}
+
+/**
+ * One inline plan chip per turn that produced plan/todo steps: the latest
+ * snapshot for the turn, anchored at the first snapshot's timestamp. Turn-less
+ * plan activities collapse into a single chip keyed by thread order.
+ */
+export function deriveTurnPlans(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): TurnPlanEntry[] {
+  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const byTurn = new Map<string, TurnPlanEntry>();
+  for (const activity of ordered) {
+    if (activity.kind !== "turn.plan.updated") {
+      continue;
+    }
+    const plan = planStateFromActivity(activity);
+    const key = activity.turnId ?? "no-turn";
+    if (!plan) {
+      // A later snapshot with no steps clears the turn's plan; keeping the
+      // stale entry would freeze the chip on a withdrawn plan.
+      byTurn.delete(key);
+      continue;
+    }
+    const existing = byTurn.get(key);
+    if (existing) {
+      existing.plan = plan;
+    } else {
+      byTurn.set(key, {
+        id: `turn-plan:${key}`,
+        createdAt: activity.createdAt,
+        turnId: activity.turnId,
+        plan,
+      });
+    }
+  }
+  return [...byTurn.values()];
 }
 
 export function findLatestProposedPlan(
@@ -1682,8 +1724,10 @@ function timelineEntrySourceOrder(entry: TimelineEntry): number {
       return 0;
     case "proposed-plan":
       return 1;
-    case "work":
+    case "turn-plan":
       return 2;
+    case "work":
+      return 3;
   }
 }
 

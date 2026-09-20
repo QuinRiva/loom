@@ -105,3 +105,18 @@ export function getDefaultServerModel(
     DEFAULT_MODEL
   );
 }
+
+export function getProviderDisplayName(
+  providers: ReadonlyArray<ServerProvider>,
+  provider: ProviderDriverKind,
+): string {
+  const snapshot = getProviderSnapshot(providers, provider);
+  return snapshot?.displayName?.trim() || formatProviderDriverKindLabel(provider);
+}
+
+export function getProviderInteractionModeToggle(
+  providers: ReadonlyArray<ServerProvider>,
+  provider: ProviderDriverKind,
+): boolean {
+  return getProviderSnapshot(providers, provider)?.showInteractionModeToggle ?? true;
+}
