@@ -148,7 +148,7 @@ export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
 ];
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
 // loom: pi is the default provider; keep loom's pi model default + thinking levels.
-export const PI_DEFAULT_MODEL = "google-vertex-claude/claude-opus-4-8";
+export const PI_DEFAULT_MODEL = "cliproxy/claude-opus-5";
 export const PI_THINKING_LEVEL_OPTIONS = [
   "off",
   "minimal",

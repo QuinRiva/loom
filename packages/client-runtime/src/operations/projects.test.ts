@@ -227,7 +227,7 @@ describe("add project shared logic", () => {
       createWorkspaceRootIfMissing: true,
       defaultModelSelection: {
         instanceId: "pi",
-        model: "google-vertex-claude/claude-opus-4-8",
+        model: "cliproxy/claude-opus-5",
       },
     });
   });
