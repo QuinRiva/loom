@@ -71,6 +71,10 @@ import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
+import {
+  makeWorkspaceLease,
+  WorkspaceLease,
+} from "../../workspace/WorkspaceOccupancyLease.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -148,8 +152,28 @@ type LegacyProviderRuntimeEvent = {
 
 function makeFakeCodexAdapter(
   provider: ProviderDriverKind = CODEX_DRIVER,
-  supportsConversationRollback?: boolean,
+  // `emitsExitOnStop` mirrors the real capability: `true` = this driver's
+  // `stopSession` produces a `session.exited` (PiDriver/OpenCode/Grok/Claude/
+  // Cursor), `false` = it stops silently (Codex). Workspace-hold accounting
+  // branches on it, so tests must be able to exercise both.
+  options?: {
+    readonly emitsExitOnStop?: boolean;
+    /**
+     * Emulate a driver that never produces an opaque resume cursor (pi). Such a
+     * driver's resume state lives elsewhere — on disk for pi — so the recovery
+     * gate must consult the driver rather than demand a cursor.
+     */
+    readonly emitResumeCursor?: boolean;
+    readonly resumeState?: "resume-cursor" | "session-file";
+    /** Whether driver-owned resume state (e.g. a session file) exists. */
+    readonly canResume?: (input: {
+      readonly threadId: ThreadId;
+      readonly cwd?: string | undefined;
+    }) => boolean;
+    readonly supportsConversationRollback?: boolean;
+  },
 ) {
+  const supportsConversationRollback = options?.supportsConversationRollback;
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
   const emitResumeCursor = options?.emitResumeCursor ?? true;
@@ -303,6 +327,8 @@ function makeFakeCodexAdapter(
     provider,
     capabilities: {
       sessionModelSwitch: "in-session",
+      emitsExitOnStop: options?.emitsExitOnStop ?? true,
+      ...(options?.resumeState !== undefined ? { resumeState: options.resumeState } : {}),
       ...(supportsConversationRollback !== undefined ? { supportsConversationRollback } : {}),
       ...(provider === CODEX_DRIVER ? { promptlessTurnContinuation: true } : {}),
     },
@@ -444,6 +470,8 @@ function makeStaticInstanceRegistry(
   };
 }
 
+const WorkspaceLeaseTestLive = Layer.effect(WorkspaceLease, makeWorkspaceLease);
+
 const advanceTestClock = (ms: number) =>
   TestClock.adjust(`${ms} millis`).pipe(Effect.andThen(Effect.yieldNow));
 
@@ -466,15 +494,32 @@ function makeProviderServiceLayer(
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
   } = {},
 ) {
-  const codex = makeFakeCodexAdapter(CODEX_DRIVER, input.supportsConversationRollback);
+  const codex = makeFakeCodexAdapter(CODEX_DRIVER, {
+    ...(input.supportsConversationRollback !== undefined
+      ? { supportsConversationRollback: input.supportsConversationRollback }
+      : {}),
+  });
   const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
+  // A pi-shaped driver: no resume cursor is ever produced, and resumability is
+  // answered from driver-owned state (the on-disk session file), toggled here.
+  const piSessionFile = { exists: true };
+  const pi = makeFakeCodexAdapter(PI_DRIVER, {
+    emitResumeCursor: false,
+    resumeState: "session-file",
+    canResume: () => piSessionFile.exists,
+  });
+  // A cursor-only driver that never persists a cursor: the control case that
+  // must keep failing recovery rather than starting a fresh, amnesiac session.
+  const grok = makeFakeCodexAdapter(GROK_DRIVER, { emitResumeCursor: false });
   const registry =
     input.registry ??
     makeAdapterRegistryMock({
       [ProviderDriverKind.make("codex")]: codex.adapter,
       [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
       [ProviderDriverKind.make("cursor")]: cursor.adapter,
+      [PI_DRIVER]: pi.adapter,
+      [GROK_DRIVER]: grok.adapter,
     });
 
   const providerAdapterLayer = Layer.succeed(
@@ -560,6 +605,7 @@ for (const [enabled, completed] of [
               ),
             ),
             Layer.provide(ServerSettings.layerTest({ continueThreadsAfterServerUpdate: enabled })),
+            Layer.provide(WorkspaceLeaseTestLive),
             Layer.provide(serverConfigTestLayer),
             Layer.provide(AnalyticsService.layerTest),
             Layer.provide(
@@ -717,6 +763,7 @@ it.effect("ProviderServiceLive flushes deferred completions during shutdown", ()
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(recordedAnalytics.layer),
         Layer.provide(
@@ -1055,6 +1102,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
     let getBindingCalls = 0;
     const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
       upsert: () => Effect.void,
+      recordImportedTranscript: () => Effect.die("unused"),
       getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
       getBinding: () =>
         Effect.sync(() => {
@@ -1118,6 +1166,7 @@ it.effect(
       let failBindingReads = false;
       const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
         upsert: () => Effect.void,
+        recordImportedTranscript: () => Effect.die("unused"),
         getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
         getBinding: () =>
           failBindingReads
@@ -1184,6 +1233,7 @@ it.effect(
 
       const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
         upsert: () => Effect.void,
+        recordImportedTranscript: () => Effect.die("unused"),
         getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
         // Binding names the claudeAgent instance...
         getBinding: () =>
@@ -1417,6 +1467,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
     let listThreadIdsCalls = 0;
     const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
       upsert: () => Effect.void,
+      recordImportedTranscript: () => Effect.die("unused"),
       getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
       getBinding: (threadId) =>
         Effect.sync(() => {
@@ -1749,6 +1800,7 @@ it.effect(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
@@ -1870,22 +1922,10 @@ it.effect("ProviderServiceLive does not rewrite already-stopped bindings on shut
       });
     }).pipe(Effect.provide(directoryLayer));
 
-    const providerLayer = makeProviderServiceLive().pipe(
-      Layer.provide(NodeServices.layer),
-      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
-      Layer.provide(directoryLayer),
-      Layer.provide(defaultServerSettingsLayer),
-      Layer.provide(serverConfigTestLayer),
-      Layer.provide(AnalyticsService.layerTest),
-      Layer.provide(
-        Layer.succeed(
-          ProviderEventLoggers.ProviderEventLoggers,
-          ProviderEventLoggers.NoOpProviderEventLoggers,
-        ),
-      ),
-    );
-
-    yield* ProviderService.ProviderService.pipe(Effect.provide(providerLayer));
+    const before = yield* Effect.gen(function* () {
+      const repository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      return yield* repository.getByThreadId({ threadId: stoppedThreadId });
+    }).pipe(Effect.provide(runtimeRepositoryLayer));
 
     // Build and immediately release the provider layer so its scope finalizer
     // (runStopAll) executes.
@@ -3661,6 +3701,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(firstDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
@@ -3701,6 +3742,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(secondDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
@@ -3771,6 +3813,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(firstDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(serverConfigTestLayer),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
@@ -3806,6 +3849,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(secondDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(serverConfigTestLayer),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
@@ -5512,6 +5556,7 @@ const boundedListing = makeProviderServiceLayer({
     getBinding,
     listThreadIds,
     listBindings: () => Effect.die("ProviderService.listSessions does not use listBindings"),
+    removeIfStopped: () => Effect.die("unused"),
   },
 });
 
@@ -5564,7 +5609,9 @@ describe("agent browser access", () => {
       const directoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(runtimeRepositoryLayer),
       );
-      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+      // Layer.mock, not Layer.succeed: the fork adds ~20 members to this shape
+      // and this test only needs getThreadShellById.
+      const projectionLayer = Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
         getTurnStartMessage: () => Effect.die("unused"),
         getImportedAgentSessionSources: () => Effect.die("unused"),
         getUserInputActivity: () => Effect.die("unused"),
