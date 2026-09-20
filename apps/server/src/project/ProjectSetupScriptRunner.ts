@@ -137,6 +137,24 @@ export class ProjectSetupScriptRunner extends Context.Service<
 
 const SETUP_COMMAND_TIMEOUT = Duration.minutes(30);
 
+const OUTPUT_LINE_MAX_LENGTH = 400;
+/** A partial line longer than this is a byte stream, not a line. Keep only the tail. */
+const PARTIAL_LINE_MAX_LENGTH = 4_096;
+
+/** Removes ANSI escape sequences and cursor controls so lines can be shown as plain text. */
+function stripTerminalControl(text: string): string {
+  return (
+    text
+      .replace(
+        // eslint-disable-next-line no-control-regex
+        /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]/g,
+        "",
+      )
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+  );
+}
+
 function setupCompletionCommand(platform: NodeJS.Platform, marker: string): string {
   if (platform === "win32") {
     return [
@@ -283,6 +301,27 @@ export const make = Effect.gen(function* () {
       ProjectSetupScriptRunnerError
     >();
     let outputTail = "";
+    // Upstream's live setup-output forwarding: the worktree setup card renders
+    // these lines while the script runs. Terminal output is a byte stream, so
+    // partial lines are buffered until a newline; a bare carriage return is how
+    // installers redraw a progress line in place, so each redraw becomes its own
+    // line rather than being glued into one long one.
+    const onOutputLine = input.observeCompletion?.onOutputLine;
+    let lineBuffer = "";
+    const forwardOutputLines = (data: string) => {
+      if (!onOutputLine) return Effect.void;
+      lineBuffer += data;
+      const lines = lineBuffer.split(/\r\n|\r|\n/);
+      // A script that never prints a newline must not grow this forever.
+      lineBuffer = (lines.pop() ?? "").slice(-PARTIAL_LINE_MAX_LENGTH);
+      return Effect.forEach(
+        lines
+          .map((line) => stripTerminalControl(line).trimEnd())
+          .filter((line) => line.length > 0 && !line.includes(marker)),
+        (line) => onOutputLine(line.slice(0, OUTPUT_LINE_MAX_LENGTH)),
+        { discard: true },
+      );
+    };
     let unsubscribe: (() => void) | null = null;
     const failCompletion = (cause: unknown) =>
       Deferred.fail(
@@ -320,11 +359,15 @@ export const make = Effect.gen(function* () {
       if (event.type === "output") {
         outputTail = (outputTail + event.data).slice(-4096);
         const match = outputTail.match(new RegExp(`${marker}(-?\\d+)`));
-        if (!match) return Effect.void;
+        if (!match) return forwardOutputLines(event.data);
         const exitCode = Number(match[1]);
-        return exitCode === 0
-          ? Deferred.succeed(completion, { exitCode }).pipe(Effect.asVoid)
-          : failCompletion(new Error(`Setup script exited with code ${exitCode}.`));
+        return forwardOutputLines(event.data).pipe(
+          Effect.flatMap(() =>
+            exitCode === 0
+              ? Deferred.succeed(completion, { exitCode }).pipe(Effect.asVoid)
+              : failCompletion(new Error(`Setup script exited with code ${exitCode}.`)),
+          ),
+        );
       }
       if (event.type === "exited" || event.type === "closed") {
         return failCompletion(
