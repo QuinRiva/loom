@@ -5,6 +5,10 @@ import {
   collectComposerInlineTokens,
   type ComposerInlineToken,
 } from "@t3tools/shared/composerInlineTokens";
+import {
+  INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
+  type TerminalContextDraft,
+} from "./lib/terminalContext";
 
 export type ComposerPromptSegment =
   | {
@@ -38,6 +42,12 @@ export type ComposerPromptSegment =
       contextId: string;
       label: string;
       source: string;
+    }
+  // loom: a terminal-context chip occupies one placeholder codepoint in the
+  // prompt; the draft it stands for is supplied positionally by the caller.
+  | {
+      type: "terminal-context";
+      context: TerminalContextDraft | null;
     };
 
 function rangeIncludesIndex(start: number, end: number, index: number): boolean {
@@ -188,6 +198,19 @@ export function selectionTouchesMentionBoundary(
   });
 }
 
-export function splitPromptIntoComposerSegments(prompt: string): ComposerPromptSegment[] {
-  return splitPromptTextIntoComposerSegments(prompt);
+export function splitPromptIntoComposerSegments(
+  prompt: string,
+  terminalContexts: ReadonlyArray<TerminalContextDraft> = [],
+): ComposerPromptSegment[] {
+  if (!prompt.includes(INLINE_TERMINAL_CONTEXT_PLACEHOLDER)) {
+    return splitPromptTextIntoComposerSegments(prompt);
+  }
+  const segments: ComposerPromptSegment[] = [];
+  prompt.split(INLINE_TERMINAL_CONTEXT_PLACEHOLDER).forEach((text, index) => {
+    if (index > 0) {
+      segments.push({ type: "terminal-context", context: terminalContexts[index - 1] ?? null });
+    }
+    segments.push(...splitPromptTextIntoComposerSegments(text));
+  });
+  return segments;
 }

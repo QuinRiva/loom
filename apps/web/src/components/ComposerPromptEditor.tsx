@@ -83,6 +83,7 @@ import {
 } from "./composerInlineChip";
 import { FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
+import { contextPresentationDefinition } from "./contextPresentationRegistry";
 import { formatProviderSkillDisplayName } from "~/providerSkillPresentation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { registerComposerInlineTokenPaste } from "./composerInlineTokenPaste";
@@ -465,7 +466,12 @@ function $createComposerSkillNode(
 }
 
 function ComposerTerminalContextDecorator(props: { context: TerminalContextDraft }) {
-  return <ComposerPendingTerminalContextChip context={props.context} />;
+  return (
+    <ComposerPendingTerminalContextChip
+      context={props.context}
+      detailsMode={contextPresentationDefinition("terminal").capabilities.details}
+    />
+  );
 }
 
 class ComposerTerminalContextNode extends DecoratorNode<React.ReactElement> {
@@ -962,7 +968,12 @@ function $setComposerEditorPrompt(
       }
       continue;
     }
-    $appendTextWithLineBreaks(paragraph, segment.text);
+    // loom: citations and context references have no chip node in this editor,
+    // so they stay the literal markdown link the prompt already carries.
+    $appendTextWithLineBreaks(
+      paragraph,
+      segment.type === "text" ? segment.text : segment.source,
+    );
   }
 }
 
