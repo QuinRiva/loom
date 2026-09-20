@@ -69,7 +69,7 @@ import {
 } from "./userInputSettlement.ts";
 // loom: subtreeOf powers collectLiveSubtreeIds (exported below) — the shared
 // archive/delete subtree sweep reused by the fork sibling's cancel cascade.
-import { subtreeOf } from "@t3tools/shared/workstreamGraph";
+import { isTerminalLane, subtreeOf } from "@t3tools/shared/workstreamGraph";
 // loom: fork decider cases + the shared dependency coherence backstop live in
 // the fork sibling. This is a deliberate module cycle (decider.loom.ts imports
 // withEventBase/decideCommandSequence/PlannedOrchestrationEvent back from here);
@@ -866,6 +866,26 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             detail: `thread ${command.threadId} changed before automatic settlement`,
           }),
         );
+      }
+      // loom: the workstream auto-settle blocker, enforced HERE rather than only
+      // in the sidebar. Upstream's server-side sweep does not know that an idle
+      // orchestrator whose subtree is still working is load-bearing, so without
+      // this a root vanishes from the inbox while its children run. Same rule as
+      // `workstreamAutoSettleBlocked`'s third clause, read off the command read
+      // model's thread graph. An EXPLICIT settle still outranks it, exactly as
+      // on the client.
+      if (command.type === "thread.auto-settle") {
+        const subtree = collectLiveSubtreeIds(readModel, command.threadId);
+        const hasNonTerminalDescendant = readModel.threads.some(
+          (descendant) =>
+            descendant.id !== command.threadId &&
+            subtree.has(descendant.id) &&
+            descendant.archivedAt === null &&
+            !isTerminalLane(descendant.planLane),
+        );
+        if (hasNonTerminalDescendant) {
+          return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
+        }
       }
       // The server owns settle eligibility. A stale command must not settle
       // a thread whose session is coming alive or working.
