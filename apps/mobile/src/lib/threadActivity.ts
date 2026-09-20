@@ -55,8 +55,11 @@ export interface ThreadFeedActivity {
   readonly turnId: TurnId | null;
   readonly summary: string;
   readonly detail: string | null;
-  readonly fullDetail: string | null;
-  readonly copyText: string;
+  // Lazily derived: an expanded body / copy blob is built only when the row is
+  // actually opened or copied, so a long feed does not materialise every one.
+  readonly canExpand: boolean;
+  readonly getFullDetail: () => string | null;
+  readonly getCopyText: () => string;
   readonly icon:
     | "agent"
     | "alert"

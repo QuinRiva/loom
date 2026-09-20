@@ -13,7 +13,7 @@ import {
   resolveMarkdownFontSizes,
   resolveNativeMarkdownTypography,
 } from "../lib/appearancePreferences";
-import { useThemeColor } from "../lib/useThemeColor";
+import { useUniwindTheme } from "../lib/useUniwindTheme";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import {
   hasNativeSelectableMarkdownText,
@@ -38,14 +38,17 @@ function useMarkdownBlockStyles(): MarkdownBlockStyles {
     () => resolveNativeMarkdownTypography(appearance.baseFontSize),
     [appearance.baseFontSize],
   );
-  const body = String(useThemeColor("--color-md-body"));
-  const strong = String(useThemeColor("--color-md-strong"));
-  const link = String(useThemeColor("--color-md-link"));
-  const blockquoteBorder = String(useThemeColor("--color-md-blockquote-border"));
-  const blockquoteBackground = String(useThemeColor("--color-md-blockquote-bg"));
-  const codeBackground = String(useThemeColor("--color-md-code-bg"));
-  const codeText = String(useThemeColor("--color-md-code-text"));
-  const horizontalRule = String(useThemeColor("--color-md-hr"));
+  // One palette read on the root theme commit, not eight CSS-variable
+  // subscriptions (upstream retired `useThemeColor` for exactly that reason).
+  const theme = useUniwindTheme();
+  const body = String(theme["--color-md-body"]);
+  const strong = String(theme["--color-md-strong"]);
+  const link = String(theme["--color-md-link"]);
+  const blockquoteBorder = String(theme["--color-md-blockquote-border"]);
+  const blockquoteBackground = String(theme["--color-md-blockquote-bg"]);
+  const codeBackground = String(theme["--color-md-code-bg"]);
+  const codeText = String(theme["--color-md-code-text"]);
+  const horizontalRule = String(theme["--color-md-hr"]);
   const regularFontFamily = useFontFamily("regular");
   const mediumFontFamily = useFontFamily("medium");
   const boldFontFamily = useFontFamily("bold");
