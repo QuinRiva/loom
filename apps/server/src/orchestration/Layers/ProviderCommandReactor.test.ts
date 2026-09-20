@@ -503,6 +503,7 @@ describe("ProviderCommandReactor", () => {
           },
           subscribeDomainEvents: engine.subscribeDomainEvents,
           latestSequence: engine.latestSequence,
+          readStreamEvents: () => Stream.empty,
         } satisfies OrchestrationEngineService["Service"];
       }),
     ).pipe(Layer.provide(orchestrationLayer));

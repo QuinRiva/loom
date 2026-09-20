@@ -1713,6 +1713,8 @@ describe("startup stale session reconciliation", () => {
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
           latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused"),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getCommandReadModel: () =>
@@ -5548,6 +5550,8 @@ describe("fan-in settlement releases dependents", () => {
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
           latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused"),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getLeanShellSnapshot: () => shellSnapshot,
@@ -5628,6 +5632,8 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
       streamDomainEvents: Stream.fromPubSub(events),
       subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
       latestSequence: Effect.succeed(0),
+      readThreadEvents: () => Stream.empty,
+      getThreadReplayStats: () => Effect.die("unused"),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
       getLeanShellSnapshot: () =>
@@ -6124,6 +6130,8 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
       streamDomainEvents: Stream.fromPubSub(events),
       subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
       latestSequence: Effect.succeed(0),
+      readThreadEvents: () => Stream.empty,
+      getThreadReplayStats: () => Effect.die("unused"),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
       getLeanShellSnapshot: () =>
@@ -7260,6 +7268,8 @@ describe("notify_thread deferred-delivery rail", () => {
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
           latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused"),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getCommandReadModel: () =>

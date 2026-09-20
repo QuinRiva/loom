@@ -221,6 +221,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           },
         });
         const engine = OrchestrationEngine.OrchestrationEngineService.of({
+          readStreamEvents: () => Stream.empty,
           dispatch: (command) => Effect.sync(() => ({ sequence: commands.push(command) })),
           readEvents: () => Stream.empty,
           readThreadEvents: () => Stream.empty,
@@ -230,6 +231,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+          removeIfStopped: () => Effect.die("unused"),
           upsert: (binding) => Effect.sync(() => void bindings.push(binding)),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.void,
@@ -326,6 +328,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           recentThreads: () => Stream.succeed({ _tag: "Skipped" }),
         });
         const engine = OrchestrationEngine.OrchestrationEngineService.of({
+          readStreamEvents: () => Stream.empty,
           dispatch: () => Effect.die("must not dispatch for a scanner skip"),
           readEvents: () => Stream.empty,
           readThreadEvents: () => Stream.empty,
@@ -335,6 +338,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+          removeIfStopped: () => Effect.die("unused"),
           upsert: () => Effect.die("must not bind a scanner skip"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.die("unused"),
@@ -367,6 +371,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           recentThreads: () => Stream.fromIterable([makeThreadOutcome(makeThread("codex"))]),
         });
         const engine = OrchestrationEngine.OrchestrationEngineService.of({
+          readStreamEvents: () => Stream.empty,
           dispatch: (command) => {
             if (rejectedCommandIds.has(command.commandId)) {
               return Effect.fail(
@@ -400,6 +405,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+          removeIfStopped: () => Effect.die("unused"),
           upsert: (binding) => {
             bindingAttemptCount += 1;
             if (bindingAttemptCount === 1) {
@@ -454,6 +460,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           resumeCursor: { threadId: "newer-codex-session" },
         };
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+          removeIfStopped: () => Effect.die("unused"),
           upsert: () => Effect.die("must not replace an active binding"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.void,
@@ -462,6 +469,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           listBindings: () => Effect.die("unused"),
         });
         const engine = OrchestrationEngine.OrchestrationEngineService.of({
+          readStreamEvents: () => Stream.empty,
           dispatch: () => Effect.die("must not replay history or settle active work"),
           readEvents: () => Stream.empty,
           readThreadEvents: () => Stream.empty,
@@ -500,6 +508,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         });
         const commands: Array<OrchestrationCommand> = [];
         const engine = OrchestrationEngine.OrchestrationEngineService.of({
+          readStreamEvents: () => Stream.empty,
           dispatch: (command) => Effect.sync(() => ({ sequence: commands.push(command) })),
           readEvents: () => Stream.empty,
           readThreadEvents: () => Stream.empty,
@@ -509,6 +518,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+          removeIfStopped: () => Effect.die("unused"),
           upsert: () => Effect.die("must not bind malformed or wrong-project sessions"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.die("unused"),
