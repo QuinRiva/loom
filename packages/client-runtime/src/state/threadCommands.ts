@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
-import { canSnooze } from "./threadSettled.ts";
+import { canSnooze } from "@t3tools/shared/threadSettled";
 
 import {
   createAtomCommandScheduler,

@@ -50,6 +50,8 @@ import {
   type EnvironmentThreadState,
 } from "./threads.ts";
 
+import { THREAD_FIXTURE_DEFAULTS } from "./threadFixtureDefaults.ts";
+
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
   label: "Test environment",
@@ -58,6 +60,7 @@ const TARGET = new PrimaryConnectionTarget({
 });
 const THREAD_ID = ThreadId.make("thread-1");
 const THREAD: OrchestrationThread = {
+  ...THREAD_FIXTURE_DEFAULTS,
   id: THREAD_ID,
   projectId: ProjectId.make("project-1"),
   title: "Cached thread",

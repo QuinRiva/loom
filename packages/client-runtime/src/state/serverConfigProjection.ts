@@ -1,8 +1,18 @@
-import type { ServerConfig, ServerConfigStreamEvent } from "@t3tools/contracts";
+import type {
+  AccountUsageSnapshot,
+  ServerConfig,
+  ServerConfigStreamEvent,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 export interface ServerConfigProjection {
   readonly config: ServerConfig;
+  // loom: live, account-scoped subscription usage (5-hour + weekly limits).
+  // Rides the config/lifecycle channel rather than the event-sourced
+  // orchestration projection because it is ephemeral global server state.
+  // Replace-on-emit: each `accountUsage` event carries the full current
+  // per-instance snapshot list. Empty until the first usage event arrives.
+  readonly accountUsage: ReadonlyArray<AccountUsageSnapshot>;
   readonly latestEvent: ServerConfigStreamEvent;
   readonly source: "cache" | "live";
 }
@@ -45,12 +55,20 @@ export function applyServerConfigProjection(
           ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
           ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),
         },
+        accountUsage: [],
         latestEvent: event,
         source: "live" as const,
       });
     }
+    case "accountUsage":
+      return Option.map(current, (projection) => ({
+        ...projection,
+        accountUsage: event.payload.usage,
+        latestEvent: event,
+      }));
     case "keybindingsUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           keybindings: event.payload.keybindings,
@@ -61,6 +79,7 @@ export function applyServerConfigProjection(
       }));
     case "providerStatuses":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           providers: event.payload.providers,
@@ -70,6 +89,7 @@ export function applyServerConfigProjection(
       }));
     case "settingsUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           settings: event.payload.settings,
@@ -79,6 +99,7 @@ export function applyServerConfigProjection(
       }));
     case "environmentThemesUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           environmentThemes: event.payload.themes.length > 0 ? event.payload.themes : undefined,
@@ -88,6 +109,7 @@ export function applyServerConfigProjection(
       }));
     case "usageLimitSourcesUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           usageLimitSources: event.payload.sources.length > 0 ? event.payload.sources : undefined,

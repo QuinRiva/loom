@@ -60,7 +60,6 @@ export type SetThreadDependenciesInput = CommandInput<"thread.dependencies.set">
 export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond">;
 export type RespondToThreadUserInputInput = CommandInput<"thread.user-input.respond">;
 export type DismissThreadUserInputInput = CommandInput<"thread.user-input.dismiss">;
-export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert">;
 export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert"> & {
   readonly restoreFiles?: boolean;
 };

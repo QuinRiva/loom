@@ -20,8 +20,11 @@ import type { RemoteEnvironmentRequestError } from "./rpc/http.ts";
 import { fetchEnvironmentThreadSnapshot } from "./state/threadSnapshotHttp.ts";
 import { applyThreadDetailEvent } from "./state/threadReducer.ts";
 
+import { THREAD_FIXTURE_DEFAULTS } from "./state/threadFixtureDefaults.ts";
+
 const timestamp = "2026-09-01T00:00:00.000Z";
 const thread: OrchestrationThread = {
+  ...THREAD_FIXTURE_DEFAULTS,
   id: ThreadId.make("thread-1"),
   projectId: ProjectId.make("project-1"),
   title: "Remote thread",

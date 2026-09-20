@@ -244,6 +244,7 @@ describe("hasQueuedTurnStart", () => {
         runtimeMode: "full-access",
         activeTurnId: null,
         lastError: "failed",
+        queuedMessages: { steering: [], followUp: [] },
         updatedAt: NOW,
       },
     });

@@ -35,6 +35,8 @@ import { fetchEnvironmentSessionState } from "./session.ts";
 import { fetchEnvironmentShellSnapshot } from "./shellSnapshotHttp.ts";
 import { fetchEnvironmentThreadSnapshot } from "./threadSnapshotHttp.ts";
 
+import { THREAD_FIXTURE_DEFAULTS } from "./threadFixtureDefaults.ts";
+
 const TARGET = new RelayConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
   label: "Remote environment",
@@ -70,6 +72,7 @@ const SESSION = {
 const UNAUTHENTICATED_SESSION = { authenticated: false, auth: AUTH } satisfies AuthSessionState;
 const SHELL = {
   snapshotSequence: 1,
+  goals: [],
   projects: [],
   threads: [],
   updatedAt: "2026-09-04T00:00:00.000Z",
@@ -77,6 +80,7 @@ const SHELL = {
 const THREAD = {
   snapshotSequence: 2,
   thread: {
+    ...THREAD_FIXTURE_DEFAULTS,
     id: ThreadId.make("thread-1"),
     projectId: ProjectId.make("project-1"),
     title: "Thread",

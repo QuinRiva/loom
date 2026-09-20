@@ -454,7 +454,7 @@ describe("environment entity projections", () => {
       snapshot = applyShellStreamEvent(snapshot, {
         kind: "thread-upserted",
         sequence: 2,
-        thread: { ...snapshot.threads.at(-1)!, title: "Updated last thread" },
+        threads: [{ ...snapshot.threads.at(-1)!, title: "Updated last thread" }],
       });
       harness.registry.set(harness.shellStateAtom, AsyncResult.success(shellState(snapshot)));
       const after = harness.registry.get(listAtom);
@@ -531,7 +531,7 @@ describe("environment entity projections", () => {
       let snapshot = applyShellStreamEvent(SNAPSHOT, {
         kind: "thread-upserted",
         sequence: 2,
-        thread: { ...THREAD_SHELL, projectId: OTHER_PROJECT_ID, title: "Moved thread" },
+        threads: [{ ...THREAD_SHELL, projectId: OTHER_PROJECT_ID, title: "Moved thread" }],
       });
       harness.registry.set(harness.shellStateAtom, AsyncResult.success(shellState(snapshot)));
       const moved = harness.registry.get(harness.threadShells.threadShellAtom(localRef));
@@ -558,7 +558,7 @@ describe("environment entity projections", () => {
       snapshot = applyShellStreamEvent(snapshot, {
         kind: "thread-upserted",
         sequence: 4,
-        thread: { ...THREAD_SHELL, id: createdId },
+        threads: [{ ...THREAD_SHELL, id: createdId }],
       });
       harness.registry.set(harness.shellStateAtom, AsyncResult.success(shellState(snapshot)));
       const created = harness.registry.get(listAtom)[1];

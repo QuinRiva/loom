@@ -23,15 +23,19 @@ import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { createThreadEnvironmentAtoms } from "./threadCommands.ts";
 
+import { THREAD_FIXTURE_DEFAULTS } from "./threadFixtureDefaults.ts";
+
 const ENVIRONMENT_ID = EnvironmentId.make("remote");
 const THREAD_ID = ThreadId.make("thread");
 const NOW = "2026-09-12T10:00:00.000Z";
 const SNAPSHOT: OrchestrationShellSnapshot = {
   snapshotSequence: 1,
   updatedAt: NOW,
+  goals: [],
   projects: [],
   threads: [
     {
+      ...THREAD_FIXTURE_DEFAULTS,
       id: THREAD_ID,
       projectId: ProjectId.make("project"),
       title: "Remote thread",

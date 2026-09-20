@@ -117,6 +117,7 @@ const STUB_THREAD = {
   consults: [],
   peerMessages: [],
   notifySendLog: [],
+  pullRequests: [],
   session: null,
 } as const;
 
@@ -124,6 +125,7 @@ function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
   return {
     client,
     initialConfig: Effect.never,
+    subscribeServerConfig: () => Stream.never,
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,

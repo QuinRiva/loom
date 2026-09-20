@@ -352,68 +352,23 @@ export function resolveServerUpdateProgressResult<E>(
   return Effect.fail(new ServerUpdateProgressIncompleteError({ targetVersion }));
 }
 
-export interface ServerConfigProjection {
-  readonly config: ServerConfig;
-  // Live, account-scoped subscription usage (5-hour + weekly limits). Rides the
-  // config/lifecycle channel rather than the event-sourced orchestration
-  // projection because it is ephemeral global server state. Replace-on-emit:
-  // each `accountUsage` event carries the full current per-instance snapshot
-  // list. Empty until the first usage event arrives.
-  readonly accountUsage: ReadonlyArray<AccountUsageSnapshot>;
-  readonly latestEvent: ServerConfigStreamEvent;
-  readonly source: "cache" | "live";
-}
-
-export function applyServerConfigProjection(
-  current: Option.Option<ServerConfigProjection>,
-  event: ServerConfigStreamEvent,
-): Option.Option<ServerConfigProjection> {
-  switch (event.type) {
-    case "snapshot":
-      return Option.some({
-        config: event.config,
-        accountUsage: [],
-        latestEvent: event,
-        source: "live",
-      });
-    case "accountUsage":
-      return Option.map(current, (projection) => ({
-        ...projection,
-        accountUsage: event.payload.usage,
-        latestEvent: event,
-      }));
-    case "keybindingsUpdated":
-      return Option.map(current, (projection) => ({
-        ...projection,
-        config: {
-          ...projection.config,
-          keybindings: event.payload.keybindings,
-          issues: event.payload.issues,
-        },
-        latestEvent: event,
-        source: "live",
-      }));
-    case "providerStatuses":
-      return Option.map(current, (projection) => ({
-        ...projection,
-        config: {
-          ...projection.config,
-          providers: event.payload.providers,
-        },
-        latestEvent: event,
-        source: "live",
-      }));
-    case "settingsUpdated":
-      return Option.map(current, (projection) => ({
-        ...projection,
-        config: {
-          ...projection.config,
-          settings: event.payload.settings,
-        },
-        latestEvent: event,
-        source: "live",
-      }));
+// loom: the lifecycle stream emits `welcome` then `ready`; only the welcome
+// payload carries the server descriptor, so keep the latest one.
+export function projectServerWelcome(
+  current: Option.Option<ServerLifecycleWelcomePayload>,
+  event: {
+    readonly type: "welcome" | "ready";
+    readonly payload: unknown;
+  },
+): readonly [
+  Option.Option<ServerLifecycleWelcomePayload>,
+  ReadonlyArray<ServerLifecycleWelcomePayload>,
+] {
+  if (event.type !== "welcome") {
+    return [current, []];
   }
+  const welcome = event.payload as ServerLifecycleWelcomePayload;
+  return [Option.some(welcome), [welcome]];
 }
 
 export function projectServerConfig(
@@ -1070,7 +1025,15 @@ export function createServerEnvironmentAtoms<R, E>(
       refreshTrigger: ({ environmentId }) => usagePricesAtom(environmentId),
     }),
     configProjection,
-    welcome,
+    // loom: the server lifecycle welcome payload, projected to its latest value.
+    welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:welcome",
+      tag: WS_METHODS.subscribeServerLifecycle,
+      transform: (stream) =>
+        stream.pipe(
+          Stream.mapAccum(Option.none<ServerLifecycleWelcomePayload>, projectServerWelcome),
+        ),
+    }),
     consumeResetCredit: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:consume-reset-credit",
       tag: WS_METHODS.providerConsumeResetCredit,
@@ -1139,6 +1102,14 @@ export function createServerEnvironmentAtoms<R, E>(
     retroDraft: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:retro-draft",
       tag: WS_METHODS.serverRetroDraft,
+    }),
+    refreshUsageRates: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:refresh-usage-rates",
+      tag: WS_METHODS.serverRefreshUsageRates,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
     }),
     retryResourceTelemetry: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:retry-resource-telemetry",

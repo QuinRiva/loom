@@ -374,6 +374,7 @@ const sessionSet = (
         runtimeMode: "full-access",
         activeTurnId: status === "running" ? TurnId.make(turnId) : null,
         lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
         updatedAt: "2026-04-01T03:00:00.000Z",
       },
     },
