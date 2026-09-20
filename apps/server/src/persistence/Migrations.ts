@@ -76,7 +76,9 @@ import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
  * Uses Migrator.fromRecord which parses the key format and
  * returns migrations sorted by ID.
  */
-const migrationEntries = [
+// loom: exported (the ONLY divergence from upstream's copy) so LoomMigrations.test.ts
+// can replay the pre-split historical ledger and prove schema equivalence.
+export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
   [3, "CheckpointDiffBlobs", Migration0003],

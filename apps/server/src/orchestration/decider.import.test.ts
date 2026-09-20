@@ -35,6 +35,7 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: null,
+          defaultStartFromOrigin: null,
           scripts: [],
           createdAt,
           updatedAt: createdAt,

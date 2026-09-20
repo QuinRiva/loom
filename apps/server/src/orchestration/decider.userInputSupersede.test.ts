@@ -25,6 +25,7 @@ import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-07-28T02:30:31.889Z";
 const THREAD = ThreadId.make("thread-supersede");
@@ -52,6 +53,7 @@ const makeReadModel = (
   goals: [],
   threads: [
     {
+      ...loomThreadFixtureDefaults,
       id: THREAD,
       projectId: ProjectId.make("project-1"),
       goalId: null,

@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const threadId = ThreadId.make("thread-1");
@@ -40,9 +41,11 @@ function makeReadModel(
 ): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
+    goals: [],
     projects: [],
     threads: [
       {
+        ...loomThreadFixtureDefaults,
         id: threadId,
         projectId: ProjectId.make("project-1"),
         title: "Thread",

@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
 import { isThreadDetailEvent } from "../ws.ts";
 
 const decodeCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
@@ -53,6 +54,7 @@ function makeLink(overrides: Partial<ThreadPullRequestLink> = {}): ThreadPullReq
 function makeReadModel(pullRequests: ReadonlyArray<ThreadPullRequestLink>): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
+    goals: [],
     projects: [
       {
         id: ProjectId.make("project-1"),
@@ -78,6 +80,7 @@ function makeReadModel(pullRequests: ReadonlyArray<ThreadPullRequestLink>): Orch
     ],
     threads: [
       {
+        ...loomThreadFixtureDefaults,
         id: THREAD_ID,
         projectId: ProjectId.make("project-1"),
         title: "Thread",

@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 // The Effect test clock starts at the epoch.
@@ -22,12 +23,12 @@ const FUTURE_WAKE = "1970-01-02T00:00:00.000Z";
 const THREAD_ID = ThreadId.make("thread-1");
 
 function makeReadModel(overrides: Partial<OrchestrationThread> = {}): OrchestrationReadModel {
-  return {
-    snapshotSequence: 0,
-    projects: [],
-    threads: [
-      {
-        id: THREAD_ID,
+  // Object.assign, not a trailing spread: under exactOptionalPropertyTypes a
+  // `Partial` spread turns every field of the result optional again.
+  const thread: OrchestrationThread = Object.assign(
+    {
+      ...loomThreadFixtureDefaults,
+      id: THREAD_ID,
         projectId: ProjectId.make("project-1"),
         title: "Thread",
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
@@ -52,11 +53,16 @@ function makeReadModel(overrides: Partial<OrchestrationThread> = {}): Orchestrat
         messages: [],
         proposedPlans: [],
         activities: [],
-        checkpoints: [],
-        session: null,
-        ...overrides,
-      },
-    ],
+      checkpoints: [],
+      session: null,
+    },
+    overrides,
+  );
+  return {
+    snapshotSequence: 0,
+    projects: [],
+    goals: [],
+    threads: [thread],
     updatedAt: NOW,
   };
 }

@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
 import { decideOrchestrationCommand } from "./decider.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const THREAD_ID = ThreadId.make("thread-1");
@@ -26,6 +27,7 @@ function makeReadModel(checkpoints: ReadonlyArray<OrchestrationCheckpointSummary
     projects: [],
     threads: [
       {
+        ...loomThreadFixtureDefaults,
         id: THREAD_ID,
         projectId: ProjectId.make("project-1"),
         title: "Thread",
