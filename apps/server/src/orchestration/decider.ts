@@ -11,8 +11,12 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type OrchestrationThread,
+  type OrchestrationThreadActivity,
   type ProviderUserInputAnswers,
   type ThreadId,
+  type ThreadPullRequestKey,
+  type ThreadPullRequestLink,
   type UserInputResolvedOutcome,
   DEFAULT_THREAD_TITLE, // loom: §4 title provenance guard
   type TitleProvenance,
@@ -75,6 +79,11 @@ import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
+const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
+
+const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
+
 // loom: §4 provenance a create/meta title write is stamped with when the caller
 // left it unspecified. A bare "New thread" is `default` (freely replaceable by
 // automation); any other explicit title write with no stated provenance is
@@ -116,20 +125,21 @@ function isStaleApprovalFailureDetail(payload: Record<string, unknown> | null): 
 }
 
 /**
- * Blocked-on-you work derived from the thread's retained activities: an open
- * approval or an open question. The server-side twin of the shell's
- * hasPendingApprovals / hasPendingUserInput flags, which the decider read model
- * does not carry.
+ * Blocked-on-you work derived from the thread's retained activities: the still
+ * open approval / question `requested` activities, keyed by requestId. The
+ * server-side twin of the shell's hasPendingApprovals / hasPendingUserInput
+ * flags, which the decider read model does not carry. Callers that only need
+ * "is anything blocked" read `.size`; settle inspects the activities because a
+ * manual settle may dismiss message-mode questions.
  *
  * Scans the read model's activities, which the projector caps at the most
  * recent 500. That bound is safe here: an OPEN approval/user-input request
  * blocks its turn, so the thread cannot accumulate hundreds of later
  * activities while one is outstanding.
  */
-function hasOpenBlockingRequest(thread: {
-  readonly activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>;
-}): boolean {
-  if (openUserInputRequestIds(thread.activities).size > 0) return true;
+function openBlockingRequests(
+  thread: Pick<OrchestrationThread, "activities">,
+): ReadonlyMap<string, OrchestrationThreadActivity> {
   const openApprovalIds = new Set(openRequestIds(thread.activities, ["approval"]));
   for (const activity of thread.activities) {
     if (activity.kind !== "provider.approval.respond.failed") continue;
@@ -141,7 +151,25 @@ function hasOpenBlockingRequest(thread: {
     if (requestId !== null && isStaleApprovalFailureDetail(payload))
       openApprovalIds.delete(requestId);
   }
-  return openApprovalIds.size > 0;
+  const openIds = new Set([...openUserInputRequestIds(thread.activities), ...openApprovalIds]);
+  const requests = new Map<string, OrchestrationThreadActivity>();
+  for (const activity of thread.activities) {
+    if (activity.kind !== "approval.requested" && activity.kind !== "user-input.requested") continue;
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
+    if (requestId !== null && openIds.has(requestId)) requests.set(requestId, activity);
+  }
+  return requests;
+}
+
+function findPullRequestLink(
+  thread: Pick<OrchestrationThread, "pullRequests">,
+  key: ThreadPullRequestKey,
+): ThreadPullRequestLink | undefined {
+  return thread.pullRequests.find((link) => threadPullRequestKeysEqual(link, key));
 }
 
 /** Apply the shared shell-level rule to the detailed command read model. */
@@ -844,7 +872,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (thread.session?.status === "starting" || thread.session?.status === "running") {
         return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
-      const pendingRequests = openRequests(thread);
+      const pendingRequests = openBlockingRequests(thread);
       // Manual settlement dismisses async questions without answering them.
       // Native callbacks and approvals still need a response or interruption.
       if (
@@ -1000,7 +1028,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // user-input request is the agent waiting on the user, and hiding it
       // defeats the request. (A running session IS snoozable — snooze only
       // affects visibility, never the agent.)
-      if (openRequests(thread).size > 0) {
+      if (openBlockingRequests(thread).size > 0) {
         return yield* Effect.fail(
           new OrchestrationCommandInvariantError({
             commandType: command.type,
@@ -2201,8 +2229,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [unsettledEvent, sessionSetEvent];
     }
 
-    case "thread.message.assistant.delta":
-    case "thread.message.reasoning.delta": {
+    // loom: reasoning is ephemeral (v2) — streaming chunks ride the
+    // ReasoningStreamBus and the single durable `thread.message.reasoning.complete`
+    // lives in decider.loom.ts. Upstream's reasoning delta/complete arms stay dropped.
+    case "thread.message.assistant.delta": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2225,7 +2255,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: command.type === "thread.message.reasoning.delta" ? "reasoning" : "assistant",
+          role: "assistant",
           text: command.delta,
           turnId: command.turnId ?? null,
           streaming: true,
@@ -2235,8 +2265,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.message.assistant.complete":
-    case "thread.message.reasoning.complete": {
+    case "thread.message.assistant.complete": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2259,7 +2288,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: command.type === "thread.message.reasoning.complete" ? "reasoning" : "assistant",
+          role: "assistant",
           text: "",
           turnId: command.turnId ?? null,
           streaming: false,
@@ -2281,7 +2310,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         thread.messages.length > 0 ||
         thread.latestTurn !== null ||
         thread.session !== null ||
-        openRequests(thread).size > 0
+        openBlockingRequests(thread).size > 0
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,

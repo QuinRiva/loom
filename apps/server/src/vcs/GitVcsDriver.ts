@@ -32,7 +32,6 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
-import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import {
   makeGitVcsDriverCore,
   PATCH_RENDER_PREFIX_ARGS,

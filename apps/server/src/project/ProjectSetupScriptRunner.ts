@@ -1,6 +1,4 @@
 import { ProjectId } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as NodeCrypto from "node:crypto";
 import * as Cause from "effect/Cause";

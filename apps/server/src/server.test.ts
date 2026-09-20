@@ -112,14 +112,12 @@ const encodeTestJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unk
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as ServerConfig from "./config.ts";
-import { makeRoutesLayer } from "./server.ts";
 import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceLease.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";
-import { isThreadDetailEvent, resolveAvailableEditorsForConfig } from "./ws.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { HTTP_ROUTER_CONFIG, makeRoutesLayer } from "./server.ts";
 import {
@@ -1361,6 +1359,10 @@ const buildAppUnderTest = (options?: {
           shouldRunOpportunisticWork: Effect.succeed(false),
         }),
       ),
+      // loom: `.pipe` tops out at 20 arguments and the merged stack (upstream's
+      // layers plus the fork's mocks) is 23, so the chain is split in two. The
+      // split is positional only; chained pipes compose identically.
+    ).pipe(
       Layer.provide(
         Layer.mock(ServerEnvironment.ServerEnvironment)({
           getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),

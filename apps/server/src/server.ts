@@ -668,6 +668,7 @@ const makeServerLayer = Layer.unwrap(
           }
 
           yield* provisionCliToken(); // loom:
+          const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
           const state = yield* makePersistedServerRuntimeState({
             config,
             port: address.port,

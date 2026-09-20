@@ -1,4 +1,3 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
 // loom: fork event delegation guard.
 import { inferLegacyTitleProvenance, isLoomOrchestrationEvent } from "@t3tools/contracts";
 import type {

@@ -17,10 +17,11 @@ import {
   ModelSelection,
   ThreadAttention,
   ThreadId,
+  ThreadLinkedPullRequest,
+  ThreadTitleState,
   WorkOutcomeRecord,
   WorkstreamRoute,
 } from "@t3tools/contracts";
-import { ModelSelection, ThreadLinkedPullRequest, ThreadTitleState } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({

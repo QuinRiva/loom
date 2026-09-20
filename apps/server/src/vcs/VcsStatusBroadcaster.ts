@@ -162,6 +162,31 @@ interface StreamStatusOptions {
   readonly automaticRemoteRefreshInterval?: Effect.Effect<Duration.Duration, never>;
 }
 
+export class VcsAutoPullPolicy extends Context.Reference<{
+  readonly isEnabled: (cwd: string) => Effect.Effect<boolean, never>;
+}>("t3/vcs/VcsAutoPullPolicy", {
+  defaultValue: () => ({ isEnabled: () => Effect.succeed(false) }),
+}) {}
+
+export const autoPullPolicyLayer = Layer.effect(
+  VcsAutoPullPolicy,
+  Effect.gen(function* () {
+    const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    return {
+      isEnabled: Effect.fn("VcsAutoPullPolicy.isEnabled")(
+        function* (cwd: string) {
+          const project = yield* snapshots.getActiveProjectByWorkspaceRoot(cwd);
+          if (project._tag === "None") return false;
+          const settings = yield* serverSettings.getSettings;
+          return resolveProjectSettings(settings, project.value.id).settings.defaultAutoPull;
+        },
+        Effect.orElseSucceed(() => false),
+      ),
+    };
+  }),
+);
+
 const withRefreshJitter = (interval: Duration.Duration): Effect.Effect<Duration.Duration> =>
   Random.next.pipe(
     Effect.map((factor) =>
@@ -607,6 +632,40 @@ export const make = Effect.gen(function* () {
     const remote = (yield* getCachedStatus(cwd))?.remote?.value ?? null;
     return mergeGitStatusParts(local, remote);
   });
+
+  // loom: upstream keys pollers by cwd and reads `poller.demandCwds`; loom keys
+  // them by repositoryKey with a `subscribers` map, so the background-policy
+  // gate consults this repo's subscribed cwds instead.
+  const refreshPullRequestStatus: VcsStatusBroadcaster["Service"]["refreshPullRequestStatus"] =
+    Effect.fn("VcsStatusBroadcaster.refreshPullRequestStatus")(function* (rawCwd) {
+      const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
+      return yield* withRemoteWriteLock(
+        cwd,
+        Effect.gen(function* () {
+          const cached = yield* getCachedStatus(cwd);
+          if (cached?.remote?.value == null) return null;
+          const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
+          const poller = repositoryKey
+            ? (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey)
+            : undefined;
+          const demandCwds = poller ? [...poller.subscribers.keys()] : [rawCwd];
+          const shouldRefresh = (yield* Effect.forEach(
+            demandCwds,
+            (demandCwd) =>
+              backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
+            { concurrency: "unbounded" },
+          )).some(Boolean);
+          if (!shouldRefresh) return null;
+          // Resolve the checked-out branch again. A cached PR can belong to
+          // the previous branch after an agent checks out another branch.
+          const remote = yield* workflow.remoteStatus(
+            { cwd },
+            { refreshUpstream: false, refreshMissingPullRequest: true },
+          );
+          return yield* updateCachedRemoteStatus(cwd, remote, { publish: true });
+        }),
+      );
+    });
 
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,

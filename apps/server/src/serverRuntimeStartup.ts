@@ -14,9 +14,8 @@ import {
   WorktreeSetupSnapshot,
   worktreeSetupActivityId,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause"; // loom: supports the pretty-printed residual logs below
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause"; // loom: supports the pretty-printed residual logs below
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
