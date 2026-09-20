@@ -1041,3 +1041,140 @@ of loom's schema-derived type.
    not, most likely because the worktree's `node_modules` predated the merge.
    Worth deciding whether the reviewer gate should require a recorded `vp i` +
    full `vp run -r typecheck` transcript rather than a per-package claim.
+
+## Session 6 — the chat-surface cluster is on loom's parent; `apps/web` 635 → 117
+
+The orchestrator resolved session 5's escalation: **the whole chat-surface
+cluster comes from loom's parent**, not just the four components sessions 1–2
+picked `--ours`. That was implemented, and it is the reason the count moved:
+restoring the loom-side logic modules removed **218 errors in one commit**, and
+the four big test files (`MessagesTimeline.logic.test` 101,
+`MessagesTimeline.test` 61, `ChatMarkdown.test` 17, `ChatView.logic.test`) went
+straight to zero — they were failing because loom's components were being
+checked against upstream's logic.
+
+Seven commits, `a04a73b564` … tree clean, nothing pushed, every commit
+`--no-verify`, no rebase, `116eff1261^2` = `c14f6015bf` re-verified after each.
+
+### What the re-home actually restored
+
+`git show 5c350f7a63:<path>` for `ChatView.logic.ts`,
+`chat/MessagesTimeline.logic.ts`, `chat/ComposerCommandMenu.tsx` and their four
+test companions, then the minimum v0.0.43 adaptation:
+
+| adaptation | why |
+| --- | --- |
+| `isImageAttachment()` instead of `attachment.type === "image"` | upstream's attachment union has an open member, so a literal comparison no longer narrows |
+| `pullRequests: []` in `buildLocalDraftThread` | new required `EnvironmentThread` field |
+| `TimelineDurationMessage.role` widened with `"reasoning"` | loom's ephemeral reasoning v2 rows |
+| `dismissible: payload.responseMode === "message"` | new required `PendingUserInput` field |
+| `workEntryDisplayIndicatesToolFailure` at the render site | upstream's fix: a rendered row must not read the user's own command as error output |
+
+Six **loom-only modules the merge deleted outright** were restored because the
+kept components import them: `chat/changedFilesPresentation.ts`,
+`chat/userMessageTerminalContexts.ts`, `chat/ComposerPreviewAnnotationCards.tsx`,
+`chat/modelPickerModelHighlights.ts`, `providerSkillPresentation.ts`, and
+loom's collapsible `chat/ChangedFilesTree.tsx` (upstream's per-file context-menu
+handler folded onto it). The full list of **46 loom-only `apps/web/src` files the
+merge deleted** is at
+`docs/upstream-sync/25-session6-loom-only-web-files-deleted.txt`; the rest are
+either upstream's deliberate dead-code deletions (`ui/card.tsx` et al, upstream
+#9129) or test files. **That list is not fully adjudicated** — it is a
+lost-feature checklist for the reviewer gate.
+
+`lib/{terminalContext,elementContext,previewAnnotation}.ts` were **unioned**:
+loom's trailing-block context API (which the kept components call) alongside
+upstream's new reference-based API (which `composerContextRecords.ts` /
+`ComposerPromptEditor.tsx` call). Neither side was dropped.
+
+### Two features the merge made unreachable, now restored
+
+**1. The whole Pi-first provider setup surface.** `ProviderSetupSection.tsx`'s
+75 errors — the single biggest file cluster in `apps/web` — were **one** cause:
+the merge deleted **nine provider auth/install entries** (`providerAuthState`,
+`startProviderAuth`, `completeProviderAuth`, `cancelProviderAuth`,
+`logoutProviderAuth`, `providerInstallState`, `startProviderInstall`,
+`cancelProviderInstall`, `removeProviderInstallation`) from
+`packages/client-runtime/src/state/server.ts`'s environment-data object. Every
+consumer survived. Restored; 75 → 0. `hostResources` was missing from the same
+object (the load-balancing hook could not read host load) and is also restored.
+
+**2. `workspaceMutationId`.** Upstream added a workspace-mutation refresh key so
+git status and the file preview refresh when the agent changes the tree; loom's
+`ChatView.tsx` lost the memo, the `useWorkspaceMutationRefresh` call and both
+prop hand-offs. Restored.
+
+Also restored: `ContextWindowMeter`'s **Compact context button** (upstream's
+block was deleted from the render while its props survived); loom's
+`/settings/worktrees` route (`routeTree.gen.ts` kept only the import, so the
+route was unreachable); loom's client-side `sidebarAutoSettle*` settings (the
+merge kept only upstream's identically-named **ServerSettings** keys); loom's
+`changeRequest` input to `useThreadActionMenu` (the chat header's settle state
+had silently degraded to `settledOverride` only).
+
+### Decisions taken (not silent drops)
+
+**Element contexts in the composer are gone, deliberately.** Loom's
+`addElementContext` slice had **no production caller in either parent** —
+upstream migrated element picks into preview annotations, and HEAD's draft
+decoder already performs that migration (`elementContextToPreviewAnnotation`).
+Removing the residual `elementContexts` wiring from `ChatView`, `ChatComposer`
+and the store is the clean deletion, not a lost feature. `ComposerPendingElementContexts.tsx` deleted with it.
+
+**`reviewCommentContext` stays loom's discriminated union** (`line` |
+`mdx-anchor`). Upstream's new context-record layer assumed the flat shape; it
+was narrowed to the `line` variant rather than flattening loom's union.
+
+**`auto-settle` now has two same-named settings** — loom's client-side
+`ClientSettings.sidebarAutoSettle*` and upstream's server-side
+`ServerSettings.sidebarAutoSettle*`. Session 4's decision ("teach the server the
+blocker, no switch, no disabled sweep") keeps both rules, so both settings are
+kept. They can disagree if a user edits one. **A wart worth a human's eye.**
+
+### ⚠️ Two things the parent must decide
+
+**1. Upstream's ChatMarkdown grew six capabilities loom's kept version does not
+have.** `imageBaseDir`, `headingLevelOffset`, `environmentId`,
+`extraRemarkPlugins`, `githubMedia`, `pullRequestPanelRef` — consumed by
+`FileMarkdownPreview` (images in a previewed markdown file resolve relative to
+its directory), `ProposedPlanCard` (heading offsetting) and
+`PullRequestMarkdown` (GitHub media + remark plugins). To make the tree compile
+the **call sites now omit them**, which degrades those three merged surfaces.
+This is a real capability gap, not cosmetics, and it needs an explicit choice:
+fold the six into loom's ChatMarkdown, or accept the degradation. Task
+`c75b1bb5`.
+
+**2. Upstream's Device panel and thread pull-request surfaces are merged but
+unwired.** `RightPanelTabs` (upstream's) requires `onAddDevice` /
+`deviceAvailable` / `onAddPullRequests` / `pullRequestsAvailable`; loom's
+`ChatView` has no `addDeviceSurface` (it needs `useDeviceState` and the device
+onboarding dialog) and no pull-requests surface. They are wired to `noop` +
+`false` **explicitly**, so the cards render unavailable rather than faking the
+feature. Same class as pull 6's unmounted Agents panel. Task `2cfc0a7d`.
+
+### Gate status
+
+| gate | state |
+| --- | --- |
+| `vp run typecheck` | **RED** — web 117, server 176, mobile 63; 11 packages green (re-verified after the contracts/client-runtime edits) |
+| `pnpm build` | not attempted (gated on typecheck) |
+| `vp check` | not attempted |
+| composition audit vs both parents | **not done** |
+| migration smoke, PR #191 budget, targeted tests | not attempted |
+
+### New tool
+
+`docs/upstream-sync/pull7-tools/restoredecl.py <rev> <path> <name>...` — pulls a
+named top-level declaration (with its leading comment) out of a merge parent and
+appends it to the working file, skipping names already declared. It over-extracts
+on multi-line `new Set([...])` initialisers; eyeball what it appends.
+
+### What the next session should do, in order
+
+1. **Finish `apps/web` (117).** Source first (68); the three biggest test
+   clusters are one root cause each (see
+   `docs/upstream-sync/25-remaining-typecheck-errors.txt`).
+2. `apps/server` 176 → 0 (`Layer.mock`, per session 5).
+3. `apps/mobile` 63 → 0 (per session 4).
+4. Then the untouched gates: build, `vp check`, the composition audit, the
+   migration smoke, PR #191's transfer budget, and the targeted test run.
