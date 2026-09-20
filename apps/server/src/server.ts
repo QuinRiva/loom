@@ -482,6 +482,9 @@ const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   LoomProviderRuntimeLive, // loom: WorkstreamLiveness/ExhaustionResume/SubscriptionUsage sweeps
 ).pipe(
+  // Subscribes to `account.rate-limits.updated` so usage bars track live
+  // telemetry instead of waiting for the next status probe.
+  Layer.provideMerge(ProviderUsageLimitsIngestionLive),
   Layer.provideMerge(ProviderLayerLive),
   // loom: OrchestrationLayerOnSqlReadClient substitutes upstream OrchestrationLayerLive
   Layer.provideMerge(OrchestrationLayerOnSqlReadClient),

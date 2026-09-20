@@ -115,8 +115,13 @@ loom-local runner that skips by set membership (`applied.has(id)`). Rejected:
 ### 3.2 File organisation
 
 - `apps/server/src/persistence/Migrations.ts` → restored byte-identical to
-  upstream's copy (upstream entries only, and the re-homing comment deleted).
-  Future pulls take upstream's version wholesale with no merge resolution.
+  upstream's copy (upstream entries only, and the re-homing comment deleted)
+  **except for the `export` keyword on `migrationEntries` and the two-line
+  comment above it** — `LoomMigrations.test.ts` replays the pre-split historical
+  interleave and needs the upstream migration bodies, which the manifest does not
+  expose. Upstream only ever appends inside that array, so the conflict surface
+  stays nil; future pulls still take upstream's version wholesale and re-apply
+  the one word.
 - `apps/server/src/persistence/LoomMigrations.ts` → new, loom-owned: the fork
   entries as `1001+`, the fork lane's loader, and the reconciliation.
 - Migration bodies move `033_…`–`064_…` → `1001_…`–`1032_…` (dense, per decision),
