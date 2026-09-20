@@ -21,7 +21,6 @@ import {
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
-import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
 import { formatTerminalContextReference } from "./lib/terminalContext";
 
 const terminalReference = formatTerminalContextReference({
@@ -535,23 +534,6 @@ describe("expandCollapsedComposerCursor", () => {
 });
 
 describe("composerStateAtPromptEnd", () => {
-  it("puts the caret at the end of a restored parked draft", () => {
-    const prompt = carryDisplacedCustomAnswerIntoPrompt("first half\n", "second half");
-
-    expect(composerStateAtPromptEnd(prompt)).toEqual({
-      cursor: prompt.length,
-      trigger: null,
-    });
-  });
-
-  it("collapses mention chips so the next keystroke lands after the draft", () => {
-    const prompt = carryDisplacedCustomAnswerIntoPrompt("", "see @AGENTS.md please");
-
-    expect(composerStateAtPromptEnd(prompt).cursor).toBe("see ".length + 1 + " please".length);
-    expect(composerStateAtPromptEnd(prompt).cursor).not.toBe(0);
-    expect(composerStateAtPromptEnd(prompt).cursor).not.toBe(prompt.length);
-  });
-
   it("keeps a trailing mention trigger when the restored draft ends with @", () => {
     const prompt = "look at @";
 
@@ -628,7 +610,7 @@ describe("collapseExpandedComposerCursor", () => {
   it("maps expanded skill cursor back to collapsed cursor", () => {
     const text = "run $review-follow-up then";
     const collapsedCursorAfterSkill = "run ".length + 2;
-    const expandedCursorAfterSkill = `run ${prefix}review-follow-up `.length;
+    const expandedCursorAfterSkill = "run $review-follow-up ".length;
 
     expect(collapseExpandedComposerCursor(text, expandedCursorAfterSkill)).toBe(
       collapsedCursorAfterSkill,

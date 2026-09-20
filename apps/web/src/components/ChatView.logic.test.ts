@@ -138,6 +138,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    pullRequests: [],
     ...overrides,
   };
 }
@@ -310,12 +311,12 @@ describe("deriveComposerSendState", () => {
     expect(state.hasSendableContent).toBe(true);
   });
 
-  it("treats element contexts as sendable content (no text, no images, no terminals)", () => {
+  it("treats attached contexts as sendable content (no text, no images, no terminals)", () => {
     const state = deriveComposerSendState({
       prompt: "",
       imageCount: 0,
       terminalContexts: [],
-      elementContextCount: 1,
+      attachedContextCount: 1,
     });
 
     expect(state.trimmedPrompt).toBe("");
@@ -323,13 +324,13 @@ describe("deriveComposerSendState", () => {
     expect(state.hasSendableContent).toBe(true);
   });
 
-  it("does NOT treat zero element contexts as sendable", () => {
+  it("does NOT treat zero attached contexts as sendable", () => {
     expect(
       deriveComposerSendState({
         prompt: "",
         imageCount: 0,
         terminalContexts: [],
-        elementContextCount: 0,
+        attachedContextCount: 0,
       }).hasSendableContent,
     ).toBe(false);
   });
