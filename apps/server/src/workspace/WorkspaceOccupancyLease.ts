@@ -95,7 +95,7 @@ export interface WorkspaceLeaseShape {
 }
 
 export class WorkspaceLease extends Context.Service<WorkspaceLease, WorkspaceLeaseShape>()(
-  "t3/workspace/WorkspaceOccupancyLease",
+  "t3/workspace/WorkspaceOccupancyLease/WorkspaceLease",
 ) {}
 
 /**

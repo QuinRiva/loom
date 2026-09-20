@@ -1074,7 +1074,6 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                       const released = yield* Deferred.make<void>();
                       const turnId = resolveSessionCallbackTurnId(sessions, input.threadId);
                       pendingUserInputs.set(requestId, { resolution, released });
-                      pendingUserInputs.set(requestId, { resolution });
                       yield* signalSessionTurnLiveness(input.threadId, turnId);
                       yield* offerRuntimeEvent({
                         type: "user-input.requested",

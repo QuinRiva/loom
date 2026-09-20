@@ -3062,9 +3062,8 @@ export function makeOpenCodeAdapter(
           pendingPermissions: new Map(),
           pendingQuestions: new Map(),
           questionReleaseById: new Map(),
-          partById: new Map(),
-          emittedTextByPartId: new Map(),
           messageRoleById: new Map(),
+          textPartsByMessageId: new Map(),
           turnTokenUsage: undefined,
           activeTurnId: undefined,
           activeAgent: undefined,
@@ -3846,11 +3845,13 @@ export function makeOpenCodeAdapter(
     // (the `question.replied`/`question.rejected` echoes are dropped by ingestion).
     const respondToUserInput: OpenCodeAdapterShape["respondToUserInput"] = Effect.fn(
       "respondToUserInput",
-    )(function* (threadId, requestId, answers, settlement) {
+    )(function* (threadId, requestId, answers, settlement?) {
       const context = yield* ensureSessionContext(sessions, threadId);
       const request = context.pendingQuestions.get(requestId);
       if (!request) {
-        if (context.emittedTerminalRequestIds.has(requestId)) return;
+        // Already terminal: the resolution landed, so delivery is a no-op that
+        // still counts as delivered.
+        if (context.emittedTerminalRequestIds.has(requestId)) return userInputContentDelivered;
         return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "question.reply",
