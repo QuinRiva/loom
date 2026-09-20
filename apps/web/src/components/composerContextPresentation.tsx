@@ -29,7 +29,10 @@ import {
   uploadedAttachmentContextRecord,
 } from "~/lib/composerContextRecords";
 import type { TerminalContextDraft } from "~/lib/terminalContext";
-import type { ReviewCommentContext } from "~/reviewCommentContext";
+import type {
+  LineReviewCommentContext,
+  ReviewCommentContext,
+} from "~/reviewCommentContext";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
 import {
   createContextPresentationRegistry,
@@ -240,7 +243,10 @@ function FileContextChip(props: {
   );
 }
 
-function PullRequestContextChip(props: { record: ReviewCommentContext; toneClassName: string }) {
+function PullRequestContextChip(props: {
+  record: LineReviewCommentContext;
+  toneClassName: string;
+}) {
   const actions = use(ComposerContextActionsContext);
   const metadata = props.record.pullRequest;
   if (metadata === undefined) return null;
@@ -281,7 +287,7 @@ function ComposerReviewCommentDetails({ comment }: { comment: ReviewCommentConte
         </div>
       </div>
       {comment.text.trim() ? <ChatMarkdown text={comment.text.trim()} cwd={undefined} /> : null}
-      {comment.diff.trim() ? (
+      {comment.kind === "line" && comment.diff.trim() ? (
         <div className="flex h-64 min-h-0 flex-col overflow-hidden rounded-md border border-border">
           <ReadOnlySourcePreview name="review.diff" text={comment.diff} />
         </div>
@@ -381,7 +387,7 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
         }
         const isPullRequest = isPullRequestSummaryContext(entry.record);
         const pullRequestState = pullRequestContextDisplayState(entry.record) ?? "unknown";
-        if (isPullRequest && entry.record.pullRequest !== undefined) {
+        if (isPullRequest && entry.record.kind === "line" && entry.record.pullRequest !== undefined) {
           return (
             <PullRequestContextChip
               record={entry.record}
