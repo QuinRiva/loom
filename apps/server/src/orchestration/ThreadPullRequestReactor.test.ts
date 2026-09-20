@@ -122,6 +122,7 @@ const project = {
     },
   },
   defaultModelSelection: null,
+  defaultStartFromOrigin: null,
   scripts: [],
   createdAt: NOW,
   updatedAt: NOW,
@@ -351,6 +352,7 @@ describe("ThreadPullRequestReactor", () => {
                   activeTurnId: null,
                   lastError: null,
                   updatedAt: NOW,
+                  queuedMessages: { steering: [], followUp: [] },
                 },
               },
             };
@@ -583,6 +585,7 @@ describe("ThreadPullRequestReactor", () => {
                 remoteUrl: "git@ssh.dev.azure.com:v3/org/project/repository",
               },
             },
+            defaultStartFromOrigin: null,
           },
           branchPullRequest: () =>
             Effect.succeed({

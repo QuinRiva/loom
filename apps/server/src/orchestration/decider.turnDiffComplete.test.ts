@@ -53,6 +53,7 @@ function makeReadModel(checkpoints: ReadonlyArray<OrchestrationCheckpointSummary
         session: null,
       },
     ],
+    goals: [],
     updatedAt: NOW,
   } satisfies OrchestrationReadModel;
 }

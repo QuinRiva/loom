@@ -25,7 +25,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { UserInputResolvedOutcome } from "./providerRuntime.ts";
+
 // loom: fork additions live in the sibling file; the dependency is strictly
 // one-way (this file → orchestration.loom.ts). See the campaign plan, Slice A.
 import {
@@ -47,6 +47,7 @@ import {
   LoomThreadShellFields,
   LoomThreadStreamItemMembers,
   LoomTurnStartFields,
+  UserInputResolvedOutcome,
   LOOM_AGGREGATE_KINDS,
   LOOM_EVENT_TYPES,
   makeLoomOrchestrationEventMembers,

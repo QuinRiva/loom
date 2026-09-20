@@ -200,6 +200,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-import-shell-")
               activeTurnId: null,
               lastError: null,
               updatedAt: createdAt,
+              queuedMessages: { steering: [], followUp: [] },
             },
           },
         });
@@ -4967,6 +4968,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           activeTurnId: TurnId.make("turn-retry-1"),
           lastError: null,
           updatedAt: createdAt,
+          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       });

@@ -78,6 +78,7 @@ function makeProject(
     scripts: [],
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: NOW,
+    defaultStartFromOrigin: null,
   };
 }
 
@@ -122,6 +123,7 @@ function makeSnapshot(
     projects,
     threads,
     updatedAt: NOW,
+    goals: [],
   };
 }
 
@@ -387,6 +389,7 @@ describe("ThreadSettlementReactor", () => {
             runtimeMode: "full-access" as const,
             activeTurnId: null,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: NOW,
           };
           const threads = [

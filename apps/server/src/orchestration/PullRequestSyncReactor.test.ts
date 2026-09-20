@@ -59,6 +59,7 @@ function makeProject(id: ProjectId = PROJECT_ID): OrchestrationProjectShell {
     scripts: [],
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: NOW,
+    defaultStartFromOrigin: null,
   };
 }
 
@@ -133,6 +134,7 @@ function makeSnapshot(
     projects: [makeProject()],
     threads,
     updatedAt: NOW,
+    goals: [],
   };
 }
 

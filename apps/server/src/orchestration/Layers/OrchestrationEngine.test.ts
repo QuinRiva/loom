@@ -196,6 +196,7 @@ describe("OrchestrationEngine", () => {
               activeTurnId: status === "running" ? TurnId.make("turn-1") : null,
               lastError: null,
               updatedAt: now(),
+              queuedMessages: { steering: [], followUp: [] },
             },
           }),
         );
@@ -619,6 +620,7 @@ describe("OrchestrationEngine", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: createdAt,
+          queuedMessages: { steering: [], followUp: [] },
         },
       });
 

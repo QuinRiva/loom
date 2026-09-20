@@ -723,6 +723,7 @@ describe("ProviderCommandReactor", () => {
               activeTurnId: null,
               lastError: null,
               updatedAt: createdAt,
+              queuedMessages: { steering: [], followUp: [] },
             },
             createdAt,
           });
@@ -1174,6 +1175,7 @@ describe("ProviderCommandReactor", () => {
             activeTurnId: null,
             lastError: null,
             updatedAt: now,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt: now,
         });
@@ -1363,6 +1365,7 @@ describe("ProviderCommandReactor", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: now,
+          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt: now,
       });
@@ -1692,6 +1695,7 @@ describe("ProviderCommandReactor", () => {
             activeTurnId: turnId,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
         });
         yield* harness.engine.dispatch({
@@ -1717,6 +1721,7 @@ describe("ProviderCommandReactor", () => {
               activeTurnId: null,
               lastError: null,
               updatedAt: createdAt,
+              queuedMessages: { steering: [], followUp: [] },
             },
           });
         yield* ready("title-ready");
@@ -4176,6 +4181,7 @@ describe("ProviderCommandReactor", () => {
             activeTurnId: asTurnId("turn-1"),
             lastError: null,
             updatedAt: now,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt: now,
         });
@@ -4243,6 +4249,7 @@ describe("ProviderCommandReactor", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: now,
+          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt: now,
       });
@@ -4289,6 +4296,7 @@ describe("ProviderCommandReactor", () => {
           activeTurnId: asTurnId("turn-1"),
           lastError: null,
           updatedAt: now,
+          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt: now,
       });
@@ -4307,6 +4315,7 @@ describe("ProviderCommandReactor", () => {
               activeTurnId: null,
               lastError: null,
               updatedAt: completedAt,
+              queuedMessages: { steering: [], followUp: [] },
             },
             createdAt: completedAt,
           })
@@ -5175,6 +5184,7 @@ describe("ProviderCommandReactor", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: now,
+          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt: now,
       });

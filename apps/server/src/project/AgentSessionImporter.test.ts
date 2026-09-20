@@ -105,6 +105,7 @@ const makeProject = (): OrchestrationProjectShell => ({
   scripts: [],
   createdAt: "2026-08-24T09:00:00.000Z",
   updatedAt: "2026-08-24T09:00:00.000Z",
+  defaultStartFromOrigin: null,
 });
 
 const makeProjectedThread = (input: {

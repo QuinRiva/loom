@@ -187,6 +187,7 @@ describe("resolveAutoSettlementAt", () => {
             activeTurnId: TurnId.make("turn-1"),
             lastError: null,
             updatedAt: NOW,
+            queuedMessages: { steering: [], followUp: [] },
           },
         }),
       ),

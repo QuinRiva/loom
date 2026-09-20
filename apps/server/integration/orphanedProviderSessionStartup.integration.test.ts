@@ -191,6 +191,7 @@ it.effect(
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -243,6 +244,7 @@ it.effect(
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -414,6 +416,7 @@ it.effect.each(["opt-in desktop restart", "marked remote update"] as const)(
             activeTurnId,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });

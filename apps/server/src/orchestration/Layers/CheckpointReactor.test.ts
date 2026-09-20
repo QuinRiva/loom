@@ -963,6 +963,7 @@ describe("CheckpointReactor", () => {
             activeTurnId: turnId,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -1007,6 +1008,7 @@ describe("CheckpointReactor", () => {
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -1981,6 +1983,7 @@ describe("CheckpointReactor", () => {
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
+            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         }),

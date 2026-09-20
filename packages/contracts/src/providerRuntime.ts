@@ -17,6 +17,17 @@ import {
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
 import { ProviderApprovalOption } from "./orchestration.ts";
+// loom: these two are the fork's, but they are declared in `orchestration.loom.ts`
+// (a `baseSchemas`-only leaf) because `orchestration.ts` needs them too and this
+// module already value-imports from `orchestration.ts` — declaring them here
+// closed a load-time import cycle. Re-exported so their public path is unchanged.
+import {
+  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
+  RuntimeErrorClass,
+  UserInputResolvedOutcome,
+} from "./orchestration.loom.ts";
+
+export { DEFAULT_USER_INPUT_RESOLVED_OUTCOME, RuntimeErrorClass, UserInputResolvedOutcome };
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -98,18 +109,6 @@ export type RuntimeContentStreamKind = typeof RuntimeContentStreamKind.Type;
 const RuntimeSessionExitKind = Schema.Literals(["graceful", "error"]);
 export type RuntimeSessionExitKind = typeof RuntimeSessionExitKind.Type;
 
-export const RuntimeErrorClass = Schema.Literals([
-  "provider_error",
-  "transport_error",
-  "permission_error",
-  "validation_error",
-  // Subscription/quota exhaustion (5h/weekly limit). Distinct from a generic
-  // provider_error so the exhaustion resume sweep can find stalled turns and
-  // the UI can surface "limit reached — resets …" rather than a raw failure.
-  "quota_exhausted",
-  "unknown",
-]);
-export type RuntimeErrorClass = typeof RuntimeErrorClass.Type;
 
 const TOOL_LIFECYCLE_ITEM_TYPES = [
   "command_execution",
@@ -601,18 +600,6 @@ export const UserInputRequestedPayload = Schema.Struct({
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
-// How a user-input request ended. Additive: an emitter that never sets it means
-// `answered`, which is what every pre-outcome emitter meant. `superseded` carries
-// the plain message the human sent instead of using the form; `cancelled` covers
-// runtime cancellation AND server reconciliation.
-export const UserInputResolvedOutcome = Schema.Literals([
-  "answered",
-  "dismissed",
-  "superseded",
-  "cancelled",
-]);
-export type UserInputResolvedOutcome = typeof UserInputResolvedOutcome.Type;
-export const DEFAULT_USER_INPUT_RESOLVED_OUTCOME: UserInputResolvedOutcome = "answered";
 
 // The default is applied by the CONTRACT, not by each consumer: a decoded
 // `user-input.resolved` payload always carries an explicit outcome, so the
