@@ -1,4 +1,6 @@
 import * as Equal from "effect/Equal";
+import { resolveWorkEntryToolPresentation } from "@t3tools/client-runtime/work-log/presentation";
+import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   formatDuration,
   workEntryIndicatesToolNeutralStatus,

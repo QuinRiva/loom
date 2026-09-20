@@ -8,7 +8,13 @@ import {
   type EnvironmentThreadStatus,
   mergeEnvironmentThread,
 } from "@t3tools/client-runtime/state/threads";
-import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import type {
+  OrchestrationProposedPlan,
+  OrchestrationSession,
+  ScopedProjectRef,
+  ScopedThreadRef,
+  ServerConfig,
+} from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
@@ -266,3 +272,14 @@ export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
     ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
   );
 }
+
+const EMPTY_PROPOSED_PLANS: ReadonlyArray<OrchestrationProposedPlan> = [];
+const EMPTY_PROPOSED_PLANS_ATOM = Atom.make(EMPTY_PROPOSED_PLANS).pipe(
+  Atom.withLabel("web-thread-proposed-plans:empty"),
+);
+const EMPTY_SESSION_ATOM = Atom.make<OrchestrationSession | null>(null).pipe(
+  Atom.withLabel("web-thread-session:empty"),
+);
+const EMPTY_SYNC_ERROR_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("web-thread-sync-error:empty"),
+);

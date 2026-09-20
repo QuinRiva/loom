@@ -32,7 +32,15 @@ export function ContextWindowMeter(props: {
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
 }) {
-  const { usage, cost, providerDisplayName, modelDisplayName } = props;
+  const {
+    usage,
+    cost,
+    providerDisplayName,
+    modelDisplayName,
+    onCompact,
+    compactDisabled,
+    compactDisabledReason,
+  } = props;
   // Headline = the whole subtree's spend when this thread has descendants (so the
   // root orchestrator shows the entire workstream), else this thread's own spend.
   const headlineCostValue = cost
@@ -199,6 +207,25 @@ export function ContextWindowMeter(props: {
                 Metered-equivalent; may not reflect subscription plans.
               </div>
             </div>
+          ) : null}
+          {onCompact ? (
+            <>
+              <Button
+                size="xs"
+                variant="outline"
+                className="mt-1 w-full justify-center"
+                disabled={compactDisabled}
+                onClick={onCompact}
+              >
+                <Minimize2Icon aria-hidden="true" />
+                Compact context
+              </Button>
+              {compactDisabled && compactDisabledReason ? (
+                <div className="text-pretty text-secondary-label text-[11px]">
+                  {compactDisabledReason}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       </PopoverPopup>

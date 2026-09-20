@@ -2,6 +2,22 @@ import {
   type ComposerInlineToken,
   collectComposerInlineTokens,
 } from "@t3tools/shared/composerInlineTokens";
+import {
+  $createLineBreakNode,
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  COMMAND_PRIORITY_HIGH,
+  PASTE_COMMAND,
+  type LexicalEditor,
+  type LexicalNode,
+} from "lexical";
+
+interface ComposerInlineTokenPasteOptions {
+  createMentionNode: (path: string) => LexicalNode;
+  getExpandedAbsoluteOffsetForPoint: (node: LexicalNode, pointOffset: number) => number;
+}
 import { ComposerContextId } from "@t3tools/contracts";
 import type { ComposerContextClipboardFragment } from "@t3tools/contracts";
 import {

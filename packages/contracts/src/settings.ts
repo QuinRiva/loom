@@ -301,6 +301,15 @@ export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
 export const ClientSettingsSchema = Schema.Struct({
   ...LoomClientSettingsFields, // loom:
+  // loom: the sidebar's own auto-settle partition. Upstream v0.0.43 added a
+  // server-side sweep reading identically-named ServerSettings keys; loom keeps
+  // its client rule too (it carries the workstream blocker), so both exist.
+  // Not in settings.loom.ts: SidebarAutoSettleAfterDays is declared here, and
+  // settings.loom.ts must not import back from settings.ts.
+  sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
+  ),
+  sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1568,6 +1577,8 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
   ...LoomClientSettingsPatchFields, // loom:
+  sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)), // loom:
+  sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean), // loom:
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

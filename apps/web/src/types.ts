@@ -4,6 +4,7 @@ import type {
   ChatImageAttachment as ContractChatImageAttachment,
   ChatUnknownAttachment as ContractChatUnknownAttachment,
   OrchestrationGoal,
+  OrchestrationLatestTurn,
   OrchestrationGoalShell,
   OrchestrationGoalTask,
   OrchestrationCheckpointFile,

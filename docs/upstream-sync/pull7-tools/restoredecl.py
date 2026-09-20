@@ -33,7 +33,7 @@ def find(name):
             start -= 1
         end = i
         for j in range(i, len(lines)):
-            if lines[j] in ("}", "};", "];", ")"):
+            if lines[j] in ("}", "};", "];", ")", "]);", "});", ")};"):
                 end = j
                 break
             if lines[j].rstrip().endswith(";") and j == i:

@@ -207,11 +207,6 @@ import {
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
-import {
-  appendElementContextsToPrompt,
-  type ElementContextDraft,
-  formatElementContextLabel,
-} from "../lib/elementContext";
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
@@ -1287,9 +1282,6 @@ function ChatViewContent(props: ChatViewProps) {
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
-  const setComposerDraftElementContexts = useComposerDraftStore(
-    (store) => store.setElementContexts,
-  );
   const setComposerDraftPreviewAnnotations = useComposerDraftStore(
     (store) => store.setPreviewAnnotations,
   );
@@ -1318,7 +1310,6 @@ function ChatViewContent(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
-  const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -4038,7 +4029,6 @@ function ChatViewContent(props: ChatViewProps) {
       (draft.prompt.trim().length > 0 ||
         draft.images.length > 0 ||
         draft.terminalContexts.length > 0 ||
-        draft.elementContexts.length > 0 ||
         draft.previewAnnotations.length > 0 ||
         draft.reviewComments.length > 0),
     );
@@ -4550,7 +4540,6 @@ function ChatViewContent(props: ChatViewProps) {
           prompt: promptRef.current,
           imageCount: composerImagesRef.current.length,
           terminalContextCount: composerTerminalContextsRef.current.length,
-          elementContextCount: composerElementContextsRef.current.length,
           previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
           reviewCommentCount: draft?.reviewComments.length ?? 0,
         };
@@ -4601,7 +4590,6 @@ function ChatViewContent(props: ChatViewProps) {
     const {
       images: composerImages,
       terminalContexts: composerTerminalContexts,
-      elementContexts: composerElementContexts,
       previewAnnotations: composerPreviewAnnotations,
       reviewComments: composerReviewComments,
       selectedProvider: ctxSelectedProvider,
@@ -4622,7 +4610,6 @@ function ChatViewContent(props: ChatViewProps) {
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
       elementContextCount:
-        composerElementContexts.length +
         composerPreviewAnnotations.length +
         composerReviewComments.length,
     });
@@ -4637,7 +4624,6 @@ function ChatViewContent(props: ChatViewProps) {
       hasAttachmentsOrContexts:
         composerImages.length > 0 ||
         composerTerminalContexts.length > 0 ||
-        composerElementContexts.length > 0 ||
         composerPreviewAnnotations.length > 0 ||
         composerReviewComments.length > 0,
     });
@@ -4678,7 +4664,6 @@ function ChatViewContent(props: ChatViewProps) {
       hasAttachmentsOrContexts:
         composerImages.length > 0 ||
         composerTerminalContexts.length > 0 ||
-        composerElementContexts.length > 0 ||
         composerPreviewAnnotations.length > 0 ||
         composerReviewComments.length > 0,
     });
@@ -4720,7 +4705,6 @@ function ChatViewContent(props: ChatViewProps) {
     const standaloneSlashCommand =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
-      composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
       composerReviewComments.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
@@ -4799,18 +4783,14 @@ function ChatViewContent(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
     // Expand `$name` skill tokens into the literal `/skill:name` text pi expands
     // before appending contexts, so shell-style `$VARS` in appended terminal
     // context are left untouched. Only enumerated skills are expanded.
-    const messageTextWithContexts = appendElementContextsToPrompt(
-      appendTerminalContextsToPrompt(
-        expandSkillTokensToPromptText(promptForSend, ctxSelectedProviderSkillNames),
-        composerTerminalContextsSnapshot,
-      ),
-      composerElementContextsSnapshot,
+    const messageTextWithContexts = appendTerminalContextsToPrompt(
+      expandSkillTokensToPromptText(promptForSend, ctxSelectedProviderSkillNames),
+      composerTerminalContextsSnapshot,
     );
     const messageTextWithPreviewAnnotations = composerPreviewAnnotationsSnapshot.reduce(
       (text, annotation) => appendPreviewAnnotationPrompt(text, annotation),
@@ -4904,8 +4884,6 @@ function ChatViewContent(props: ChatViewProps) {
         titleSeed = `Image: ${firstComposerImageName}`;
       } else if (composerTerminalContextsSnapshot.length > 0) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
-      } else if (composerElementContextsSnapshot.length > 0) {
-        titleSeed = formatElementContextLabel(composerElementContextsSnapshot[0]!);
       } else {
         titleSeed = "New thread";
       }
@@ -5023,7 +5001,6 @@ function ChatViewContent(props: ChatViewProps) {
           prompt: promptRef.current,
           imageCount: composerImagesRef.current.length,
           terminalContextCount: composerTerminalContextsRef.current.length,
-          elementContextCount: composerElementContextsRef.current.length,
           previewAnnotationCount: draftOnFailure?.previewAnnotations.length ?? 0,
           reviewCommentCount: draftOnFailure?.reviewComments.length ?? 0,
         })
@@ -5040,11 +5017,9 @@ function ChatViewContent(props: ChatViewProps) {
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
         composerImagesRef.current = retryComposerImages;
         composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
-        composerElementContextsRef.current = composerElementContextsSnapshot;
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
-        setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
         composerRef.current?.resetCursorState({
@@ -6154,7 +6129,6 @@ function ChatViewContent(props: ChatViewProps) {
                             promptRef={promptRef}
                             composerImagesRef={composerImagesRef}
                             composerTerminalContextsRef={composerTerminalContextsRef}
-                            composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}

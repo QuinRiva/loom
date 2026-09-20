@@ -3146,7 +3146,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 ...attachment,
               })),
               terminalContexts: src.terminalContexts.map((context) => ({ ...context })),
-              elementContexts: src.elementContexts.map((context) => ({ ...context })),
               previewAnnotations: src.previewAnnotations.map((annotation) => ({ ...annotation })),
               reviewComments: src.reviewComments.map((comment) => ({ ...comment })),
             };

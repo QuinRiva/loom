@@ -637,3 +637,135 @@ function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): Markdown
     ...(column !== undefined ? { column } : {}),
   };
 }
+
+export const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+
+export const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
+
+export const BARE_EXTENSIONLESS_POSITION_PATTERN = /^[A-Za-z0-9_-]+(?::\d+){1,2}$/;
+
+// Any `Name:digits` shape also matches `error:1`, `port:3000`, `TODO:12`, so
+// extensionless linking is limited to conventional filenames.
+export const EXTENSIONLESS_FILE_NAMES = new Set([
+  "Makefile",
+  "makefile",
+  "GNUmakefile",
+  "Dockerfile",
+  "Containerfile",
+  "Justfile",
+  "justfile",
+  "Rakefile",
+  "Gemfile",
+  "Procfile",
+  "Brewfile",
+  "Caddyfile",
+  "Vagrantfile",
+  "Jenkinsfile",
+  "Podfile",
+  "Fastfile",
+  "BUILD",
+  "WORKSPACE",
+  "LICENSE",
+  "LICENCE",
+  "COPYING",
+  "NOTICE",
+  "AUTHORS",
+  "CONTRIBUTORS",
+  "CHANGELOG",
+  "README",
+  "CODEOWNERS",
+]);
+
+export const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
+
+export function normalizeWindowsDrivePath(path: string): string {
+  return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
+}
+
+/** `127.0.0.1`, `localhost`, `example.com`, `1.2.3` — hosts and versions, not files. */
+export function looksLikeHostname(segment: string, hasPosition: boolean): boolean {
+  if (segment.startsWith(".")) return false;
+  const lowered = segment.toLowerCase();
+  if (SINGLE_LABEL_HOSTNAMES.has(lowered)) return true;
+  if (NUMERIC_DOTTED_PATTERN.test(segment)) return true;
+  const labels = lowered.split(".");
+  const lastLabel = labels[labels.length - 1];
+  if (labels.length < 2 || lastLabel === undefined) return false;
+  if (GENERIC_HOSTNAME_TLDS.has(lastLabel)) return true;
+  return !hasPosition && COUNTRY_HOSTNAME_TLDS.has(lastLabel);
+}
+
+export const RELATIVE_PATH_PREFIX_PATTERN = /^(~\/|\.{1,2}\/)/;
+
+export const SINGLE_LABEL_HOSTNAMES = new Set(["localhost"]);
+
+export const NUMERIC_DOTTED_PATTERN = /^\d+(?:\.\d+)+$/;
+
+// Allowlists, not full public-suffix detection: treating every dotted first
+// segment as a host would swallow real paths like `conf.d/x.conf` or
+// `Makefile.in:12`. Extensions that double as filename suffixes (`sh`, `md`,
+// `ts`, `rs`, `in`, ...) are deliberately absent from both sets.
+export const GENERIC_HOSTNAME_TLDS = new Set([
+  "com",
+  "net",
+  "org",
+  "io",
+  "dev",
+  "app",
+  "ai",
+  "co",
+  "edu",
+  "gov",
+  "mil",
+  "info",
+  "biz",
+  "xyz",
+  "me",
+  "tv",
+  "cc",
+  "gg",
+  "chat",
+  "cloud",
+  "site",
+  "online",
+  "tech",
+  "store",
+  "link",
+]);
+
+// Country codes collide with file extensions (`.pl` Perl, `.pt` PyTorch,
+// `.es` ES modules), so they only count as host evidence when the candidate
+// lacks a :line suffix — an explicit line reference marks a file and wins.
+export const COUNTRY_HOSTNAME_TLDS = new Set([
+  "uk",
+  "de",
+  "fr",
+  "nl",
+  "se",
+  "no",
+  "fi",
+  "dk",
+  "pl",
+  "ch",
+  "at",
+  "be",
+  "es",
+  "it",
+  "pt",
+  "eu",
+  "us",
+  "ca",
+  "au",
+  "nz",
+  "jp",
+  "kr",
+  "cn",
+  "br",
+  "ru",
+  "mx",
+  "ie",
+  "cz",
+  "tr",
+  "sg",
+  "hk",
+]);

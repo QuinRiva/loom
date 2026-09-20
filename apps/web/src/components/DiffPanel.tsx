@@ -1547,3 +1547,11 @@ export default function DiffPanel({
     </DiffPanelShell>
   );
 }
+
+export interface CoderDiffOption {
+  readonly thread: ThreadShell;
+  readonly orderedCheckpoints: ReadonlyArray<TurnDiffSummary>;
+  readonly inferredCheckpointTurnCountByTurnId: Record<string, number>;
+  readonly additions: number;
+  readonly deletions: number;
+}
