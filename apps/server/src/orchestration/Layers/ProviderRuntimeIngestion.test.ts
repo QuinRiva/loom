@@ -378,6 +378,10 @@ describe("ProviderRuntimeIngestion", () => {
     const drain = () => Effect.runPromise(ingestion.drain);
     if (options?.startIngestion !== false) await startIngestion();
     const dispatch = (command: OrchestrationCommand) => Effect.runPromise(engine.dispatch(command));
+    const emitAndDrain = (events: ReadonlyArray<LegacyProviderRuntimeEvent>) =>
+      Effect.runPromise(
+        provider.emitAndWaitForEnqueue(events).pipe(Effect.andThen(ingestion.drain)),
+      );
 
     const createdAt = "2026-01-01T00:00:00.000Z";
     await dispatch({

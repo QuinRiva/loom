@@ -179,13 +179,10 @@ const runReactorOn = (
     yield* Effect.gen(function* () {
       const reactor = yield* ThreadDeletionReactor;
       yield* reactor.start();
-      const expected = events.filter((event) => toThreadCleanupRequest(event)).length;
-      yield* Effect.gen(function* () {
-        yield* reactor.drain;
-        if ((yield* Ref.get(closes)).length < expected) {
-          return yield* Effect.fail("pending" as const);
-        }
-      }).pipe(Effect.retry({ schedule: Schedule.spaced("5 millis"), times: 200 }), Effect.orDie);
+      // `drainThrough` is the receipt: it resolves once every cleanup at or
+      // before this sequence has been handed to the worker AND the worker is
+      // idle, so the old poll-until-count loop is no longer needed.
+      yield* reactor.drainThrough(Math.max(...events.map((event) => event.sequence)));
     }).pipe(Effect.scoped, Effect.provide(layer));
 
     return {

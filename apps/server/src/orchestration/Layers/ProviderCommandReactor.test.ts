@@ -68,7 +68,7 @@ import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessio
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
-import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { TextGeneration, type TextGenerationShape } from "../../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";

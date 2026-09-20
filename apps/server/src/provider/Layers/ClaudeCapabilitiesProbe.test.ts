@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
+  isLegacyClaudeModel,
   probeClaudeCapabilities,
 } from "./ClaudeProvider.ts";
 
