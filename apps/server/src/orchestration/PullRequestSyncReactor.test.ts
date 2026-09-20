@@ -35,6 +35,7 @@ import {
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as PullRequestSyncReactor from "./PullRequestSyncReactor.ts";
 import { resolveAutoSettlementAt } from "./ThreadSettlementPolicy.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("sync-project");
@@ -67,7 +68,8 @@ function makeThread(
   id: string,
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell {
-  return {
+  return Object.assign({
+    ...loomThreadShellFixtureDefaults,
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
     title: id,
@@ -91,8 +93,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
-    ...overrides,
-  };
+  }, overrides);
 }
 
 function makeLink(
@@ -100,7 +101,7 @@ function makeLink(
   snapshot: Partial<ThreadPullRequestSnapshot> | null = null,
   overrides: Partial<ThreadPullRequestLink> = {},
 ): ThreadPullRequestLink {
-  return {
+  return Object.assign({
     host: "github.com",
     repository: "owner/repository",
     number,
@@ -121,8 +122,7 @@ function makeLink(
             ...snapshot,
           },
     stack: null,
-    ...overrides,
-  };
+  }, overrides);
 }
 
 function makeSnapshot(
@@ -142,7 +142,7 @@ function makeSummary(
   input: PullRequestRef,
   overrides: Partial<PullRequestSummary> = {},
 ): PullRequestSummary {
-  return {
+  return Object.assign({
     provider: "github",
     projectId: input.projectId,
     repository: input.repository,
@@ -153,8 +153,7 @@ function makeSummary(
     headBranch: "feature",
     baseBranch: "main",
     updatedAt: "2026-08-27T00:00:00.000Z",
-    ...overrides,
-  };
+  }, overrides);
 }
 
 interface HarnessOptions {

@@ -22,6 +22,7 @@ import {
 } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { createdPullRequestKey, linkCreatedPullRequest } from "./linkCreatedPullRequest.ts";
+import { loomThreadShellFixtureDefaults } from "../orchestration/deciderTestThread.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
@@ -51,6 +52,7 @@ const project: OrchestrationProjectShell = {
 };
 
 const thread: OrchestrationThreadShell = {
+  ...loomThreadShellFixtureDefaults,
   id: THREAD_ID,
   projectId: PROJECT_ID,
   title: "Thread",

@@ -8,11 +8,13 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { type SettlementPullRequest, resolveAutoSettlementAt } from "./ThreadSettlementPolicy.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const makeThread = (
   overrides: Partial<OrchestrationThreadShell> = {},
-): OrchestrationThreadShell => ({
+): OrchestrationThreadShell => (Object.assign({
+  ...loomThreadShellFixtureDefaults,
   id: ThreadId.make("thread-1"),
   projectId: ProjectId.make("project-1"),
   title: "Thread",
@@ -33,8 +35,7 @@ const makeThread = (
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
-  ...overrides,
-});
+}, overrides));
 
 const decide = (
   thread: OrchestrationThreadShell,

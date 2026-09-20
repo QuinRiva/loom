@@ -34,6 +34,7 @@ import { ServerActivation } from "../serverActivation.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as ThreadPullRequestReactor from "./ThreadPullRequestReactor.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-09-01T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("project");
@@ -82,7 +83,8 @@ function thread(
   id: string,
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell {
-  return {
+  return Object.assign({
+    ...loomThreadShellFixtureDefaults,
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
     title: id,
@@ -103,8 +105,7 @@ function thread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
-    ...overrides,
-  };
+  }, overrides);
 }
 
 const project = {

@@ -572,6 +572,8 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           streamDomainEvents: Stream.fromQueue(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromQueue(events)),
           latestSequence: Effect.succeed(0),
+          readThreadEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused"),
         } satisfies OrchestrationEngineShape;
 
         const snapshotQuery = {
@@ -824,6 +826,8 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             streamDomainEvents: Stream.fromQueue(events),
             subscribeDomainEvents: Effect.succeed(Stream.fromQueue(events)),
             latestSequence: Effect.succeed(0),
+            readThreadEvents: () => Stream.empty,
+            getThreadReplayStats: () => Effect.die("unused"),
           } satisfies OrchestrationEngineShape),
           Layer.succeed(ProjectionSnapshotQuery, {
             getLeanShellSnapshot: () =>

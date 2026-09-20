@@ -41,6 +41,7 @@ import { ServerConfig } from "../../config.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { HandoffDrafterReactor } from "../Services/HandoffDrafterReactor.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts";
+import { loomThreadShellFixtureDefaults } from "../deciderTestThread.ts";
 
 const NOW = "2026-07-19T12:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
@@ -88,7 +89,8 @@ const placed = (count: number): ReadonlyArray<HandoffDestination> =>
 
 const makeDrafter = (
   overrides: Partial<OrchestrationThreadLeanShell> = {},
-): OrchestrationThreadLeanShell => ({
+): OrchestrationThreadLeanShell => (Object.assign({
+  ...loomThreadShellFixtureDefaults,
   id: "drafter" as ThreadId,
   projectId: ProjectId.make("project"),
   goalId: null,
@@ -136,8 +138,7 @@ const makeDrafter = (
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
-  ...overrides,
-});
+}, overrides));
 
 describe("classifyHandoffSettlement", () => {
   it("does NOT settle the initial ready session-set before turn.started (turn still running)", () => {

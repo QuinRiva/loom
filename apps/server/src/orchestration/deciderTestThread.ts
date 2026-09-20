@@ -39,3 +39,47 @@ export const loomThreadFixtureDefaults = {
   pullRequests: [],
   proposedPlans: [],
 } as const;
+
+/**
+ * The same block for an `OrchestrationThreadShell` fixture: the fork thread
+ * fields minus the read-model-only ones, plus the shell-only projections
+ * (`LoomThreadShellFields`). Optional keys are deliberately omitted.
+ */
+export const loomThreadShellFixtureDefaults = {
+  goalId: null,
+  parentThreadId: null,
+  role: null,
+  purpose: null,
+  brief: null,
+  kickoffBriefPath: null,
+  graphKey: null,
+  planLane: "in_progress",
+  attention: [],
+  blockedBy: [],
+  spawnGeneration: null,
+  continuesThreadId: null,
+  forkFromThreadId: null,
+  finalCommitSha: null,
+  reportPath: null,
+  routes: [],
+  gateRounds: 0,
+  pendingRework: false,
+  lastOutcome: null,
+  isolation: "shared",
+  fanInState: "none",
+  cumulativeCostUsd: 0,
+  toolUses: null,
+  usedTokens: null,
+  maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
+  handoffDestinations: [],
+  notifySendLog: [],
+  lastActivityPreview: null,
+  consults: [],
+  peerMessages: [],
+  planLaneSince: null,
+  dependenciesSince: null,
+  faninSince: null,
+  lastErrorClass: null,
+} as const;

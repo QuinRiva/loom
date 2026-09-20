@@ -54,6 +54,7 @@ import { TerminalManager } from "../terminal/Manager.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 import { ThreadDeletionReactor } from "./Services/ThreadDeletionReactor.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("settlement-project");
@@ -86,7 +87,8 @@ function makeThread(
   id: string,
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell {
-  return {
+  return Object.assign({
+    ...loomThreadShellFixtureDefaults,
     id: ThreadId.make(id),
     projectId: PROJECT_ID,
     title: id,
@@ -110,8 +112,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
-    ...overrides,
-  };
+  }, overrides);
 }
 
 function makeSnapshot(
