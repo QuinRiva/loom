@@ -50,10 +50,8 @@ function normalizeScriptId(value: string): string {
 }
 
 /** Legacy script IDs may not support shortcuts; keep those scripts usable without one. */
-export function commandForProjectScript(scriptId: string): KeybindingCommand | null {
-  const command = `script.${scriptId}.run`;
-  return isScriptRunCommand(command) ? command : null;
-}
+export const commandForProjectScript = (scriptId: string): KeybindingCommand =>
+  SCRIPT_RUN_COMMAND_PATTERN.make(`script.${scriptId}.run`);
 
 export function projectScriptIdFromCommand(command: string): string | null {
   const trimmed = command.trim();

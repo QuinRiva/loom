@@ -70,9 +70,13 @@ export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;
   /** Fallback for "Copy path" when the thread has no worktree. */
   readonly projectCwd: string | null;
+  /** loom: PR feeding auto-settle classification, as resolved by the caller. */
+  readonly changeRequest: ChangeRequestSettleSource | null;
   readonly onStartRename: () => void;
 }) {
-  const { threadRef, projectCwd, onStartRename } = input;
+  const { threadRef, projectCwd, changeRequest, onStartRename } = input;
+  const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
+  const autoSettleOnMerge = useClientSettings((s) => s.sidebarAutoSettleOnMerge);
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -149,7 +153,17 @@ export function useThreadActionMenu(input: {
           // menu, so the "Filter by project" affordance is sidebar-only.
           projectFilter: null,
           isPinned: thread.pinnedAt != null,
-          isSettled: supports.settlement && thread.settledOverride === "settled",
+          isSettled:
+            supports.settlement &&
+            // loom: the same client-side partition the sidebar and ChatView's
+            // parked-thread banner use. Minute-quantized like useNowMinute so
+            // the three can never disagree within the same minute.
+            effectiveSettled(thread, {
+              now: `${now.toISOString().slice(0, 16)}:00.000Z`,
+              autoSettleAfterDays,
+              autoSettleOnMerge,
+              changeRequest,
+            }),
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
           isRegeneratingTitle,

@@ -124,7 +124,6 @@ export interface ComposerContentSnapshot {
   readonly prompt: string;
   readonly imageCount: number;
   readonly terminalContextCount: number;
-  readonly elementContextCount: number;
   readonly previewAnnotationCount: number;
   readonly reviewCommentCount: number;
 }
@@ -140,7 +139,6 @@ export function shouldRestoreSubmittedDraft(snapshot: ComposerContentSnapshot): 
     snapshot.prompt.length === 0 &&
     snapshot.imageCount === 0 &&
     snapshot.terminalContextCount === 0 &&
-    snapshot.elementContextCount === 0 &&
     snapshot.previewAnnotationCount === 0 &&
     snapshot.reviewCommentCount === 0
   );
@@ -472,11 +470,11 @@ export function deriveComposerSendState(options: {
   imageCount: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   /**
-   * Optional element-pick attachment count. Element contexts contribute to
-   * "sendable content" exactly like images and (text-bearing) terminal
-   * contexts do: a prompt of just element chips is still a valid send.
+   * Preview annotations + review comments. They contribute to "sendable
+   * content" exactly like images and (text-bearing) terminal contexts do: a
+   * prompt of just context chips is still a valid send.
    */
-  elementContextCount?: number;
+  attachedContextCount?: number;
 }): {
   trimmedPrompt: string;
   sendableTerminalContexts: TerminalContextDraft[];
@@ -487,7 +485,7 @@ export function deriveComposerSendState(options: {
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
-  const elementContextCount = options.elementContextCount ?? 0;
+  const attachedContextCount = options.attachedContextCount ?? 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
@@ -496,7 +494,7 @@ export function deriveComposerSendState(options: {
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
       sendableTerminalContexts.length > 0 ||
-      elementContextCount > 0,
+      attachedContextCount > 0,
   };
 }
 

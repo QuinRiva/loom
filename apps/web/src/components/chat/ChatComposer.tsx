@@ -912,7 +912,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         prompt,
         imageCount: composerImages.length,
         terminalContexts: composerTerminalContexts,
-        elementContextCount:
+        attachedContextCount:
           composerPreviewAnnotations.length +
           composerReviewComments.length,
       }),
