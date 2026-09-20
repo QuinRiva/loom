@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
@@ -82,23 +83,27 @@ const run = (activities: ReadonlyArray<ReturnType<typeof recordedSetup>>) =>
   Effect.gen(function* () {
     const dispatched: Array<OrchestrationCommand> = [];
     yield* ServerRuntimeStartup.reconcileWorktreeSetups.pipe(
-      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-        listActivitiesByKind: (kind: string) =>
-          Effect.succeed(kind === WORKTREE_SETUP_ACTIVITY_KIND ? activities : []),
-      } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]),
-      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-        readEvents: () => Stream.empty,
-        readThreadEvents: () => Stream.empty,
-        getThreadReplayStats: () => Effect.die("unused"),
-        dispatch: (command) =>
-          Effect.sync(() => {
-            dispatched.push(command);
-            return { sequence: dispatched.length };
-          }),
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      }),
+      Effect.provide(
+        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+          listActivitiesByKind: (kind: string) =>
+            Effect.succeed(kind === WORKTREE_SETUP_ACTIVITY_KIND ? activities : []),
+        }),
+      ),
+      Effect.provide(
+        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+          readEvents: () => Stream.empty,
+          readThreadEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused"),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              dispatched.push(command);
+              return { sequence: dispatched.length };
+            }),
+          streamDomainEvents: Stream.empty,
+          subscribeDomainEvents: Effect.succeed(Stream.empty),
+          latestSequence: Effect.succeed(0),
+        }),
+      ),
       Effect.provide(NodeServices.layer),
     );
     return dispatched;

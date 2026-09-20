@@ -64,6 +64,7 @@ const makeProviderService = (liveThreadIds: ReadonlyArray<ThreadId> = []) =>
     respondToUserInput: () => Effect.die("unused"),
     stopSession: () => Effect.die("unused"),
     listSessions: () => Effect.succeed(liveThreadIds.map((threadId) => ({ threadId }) as never)),
+    getSession: () => Effect.succeed(undefined),
     getCapabilities: () => Effect.die("unused"),
     assertConversationRollbackSupported: () => Effect.die("unused"),
     getInstanceInfo: () => Effect.die("unused"),
@@ -83,7 +84,9 @@ const runReconciliation = (input: {
   readonly continueAfterRestart?: boolean;
   readonly liveThreadIds?: ReadonlyArray<ThreadId>;
   readonly providerService?: ProviderService.ProviderService["Service"];
-  readonly directory: ProviderSessionDirectory.ProviderSessionDirectory["Service"];
+  // Partial: a reconciliation test implements only the directory members it
+  // exercises, and Layer.mock turns the rest into unimplemented defects.
+  readonly directory: Partial<ProviderSessionDirectory.ProviderSessionDirectory["Service"]>;
   readonly dispatch: OrchestrationEngine.OrchestrationEngineService["Service"]["dispatch"];
 }) =>
   ServerRuntimeStartup.reconcileProviderSessions.pipe(
@@ -95,16 +98,21 @@ const runReconciliation = (input: {
       ProviderService.ProviderService,
       input.providerService ?? makeProviderService(input.liveThreadIds),
     ),
-    Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, input.directory),
-    Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-      readEvents: () => Stream.empty,
-      readThreadEvents: () => Stream.empty,
-      getThreadReplayStats: () => Effect.die("unused thread replay stats"),
-      dispatch: input.dispatch,
-      streamDomainEvents: Stream.empty,
-      subscribeDomainEvents: Effect.succeed(Stream.empty),
-      latestSequence: Effect.succeed(0),
-    }),
+    Effect.provide(
+      Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)(input.directory),
+    ),
+    Effect.provide(
+      Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+        readEvents: () => Stream.empty,
+        readThreadEvents: () => Stream.empty,
+        readStreamEvents: () => Stream.empty,
+        getThreadReplayStats: () => Effect.die("unused thread replay stats"),
+        dispatch: input.dispatch,
+        streamDomainEvents: Stream.empty,
+        subscribeDomainEvents: Effect.succeed(Stream.empty),
+        latestSequence: Effect.succeed(0),
+      }),
+    ),
     Effect.provide(
       Layer.mergeAll(
         ServerSettings.layerTest({
@@ -137,7 +145,8 @@ it.effect("marks active running sessions that have persisted resume state", () =
       ProjectionSnapshotQuery.ProjectionSnapshotQuery,
       queryWithThreads([active, archived, ready, missingResumeState]),
     ),
-    Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, {
+    Effect.provide(
+      Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
       getBinding: (threadId) =>
         Effect.sync(() => bindingReads.push(threadId)).pipe(
           Effect.as(
@@ -150,12 +159,10 @@ it.effect("marks active running sessions that have persisted resume state", () =
             }),
           ),
         ),
-      upsert: (binding) => Effect.sync(() => upserts.push(binding)),
-      recordImportedTranscript: () => Effect.die("unused"),
-      getProvider: () => Effect.die("unused"),
-      listThreadIds: () => Effect.die("unused"),
-      listBindings: () => Effect.succeed([]),
-    }),
+        upsert: (binding) => Effect.sync(() => upserts.push(binding)),
+        listBindings: () => Effect.succeed([]),
+      }),
+    ),
     Effect.tap((marked) =>
       Effect.sync(() => {
         assert.deepStrictEqual(bindingReads, [active.id, missingResumeState.id]);
@@ -235,6 +242,7 @@ it.effect.each(
         getCapabilities: (instanceId) =>
           Effect.succeed({
             sessionModelSwitch: "in-session",
+            emitsExitOnStop: true,
             ...(instanceId === providerInstanceId ? { promptlessTurnContinuation: true } : {}),
           }),
         sendTurn: (input) =>
@@ -706,23 +714,23 @@ it.effect("does not fail startup when the live provider session inventory cannot
       ...makeProviderService(),
       listSessions: () => Effect.die("provider inventory unavailable"),
     }),
-    Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, {
-      getBinding: () => Effect.die("unused"),
-      upsert: () => Effect.die("unused"),
-      recordImportedTranscript: () => Effect.die("unused"),
-      getProvider: () => Effect.die("unused"),
-      listThreadIds: () => Effect.die("unused"),
-      listBindings: () => Effect.succeed([]),
-    }),
-    Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-      readEvents: () => Stream.empty,
-      readThreadEvents: () => Stream.empty,
-      getThreadReplayStats: () => Effect.die("unused thread replay stats"),
-      dispatch: () => Effect.die("unused"),
-      streamDomainEvents: Stream.empty,
-      subscribeDomainEvents: Effect.succeed(Stream.empty),
-      latestSequence: Effect.succeed(0),
-    }),
+    Effect.provide(
+      Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
+        listBindings: () => Effect.succeed([]),
+      }),
+    ),
+    Effect.provide(
+      Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+        readEvents: () => Stream.empty,
+        readThreadEvents: () => Stream.empty,
+        readStreamEvents: () => Stream.empty,
+        getThreadReplayStats: () => Effect.die("unused thread replay stats"),
+        dispatch: () => Effect.die("unused"),
+        streamDomainEvents: Stream.empty,
+        subscribeDomainEvents: Effect.succeed(Stream.empty),
+        latestSequence: Effect.succeed(0),
+      }),
+    ),
     Effect.provide(Layer.mergeAll(NodeServices.layer, ServerSettings.layerTest())),
     Effect.tap(() => Effect.sync(() => assert.equal(queried, false))),
   );
@@ -833,6 +841,7 @@ for (const preparedStatus of [
           getCapabilities: () =>
             Effect.succeed({
               sessionModelSwitch: "in-session" as const,
+              emitsExitOnStop: true,
               promptlessTurnContinuation: true,
             }),
           sendTurn: (input: ProviderSendTurnInput) =>
@@ -939,7 +948,11 @@ it.effect("settles failed opt-in recovery without retrying the provider turn", (
       providerService: {
         ...makeProviderService(),
         getCapabilities: () =>
-          Effect.succeed({ sessionModelSwitch: "in-session", promptlessTurnContinuation: true }),
+          Effect.succeed({
+            sessionModelSwitch: "in-session",
+            emitsExitOnStop: true,
+            promptlessTurnContinuation: true,
+          }),
         sendTurn: (input) =>
           Effect.gen(function* () {
             sends.push(input);
