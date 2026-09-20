@@ -12,17 +12,28 @@ import {
   TurnId,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
-import { describe, expect, it, afterEach, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import {
+  AsyncResult,
+  Atom,
+} from "effect/unstable/reactivity";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
-import type { Thread, ThreadShell } from "../types";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import {
+  type Thread,
+  type ThreadShell,
+  type TurnDiffSummary,
+} from "../types";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
-import type { Thread, ThreadShell, TurnDiffSummary } from "../types";
 import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";

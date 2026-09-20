@@ -1,9 +1,15 @@
-import { InfoIcon, RefreshCwIcon, Undo2Icon } from "lucide-react";
+import {
+  InfoIcon,
+  RefreshCwIcon,
+  Undo2Icon,
+} from "lucide-react";
 import { SettingsGroup } from "./SettingsGroup";
-import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import {
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -16,7 +22,6 @@ import {
 } from "react";
 import * as DateTime from "effect/DateTime";
 
-import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import {
   PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,

@@ -52,8 +52,10 @@ import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { isArtifactViewerPath } from "~/components/artifact/artifactView";
-import { resolvePathLinkTarget } from "~/terminal-links";
-import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
+import {
+  isAbsolutePath,
+  resolvePathLinkTarget,
+} from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
@@ -94,15 +96,15 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, isMdxPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
-import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
-import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
-import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   isMarkdownPreviewFile,
+  isMdxPreviewFile,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
+import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
+import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   getOptimisticProjectFileQueryData,

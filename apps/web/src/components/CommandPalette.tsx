@@ -182,13 +182,15 @@ import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../sta
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import {
   deriveProviderInstanceEntries,
-  resolveDefaultProviderModelSelection,
   type ProviderInstanceEntry,
+  resolveDefaultProviderModelSelection,
 } from "../providerInstances";
 
-import { CommandDialog, CommandDialogPopup } from "./ui/command";
-import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
-import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
+import {
+  CommandDialog,
+  CommandDialogPopup,
+  CommandFooterAction,
+} from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";

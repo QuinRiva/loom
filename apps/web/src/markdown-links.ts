@@ -14,12 +14,12 @@ import {
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
 import {
   FILE_PATH_PATTERN,
+  isTerminalLinkActivation,
   resolvePathLinkTarget,
   splitPathAndPosition,
   trimClosingDelimiters,
   URL_PATTERN,
 } from "./terminal-links";
-import { isTerminalLinkActivation, resolvePathLinkTarget } from "./terminal-links";
 
 export { normalizeMarkdownLinkDestination };
 

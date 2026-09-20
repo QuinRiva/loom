@@ -5,13 +5,17 @@ import {
   ArrowUpIcon,
   EyeIcon,
   EyeOffIcon,
+  PencilIcon,
   PlusIcon,
   StarIcon,
   XIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ProviderDriverKind,
   type ProviderInstanceId,

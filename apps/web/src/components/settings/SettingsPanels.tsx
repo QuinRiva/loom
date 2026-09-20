@@ -1,20 +1,34 @@
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
-import type { ProviderInstanceConfig, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  type BackgroundActivityProfile,
+  defaultInstanceIdForDriver,
+  type DesktopUpdateChannel,
+  PROVIDER_DISPLAY_NAMES,
+  ProviderDriverKind,
+  type ProviderInstanceConfig,
+  type ProviderInstanceId,
+  type ScopedThreadRef,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { usePrimaryEnvironment } from "../../state/environments";
 import {
   ArchiveIcon,
   ArchiveX,
+  CheckIcon,
   ChevronRightIcon,
   LoaderIcon,
-  SettingsIcon,
   PlusIcon,
   RefreshCwIcon,
+  SettingsIcon,
 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import {
+  Link,
+  useNavigate,
+} from "@tanstack/react-router";
 import {
   type CSSProperties,
   type ReactNode,
@@ -29,20 +43,6 @@ import { useAtomValue } from "@effect/atom-react";
 import { SettingsGroup } from "./SettingsGroup";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
-import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type BackgroundActivityProfile,
-  type DesktopUpdateChannel,
-  ProviderDriverKind,
-  type ProviderInstanceId,
-  type ScopedThreadRef,
-  type SidebarProjectGroupingMode,
-  PROVIDER_DISPLAY_NAMES,
-  defaultInstanceIdForDriver,
-} from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -125,12 +125,12 @@ import {
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
 import {
+  EMPTY_SERVER_PROVIDERS,
   primaryServerObservabilityAtom,
   primaryServerProvidersAtom,
   serverEnvironment,
 } from "../../state/server";
 import { useProjects } from "../../state/entities";
-import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import {
