@@ -44,6 +44,7 @@ const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<
     getShellSnapshot: () =>
       Effect.succeed({
         snapshotSequence: 0,
+        goals: [],
         projects: importedWorkspaceRoots.map((workspaceRoot) => makeProjectShell(workspaceRoot)),
         threads: [],
         updatedAt: "2026-01-01T00:00:00.000Z",

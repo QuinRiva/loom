@@ -60,6 +60,7 @@ import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import { importRecentAgentThreads } from "./AgentSessionImporter.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
+import { loomThreadShellFixtureDefaults } from "../orchestration/deciderTestThread.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
 const WORKSPACE_ROOT = "/tmp/project-from-server";
@@ -119,6 +120,7 @@ const makeProjectedThread = (input: {
     `import:${sourceThread.providerInstanceId}:${sourceThread.providerSessionId}`,
   );
   return {
+    ...loomThreadShellFixtureDefaults,
     id: threadId,
     projectId: input.projectId ?? PROJECT_ID,
     title: sourceThread.title,

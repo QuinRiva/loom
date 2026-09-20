@@ -140,6 +140,7 @@ const makeHarness = Effect.fn("makeThreadPullRequestHarness")(function* (options
   const activation = yield* Deferred.make<void>();
   const snapshots = yield* Ref.make<OrchestrationShellSnapshot>({
     snapshotSequence: 1,
+    goals: [],
     projects: [options.project ?? project],
     threads: options.threads,
     updatedAt: NOW,

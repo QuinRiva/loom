@@ -122,6 +122,7 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
         title: "Scripts",
         workspaceRoot: "/tmp/scripts",
         defaultModelSelection: null,
+        defaultStartFromOrigin: null,
         scripts,
         createdAt: now,
         updatedAt: now,
