@@ -89,7 +89,6 @@ import {
   readPromptDebugSidecarNames,
 } from "../workstreamPromptDebug.ts";
 import { OrchestrationEventPersistedRowSchema } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
@@ -5716,7 +5715,11 @@ pending_approval_requests AS (
     Effect.gen(function* () {
       const activitiesEffect =
         activityRead.mode === "client"
-          ? listProjectedThreadActivities(threadId, bounds)
+          ? listProjectedThreadActivities(threadId, bounds).pipe(
+              // The client read is already capped at the window and carries no
+              // spare row, so it cannot report an older tail.
+              Effect.map((activities) => ({ activities, hasMoreActivities: false })),
+            )
           : Effect.all([
               (activityRead.query?.activityKinds === undefined
                 ? bounds === undefined
@@ -5747,22 +5750,35 @@ pending_approval_requests AS (
                   )
                 : Effect.succeed([]),
             ]).pipe(
-              Effect.map(([activityRows, pinnedActivityRows]) =>
-                [
-                  ...new Map(
-                    [...activityRows, ...pinnedActivityRows].map(
-                      (row) => [row.activityId, row] as const,
-                    ),
-                  ).values(),
-                ]
-                  .toSorted(
-                    (left, right) =>
-                      (left.sequence ?? -1) - (right.sequence ?? -1) ||
-                      left.createdAt.localeCompare(right.createdAt) ||
-                      left.activityId.localeCompare(right.activityId),
-                  )
-                  .map(mapThreadActivityRow),
-              ),
+              // loom: the activity read fetches WINDOW+1 ascending rows; the extra
+              // one means older activities exist beyond the window. Window the READ
+              // rows FIRST and only then union the pinned (still-unresolved)
+              // requests: pinning exists precisely to carry rows that fall OUTSIDE
+              // the window, so slicing the merged array would silently drop them
+              // again, since they sort oldest.
+              Effect.map(([activityRows, pinnedActivityRows]) => {
+                const hasMoreActivities = activityRows.length > THREAD_DETAIL_ACTIVITY_WINDOW;
+                const windowedActivityRows = hasMoreActivities
+                  ? activityRows.slice(activityRows.length - THREAD_DETAIL_ACTIVITY_WINDOW)
+                  : activityRows;
+                return {
+                  hasMoreActivities,
+                  activities: [
+                    ...new Map(
+                      [...windowedActivityRows, ...pinnedActivityRows].map(
+                        (row) => [row.activityId, row] as const,
+                      ),
+                    ).values(),
+                  ]
+                    .toSorted(
+                      (left, right) =>
+                        (left.sequence ?? -1) - (right.sequence ?? -1) ||
+                        left.createdAt.localeCompare(right.createdAt) ||
+                        left.activityId.localeCompare(right.activityId),
+                    )
+                    .map(mapThreadActivityRow),
+                };
+              }),
             );
 
       const [
@@ -5770,7 +5786,7 @@ pending_approval_requests AS (
         messageRows,
         proposedPlanRows,
         pullRequestRows,
-        activities,
+        activityResult,
         checkpointRows,
         latestTurnRow,
         sessionRow,
@@ -5840,29 +5856,6 @@ pending_approval_requests AS (
       if (Option.isNone(threadRow)) {
         return Option.none<OrchestrationThread>();
       }
-
-      // The activity read fetches WINDOW+1 ascending rows; the extra one means
-      // older activities exist beyond the window. Window the READ rows first and
-      // only then union the pinned (still-unresolved) requests: pinning exists
-      // precisely to carry rows that fall OUTSIDE the window, so slicing the
-      // merged array — as the tail of both sides' logic did — silently dropped
-      // them again, since they sort oldest.
-      const hasMoreActivities = activityRows.length > THREAD_DETAIL_ACTIVITY_WINDOW;
-      const windowedActivityRows = hasMoreActivities
-        ? activityRows.slice(activityRows.length - THREAD_DETAIL_ACTIVITY_WINDOW)
-        : activityRows;
-      const selectedActivityRows = [
-        ...new Map(
-          [...windowedActivityRows, ...pinnedActivityRows].map(
-            (row) => [row.activityId, row] as const,
-          ),
-        ).values(),
-      ].toSorted(
-        (left, right) =>
-          (left.sequence ?? -1) - (right.sequence ?? -1) ||
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.activityId.localeCompare(right.activityId),
-      );
 
       const thread = {
         id: threadRow.value.threadId,
@@ -5952,22 +5945,8 @@ pending_approval_requests AS (
           return message;
         }),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),
-        activities: selectedActivityRows.map((row) => {
-          const activity = {
-            id: row.activityId,
-            tone: row.tone,
-            kind: row.kind,
-            summary: row.summary,
-            payload: row.payload,
-            turnId: row.turnId,
-            createdAt: row.createdAt,
-          };
-          if (row.sequence !== null) {
-            return Object.assign(activity, { sequence: row.sequence });
-          }
-          return activity;
-        }),
-        hasMoreActivities,
+        activities: activityResult.activities,
+        hasMoreActivities: activityResult.hasMoreActivities,
         checkpoints: checkpointRows.map((row) => ({
           turnId: row.turnId,
           checkpointTurnCount: row.checkpointTurnCount,

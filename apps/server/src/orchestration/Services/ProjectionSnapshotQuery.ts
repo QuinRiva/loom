@@ -156,6 +156,11 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
+export interface ProjectionEventReplayStats {
+  readonly eventCount: number;
+  readonly payloadBytes: number;
+}
+
 /**
  * The outstanding-obligation summary for ONE thread — the liveness input the
  * provider-session reaper needs to decide whether an idle session may be

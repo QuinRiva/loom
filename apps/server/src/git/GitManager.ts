@@ -623,8 +623,8 @@ function makeBranchHeadContext(
     ? extractBranchNameFromRemoteRef(details.upstreamRef, { remoteName })
     : "";
   const headBranch = headBranchFromUpstream || details.branch;
-  const remoteRepositoryName = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
-  const originRepositoryName = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(originRemoteUrl);
+  const remoteRepositoryName = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+  const originRepositoryName = parseRepositoryNameWithOwnerFromRemoteUrl(originRemoteUrl);
   const remoteOwner = parseRepositoryOwnerLogin(remoteRepositoryName);
   const isCrossRepository =
     remoteRepositoryName !== null && originRepositoryName !== null
@@ -660,6 +660,7 @@ function makeBranchHeadContext(
     preferredHeadSelector: ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
     remoteName,
     headRemoteUrlKey: remoteUrl ? normalizeGitRemoteUrl(remoteUrl) : null,
+    targetRemoteUrlKey: originRemoteUrl ? normalizeGitRemoteUrl(originRemoteUrl) : null,
     headRepositoryNameWithOwner: remoteRepositoryName,
     headRepositoryOwnerLogin: remoteOwner,
     isCrossRepository,
@@ -1535,6 +1536,62 @@ export const make = Effect.gen(function* () {
       .pipe(Effect.orElseSucceed(() => null));
     return handle?.context?.provider ?? provider;
   });
+
+  const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (
+    cwd: string,
+    remoteName: string | null,
+  ) {
+    if (!remoteName) {
+      return {
+        remoteUrlKey: null,
+        repositoryNameWithOwner: null,
+        ownerLogin: null,
+      };
+    }
+
+    const remoteUrl = yield* readConfigValueNullable(cwd, `remote.${remoteName}.url`);
+    let repositoryNameWithOwner = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+    if (
+      remoteUrl !== null &&
+      /^https?:\/\//iu.test(remoteUrl) &&
+      (repositoryNameWithOwner?.split("/").length ?? 0) > 2
+    ) {
+      const detected = detectSourceControlProviderFromGitRemoteUrl(remoteUrl);
+      const kind =
+        detected?.kind === "unknown"
+          ? yield* sourceControlProvider(cwd).pipe(
+              Effect.map((provider) => provider.kind),
+              Effect.orElseSucceed(() => undefined),
+            )
+          : detected?.kind;
+      repositoryNameWithOwner = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl, kind);
+    }
+    return {
+      remoteUrlKey: remoteUrl ? normalizeGitRemoteUrl(remoteUrl) : null,
+      repositoryNameWithOwner,
+      ownerLogin: parseRepositoryOwnerLogin(repositoryNameWithOwner),
+    };
+  });
+
+  const resolvePrLookupRepositoryIdentity = Effect.fn("resolvePrLookupRepositoryIdentity")(
+    function* (cwd: string, branch: string, remoteNameOverride?: string) {
+      const remoteName =
+        remoteNameOverride ?? (yield* readConfigValueNullable(cwd, `branch.${branch}.remote`));
+      const [headRemote, targetRemote] = yield* Effect.all(
+        [
+          resolveRemoteRepositoryContext(cwd, remoteName),
+          resolveRemoteRepositoryContext(cwd, "origin"),
+        ],
+        { concurrency: "unbounded" },
+      );
+      return {
+        remoteName,
+        headRemoteUrlKey:
+          headRemote.remoteUrlKey ?? (remoteName === null ? targetRemote.remoteUrlKey : null),
+        targetRemoteUrlKey: targetRemote.remoteUrlKey,
+      };
+    },
+  );
 
   const resolveBranchHeadContext = Effect.fn("resolveBranchHeadContext")(function* (
     cwd: string,

@@ -56,6 +56,7 @@ const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
   OrchestrationCommandPreviouslyRejectedError,
 );
 const isOrchestrationCommandIdConflictError = Schema.is(OrchestrationCommandIdConflictError);
+const isOrchestrationCommandInvariantError = Schema.is(OrchestrationCommandInvariantError);
 
 /**
  * Slow-command telemetry threshold. The command worker is a single serial fiber
@@ -370,6 +371,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
+        // Command snapshots omit activities at startup and cap them while running.
+        // Read this request's durable state before deciding how to send the answer.
+        const userInputActivity =
+          envelope.command.type === "thread.user-input.respond" ||
+          envelope.command.type === "thread.user-input.dismiss"
+            ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
+            : Option.none();
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
@@ -643,6 +651,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     Effect.annotateLogs({ sequence: commandReadModel.snapshotSequence }),
   );
 
+  const readThreadEvents: OrchestrationEngineShape["readThreadEvents"] = ({ threadId, ...range }) =>
+    eventStore.readAggregateRange({ ...range, aggregateKind: "thread", aggregateId: threadId });
+
+  const getThreadReplayStats: OrchestrationEngineShape["getThreadReplayStats"] = ({
+    threadId,
+    ...range
+  }) =>
+    eventStore.getAggregateReplayStats({
+      ...range,
+      aggregateKind: "thread",
+      aggregateId: threadId,
+    });
+
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive, limit) =>
     eventStore.readFromSequence(fromSequenceExclusive, limit);
 
@@ -650,7 +671,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const readStreamEvents: OrchestrationEngineShape["readStreamEvents"] =
     eventStore.readStreamFromSequence;
 
-  const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
+  const dispatch: OrchestrationEngineShape["dispatch"] = (command, options) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
       yield* Queue.offer(commandQueue, {
@@ -668,7 +689,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     readThreadEvents,
     getThreadReplayStats,
     dispatch,
-    subscribeDomainEvents: PubSub.subscribe(eventPubSub).pipe(Effect.map(Stream.fromSubscription)),
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)
     // each independently receive all domain events.

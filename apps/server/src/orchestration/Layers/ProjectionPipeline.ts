@@ -183,6 +183,25 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
   );
 }
 
+// A refresh reads each persisted summary source, so skip activities that cannot change the result.
+function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
+  if (event.type !== "thread.activity-appended") {
+    return true;
+  }
+
+  switch (event.payload.activity.kind) {
+    case "approval.requested":
+    case "approval.resolved":
+    case "provider.approval.respond.failed":
+    case "user-input.requested":
+    case "user-input.resolved":
+    case "provider.user-input.respond.failed":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function retainProjectionMessagesAfterRevert(
   messages: ReadonlyArray<ProjectionThreadMessage>,
   turns: ReadonlyArray<ProjectionTurn>,
