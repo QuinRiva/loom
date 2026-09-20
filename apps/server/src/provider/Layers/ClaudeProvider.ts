@@ -60,6 +60,14 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
 } as const;
 const MINIMUM_CLAUDE_OPUS_5_VERSION = "2.1.219";
+/**
+ * Fable 5.1 is released after Opus 5, so any Claude Code that serves it is at
+ * least the Opus 5 release. The exact minimum is not published yet, and this is
+ * the tightest bound we can justify: it never hides 5.1 from a CLI that can run
+ * it, and a CLI below it already gets the Opus 5 upgrade message, which names
+ * this very version. Tighten once the real release is known.
+ */
+const MINIMUM_CLAUDE_FABLE_5_1_VERSION = MINIMUM_CLAUDE_OPUS_5_VERSION;
 const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
@@ -72,9 +80,6 @@ export function isLegacyClaudeModel(model: string): boolean {
 
 const CLAUDE_MODEL_CATALOG: ReadonlyArray<ServerProviderModel> = [
   {
-    // Not version-gated: the Claude Code release that first serves Fable 5.1 is
-    // unknown, and (like claude-sonnet-5) offering it everywhere is better than
-    // hiding it from a CLI that can run it.
     slug: "claude-fable-5-1",
     name: "Claude Fable 5.1",
     isCustom: false,
@@ -381,6 +386,10 @@ function supportsClaudeOpus5(version: string | null | undefined): boolean {
   return version ? compareSemverVersions(version, MINIMUM_CLAUDE_OPUS_5_VERSION) >= 0 : false;
 }
 
+function supportsClaudeFable51(version: string | null | undefined): boolean {
+  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_FABLE_5_1_VERSION) >= 0 : false;
+}
+
 function supportsClaudeFable5(version: string | null | undefined): boolean {
   return version ? compareSemverVersions(version, MINIMUM_CLAUDE_FABLE_5_VERSION) >= 0 : false;
 }
@@ -399,6 +408,9 @@ function getBuiltInClaudeModelsForVersion(
   return BUILT_IN_MODELS.filter((model) => {
     if (model.slug === "claude-opus-5") {
       return supportsClaudeOpus5(version);
+    }
+    if (model.slug === "claude-fable-5-1") {
+      return supportsClaudeFable51(version);
     }
     if (model.slug === "claude-fable-5") {
       return supportsClaudeFable5(version);
