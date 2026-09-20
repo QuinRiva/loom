@@ -852,3 +852,192 @@ genuinely unused or reachable only from a path no consumer types.
 
 `pnpm build`, `vp check`, the migration smoke and the PR #191 transfer budget
 are **not started** — they sit behind a green `vp run typecheck`.
+
+## Session 5 — two latent runtime defects found; `apps/web` is NOT green and never was
+
+**Outcome: `bank_and_handoff`.** Five commits on `t3code/upstream-sync-20260921`
+(`5ce61df3c2` … `82e587a7fc`), tree clean, nothing pushed, every commit
+`--no-verify`, `116eff1261^2` = `c14f6015bf` re-verified after each.
+
+Brief items **1 (apps/server tests) partially** and the mechanical share of the
+web surface are done. Items **2, 3, 4, 5, 6, 7, 8** are NOT started — item 3
+(green typecheck) is the gate for all of them, and the distance to it is roughly
+three times what the brief assumed. See "The scope correction" below.
+
+### The two defects that matter more than the error counts
+
+Both are invisible to `tsc` and to a green test run, and both were introduced by
+the merge itself — neither parent has them.
+
+**1. A circular value import between two `packages/contracts` modules — the
+server could not boot.**
+
+    orchestration.ts  --value-->  providerRuntime.ts   (loom's edge, for UserInputResolvedOutcome)
+    providerRuntime.ts --value-->  orchestration.ts    (upstream's edge, for ProviderApprovalOption)
+
+Each parent had exactly ONE of these edges. The merge has both, so whichever
+module ESM evaluated second saw an uninitialised binding:
+
+    ReferenceError: Cannot access 'ProviderApprovalOption' before initialization
+      at packages/contracts/src/providerRuntime.ts:562
+
+Reproduced by importing `@t3tools/contracts` from plain node. `tsc` cannot see
+it (types are erased and the cycle is legal to the type checker), and it would
+have surfaced as a hard boot failure in the item-7 migration smoke.
+
+**Resolution:** loom's two leaf literals (`RuntimeErrorClass`,
+`UserInputResolvedOutcome` + `DEFAULT_USER_INPUT_RESOLVED_OUTCOME`) moved OUT of
+`providerRuntime.ts` and into `orchestration.loom.ts`, which depends only on
+`baseSchemas.ts`. `providerRuntime.ts` re-exports both, so their public import
+path is unchanged, and it keeps upstream's import direction untouched — future
+pulls stay mechanical. Verified: `@t3tools/contracts` now imports and decodes an
+`OrchestrationThread` under plain node.
+
+**2. `apps/web` lost the `lexical` dependency, and `node_modules` predated the
+merge.**
+
+`apps/web/package.json` lost the bare `"lexical": "^0.41.0"` line in the merge
+(it kept `@lexical/react`, which does not provide it). Separately,
+`node_modules` in this worktree was installed at **Sep 21 01:32**, an hour
+BEFORE the merge commit `116eff1261` (**02:47**) — so no session since the merge
+had the post-merge dependency tree. Dependency restored, `vp i` run; that alone
+removed 87 errors (the whole of `ComposerPromptEditor.tsx`).
+
+**Anyone re-measuring typecheck must run `vp i` first.**
+
+### The scope correction — `apps/web` was never green
+
+Sessions 3 and 4 both recorded `apps/web` as green; the remaining-errors file
+listed only mobile and server. It is not green, and this is **not** a session-5
+regression: stashing session 5's edits and re-running gives **851 errors at
+session 4's HEAD `b84b466aeb`**.
+
+Current, after session 5's work and `vp i`:
+
+| package | errors | note |
+|---|---|---|
+| 11 packages incl. `apps/desktop` | **0** | unchanged, still green |
+| `apps/web` | **635** | was 851; mostly SOURCE files, not tests |
+| `apps/server` | **176** | was 740; all test/integration files |
+| `apps/mobile` | **63** | untouched this session |
+
+`apps/web` is the bigger half of the remaining work and is qualitatively worse
+than the server's: the server's residue is test doubles, whereas web's is
+concentrated in shipped components — `ProviderSetupSection.tsx` (75),
+`MessagesTimeline.logic.ts` (33), `MessagesTimeline.tsx` (30), `ChatView.tsx`
+(28), `ChatComposer.tsx` (24).
+
+### The chat-surface side-pick — flagged, NOT relitigated
+
+Session 2 decided "chat surface: keep loom's side + fold wave 1". The ledger
+records the opposite for several of those files, and HEAD matches:
+
+| file | ledger mode | HEAD vs upstream | HEAD vs loom |
+|---|---|---|---|
+| `apps/web/src/components/chat/MessagesTimeline.logic.ts` | `theirs` | 299 diff lines | 1059 diff lines |
+| `apps/web/src/components/ChatView.logic.ts` | **`FAILED`** | 212 diff lines | 915 diff lines |
+| `apps/web/src/components/chat/ComposerCommandMenu.tsx` | `theirs` | — | — |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | `theirs` | — | — |
+| `apps/web/src/components/settings/ProviderSettingsPanel.tsx` | `theirs` | — | — |
+
+HEAD sits far closer to upstream than to loom on both of the big two, and
+`ChatView.logic.ts`'s resolution is recorded as having **failed outright**. That
+is consistent with the error cluster in those exact files.
+
+This is a decision-level discrepancy, not a code bug, so session 5 did not act
+on it. **The parent must decide** whether the chat surface is meant to be
+upstream's (in which case the remaining web errors are ordinary reconciliation)
+or loom's (in which case a large part of `apps/web` needs re-resolving from
+loom's side, and fixing the current errors one by one is wasted work).
+Everything else in web should wait on that answer.
+
+### What was actually repaired
+
+**`apps/server/src/server.test.ts`: 365 → 0.** One root cause, exactly as the
+brief predicted, but it was dropped hunks rather than fixture drift: the merge
+deleted five `Layer.mock` entries from the test harness — `EnvironmentTheme`,
+`UsageLimitSources`, `ThreadDeletionReactor`, `PullRequestSyncReactor`,
+`AnalyticsService` — the test-side mirror of the five runtime layers session 4
+restored into `server.ts`. Restored, plus upstream's `readThreadEvents` /
+`getThreadReplayStats` engine defaults.
+
+Then four tests that the merge had **spliced from two different parents** — the
+header of one test welded onto the body of another. The giveaway in each was a
+self-contradiction, e.g. `cleans up created bootstrap threads` asserted
+`thread.delete` IS dispatched and then, twenty lines later, that it never is:
+
+- `bootstraps first-send worktree turns …` — upstream's body restored, with
+  loom's gated `completion` and its `setup-script.completed` assertion folded
+  back on top (loom's `WorktreeProvisioner` is fork-only and appends that
+  activity; upstream has no such reactor).
+- `does not misattribute setup activity dispatch failures …` — upstream's body,
+  and upstream's whole `it.effect.each` async/sync/cancel block restored (it had
+  been deleted entirely, leaving its body attached to the previous test).
+- `cleans up created bootstrap threads …`, `subscribeServerConfig republishes …`,
+  `ignores invalid client telemetry …` — upstream tails restored.
+- `buffers thread events published while the initial snapshot loads` — **loom's**
+  version restored, because loom's ws.ts thread path attaches eagerly via
+  `subscribeDomainEvents`, which is what HEAD's `ws.ts` does.
+
+**`ProviderService.test.ts`: 99 → 0.** `makeFakeCodexAdapter` had upstream's
+signature `(provider, supportsConversationRollback?)` on top of a body using
+loom's `options` object; loom's pi/grok fake adapters, `piSessionFile`,
+`WorkspaceLeaseTestLive` and the shutdown-binding `before` read had all been
+dropped. Signatures unioned, declarations restored,
+`WorkspaceLease` → `WorkspaceOccupancyLease` import re-homed.
+
+**A dead upstream feature restored.** `ProjectSetupScriptRunner.ts` kept loom's
+implementation (correct — the `t3code-setup-state.json` breadcrumb is loom's),
+but dropped upstream's `observeCompletion.onOutputLine` forwarding. The field
+was still declared and `ws.ts:1396` still passes it to feed
+`worktreeSetupTracker.appendTail`, so **the worktree setup card's live output
+tail silently never populated**. Upstream's line-splitting, control-character
+stripping and length caps re-homed onto loom's terminal subscription.
+
+**Bulk fixture/mechanical work.** Duplicated import blocks merged in 7 server
+and 21 web files (a generic deduper handled `import {X}` / `import type {X}`
+pairs for the same module). Loom's fork fields added to the test fixtures that
+had drifted: `queuedMessages` (25 sites), `defaultStartFromOrigin` (10),
+`goals` (5). Upstream's stale `ReviewCommentContext` interface dropped in favour
+of loom's schema-derived type.
+
+### Gate status
+
+| gate | state |
+|---|---|
+| `vp run typecheck` | **RED** — web 635, server 176, mobile 63; 11 packages green |
+| `pnpm build` | not attempted (gated on typecheck) |
+| `vp check` | not attempted (gated on typecheck) |
+| PR #191 WS transfer budget | not attempted |
+| migrations 041–053 smoke | not attempted |
+| targeted test run | not attempted |
+| composition audit vs both parents | **not done** — but see the two defects above, both found by the same lens |
+| ledger audit (269 dropped hunks) | partial — `server.test.ts` (20), `ProviderService.test.ts` (11), `ProjectSetupScriptRunner.ts` (8) adjudicated |
+| `importPastedComposerText` | still unadjudicated |
+
+### What the next session should do, in order
+
+1. **Get the parent's answer on the chat-surface side-pick.** Everything in
+   `apps/web` is downstream of it. Do not start web reconciliation before it.
+2. `apps/server` 176 → 0. Almost entirely one mechanical move: whole-shape
+   `Layer.succeed(<Service>, {...})` doubles → `Layer.mock(<Service>)({...})`.
+   The missing members split cleanly by parent — `removeIfStopped` is loom's,
+   `readStreamEvents` / `getSession` are upstream's.
+3. `apps/mobile` 63 → 0 per session 4's guidance (unchanged).
+4. Then, and only then, brief items 3–8.
+5. The structural composition audit (brief item 4) is still owed and is the
+   highest-value remaining check. Session 5's two defects are both proof that it
+   finds things typecheck cannot: **extend its lens to include module-level
+   import cycles and `package.json` dependency lines**, neither of which session
+   4's declaration-level sweep looked at.
+
+### Open questions for the human
+
+1. **Chat surface: upstream's or loom's?** Session 2 decided loom's; the merge
+   took upstream's for `MessagesTimeline.logic.ts` and others, and
+   `ChatView.logic.ts`'s resolution is recorded `FAILED`. This changes the size
+   and the nature of the remaining web work substantially.
+2. Sessions 3 and 4 reported a gate (`apps/web` typecheck) as green when it was
+   not, most likely because the worktree's `node_modules` predated the merge.
+   Worth deciding whether the reviewer gate should require a recorded `vp i` +
+   full `vp run -r typecheck` transcript rather than a per-package claim.

@@ -1,11 +1,109 @@
-# Cadence pull 7 — remaining typecheck errors after session 4
+# Cadence pull 7 — remaining typecheck errors after session 5
 
-Green: 13 of 15 packages — contracts, shared, client-runtime, effect-acp,
-effect-codex-app-server, oxlint-plugin-t3code, ssh, tailscale, scripts,
-marketing, apps/web, **apps/desktop**, and every non-test source file in
-apps/server. Remaining: apps/mobile (63), apps/server (740 — ALL in tests).
+Measured with `vp run -r typecheck` semantics (each package's own
+`tsc --noEmit`) at commit 82e587a7fc, AFTER `vp i` (see the note below —
+node_modules predated the merge for the whole of sessions 3–4).
 
-## apps/mobile — 63, by file
+    GREEN (11): contracts, shared, client-runtime, effect-acp,
+                effect-codex-app-server, oxlint-plugin-t3code, ssh,
+                tailscale, scripts, marketing, apps/desktop
+
+    apps/web     635   <-- NOT green; sessions 3/4 reported it green in error
+    apps/server  176   (all in test/integration files)
+    apps/mobile   63
+
+## IMPORTANT correction to sessions 3 and 4
+
+Sessions 3 and 4 recorded `apps/web` as green. It was not, and it was not a
+regression introduced by session 5: verified by stashing session 5's edits and
+re-running — 851 errors at session 4's HEAD `b84b466aeb`.
+
+The most likely cause of the misreport is that `node_modules` in this worktree
+was installed at Sep 21 01:32, BEFORE the merge commit `116eff1261` (02:47).
+`apps/web` never had its post-merge dependencies. Session 5 ran `vp i`; that
+alone removed 87 errors (all of `ComposerPromptEditor.tsx`, which could not
+resolve `lexical`).
+
+Anyone re-measuring must run `vp i` first.
+
+## apps/web — 635, by file (top 25)
+
+    101 src/components/chat/MessagesTimeline.logic.test.ts
+     75 src/components/settings/ProviderSetupSection.tsx
+     61 src/components/chat/MessagesTimeline.test.tsx
+     33 src/components/chat/MessagesTimeline.logic.ts
+     30 src/components/chat/MessagesTimeline.tsx
+     28 src/components/ChatView.tsx
+     24 src/components/chat/ChatComposer.tsx
+     17 src/components/chat/ModelPickerContent.tsx
+     17 src/components/ChatMarkdown.test.tsx
+     16 src/components/DiffPanel.tsx
+     15 src/lib/composerContextRecords.test.ts
+     14 src/markdown-links.ts
+     13 src/lib/composerContextRecords.ts
+     13 src/components/composerInlineTokenPaste.ts
+     12 src/reviewCommentContext.test.ts
+     10 src/composerDraftStore.test.ts
+      9 src/modelSelection.ts
+      9 src/hooks/useLoadBalancedEnvironment.ts
+      8 src/session-logic.ts
+      8 src/components/RightPanelTabs.tsx
+      8 src/components/ComposerPromptEditor.tsx
+      7 src/components/Sidebar.tsx
+      6 src/components/files/FilePreviewPanel.tsx
+      5 src/lib/threadMention.test.ts
+      5 src/hooks/useHandleNewThread.ts
+
+By error code: TS2339 153, TS2739 92, TS2304 68, TS2353 60, TS2322 46,
+TS2345 36, TS7006 33, TS2305 25.
+
+Unlike apps/server, MOST of these are in SOURCE files, not tests. They are the
+same declaration-loss / splice damage class session 4 documented, plus a
+possible decision-level problem — see §Session 5 "The chat-surface side-pick"
+in `25-cadence-pull-v0.0.43-nightly-20260920.md`.
+
+## apps/server — 176, by file (every one is a test/integration file)
+
+     20 src/serverRuntimeStartup.reconcile.test.ts
+     14 src/serverRuntimeStartup.test.ts
+     13 src/terminal/Manager.test.ts
+     13 src/project/AgentSessionImporter.test.ts
+     13 src/persistence/LoomMigrations.test.ts
+     12 src/provider/Layers/ProviderInstanceRegistryLive.test.ts
+     12 src/orchestration/Layers/WorkstreamDispatcher.test.ts
+      9 src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
+      8 src/provider/Layers/ProviderSessionReaper.test.ts
+      7 src/orchestration/Layers/ProviderCommandReactor.test.ts
+      4 src/relay/AgentAwarenessRelay.test.ts
+      4 src/orchestration/Layers/ThreadDeletionReactor.test.ts
+      4 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts
+      4 src/orchestration/Layers/OrchestrationEngine.test.ts
+      4 src/orchestration/decider.turnDiffComplete.test.ts
+      4 integration/orphanedProviderSessionStartup.integration.test.ts
+      2 src/provider/makeManagedServerProvider.test.ts
+      2 src/persistence/Layers/ProjectionRepositories.test.ts
+      2 src/orchestration/ThreadSettlementReactor.test.ts
+      2 src/orchestration/ThreadPullRequestReactor.test.ts
+      2 integration/OrchestrationEngineHarness.integration.ts
+      1 each: serverRuntimeStartup.worktreeSetup, ClaudeCapabilitiesProbe,
+             ClaudeAdapter, AntigravityProtocol, messageContext,
+             HandoffDrafterReactor, decider.userMessageAppend,
+             decider.userInputSupersede, decider.userInputDismiss,
+             decider.questionAttachments, decider.projectScripts,
+             decider.import, git/linkCreatedPullRequest,
+             mcp/toolkits/pullRequests/handlers, projector,
+             ProjectionPipeline, PullRequestSyncReactor,
+             AgentSessionScanner, decider.pullRequests,
+             decider.active-order, ThreadSettlementPolicy
+
+Dominant remaining class: whole-shape `Layer.succeed(<Service>, {...})` test
+doubles that are missing members ONE PARENT ADDED (`removeIfStopped` is loom's,
+`readStreamEvents` / `getSession` are upstream's). The mechanical fix that
+worked repeatedly in session 5 is to switch the double to
+`Layer.mock(<Service>)({...})`, which is partial by construction and dies
+loudly on an unstubbed call — this is what upstream's own tests use.
+
+## apps/mobile — 63, by file (unchanged from session 4)
 
      40 src/features/threads/PendingUserInputCard.tsx
      18 src/state/use-selected-thread-requests.ts
@@ -15,83 +113,9 @@ apps/server. Remaining: apps/mobile (63), apps/server (740 — ALL in tests).
       1 src/features/threads/QuestionAnswerHistory.test.tsx
       1 src/connection/environment-cache-store.test.ts
 
-PendingUserInputCard.tsx + use-selected-thread-requests.ts are the wave-1
-deferrals: both need a side-by-side reconciliation (upstream's redesigned
-card / pending-requests derivation vs loom's draft helpers), not import
-surgery. use-selected-thread-requests.ts is still missing upstream-only
-declarations: the `Atom` import, `scopedRequestKey`, `selectedThreadKey`,
-`dismissingUserInputId`. The other 4 are one-line test fixture drift.
-
-## apps/server — 740, by file (every one is a test/integration file)
-
-    365 src/server.test.ts
-     99 src/provider/Layers/ProviderService.test.ts
-     22 src/project/ProjectSetupScriptRunner.test.ts
-     20 src/serverRuntimeStartup.test.ts
-     20 src/serverRuntimeStartup.reconcile.test.ts
-     18 src/orchestration/Layers/OrchestrationEngine.test.ts
-     17 src/orchestration/Layers/ProviderCommandReactor.test.ts
-     16 src/orchestration/Layers/ThreadDeletionReactor.test.ts
-     14 src/project/AgentSessionImporter.test.ts
-     13 src/terminal/Manager.test.ts
-     13 src/persistence/LoomMigrations.test.ts
-     12 src/provider/Layers/ProviderInstanceRegistryLive.test.ts
-     12 src/orchestration/Layers/WorkstreamDispatcher.test.ts
-      9 src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
-      8 src/provider/Layers/ProviderSessionReaper.test.ts
-      8 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts
-      7 src/orchestration/ThreadSettlementReactor.test.ts
-      7 integration/orphanedProviderSessionStartup.integration.test.ts
-      6 src/orchestration/Layers/CheckpointReactor.test.ts
-      5 src/orchestration/ThreadPullRequestReactor.test.ts
-      4 src/relay/AgentAwarenessRelay.test.ts
-      4 src/orchestration/projector.test.ts
-      4 src/orchestration/Layers/ProjectionPipeline.test.ts
-      4 src/orchestration/decider.turnDiffComplete.test.ts
-      3 src/orchestration/PullRequestSyncReactor.test.ts
-      2 src/provider/makeManagedServerProvider.test.ts
-      2 src/project/AgentSessionScanner.test.ts
-      2 src/persistence/Layers/ProjectionRepositories.test.ts
-      2 src/orchestration/ThreadSettlementPolicy.test.ts
-      2 src/orchestration/decider.pullRequests.test.ts
-      2 src/orchestration/decider.active-order.test.ts
-      2 src/mcp/toolkits/pullRequests/handlers.test.ts
-      2 src/git/linkCreatedPullRequest.test.ts
-      2 integration/OrchestrationEngineHarness.integration.ts
-      1 src/serverRuntimeStartup.worktreeSetup.test.ts
-      1 src/provider/Layers/ClaudeCapabilitiesProbe.test.ts
-      1 src/provider/Layers/ClaudeAdapter.test.ts
-      1 src/provider/acp/AntigravityProtocol.test.ts
-      1 src/orchestration/messageContext.test.ts
-      1 src/orchestration/Layers/HandoffDrafterReactor.test.ts
-      1 src/orchestration/decider.userMessageAppend.test.ts
-      1 src/orchestration/decider.userInputSupersede.test.ts
-      1 src/orchestration/decider.userInputDismiss.test.ts
-      1 src/orchestration/decider.questionAttachments.test.ts
-      1 src/orchestration/decider.projectScripts.test.ts
-      1 src/orchestration/decider.import.test.ts
-
-## apps/server — by error code
-
-    200 TS377004
-    193 TS2375
-     83 TS2741
-     58 channel which is not recommended.
-     44 TS2300
-     35 TS2304
-     25 TS2739
-     19 TS2322
-     14 TS2345
-     12 TS7031
-     12 TS2740
-      9 TS2552
-      8 TS2353
-      7 TS7006
-      6 TS2379
-      5 TS2339
-      4 TS18004
-      2 TS377034
-      1 TS7053
-      1 TS377105
-      1 TS2554
-      1 TS2459
+Not started in session 5. Session 4's guidance stands: use
+`pull7-tools/whatismissing.sh` first on every TS2304 in
+`use-selected-thread-requests.ts` (missing upstream-only `Atom` import,
+`scopedRequestKey`, `selectedThreadKey`, `dismissingUserInputId`), and make
+`PendingUserInputCard.tsx` compile against upstream's redesigned card WITHOUT
+re-adding loom's option previews / multi-select (task `a4b1ddfa`).
