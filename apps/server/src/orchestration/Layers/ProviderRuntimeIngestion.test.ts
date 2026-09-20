@@ -3306,7 +3306,9 @@ describe("ProviderRuntimeIngestion", () => {
     const newer = userInputEvent("new-turn", "new-question");
     const child = userInputEvent("child-turn", "child-question");
     const asynchronous = userInputEvent("old-turn", "async-question", "message");
-    const answer: ProviderRuntimeEvent = {
+    // `satisfies` rather than an annotation: the assertion below reads
+    // `answer.payload.answers`, which the event union hides.
+    const answer = {
       type: "user-input.resolved",
       eventId: asEventId("normal-answer"),
       provider: answered.provider,
@@ -3314,8 +3316,8 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: answered.turnId,
       requestId: answered.requestId,
       createdAt: "2026-01-01T00:00:02.000Z",
-      payload: { answers: { first: "yes", second: "yes" } },
-    };
+      payload: { answers: { first: "yes", second: "yes" }, outcome: "answered" },
+    } satisfies ProviderRuntimeEvent;
     await harness.emitAndDrain([
       answered,
       unresolved,

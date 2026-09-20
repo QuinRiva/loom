@@ -456,6 +456,13 @@ export const makeOrchestrationIntegrationHarness = (
         }),
       ),
       Layer.provideMerge(
+        Layer.succeed(PullRequestSyncReactor.PullRequestSyncReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+          requestSync: () => Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
         Layer.succeed(AgentAwarenessRelay.AgentAwarenessRelay, {
           publishThread: () => Effect.void,
           start: () => Effect.void,

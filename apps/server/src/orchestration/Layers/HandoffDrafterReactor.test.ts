@@ -121,6 +121,7 @@ const makeDrafter = (
   diffAdditions: null,
   diffDeletions: null,
   handoffDestinations: [],
+  pullRequests: [],
   title: "Handoff: something",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",

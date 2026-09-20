@@ -7957,7 +7957,11 @@ describe("ClaudeAdapterLive", () => {
               },
             ],
           },
-          { signal: new AbortController().signal, toolUseID: `tool-${scenario.outcome}` },
+          {
+            signal: new AbortController().signal,
+            requestId: `request-${scenario.outcome}`,
+            toolUseID: `tool-${scenario.outcome}`,
+          },
         );
 
         const requestedEvent = yield* Stream.runHead(adapter.streamEvents);

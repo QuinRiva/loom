@@ -1465,7 +1465,7 @@ describe("orchestration projector", () => {
     }),
   );
 
-  effectIt(
+  effectIt.effect(
     "preserves latestTurn through turn-diff-completed → session-set idle (§B2 regression test)",
     () =>
       Effect.gen(function* () {

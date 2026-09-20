@@ -50,6 +50,9 @@ import {
 import { ProviderSessionDirectoryPersistenceError } from "../provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderAuthService } from "../provider/Services/ProviderAuthService.ts";
+import { ProviderLaunchClaimsLive } from "../provider/Services/ProviderLaunchClaims.ts"; // loom:
+import * as WorkspaceOccupancyLease from "../workspace/WorkspaceOccupancyLease.ts"; // loom:
+import { WorktreeProvisioner } from "./WorktreeProvisioner.ts"; // loom:
 import * as ProviderSessionDirectory from "../provider/Services/ProviderSessionDirectory.ts";
 import { makeAdapterRegistryMock } from "../provider/testUtils/providerAdapterRegistryMock.ts";
 import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistryMock.ts";
@@ -945,6 +948,13 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
           Layer.provide(Layer.mock(VcsStatusBroadcaster)({})),
           Layer.provide(Layer.mock(TextGeneration)({})),
           Layer.provide(ServerSettingsService.layerTest()),
+          // loom: the reactor holds launch claims and a worktree lease around a
+          // launch; imported threads never provision, so the provisioner defects.
+          Layer.provide(ProviderLaunchClaimsLive),
+          Layer.provide(WorkspaceOccupancyLease.layer),
+          Layer.provide(
+            Layer.mock(WorktreeProvisioner)({ hasPendingProvisionFailure: () => false }),
+          ),
         );
 
         yield* engine.dispatch({

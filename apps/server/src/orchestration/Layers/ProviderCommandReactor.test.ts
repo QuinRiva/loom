@@ -49,6 +49,7 @@ import {
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { userInputContentDelivered } from "../../provider/Services/ProviderAdapter.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -136,6 +137,7 @@ describe("ProviderCommandReactor", () => {
     | OrchestrationEngineService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
+    | ProviderLaunchClaims // loom:
     | SqlClient.SqlClient,
     unknown
   > | null = null;
@@ -191,6 +193,14 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    // Turn-start provisioning guard (item 4). Default is a no-op success stub;
+    // isolation tests pass a spy to observe the re-provision-before-turn contract.
+    readonly ensureIsolatedChildProvisioned?: (input: {
+      readonly threadId: ThreadId;
+      readonly role: string;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+    }) => Effect.Effect<boolean>;
     readonly unreadableHistory?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
@@ -293,7 +303,9 @@ describe("ProviderCommandReactor", () => {
     const compactThread = vi.fn((_: ThreadId) => input?.compactThreadEffect?.() ?? Effect.void);
     const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect?.() ?? Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
-    const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
+    const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() =>
+      Effect.succeed(userInputContentDelivered),
+    );
     const stopSession = vi.fn((stopInput: unknown) =>
       (input?.stopSessionEffect?.() ?? Effect.void).pipe(
         Effect.tap(() =>

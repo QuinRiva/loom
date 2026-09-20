@@ -103,7 +103,9 @@ function makeOrchestrationLayer(
           )
         : RepositoryIdentityResolver.layer,
     ),
-    Layer.provide(persistence),
+    // `provideMerge` (not `provide`) exposes the SqlClient so loom's tests can
+    // snapshot the database and assert on rows directly.
+    Layer.provideMerge(persistence),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -466,9 +468,7 @@ describe("OrchestrationEngine", () => {
 
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
-        Layer.succeed(ProjectionSnapshotQuery, {
-          getUserInputActivity: () => Effect.die("unused"),
-          listActivitiesByKind: () => Effect.die("unused"),
+        Layer.mock(ProjectionSnapshotQuery)({
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>
             Effect.sync(() => {
@@ -490,7 +490,6 @@ describe("OrchestrationEngine", () => {
               threads: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
-          getDeletedWorktreeThreads: () => Effect.die("unused"),
           getArchivedShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: projectionSnapshot.snapshotSequence,
@@ -502,16 +501,12 @@ describe("OrchestrationEngine", () => {
           getSnapshotSequence: () =>
             Effect.succeed({ snapshotSequence: projectionSnapshot.snapshotSequence }),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
-          getEventReplayStats: () => Effect.die("unused"),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getProjectShellById: () => Effect.succeed(Option.none()),
           getProjectShells: () => Effect.succeed([]),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-          getImportedAgentSessionSources: () => Effect.die("unused"),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-          getThreadRuntimeContext: () => Effect.die("unused"),
-          getTurnStartMessage: () => Effect.die("unused"),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
@@ -533,7 +528,6 @@ describe("OrchestrationEngine", () => {
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-          getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),

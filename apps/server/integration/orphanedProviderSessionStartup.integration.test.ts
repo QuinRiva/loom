@@ -39,6 +39,10 @@ import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSes
 import * as ProviderService from "../src/provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../src/provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "../src/provider/Services/ProviderSessionReaper.ts";
+import { ProviderLaunchClaimsLive } from "../src/provider/Services/ProviderLaunchClaims.ts"; // loom:
+import * as SubscriptionUsagePoller from "../src/provider/Services/SubscriptionUsagePoller.ts"; // loom:
+import * as ExhaustionResumeSweep from "../src/orchestration/Services/ExhaustionResumeSweep.ts"; // loom:
+import * as WorkstreamLivenessSweep from "../src/orchestration/Services/WorkstreamLivenessSweep.ts"; // loom:
 import * as RepositoryIdentityResolver from "../src/project/RepositoryIdentityResolver.ts";
 import * as ServerLifecycleEvents from "../src/serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "../src/serverRuntimeStartup.ts";
@@ -73,6 +77,11 @@ const startupDependencies = Layer.mergeAll(
   Layer.mock(Keybindings.Keybindings)({
     start: Effect.void,
   }),
+  // loom: startup also arms the background sweeps and reads launch claims.
+  Layer.mock(WorkstreamLivenessSweep.WorkstreamLivenessSweep)({ start: () => Effect.void }),
+  Layer.mock(ExhaustionResumeSweep.ExhaustionResumeSweep)({ start: () => Effect.void }),
+  Layer.mock(SubscriptionUsagePoller.SubscriptionUsagePoller)({ start: () => Effect.void }),
+  ProviderLaunchClaimsLive,
   ServerSettings.layerTest(),
   Layer.succeed(OrchestrationReactor.OrchestrationReactor, {
     start: () => Effect.void,

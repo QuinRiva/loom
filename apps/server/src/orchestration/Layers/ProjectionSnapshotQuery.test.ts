@@ -5166,6 +5166,12 @@ it.effect("omits foreign-host PRs from legacy snapshots while preserving native 
       }),
     ),
     Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(
+      serverConfigLayerTest(process.cwd(), { prefix: "psq-test" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+    Layer.provideMerge(NodeServices.layer),
   );
   return Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

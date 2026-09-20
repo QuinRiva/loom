@@ -34,13 +34,9 @@ const makeProjectShell = (workspaceRoot: string): OrchestrationProjectShell => (
   defaultStartFromOrigin: null,
 });
 
-/** Only `getShellSnapshot` is exercised; the rest must not be called. */
+/** Only `getShellSnapshot` is exercised; `Layer.mock` defects on anything else. */
 const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<string>) =>
-  Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-    getCommandReadModel: () => Effect.die("unused"),
-    getUserInputActivity: () => Effect.die("unused"),
-    listActivitiesByKind: () => Effect.die("unused"),
-    getSnapshot: () => Effect.die("unused"),
+  Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
     getShellSnapshot: () =>
       Effect.succeed({
         snapshotSequence: 0,
@@ -49,24 +45,7 @@ const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<
         threads: [],
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
-    getDeletedWorktreeThreads: () => Effect.die("unused"),
-    getArchivedShellSnapshot: () => Effect.die("unused"),
-    getSnapshotSequence: () => Effect.die("unused"),
-    getCounts: () => Effect.die("unused"),
-    getEventReplayStats: () => Effect.die("unused"),
-    getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
-    getProjectShells: () => Effect.die("unused"),
-    getProjectShellById: () => Effect.die("unused"),
     getImportedAgentSessionSources: () => Effect.succeed([]),
-    getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
-    getThreadCheckpointContext: () => Effect.die("unused"),
-    getFullThreadDiffContext: () => Effect.die("unused"),
-    getThreadShellById: () => Effect.die("unused"),
-    getThreadRuntimeContext: () => Effect.die("unused"),
-    getTurnStartMessage: () => Effect.die("unused"),
-    getThreadDetailById: () => Effect.die("unused"),
-    getThreadDetailSnapshot: () => Effect.die("unused"),
-    searchThreads: () => Effect.die("unused"),
   });
 
 /**

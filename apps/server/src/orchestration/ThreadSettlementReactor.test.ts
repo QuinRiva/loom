@@ -1485,19 +1485,19 @@ describe("storage cleanup", () => {
             worktreePath,
             latestUserMessageAt:
               protection === "recent" ? "2026-08-26T00:00:00.000Z" : "2026-08-01T00:00:00.000Z",
-            ...(protection === "session"
-              ? {
-                  session: {
+            session:
+              protection === "session"
+                ? {
                     threadId: ThreadId.make("storage-thread"),
                     status: "ready",
                     providerName: "codex",
                     runtimeMode: "full-access",
                     activeTurnId: null,
                     lastError: null,
+                    queuedMessages: { steering: [], followUp: [] },
                     updatedAt: NOW,
-                  },
-                }
-              : {}),
+                  }
+                : null,
           });
           const snapshotRead = yield* Deferred.make<void>();
           const deletionStarted = yield* Deferred.make<void>();

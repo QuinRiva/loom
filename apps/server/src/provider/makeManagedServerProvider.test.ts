@@ -471,7 +471,7 @@ describe("makeManagedServerProvider", () => {
         const checkCount = yield* Ref.make(0);
         const releaseFirstCheck = yield* Deferred.make<void>();
         const provider = yield* makeManagedServerProvider<TestSettings>({
-          maintenanceCapabilities,
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
           getSettings: Effect.succeed({ enabled: true }),
           streamSettings: Stream.empty,
           haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
@@ -520,7 +520,7 @@ describe("makeManagedServerProvider", () => {
         const releaseInitialCheck = yield* Deferred.make<void>();
         const enrichmentPublished = yield* Deferred.make<void>();
         const provider = yield* makeManagedServerProvider<TestSettings>({
-          maintenanceCapabilities,
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
           getSettings: Effect.succeed({ enabled: true }),
           streamSettings: Stream.empty,
           haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
