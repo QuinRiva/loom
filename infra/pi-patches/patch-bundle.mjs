@@ -22,17 +22,18 @@ import * as NodePath from "node:path";
 const MARKER = "__loomWriteAuthAtomic";
 
 /**
- * Prepended to the chunk: the fs/path helpers the minified call sites below
- * need. Names are `__loom`-prefixed so they cannot collide with esbuild's
- * mangled bindings, and nothing here depends on a mangled name (the usage
- * errors are plain text rather than pi's chalk-red, which the RPC contract test
- * matches on by substring).
+ * Prepended to the chunk: the fs helpers the minified call sites below need.
+ * Names are `__loom`-prefixed so they cannot collide with esbuild's mangled
+ * bindings. The one upstream binding this relies on is `resolvePath` — pi's own
+ * path resolver (tilde, file URLs, Windows shell paths), which the readable
+ * 0001 patch also calls, so the two forms accept exactly the same `--cwd`
+ * values; its presence is asserted below. The usage errors are plain text
+ * rather than pi's chalk-red, because chalk's binding here IS mangled; the RPC
+ * contract test matches them by substring.
  */
 const HEADER = `
 // LOOM PATCH — see infra/pi-patches/README.md (0001 --cwd resume, 0002 atomic auth write).
 import { chmodSync as __loomChmodSync, existsSync as __loomExistsSync, renameSync as __loomRenameSync, statSync as __loomStatSync, unlinkSync as __loomUnlinkSync, writeFileSync as __loomWriteFileSync } from "node:fs";
-import { resolve as __loomResolvePath } from "node:path";
-import { homedir as __loomHomedir } from "node:os";
 function __loomWriteAuthAtomic(authPath, next, options) {
   const tmp = \`\${authPath}.tmp-\${process.pid}-\${Date.now()}\`;
   try {
@@ -65,10 +66,7 @@ function __loomResolveCwdOverrideOrExit(parsed, cwd) {
     console.error("Error: --cwd requires --session <path> (it overrides the working directory of an existing session)");
     process.exit(1);
   }
-  const expanded = parsed.cwdOverride.startsWith("~/")
-    ? __loomResolvePath(__loomHomedir(), parsed.cwdOverride.slice(2))
-    : parsed.cwdOverride;
-  const resolved = __loomResolvePath(cwd, expanded);
+  const resolved = resolvePath(parsed.cwdOverride, cwd);
   if (!__loomExistsSync(resolved) || !__loomStatSync(resolved).isDirectory()) {
     console.error(\`Error: --cwd directory does not exist: \${resolved}\`);
     process.exit(1);
@@ -77,8 +75,20 @@ function __loomResolveCwdOverrideOrExit(parsed, cwd) {
 }
 `;
 
-/** [description, matcher, replacement, expected match count] */
+/**
+ * [description, matcher, replacement, expected match count].
+ *
+ * The first entry replaces pi's `resolvePath` declaration with itself: it
+ * changes nothing, and exists so the strict count check below fails the bump if
+ * upstream ever renames the resolver the header calls.
+ */
 const EDITS = [
+  [
+    "0001 pi's own resolvePath (called by the header) is still named that",
+    /function resolvePath\(/g,
+    "function resolvePath(",
+    1,
+  ],
   [
     "0002 atomic auth.json write (withLock + withLockAsync)",
     /[A-Za-z_$][\w$]*\(this\.authPath,next,AUTH_FILE_WRITE_OPTIONS\)/g,

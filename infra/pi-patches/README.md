@@ -36,6 +36,12 @@ So each patch exists in two forms, and both are part of the pnpm patch:
   refuses to write unless every anchor matches its expected count, and
   `node --check`s the result — so a pi bump whose bundle drifted fails loudly.
 
+The two forms must stay behaviourally identical, which means reusing pi's own
+helpers in the bundle rather than re-implementing them: `--cwd` is resolved by
+pi's `resolvePath` in both (a hand-rolled `path.resolve` clone silently dropped
+bare `~` and `file://` targets that the readable patch accepts). The applier
+asserts that name still exists.
+
 Keeping `bin.pi` on the bundle is deliberate: the unbundled entry boots ~275 ms
 slower and holds ~23 MB more RSS per pi process (measured on 0.86.0), which Loom
 pays on every spawned thread.
@@ -138,9 +144,10 @@ needed by any daemon embedding pi, and interactive mode's prompt shows the
 semantics are already accepted.
 
 0.86.0 drift: unchanged except that `createSessionManager` is now `export`ed, so
-the signature hunk had to be re-derived. In the bundle the usage errors are
-plain text rather than chalk-red, because depending on esbuild's mangled chalk
-binding would be one more thing to break on the next bump.
+the signature hunk had to be re-derived. The only cosmetic difference in the
+bundle is that the two usage errors are plain text rather than chalk-red, since
+chalk's binding there is mangled by esbuild; path resolution and every accepted
+`--cwd` form are identical, because both forms call pi's `resolvePath`.
 
 ## 0002 — atomic `auth.json` write
 

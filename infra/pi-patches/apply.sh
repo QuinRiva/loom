@@ -35,8 +35,12 @@ if [[ -z "$PI_ROOT" ]]; then
     echo "pi not found on PATH; pass --pi-root <package dir>" >&2
     exit 1
   fi
-  # <root>/dist/cli.js -> <root>
-  PI_ROOT="$(cd "$(dirname "$(readlink -f "$pi_bin")")/.." && pwd)"
+  # <root>/dist/cli.js (pi < 0.84) or <root>/dist/bundle/cli.js (0.84+) -> <root>:
+  # walk up from the entry point to the package it belongs to.
+  PI_ROOT="$(cd "$(dirname "$(readlink -f "$pi_bin")")" && pwd)"
+  while [[ ! -f "$PI_ROOT/package.json" && "$PI_ROOT" != / ]]; do
+    PI_ROOT="$(dirname "$PI_ROOT")"
+  done
 fi
 
 if [[ ! -d "$PI_ROOT/dist" ]]; then
