@@ -1,7 +1,7 @@
 # Cadence pull 7 — remaining typecheck errors after session 6
 
 Measured per package (`npx tsc --noEmit -p tsconfig.json`) at commit
-`ac1b0c1` (session 6's last), AFTER `vp i`.
+`44518612e7` (session 6's last code commit), AFTER `vp i`.
 
     GREEN (11): contracts, shared, client-runtime, effect-acp,
                 effect-codex-app-server, oxlint-plugin-t3code, ssh,
