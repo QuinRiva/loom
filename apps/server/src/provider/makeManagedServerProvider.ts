@@ -197,16 +197,38 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       return yield* Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot));
     }
 
-    const baseSnapshot = yield* input.checkProvider;
+    if (
+      !forceRefresh &&
+      input.checkProviderOnSettingsChange?.(previousSettings, nextSettings) === false
+    ) {
+      const state = yield* Ref.get(snapshotStateRef);
+      const nextGeneration = state.enrichmentGeneration + 1;
+      yield* Ref.set(snapshotStateRef, {
+        ...state,
+        enrichmentGeneration: nextGeneration,
+      });
+      yield* Ref.set(settingsRef, nextSettings);
+      yield* restartSnapshotEnrichment(nextSettings, state.snapshot, nextGeneration);
+      return state.snapshot;
+    }
+
+    const probedSnapshot = yield* input.checkProvider;
     const [nextSnapshot, nextGeneration] = yield* Ref.modify(snapshotStateRef, (state) => {
       const generation = input.enrichSnapshot
         ? state.enrichmentGeneration + 1
         : state.enrichmentGeneration;
-      const snapshot = carryForwardEnrichment({
-        base: baseSnapshot,
-        previous: state.snapshot,
-        enrichmentOwnedFields: input.enrichmentOwnedFields ?? [],
-      });
+      const snapshot = withUsageLimits(
+        // loom: a regressed probe must not blank the palette content we already have.
+        carryForwardEnrichment({
+          base: probedSnapshot,
+          previous: state.snapshot,
+          enrichmentOwnedFields: input.enrichmentOwnedFields ?? [],
+        }),
+        resolveUsageLimitsAfterProbe({
+          published: state.snapshot.usageLimits,
+          probed: probedSnapshot.usageLimits,
+        }),
+      );
       return [
         [snapshot, generation] as const,
         {

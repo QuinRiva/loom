@@ -585,11 +585,14 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
               threads: [],
               updatedAt: now,
             } satisfies OrchestrationLeanShellSnapshot),
-          getThreadShellById: () =>
-            Deferred.succeed(threadShellRequested, undefined).pipe(
-              Effect.ignore,
-              Effect.as(Option.some(thread)),
-            ),
+          getThreadShellById: (requestedThreadId: ThreadId) =>
+            Effect.gen(function* () {
+              threadShellRequests.push(requestedThreadId);
+              if (requestedThreadId !== threadId) return Option.none();
+              yield* Deferred.succeed(threadShellRequested, undefined);
+              yield* Deferred.await(releaseThreadShell);
+              return Option.some(thread);
+            }),
           getProjectShellById: () => Effect.succeed(Option.some(project)),
         } as unknown as ProjectionSnapshotQueryShape;
 
