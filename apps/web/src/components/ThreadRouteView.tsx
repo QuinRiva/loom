@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
+import { resolveThreadSyncPhase } from "../threadSync";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
 import { SidebarInset } from "./ui/sidebar";
 import {
@@ -118,6 +119,11 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     serverThreadDetailDeleted: serverThreadStatus === "deleted",
     draftThreadExists: draftThread !== null,
   });
+  const threadSyncPhase = resolveThreadSyncPhase({
+    detailExists: serverThreadDetail !== null,
+    shellExists: serverThreadShell !== null,
+    status: serverThreadStatus,
+  });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
@@ -209,6 +215,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
         environmentId={target.threadRef.environmentId}
         threadId={target.threadRef.threadId}
         routeKind="server"
+        threadSyncPhase={threadSyncPhase}
       />
     );
   }

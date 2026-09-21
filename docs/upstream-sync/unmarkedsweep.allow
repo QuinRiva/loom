@@ -15,11 +15,9 @@ docs/upstream-sync/
 
 # Stage 3 slices 2-4: the chat-surface closure.
 apps/web/src/components/ChatComposer.tsx
-apps/web/src/components/ChatView.tsx
 apps/web/src/components/MessagesTimeline.tsx
 apps/web/src/components/ComposerCommandMenu.tsx
 apps/web/src/components/chatComposer.logic.ts
-apps/web/src/components/chatView.logic.ts
 apps/web/src/components/messagesTimeline.logic.ts
 apps/web/src/components/ComposerPromptEditor.tsx
 apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx

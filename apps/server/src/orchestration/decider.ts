@@ -1953,6 +1953,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           text: command.message.text,
           attachments: command.message.attachments,
+          // The deferred-turn arm below already forwards this; the pull-7 merge
+          // dropped it here, so every ordinary send persisted its inline
+          // context references without their records (`context_json` null) and
+          // every chip — terminal, review comment, annotation, `#thread` —
+          // arrived as a bare link.
+          ...(command.message.context !== undefined ? { context: command.message.context } : {}),
           turnId: null,
           streaming: false,
           createdAt: command.createdAt,

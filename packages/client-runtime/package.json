@@ -227,10 +227,6 @@
       "types": "./src/state/threads.ts",
       "default": "./src/state/threads.ts"
     },
-    "./state/older-thread-activities": {
-      "types": "./src/state/olderThreadActivities.ts",
-      "default": "./src/state/olderThreadActivities.ts"
-    },
     "./state/subagentRuntime": {
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"

@@ -6,6 +6,7 @@ import type { ComposerFileAttachment, ComposerImageAttachment } from "./composer
 import type { TerminalContextDraft } from "./lib/terminalContext";
 import { randomUUID } from "./lib/utils";
 import type { ReviewCommentContext } from "./reviewCommentContext";
+import type { ThreadReferenceDraft } from "./loom/threadReference";
 
 /**
  * A composer submission held back while the thread's turn is running. It
@@ -20,6 +21,9 @@ export interface QueuedComposerMessage {
   terminalContexts: TerminalContextDraft[];
   previewAnnotations: PreviewAnnotationPayload[];
   reviewComments: ReviewCommentContext[];
+  // loom: a queued `#thread` chip must still send its context record when the
+  // message finally leaves, not just the bare marker text.
+  threadReferences?: ThreadReferenceDraft[];
   submissionIntent: ComposerSubmissionIntent;
   /**
    * The newest completed tool activity at queue time. A different id later

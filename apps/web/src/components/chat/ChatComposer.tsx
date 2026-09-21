@@ -1277,7 +1277,7 @@ export interface ChatComposerHandle {
     previewAnnotations: PreviewAnnotationPayload[];
     reviewComments: ReviewCommentContext[];
     threadReferences: ThreadReferenceDraft[]; // loom:
-    /** loom: interim \u2014 loom's ChatView still expands `$skill` tokens at send. */
+    /** loom: pi expands `$name` as `/skill:name`; ChatView applies it at send. */
     selectedProviderSkillNames: ReadonlyArray<string>;
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
@@ -6183,6 +6183,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerTerminalContextsRef,
       composerPreviewAnnotations,
       composerReviewComments,
+      // loom: without these two the imperative handle keeps a stale closure and
+      // `getSendContext()` reports no `#thread` records and no selected skills,
+      // so a chipped mention sends as a bare link and `$name` never expands.
+      composerThreadReferences,
+      // `selectedProviderSkills` is derived from exactly these two and is a fresh
+      // array every render, so depend on its inputs rather than its identity.
+      selectedProviderStatus,
+      gitCwd,
       focusComposer,
       environmentId,
       primaryEnvironmentId,
