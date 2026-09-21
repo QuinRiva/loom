@@ -1,5 +1,6 @@
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import { isTerminalLane } from "@t3tools/shared/workstreamGraph"; // loom: finished-work trigger
 
 export interface SettlementPullRequest {
   readonly state: "open" | "closed" | "merged";
@@ -97,23 +98,51 @@ export function resolveAutoSettlementAt(input: {
           };
   }
   if (!isAutoSettlementCandidate(thread, input.now)) return null;
-  // loom: a never-run thread still ages from creation; otherwise it can never
-  // satisfy the inactivity policy and remains permanently unsettleable.
-  const activityAt =
+  const activityAt = threadActivityAt(thread);
+  if (pullRequest !== null) {
+    if (pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
+      return activityAt;
+    }
+  }
+  if (input.autoSettleAfterDays === null) return null;
+  return Date.parse(activityAt) < Date.parse(input.now) - input.autoSettleAfterDays * DAY_MS
+    ? activityAt
+    : null;
+}
+
+/** Last real activity on a thread.
+ * loom: the `createdAt` fallback is load-bearing — a never-run thread has no
+ * message and no turn, so without it the inactivity policy can never be
+ * satisfied and the thread stays permanently unsettleable. */
+function threadActivityAt(thread: OrchestrationThreadShell): string {
+  return (
     latestTimestamp([
       thread.latestUserMessageAt,
       thread.latestTurn?.requestedAt,
       thread.latestTurn?.startedAt,
       thread.latestTurn?.completedAt,
-    ]) ?? thread.createdAt;
-  if (pullRequest !== null) {
-    if (pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
-      return activityAt ?? thread.createdAt;
-    }
-  }
-  if (input.autoSettleAfterDays === null || activityAt === null) return null;
-  return Date.parse(activityAt) < Date.parse(input.now) - input.autoSettleAfterDays * DAY_MS
-    ? activityAt
+    ]) ?? thread.createdAt
+  );
+}
+
+/**
+ * loom: the finished-work trigger's settle stamp, or null when the thread is
+ * not a finished root. A ROOT whose plan lane has reached `done`/`cancelled`
+ * has nothing left to show, so it leaves the active inbox rather than ageing
+ * out over the inactivity window. Roots only — a child is not an inbox row.
+ *
+ * Only the lane and the stamp are decided here. Every blocker stays where it
+ * already lives: the caller applies `isAutoSettlementCandidate` (which is why a
+ * root that finishes while its OWN session is still running settles when that
+ * session goes quiet, not at the lane transition), and the decider's
+ * `thread.auto-settle` arm owns the plan blockers. The stamp is the thread's
+ * own last activity, so a finished root sorts on the settled shelf exactly
+ * where the inactivity path would have put it. Rationale and the full rule:
+ * `docs/upstream-sync/23-sidebar-v2-rehome.md` §J.
+ */
+export function finishedRootSettlesAt(thread: OrchestrationThreadShell): string | null {
+  return thread.parentThreadId === null && isTerminalLane(thread.planLane)
+    ? threadActivityAt(thread)
     : null;
 }
 
