@@ -17,7 +17,7 @@ import type { MarkdownFileLinkMeta } from "~/markdown-links";
  * Loom's file-chip seam over upstream's `fileLinkChip` renderer (slice 1 of the
  * chat-surface re-home). Upstream renders every syntactically resolvable path
  * as a live chip; a chip whose file has since been moved or deleted therefore
- * looks identical to one that works, and clicking it fails somewhere else. Two
+ * looks identical to one that works, and clicking it fails somewhere else. One
  * behaviour is re-attached here, and nothing else — an existing file renders
  * exactly upstream's chip:
  *
