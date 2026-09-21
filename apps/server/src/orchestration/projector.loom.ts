@@ -4,9 +4,9 @@
 // `plans/2026-07-07-fork-seam-campaign.md` (Slice B §B.5).
 //
 // MODULE CYCLE (deliberate & safe): this file imports `decodeForEvent` /
-// `updateThread` / `MAX_THREAD_MESSAGES` from `projector.ts`, and `projector.ts`
-// imports `projectLoomEvent` back from here. Both directions are referenced
-// only inside function bodies (call time), never at module init.
+// `updateThread` from `projector.ts`, and `projector.ts` imports
+// `projectLoomEvent` back from here. Both directions are referenced only
+// inside function bodies (call time), never at module init.
 
 import type {
   AttentionReason,
@@ -19,7 +19,6 @@ import type {
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { appendPrunedNotifySendLog } from "@t3tools/shared/notify";
 import { gateLoopTargetOf, gateSourceFor } from "@t3tools/shared/workstreamGraph";
-import { OrchestrationMessage } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import type { OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -54,7 +53,7 @@ import {
 } from "./goalTaskTree.ts";
 // See the module-cycle note above: these are upstream bindings that stay in
 // `projector.ts`; they are only ever referenced inside the function body below.
-import { decodeForEvent, updateThread, MAX_THREAD_MESSAGES } from "./projector.ts";
+import { decodeForEvent, updateThread } from "./projector.ts";
 
 /**
  * Migration-only (design §9): remap a legacy `thread.status-set` into the new
@@ -110,9 +109,9 @@ function updateGoalTasks(
 /**
  * Fork event projection. Called by `projectEvent` (after it has built
  * `nextBase`) for every event the fork adds — goal.*, the plan-lane/attention/
- * dependencies/report/outcome/route/fanin thread events, the legacy
- * `thread.status-set` migration remap. Events
- * with no case (`thread.turn-start-failed`, `thread.consult-recorded`, and the
+ * dependencies/report/outcome/route/fanin thread events, and the legacy
+ * `thread.status-set` migration remap. Events with no case
+ * (`thread.turn-start-failed`, `thread.consult-recorded`, and the
  * `thread.peer-message-delivered`/`-expired` lifecycle events, which only touch
  * the SQL edge projection) fall to the default, returning the model unchanged —
  * identical to the upstream projector's default for those types.
