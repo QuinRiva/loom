@@ -31,7 +31,7 @@ import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import {
   logCleanupCauseUnlessInterrupted,
   ThreadDeletionReactorLive,
-  toThreadCleanupRequest,
+  toThreadCleanupRequest, // loom: cleanup also triggers on plan-lane done/cancelled and archive
 } from "./ThreadDeletionReactor.ts";
 
 describe("logCleanupCauseUnlessInterrupted", () => {

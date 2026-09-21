@@ -2401,6 +2401,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
           "Which scope should Grok use?": "Workspace",
         },
       );
+      // loom: the delivery result and the resolved outcome are now explicit.
       // An answered outcome rides the callback whole.
       assert.isTrue(delivery.deliveredContent);
 

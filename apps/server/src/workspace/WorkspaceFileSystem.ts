@@ -34,6 +34,7 @@ import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+// loom: out-of-workspace reads/listings/stats and the larger .mdx plan budget.
 /**
  * Upper bound a per-request `maxBytes` can raise the read cap to (8 MiB). Only
  * the `.mdx` plan preview opts in; the ceiling keeps an oversized/hostile

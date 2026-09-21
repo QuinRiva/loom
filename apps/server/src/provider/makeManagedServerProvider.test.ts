@@ -462,6 +462,7 @@ describe("makeManagedServerProvider", () => {
     ).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
 
+  // loom: a base refresh must not publish a snapshot that lost palette content.
   it.effect("surfaces base-probe skill changes on providers whose enrichment owns nothing", () =>
     Effect.scoped(
       Effect.gen(function* () {

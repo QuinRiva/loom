@@ -110,6 +110,7 @@ export class GitManager extends Context.Service<
       input: VcsStatusInput,
       options?: GitRemoteStatusOptions,
     ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
+    // loom: batched remote status and repo-wide PR listing across worktrees.
     readonly remoteStatuses: (
       input: {
         readonly repositoryKey: string;

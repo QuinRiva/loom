@@ -630,6 +630,7 @@ describe("VcsStatusBroadcaster", () => {
     }).pipe(Effect.provide(makeTestLayer(state)));
   });
 
+  // loom: one repository batch serves every subscribed worktree.
   it.effect("polls all subscribed worktrees from one repository batch", () => {
     const batchEntries: Array<
       ReadonlyArray<{ readonly cwd: string; readonly branch: string | null }>

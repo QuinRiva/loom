@@ -47,6 +47,8 @@ export interface ProjectionSnapshotCounts {
   readonly threadCount: number;
 }
 
+// loom: goals, lean shells, thread activities/lifecycle and the narrow
+// control-plane queries the workstream needs.
 /**
  * The identity of one active project — all that a caller resolving a project by
  * id or title needs. Deliberately narrower than `OrchestrationProject`: it

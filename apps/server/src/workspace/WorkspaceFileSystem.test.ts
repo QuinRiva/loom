@@ -1,3 +1,4 @@
+// loom: out-of-workspace reads/listings/stats and the .mdx read budget.
 // Test-only: mkfifo has no Effect API and is only used to fabricate a
 // non-regular file for the statPaths kind check.
 // @effect-diagnostics nodeBuiltinImport:off - FileSystem cannot create a FIFO.
