@@ -6073,7 +6073,6 @@ function ChatViewContent(props: ChatViewProps) {
               <MessagesTimeline
                 key={activeThread.id}
                 isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
                 listRef={legendListRef}
                 timelineEntries={timelineEntries}
@@ -6083,12 +6082,15 @@ function ChatViewContent(props: ChatViewProps) {
                     ? activeThread.session.activeTurnId
                     : null
                 }
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                // loom: interim (slice 4) owns these in upstream's own shape.
+                turnDiffSummaries={turnDiffSummaries}
                 activeThreadEnvironmentId={activeThread.environmentId}
                 routeThreadKey={routeThreadKey}
                 onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
+                supportsConversationRollback={
+                  activeProviderStatus?.supportsConversationRollback !== false
+                }
+                onRevertToTurnCount={(targetTurnCount) => void onRevertToTurnCount(targetTurnCount)}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}
@@ -6099,14 +6101,13 @@ function ChatViewContent(props: ChatViewProps) {
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}
-                onTimelineEndStateChange={onTimelineEndStateChange}
+                // loom: interim (slice 4) — upstream reports only `isAtEnd`; the
+                // near-end and scroll-offset halves of loom's handler go with it.
+                onIsAtEndChange={(isAtEnd) => onTimelineEndStateChange(isAtEnd, isAtEnd, 0)}
                 // The scroll-to-end pill is exactly the "not following the live
                 // edge" signal, and unlike the scroll-mode refs it re-renders.
                 liveFollowEnabled={!showScrollToBottom}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                hasMoreOlder={hasMoreOlderActivities}
-                loadingOlder={loadingOlderActivities}
-                onLoadOlder={loadOlderActivities}
                 loadEarlier={loadEarlierTurns}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
