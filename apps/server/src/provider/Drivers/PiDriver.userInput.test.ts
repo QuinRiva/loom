@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeEvents from "node:events";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -12,6 +14,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -21,6 +24,7 @@ import { describe, expect } from "vite-plus/test";
 import { ServerConfig } from "../../config.ts";
 import type { PiRpcProcess, PiRpcProcessOptions } from "../Layers/Pi/RpcProcess.ts";
 import type { ProviderHealthRegistryShape } from "../Services/ProviderHealthRegistry.ts";
+import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { openPiAskUserQuestion, waitForPiAskUserQuestion } from "./Pi/askUserBroker.ts";
 import { makePiAdapter } from "./PiDriver.ts";
 
@@ -75,12 +79,12 @@ const makeFakeProcess = () => {
   };
 };
 
-const withAdapter = <A, E>(
+const withAdapter = <A, E, R extends ServerConfig | FileSystem.FileSystem = never>(
   body: (
     adapter: ReturnType<typeof makePiAdapter>,
     fake: ReturnType<typeof makeFakeProcess>,
     events: Queue.Queue<ProviderRuntimeEvent>,
-  ) => Effect.Effect<A, E>,
+  ) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const serverConfig = yield* ServerConfig;
@@ -354,6 +358,66 @@ describe("PiDriver user input", () => {
           requestId: opened.requestId,
           answers: { [questionId]: "B" },
         });
+        yield* adapter.stopSession(threadId);
+      }),
+    ),
+  );
+
+  // pi's ask_user_question protocol has no attachment slot, so a file attached to
+  // an answer reaches the agent as the on-disk path `ProviderService` folds into
+  // the answer text. This drives that exact fold into the driver and asserts the
+  // blocked tool call collects a path it can actually read.
+  effectIt.effect("delivers an answer attachment to pi as a readable server path", () =>
+    withAdapter((adapter, _fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("99999999-9999-4999-8999-999999999999");
+        yield* startSession(adapter, threadId);
+        const opened = yield* Effect.promise(() =>
+          openPiAskUserQuestion(threadId, (requestId) => [
+            {
+              id: `${requestId}:1`,
+              header: "Spec",
+              question: "Which spec applies?",
+              options: [],
+              multiSelect: false,
+            },
+          ]),
+        );
+        if ("outcome" in opened)
+          throw new Error("Expected the live driver to present the question.");
+        yield* takeEvent(events, "user-input.requested");
+
+        const { attachmentsDir } = yield* ServerConfig;
+        const attachment = {
+          type: "file" as const,
+          id: "thread-1-00000000-0000-4000-8000-0000000000aa-txt",
+          name: "spec.txt",
+          mimeType: "text/plain",
+          sizeBytes: 4,
+        };
+        const attachmentPath = NodePath.join(attachmentsDir, `${attachment.id}.txt`);
+        NodeFS.writeFileSync(attachmentPath, "spec");
+        const questionId = `${opened.requestId}:1`;
+        const answers = yield* appendUserInputAttachmentPaths({
+          answers: { [questionId]: "This one" },
+          attachmentsByQuestionId: { [questionId]: [attachment] },
+          attachmentsDir,
+        });
+
+        const result = waitForPiAskUserQuestion(threadId, opened.requestId, 1_000);
+        yield* adapter.respondToUserInput(
+          threadId,
+          ApprovalRequestId.make(opened.requestId),
+          answers,
+        );
+        expect(yield* Effect.promise(() => result)).toMatchObject({
+          pending: false,
+          outcome: "answered",
+          answers: {
+            [questionId]: `This one\n\nAttached file "spec.txt": "${attachmentPath}"`,
+          },
+        });
+        expect(NodeFS.readFileSync(attachmentPath, "utf8")).toBe("spec");
         yield* adapter.stopSession(threadId);
       }),
     ),
