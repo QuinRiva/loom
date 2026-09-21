@@ -28,6 +28,7 @@ import { pullRequestMatchesProject } from "./ThreadPullRequestReactor.ts";
 import {
   finishedRootSettlesAt, // loom: finished-work trigger
   isAutoSettlementCandidate,
+  loomAutoSettleBlockedThreadIds, // loom: sweep-side mirror of the decider's blockers
   resolveAutoSettlementAt,
   type SettlementPullRequest,
 } from "./ThreadSettlementPolicy.ts";
@@ -102,10 +103,14 @@ export const make = Effect.gen(function* () {
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
+    // loom: the fork's two auto-settle blockers are pre-filtered here, exactly
+    // where upstream pre-filters its own; the decider still enforces them.
+    const loomBlocked = loomAutoSettleBlockedThreadIds(snapshot.threads);
     const candidates = snapshot.threads.filter(
       (thread) =>
         (threadId === undefined || thread.id === threadId) &&
-        isAutoSettlementCandidate(thread, now),
+        isAutoSettlementCandidate(thread, now) &&
+        !loomBlocked.has(thread.id), // loom: see above
     );
 
     // Return the thread when it still needs a pull request decision. A rejected
