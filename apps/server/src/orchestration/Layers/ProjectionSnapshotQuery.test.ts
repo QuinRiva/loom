@@ -454,6 +454,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             model: "gpt-5-codex",
           },
           defaultStartFromOrigin: null,
+          autoPull: false,
           faviconPath: null,
           projectIcon: null,
           scripts: [
@@ -612,6 +613,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             model: "gpt-5-codex",
           },
           defaultStartFromOrigin: null,
+          autoPull: false,
           faviconPath: null,
           projectIcon: null,
           scripts: [
@@ -2176,10 +2178,21 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           )
       `;
 
+      // `sequence` is an autoincrement shared with every earlier test in this
+      // file, so anchor the window on the rows just inserted rather than 1..4.
+      const [window] = yield* sql<{
+        readonly firstSequence: number;
+        readonly lastSequence: number;
+      }>`
+        SELECT MIN(sequence) AS "firstSequence", MAX(sequence) AS "lastSequence"
+        FROM orchestration_events
+      `;
+      assert.isDefined(window);
+
       // Bytes, not code points: the 4-byte emoji row is {"output":"😀"}, 17 bytes.
       const stats = yield* snapshotQuery.getEventReplayStats({
-        fromSequenceExclusive: 1,
-        toSequenceInclusive: 4,
+        fromSequenceExclusive: window.firstSequence,
+        toSequenceInclusive: window.lastSequence,
       });
       assert.deepStrictEqual(stats, {
         eventCount: 3,
@@ -4933,10 +4946,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery imported sources", (it) => {
       `import:${source.providerInstanceId}:${source.providerSessionId}`,
     );
     const timestamp = "2026-03-02T00:00:00.000Z";
+    // loom: one workspace root per project — migration 1018 makes the active
+    // root unique, so a shared literal silently no-ops this INSERT OR IGNORE
+    // and the project row every one of these queries joins through is missing.
     yield* sql`
       INSERT OR IGNORE INTO projection_projects (
         project_id, title, workspace_root, scripts_json, created_at, updated_at
-      ) VALUES (${projectId}, 'Imported project', '/tmp/imported-project', '[]',
+      ) VALUES (${projectId}, 'Imported project', ${`/tmp/${projectId}`}, '[]',
         ${timestamp}, ${timestamp})
     `;
     yield* sql`

@@ -189,8 +189,8 @@ WARN foreign-home guard refused a side effect  site=GitVcsDriver.removeWorktree 
 ```
 
 Refused while the guard is on: worktree create/remove/prune, branch delete,
-checkpoint capture/restore/delete, provider session start, and project
-setup-script runs. Everything read-only — the sidebar, threads, timelines,
+checkpoint capture/restore/delete, provider session start, project
+setup-script runs, and the boot `projects.auto-pull` phase's `git pull`. Everything read-only — the sidebar, threads, timelines,
 diffs of existing checkpoints — works normally, which is what a data-shaped
 verification needs. If you need to drive an agent, use the seed instance
 instead; a copy-DB instance is deliberately incapable of it.

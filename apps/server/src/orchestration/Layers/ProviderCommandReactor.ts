@@ -37,7 +37,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -543,39 +542,6 @@ const make = Effect.gen(function* () {
     });
   });
 
-  // Fix A: durably clear the pending turn-start projection row when a turn-start
-  // fails before `turn.started`. Dispatched on EVERY turn-start failure — both
-  // when a session exists (reset to ready above) and when none does (no
-  // session-set is emitted at all) — because in both cases no
-  // `thread.session-set running` will ever arrive to clear the row, and a
-  // lingering pending turn-start keeps the parent permanently non-idle, which
-  // strands a deferred dispatcher wake.
-  //
-  // The command id is DETERMINISTIC, derived from the failing turn-start's
-  // identity (`turnStartKey` — the same key that dedups the turn-start itself).
-  // This makes the clear idempotent and safely retryable: a transient dispatch
-  // failure is retried, and because the id is fixed every attempt re-drives the
-  // same command without a duplicate effect, so the pending row is never left
-  // orphaned by a single failed (random-id) dispatch.
-  const clearPendingTurnStartForFailedTurn = (input: {
-    readonly threadId: ThreadId;
-    readonly turnStartKey: string;
-    readonly detail: string;
-    readonly createdAt: string;
-  }) =>
-    orchestrationEngine
-      .dispatch({
-        type: "thread.turn-start.fail",
-        commandId: CommandId.make(`server:turn-start-fail:${input.turnStartKey}`),
-        threadId: input.threadId,
-        detail: input.detail,
-        createdAt: input.createdAt,
-      })
-      .pipe(
-        Effect.retry(
-          Schedule.max([Schedule.exponential(Duration.millis(100)), Schedule.recurs(3)]),
-        ),
-      );
   const restoreCompaction = Effect.fnUntraced(function* (threadId: ThreadId, fromRunning = false) {
     if (stoppingThreadIds.has(threadId)) {
       compactingThreadIds.delete(threadId);
@@ -1816,15 +1782,12 @@ const make = Effect.gen(function* () {
       });
       if (!provisioned) {
         // ensureIsolatedChildProvisioned already re-parked (activity +
-        // needs_guidance). Clear the pending turn-start row so the idle gate does
-        // not treat the child as perpetually busy, and do NOT start the turn.
-        yield* clearPendingTurnStartForFailedTurn({
-          threadId: event.payload.threadId,
-          turnStartKey: key,
-          detail:
-            "Worktree provisioning failed before the turn could start; the child was re-parked (needs_guidance).",
-          createdAt: event.payload.createdAt,
-        });
+        // needs_guidance). Upstream's provider.turn.start.failed projection clears
+        // the pending turn-start row; do not start the turn.
+        yield* appendTurnStartFailure(
+          "Provider turn start failed",
+          "Worktree provisioning failed before the turn could start; the child was re-parked (needs_guidance).",
+        );
         return;
       }
       // An unprovisioned isolated branch is a durable proof the kick-off turn was
@@ -1958,30 +1921,17 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
-      // loom (Fix A): a compaction failure means no `thread.session-set running`
-      // will ever arrive, so the pending turn-start projection row must be cleared
-      // here too or the thread stays permanently non-idle to the parent's gate.
-      const clearPendingTurnStart = clearPendingTurnStartForFailedTurn({
-        threadId: event.payload.threadId,
-        turnStartKey: key,
-        detail,
-        createdAt: event.payload.createdAt,
-      });
       if (!compactionSessionEnsured) {
-        return clearPendingTurnStart.pipe(
-          Effect.flatMap(() =>
-            setThreadSessionErrorOnTurnStartFailure({
-              threadId: event.payload.threadId,
-              detail,
-              createdAt: event.payload.createdAt,
-            }),
-          ),
+        return setThreadSessionErrorOnTurnStartFailure({
+          threadId: event.payload.threadId,
+          detail,
+          createdAt: event.payload.createdAt,
+        }).pipe(
           Effect.flatMap(() => appendTurnStartFailure("Context compaction failed", detail)),
           Effect.asVoid,
         );
       }
-      return clearPendingTurnStart.pipe(
-        Effect.flatMap(() => appendTurnStartFailure("Context compaction failed", detail)),
+      return appendTurnStartFailure("Context compaction failed", detail).pipe(
         Effect.ensuring(
           restoreCompaction(event.payload.threadId).pipe(
             Effect.catchCause((restoreCause) =>

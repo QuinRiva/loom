@@ -9,7 +9,6 @@ import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionThreadInput,
   GetProjectionThreadInput,
-  ListProjectionThreadsByProjectInput,
   ProjectionThread,
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
@@ -309,74 +308,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
-  const listProjectionThreadRows = SqlSchema.findAll({
-    Request: ListProjectionThreadsByProjectInput,
-    Result: ProjectionThreadDbRow,
-    execute: ({ projectId }) =>
-      sql`
-        SELECT
-          thread_id AS "threadId",
-          project_id AS "projectId",
-          goal_id AS "goalId",
-          parent_thread_id AS "parentThreadId",
-          role,
-          purpose,
-          brief,
-          plan_lane AS "planLane",
-          attention,
-          blocked_by AS "blockedBy",
-          spawn_generation AS "spawnGeneration",
-          fork_from_thread_id AS "forkFromThreadId",
-          continues_thread_id AS "continuesThreadId",
-          final_commit_sha AS "finalCommitSha",
-          report_path AS "reportPath",
-          graph_key AS "graphKey",
-          kickoff_brief_path AS "kickoffBriefPath",
-          plan_lane_since AS "planLaneSince",
-          dependencies_since AS "dependenciesSince",
-          fanin_since AS "faninSince",
-          routes,
-          gate_rounds AS "gateRounds",
-          pending_rework AS "pendingRework",
-          last_outcome AS "lastOutcome",
-          isolation,
-          fan_in_state AS "fanInState",
-          title,
-          model_selection_json AS "modelSelection",
-          runtime_mode AS "runtimeMode",
-          interaction_mode AS "interactionMode",
-          branch,
-          worktree_path AS "worktreePath",
-          latest_turn_id AS "latestTurnId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          settled_override AS "settledOverride",
-          settled_at AS "settledAt",
-          snoozed_until AS "snoozedUntil",
-          snoozed_at AS "snoozedAt",
-          pinned_at AS "pinnedAt",
-          pin_order_key AS "pinOrderKey",
-          title_regeneration_request_id AS "titleRegenerationRequestId",
-          title_regeneration_started_at AS "titleRegenerationStartedAt",
-          latest_user_message_at AS "latestUserMessageAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          cumulative_cost_usd AS "cumulativeCostUsd",
-          tool_uses AS "toolUses",
-          used_tokens AS "usedTokens",
-          max_tokens AS "maxTokens",
-          diff_additions AS "diffAdditions",
-          diff_deletions AS "diffDeletions",
-          handoff_destinations AS "handoffDestinations",
-          deleted_at AS "deletedAt"
-        FROM projection_threads
-        WHERE project_id = ${projectId}
-        ORDER BY created_at ASC, thread_id ASC
-      `,
-  });
-
+  // loom: upstream's list-threads-by-project query is deliberately absent. It
+  // was never exposed on the repository shape and its SELECT had drifted
+  // narrower than its Result schema, so any first caller would have hit a
+  // decode failure rather than rows. Re-add it with a full column list if a
+  // caller ever needs it.
   const deleteProjectionThreadRow = SqlSchema.void({
     Request: DeleteProjectionThreadInput,
     execute: ({ threadId }) =>
