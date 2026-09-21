@@ -192,6 +192,7 @@ it.effect("uses gh json listing for non-open change request state queries", () =
   }),
 );
 
+// loom: repository-wide PR listing (no per-branch head filter).
 it.effect("lists repository PRs without a per-branch head filter", () =>
   Effect.gen(function* () {
     let executeArgs: ReadonlyArray<string> = [];

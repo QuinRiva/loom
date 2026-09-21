@@ -118,8 +118,9 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
       input: DeleteProviderSessionRuntimeInput,
     ) => Effect.Effect<void, ProviderSessionRuntimeRepositoryError>;
 
+    // loom: retention support for stopped runtime rows.
     /**
-     * loom: retention support (see `ProviderSessionDirectory.removeIfStopped`).
+     * Retention support (see `ProviderSessionDirectory.removeIfStopped`).
      *
      * Delete a runtime row only while it is still `stopped`.
      *

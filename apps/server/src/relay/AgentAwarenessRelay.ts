@@ -79,6 +79,8 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
       // before the real running state arrives. Provider lifecycle events publish
       // the authoritative starting/running state instead.
       return false;
+    // loom: reasoning and the workstream plan/attention/dependency events are
+    // not turn-state changes.
     case "thread.message-reasoning":
       // Reasoning is incremental thinking detail, not a turn-state change.
       return false;

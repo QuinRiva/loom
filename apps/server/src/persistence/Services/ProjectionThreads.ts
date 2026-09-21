@@ -38,6 +38,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  // loom: workstream columns on the projected thread row.
   goalId: Schema.NullOr(GoalId),
   parentThreadId: Schema.NullOr(ThreadId),
   role: Schema.NullOr(Schema.String),

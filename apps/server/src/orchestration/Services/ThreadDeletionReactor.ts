@@ -1,3 +1,4 @@
+// loom: also reclaims on plan-lane done/cancelled and archive, not just delete.
 /**
  * ThreadDeletionReactor - Thread terminal-state cleanup reactor service interface.
  *

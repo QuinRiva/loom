@@ -342,6 +342,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       yield* threads.upsert({
         threadId: ThreadId.make("thread-null-options"),
         projectId: ProjectId.make("project-null-options"),
+        // loom: workstream columns on the projected thread row.
         goalId: null,
         parentThreadId: null,
         role: null,

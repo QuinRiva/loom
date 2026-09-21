@@ -496,6 +496,8 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           threadId: context.threadId,
           turnId,
           requestId: runtimeRequestId,
+          // loom: the server settles the question first and tells the adapter
+          // which terminal outcome to hand its waiting tool call.
           payload: { answers: answer.answers, outcome: "answered" },
         });
         return answer.result;
@@ -1249,6 +1251,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
 
   return {
     provider: PROVIDER,
+    // loom: emitsExitOnStop + getSession (thread-addressed session lookup).
     // `stopSession` → `stopContext` publishes `session.exited` on the event
     // PubSub, so the exit is still owed to `ProviderService` when the call
     // returns — same shape as the Cursor and Grok adapters.

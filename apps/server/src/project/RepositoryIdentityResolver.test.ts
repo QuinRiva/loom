@@ -38,6 +38,7 @@ const makeRepositoryIdentityResolverTestLayer = (options: {
     }),
   ).pipe(Layer.provide(ProcessRunner.layer));
 
+// loom: the git top-level lookup is memoised; these cases pin that.
 const makeCountingProcessRunnerLayer = (calls: ProcessRunner.ProcessRunInput[]) =>
   Layer.effect(
     ProcessRunner.ProcessRunner,

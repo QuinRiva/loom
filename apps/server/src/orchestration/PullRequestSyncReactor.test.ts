@@ -35,7 +35,7 @@ import {
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as PullRequestSyncReactor from "./PullRequestSyncReactor.ts";
 import { resolveAutoSettlementAt } from "./ThreadSettlementPolicy.ts";
-import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts"; // loom: thread-shape defaults
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("sync-project");

@@ -202,6 +202,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
       `,
   });
 
+  // loom: running turns per thread (restart continuation / settle sweeps).
   const listRunningProjectionTurnsByThread = SqlSchema.findAll({
     Request: ListProjectionTurnsByThreadInput,
     Result: ProjectionTurnDbRowSchema,

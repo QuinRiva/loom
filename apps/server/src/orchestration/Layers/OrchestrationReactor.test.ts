@@ -9,6 +9,8 @@ import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
+// loom: the workstream dispatcher, fan-in, handoff drafter and worktree reaper
+// are loom reactors this startup test must also account for.
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactor } from "../Services/WorkstreamFanInReactor.ts";
 import { HandoffDrafterReactor } from "../Services/HandoffDrafterReactor.ts";

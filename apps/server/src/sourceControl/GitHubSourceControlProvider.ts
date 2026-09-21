@@ -119,6 +119,7 @@ export const discovery = {
 
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
+  // loom: repository-wide PR listing shared by the per-branch and all-PR arms.
   const executeChangeRequestList = (input: {
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;
