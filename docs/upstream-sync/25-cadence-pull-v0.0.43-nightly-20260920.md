@@ -1522,6 +1522,20 @@ files. That list is advisory, not a failure: each of those files is marked, and
 placing a marker on every one of their hunks is the re-home's job, not the
 sweep's. The gate (branch-scoped, no flag) keeps both lists from growing.
 
+Provenance spot-check of `d388755cad` (2026-09-22). The merge-damage repair
+added four `// loom:` markers, and a false marker is worse than none — it makes
+the next pull's lost-feature audit protect upstream code as if it were the
+fork's. All four are already gone from `main`, removed by the re-homes that own
+those areas: the `primaryServerSettingsAtom` read in
+`apps/web/src/hooks/useHandleNewThread.ts` went with `4579830914` (the hook's
+head is upstream's text verbatim again), and the three on
+`ClientSettingsSchema`/`ClientSettingsPatch`'s `sidebarAutoSettle*` keys in
+`packages/contracts/src/settings.ts` went with `151f26a5b3` (PR #199). The
+`sidebarAutoSettle*` keys that remain there are upstream's `ServerSettings`
+ones, identical to `c14f6015bf` and correctly unmarked. Nothing had to be
+stripped; the two `// loom:` markers on the `...LoomClientSettings*Fields`
+spreads in the same hunks are genuine, since those field modules are loom-only.
+
 Test-file policy, decided once rather than file by file: **tests are in scope
 and are marked like source.** No loom-only test file needed deleting — every hit
 was an upstream test file carrying loom additions or loom's thread-shape
