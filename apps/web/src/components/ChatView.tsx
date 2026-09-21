@@ -120,7 +120,6 @@ import {
   type ChatMessage,
   type SessionPhase,
   type Thread,
-  type TurnDiffSummary,
 } from "../types";
 import { usePanelAnimationSettings } from "../panelAnimations";
 import { useSustainedConnectionOutage } from "../hooks/useSustainedConnectionOutage";
@@ -6030,6 +6029,8 @@ function ChatViewContent(props: ChatViewProps) {
                 activeThreadEnvironmentId={activeThread.environmentId}
                 routeThreadKey={routeThreadKey}
                 onOpenTurnDiff={onOpenTurnDiff}
+                // loom: interim (slice 4) — upstream's ChatView derives both of
+                // these itself; this is the minimum that compiles until then.
                 supportsConversationRollback={
                   activeProviderStatus?.supportsConversationRollback !== false
                 }
