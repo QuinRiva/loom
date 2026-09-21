@@ -21,6 +21,26 @@ import * as Layer from "effect/Layer";
 import type { CheckpointStoreError } from "./Errors.ts";
 import type { VcsCheckpointOps } from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import {
+  FOREIGN_HOME_REFUSAL_DETAIL,
+  refuseForeignHomeSideEffect,
+} from "../workspace/foreignHomeGuard.loom.ts";
+
+// loom: fail a checkpoint mutation aimed at a checkout this home does not own.
+// `VcsUnsupportedOperationError` is already in this store's error union and says
+// the true thing "this operation is not available here"; the detail carries why.
+const refuseForeignHomeCwd = (operation: string, cwd: string) =>
+  refuseForeignHomeSideEffect(operation, cwd).pipe(
+    Effect.flatMap((refused) =>
+      refused
+        ? new VcsUnsupportedOperationError({
+            operation,
+            kind: "git",
+            detail: `${FOREIGN_HOME_REFUSAL_DETAIL}: ${cwd}`,
+          })
+        : Effect.void,
+    ),
+  );
 
 export interface CaptureCheckpointInput {
   readonly cwd: string;
@@ -130,6 +150,10 @@ export const make = Effect.gen(function* () {
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",
   )(function* (input) {
+    // loom: a checkpoint is a hidden git ref written into the thread's cwd. On a
+    // copied database every recorded cwd is another home's live checkout, so the
+    // three mutating checkpoint ops refuse there (foreignHomeGuard.loom.ts).
+    yield* refuseForeignHomeCwd("CheckpointStore.captureCheckpoint", input.cwd);
     const checkpoints = yield* resolveCheckpoints("CheckpointStore.captureCheckpoint", input.cwd);
     return yield* checkpoints.captureCheckpoint(input);
   });
@@ -144,6 +168,7 @@ export const make = Effect.gen(function* () {
   const restoreCheckpoint: CheckpointStore["Service"]["restoreCheckpoint"] = Effect.fn(
     "restoreCheckpoint",
   )(function* (input) {
+    yield* refuseForeignHomeCwd("CheckpointStore.restoreCheckpoint", input.cwd);
     const checkpoints = yield* resolveCheckpoints("CheckpointStore.restoreCheckpoint", input.cwd);
     return yield* checkpoints.restoreCheckpoint(input);
   });
@@ -158,6 +183,7 @@ export const make = Effect.gen(function* () {
   const deleteCheckpointRefs: CheckpointStore["Service"]["deleteCheckpointRefs"] = Effect.fn(
     "deleteCheckpointRefs",
   )(function* (input) {
+    yield* refuseForeignHomeCwd("CheckpointStore.deleteCheckpointRefs", input.cwd);
     const checkpoints = yield* resolveCheckpoints(
       "CheckpointStore.deleteCheckpointRefs",
       input.cwd,

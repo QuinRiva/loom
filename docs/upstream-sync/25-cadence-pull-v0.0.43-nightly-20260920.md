@@ -1491,7 +1491,7 @@ has **two** `ProjectionSnapshotQuery.ts` (under `Layers/` and `Services/`);
 only the `Layers/` one is live, which is worth confirming before marking the
 other.
 
-### A related blind spot in `sqlcolsweep.py`
+### A related blind spot in `sqlcolsweep.py` — FIXED
 
 `sqlcolsweep.py` reports "0 problems" against the exact tree whose
 `getShellSnapshot()` failed at runtime on real data. `ProjectionThreadDbRowSchema`
@@ -1501,6 +1501,29 @@ the override made it required. Any query whose Result schema it cannot parse is
 also skipped silently (`if fields is None: continue`) and counted as fine. The
 tool needs to honour `mapFields` overrides and to report unresolved schemas as
 _unchecked_ rather than clean.
+
+**Fixed.** The sweep now resolves `mapFields` chains (`Struct.assign` /
+`omit` / `pick` / `evolve`) against the declaration corpus and applies the
+overrides, expands a nested row struct (`session: row`) into the columns its
+fields name, and prints an `UNPARSED` line with a non-zero exit for any schema
+it cannot read — an unreadable schema is a problem, never a pass. Its SELECT
+parsing was rewritten alongside (scalar subqueries, `--` comments, single-line
+`SELECT col`, a trailing column with no comma), because the stricter rules are
+only usable without those false positives. It takes an optional file argument,
+which is how its own regressions are tested:
+
+| tree          | expected                           | actual                                                                  |
+| ------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| HEAD          | clean                              | `0 problems; 0 unreadable`, exit 0                                      |
+| `2130f1187c^` | flags `listActiveThreadRows`       | `SELECT omits ['linkedPullRequest', 'branchPullRequest', 'titleState']` |
+| `b276cb4c16^` | flags `getThreadRuntimeContextRow` | `SELECT omits ['lastErrorClass']`                                       |
+
+(`activeOrderKey`, the fourth column that commit restored, is `Schema.optional`
+in the row schema and is correctly not flagged.) `aliascheck.py` still reports
+one entry — `Schema.Struct @ 2946: missing ['text']` — which is its documented
+inline-struct collision (it groups inline results by literal text), not a
+finding; `sqlcolsweep.py` now parses inline structs properly and covers that
+class.
 
 ### Standing reviewer checklist — addition
 
