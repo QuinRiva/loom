@@ -102,6 +102,7 @@ describe("chatThreadActions", () => {
     ).toBe(false);
   });
 
+  // loom: per-project start-from-origin default.
   it("applies a per-project start-from-origin default to new worktree drafts", () => {
     expect(
       resolveNewDraftStartFromOrigin({

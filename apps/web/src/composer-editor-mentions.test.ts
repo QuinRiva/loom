@@ -93,6 +93,7 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
+  // loom: thread:// links are composer thread chips.
   it("parses a thread link into a thread segment without touching file mentions", () => {
     expect(
       splitPromptIntoComposerSegments("Consult [Refactor pass](thread://abc-123) then continue"),

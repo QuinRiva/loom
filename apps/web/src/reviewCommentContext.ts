@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import { planCommentAnchorDetails } from "./planCommentAnchor";
 
+// loom: MDX plan-comment anchors alongside line/diff review comments.
 /**
  * Injected review-comment evidence, as a discriminated union on `kind` (decision
  * D6 — no dual-shape optional cruft):

@@ -111,6 +111,7 @@ describe("instance-scoped model selection", () => {
     ).toContain("openai/gpt-5.5");
   });
 
+  // loom: config.customModels is the source of truth over a lagging catalogue.
   it("drops a removed custom model even when the server catalogue still echoes it", () => {
     // Drivers such as pi echo `config.customModels` back into their live
     // catalogue as isCustom models; that echo lags behind settings writes.

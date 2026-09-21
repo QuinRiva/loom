@@ -46,6 +46,8 @@ declare module "@tanstack/react-router" {
   }
 }
 
+// loom: stat blocks, stats grid and byte formatting hoisted here so loom's
+// settings pages (worktrees, usage) share them with Diagnostics.
 /** Human-readable bytes (settings stat blocks + tables). */
 export function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
