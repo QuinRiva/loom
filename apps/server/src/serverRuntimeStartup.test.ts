@@ -505,7 +505,8 @@ it.effect.each([
     assert.deepStrictEqual(
       commands.at(-1)?.modelSelection,
       projectSelection ??
-        machineSelection ?? ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
+        machineSelection ??
+        ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
     );
   }),
 );
