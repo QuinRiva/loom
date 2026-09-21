@@ -79,7 +79,7 @@ layer("1038_ReasoningTextToReasoningMessages", (it) => {
         ["reasoning", "thought it through", "turn-1"],
         ["assistant", "answer", "turn-1"],
         ["assistant", "second answer", "turn-1"],
-      ];
+      ] satisfies ReadonlyArray<readonly [string, string, string | null]>;
       assert.deepEqual(yield* timeline, expected);
 
       // Idempotent: a second pass over the same rows adds nothing.

@@ -40,7 +40,6 @@ import {
   workLogEntryIsToolLike,
 } from "../../session-logic";
 import { isImageAttachment, type ChatImageAttachment, type TurnDiffSummary } from "../../types";
-import { useClientSettings } from "~/hooks/useSettings";
 import {
   getRenderablePatch,
   resolveDiffThemeName,

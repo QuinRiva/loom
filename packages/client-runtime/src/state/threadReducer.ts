@@ -17,24 +17,6 @@ import { threadPullRequestKeysEqual } from "@t3tools/shared/threadPullRequests";
 import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 
-/**
- * Retention limits for collections within a thread. These prevent unbounded
- * growth of in-memory thread state on long-lived live subscriptions.
- */
-export interface ThreadDetailRetentionLimits {
-  readonly maxMessages: number;
-  readonly maxProposedPlans: number;
-  readonly maxCheckpoints: number;
-  readonly maxActivities: number;
-}
-
-export const DEFAULT_THREAD_DETAIL_LIMITS: ThreadDetailRetentionLimits = {
-  maxMessages: 512,
-  maxProposedPlans: 64,
-  maxCheckpoints: 256,
-  maxActivities: 128,
-};
-
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
   | { readonly kind: "deleted" }
@@ -155,7 +137,6 @@ function isResolvableContextWindowActivity(activity: OrchestrationThreadActivity
 export function applyThreadDetailEvent(
   thread: OrchestrationThread,
   event: OrchestrationEvent,
-  limits: ThreadDetailRetentionLimits = DEFAULT_THREAD_DETAIL_LIMITS,
 ): ThreadDetailReducerResult {
   switch (event.type) {
     // ── Project events (irrelevant to thread detail) ────────────────
