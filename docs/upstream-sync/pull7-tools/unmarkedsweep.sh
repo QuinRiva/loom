@@ -61,6 +61,9 @@ while read -r added deleted path; do
   (( added + deleted >= MIN_LINES )) || continue
   [[ -f $path ]] || continue                                     # deleted in HEAD
   git cat-file -e "$upstream_base:$path" 2>/dev/null || continue # loom-only file
+  # Identical to upstream: a re-home slice that put the file back. There is no
+  # fork code left to mark, however large the diff against the fork's own main.
+  git diff --quiet "$upstream_base" -- "$path" && continue
   allowed "$path" && continue
   # Non-TS files carry the marker in their own comment syntax, so match bare `loom:`.
   case $path in

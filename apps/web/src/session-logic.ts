@@ -225,6 +225,7 @@ export function deriveActiveWorkStartedAt(
   return sendStartedAt;
 }
 
+// loom: client-side derivation of pending approvals / questions from activities.
 // Approvals only. The user-input equivalent is deleted: the server now guarantees
 // a `user-input.resolved` always eventually lands, so a question's death is never
 // again inferred from prose — four hand-maintained copies of this list had
@@ -1362,6 +1363,7 @@ function isCommandToolDetail(payload: Record<string, unknown> | null, heading: s
   );
 }
 
+// loom: a command derived from `detail` is echoed by the row header already.
 function detailDuplicatesCommand(
   detail: string,
   commandPreview: { command: string | null; rawCommand: string | null },
