@@ -127,7 +127,6 @@ import {
 } from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
-import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -424,14 +423,13 @@ function projectSetupScriptCompatibilityDetail(
   }
 }
 
-// loom: adds thread.message-reasoning / thread.consult-recorded / thread.fanin-set
-// (fork event types) to the upstream thread-detail event set.
+// loom: adds thread.consult-recorded / thread.fanin-set (fork event types) to
+// the upstream thread-detail event set.
 export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   OrchestrationEvent,
   {
     type:
       | "thread.message-sent"
-      | "thread.message-reasoning"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
       | "thread.consult-recorded"
@@ -443,7 +441,6 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
 > {
   return (
     event.type === "thread.message-sent" ||
-    event.type === "thread.message-reasoning" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.consult-recorded" ||
@@ -602,7 +599,6 @@ const makeWsRpcLayer = (
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const usageBreakdownQuery = yield* UsageBreakdownQuery.UsageBreakdownQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
-      const reasoningStreamBus = yield* ReasoningStreamBus.ReasoningStreamBus;
       /** A reference's host-level link key; the project's own host where the ref names none. */
       const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
         reference.host !== undefined && reference.repository.includes("/")
@@ -2663,10 +2659,10 @@ const makeWsRpcLayer = (
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
           // loom: connect-gap-aware thread subscription on upstream's HTTP-snapshot
-          // + afterSequence resume flow (#3719, #4079). Both the durable domain
-          // events AND the transient reasoning bus are pre-buffered into upstream's
-          // single connect-gap queue before the snapshot/catch-up, so mid-fetch
-          // items drain onto the snapshot instead of being lost.
+          // + afterSequence resume flow (#3719). Durable domain events are
+          // pre-buffered into upstream's single connect-gap queue before the
+          // snapshot/catch-up, so mid-fetch items drain onto the snapshot instead
+          // of being lost.
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
             Effect.gen(function* () {
@@ -2679,8 +2675,8 @@ const makeWsRpcLayer = (
               // path. The lazy `streamDomainEvents` value only subscribed when the
               // forked fibre first pulled, leaving a silent connect-gap for events
               // committed between the snapshot/cursor read below and that first
-              // pull. The gap-free-seam reasoning further down DEPENDS on the
-              // subscription existing before the cursor is sampled.
+              // pull. The gap-free seam below DEPENDS on the subscription
+              // existing before the cursor is sampled.
               // See plans/2026-07-28-thread-catchup-silent-truncation.md.
               const rawThreadLive = yield* orchestrationEngine.subscribeDomainEvents;
               const liveStream = rawThreadLive.pipe(
@@ -2691,42 +2687,11 @@ const makeWsRpcLayer = (
                 })),
               );
 
-              // loom: transient ephemeral reasoning chunks for this thread. These
-              // never touch the event store; they drive live "Thinking… ⟷ Thought
-              // for Xs" display. Acquire the bus subscription HERE — before the
-              // snapshot fetch / catch-up replay below — so any chunks published
-              // during that window buffer in the subscription queue
-              // (ReasoningStreamBus.subscribe is scoped for exactly this). The
-              // durable `thread.message-reasoning` event in liveStream is
-              // authoritative (REPLACE full text) on finalization; these deltas
-              // only drive the live "Thinking…" display.
-              const reasoningSubscription = yield* reasoningStreamBus.subscribe;
-              const reasoningStream = Stream.fromSubscription(reasoningSubscription).pipe(
-                Stream.filter((payload) => payload.threadId === input.threadId),
-                Stream.map((payload) => ({
-                  kind: "reasoning-delta" as const,
-                  payload,
-                })),
-              );
-
               // Attach live delivery before reading either replay or snapshot state.
               // Otherwise an event published while the snapshot is loading is lost.
               const liveBuffer = yield* makeThreadLiveEventCoalescer();
               yield* Effect.forkScoped(
                 liveStream.pipe(
-                  Stream.runForEachArray(liveBuffer.offerAll),
-                  Effect.raceFirst(liveBuffer.failed),
-                  Effect.catchTags({ OrchestrationGetSnapshotError: () => Effect.void }),
-                ),
-                { startImmediately: true },
-              );
-              // loom: the transient reasoning stream is forked into this SAME
-              // buffer, so reasoning deltas ride the connect-gap queue (one
-              // pre-subscribed buffer that drains AFTER the snapshot element — the
-              // client applies the snapshot as a whole-thread replace, so buffered
-              // deltas land on top of it) rather than a separate late merge.
-              yield* Effect.forkScoped(
-                reasoningStream.pipe(
                   Stream.runForEachArray(liveBuffer.offerAll),
                   Effect.raceFirst(liveBuffer.failed),
                   Effect.catchTags({ OrchestrationGetSnapshotError: () => Effect.void }),

@@ -57,9 +57,9 @@ import {
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 // loom: fork projector cases (goal.*, plan-lane/attention/dependencies/report/
-// outcome/route/fanin, status-set migration remap, message-reasoning) live in
-// the fork sibling. Deliberate module cycle: it imports decodeForEvent /
-// updateThread / MAX_THREAD_MESSAGES back from here (function-body refs only).
+// outcome/route/fanin, status-set migration remap) live in the fork sibling.
+// Deliberate module cycle: it imports decodeForEvent / updateThread back from
+// here (function-body refs only).
 import { projectLoomEvent } from "./projector.loom.ts";
 
 // loom: exported so the fork sibling patches threads through the same helper.
@@ -346,7 +346,7 @@ export function projectEvent(
   };
 
   // loom: fork events (goal.*, plan-lane/attention/dependencies/report/outcome/
-  // route/fanin, status-set migration, message-reasoning, peer-message-recorded,
+  // route/fanin, status-set migration, peer-message-recorded,
   // plus the caseless turn-start-failed/consult-recorded and the
   // peer-message-delivered/-expired SQL-only lifecycle) project in the fork
   // sibling.

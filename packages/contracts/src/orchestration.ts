@@ -45,7 +45,6 @@ import {
   LoomThreadMetaUpdateFields,
   LoomThreadMetaUpdatedPayloadFields,
   LoomThreadShellFields,
-  LoomThreadStreamItemMembers,
   LoomTurnStartFields,
   UserInputResolvedOutcome,
   LOOM_AGGREGATE_KINDS,
@@ -1593,10 +1592,24 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// loom: upstream's reasoning delta/complete commands stay deleted here —
-// "ephemeral reasoning v2" re-homed the single durable completion (carrying the
-// full text + duration) onto `orchestration.loom.ts`; streaming chunks are not
-// persisted at all.
+const ThreadMessageReasoningDeltaCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.reasoning.delta"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  delta: Schema.String,
+  turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageReasoningCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.reasoning.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
 
 const ThreadHistoryImportCommand = Schema.Struct({
   type: Schema.Literal("thread.history.import"),
@@ -1731,6 +1744,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
+  ThreadMessageReasoningDeltaCommand,
+  ThreadMessageReasoningCompleteCommand,
   ThreadHistoryImportCommand,
   ThreadMessageUserAppendCommand,
   ThreadProposedPlanUpsertCommand,
@@ -2285,7 +2300,6 @@ export const OrchestrationEvent = Schema.Union([
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
 export const OrchestrationThreadStreamItem = Schema.Union([
-  ...LoomThreadStreamItemMembers, // loom:
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
   }),

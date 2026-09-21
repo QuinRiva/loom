@@ -62,13 +62,6 @@ export const WorkstreamModelProfile = Schema.Struct({
 });
 export type WorkstreamModelProfile = typeof WorkstreamModelProfile.Type;
 
-// Tri-state visibility for the model reasoning/thinking block rendered above
-// assistant answers. `off` hides it entirely; `collapsed` shows a summary
-// header ("Thought for Xs") closed by default; `expanded` opens it by default.
-export const ReasoningDisplayMode = Schema.Literals(["off", "collapsed", "expanded"]);
-export type ReasoningDisplayMode = typeof ReasoningDisplayMode.Type;
-export const DEFAULT_REASONING_DISPLAY_MODE: ReasoningDisplayMode = "collapsed";
-
 // Cross-provider subscription-exhaustion failover (tier 2). Sparse, defaulted
 // — no migration. `chains` is optional (absent ⇒ use built-in default chains,
 // which live server-side); keys are exact slugs ("anthropic/claude-fable-5") or
@@ -104,9 +97,6 @@ export const LoomModelPreferenceFields = {
 
 // Spread into `ClientSettingsSchema`.
 export const LoomClientSettingsFields = {
-  reasoningDisplay: ReasoningDisplayMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_REASONING_DISPLAY_MODE)),
-  ),
   // One-shot durable auto-open of the goal-tasks / Workstream right-panel
   // surfaces (loom UI, plan W1). Both default on: first-visit discovery is
   // wanted without a manual + → tab per thread, and the per-thread one-shot
@@ -117,7 +107,6 @@ export const LoomClientSettingsFields = {
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
-  reasoningDisplay: Schema.optionalKey(ReasoningDisplayMode),
   autoOpenGoalTasksPanel: Schema.optionalKey(Schema.Boolean),
   autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
 } as const;

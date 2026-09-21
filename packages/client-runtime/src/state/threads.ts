@@ -28,7 +28,7 @@ import { EnvironmentCacheStore } from "../platform/persistence.ts";
 import { subscribeDynamic } from "../rpc/client.ts";
 import { ThreadSnapshotLoader, type ThreadSnapshotWindow } from "./threadSnapshotHttp.ts";
 import { parseThreadKey, threadKey } from "./entities.ts";
-import { applyReasoningStreamItem, applyThreadDetailEvent } from "./threadReducer.ts";
+import { applyThreadDetailEvent } from "./threadReducer.ts";
 import { THREAD_SNAPSHOT_IDLE_TTL_MS } from "./threadRetention.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import {
@@ -431,12 +431,6 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
-  // loom: message ids whose reasoning has been durably finalized (a REPLACE
-  // `thread.message-reasoning` event was seen). Lets out-of-order transient
-  // reasoning deltas on the merged stream be dropped so they cannot duplicate
-  // the authoritative full text. Reset on each fresh snapshot.
-  const reasoningFinalized = new Set<MessageId>();
-
   // Body of applyItem, running under applyLock.
   const applyItemLocked = Effect.fn("EnvironmentThreadState.applyItemLocked")(function* (
     item: OrchestrationThreadStreamItem,
@@ -452,9 +446,6 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }
 
     if (item.kind === "snapshot") {
-      // A fresh snapshot bakes in all durable reasoning to date; reset the
-      // stale-drop tracking so it cannot leak across resubscribes.
-      reasoningFinalized.clear();
       // A fresh snapshot replaces all loaded history, including older
       // pages: a turn reverted while disconnected would otherwise survive
       // in the preserved history with no event left to remove it. The
@@ -476,33 +467,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       return;
     }
 
-    // The ephemeral live reasoning channel carries no sequence and is applied
-    // for display only; never advance the durable sequence cursor for it.
-    if (item.kind === "reasoning-delta") {
-      const result = applyReasoningStreamItem(
-        current.data.value,
-        item.payload,
-        reasoningFinalized.has(item.payload.messageId),
-        DateTime.formatIso(DateTime.nowUnsafe()),
-      );
-      if (result.kind === "updated") {
-        // A reasoning delta touches only the loaded window; page state is unchanged.
-        yield* setThread(result.thread, "keep");
-      }
-      return;
-    }
-
     const sequence = yield* SubscriptionRef.get(lastSequence);
     if (item.event.sequence <= sequence) {
       return;
     }
     yield* SubscriptionRef.set(lastSequence, item.event.sequence);
-
-    // A durable REPLACE settles this message's reasoning; record it so any
-    // later transient delta for the same message is dropped.
-    if (item.event.type === "thread.message-reasoning") {
-      reasoningFinalized.add(item.event.payload.messageId);
-    }
 
     if (item.event.type === "thread.reverted") {
       // A revert rewrites loaded history (whole turns disappear), so an
