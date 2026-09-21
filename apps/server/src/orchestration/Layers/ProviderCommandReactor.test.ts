@@ -1431,6 +1431,7 @@ describe("ProviderCommandReactor", () => {
         (entry) => entry.id === threadId,
       );
       expect(recoveredThread?.session?.status).toBe("ready");
+      expect(yield* Effect.promise(() => harness.readPendingTurnStarts())).toEqual([]);
       expect(harness.sendTurn).toHaveBeenCalledTimes(1);
       expect(
         recoveredThread?.activities.find(
