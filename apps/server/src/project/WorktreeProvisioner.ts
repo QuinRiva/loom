@@ -78,9 +78,6 @@ type ProvisionError =
 export class WorktreeProvisioner extends Context.Service<
   WorktreeProvisioner,
   {
-    readonly provisionIsolatedChild: (
-      input: ProvisionIsolatedChildInput,
-    ) => Effect.Effect<ProvisionWorktreeResult, ProvisionError>;
     // Turn-start invariant (item 4): (re)provision an isolated child's worktree
     // before any turn starts against it, parking it (needs_guidance) on failure.
     // Idempotent — an already-provisioned (`ws/…`) or worktree-less child is a
@@ -449,6 +446,7 @@ const make = Effect.gen(function* () {
       // its kickoff turn resolves its cwd from, and the caller starts that turn
       // the moment this returns. Drop the cancel handle so a late cancel cannot
       // pull the tree out from under a started agent.
+      yield* setupTracker.stageStatus(threadId, "agent", "running");
       yield* setupTracker.markUncancellable(threadId);
       if (hold) yield* releaseHoldAfterWindow(hold);
       yield* orchestrationEngine.dispatch({
@@ -466,6 +464,14 @@ const make = Effect.gen(function* () {
         projectCwd: input.parentCwd,
         worktreePath,
       });
+      // The handoff. Unlike the root bootstrap, the provisioner does not
+      // dispatch the kickoff turn — the dispatcher and the turn-start guard do,
+      // immediately on this return — so `return` IS the handoff seam. Marking
+      // the stage here is what makes `worktreeSetupAgentStarted` true: without
+      // it a child with a slow async setup script reads as "still preparing"
+      // for the whole install (dead Stop on mobile, blocked Send on web), and
+      // the startup reconciler would settle a healthy child as failed.
+      yield* setupTracker.stageStatus(threadId, "agent", "done");
       // The card outlives the handoff: the kickoff turn starts now and the
       // snapshot settles when the script exits, so the setup row sits next to
       // the child's first work instead of vanishing.
@@ -562,7 +568,7 @@ const make = Effect.gen(function* () {
           threadId,
           branch,
           baseRef: input.parentBranch,
-          stages: ["checkout", "submodules", "setup-script"],
+          stages: ["checkout", "submodules", "setup-script", "agent"],
           fiber,
         });
         const running = yield* setupTracker.get(threadId);
@@ -664,7 +670,6 @@ const make = Effect.gen(function* () {
   });
 
   return WorktreeProvisioner.of({
-    provisionIsolatedChild,
     ensureIsolatedChildProvisioned,
     hasPendingProvisionFailure: (threadId) => failedProvisions.has(threadId),
   });

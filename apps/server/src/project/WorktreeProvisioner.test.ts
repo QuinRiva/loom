@@ -192,6 +192,11 @@ describe("ensureIsolatedChildProvisioned", () => {
       const snapshots = setupSnapshots(dispatched);
       expect(snapshots.map((snapshot) => snapshot.phase)).toEqual(["running", "done"]);
       expect(snapshots.at(-1)?.worktreePath).toBe(CHILD_WORKTREE);
+      // `agent: done` is the shared "the agent has taken over" signal
+      // (`worktreeSetupAgentStarted`). Without it a child whose async setup
+      // script is still installing reads as "still preparing" everywhere, and
+      // the startup reconciler would settle a healthy child as failed.
+      expect(snapshots.at(-1)?.stages.find((stage) => stage.id === "agent")?.status).toBe("done");
       expect(
         new Set(
           dispatched.flatMap((c) =>

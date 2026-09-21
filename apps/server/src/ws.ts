@@ -1631,6 +1631,9 @@ const makeWsRpcLayer = (
             // branch, which left the staged handoff-root launch (an existing
             // thread, `prepareWorktree` with no `createThread`) with a live
             // stream but nothing for a reload or a second client to attach to.
+            // No registration latch is needed (unlike the child provisioner's):
+            // `begin` runs inside the same uninterruptible block that forks this
+            // program, so the tracker entry exists before its first step.
             if (tracked) {
               const running = yield* worktreeSetupTracker.get(threadId);
               if (running) yield* recordWorktreeSetup(running);
