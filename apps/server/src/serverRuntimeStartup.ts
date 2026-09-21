@@ -51,6 +51,7 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import { reconcileStaleSessionsGuarded, startLoomSweeps } from "./loom/startup.ts"; // loom:
+import { isRecoveryResumable } from "./orchestration/stuckLaunchRecovery.ts"; // loom:
 import { forkParked } from "./serverActivation.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -379,6 +380,21 @@ const ORPHANED_PROVIDER_SESSION_ERROR =
   "Provider session did not survive a server restart. Send a new message to continue.";
 const SERVER_UPDATE_CONTINUATION_KEY = "continueAfterServerUpdate";
 const SERVER_UPDATE_CONTINUATION_PROMPT = "Continue where you left off.";
+// loom: the steers a human sent while the interrupted turn was in flight were
+// never delivered and nothing else re-delivers them, so the continuation prompt
+// carries them. Empty list ⇒ upstream's prompt verbatim.
+const buildRestartContinuationPrompt = (queuedSteering: ReadonlyArray<string>): string =>
+  queuedSteering.length === 0
+    ? SERVER_UPDATE_CONTINUATION_PROMPT
+    : [
+        SERVER_UPDATE_CONTINUATION_PROMPT,
+        "",
+        queuedSteering.length === 1
+          ? "The user sent this message while the turn was in flight; it was never delivered, so it is included here. Treat it as their message to you:"
+          : "The user sent these messages while the turn was in flight; they were never delivered, so they are included here. Treat them as their messages to you:",
+        "",
+        ...queuedSteering.map((message) => `- ${message}`),
+      ].join("\n");
 
 class ProviderSessionContinuationError extends Schema.TaggedError<ProviderSessionContinuationError>()(
   "ProviderSessionContinuationError",
@@ -610,6 +626,31 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       Option.isSome(binding) &&
       readRuntimePayload(binding.value.runtimePayload).activeTurnId === null &&
       readRuntimePayload(binding.value.runtimePayload).continueAfterServerUpdatePrepared === true;
+    // loom: a cursor is not the only shape resume state comes in. A
+    // `session-file` driver (pi) create-or-resumes a deterministic per-thread
+    // session on disk and never produces a cursor, so `ProviderService`'s
+    // recovery gate already accepts disk as the resume state. Requiring a
+    // cursor here would make restart continuation dead for the whole fork.
+    const resumeStateAvailable =
+      Option.isSome(binding) &&
+      (binding.value.resumeCursor != null ||
+        (binding.value.providerInstanceId !== undefined &&
+          (yield* providerService.getCapabilities(binding.value.providerInstanceId).pipe(
+            Effect.map((capabilities) => capabilities.resumeState === "session-file"),
+            Effect.catchCause((cause) =>
+              Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.succeed(false),
+            ),
+          ))));
+    // loom: the fork's resume predicate. A turn-start against a thread flagged
+    // for attention, cancelled, or otherwise not recoverable revives work a
+    // human or the control plane deliberately stopped.
+    const forkResumable = isRecoveryResumable({
+      attentionCount: thread.attention.length,
+      parkedOnHuman: false,
+      archived: Boolean(thread.archivedAt),
+      deleted: Boolean(thread.deletedAt),
+      cancelled: thread.planLane === "cancelled",
+    });
     // Runtime events advance the projection's turn, but not the directory's
     // last admitted turn. Use the projection to identify interrupted work.
     const interruptedByRestart =
@@ -618,7 +659,8 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       session.activeTurnId !== null &&
       Option.isSome(binding) &&
       binding.value.status === "running" &&
-      binding.value.resumeCursor != null;
+      resumeStateAvailable &&
+      forkResumable; // loom:
     const settleAsError = (lastError: string) =>
       Effect.gen(function* () {
         yield* Effect.gen(function* () {
@@ -681,10 +723,18 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       Option.isSome(binding) &&
       (continuationMarked || interruptedByRestart) &&
       (session.status === "running" || session.status === "starting" || preparedWhileReady) &&
-      binding.value.resumeCursor != null &&
+      resumeStateAvailable && // loom: cursor OR a session-file driver's on-disk session
+      forkResumable && // loom:
       thread.archivedAt === null &&
       thread.deletedAt === null
     ) {
+      // loom: the queued steers are HUMAN messages the dead turn never
+      // consumed (nothing re-delivers them — the adapter's queue died with the
+      // process), so they are folded into the continuation prompt and cleared
+      // from the row rather than silently dropped.
+      const queuedSteering = session.queuedMessages.steering.filter(
+        (message) => message.trim().length > 0,
+      );
       const prepared = yield* Effect.gen(function* () {
         yield* directory.upsert({
           ...binding.value,
@@ -707,6 +757,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
             status: "starting",
             activeTurnId: null,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] }, // loom: folded into the prompt below
             updatedAt: resumedAt,
           },
           createdAt: resumedAt,
@@ -738,7 +789,8 @@ export const reconcileProviderSessions = Effect.gen(function* () {
               threadId: thread.id,
               ...(capabilities.promptlessTurnContinuation === true
                 ? { continuation: true }
-                : { input: SERVER_UPDATE_CONTINUATION_PROMPT }),
+                : // loom: carries the undelivered human steers with the prompt
+                  { input: buildRestartContinuationPrompt(queuedSteering) }),
               interactionMode: thread.interactionMode,
             });
           });
