@@ -9945,7 +9945,10 @@ export default function ChatView(props: ChatViewProps) {
         activeThread={activeThread ?? null}
       />
     ) : renderedRightPanelSurface?.kind === "workstream" ? (
-      <WorkstreamPanel activeThread={activeThread ?? undefined} activeProjectId={activeProject?.id} />
+      <WorkstreamPanel
+        activeThread={activeThread ?? undefined}
+        activeProjectId={activeProject?.id}
+      />
     ) : renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
         <ArtifactViewPanel
