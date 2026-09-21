@@ -1696,6 +1696,9 @@ an exclusion: the fork's later startup scan cancels every boot-inherited
 user-input request. What remains in `loom/startup.ts` is the fork's other boot
 repairs — stuck-launch recovery, stale pending-turn-start clearing, the
 open-user-input scan, and the reset of sessions upstream declined to continue.
+Loom defaults `continueThreadsAfterServerUpdate` on because its deployctl/systemd
+path does not write upstream's self-updater continuation marker; users can still
+disable it in Settings.
 
 **Not carried over: the queued-steer rescue.** Loom's deleted arm folded the
 steers a human typed during the interrupted turn into its resume message. That

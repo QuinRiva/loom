@@ -28,6 +28,8 @@ describe("resolveProjectSettings", () => {
     expect(resolveProjectSettings(DEFAULT_SERVER_SETTINGS, null).settings).toBe(
       DEFAULT_SERVER_SETTINGS,
     );
+    // loom: the empty-settings continuation default reaches the startup read path unchanged.
+    expect(resolved.settings.continueThreadsAfterServerUpdate).toBe(true);
   });
 
   it("treats a null project like an absent one before the shell snapshot arrives", () => {
