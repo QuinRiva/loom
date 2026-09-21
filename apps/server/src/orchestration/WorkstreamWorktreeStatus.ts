@@ -23,6 +23,7 @@ import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import { WorktreeReaper } from "./Services/WorktreeReaper.ts";
 import { performWorktreeRemoval } from "./worktreeRemoval.ts";
+import { ServerConfig } from "../config.ts"; // loom:
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { WorkspaceLease } from "../workspace/WorkspaceOccupancyLease.ts";
@@ -62,6 +63,7 @@ const DU_MAX_OUTPUT_BYTES = 64 * 1024;
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const config = yield* ServerConfig; // loom:
   const platform = yield* HostProcessPlatform;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const reaper = yield* WorktreeReaper;
@@ -74,6 +76,7 @@ const make = Effect.gen(function* () {
     Layer.succeed(GitWorkflowService, gitWorkflow),
     Layer.succeed(WorktreeMutationLock, worktreeMutationLock),
     Layer.succeed(WorkspaceLease, workspaceLease),
+    Layer.succeed(ServerConfig, config), // loom: the remover's containment check
   );
 
   // `du -sk <path>` → resident KiB. Best-effort: a timeout or non-POSIX host

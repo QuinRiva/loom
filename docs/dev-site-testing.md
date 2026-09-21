@@ -51,14 +51,22 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/verifySeed.ts
 ## 2. Start the dev stack (backgrounded, logged)
 
 ```sh
-T3CODE_HOME="$HOME_ROOT" T3CODE_NO_BROWSER=1 \
-  setsid pnpm dev --port "$PORT" > /tmp/t3verify-dev.log 2>&1 &
+T3CODE_NO_BROWSER=1 \
+  setsid pnpm dev --home-dir "$HOME_ROOT" --port "$PORT" > /tmp/t3verify-dev.log 2>&1 &
+DEV_PID=$!                       # for step 6; may already be gone if setsid re-forked
 ```
 
 Notes:
 
-- Pass `T3CODE_HOME` as the **root** (`$HOME_ROOT`), not the per-port subdir —
-  the runner appends `dev-instances/<serverPort>` itself.
+- **`--home-dir`, not `T3CODE_HOME`.** Inside a worktree the runner's home
+  precedence is `--home-dir` > that worktree's gitignored `.t3` > ambient
+  `T3CODE_HOME` (`scripts/dev-runner.ts`, `@t3tools/shared/devHome`), so an
+  exported `T3CODE_HOME` is silently outranked and the instance comes up on
+  `<worktree>/.t3/dev-instances/<port>` — an empty database that looks exactly
+  like a failed seed. The seeder in step 1 is a plain script that reads
+  `T3CODE_HOME` directly, which is why the two steps spell the home differently.
+- Pass the **root** (`$HOME_ROOT`), not the per-port subdir — the runner appends
+  `dev-instances/<serverPort>` itself.
 - An explicitly **free** `--port` is honoured exactly, so `serverPort` matches
   your seeded home. Confirm this in the banner (step 3).
 - `setsid` starts a new process group so you can kill the whole tree in step 6.
@@ -130,14 +138,69 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
 
 ## 6. Clean up
 
+Never kill by pattern (`pkill -f`, `pgrep | kill`): your own agent process and
+several other dev servers on this machine carry matching worktree paths in their
+argv. Kill the PID you captured at spawn, or the owner of **your** port after
+confirming it is yours:
+
 ```sh
-kill -- -"$(pgrep -f "dev-runner.*--port $PORT" | head -1)" 2>/dev/null  # kill the process group
-pkill -f "dev-instances/$PORT"                                            # stray server children
-rm -rf "$HOME_ROOT"                                                       # scratch state
+# The PID that owns your port, cross-checked against this worktree before anything dies.
+DEV_PID=${DEV_PID:-$(ss -H -ltnp "sport = :$PORT" | grep -oP 'pid=\K[0-9]+' | head -1)}
+readlink "/proc/$DEV_PID/cwd"                       # must be this worktree
+kill -TERM -"$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')"   # the whole process group
+rm -rf "$HOME_ROOT"                                 # scratch state
 ```
 
 Then confirm the ports are free again. `node --watch` children are the usual
 culprit for a port that stays busy — kill the whole group, not just the parent.
+
+## Verifying against a copy of the cockpit database
+
+The seed is the default: it is reproducible and owns nothing. When you need
+**real** data (hundreds of threads, real projects, real worktree rows), run a
+server against a copy of the cockpit database — never against
+`~/.t3/cockpit/userdata` itself.
+
+```sh
+PORT=13951                                   # a free 139xx port; never 13900 (the live cockpit)
+COPY_HOME=/tmp/t3dbcopy
+mkdir -p "$COPY_HOME/userdata"
+rm -f "$COPY_HOME/userdata/state.sqlite"*    # VACUUM INTO refuses to overwrite
+bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '$COPY_HOME/userdata/state.sqlite'\")"
+T3CODE_NO_BROWSER=1 setsid pnpm dev --home-dir "$COPY_HOME" --port "$PORT" > /tmp/t3dbcopy-dev.log 2>&1 &
+```
+
+`VACUUM INTO` is safe while the cockpit has the file open and yields one
+consistent snapshot; a plain `cp` of a live database is a corrupt copy. Copy in,
+never out.
+
+**The copy carries the cockpit's recorded paths, branches and provider
+sessions**, so a naive server on it would act on the live checkouts of every
+thread running on this machine — it has twice attempted `git worktree remove`
+and `git branch -d` against sibling worktrees of this clone. The server now
+detects that by itself: a database whose recorded worktree paths all sit outside
+the running home's `worktreesDir` did not come from this home, and the
+first-class side effects refuse (`apps/server/src/workspace/foreignHomeGuard.loom.ts`).
+Expect this at boot:
+
+```
+WARN foreign-home guard: this database was copied from another T3 home; mutating side effects are refused
+WARN foreign-home guard refused a side effect  site=GitVcsDriver.removeWorktree target=/home/…/worktrees/…
+```
+
+Refused while the guard is on: worktree create/remove/prune, branch delete,
+checkpoint capture/restore/delete, provider session start, and project
+setup-script runs. Everything read-only — the sidebar, threads, timelines,
+diffs of existing checkpoints — works normally, which is what a data-shaped
+verification needs. If you need to drive an agent, use the seed instance
+instead; a copy-DB instance is deliberately incapable of it.
+
+The guard keys off recorded worktree paths, so a copied database that records
+**no** worktree at all is indistinguishable from this home's own and stays
+unguarded. And it is not a substitute for the two standing rules: never point a
+server at `~/.t3/cockpit/userdata`, and **never `git stash`** in this repo —
+every worktree of this clone shares one `.git`, so the stash stack is global and
+a `pop` can hand you another thread's work.
 
 ## Running several instances at once
 
