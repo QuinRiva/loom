@@ -2992,12 +2992,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               ? threadContextRecord(existing.record)
               : // loom: `mdx-anchor` review comments carry no record shape.
                 existing?.kind === "review-comment" && existing.record.kind === "line"
-              ? reviewCommentContextRecord(existing.record)
-              : existing?.kind === "preview-annotation"
-                ? previewAnnotationContextRecord(existing.record)
-                : existing
-                  ? (uploadedContextRecordFromDraft(existing) ?? undefined)
-                  : undefined;
+                ? reviewCommentContextRecord(existing.record)
+                : existing?.kind === "preview-annotation"
+                  ? previewAnnotationContextRecord(existing.record)
+                  : existing
+                    ? (uploadedContextRecordFromDraft(existing) ?? undefined)
+                    : undefined;
         if (existingRecord && isSameComposerContextPayload(existingRecord, record)) {
           if (record.kind === "preview-annotation" && record.screenshotContextId) {
             skippedDependentAttachmentIds.add(record.screenshotContextId);

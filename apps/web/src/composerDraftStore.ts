@@ -2941,7 +2941,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 : options.startFromOrigin;
             // loom: a fresh project bucket drops the goal.
             // loom: a fresh project bucket drops the goal.
-  const nextGoalId =
+            const nextGoalId =
               options.goalId === undefined
                 ? projectChanged
                   ? null

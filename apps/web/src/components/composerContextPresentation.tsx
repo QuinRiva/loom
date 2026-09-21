@@ -30,10 +30,7 @@ import {
 } from "~/lib/composerContextRecords";
 import type { TerminalContextDraft } from "~/lib/terminalContext";
 // loom: `#`-mentioned threads.
-import {
-  threadReferenceContextId,
-  type ThreadReferenceDraft,
-} from "~/loom/threadReference";
+import { threadReferenceContextId, type ThreadReferenceDraft } from "~/loom/threadReference";
 import { ThreadContextChip } from "~/loom/threadReferencePresentation";
 import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";

@@ -94,14 +94,17 @@ import {
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
 import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
-import { buildUserInputAnswers } from "@t3tools/shared/userInputAnswers";
+// loom: interim (slice 4 adopts this file wholesale) — upstream's controlled
+// question panel lives in the composer, so its answer state and handlers are
+// forward-ported here verbatim from ChatView.tsx at c14f6015bf.
 import {
-  useUserInputAnswerDrafts,
-  useUserInputAnswerDraftStore,
-  userInputAnswerDraftKey,
-  userInputAnswerDraftThreadKey,
-} from "../userInputAnswerDraftStore";
-import { PendingQuestionCard } from "./chat/PendingQuestionCard";
+  buildPendingUserInputAnswers,
+  carryDisplacedCustomAnswerIntoPrompt,
+  derivePendingUserInputProgress,
+  setPendingUserInputCustomAnswer,
+  togglePendingUserInputOptionSelection,
+  type PendingUserInputDraftAnswer,
+} from "../pendingUserInput";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -203,11 +206,15 @@ import { useHandoffReceipts } from "../loom/useHandoffReceipts";
 // loom: centre-panel thread tabs — sending in a thread pins its preview tab.
 import { useThreadTabsStore } from "../loom/threadTabsStore";
 import {
+  type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
+// loom: interim (slice 4) \u2014 capability reads for upstream's composer props.
+import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -346,6 +353,8 @@ import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+// loom: interim (slice 4) \u2014 upstream's controlled question panel.
+const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1352,6 +1361,12 @@ function ChatViewContent(props: ChatViewProps) {
   const [supersededUserInputRequestIds, setSupersededUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
+  // loom: interim (slice 4) \u2014 upstream's per-request answer + wizard state.
+  const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
+    Record<string, Record<string, PendingUserInputDraftAnswer>>
+  >({});
+  const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
+    useState<Record<string, number>>({});
   const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
@@ -2101,41 +2116,76 @@ function ChatViewContent(props: ChatViewProps) {
   // The oldest open request is the one being answered; the card shows the rest as
   // a "N more pending" count so a second question is never invisible (S8).
   const activePendingUserInput = pendingUserInputs[0] ?? null;
-  const activePendingUserInputDraftKey =
-    activePendingUserInput === null
-      ? null
-      : userInputAnswerDraftKey(environmentId, activePendingUserInput.requestId);
-  const activePendingDraftAnswers = useUserInputAnswerDrafts(activePendingUserInputDraftKey);
+  // loom: interim (slice 4) — upstream's per-request answer state. The
+  // attachment fields the panel reads are constant while question attachments
+  // are capability-gated off for pi (ServerEnvironment.questionAttachments).
+  const activePendingRequestKey = JSON.stringify([
+    environmentId,
+    activeThreadId,
+    activePendingUserInput?.requestId,
+  ]);
+  const activePendingDraftAnswers = useMemo(() => {
+    if (!activePendingUserInput) return EMPTY_PENDING_USER_INPUT_ANSWERS;
+    return Object.fromEntries(
+      activePendingUserInput.questions.map((question) => [
+        question.id,
+        {
+          ...pendingUserInputAnswersByRequestId[activePendingRequestKey]?.[question.id],
+          attachmentCount: 0,
+          attachmentsBlocked: false,
+        },
+      ]),
+    );
+  }, [activePendingRequestKey, activePendingUserInput, pendingUserInputAnswersByRequestId]);
+  const activePendingQuestionIndex = activePendingUserInput
+    ? (pendingUserInputQuestionIndexByRequestId[activePendingRequestKey] ?? 0)
+    : 0;
+  const activePendingProgress = useMemo(
+    () =>
+      activePendingUserInput
+        ? derivePendingUserInputProgress(
+            activePendingUserInput.questions,
+            activePendingDraftAnswers,
+            activePendingQuestionIndex,
+          )
+        : null,
+    [activePendingDraftAnswers, activePendingQuestionIndex, activePendingUserInput],
+  );
   const activePendingResolvedAnswers = useMemo(
     () =>
       activePendingUserInput
-        ? buildUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
+        ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
         : null,
     [activePendingDraftAnswers, activePendingUserInput],
   );
   const activePendingIsResponding = activePendingUserInput
     ? respondingUserInputRequestIds.includes(activePendingUserInput.requestId)
     : false;
-  const activePendingIsDismissing = activePendingUserInput
-    ? dismissingUserInputRequestIds.includes(activePendingUserInput.requestId)
-    : false;
-  // Answer drafts outlive the component (module store), so they must be evicted
-  // when their request resolves — by any outcome — rather than leaking for the
-  // session (S7). Scoped to this thread's own open set.
-  const evictResolvedUserInputDrafts = useUserInputAnswerDraftStore(
-    (state) => state.evictResolvedRequests,
+  // loom: interim (slice 4 adopts upstream's ChatView, which owns all of these)
+  // — the environment capabilities and composer chrome upstream's composer
+  // requires. Capability reads are real; the resting-controls / page-scroll /
+  // timeline-geometry values are inert until slice 4 wires the real surfaces.
+  const composerEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
+  const attachmentUploadsCapabilityKnown = composerEnvironmentConfig !== null;
+  const supportsQuestionAttachments =
+    composerEnvironmentConfig?.environment.capabilities.questionAttachments === true;
+  const supportsAttachmentUploads =
+    composerEnvironmentConfig?.environment.capabilities.attachmentUploads === true;
+  const advertisedFileAttachmentBytes =
+    composerEnvironmentConfig?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null;
+  const maxFileAttachmentBytes =
+    advertisedFileAttachmentBytes === null
+      ? null
+      : clampFileAttachmentUploadBytes(advertisedFileAttachmentBytes);
+  const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
+  const activeProjectRepository = sourceControlRepositorySelector(
+    activeProject?.repositoryIdentity,
   );
-  useEffect(() => {
-    if (!activeThreadId) return;
-    evictResolvedUserInputDrafts({
-      threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
-      openRequestKeys: new Set(
-        pendingUserInputs.map((pending) =>
-          userInputAnswerDraftKey(environmentId, pending.requestId),
-        ),
-      ),
-    });
-  }, [activeThreadId, environmentId, evictResolvedUserInputDrafts, pendingUserInputs]);
+  const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
+  const noopComposerGeometry = useCallback(() => {}, []);
+  const nullTimelineScrollableNode = useCallback(() => null, []);
+  const timelineAlwaysAtLogicalEnd = useCallback(() => true, []);
+
   const activeProposedPlan = useMemo(() => {
     if (!latestTurnSettled) {
       return null;
@@ -5198,61 +5248,141 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThreadId, dismissThreadUserInputCommand, environmentId, setThreadError],
   );
 
-  const toggleUserInputOption = useUserInputAnswerDraftStore((state) => state.toggleOption);
-  const setUserInputCustomAnswerDraft = useUserInputAnswerDraftStore(
-    (state) => state.setCustomAnswer,
+  // loom: interim (slice 4) — upstream's controlled question-panel handlers,
+  // copied verbatim from ChatView.tsx at c14f6015bf.
+  const setActivePendingUserInputQuestionIndex = useCallback(
+    (nextQuestionIndex: number) => {
+      if (!activePendingUserInput) {
+        return;
+      }
+      setPendingUserInputQuestionIndexByRequestId((existing) => ({
+        ...existing,
+        [activePendingRequestKey]: nextQuestionIndex,
+      }));
+    },
+    [activePendingUserInput, activePendingRequestKey],
   );
 
-  const onToggleUserInputOption = useCallback(
-    (question: UserInputQuestion, optionLabel: string) => {
-      if (!activePendingUserInputDraftKey || !activeThreadId) return;
-      toggleUserInputOption({
-        requestKey: activePendingUserInputDraftKey,
-        threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
-        question,
-        optionLabel,
+  const onSelectActivePendingUserInputOption = useCallback(
+    (questionId: string, optionValue: string) => {
+      if (!activePendingUserInput) {
+        return;
+      }
+      // The option replaces the custom answer. Anything typed there is the
+      // user's text, so it goes back to the thread draft instead of vanishing.
+      const displacedAnswer =
+        pendingUserInputAnswersByRequestId[activePendingRequestKey]?.[questionId]?.customAnswer;
+      const currentPrompt =
+        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ?? "";
+      const nextPrompt = carryDisplacedCustomAnswerIntoPrompt(currentPrompt, displacedAnswer);
+      if (nextPrompt !== currentPrompt) {
+        setComposerDraftPrompt(composerDraftTarget, nextPrompt);
+      }
+      setPendingUserInputAnswersByRequestId((existing) => {
+        const question =
+          (activePendingProgress?.activeQuestion?.id === questionId
+            ? activePendingProgress.activeQuestion
+            : undefined) ??
+          activePendingUserInput.questions.find((entry) => entry.id === questionId);
+        if (!question) {
+          return existing;
+        }
+
+        return {
+          ...existing,
+          [activePendingRequestKey]: {
+            ...existing[activePendingRequestKey],
+            [questionId]: togglePendingUserInputOptionSelection(
+              question,
+              existing[activePendingRequestKey]?.[questionId],
+              optionValue,
+            ),
+          },
+        };
       });
+      promptRef.current = "";
+      composerRef.current?.resetCursorState({ cursor: 0 });
     },
-    [activePendingUserInputDraftKey, activeThreadId, environmentId, toggleUserInputOption],
+    [
+      activePendingProgress?.activeQuestion,
+      activePendingUserInput,
+      activePendingRequestKey,
+      composerDraftTarget,
+      composerRef,
+      pendingUserInputAnswersByRequestId,
+      setComposerDraftPrompt,
+    ],
   );
 
-  const onChangeUserInputCustomAnswer = useCallback(
-    (questionId: string, customAnswer: string) => {
-      if (!activePendingUserInputDraftKey || !activeThreadId) return;
-      setUserInputCustomAnswerDraft({
-        requestKey: activePendingUserInputDraftKey,
-        threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
-        questionId,
-        customAnswer,
-      });
+  const onChangeActivePendingUserInputCustomAnswer = useCallback(
+    (
+      questionId: string,
+      value: string,
+      nextCursor: number,
+      expandedCursor: number,
+      _cursorAdjacentToMention: boolean,
+    ) => {
+      if (!activePendingUserInput) {
+        return;
+      }
+      const question = activePendingUserInput.questions.find((entry) => entry.id === questionId);
+      if (!question || question.allowCustomAnswer === false) {
+        return;
+      }
+      promptRef.current = value;
+      setPendingUserInputAnswersByRequestId((existing) => ({
+        ...existing,
+        [activePendingRequestKey]: {
+          ...existing[activePendingRequestKey],
+          [questionId]: setPendingUserInputCustomAnswer(
+            existing[activePendingRequestKey]?.[questionId],
+            value,
+          ),
+        },
+      }));
+      const snapshot = composerRef.current?.readSnapshot();
+      if (
+        snapshot?.value !== value ||
+        snapshot.cursor !== nextCursor ||
+        snapshot.expandedCursor !== expandedCursor
+      ) {
+        composerRef.current?.focusAt(nextCursor);
+      }
     },
-    [activePendingUserInputDraftKey, activeThreadId, environmentId, setUserInputCustomAnswerDraft],
+    [activePendingUserInput, activePendingRequestKey, composerRef],
   );
 
-  const onSubmitUserInput = useCallback(
-    (requestId: ApprovalRequestId) => {
-      if (activePendingResolvedAnswers === null) return;
-      void onRespondToUserInput(requestId, activePendingResolvedAnswers);
-    },
-    [activePendingResolvedAnswers, onRespondToUserInput],
-  );
+  const onAdvanceActivePendingUserInput = useCallback(() => {
+    if (
+      !activePendingUserInput ||
+      !activePendingProgress ||
+      !activePendingProgress.canAdvance ||
+      activePendingIsResponding
+    ) {
+      return;
+    }
+    if (activePendingProgress.isLastQuestion) {
+      if (activePendingResolvedAnswers) {
+        void onRespondToUserInput(activePendingUserInput.requestId, activePendingResolvedAnswers);
+      }
+      return;
+    }
+    setActivePendingUserInputQuestionIndex(activePendingProgress.questionIndex + 1);
+  }, [
+    activePendingProgress,
+    activePendingResolvedAnswers,
+    activePendingUserInput,
+    activePendingIsResponding,
+    onRespondToUserInput,
+    setActivePendingUserInputQuestionIndex,
+  ]);
 
-  const pendingQuestionCard = activePendingUserInput ? (
-    <PendingQuestionCard
-      key={activePendingUserInput.requestId}
-      pendingUserInput={activePendingUserInput}
-      pendingCount={pendingUserInputs.length}
-      drafts={activePendingDraftAnswers}
-      answers={activePendingResolvedAnswers}
-      isResponding={activePendingIsResponding}
-      isDismissing={activePendingIsDismissing}
-      supersededByMessage={supersededUserInputRequestIds.includes(activePendingUserInput.requestId)}
-      onToggleOption={onToggleUserInputOption}
-      onChangeCustomAnswer={onChangeUserInputCustomAnswer}
-      onSubmit={onSubmitUserInput}
-      onDismiss={(requestId) => void onDismissUserInput(requestId)}
-    />
-  ) : null;
+  const onPreviousActivePendingUserInputQuestion = useCallback(() => {
+    if (!activePendingProgress) {
+      return;
+    }
+    setActivePendingUserInputQuestionIndex(Math.max(activePendingProgress.questionIndex - 1, 0));
+  }, [activePendingProgress, setActivePendingUserInputQuestionIndex]);
 
   const onSubmitPlanFollowUp = useCallback(
     async ({
@@ -6117,6 +6247,8 @@ function ChatViewContent(props: ChatViewProps) {
                     >
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
+                          {/* loom: interim (slice 4) — upstream's controlled
+                              question panel wiring rides the composer props. */}
                           <ChatComposer
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
@@ -6138,9 +6270,66 @@ function ChatViewContent(props: ChatViewProps) {
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             pendingApprovals={pendingApprovals}
-                            pendingQuestionCard={pendingQuestionCard}
-                            hasPendingUserInput={activePendingUserInput !== null}
+                            pendingUserInputs={pendingUserInputs}
+                            activePendingProgress={activePendingProgress}
+                            activePendingResolvedAnswers={activePendingResolvedAnswers}
+                            activePendingIsResponding={activePendingIsResponding}
+                            activePendingDraftAnswers={activePendingDraftAnswers}
+                            activePendingQuestionIndex={activePendingQuestionIndex}
+                            onSelectActivePendingUserInputOption={
+                              onSelectActivePendingUserInputOption
+                            }
+                            onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                            onDismissActivePendingUserInput={onDismissUserInput}
+                            onPreviousActivePendingUserInputQuestion={
+                              onPreviousActivePendingUserInputQuestion
+                            }
+                            onChangeActivePendingUserInputCustomAnswer={
+                              onChangeActivePendingUserInputCustomAnswer
+                            }
                             respondingRequestIds={respondingRequestIds}
+                            attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
+                            supportsAttachmentUploads={supportsAttachmentUploads}
+                            supportsQuestionAttachments={supportsQuestionAttachments}
+                            maxFileAttachmentBytes={maxFileAttachmentBytes}
+                            multipleModelSelections={null}
+                            supportsMultipleModels={false}
+                            onMultipleModelSelectionsChange={noopComposerGeometry}
+                            activeThreadShell={routeThreadShell}
+                            promptHistoryMessages={timelineMessages}
+                            sendDisabledReason={
+                              isRevertingCheckpoint ? "Rewinding conversation" : null
+                            }
+                            bannerItems={composerBannerItems}
+                            activeTasksProgress={null}
+                            activeTaskSteps={null}
+                            threadSyncPhase={null}
+                            providerCatalogKnown={serverConfig !== null}
+                            activeContextWindow={null}
+                            compactThreadUnavailable
+                            compactDisabled
+                            compactDisabledReason={null}
+                            pullRequestProjectId={
+                              supportsPullRequests ? (activeProject?.id ?? null) : null
+                            }
+                            pullRequestRepository={
+                              supportsPullRequests ? activeProjectRepository : null
+                            }
+                            restingControlsHost={null}
+                            restingControlsHaveLeadingContext={isGitRepo}
+                            onRestingControlsVisibilityChange={noopComposerGeometry}
+                            getTimelineScrollableNode={nullTimelineScrollableNode}
+                            isTimelineAtLogicalEnd={timelineAlwaysAtLogicalEnd}
+                            timelineOverflows={false}
+                            onComposerOverlayHeightChange={noopComposerGeometry}
+                            onRestingChange={noopComposerGeometry}
+                            composerFilesRef={composerFilesRef}
+                            onPageScrollKeyDown={noopComposerGeometry}
+                            onPageScrollKeyUp={noopComposerGeometry}
+                            onPageScrollRelease={noopComposerGeometry}
+                            onCompactContext={noopComposerGeometry}
+                            onOpenProviderSetup={noopComposerGeometry}
+                            onFileOpen={noopComposerGeometry}
                             showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                             activeProposedPlan={activeProposedPlan}
                             runtimeMode={runtimeMode}
@@ -6151,7 +6340,6 @@ function ChatViewContent(props: ChatViewProps) {
                               activeProject?.defaultModelSelection
                             }
                             activeThreadModelSelection={activeThread?.modelSelection}
-                            activeThreadActivities={activeThread?.activities}
                             resolvedTheme={resolvedTheme}
                             settings={settings}
                             keybindings={keybindings}
