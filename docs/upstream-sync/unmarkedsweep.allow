@@ -6,6 +6,9 @@
 # Lockfiles, generated and vendored trees: not hand-written fork code.
 pnpm-lock.yaml
 .repos/
+# Generated licence manifest: JSON has no comment syntax, and its fork delta is
+# just the notices for loom's extra dependencies (the pi packages, fastdom, …).
+third-party-licenses.config.json
 
 # Sync bookkeeping about the fork itself; markers would be noise.
 docs/upstream-sync/

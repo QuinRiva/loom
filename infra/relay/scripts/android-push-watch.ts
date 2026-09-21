@@ -150,6 +150,7 @@ const main = Effect.gen(function* () {
             case "project-removed":
               projects.delete(item.projectId);
               break;
+            // loom: thread-upserted frames are batched (coalesced thread WS events).
             case "thread-upserted":
               for (const thread of item.threads) threads.set(thread.id, thread);
               break;

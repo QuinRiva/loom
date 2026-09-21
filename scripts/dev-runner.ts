@@ -316,6 +316,8 @@ export function createDevRunnerEnv({
     const resolvedBaseDir = yield* resolveBaseDir(configuredBaseDir);
     const isDesktopMode = mode === "dev:desktop";
 
+    // loom: port-scoped dev home — concurrent worktree dev instances must not
+    // share one sqlite.
     // Give each web-dev instance its own T3CODE_HOME keyed by server port.
     // The server writes dev state to `<home>/dev`, so multiple concurrent
     // worktree instances that inherit the same ambient T3CODE_HOME (e.g. the
@@ -334,12 +336,6 @@ export function createDevRunnerEnv({
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
       T3CODE_HOME: resolvedHome,
     };
-
-    if (configuredBaseDir !== undefined) {
-      output.T3CODE_HOME = resolvedBaseDir;
-    } else {
-      delete output.T3CODE_HOME;
-    }
 
     // A dev-runner server is never launcher-managed. When the shell that runs
     // this script was itself spawned by the machine's managed t3 service (an
@@ -396,10 +392,12 @@ export function createDevRunnerEnv({
       output.T3CODE_HOST = host;
     }
 
+    // loom: IPv4 loopback default for the web dev server (VS Code Remote SSH).
     // Bind the web dev server (Vite reads process.env.HOST) to IPv4 loopback by
     // default. Vite resolves "localhost" to ::1 only, which VS Code Remote SSH
     // port-forwarding (IPv4 127.0.0.1) cannot reach. The server uses T3CODE_HOST
-    // instead, so this does not change its bind. An explicit HOST still wins.
+    // instead, so this does not change its bind. An inherited HOST has already
+    // been dropped above (Vite's HMR rule), so this is the only HOST Vite sees.
     if (!isDesktopMode && output.HOST === undefined) {
       output.HOST = DESKTOP_DEV_LOOPBACK_HOST;
     }
@@ -632,6 +630,8 @@ interface ResolveRequestedPortInput<R = NetService.NetService> {
 }
 
 /**
+ * loom: discard a busy `--port`/ambient `T3CODE_PORT` instead of binding it.
+ *
  * Decide whether a requested server port should be honoured. `--port` falls
  * back to the ambient `T3CODE_PORT`, so the value may be a genuine CLI request
  * OR the live cockpit's own port leaking into an agent shell. Honour it only
@@ -707,6 +707,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       worktreePath,
     });
 
+    // loom: busy requested ports fall back to offset scanning (see above).
     const { effectivePort, requestedPortBusy } = yield* resolveRequestedPort({
       port: input.port,
     });
@@ -751,6 +752,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       serverOffset !== offset || webOffset !== offset
         ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
         : "";
+    // loom: report the discarded busy port and print the dev URLs up front.
     const busySuffix = requestedPortBusy
       ? ` requestedPort=${String(input.port)}(busy, scanned instead)`
       : "";
