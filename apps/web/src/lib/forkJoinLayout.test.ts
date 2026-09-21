@@ -129,14 +129,13 @@ describe("computeForkJoinLayout", () => {
     );
   });
 
-  it("anchors each bridge at the wave's earliest child and orders waves by time", () => {
+  it("orders waves by their earliest child", () => {
     const rootBridges = nodes
       .filter((n): n is Extract<LaidNode, { kind: "bridge" }> => n.kind === "bridge")
       .filter((b) => b.orchestratorId === tid("R"))
       .sort((a, b) => a.y - b.y);
     // Wave g1 (min createdAt "2") sits above wave g2 (createdAt "5").
-    expect(rootBridges[0]!.anchorAtIso).toBe("2");
-    expect(rootBridges[1]!.anchorAtIso).toBe("5");
+    expect(rootBridges).toHaveLength(2);
     expect(rootBridges[0]!.y).toBeLessThan(rootBridges[1]!.y);
   });
 

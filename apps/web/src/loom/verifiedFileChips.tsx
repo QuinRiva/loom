@@ -1,4 +1,4 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 
@@ -8,20 +8,17 @@ import {
   ThreadTagChipContent,
 } from "~/components/chat/FileTagChip";
 import { usePathExistence } from "~/components/chat/usePathExistence";
-import { isArtifactViewerPath } from "~/components/artifact/artifactView";
-import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useTheme } from "~/hooks/useTheme";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import type { MarkdownFileLinkMeta } from "~/markdown-links";
-import { useRightPanelStore } from "~/rightPanelStore";
 
 /**
  * Loom's file-chip seam over upstream's `fileLinkChip` renderer (slice 1 of the
  * chat-surface re-home). Upstream renders every syntactically resolvable path
  * as a live chip; a chip whose file has since been moved or deleted therefore
- * looks identical to one that works, and clicking it fails somewhere else. Two
- * behaviours are re-attached here, and nothing else — an existing file renders
+ * looks identical to one that works, and clicking it fails somewhere else. One
+ * behaviour is re-attached here, and nothing else — an existing file renders
  * exactly upstream's chip:
  *
  *  - **existence verification** against the shared, batched stat store
@@ -29,9 +26,10 @@ import { useRightPanelStore } from "~/rightPanelStore";
  *    "missing" chip instead of a dead link. An unverified path (no connected
  *    environment, e.g. the `/preview` harness, or a stat still in flight) keeps
  *    upstream's behaviour, so nothing flickers from live to missing and back.
- *  - **artifact-viewer routing**: an in-workspace `.html` artifact opens the
- *    sandboxed `ArtifactViewPanel` on the web runtime, where there is no
- *    integrated browser to open it in.
+ *
+ * Artifact-viewer routing lives in upstream's `fileLinkChip` itself (an
+ * `onOpenArtifact` primary-action override), so an artifact chip keeps the
+ * upstream context menu.
  */
 export type FileLinkChipRenderer = (
   fileLinkMeta: MarkdownFileLinkMeta,
@@ -77,63 +75,16 @@ function MissingFileChip(props: {
   );
 }
 
-function ArtifactFileChip(props: {
-  meta: MarkdownFileLinkMeta;
-  copyMarkdown: string;
-  className?: string | undefined;
-  threadRef: ScopedThreadRef;
-  relativePath: string;
-}) {
-  const { resolvedTheme } = useTheme();
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className={cn(
-              CHAT_FILE_TAG_CHIP_CLASS_NAME,
-              "cursor-pointer transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
-              props.className,
-            )}
-            data-markdown-copy={props.copyMarkdown}
-            data-artifact-chip="true"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              useRightPanelStore.getState().openArtifact(props.threadRef, props.relativePath);
-            }}
-          >
-            <FileTagChipContent
-              path={props.meta.filePath}
-              label={props.meta.basename}
-              theme={resolvedTheme}
-              selectable
-            />
-          </button>
-        }
-      />
-      <TooltipPopup
-        side="top"
-        className="max-w-[min(40rem,calc(100vw-2rem))] font-mono text-[11px] leading-tight wrap-anywhere"
-      >
-        {props.meta.targetPath}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
-
 /**
  * Wraps upstream's chip renderer. `metas` are the file links this message
  * already resolved, which is exactly the set worth keeping verified.
  */
 export function useVerifiedFileLinkChip(input: {
   environmentId: EnvironmentId | null;
-  threadRef: ScopedThreadRef | undefined;
   metas: Iterable<MarkdownFileLinkMeta>;
   renderChip: FileLinkChipRenderer;
 }): FileLinkChipRenderer {
-  const { environmentId, threadRef, renderChip } = input;
+  const { environmentId, renderChip } = input;
   const paths = useMemo(
     () => [...new Set([...input.metas].map((meta) => meta.filePath))],
     [input.metas],
@@ -146,26 +97,9 @@ export function useVerifiedFileLinkChip(input: {
           <MissingFileChip meta={fileLinkMeta} copyMarkdown={copyMarkdown} className={className} />
         );
       }
-      const relativePath = fileLinkMeta.workspaceRelativePath;
-      if (
-        threadRef &&
-        relativePath !== null &&
-        isArtifactViewerPath(fileLinkMeta.filePath) &&
-        !isPreviewSupportedInRuntime()
-      ) {
-        return (
-          <ArtifactFileChip
-            meta={fileLinkMeta}
-            copyMarkdown={copyMarkdown}
-            className={className}
-            threadRef={threadRef}
-            relativePath={relativePath}
-          />
-        );
-      }
       return renderChip(fileLinkMeta, copyMarkdown, className, mediaSource);
     },
-    [lookupExistence, renderChip, threadRef],
+    [lookupExistence, renderChip],
   );
 }
 

@@ -1,12 +1,5 @@
 import type { EnvironmentId, OrchestrationEvent, ThreadId } from "@t3tools/contracts";
-import {
-  ArrowUpRightIcon,
-  BugIcon,
-  ExternalLinkIcon,
-  FileTextIcon,
-  Loader2Icon,
-  XIcon,
-} from "lucide-react";
+import { BugIcon, ExternalLinkIcon, FileTextIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -94,7 +87,7 @@ export function WorkstreamLifecycleDrawer({
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onOpenDispatch: (threadId: ThreadId, anchorAtIso: string) => void;
+  readonly onOpenDispatch: (threadId: ThreadId) => void;
   readonly onOpenReport: (reportPath: string) => void;
 }) {
   const rows = useMemo(
@@ -277,9 +270,6 @@ export function WorkstreamLifecycleDrawer({
                         <span className="ml-1.5 text-[11px] text-white/45">{row.detail}</span>
                       ) : null}
                     </span>
-                    {row.deepLink ? (
-                      <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-white/30 group-hover:text-white/60" />
-                    ) : null}
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -294,26 +284,20 @@ export function WorkstreamLifecycleDrawer({
                 );
                 return (
                   <li key={row.key} className="flex items-stretch border-l border-white/10 pl-3">
-                    {row.deepLink ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                              onClick={() => onOpenDispatch(thread.id, row.at)}
-                            />
-                          }
-                        >
-                          {content}
-                        </TooltipTrigger>
-                        <TooltipPopup>
-                          Jump to this point in the thread&rsquo;s conversation
-                        </TooltipPopup>
-                      </Tooltip>
-                    ) : (
-                      <div className="flex flex-1 items-start gap-2 py-1.5">{content}</div>
-                    )}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                            onClick={() => onOpenDispatch(thread.id)}
+                          />
+                        }
+                      >
+                        {content}
+                      </TooltipTrigger>
+                      <TooltipPopup>Open this thread&rsquo;s conversation</TooltipPopup>
+                    </Tooltip>
                     {row.reportPath ? (
                       <Tooltip>
                         <TooltipTrigger

@@ -1932,39 +1932,51 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const reopening = command.reopen === true && targetThread.planLane === "done";
-      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.message-sent",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.message.messageId,
-          role: "user",
-          // loom: carry control-plane provenance through to the message (absent
-          // ⇒ human). Client sends never set it, so they stay human.
-          ...(command.message.origin !== undefined ? { origin: command.message.origin } : {}),
-          // loom: carry the structured control-plane payload alongside the text.
-          ...(command.message.controlPayload !== undefined
-            ? { controlPayload: command.message.controlPayload }
-            : {}),
-          text: command.message.text,
-          attachments: command.message.attachments,
-          // The deferred-turn arm below already forwards this; the pull-7 merge
-          // dropped it here, so every ordinary send persisted its inline
-          // context references without their records (`context_json` null) and
-          // every chip — terminal, review comment, annotation, `#thread` —
-          // arrived as a bare link.
-          ...(command.message.context !== undefined ? { context: command.message.context } : {}),
-          turnId: null,
-          streaming: false,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
+      // A worktree bootstrap persists the message ahead of the turn with
+      // `thread.message.user.append`; the turn then only references it.
+      const persistedUserMessage = targetThread.messages.find(
+        (message) =>
+          message.id === command.message.messageId &&
+          message.role === "user" &&
+          message.turnId === null,
+      );
+      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> | null = persistedUserMessage
+        ? null
+        : {
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.threadId,
+              occurredAt: command.createdAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.message-sent",
+            payload: {
+              threadId: command.threadId,
+              messageId: command.message.messageId,
+              role: "user",
+              // loom: carry control-plane provenance through to the message (absent
+              // ⇒ human). Client sends never set it, so they stay human.
+              ...(command.message.origin !== undefined ? { origin: command.message.origin } : {}),
+              // loom: carry the structured control-plane payload alongside the text.
+              ...(command.message.controlPayload !== undefined
+                ? { controlPayload: command.message.controlPayload }
+                : {}),
+              text: command.message.text,
+              attachments: command.message.attachments,
+              // The deferred-turn arm below already forwards this; the pull-7 merge
+              // dropped it here, so every ordinary send persisted its inline
+              // context references without their records (`context_json` null) and
+              // every chip — terminal, review comment, annotation, `#thread` —
+              // arrived as a bare link.
+              ...(command.message.context !== undefined
+                ? { context: command.message.context }
+                : {}),
+              turnId: null,
+              streaming: false,
+              createdAt: command.createdAt,
+              updatedAt: command.createdAt,
+            },
+          };
       const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -2067,7 +2079,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         // the transcript) and the lifecycle resets still apply — only the
         // turn-start is withheld, because the turn is already running and the tool
         // result is what resumes it.
-        return [...lifecycleResetEvents, userMessageEvent, ...supersedeEvents];
+        return [
+          ...lifecycleResetEvents,
+          ...(userMessageEvent ? [userMessageEvent] : []),
+          ...supersedeEvents,
+        ];
       }
 
       // §7 unifying rule: a turn-start clears ALL stored attention (a running
@@ -2180,7 +2196,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       return [
         ...lifecycleResetEvents,
-        userMessageEvent,
+        ...(userMessageEvent ? [userMessageEvent] : []),
         turnStartRequestedEvent,
         ...trailingEvents,
       ];
