@@ -15,8 +15,9 @@
  *
  * @module provider/quotas/piQuotas
  */
-import type { AccountUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+
+import type { AccountUsageWindow } from "../accountUsage.loom.ts";
 
 import { scopedDisplayNameToModelId } from "../exhaustionMapping.ts";
 import * as Effect from "effect/Effect";
@@ -33,11 +34,8 @@ const SECONDARY_WINDOW_MINS = 7 * 24 * 60;
 export interface ProviderUsage {
   readonly windows: ReadonlyArray<AccountUsageWindow>;
   readonly planType: string | null;
-  readonly rateLimit?: {
-    readonly allowed: boolean | null;
-    readonly limitReached: boolean | null;
-    readonly limitReachedType: string | null;
-  };
+  /** Codex's explicit account-wide exhaustion flag; absent when unreported. */
+  readonly limitReached?: boolean;
 }
 
 const clampPercent = (value: number): number =>
@@ -160,16 +158,16 @@ const CodexWindow = Schema.Struct({
   limit_window_seconds: Schema.optional(Schema.NullOr(Schema.Number)),
   reset_at: Schema.optional(Schema.NullOr(Schema.Number)),
 });
+// Only the fields the poller consumes are decoded: the endpoint has shipped
+// other shapes for `rate_limit_reached_type` (a decode failure that cost us
+// every Codex reading), and nothing reads it.
 const CodexRateLimit = Schema.Struct({
-  allowed: Schema.optional(Schema.NullOr(Schema.Boolean)),
   limit_reached: Schema.optional(Schema.NullOr(Schema.Boolean)),
-  rate_limit_reached_type: Schema.optional(Schema.NullOr(Schema.String)),
   primary_window: Schema.optional(Schema.NullOr(CodexWindow)),
   secondary_window: Schema.optional(Schema.NullOr(CodexWindow)),
 });
 const CodexUsageResponse = Schema.Struct({
   plan_type: Schema.optional(Schema.NullOr(Schema.String)),
-  rate_limit_reached_type: Schema.optional(Schema.NullOr(Schema.String)),
   rate_limit: Schema.optional(Schema.NullOr(CodexRateLimit)),
 });
 
@@ -225,15 +223,6 @@ export const fetchCodexUsage = Effect.fn("quotas.codex")(function* (
       codexWindow(rateLimit?.secondary_window, "secondary", SECONDARY_WINDOW_MINS),
     ].filter((window): window is AccountUsageWindow => window !== null),
     planType: data.plan_type ?? null,
-    ...(rateLimit
-      ? {
-          rateLimit: {
-            allowed: rateLimit.allowed ?? null,
-            limitReached: rateLimit.limit_reached ?? null,
-            limitReachedType:
-              rateLimit.rate_limit_reached_type ?? data.rate_limit_reached_type ?? null,
-          },
-        }
-      : {}),
+    ...(rateLimit?.limit_reached === true ? { limitReached: true } : {}),
   } satisfies ProviderUsage;
 });

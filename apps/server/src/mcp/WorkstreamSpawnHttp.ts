@@ -10,7 +10,6 @@ import {
   ThreadIsolation,
   ThreadPlanLane,
   isProviderAvailable,
-  type AccountUsageSnapshot,
   type OrchestrationCommand,
   type OrchestrationThreadShell,
   type ProfileUnsuitableFor,
@@ -18,7 +17,6 @@ import {
   type WorkstreamModelProfile,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
-import { accountUsageRoutingKey } from "@t3tools/shared/accountUsage";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
 import * as Clock from "effect/Clock";
@@ -58,7 +56,10 @@ import { kickoffTextForPrompt } from "../orchestration/workstreamChildPrompt.ts"
 import { isKickoffDelivered } from "../orchestration/workstreamLaunchIdentity.ts";
 import { shouldRefuseForkLaunch } from "../orchestration/threadIdle.ts";
 import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
-import { AccountUsageRegistry } from "../provider/Services/AccountUsageRegistry.ts";
+import {
+  type AccountUsageSnapshot,
+  accountUsageRoutingKey,
+} from "../provider/accountUsage.loom.ts";
 import {
   aggregateAccountsBestRemaining,
   ProviderHealthRegistry,
@@ -1976,7 +1977,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     const health = yield* ProviderHealthRegistry;
     const isExhausted = exhaustionPredicate(yield* health.snapshot);
     const headroom: ShapeHeadroomInput = {
-      usage: yield* (yield* AccountUsageRegistry).snapshot,
+      usage: yield* health.usage,
       isExhausted,
       usageSourceInstances: usageSourceSet,
       nowMs: yield* Clock.currentTimeMillis,
@@ -2340,7 +2341,7 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
   const health = yield* ProviderHealthRegistry;
   const isExhausted = exhaustionPredicate(yield* health.snapshot);
   const headroom: ShapeHeadroomInput = {
-    usage: yield* (yield* AccountUsageRegistry).snapshot,
+    usage: yield* health.usage,
     isExhausted,
     usageSourceInstances: usageSourceSet,
     nowMs: yield* Clock.currentTimeMillis,

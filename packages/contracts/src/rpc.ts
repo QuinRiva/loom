@@ -254,9 +254,6 @@ import {
   HandoffDraftResult,
   RetroDraftInput,
   RetroDraftResult,
-  ServerUsageBreakdownError,
-  ServerUsageBreakdownInput,
-  ServerUsageBreakdownResult,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
@@ -402,7 +399,6 @@ export const WS_METHODS = {
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
-  serverGetUsageBreakdown: "server.getUsageBreakdown",
   serverGetWorkstreamWorktrees: "server.getWorkstreamWorktrees",
   serverRemoveWorkstreamWorktree: "server.removeWorkstreamWorktree",
   // `/handoff` fork-drafter (plan D2/D4): human composer intercept → fork the
@@ -659,12 +655,6 @@ const WsServerGetProcessResourceHistoryRpc = Rpc.make(WS_METHODS.serverGetProces
   payload: ServerProcessResourceHistoryInput,
   success: ServerProcessResourceHistoryResult,
   error: EnvironmentAuthorizationError,
-});
-
-export const WsServerGetUsageBreakdownRpc = Rpc.make(WS_METHODS.serverGetUsageBreakdown, {
-  payload: ServerUsageBreakdownInput,
-  success: ServerUsageBreakdownResult,
-  error: Schema.Union([ServerUsageBreakdownError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerGetResourceTelemetryHistoryRpc = Rpc.make(
@@ -1531,7 +1521,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
   WsServerGetProcessResourceHistoryRpc,
-  WsServerGetUsageBreakdownRpc,
   WsServerSignalProcessRpc,
   WsServerGetWorkstreamWorktreesRpc,
   WsServerRemoveWorkstreamWorktreeRpc,

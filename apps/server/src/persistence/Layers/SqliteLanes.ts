@@ -9,7 +9,6 @@ import { OrchestrationEventStore } from "../Services/OrchestrationEventStore.ts"
 import { OrchestrationEngineLive } from "../../orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../../orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../../orchestration/Layers/ProjectionSnapshotQuery.ts";
-import { UsageBreakdownQueryLive } from "../../orchestration/Layers/UsageBreakdownQuery.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -25,10 +24,6 @@ export const ProjectionSnapshotQueryOnSqlReadClient = OrchestrationProjectionSna
 );
 
 const OrchestrationEventStoreOnSqlReadClient = OrchestrationEventStoreLive.pipe(
-  Layer.provide(SqlReadClientAsSqlClient),
-);
-
-export const UsageBreakdownQueryOnSqlReadClient = UsageBreakdownQueryLive.pipe(
   Layer.provide(SqlReadClientAsSqlClient),
 );
 

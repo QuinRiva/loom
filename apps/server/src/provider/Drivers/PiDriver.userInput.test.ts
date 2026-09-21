@@ -27,6 +27,8 @@ import { makePiAdapter } from "./PiDriver.ts";
 const INSTANCE = ProviderInstanceId.make("pi");
 const decodePiSettings = Schema.decodeUnknownSync(PiSettings);
 const healthyRegistry: ProviderHealthRegistryShape = {
+  applyUsage: () => Effect.void,
+  usage: Effect.succeed([]),
   isExhausted: () => Effect.succeed(false),
   exhaustedUntil: () => Effect.succeed(null),
   markExhausted: () => Effect.void,

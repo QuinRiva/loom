@@ -4,9 +4,10 @@ import type {
   ThreadPlanLane,
   WorkstreamModelProfile,
 } from "@t3tools/contracts";
+
+import type { AccountUsageSnapshot } from "../provider/accountUsage.loom.ts";
 import {
   ThreadId,
-  type AccountUsageSnapshot,
   type OrchestrationCommand,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";

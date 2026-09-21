@@ -11,10 +11,17 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientError } from "effect/unstable/http";
 
-import { ProviderInstanceId, type ProviderUsageSource } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  type ProviderUsageSource,
+  type ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { AccountUsageRegistry } from "../Services/AccountUsageRegistry.ts";
+import type { AccountUsageWindow } from "../accountUsage.loom.ts";
+import { PI_SUBSCRIPTION_ACCOUNT_NAMESPACES } from "../exhaustionMapping.ts";
+import { ProviderHealthRegistry } from "../Services/ProviderHealthRegistry.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
 import { type ProviderUsage, fetchAnthropicUsage, fetchCodexUsage } from "../quotas/piQuotas.ts";
 import {
@@ -25,11 +32,19 @@ import {
 /**
  * SubscriptionUsagePoller — driver-independent account-usage feeder.
  *
- * The shipped usage pill is fed by per-driver adapters that translate provider
- * rate-limit events into {@link AccountUsageSnapshot}s. pi-driven sessions (the
- * main path) never emit those events, so the registry stays empty and the pill
- * never appears. This poller closes that gap by going straight to each
- * provider's account-usage endpoint on a timer and feeding the same registry.
+ * Upstream's Usage → Limits page is fed by per-driver adapters that translate
+ * provider rate-limit events into `limits` updates on the provider instance.
+ * pi-driven sessions (loom's only path) never emit those events, so without
+ * this poller the page stays empty. It goes straight to each provider's
+ * account-usage endpoint on a timer and feeds two consumers from one reading:
+ *
+ *   1. **upstream's Limits page** — the normalised `limits` windows, folded
+ *      into the pi instance's published snapshot (`applyUsageLimits`), which is
+ *      what `ProviderUsageLimitsIngestion` does for adapter-emitted events.
+ *   2. **loom's failover** — the richer per-account telemetry
+ *      ({@link AccountUsageSnapshot}: account keying, Codex `limitReached`,
+ *      per-model carve-outs) that `ProviderHealthRegistry` derives exhaustion
+ *      marks and spawn headroom from. Server-internal; never crosses the wire.
  *
  * Cadence: each provider runs its own self-scheduling fiber that polls
  * immediately at startup (so the pill lights as soon as the server is up) and
@@ -49,7 +64,7 @@ import {
  * de-noised by the same backoff rather than a per-cycle drumbeat. The two
  * providers are fully isolated: independent fibers, backoff, and schedules.
  *
- * Key reconciliation: the registry/derive key is `providerInstanceId ?? providerName`.
+ * Key reconciliation: the health-registry key is `providerInstanceId ?? providerName`.
  * Adapter-emitted `account.rate-limits.updated` events ARE stamped with the bound
  * instance id by `ProviderService` (`correlateRuntimeEventWithInstance`), but for a
  * built-in driver the *default* instance id IS the driver kind
@@ -85,8 +100,36 @@ const PiAuthSchema = Schema.Struct({
   ),
 });
 
+/** Upstream's window ids/labels for one account's windows, namespaced by account. */
+const toLimitsWindows = (
+  accountKey: string,
+  accountName: string,
+  windows: ReadonlyArray<AccountUsageWindow>,
+): ReadonlyArray<ServerProviderUsageWindow> =>
+  windows.map((window) => ({
+    // Several accounts feed one pi instance, so the id carries the account (and
+    // the model carve-out) to keep upstream's merge-by-id from colliding.
+    id: `${accountKey}:${window.kind}${window.scope ? `:${window.scope.displayName}` : ""}`,
+    kind: window.kind === "primary" ? ("session" as const) : ("weekly" as const),
+    label: `${accountName}${window.scope ? ` ${window.scope.displayName}` : ""} ${
+      window.kind === "primary" ? "5-hour" : "weekly"
+    }`,
+    usedPercent: Math.max(0, Math.min(100, window.usedPercent)),
+    ...(window.resetsAt ? { resetsAt: window.resetsAt } : {}),
+    ...(window.windowDurationMins !== null
+      ? { windowDurationMins: Math.max(0, Math.round(window.windowDurationMins)) }
+      : {}),
+  }));
+
+/** Account display names for the Limits page's window labels. */
+const ACCOUNT_DISPLAY_NAMES: Record<string, string> = {
+  claudeAgent: "Claude",
+  codex: "Codex",
+};
+
 const make = Effect.gen(function* () {
-  const registry = yield* AccountUsageRegistry;
+  const health = yield* ProviderHealthRegistry;
+  const instanceRegistry = yield* ProviderInstanceRegistry;
   const providerRegistry = yield* ProviderRegistry;
   const serverSettings = yield* ServerSettingsService;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -110,6 +153,31 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  // Which instances should show this account's windows on upstream's Limits
+  // page: the instance itself when the account is instance-scoped (a pooled
+  // router's usage source), otherwise every pi instance whose catalogue serves
+  // the account's slug namespaces (loom runs one pi instance over both
+  // subscriptions, so the windows are labelled by account).
+  const limitsTargets = (attribution: {
+    readonly providerName: string;
+    readonly providerInstanceId: ProviderInstanceId | null;
+  }) =>
+    attribution.providerInstanceId !== null
+      ? Effect.succeed([attribution.providerInstanceId])
+      : providerRegistry.getProviders.pipe(
+          Effect.map((providers) => {
+            const namespaces = new Set(
+              PI_SUBSCRIPTION_ACCOUNT_NAMESPACES[attribution.providerName] ?? [],
+            );
+            return providers.flatMap((provider) =>
+              provider.driver === "pi" &&
+              provider.models.some((model) => namespaces.has(model.slug.split("/")[0] ?? ""))
+                ? [provider.instanceId]
+                : [],
+            );
+          }),
+        );
+
   const feed = (
     attribution: {
       readonly providerName: string;
@@ -120,20 +188,40 @@ const make = Effect.gen(function* () {
     usage: ProviderUsage,
   ) => {
     const label = attribution.accountLabel ?? attribution.providerName;
+    const accountKey = attribution.providerInstanceId ?? attribution.providerName;
     return usage.windows.length === 0
       ? Effect.logDebug(`subscription-usage poller: ${label} returned no rolling windows`)
       : DateTime.now.pipe(
           Effect.map(DateTime.formatIso),
           Effect.flatMap((observedAt) =>
-            registry.update({
-              ...attribution,
-              windows: usage.windows,
-              planType: usage.planType,
-              observedAt,
-              // Explicit provider exhaustion flag (Codex `limit_reached`) so the
-              // health registry can mark account-wide even if the window percent
-              // undershoots the ≥99% threshold (§4.4 mark source 1).
-              ...(usage.rateLimit?.limitReached === true ? { limitReached: true } : {}),
+            Effect.gen(function* () {
+              yield* health.applyUsage({
+                ...attribution,
+                windows: usage.windows,
+                planType: usage.planType,
+                observedAt,
+                // Explicit provider exhaustion flag (Codex `limit_reached`) so the
+                // health registry can mark account-wide even if the window percent
+                // undershoots the ≥99% threshold (§4.4 mark source 1).
+                ...(usage.limitReached === true ? { limitReached: true } : {}),
+              });
+              // Same reading in upstream's shape, folded into the instance
+              // snapshot exactly as ProviderUsageLimitsIngestion folds an
+              // adapter's event — the poller is pi's feeder for the Limits page.
+              const limits = {
+                windows: toLimitsWindows(
+                  accountKey,
+                  attribution.accountLabel ??
+                    ACCOUNT_DISPLAY_NAMES[attribution.providerName] ??
+                    attribution.providerName,
+                  usage.windows,
+                ),
+              };
+              for (const instanceId of yield* limitsTargets(attribution)) {
+                const instance = yield* instanceRegistry.getInstance(instanceId);
+                if (instance)
+                  yield* instance.snapshot.applyUsageLimits({ ...limits, checkedAt: observedAt });
+              }
             }),
           ),
           Effect.andThen(

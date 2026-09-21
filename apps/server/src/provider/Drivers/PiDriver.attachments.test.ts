@@ -25,6 +25,8 @@ const decodePiSettings = Schema.decodeUnknownSync(PiSettings);
 const THREAD = ThreadId.make("aaaaaaaa-0000-4000-8000-00000000000a");
 
 const healthyRegistry: ProviderHealthRegistryShape = {
+  applyUsage: () => Effect.void,
+  usage: Effect.succeed([]),
   isExhausted: () => Effect.succeed(false),
   exhaustedUntil: () => Effect.succeed(null),
   markExhausted: () => Effect.void,

@@ -1,18 +1,8 @@
-import type {
-  AccountUsageSnapshot,
-  ServerConfig,
-  ServerConfigStreamEvent,
-} from "@t3tools/contracts";
+import type { ServerConfig, ServerConfigStreamEvent } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 export interface ServerConfigProjection {
   readonly config: ServerConfig;
-  // loom: live, account-scoped subscription usage (5-hour + weekly limits).
-  // Rides the config/lifecycle channel rather than the event-sourced
-  // orchestration projection because it is ephemeral global server state.
-  // Replace-on-emit: each `accountUsage` event carries the full current
-  // per-instance snapshot list. Empty until the first usage event arrives.
-  readonly accountUsage: ReadonlyArray<AccountUsageSnapshot>;
   readonly latestEvent: ServerConfigStreamEvent;
   readonly source: "cache" | "live";
 }
@@ -55,17 +45,10 @@ export function applyServerConfigProjection(
           ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
           ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),
         },
-        accountUsage: [],
         latestEvent: event,
         source: "live" as const,
       });
     }
-    case "accountUsage":
-      return Option.map(current, (projection) => ({
-        ...projection,
-        accountUsage: event.payload.usage,
-        latestEvent: event,
-      }));
     case "keybindingsUpdated":
       return Option.map(current, (projection) => ({
         ...projection,

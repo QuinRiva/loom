@@ -1,5 +1,4 @@
 import {
-  type AccountUsageSnapshot,
   type EnvironmentId,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -56,7 +55,6 @@ import {
 // Exported server state includes this type in its inferred public return type.
 export type { ServerConfigProjection } from "./serverConfigProjection.ts";
 
-const EMPTY_ACCOUNT_USAGE: ReadonlyArray<AccountUsageSnapshot> = [];
 export type ServerUpdateStage = "downloading" | "installing" | "resuming";
 
 export type ServerUpdateState =
@@ -410,9 +408,6 @@ export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConf
     const state = yield* SubscriptionRef.make<Option.Option<ServerConfigProjection>>(
       Option.map(cachedConfig, (config) => ({
         config,
-        // loom: account usage is empty until the first live `accountUsage`
-        // event arrives; a cache-restored projection starts with none.
-        accountUsage: [],
         latestEvent: cachedConfigSnapshotEvent(config),
         source: "cache" as const,
       })),
@@ -968,15 +963,6 @@ export function createServerEnvironmentAtoms<R, E>(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
     ),
   );
-  const usageValueAtom = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get): ReadonlyArray<AccountUsageSnapshot> => {
-      const projection = Option.getOrNull(
-        AsyncResult.value(get(configProjection({ environmentId, input: {} }))),
-      );
-      return projection?.accountUsage ?? EMPTY_ACCOUNT_USAGE;
-    }).pipe(Atom.withLabel(`environment-data:server:account-usage:${environmentId}`)),
-  );
-
   return {
     configValueAtom,
     updateStateAtom,
@@ -1028,7 +1014,6 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:install-remove",
       tag: WS_METHODS.providerInstallRemove,
     }),
-    usageValueAtom,
     traceDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
@@ -1051,13 +1036,6 @@ export function createServerEnvironmentAtoms<R, E>(
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
-    }),
-    usageBreakdown: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:usage-breakdown",
-      tag: WS_METHODS.serverGetUsageBreakdown,
-      // Matches the subscription-usage poller cadence (§D3): the dashboard
-      // refetches every 60 s while mounted.
-      refreshIntervalMs: 60_000,
     }),
     resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry",

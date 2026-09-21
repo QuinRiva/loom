@@ -1,5 +1,4 @@
 import {
-  type AccountUsageSnapshot,
   DEFAULT_SERVER_SETTINGS,
   type EditorId,
   type EnvironmentTheme,
@@ -110,22 +109,6 @@ export const primaryServerObservabilityAtom = Atom.make(
     get(primaryServerConfigAtom)?.observability ?? null,
 ).pipe(Atom.withLabel("web-primary-server-observability"));
 
-const EMPTY_ACCOUNT_USAGE: ReadonlyArray<AccountUsageSnapshot> = [];
-
-// Live subscription-usage for the primary environment. The fork projected this
-// onto a web-side `accountUsageAtom`; upstream moved usage projection into
-// client-runtime (`serverEnvironment.usageValueAtom`), so the pill reads the
-// primary environment's usage directly.
-export const primaryAccountUsageAtom = Atom.make((get): ReadonlyArray<AccountUsageSnapshot> => {
-  const environmentId = get(primaryEnvironmentIdAtom);
-  return environmentId === null
-    ? EMPTY_ACCOUNT_USAGE
-    : get(serverEnvironment.usageValueAtom(environmentId));
-}).pipe(Atom.withLabel("web-primary-account-usage"));
-
-export function useAccountUsage(): ReadonlyArray<AccountUsageSnapshot> {
-  return useAtomValue(primaryAccountUsageAtom);
-}
 const EMPTY_ENVIRONMENT_THEMES: ReadonlyArray<EnvironmentTheme> = [];
 
 /**

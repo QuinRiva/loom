@@ -38,7 +38,6 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 
-import { AccountUsageRegistry } from "../../provider/Services/AccountUsageRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
@@ -1122,7 +1121,6 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
-  const accountUsageRegistry = yield* AccountUsageRegistry;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const heartbeatRepository = yield* ProjectionThreadHeartbeatRepository;
   const usageLedgerRepository = yield* ProjectionUsageLedgerRepository;
@@ -1961,25 +1959,6 @@ const make = Effect.gen(function* () {
 
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
-      // Account usage is account-scoped, not thread-scoped: feed it straight
-      // into the shared registry keyed by provider instance. The runtime-event
-      // envelope already carries the provider identity and timestamp, so the
-      // adapter payload only needs the normalised windows + plan type.
-      if (event.type === "account.rate-limits.updated") {
-        // Adapters that only carry upstream's normalised `limits` have nothing
-        // for this rollup; ProviderUsageLimitsIngestion handles those.
-        if (event.payload.windows !== undefined) {
-          yield* accountUsageRegistry.update({
-            providerName: event.provider,
-            providerInstanceId: event.providerInstanceId ?? null,
-            windows: event.payload.windows,
-            planType: event.payload.planType ?? null,
-            observedAt: event.createdAt,
-          });
-        }
-        return;
-      }
-
       if (
         event.type === "content.delta" &&
         event.payload.streamKind !== "assistant_text" &&

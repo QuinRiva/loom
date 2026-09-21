@@ -26,6 +26,8 @@ import type {
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 
+import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts"; // loom:
+
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
 /**
@@ -83,6 +85,12 @@ export interface ProviderAdapterCapabilities {
   readonly promptlessTurnContinuation?: boolean;
   /** False when native conversation history cannot be rewound. */
   readonly supportsConversationRollback?: boolean;
+  // loom: MCP capabilities this driver's sessions need on their credential,
+  // beyond the access-gated ones the user's settings grant. Every loom thread
+  // may orchestrate, so PiDriver requests "workstream" here (without it every
+  // workstream/goal/task endpoint 401s — lost once in cadence pull 6) instead
+  // of the session registry granting it to every driver unconditionally.
+  readonly mcp?: ReadonlyArray<McpInvocationContext.McpCapability>;
   /**
    * Does `stopSession` cause a `session.exited` runtime event to be emitted for
    * the stopped session?

@@ -124,7 +124,6 @@ import {
   type BriefNeededOutwardAttention,
 } from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
-import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -132,7 +131,6 @@ import {
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
-import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import {
   type ExhaustionMark,
   ProviderHealthRegistry,
@@ -596,7 +594,6 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const sql = yield* SqlClient.SqlClient;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-      const usageBreakdownQuery = yield* UsageBreakdownQuery.UsageBreakdownQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       /** A reference's host-level link key; the project's own host where the ref names none. */
       const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
@@ -654,7 +651,6 @@ const makeWsRpcLayer = (
         yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
-      const accountUsageRegistry = yield* AccountUsageRegistry.AccountUsageRegistry;
       const providerHealthRegistry = yield* ProviderHealthRegistry;
       const providerService = yield* ProviderService.ProviderService;
       const providerSessionDirectory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
@@ -2051,9 +2047,9 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
-        // loom: fork ws handlers (heartbeat keepalive, usage breakdown, workstream
-        // worktree read/remove) — factory in loom/wsMethods.ts, fed the locals above.
-        ...makeLoomWsHandlers({ observeRpcEffect, usageBreakdownQuery, workstreamWorktreeStatus }),
+        // loom: fork ws handlers (heartbeat keepalive, workstream worktree
+        // read/remove) — factory in loom/wsMethods.ts, fed the locals above.
+        ...makeLoomWsHandlers({ observeRpcEffect, workstreamWorktreeStatus }),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -4238,40 +4234,19 @@ const makeWsRpcLayer = (
                   payload: { settings },
                 })),
               );
-              // loom: account-usage change stream added to the config subscription.
-              const accountUsageUpdates = accountUsageRegistry.streamChanges.pipe(
-                Stream.map((usage) => ({
-                  version: 1 as const,
-                  type: "accountUsage" as const,
-                  payload: { usage },
-                })),
-              );
-
               const liveUpdates = Stream.merge(
                 keybindingsUpdates,
                 Stream.merge(
                   providerStatuses,
                   Stream.merge(
                     settingsUpdates,
-                    Stream.merge(
-                      accountUsageUpdates,
-                      Stream.merge(environmentThemeUpdates, usageLimitSourceUpdates),
-                    ),
+                    Stream.merge(environmentThemeUpdates, usageLimitSourceUpdates),
                   ),
                 ),
               );
 
               return Stream.concat(
-                Stream.concat(
-                  Stream.make({ version: 1 as const, type: "snapshot" as const, config }),
-                  // loom: initial usage so a fresh subscriber sees the latest known
-                  // limits without waiting for the next provider event.
-                  Stream.make({
-                    version: 1 as const,
-                    type: "accountUsage" as const,
-                    payload: { usage: yield* accountUsageRegistry.snapshot },
-                  }),
-                ),
+                Stream.make({ version: 1 as const, type: "snapshot" as const, config }),
                 liveUpdates,
               );
             }),

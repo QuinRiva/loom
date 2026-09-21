@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./accountUsage": {
-      "types": "./src/accountUsage.ts",
-      "default": "./src/accountUsage.ts"
-    },
     "./usageDashboard": {
       "types": "./src/usageDashboard.ts",
       "default": "./src/usageDashboard.ts"

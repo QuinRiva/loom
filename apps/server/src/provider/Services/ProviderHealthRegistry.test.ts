@@ -1,5 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import { type AccountUsageSnapshot, ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderInstanceId } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+
+import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
+
+import type { AccountUsageSnapshot } from "../accountUsage.loom.ts";
 
 import { classifiesAsQuota } from "../exhaustionMapping.ts";
 import {
@@ -10,6 +16,8 @@ import {
   isActive,
   markKey,
   matches,
+  ProviderHealthRegistry,
+  ProviderHealthRegistryLive,
   type ExhaustionMark,
 } from "./ProviderHealthRegistry.ts";
 
@@ -282,4 +290,51 @@ describe("ProviderHealthRegistry semantics", () => {
     expect(marks).toHaveLength(1);
     expect(marks[0]?.source).toBe("telemetry");
   });
+});
+
+describe("ProviderHealthRegistry live telemetry", () => {
+  const live = ProviderHealthRegistryLive.pipe(Layer.provide(serverSettingsLayerTest()));
+
+  it.effect("marks an account the poller reports as spent, and clears it on the reset", () =>
+    Effect.gen(function* () {
+      const registry = yield* ProviderHealthRegistry;
+      expect(yield* registry.isExhausted("claudeAgent")).toBe(false);
+
+      yield* registry.applyUsage(
+        snapshot([
+          { kind: "secondary", usedPercent: 99.4, resetsAt: null, windowDurationMins: null },
+        ]),
+      );
+      expect(yield* registry.isExhausted("claudeAgent")).toBe(true);
+      // Spawn headroom reads the same store the marks derive from.
+      expect((yield* registry.usage).map((entry) => entry.windows.length)).toEqual([1]);
+
+      // The window reset: fresh telemetry below the clear threshold drops the mark,
+      // and the sparse update merges onto the stored window rather than appending.
+      yield* registry.applyUsage(
+        snapshot([{ kind: "secondary", usedPercent: 3, resetsAt: null, windowDurationMins: null }]),
+      );
+      expect(yield* registry.isExhausted("claudeAgent")).toBe(false);
+      expect((yield* registry.usage).flatMap((entry) => entry.windows)).toHaveLength(1);
+    }).pipe(Effect.provide(live)),
+  );
+
+  it.effect("keeps a model-scoped carve-out from exhausting the whole account", () =>
+    Effect.gen(function* () {
+      const registry = yield* ProviderHealthRegistry;
+      yield* registry.applyUsage(
+        snapshot([
+          {
+            kind: "secondary",
+            usedPercent: 100,
+            resetsAt: FUTURE,
+            windowDurationMins: null,
+            scope: { displayName: "Opus", modelId: "claude-opus-5" },
+          },
+        ]),
+      );
+      expect(yield* registry.isExhausted("claudeAgent", "claude-opus-5")).toBe(true);
+      expect(yield* registry.isExhausted("claudeAgent", "claude-fable-5")).toBe(false);
+    }).pipe(Effect.provide(live)),
+  );
 });

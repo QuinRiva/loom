@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./accountUsage": {
-      "types": "./src/accountUsage.ts",
-      "import": "./src/accountUsage.ts"
-    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
