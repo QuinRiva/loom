@@ -1,20 +1,30 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { PI_DEFAULT_MODEL, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_SERVER_SETTINGS,
+  PI_DEFAULT_MODEL,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "./config.ts";
+import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
+import * as ServerSettings from "./serverSettings.ts";
+import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 
 // loom: auto-bootstrap default is pi/PI_DEFAULT_MODEL (the source was switched
 // from upstream's codex/DEFAULT_MODEL in the fork-aware architecture campaign;
@@ -79,59 +89,61 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
       const releaseCounts = yield* Deferred.make<void, never>();
 
       yield* ServerRuntimeStartup.launchStartupHeartbeat.pipe(
-        Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-          getCommandReadModel: () => Effect.die("unused"),
-          getSnapshot: () => Effect.die("unused"),
-          getShellSnapshot: () => Effect.die("unused"),
-          getLeanShellSnapshot: () => Effect.die("unused"),
-          getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
-          getArchivedShellSnapshot: () => Effect.die("unused"),
-          getSnapshotSequence: () => Effect.die("unused"),
-          getCounts: () =>
-            Deferred.await(releaseCounts).pipe(
-              Effect.as({
-                projectCount: 2,
-                threadCount: 3,
+        Effect.provide(
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getCommandReadModel: () => Effect.die("unused"),
+            getSnapshot: () => Effect.die("unused"),
+            getShellSnapshot: () => Effect.die("unused"),
+            getLeanShellSnapshot: () => Effect.die("unused"),
+            getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
+            getArchivedShellSnapshot: () => Effect.die("unused"),
+            getSnapshotSequence: () => Effect.die("unused"),
+            getCounts: () =>
+              Deferred.await(releaseCounts).pipe(
+                Effect.as({
+                  projectCount: 2,
+                  threadCount: 3,
+                }),
+              ),
+            getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
+            getProjectShellById: () => Effect.succeed(Option.none()),
+            getGoalShellById: () => Effect.succeed(Option.none()),
+            getGoalById: () => Effect.succeed(Option.none()),
+            listGoalSlugsByProjectId: () => Effect.succeed([]),
+            listActiveProjectRefs: () => Effect.succeed([]),
+            getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+            getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+            getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+            getThreadShellById: () => Effect.succeed(Option.none()),
+            getThreadDetailById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadLifecycle: () => Effect.succeed([]),
+            getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+            getThreadObligations: () =>
+              Effect.succeed({
+                planLane: "in_progress",
+                activeTurnId: null,
+                liveChildCount: 0,
+                hasUnmetDependencies: false,
+                openUserInputCount: 0,
+                pendingRework: false,
               }),
-            ),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-          getProjectShellById: () => Effect.succeed(Option.none()),
-          getGoalShellById: () => Effect.succeed(Option.none()),
-          getGoalById: () => Effect.succeed(Option.none()),
-          listGoalSlugsByProjectId: () => Effect.succeed([]),
-          listActiveProjectRefs: () => Effect.succeed([]),
-          getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-          getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-          getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-          getThreadShellById: () => Effect.succeed(Option.none()),
-          getThreadDetailById: () => Effect.succeed(Option.none()),
-          getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
-          getThreadLifecycle: () => Effect.succeed([]),
-          getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
-          getThreadObligations: () =>
-            Effect.succeed({
-              planLane: "in_progress",
-              activeTurnId: null,
-              liveChildCount: 0,
-              hasUnmetDependencies: false,
-              openUserInputCount: 0,
-              pendingRework: false,
-            }),
-          getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
-          getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
-          getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-          getDeletedThreadIds: () => Effect.succeed(new Set()),
-          listPendingPeerMessages: () => Effect.succeed([]),
-          getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-          getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
-          getRecentToolActivityByThreadId: () => Effect.succeed([]),
-          getThreadProgressSignal: () =>
-            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
-          getInFlightToolByThreadId: () => Effect.succeed(null),
-          getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
-          searchThreads: () => Effect.succeed({ matches: [] }),
-        }),
+            getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
+            getDeletedThreadIds: () => Effect.succeed(new Set()),
+            listPendingPeerMessages: () => Effect.succeed([]),
+            getActivityFreshnessByThreadId: () =>
+              Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+            getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
+            getRecentToolActivityByThreadId: () => Effect.succeed([]),
+            getThreadProgressSignal: () =>
+              Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+            getInFlightToolByThreadId: () => Effect.succeed(null),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+            searchThreads: () => Effect.succeed({ matches: [] }),
+          }),
+        ),
         Effect.provideService(AnalyticsService.AnalyticsService, {
           record: () => Effect.void,
           flush: Effect.void,
@@ -163,165 +175,341 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
   return Effect.gen(function* () {
     const dispatchCalls = yield* Ref.make<ReadonlyArray<string>>([]);
     const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest(),
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getUserInputActivity: () => Effect.die("unused"),
+            listActivitiesByKind: () => Effect.succeed([]),
+            getCommandReadModel: () => Effect.die("unused"),
+            getSnapshot: () => Effect.die("unused"),
+            getShellSnapshot: () => Effect.die("unused"),
+            getLeanShellSnapshot: () => Effect.die("unused"),
+            getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
+            getArchivedShellSnapshot: () => Effect.die("unused"),
+            getSnapshotSequence: () => Effect.die("unused"),
+            getCounts: () => Effect.die("unused"),
+            getEventReplayStats: () => Effect.die("unused"),
+            getActiveProjectByWorkspaceRoot: () =>
+              Effect.succeed(
+                Option.some({
+                  id: bootstrapProjectId,
+                  title: "Startup Project",
+                  workspaceRoot: "/tmp/startup-project",
+                  defaultModelSelection:
+                    ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
+                  defaultStartFromOrigin: null,
+                  scripts: [],
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  deletedAt: null,
+                }),
+              ),
+            getProjectShells: () => Effect.die("unused"),
+            getProjectShellById: () => Effect.die("unused"),
+            getGoalShellById: () => Effect.die("unused"),
+            getGoalById: () => Effect.die("unused"),
+            listGoalSlugsByProjectId: () => Effect.die("unused"),
+            listActiveProjectRefs: () => Effect.die("unused"),
+            getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.some(bootstrapThreadId)),
+            getImportedAgentSessionSources: () => Effect.die("unused"),
+            getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+            getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+            getThreadRuntimeContext: () => Effect.die("unused"),
+            getTurnStartMessage: () => Effect.die("unused"),
+            getThreadShellById: () => Effect.die("unused"),
+            getThreadDetailById: () => Effect.die("unused"),
+            getThreadActivitiesPage: () => Effect.die("unused"),
+            getThreadLifecycle: () => Effect.die("unused"),
+            getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+            getThreadObligations: () =>
+              Effect.succeed({
+                planLane: "in_progress",
+                activeTurnId: null,
+                liveChildCount: 0,
+                hasUnmetDependencies: false,
+                openUserInputCount: 0,
+                pendingRework: false,
+              }),
+            getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
+            getDeletedThreadIds: () => Effect.succeed(new Set()),
+            listPendingPeerMessages: () => Effect.succeed([]),
+            getActivityFreshnessByThreadId: () =>
+              Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+            getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
+            getRecentToolActivityByThreadId: () => Effect.succeed([]),
+            getThreadProgressSignal: () =>
+              Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+            getInFlightToolByThreadId: () => Effect.succeed(null),
+            getThreadDetailSnapshot: () => Effect.die("unused"),
+            searchThreads: () => Effect.succeed({ matches: [] }),
+          }),
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            readStreamEvents: () => Stream.empty,
+            dispatch: (command) =>
+              Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
+                Effect.as({ sequence: 1 }),
+              ),
+            streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
+            latestSequence: Effect.succeed(0),
+          }),
+          NodeServices.layer,
+        ),
+      ),
       Effect.provideService(ServerConfig.ServerConfig, {
         cwd: "/tmp/startup-project",
         autoBootstrapProjectFromCwd: true,
       } as never),
-      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-        getCommandReadModel: () => Effect.die("unused"),
-        getSnapshot: () => Effect.die("unused"),
-        getShellSnapshot: () => Effect.die("unused"),
-        getLeanShellSnapshot: () => Effect.die("unused"),
-        getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
-        getArchivedShellSnapshot: () => Effect.die("unused"),
-        getSnapshotSequence: () => Effect.die("unused"),
-        getCounts: () => Effect.die("unused"),
-        getActiveProjectByWorkspaceRoot: () =>
-          Effect.succeed(
-            Option.some({
-              id: bootstrapProjectId,
-              title: "Startup Project",
-              workspaceRoot: "/tmp/startup-project",
-              defaultModelSelection: ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
-              defaultStartFromOrigin: null,
-              scripts: [],
-              createdAt: "2026-01-01T00:00:00.000Z",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              deletedAt: null,
-            }),
-          ),
-        getProjectShellById: () => Effect.die("unused"),
-        getGoalShellById: () => Effect.die("unused"),
-        getGoalById: () => Effect.die("unused"),
-        listGoalSlugsByProjectId: () => Effect.die("unused"),
-        listActiveProjectRefs: () => Effect.die("unused"),
-        getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.some(bootstrapThreadId)),
-        getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-        getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-        getThreadShellById: () => Effect.die("unused"),
-        getThreadDetailById: () => Effect.die("unused"),
-        getThreadActivitiesPage: () => Effect.die("unused"),
-        getThreadLifecycle: () => Effect.die("unused"),
-        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
-        getThreadObligations: () =>
-          Effect.succeed({
-            planLane: "in_progress",
-            activeTurnId: null,
-            liveChildCount: 0,
-            hasUnmetDependencies: false,
-            openUserInputCount: 0,
-            pendingRework: false,
-          }),
-        getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
-        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
-        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-        getDeletedThreadIds: () => Effect.succeed(new Set()),
-        listPendingPeerMessages: () => Effect.succeed([]),
-        getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
-        getRecentToolActivityByThreadId: () => Effect.succeed([]),
-        getThreadProgressSignal: () =>
-          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
-        getInFlightToolByThreadId: () => Effect.succeed(null),
-        getThreadDetailSnapshot: () => Effect.die("unused"),
-        searchThreads: () => Effect.succeed({ matches: [] }),
-      }),
-      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-        readEvents: () => Stream.empty,
-        readStreamEvents: () => Stream.empty,
-        dispatch: (command) =>
-          Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
-            Effect.as({ sequence: 1 }),
-          ),
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      } satisfies OrchestrationEngine.OrchestrationEngineService["Service"]),
-      Effect.provide(NodeServices.layer),
     );
 
     assert.deepStrictEqual(targets, {
       bootstrapProjectId,
       bootstrapThreadId,
+      bootstrapProjectCreated: false,
+      bootstrapThreadCreated: false,
     });
     assert.deepStrictEqual(yield* Ref.get(dispatchCalls), []);
   });
 });
 
-it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when missing", () =>
+it.effect.each([
+  {
+    existing: false,
+    machineModel: null,
+    projectModel: null,
+    machineMode: "full-access",
+    projectMode: null,
+  },
+  {
+    existing: false,
+    machineModel: "claude-sonnet-4-6",
+    projectModel: null,
+    machineMode: "approval-required",
+    projectMode: null,
+  },
+  {
+    existing: true,
+    machineModel: "claude-sonnet-4-6",
+    projectModel: null,
+    machineMode: "auto",
+    projectMode: null,
+  },
+  {
+    existing: true,
+    machineModel: "claude-sonnet-4-6",
+    projectModel: "gpt-5.4",
+    machineMode: "full-access",
+    projectMode: "auto-accept-edits",
+  },
+] as const)("auto-bootstrap model and permissions precedence: %j", (options) =>
   Effect.gen(function* () {
-    const dispatchCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+    const { existing, machineModel, projectModel, machineMode, projectMode } = options;
+    const machineSelection = machineModel
+      ? { instanceId: ProviderInstanceId.make("claude-code"), model: machineModel }
+      : null;
+    const projectSelection = projectModel
+      ? { instanceId: ProviderInstanceId.make("codex"), model: projectModel }
+      : null;
+    const dispatchCalls = yield* Ref.make<
+      ReadonlyArray<{
+        readonly type: string;
+        readonly defaultModelSelection?: unknown;
+        readonly modelSelection?: unknown;
+        readonly runtimeMode?: unknown;
+      }>
+    >([]);
     const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({
+            defaultModelSelection: machineSelection,
+            defaultRuntimeMode: machineMode,
+            projectSettingsOverrides:
+              existing && projectSelection
+                ? {
+                    [ProjectId.make("existing-project")]: {
+                      defaultModelSelection: projectSelection,
+                      ...(projectMode ? { defaultRuntimeMode: projectMode } : {}),
+                    },
+                  }
+                : {},
+          }),
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getUserInputActivity: () => Effect.die("unused"),
+            listActivitiesByKind: () => Effect.succeed([]),
+            getCommandReadModel: () => Effect.die("unused"),
+            getSnapshot: () => Effect.die("unused"),
+            getShellSnapshot: () => Effect.die("unused"),
+            getLeanShellSnapshot: () => Effect.die("unused"),
+            getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
+            getArchivedShellSnapshot: () => Effect.die("unused"),
+            getSnapshotSequence: () => Effect.die("unused"),
+            getCounts: () => Effect.die("unused"),
+            getEventReplayStats: () => Effect.die("unused"),
+            getActiveProjectByWorkspaceRoot: () =>
+              Effect.succeed(
+                existing
+                  ? Option.some({
+                      id: ProjectId.make("existing-project"),
+                      title: "Startup Project",
+                      workspaceRoot: "/tmp/startup-project",
+                      defaultModelSelection: null,
+                      defaultStartFromOrigin: null,
+                      scripts: [],
+                      createdAt: "2026-01-01T00:00:00.000Z",
+                      updatedAt: "2026-01-01T00:00:00.000Z",
+                      deletedAt: null,
+                    })
+                  : Option.none(),
+              ),
+            getProjectShells: () => Effect.die("unused"),
+            getProjectShellById: () => Effect.die("unused"),
+            getGoalShellById: () => Effect.die("unused"),
+            getGoalById: () => Effect.die("unused"),
+            listGoalSlugsByProjectId: () => Effect.die("unused"),
+            listActiveProjectRefs: () => Effect.die("unused"),
+            getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+            getImportedAgentSessionSources: () => Effect.die("unused"),
+            getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+            getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+            getThreadRuntimeContext: () => Effect.die("unused"),
+            getTurnStartMessage: () => Effect.die("unused"),
+            getThreadShellById: () => Effect.die("unused"),
+            getThreadDetailById: () => Effect.die("unused"),
+            getThreadActivitiesPage: () => Effect.die("unused"),
+            getThreadLifecycle: () => Effect.die("unused"),
+            getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+            getThreadObligations: () =>
+              Effect.succeed({
+                planLane: "in_progress",
+                activeTurnId: null,
+                liveChildCount: 0,
+                hasUnmetDependencies: false,
+                openUserInputCount: 0,
+                pendingRework: false,
+              }),
+            getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
+            getDeletedThreadIds: () => Effect.succeed(new Set()),
+            listPendingPeerMessages: () => Effect.succeed([]),
+            getActivityFreshnessByThreadId: () =>
+              Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+            getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
+            getRecentToolActivityByThreadId: () => Effect.succeed([]),
+            getThreadProgressSignal: () =>
+              Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+            getInFlightToolByThreadId: () => Effect.succeed(null),
+            getThreadDetailSnapshot: () => Effect.die("unused"),
+            searchThreads: () => Effect.succeed({ matches: [] }),
+          }),
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            readStreamEvents: () => Stream.empty,
+            dispatch: (command) =>
+              Ref.update(dispatchCalls, (calls) => [...calls, command]).pipe(
+                Effect.as({ sequence: 1 }),
+              ),
+            streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
+            latestSequence: Effect.succeed(0),
+          }),
+          NodeServices.layer,
+        ),
+      ),
       Effect.provideService(ServerConfig.ServerConfig, {
         cwd: "/tmp/startup-project",
         autoBootstrapProjectFromCwd: true,
       } as never),
-      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-        getCommandReadModel: () => Effect.die("unused"),
-        getSnapshot: () => Effect.die("unused"),
-        getShellSnapshot: () => Effect.die("unused"),
-        getLeanShellSnapshot: () => Effect.die("unused"),
-        getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
-        getArchivedShellSnapshot: () => Effect.die("unused"),
-        getSnapshotSequence: () => Effect.die("unused"),
-        getCounts: () => Effect.die("unused"),
-        getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-        getProjectShellById: () => Effect.die("unused"),
-        getGoalShellById: () => Effect.die("unused"),
-        getGoalById: () => Effect.die("unused"),
-        listGoalSlugsByProjectId: () => Effect.die("unused"),
-        listActiveProjectRefs: () => Effect.die("unused"),
-        getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-        getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-        getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-        getThreadShellById: () => Effect.die("unused"),
-        getThreadDetailById: () => Effect.die("unused"),
-        getThreadActivitiesPage: () => Effect.die("unused"),
-        getThreadLifecycle: () => Effect.die("unused"),
-        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
-        getThreadObligations: () =>
-          Effect.succeed({
-            planLane: "in_progress",
-            activeTurnId: null,
-            liveChildCount: 0,
-            hasUnmetDependencies: false,
-            openUserInputCount: 0,
-            pendingRework: false,
-          }),
-        getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
-        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
-        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-        getDeletedThreadIds: () => Effect.succeed(new Set()),
-        listPendingPeerMessages: () => Effect.succeed([]),
-        getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
-        getRecentToolActivityByThreadId: () => Effect.succeed([]),
-        getThreadProgressSignal: () =>
-          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
-        getInFlightToolByThreadId: () => Effect.succeed(null),
-        getThreadDetailSnapshot: () => Effect.die("unused"),
-        searchThreads: () => Effect.succeed({ matches: [] }),
-      }),
-      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-        readEvents: () => Stream.empty,
-        readStreamEvents: () => Stream.empty,
-        dispatch: (command) =>
-          Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
-            Effect.as({ sequence: 1 }),
-          ),
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      } satisfies OrchestrationEngine.OrchestrationEngineService["Service"]),
-      Effect.provide(NodeServices.layer),
     );
 
     assert.equal(typeof targets.bootstrapProjectId, "string");
     assert.equal(typeof targets.bootstrapThreadId, "string");
-    assert.deepStrictEqual(yield* Ref.get(dispatchCalls), ["project.create", "thread.create"]);
+    assert.equal(targets.bootstrapProjectCreated, !existing);
+    assert.equal(targets.bootstrapThreadCreated, true);
+    const commands = yield* Ref.get(dispatchCalls);
+    assert.deepStrictEqual(
+      commands.map((command) => command.type),
+      existing ? ["thread.create"] : ["project.create", "thread.create"],
+    );
+    if (!existing) assert.equal("defaultModelSelection" in commands[0]!, false);
+    assert.equal(commands.at(-1)?.runtimeMode, projectMode ?? machineMode);
+    assert.deepStrictEqual(
+      commands.at(-1)?.modelSelection,
+      projectSelection ??
+        machineSelection ?? {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: DEFAULT_MODEL,
+        },
+    );
   }),
+);
+
+it.effect(
+  "resolveAutoBootstrapWelcomeTargets preserves a project created before thread failure",
+  () =>
+    Effect.gen(function* () {
+      const dispatchCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+      const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ServerSettings.layerTest(),
+            Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+              getUserInputActivity: () => Effect.die("unused"),
+              listActivitiesByKind: () => Effect.succeed([]),
+              getCommandReadModel: () => Effect.die("unused"),
+              getSnapshot: () => Effect.die("unused"),
+              getShellSnapshot: () => Effect.die("unused"),
+              getDeletedWorktreeThreads: () => Effect.die("unused"),
+              getArchivedShellSnapshot: () => Effect.die("unused"),
+              getSnapshotSequence: () => Effect.die("unused"),
+              getCounts: () => Effect.die("unused"),
+              getEventReplayStats: () => Effect.die("unused"),
+              getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
+              getProjectShells: () => Effect.die("unused"),
+              getProjectShellById: () => Effect.die("unused"),
+              getFirstActiveThreadIdByProjectId: () => Effect.die("thread lookup failed"),
+              getImportedAgentSessionSources: () => Effect.die("unused"),
+              getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+              getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+              getThreadRuntimeContext: () => Effect.die("unused"),
+              getTurnStartMessage: () => Effect.die("unused"),
+              getThreadShellById: () => Effect.die("unused"),
+              getThreadDetailById: () => Effect.die("unused"),
+              getThreadDetailSnapshot: () => Effect.die("unused"),
+              searchThreads: () => Effect.succeed({ matches: [] }),
+            }),
+            Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+              readEvents: () => Stream.empty,
+              readThreadEvents: () => Stream.empty,
+              getThreadReplayStats: () => Effect.die("unused thread replay stats"),
+              dispatch: (command) =>
+                Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
+                  Effect.as({ sequence: 1 }),
+                ),
+              streamDomainEvents: Stream.empty,
+              subscribeDomainEvents: Effect.succeed(Stream.empty),
+              latestSequence: Effect.succeed(0),
+            }),
+            NodeServices.layer,
+          ),
+        ),
+        Effect.provideService(ServerConfig.ServerConfig, {
+          cwd: "/tmp/startup-project",
+          autoBootstrapProjectFromCwd: true,
+        } as never),
+      );
+
+      assert.equal(typeof targets.bootstrapProjectId, "string");
+      assert.equal(targets.bootstrapProjectCreated, true);
+      assert.equal(targets.bootstrapThreadId, undefined);
+      assert.equal(targets.bootstrapThreadCreated, undefined);
+      assert.deepStrictEqual(yield* Ref.get(dispatchCalls), ["project.create"]);
+    }),
 );
 
 it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation failures", () =>
@@ -336,68 +524,80 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
     const dispatchCalls = yield* Ref.make<ReadonlyArray<string>>([]);
 
     const error = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest(),
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getUserInputActivity: () => Effect.die("unused"),
+            listActivitiesByKind: () => Effect.succeed([]),
+            getCommandReadModel: () => Effect.die("unused"),
+            getSnapshot: () => Effect.die("unused"),
+            getShellSnapshot: () => Effect.die("unused"),
+            getLeanShellSnapshot: () => Effect.die("unused"),
+            getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
+            getArchivedShellSnapshot: () => Effect.die("unused"),
+            getSnapshotSequence: () => Effect.die("unused"),
+            getCounts: () => Effect.die("unused"),
+            getEventReplayStats: () => Effect.die("unused"),
+            getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
+            getProjectShells: () => Effect.die("unused"),
+            getProjectShellById: () => Effect.die("unused"),
+            getGoalShellById: () => Effect.die("unused"),
+            getGoalById: () => Effect.die("unused"),
+            listGoalSlugsByProjectId: () => Effect.die("unused"),
+            listActiveProjectRefs: () => Effect.die("unused"),
+            getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+            getImportedAgentSessionSources: () => Effect.die("unused"),
+            getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+            getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+            getThreadRuntimeContext: () => Effect.die("unused"),
+            getTurnStartMessage: () => Effect.die("unused"),
+            getThreadShellById: () => Effect.die("unused"),
+            getThreadDetailById: () => Effect.die("unused"),
+            getThreadActivitiesPage: () => Effect.die("unused"),
+            getThreadLifecycle: () => Effect.die("unused"),
+            getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+            getThreadObligations: () =>
+              Effect.succeed({
+                planLane: "in_progress",
+                activeTurnId: null,
+                liveChildCount: 0,
+                hasUnmetDependencies: false,
+                openUserInputCount: 0,
+                pendingRework: false,
+              }),
+            getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
+            getDeletedThreadIds: () => Effect.succeed(new Set()),
+            listPendingPeerMessages: () => Effect.succeed([]),
+            getActivityFreshnessByThreadId: () =>
+              Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+            getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
+            getRecentToolActivityByThreadId: () => Effect.succeed([]),
+            getThreadProgressSignal: () =>
+              Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+            getInFlightToolByThreadId: () => Effect.succeed(null),
+            getThreadDetailSnapshot: () => Effect.die("unused"),
+            searchThreads: () => Effect.succeed({ matches: [] }),
+          }),
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            readStreamEvents: () => Stream.empty,
+            dispatch: (command) =>
+              Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
+                Effect.as({ sequence: 1 }),
+              ),
+            streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
+            latestSequence: Effect.succeed(0),
+          }),
+        ),
+      ),
       Effect.provideService(ServerConfig.ServerConfig, {
         cwd: "/tmp/startup-project",
         autoBootstrapProjectFromCwd: true,
       } as never),
-      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
-        getCommandReadModel: () => Effect.die("unused"),
-        getSnapshot: () => Effect.die("unused"),
-        getShellSnapshot: () => Effect.die("unused"),
-        getLeanShellSnapshot: () => Effect.die("unused"),
-        getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
-        getArchivedShellSnapshot: () => Effect.die("unused"),
-        getSnapshotSequence: () => Effect.die("unused"),
-        getCounts: () => Effect.die("unused"),
-        getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-        getProjectShellById: () => Effect.die("unused"),
-        getGoalShellById: () => Effect.die("unused"),
-        getGoalById: () => Effect.die("unused"),
-        listGoalSlugsByProjectId: () => Effect.die("unused"),
-        listActiveProjectRefs: () => Effect.die("unused"),
-        getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-        getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-        getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-        getThreadShellById: () => Effect.die("unused"),
-        getThreadDetailById: () => Effect.die("unused"),
-        getThreadActivitiesPage: () => Effect.die("unused"),
-        getThreadLifecycle: () => Effect.die("unused"),
-        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
-        getThreadObligations: () =>
-          Effect.succeed({
-            planLane: "in_progress",
-            activeTurnId: null,
-            liveChildCount: 0,
-            hasUnmetDependencies: false,
-            openUserInputCount: 0,
-            pendingRework: false,
-          }),
-        getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
-        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
-        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-        getDeletedThreadIds: () => Effect.succeed(new Set()),
-        listPendingPeerMessages: () => Effect.succeed([]),
-        getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
-        getRecentToolActivityByThreadId: () => Effect.succeed([]),
-        getThreadProgressSignal: () =>
-          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
-        getInFlightToolByThreadId: () => Effect.succeed(null),
-        getThreadDetailSnapshot: () => Effect.die("unused"),
-        searchThreads: () => Effect.succeed({ matches: [] }),
-      }),
-      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
-        readEvents: () => Stream.empty,
-        readStreamEvents: () => Stream.empty,
-        dispatch: (command) =>
-          Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
-            Effect.as({ sequence: 1 }),
-          ),
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      } satisfies OrchestrationEngine.OrchestrationEngineService["Service"]),
       Effect.provideService(Crypto.Crypto, {
         ...crypto,
         randomUUIDv4: Effect.fail(uuidError),
@@ -408,4 +608,32 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
     assert.strictEqual(error, uuidError);
     assert.deepStrictEqual(yield* Ref.get(dispatchCalls), []);
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("completeAutoBootstrapWelcome settles failures without bootstrap targets", () =>
+  Effect.gen(function* () {
+    const completion = yield* ServerRuntimeStartup.completeAutoBootstrapWelcome(
+      Effect.fail("bootstrap failed"),
+    );
+
+    assert.deepStrictEqual(completion, { bootstrapStatus: "complete" });
+  }),
+);
+
+it.effect("completeAutoBootstrapWelcome settles unexpected defects", () =>
+  Effect.gen(function* () {
+    const completion = yield* ServerRuntimeStartup.completeAutoBootstrapWelcome(
+      Effect.die("bootstrap defect"),
+    );
+
+    assert.deepStrictEqual(completion, { bootstrapStatus: "complete" });
+  }),
+);
+
+it.effect("completeAutoBootstrapWelcome settles an empty bootstrap result", () =>
+  Effect.gen(function* () {
+    const completion = yield* ServerRuntimeStartup.completeAutoBootstrapWelcome(Effect.succeed({}));
+
+    assert.deepStrictEqual(completion, { bootstrapStatus: "complete" });
+  }),
 );

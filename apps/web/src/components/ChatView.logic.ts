@@ -11,7 +11,13 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
+import {
+  isImageAttachment,
+  type ChatMessage,
+  type SessionPhase,
+  type Thread,
+  type ThreadShell,
+} from "../types";
 import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
 
 import {
@@ -118,7 +124,6 @@ export interface ComposerContentSnapshot {
   readonly prompt: string;
   readonly imageCount: number;
   readonly terminalContextCount: number;
-  readonly elementContextCount: number;
   readonly previewAnnotationCount: number;
   readonly reviewCommentCount: number;
 }
@@ -134,7 +139,6 @@ export function shouldRestoreSubmittedDraft(snapshot: ComposerContentSnapshot): 
     snapshot.prompt.length === 0 &&
     snapshot.imageCount === 0 &&
     snapshot.terminalContextCount === 0 &&
-    snapshot.elementContextCount === 0 &&
     snapshot.previewAnnotationCount === 0 &&
     snapshot.reviewCommentCount === 0
   );
@@ -291,6 +295,7 @@ export function buildLocalDraftThread(
     checkpoints: [],
     activities: [],
     proposedPlans: [],
+    pullRequests: [],
   };
 }
 
@@ -394,7 +399,8 @@ export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
     return;
   }
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") {
+    // The attachment union has an open member, so a literal comparison does not narrow.
+    if (!isImageAttachment(attachment)) {
       continue;
     }
     revokeBlobPreviewUrl(attachment.previewUrl);
@@ -407,7 +413,7 @@ export function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[
   }
   const previewUrls: string[] = [];
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") continue;
+    if (!isImageAttachment(attachment)) continue;
     if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
     previewUrls.push(attachment.previewUrl);
   }
@@ -464,11 +470,11 @@ export function deriveComposerSendState(options: {
   imageCount: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   /**
-   * Optional element-pick attachment count. Element contexts contribute to
-   * "sendable content" exactly like images and (text-bearing) terminal
-   * contexts do: a prompt of just element chips is still a valid send.
+   * Preview annotations + review comments. They contribute to "sendable
+   * content" exactly like images and (text-bearing) terminal contexts do: a
+   * prompt of just context chips is still a valid send.
    */
-  elementContextCount?: number;
+  attachedContextCount?: number;
 }): {
   trimmedPrompt: string;
   sendableTerminalContexts: TerminalContextDraft[];
@@ -479,7 +485,7 @@ export function deriveComposerSendState(options: {
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
-  const elementContextCount = options.elementContextCount ?? 0;
+  const attachedContextCount = options.attachedContextCount ?? 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
@@ -488,7 +494,7 @@ export function deriveComposerSendState(options: {
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
       sendableTerminalContexts.length > 0 ||
-      elementContextCount > 0,
+      attachedContextCount > 0,
   };
 }
 
@@ -762,4 +768,25 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.localDispatch.sessionStatus !== (session?.status ?? null) ||
     input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
   );
+}
+
+export function resolveDraftPromotionNavigationTarget(input: {
+  serverThreadRef: ScopedThreadRef | null;
+  serverThread: Pick<Thread, "latestTurn" | "session" | "messages"> | null | undefined;
+  backgroundSubmissionPending: boolean;
+}): ScopedThreadRef | null {
+  if (input.backgroundSubmissionPending) {
+    return null;
+  }
+  const sessionStatus = input.serverThread?.session?.status;
+  const turnStarted = input.serverThread?.latestTurn?.startedAt != null;
+  const startupStopped =
+    sessionStatus === "error" || sessionStatus === "stopped" || sessionStatus === "interrupted";
+  // A worktree bootstrap persists the user message before the turn, so the
+  // thread route can render the send and the live setup by itself. Otherwise
+  // keep the draft mounted until the server can render the running turn or
+  // its startup error.
+  const messagePersisted =
+    input.serverThread?.messages.some((message) => message.role === "user") ?? false;
+  return turnStarted || startupStopped || messagePersisted ? input.serverThreadRef : null;
 }

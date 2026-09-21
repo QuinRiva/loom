@@ -50,7 +50,7 @@ export interface ShipPlanOptions {
   readonly body?: string | undefined;
 }
 
-export class ShipProtectedBranchError extends Schema.TaggedErrorClass<ShipProtectedBranchError>()(
+export class ShipProtectedBranchError extends Schema.TaggedError<ShipProtectedBranchError>()(
   "ShipProtectedBranchError",
   {
     branch: Schema.String,
@@ -61,22 +61,19 @@ export class ShipProtectedBranchError extends Schema.TaggedErrorClass<ShipProtec
   }
 }
 
-export class ShipProcessError extends Schema.TaggedErrorClass<ShipProcessError>()(
-  "ShipProcessError",
-  {
-    operation: Schema.Literals(["spawn", "communicate"]),
-    kind: Schema.String,
-    executable: Schema.String,
-    argumentCount: Schema.Number,
-    cause: Schema.Defect(),
-  },
-) {
+export class ShipProcessError extends Schema.TaggedError<ShipProcessError>()("ShipProcessError", {
+  operation: Schema.Literals(["spawn", "communicate"]),
+  kind: Schema.String,
+  executable: Schema.String,
+  argumentCount: Schema.Number,
+  cause: Schema.Defect(),
+}) {
   override get message(): string {
     return `Ship step "${this.kind}" failed to ${this.operation} "${this.executable}".`;
   }
 }
 
-export class ShipStepExitError extends Schema.TaggedErrorClass<ShipStepExitError>()(
+export class ShipStepExitError extends Schema.TaggedError<ShipStepExitError>()(
   "ShipStepExitError",
   {
     kind: Schema.String,
@@ -90,7 +87,7 @@ export class ShipStepExitError extends Schema.TaggedErrorClass<ShipStepExitError
   }
 }
 
-export class ShipRebaseConflictError extends Schema.TaggedErrorClass<ShipRebaseConflictError>()(
+export class ShipRebaseConflictError extends Schema.TaggedError<ShipRebaseConflictError>()(
   "ShipRebaseConflictError",
   {
     conflictingFiles: Schema.Array(Schema.String),
@@ -108,7 +105,7 @@ export class ShipRebaseConflictError extends Schema.TaggedErrorClass<ShipRebaseC
   }
 }
 
-export class ShipMergeNotConfirmedError extends Schema.TaggedErrorClass<ShipMergeNotConfirmedError>()(
+export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotConfirmedError>()(
   "ShipMergeNotConfirmedError",
   {
     state: Schema.String,
@@ -437,25 +434,25 @@ export const runShip = Effect.fn("runShip")(function* (options: {
 export const shipCommand = Command.make(
   "ship",
   {
-    message: Flag.string("message").pipe(
+    message: Flag.String("message").pipe(
       Flag.withAlias("m"),
       Flag.withDescription("Commit message / PR title source for the work being shipped."),
     ),
-    title: Flag.string("title").pipe(
+    title: Flag.String("title").pipe(
       Flag.withDescription("Explicit PR title (otherwise the PR is filled from the commit)."),
       Flag.optional,
     ),
-    body: Flag.string("body").pipe(
+    body: Flag.String("body").pipe(
       Flag.withDescription("Explicit PR body (otherwise the PR is filled from the commit)."),
       Flag.optional,
     ),
-    mergeOnly: Flag.boolean("merge-only").pipe(
+    mergeOnly: Flag.Boolean("merge-only").pipe(
       Flag.withDescription(
         "Skip the rebase for an upstream-sync branch (a branch carrying a merge upstream/main commit must be merge-only).",
       ),
       Flag.withDefault(false),
     ),
-    dryRun: Flag.boolean("dry-run").pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription("Print the ordered ship sequence without running git/gh/vp."),
       Flag.withDefault(false),
     ),

@@ -34,7 +34,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { loomMigrationsTable } from "../src/persistence/LoomMigrations.ts";
 import * as NodeSqliteClient from "../src/persistence/NodeSqliteClient.ts";
 
-export class LedgerRollbackRefusedError extends Schema.TaggedErrorClass<LedgerRollbackRefusedError>()(
+export class LedgerRollbackRefusedError extends Schema.TaggedError<LedgerRollbackRefusedError>()(
   "LedgerRollbackRefusedError",
   { reason: Schema.String },
 ) {
@@ -136,10 +136,10 @@ export const runLedgerRollback = Effect.fn("runLedgerRollback")(function* (optio
 export const loomLedgerRollbackCommand = Command.make(
   "loom-ledger-rollback",
   {
-    baseDir: Flag.string("base-dir").pipe(
+    baseDir: Flag.String("base-dir").pipe(
       Flag.withDescription("T3 base directory containing userdata/state.sqlite."),
     ),
-    dryRun: Flag.boolean("dry-run").pipe(
+    dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription("Report what would change without writing."),
     ),
   },

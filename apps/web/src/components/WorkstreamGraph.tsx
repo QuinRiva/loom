@@ -133,7 +133,6 @@ export default function WorkstreamGraph({
           .join(",")}`,
     )
     .join("|");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const { nodes, edges } = useMemo(() => computeForkJoinLayout(threads), [structureKey]);
 
   // Consult overlay is derived live (not part of the memoised structural layout)
@@ -257,7 +256,6 @@ export default function WorkstreamGraph({
     const at = focusPosRef.current ?? pointerPosRef.current;
     if (at) positionFacts(at);
     focusPosRef.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hovered]);
 
   // Zoom about a client-space anchor (wheel cursor); button zooms centre.
@@ -293,7 +291,6 @@ export default function WorkstreamGraph({
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {

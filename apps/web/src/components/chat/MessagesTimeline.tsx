@@ -34,12 +34,12 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { FileDiff } from "@pierre/diffs/react";
 import {
   deriveTimelineEntries,
-  workEntryIndicatesToolFailure,
+  workEntryDisplayIndicatesToolFailure,
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
   workLogEntryIsToolLike,
 } from "../../session-logic";
-import { type TurnDiffSummary } from "../../types";
+import { isImageAttachment, type ChatImageAttachment, type TurnDiffSummary } from "../../types";
 import { useClientSettings } from "~/hooks/useSettings";
 import {
   getRenderablePatch,
@@ -91,7 +91,6 @@ import {
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
-import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { TIMELINE_ROW_CLASS_NAME, useTimelineAvailableWidthVar } from "./timelineLayout";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -1052,7 +1051,9 @@ function resolveMessageOriginLabel(origin: MessageOrigin | undefined): string | 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const originLabel = resolveMessageOriginLabel(row.message.origin);
-  const userImages = row.message.attachments ?? [];
+  // The attachment union has an open member, so it must be narrowed with the
+  // guard rather than assumed to be images (upstream v0.0.43).
+  const userImages = (row.message.attachments ?? []).filter(isImageAttachment);
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
@@ -1089,7 +1090,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         ) : null}
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-            {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+            {regularImages.map((image) => (
               <div
                 key={image.id}
                 className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
@@ -1617,7 +1618,24 @@ const UserMessageTerminalContextInlineLabel = memo(
         ? `${props.context.header}\n${props.context.body}`
         : props.context.header;
 
-    return <TerminalContextInlineChip label={props.context.header} tooltipText={tooltipText} />;
+    // Rendered from the transcript's parsed <terminal_context> block, which
+    // carries only a header and body — not the terminal id/line range that
+    // upstream's TerminalContextInlineChip popover needs.
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-foreground/85 text-xs">
+              <TerminalIcon className="size-3 shrink-0" />
+              <span className="truncate">{props.context.header}</span>
+            </span>
+          }
+        />
+        <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap leading-tight">
+          {tooltipText}
+        </TooltipPopup>
+      </Tooltip>
+    );
   },
 );
 
@@ -1646,7 +1664,7 @@ const UserMessageElementContextChip = memo(function UserMessageElementContextChi
 
 function UserMessagePreviewAnnotationCard(props: {
   annotation: ParsedPreviewAnnotation;
-  image: NonNullable<TimelineMessage["attachments"]>[number] | null;
+  image: ChatImageAttachment | null;
 }) {
   const ctx = use(TimelineRowCtx);
   return (
@@ -2371,7 +2389,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
   const canExpand = expandedBody !== null;
-  const showFailedIndicator = workEntryIndicatesToolFailure(workEntry);
+  const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const showDestructiveRowStyle =
     showFailedIndicator &&
     (workEntry.sourceActivityKind === "runtime.error" || !workLogEntryIsToolLike(workEntry));

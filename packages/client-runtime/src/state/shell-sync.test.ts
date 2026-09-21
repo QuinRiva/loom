@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
@@ -116,6 +117,7 @@ const STUB_THREAD = {
   consults: [],
   peerMessages: [],
   notifySendLog: [],
+  pullRequests: [],
   session: null,
 } as const;
 
@@ -123,6 +125,7 @@ function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
   return {
     client,
     initialConfig: Effect.never,
+    subscribeServerConfig: () => Stream.never,
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,

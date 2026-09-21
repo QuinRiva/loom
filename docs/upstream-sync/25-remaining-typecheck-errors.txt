@@ -1,0 +1,47 @@
+# Cadence pull 7 — remaining typecheck errors: NONE
+
+`vp run typecheck` is GREEN across all 15 packages as of session 8, measured
+after `vp i` and after deleting the stale `tsconfig.tsbuildinfo` files.
+
+    contracts, shared, client-runtime, effect-acp, effect-codex-app-server,
+    oxlint-plugin-t3code, ssh, tailscale, scripts, marketing, infra/relay,
+    apps/desktop, apps/web, apps/mobile, apps/server   — all ✓
+
+Session-by-session: 176+117+63 (+3 relay) -> 0.
+
+## Three traps worth carrying into pull 8
+
+1. **A single `warning TS…` fails the package.** `tsc --noEmit` here exits 1 on
+   the Effect language-service *warnings* (`multipleEffectProvide`,
+   `@effect-diagnostics directive has no effect`), not only on errors — so
+   `grep -c "error TS"` reporting 0 while the gate stays red is expected.
+   Verified by injecting a lone warning into a green package.
+2. **`apps/server` can exit 137 (OOM) under `vp run typecheck`** when 15 `tsc`
+   processes run at once; that is not a type error. The root script
+   `pnpm typecheck` uses `--concurrency-limit 2` for this reason. Re-measure the
+   package on its own before believing a failure.
+3. **Delete `apps/<app>/tsconfig.tsbuildinfo` before believing a count.**
+   `composite: true` means cached errors are re-reported against paths that no
+   longer exist.
+
+## Method that worked (reuse it in pull 8)
+
+1. `docs/upstream-sync/pull7-tools/whatismissing.sh <repo-relative-path> <name>…`
+   on every TS2304/TS2305/TS2552/TS2724 — it names which parent still declares
+   the symbol. Run it from the repo root with repo-root-relative paths.
+2. Prop/member-shape errors (TS2739/TS2740/TS2741) are almost always "loom's
+   caller, upstream's callee" (or the reverse). Diff the callee against BOTH
+   parents before touching the caller — and do not trust a prior session's
+   claim about which side owns a prop: session 8 found the ownership of the
+   mobile question-card props recorded backwards.
+3. For a file the mechanical resolution interleaved (duplicate imports, half of
+   each side's body), do not patch it hunk by hunk: `git show <parent>:<path>`
+   the chosen side wholesale, then re-apply the other side's deliberate delta.
+4. Whole-shape service doubles: `Layer.mock(Tag)({partial})`, never
+   `Layer.succeed(Tag, {whole})` — `Layer.mock` defects on unimplemented
+   members, so the next pull's new members cannot break a double that never
+   calls them.
+5. Thread fixtures: spread `loomThreadDefaults` / `loomThreadShellDefaults` from
+   `@t3tools/contracts` (the values now live beside the schema that adds the
+   fields; `apps/server/src/orchestration/deciderTestThread.ts` re-exports them
+   as the fixture names the decider tests already use).

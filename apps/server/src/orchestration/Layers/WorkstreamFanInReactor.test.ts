@@ -27,7 +27,7 @@ import {
   makeWorkspaceLease,
   WorkspaceLease,
   type WorkspaceLeaseShape,
-} from "../../workspace/WorkspaceLease.ts";
+} from "../../workspace/WorkspaceOccupancyLease.ts";
 import type { GitMergeWorktreeBranchResult } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -81,7 +81,7 @@ const shell = (
 const WorkspaceLeaseTestLive = Layer.effect(WorkspaceLease, makeWorkspaceLease);
 
 /** Stand-in for the driver error a git op raises against an unusable checkout. */
-class StubGitError extends Schema.TaggedErrorClass<StubGitError>()("StubGitError", {
+class StubGitError extends Schema.TaggedError<StubGitError>()("StubGitError", {
   detail: Schema.String,
 }) {}
 

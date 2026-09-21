@@ -55,6 +55,7 @@ function makeThread(
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    pullRequests: [],
     latestTurn: null,
     toolUses: null,
     usedTokens: null,

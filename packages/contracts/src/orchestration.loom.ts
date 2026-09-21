@@ -28,7 +28,7 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
-import { RuntimeErrorClass } from "./providerRuntime.ts";
+
 // Type-only (erased) — safe against the value cycle. Used by the narrowing
 // guards to Extract the fork subsets from the full upstream unions.
 import type { OrchestrationCommand, OrchestrationEvent } from "./orchestration.ts";
@@ -36,6 +36,41 @@ import type { OrchestrationCommand, OrchestrationEvent } from "./orchestration.t
 // ---------------------------------------------------------------------------
 // Standalone schemas / consts (relocated verbatim from orchestration.ts).
 // ---------------------------------------------------------------------------
+
+// loom: `RuntimeErrorClass` and `UserInputResolvedOutcome` live HERE rather than
+// in `providerRuntime.ts` (their original fork home). Upstream added a
+// `providerRuntime -> orchestration` value import, and both `orchestration.ts`
+// and this module need these two literals; importing them from `providerRuntime`
+// closed a value cycle that threw `Cannot access '...' before initialization` at
+// import time. This module only depends on `baseSchemas.ts`, so hosting them
+// here keeps every edge one-way, and leaves `providerRuntime.ts` on upstream's
+// import direction so future pulls stay mechanical. `providerRuntime.ts`
+// re-exports both, so their public path is unchanged.
+export const RuntimeErrorClass = Schema.Literals([
+  "provider_error",
+  "transport_error",
+  "permission_error",
+  "validation_error",
+  // Subscription/quota exhaustion (5h/weekly limit). Distinct from a generic
+  // provider_error so the exhaustion resume sweep can find stalled turns and
+  // the UI can surface "limit reached \u2014 resets \u2026" rather than a raw failure.
+  "quota_exhausted",
+  "unknown",
+]);
+export type RuntimeErrorClass = typeof RuntimeErrorClass.Type;
+
+// How a user-input request ended. Additive: an emitter that never sets it means
+// `answered`, which is what every pre-outcome emitter meant. `superseded` carries
+// the plain message the human sent instead of using the form; `cancelled` covers
+// runtime cancellation AND server reconciliation.
+export const UserInputResolvedOutcome = Schema.Literals([
+  "answered",
+  "dismissed",
+  "superseded",
+  "cancelled",
+]);
+export type UserInputResolvedOutcome = typeof UserInputResolvedOutcome.Type;
+export const DEFAULT_USER_INPUT_RESOLVED_OUTCOME: UserInputResolvedOutcome = "answered";
 
 // loom: title provenance ladder (stale/empty-goal fix §4). Tracks how the
 // CURRENT title of a thread or goal was produced, lowest → highest authority:
@@ -608,6 +643,57 @@ export const LoomThreadShellFields = {
   // same dep whose fan-in the predicate makes load-bearing. Shell-only; null on
   // legacy snapshots and until the first fan-in-set.
   faninSince: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+} as const;
+
+/**
+ * The "no workstream" value of every REQUIRED field `LoomThreadFields` adds to
+ * a thread row. Anything building a thread literal by hand — a client-side
+ * optimistic shell, a fixture — spreads this first and overrides after, so the
+ * next fork field is one edit here rather than one per construction site.
+ * Optional fields (`titleProvenance`, `finalCommitSha`, …) are deliberately
+ * absent: under `exactOptionalPropertyTypes` an explicit `undefined` is not the
+ * same as omission.
+ */
+export const loomThreadDefaults = {
+  goalId: null,
+  parentThreadId: null,
+  role: null,
+  purpose: null,
+  brief: null,
+  kickoffBriefPath: null,
+  graphKey: null,
+  planLane: "in_progress",
+  attention: [],
+  blockedBy: [],
+  spawnGeneration: null,
+  continuesThreadId: null,
+  forkFromThreadId: null,
+  reportPath: null,
+  routes: [],
+  gateRounds: 0,
+  pendingRework: false,
+  lastOutcome: null,
+  isolation: "shared",
+  fanInState: "none",
+  cumulativeCostUsd: 0,
+  toolUses: null,
+  usedTokens: null,
+  maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
+  handoffDestinations: [],
+  notifySendLog: [],
+} as const;
+
+/** `loomThreadDefaults` plus the shell-only projections. */
+export const loomThreadShellDefaults = {
+  ...loomThreadDefaults,
+  lastActivityPreview: null,
+  consults: [],
+  peerMessages: [],
+  planLaneSince: null,
+  dependenciesSince: null,
+  faninSince: null,
 } as const;
 
 // Spread into `OrchestrationSession`.
@@ -1795,9 +1881,7 @@ type LoomCommandMemberType =
   | ReturnType<typeof makeLoomScaffoldCommandMembers>[number]["Type"]["type"];
 
 // Exactness, both directions.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _MissingLoomCommandTypes = AssertNever<Exclude<LoomCommandMemberType, LoomCommandType>>;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ExtraLoomCommandTypes = AssertNever<Exclude<LoomCommandType, LoomCommandMemberType>>;
 
 export type LoomOrchestrationCommand = Extract<OrchestrationCommand, { type: LoomCommandType }>;
@@ -1814,9 +1898,7 @@ type LoomEventMemberType = ReturnType<
   typeof makeLoomOrchestrationEventMembers<Record<never, never>>
 >[number]["Type"]["type"];
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _MissingLoomEventTypes = AssertNever<Exclude<LoomEventMemberType, LoomEventType>>;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ExtraLoomEventTypes = AssertNever<Exclude<LoomEventType, LoomEventMemberType>>;
 
 export type LoomOrchestrationEvent = Extract<OrchestrationEvent, { type: LoomEventType }>;

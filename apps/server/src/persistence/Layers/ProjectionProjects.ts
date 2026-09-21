@@ -2,10 +2,11 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 
-import { ModelSelection, ProjectScript } from "@t3tools/contracts";
+import { ModelSelection, ProjectIconOverride, ProjectScript } from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionProjectInput,
@@ -19,10 +20,11 @@ const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     defaultStartFromOrigin: Schema.NullOr(Schema.fromJsonString(Schema.Boolean)),
+    autoPull: Schema.Number,
+    projectIcon: Schema.NullOr(Schema.fromJsonString(ProjectIconOverride)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
 );
-type ProjectionProjectDbRow = typeof ProjectionProjectDbRow.Type;
 
 const makeProjectionProjectRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -38,7 +40,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           default_model_selection_json,
           default_start_from_origin,
           default_thread_env_mode,
+          auto_pull,
           favicon_path,
+          project_icon_json,
           scripts_json,
           created_at,
           updated_at,
@@ -51,7 +55,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${row.defaultStartFromOrigin !== null ? JSON.stringify(row.defaultStartFromOrigin) : null},
           ${row.defaultThreadEnvMode},
+          ${row.autoPull ? 1 : 0},
           ${row.faviconPath ?? null},
+          ${row.projectIcon ? JSON.stringify(row.projectIcon) : null},
           ${JSON.stringify(row.scripts)},
           ${row.createdAt},
           ${row.updatedAt},
@@ -64,7 +70,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           default_model_selection_json = excluded.default_model_selection_json,
           default_start_from_origin = excluded.default_start_from_origin,
           default_thread_env_mode = excluded.default_thread_env_mode,
+          auto_pull = excluded.auto_pull,
           favicon_path = excluded.favicon_path,
+          project_icon_json = excluded.project_icon_json,
           scripts_json = excluded.scripts_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -84,7 +92,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           default_start_from_origin AS "defaultStartFromOrigin",
           default_thread_env_mode AS "defaultThreadEnvMode",
+          auto_pull AS "autoPull",
           favicon_path AS "faviconPath",
+          project_icon_json AS "projectIcon",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -132,24 +142,13 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
 
   const getById: ProjectionProjectRepositoryShape["getById"] = (input) =>
     getProjectionProjectRow(input).pipe(
+      Effect.map(Option.map((row) => ({ ...row, autoPull: row.autoPull === 1 }))),
       Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.getById:query")),
-    );
-
-  const listAll: ProjectionProjectRepositoryShape["listAll"] = () =>
-    listProjectionProjectRows().pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.listAll:query")),
-    );
-
-  const deleteById: ProjectionProjectRepositoryShape["deleteById"] = (input) =>
-    deleteProjectionProjectRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.deleteById:query")),
     );
 
   return {
     upsert,
     getById,
-    listAll,
-    deleteById,
   } satisfies ProjectionProjectRepositoryShape;
 });
 

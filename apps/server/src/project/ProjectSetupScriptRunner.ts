@@ -1,6 +1,4 @@
 import { ProjectId } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as NodeCrypto from "node:crypto";
 import * as Cause from "effect/Cause";
@@ -8,6 +6,14 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  projectScriptRuntimeEnv,
+  resolveProjectScripts,
+  setupProjectScript,
+} from "@t3tools/shared/projectScripts";
+
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -16,6 +22,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
@@ -49,8 +56,11 @@ export interface ProjectSetupScriptRunnerResultStarted {
   readonly status: "started";
   readonly scriptId: string;
   readonly scriptName: string;
+  readonly scriptCommand: string;
   readonly terminalId: string;
   readonly cwd: string;
+  /** False when the script's `async` flag asks the agent to wait for it. */
+  readonly async: boolean;
   readonly completion: Effect.Effect<ProjectSetupScriptCompletion, ProjectSetupScriptRunnerError>;
 }
 
@@ -64,9 +74,17 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
+  /**
+   * Wrap the command so the shell reports its exit code back through the
+   * terminal stream, and forward cleaned output lines while it runs. The
+   * bootstrap flow uses this to drive the worktree setup card.
+   */
+  readonly observeCompletion?: {
+    readonly onOutputLine?: (line: string) => Effect.Effect<void>;
+  };
 }
 
-export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<ProjectSetupScriptOperationError>()(
+export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
   "ProjectSetupScriptOperationError",
   {
     threadId: Schema.String,
@@ -75,6 +93,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<Pr
     worktreePath: Schema.String,
     operation: Schema.Literals([
       "resolveProject",
+      "readSettings",
       "openTerminal",
       "writeCommand",
       "waitForCommand",
@@ -87,7 +106,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<Pr
   }
 }
 
-export class ProjectSetupScriptProjectNotFoundError extends Schema.TaggedErrorClass<ProjectSetupScriptProjectNotFoundError>()(
+export class ProjectSetupScriptProjectNotFoundError extends Schema.TaggedError<ProjectSetupScriptProjectNotFoundError>()(
   "ProjectSetupScriptProjectNotFoundError",
   {
     threadId: Schema.String,
@@ -117,6 +136,24 @@ export class ProjectSetupScriptRunner extends Context.Service<
 >()("t3/project/ProjectSetupScriptRunner") {}
 
 const SETUP_COMMAND_TIMEOUT = Duration.minutes(30);
+
+const OUTPUT_LINE_MAX_LENGTH = 400;
+/** A partial line longer than this is a byte stream, not a line. Keep only the tail. */
+const PARTIAL_LINE_MAX_LENGTH = 4_096;
+
+/** Removes ANSI escape sequences and cursor controls so lines can be shown as plain text. */
+function stripTerminalControl(text: string): string {
+  return (
+    text
+      .replace(
+        // eslint-disable-next-line no-control-regex
+        /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]/g,
+        "",
+      )
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+  );
+}
 
 function setupCompletionCommand(platform: NodeJS.Platform, marker: string): string {
   if (platform === "win32") {
@@ -187,6 +224,7 @@ const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallComm
 
 export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;
   const platform = yield* HostProcessPlatform;
   const fs = yield* FileSystem.FileSystem;
@@ -234,7 +272,17 @@ export const make = Effect.gen(function* () {
       return yield* new ProjectSetupScriptProjectNotFoundError(errorContext);
     }
 
-    const script = setupProjectScript(project.scripts);
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProjectSetupScriptOperationError({
+            ...errorContext,
+            operation: "readSettings",
+            cause,
+          }),
+      ),
+    );
+    const script = setupProjectScript(resolveProjectScripts(settings, project));
     if (!script) {
       return {
         status: "no-script",
@@ -253,6 +301,27 @@ export const make = Effect.gen(function* () {
       ProjectSetupScriptRunnerError
     >();
     let outputTail = "";
+    // Upstream's live setup-output forwarding: the worktree setup card renders
+    // these lines while the script runs. Terminal output is a byte stream, so
+    // partial lines are buffered until a newline; a bare carriage return is how
+    // installers redraw a progress line in place, so each redraw becomes its own
+    // line rather than being glued into one long one.
+    const onOutputLine = input.observeCompletion?.onOutputLine;
+    let lineBuffer = "";
+    const forwardOutputLines = (data: string) => {
+      if (!onOutputLine) return Effect.void;
+      lineBuffer += data;
+      const lines = lineBuffer.split(/\r\n|\r|\n/);
+      // A script that never prints a newline must not grow this forever.
+      lineBuffer = (lines.pop() ?? "").slice(-PARTIAL_LINE_MAX_LENGTH);
+      return Effect.forEach(
+        lines
+          .map((line) => stripTerminalControl(line).trimEnd())
+          .filter((line) => line.length > 0 && !line.includes(marker)),
+        (line) => onOutputLine(line.slice(0, OUTPUT_LINE_MAX_LENGTH)),
+        { discard: true },
+      );
+    };
     let unsubscribe: (() => void) | null = null;
     const failCompletion = (cause: unknown) =>
       Deferred.fail(
@@ -270,7 +339,8 @@ export const make = Effect.gen(function* () {
         terminalId,
         cwd,
         worktreePath: input.worktreePath,
-        env,
+        // Setup may run before a terminal client attaches to answer color probes.
+        env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
       })
       .pipe(
         Effect.mapError(
@@ -289,11 +359,15 @@ export const make = Effect.gen(function* () {
       if (event.type === "output") {
         outputTail = (outputTail + event.data).slice(-4096);
         const match = outputTail.match(new RegExp(`${marker}(-?\\d+)`));
-        if (!match) return Effect.void;
+        if (!match) return forwardOutputLines(event.data);
         const exitCode = Number(match[1]);
-        return exitCode === 0
-          ? Deferred.succeed(completion, { exitCode }).pipe(Effect.asVoid)
-          : failCompletion(new Error(`Setup script exited with code ${exitCode}.`));
+        return forwardOutputLines(event.data).pipe(
+          Effect.flatMap(() =>
+            exitCode === 0
+              ? Deferred.succeed(completion, { exitCode }).pipe(Effect.asVoid)
+              : failCompletion(new Error(`Setup script exited with code ${exitCode}.`)),
+          ),
+        );
       }
       if (event.type === "exited" || event.type === "closed") {
         return failCompletion(
@@ -375,8 +449,10 @@ export const make = Effect.gen(function* () {
       status: "started",
       scriptId: script.id,
       scriptName: script.name,
+      scriptCommand: script.command,
       terminalId,
       cwd,
+      async: script.async !== false,
       completion: awaitCompletion,
     } as const;
   });

@@ -23,7 +23,7 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
-import { WorkspaceLease } from "../workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "../workspace/WorkspaceOccupancyLease.ts";
 
 /**
  * WorktreeProvisioner — the single provisioning tail shared by the root

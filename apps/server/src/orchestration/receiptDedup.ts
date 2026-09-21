@@ -130,9 +130,8 @@ export const makeReceiptDedupedDelivery = <RE>(deps: {
           // deterministic id stays redeliverable on the next idle drain; every
           // other dispatch failure re-fails, exactly as the old per-call
           // `catchTag` left non-deferred failures to propagate.
-          Effect.catchTag(
-            "OrchestrationCommandDeferredError",
-            (): Effect.Effect<DeliveryOutcome> => Effect.succeed("deferred"),
+          Effect.catchTag("OrchestrationCommandDeferredError", (): Effect.Effect<DeliveryOutcome> =>
+            Effect.succeed("deferred"),
           ),
         );
       });

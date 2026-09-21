@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -149,6 +150,7 @@ function makeReadModel(
       runtimeMode: "full-access" as const,
       branch: null,
       worktreePath: null,
+      pullRequests: [],
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -227,8 +229,10 @@ describe("ProviderSessionReaper", () => {
     );
 
     const providerService: ProviderServiceShape = {
+      assertConversationRollbackSupported: () => Effect.die("unused"),
       startSession: () => unsupported(),
       sendTurn: () => unsupported(),
+      compactThread: () => unsupported(),
       interruptTurn: () => unsupported(),
       respondToRequest: () => unsupported(),
       respondToUserInput: () => unsupported(),
@@ -251,6 +255,7 @@ describe("ProviderSessionReaper", () => {
         });
       },
       rollbackConversation: () => unsupported(),
+      uploadFeedback: () => unsupported(),
       streamEvents: Stream.empty,
     };
 
@@ -271,25 +276,10 @@ describe("ProviderSessionReaper", () => {
       Layer.provideMerge(runtimeRepositoryLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, providerService)),
       Layer.provideMerge(
-        Layer.succeed(ProjectionSnapshotQuery, {
-          getCommandReadModel: () => Effect.die("unused"),
-          getSnapshot: () => Effect.die("unused"),
-          getShellSnapshot: () => Effect.die("unused"),
-          getLeanShellSnapshot: () => Effect.die("unused"),
+        Layer.mock(ProjectionSnapshotQuery)({
           getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
-          getArchivedShellSnapshot: () => Effect.die("unused"),
           getSnapshotSequence: () =>
             Effect.succeed({ snapshotSequence: input.readModel.snapshotSequence }),
-          getCounts: () => Effect.die("unused"),
-          getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
-          getProjectShellById: () => Effect.die("unused"),
-          getGoalShellById: () => Effect.die("unused"),
-          getGoalById: () => Effect.die("unused"),
-          listGoalSlugsByProjectId: () => Effect.die("unused"),
-          listActiveProjectRefs: () => Effect.die("unused"),
-          getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
-          getThreadCheckpointContext: () => Effect.die("unused"),
-          getFullThreadDiffContext: () => Effect.die("unused"),
           getThreadShellById: (threadId) => {
             threadShellReads += 1;
             if (input.failThreadLivenessRead) {
@@ -313,9 +303,6 @@ describe("ProviderSessionReaper", () => {
                 : Option.none(),
             );
           },
-          getThreadDetailById: () => Effect.die("unused"),
-          getThreadActivitiesPage: () => Effect.die("unused"),
-          getThreadLifecycle: () => Effect.die("unused"),
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getThreadObligations: (threadId) =>
             Effect.succeed({
@@ -340,12 +327,10 @@ describe("ProviderSessionReaper", () => {
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
-          getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
           getInFlightToolByThreadId: () => Effect.succeed(null),
-          getThreadDetailSnapshot: () => Effect.die("unused"),
           searchThreads: () => Effect.succeed({ matches: [] }),
         }),
       ),

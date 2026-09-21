@@ -57,6 +57,7 @@ const mountCard = (overrides?: { multiSelect?: boolean; answers?: Record<string,
           requestId: ApprovalRequestId.make("req-keyboard"),
           createdAt: "2026-07-29T00:00:00.000Z",
           questions: [rendered],
+          dismissible: false,
         }}
         pendingCount={1}
         drafts={{}}

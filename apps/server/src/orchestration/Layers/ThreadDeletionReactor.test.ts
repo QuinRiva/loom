@@ -1,5 +1,13 @@
-import { CommandId, EventId, type OrchestrationEvent, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  CorrelationId,
+  EventId,
+  type OrchestrationEvent,
+  ThreadId,
+} from "@t3tools/contracts";
+import { it as effectIt } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -9,9 +17,16 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderService,
+  type ProviderServiceShape,
+} from "../../provider/Services/ProviderService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "../Services/OrchestrationEngine.ts";
+import * as Fiber from "effect/Fiber";
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import {
   logCleanupCauseUnlessInterrupted,
@@ -112,7 +127,7 @@ describe("toThreadCleanupRequest", () => {
   });
 });
 
-class StubCloseError extends Schema.TaggedErrorClass<StubCloseError>()("StubCloseError", {}) {}
+class StubCloseError extends Schema.TaggedError<StubCloseError>()("StubCloseError", {}) {}
 
 interface Recorded {
   readonly closes: ReadonlyArray<{
@@ -164,13 +179,10 @@ const runReactorOn = (
     yield* Effect.gen(function* () {
       const reactor = yield* ThreadDeletionReactor;
       yield* reactor.start();
-      const expected = events.filter((event) => toThreadCleanupRequest(event)).length;
-      yield* Effect.gen(function* () {
-        yield* reactor.drain;
-        if ((yield* Ref.get(closes)).length < expected) {
-          return yield* Effect.fail("pending" as const);
-        }
-      }).pipe(Effect.retry({ schedule: Schedule.spaced("5 millis"), times: 200 }), Effect.orDie);
+      // `drainThrough` is the receipt: it resolves once every cleanup at or
+      // before this sequence has been handed to the worker AND the worker is
+      // idle, so the old poll-until-count loop is no longer needed.
+      yield* reactor.drainThrough(Math.max(...events.map((event) => event.sequence)));
     }).pipe(Effect.scoped, Effect.provide(layer));
 
     return {

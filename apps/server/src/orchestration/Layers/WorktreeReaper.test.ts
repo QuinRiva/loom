@@ -19,7 +19,7 @@ import type {
 import * as ServerConfigModule from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { layer as WorktreeMutationLockLive } from "../../git/WorktreeMutationLock.ts";
-import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
+import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
 import type { GitWorktreeListEntry } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";

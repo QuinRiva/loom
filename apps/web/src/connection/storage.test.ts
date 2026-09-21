@@ -1,8 +1,15 @@
-import { ConnectionTransientError } from "@t3tools/client-runtime/connection";
+import {
+  ConnectionTransientError,
+  PrimaryConnectionTarget,
+} from "@t3tools/client-runtime/connection";
+import { EnvironmentId } from "@t3tools/contracts";
 import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { afterEach, vi } from "vite-plus/test";
 
 import {
@@ -10,6 +17,7 @@ import {
   makeCatalogStore,
   StoredThreadSnapshot,
   THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION,
+  makeBrowserGitHubRoutingPermissions,
 } from "./storage";
 
 const emptyCatalog = {
@@ -18,8 +26,10 @@ const emptyCatalog = {
   profiles: [],
   credentials: [],
   remoteDpopTokens: [],
+  disabledEnvironmentIds: [],
 } as const;
 const decodeCatalog = Schema.decodeUnknownSync(Schema.fromJsonString(ConnectionCatalogDocument));
+const encodeCatalog = Schema.encodeSync(Schema.fromJsonString(ConnectionCatalogDocument));
 
 afterEach(() => {
   vi.unstubAllGlobals();

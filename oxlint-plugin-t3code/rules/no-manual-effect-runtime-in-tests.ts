@@ -19,52 +19,17 @@ const EFFECT_RUNTIME_METHODS = new Set([
   "runSyncWith",
 ]);
 
-// Existing manual runners are tracked as debt. The rule permits no net-new
-// occurrences in these files, while unlisted test files must have zero.
-const LEGACY_BASELINE = new Map<string, number>([
-  ["apps/mobile/src/features/agent-awareness/liveActivityPreferences.test.ts", 1],
-  ["apps/mobile/src/features/agent-awareness/remoteRegistration.test.ts", 2],
-  ["apps/mobile/src/state/use-remote-environment-registry.test.ts", 2],
-  ["apps/server/src/orchestration/commandInvariants.test.ts", 6],
-  ["apps/server/src/orchestration/Layers/CheckpointReactor.test.ts", 42],
-  ["apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts", 5],
-  ["apps/server/src/orchestration/Layers/OrchestrationReactor.test.ts", 4],
-  // 73 legacy + 3 for the settlement gate's exactly-once/release-before-turn
-  // regressions, which must read the event store and re-dispatch a derived command
-  // id from outside an `it.effect` body to reproduce a redelivery.
-  ["apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts", 76],
-  // The settlement sink is a boundary OUT of the Effect world by construction (it
-  // is called from a Node process-`exit` listener), so a test that exercises the
-  // real registered sink must cross that boundary too — capturing the payload
-  // instead would test the two halves separately and not the chain that broke.
-  ["apps/server/src/orchestration/userInputSettlement.test.ts", 3],
-  ["apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts", 32],
-  ["apps/server/src/orchestration/Layers/ThreadDeletionReactor.test.ts", 2],
-  ["apps/server/src/orchestration/projector.test.ts", 20],
-  ["apps/server/src/project/Layers/ProjectSetupScriptRunner.test.ts", 4],
-  ["apps/server/src/provider/acp/CursorAcpSupport.test.ts", 1],
-  ["apps/server/src/provider/Layers/ClaudeAdapter.test.ts", 2],
-  ["apps/server/src/provider/Layers/CodexAdapter.test.ts", 1],
-  ["apps/server/src/provider/Layers/CodexSessionRuntime.test.ts", 5],
-  ["apps/server/src/provider/Layers/CursorAdapter.test.ts", 1],
-  ["apps/server/src/provider/Layers/CursorProvider.test.ts", 4],
-  ["apps/server/src/provider/Layers/ProviderService.test.ts", 2],
-  ["apps/server/src/provider/Layers/ProviderSessionReaper.test.ts", 14],
-  ["apps/server/src/relay/AgentAwarenessRelay.test.ts", 4],
-  ["apps/server/src/server.test.ts", 1],
-  ["apps/web/src/cloud/dpop.test.ts", 2],
-  ["apps/web/src/environments/runtime/service.addSavedEnvironment.test.ts", 1],
-  ["oxlint-plugin-t3code/rules/no-manual-effect-runtime-in-tests.test.ts", 7],
-  ["packages/client-runtime/src/relay/managedRelayState.test.ts", 1],
-  ["packages/client-runtime/src/wsTransport.test.ts", 2],
-]);
-
-const baselineFor = (filename: string): number => {
-  const normalized = filename.replaceAll("\\", "/");
-  for (const [suffix, count] of LEGACY_BASELINE) {
-    if (normalized.endsWith(suffix)) return count;
-  }
-  return 0;
+// Existing manual runners are tracked as debt through the `maxOccurrences`
+// option, set per file in the lint config. The rule permits no net-new
+// occurrences in those files, while every other test file must have zero.
+const readMaxOccurrences = (options: ReadonlyArray<unknown>): number => {
+  const [first] = options;
+  return typeof first === "object" &&
+    first !== null &&
+    "maxOccurrences" in first &&
+    typeof first.maxOccurrences === "number"
+    ? first.maxOccurrences
+    : 0;
 };
 
 const manualRunnerName = (callee: unknown): Option.Option<string> => {
@@ -95,11 +60,26 @@ export default defineRule({
       description:
         "Disallow manually creating or running Effect runtimes in tests; use @effect/vitest.",
     },
+    schema: [
+      {
+        type: "object",
+        properties: {
+          maxOccurrences: {
+            type: "integer",
+            minimum: 0,
+            description:
+              "Legacy debt ceiling for this file: occurrences beyond this count are reported.",
+          },
+        },
+        additionalProperties: false,
+      },
+    ],
+    defaultOptions: [{ maxOccurrences: 0 }],
   },
   create(context) {
     if (!TEST_FILE_PATTERN.test(context.filename)) return {};
 
-    const allowedCount = baselineFor(context.filename);
+    const allowedCount = readMaxOccurrences(context.options);
     let occurrenceCount = 0;
 
     return {

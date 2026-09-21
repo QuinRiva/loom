@@ -317,14 +317,12 @@ export function usePathExistence(
     // would turn a failed batch's notify() into a tight re-enqueue loop).
     const unregister = registerPathInterest(environmentId, new Set(paths));
     return unregister;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environmentId, pathsKey]);
 
   return useCallback(
     (path: string) => readPathExistence(environmentId, path),
     // Re-created on each store update (version bump) so memoised consumers
     // rebuild and re-read the cache, upgrading confirmed paths to chips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [environmentId, version],
   );
 }

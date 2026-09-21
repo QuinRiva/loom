@@ -76,7 +76,7 @@ ${input.question}
 Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. Your tools here are read-only (read, grep, find, ls); the bash, edit, write and workstream tools this transcript shows you using are gone, so do not narrate work, promise follow-up, or offer to go and do something. You may still read a file to check a detail, but the tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
 
 /** Clean, single error type for every ask failure (mapped to a tool error). */
-export class WorkstreamAskError extends Schema.TaggedErrorClass<WorkstreamAskError>()(
+export class WorkstreamAskError extends Schema.TaggedError<WorkstreamAskError>()(
   "WorkstreamAskError",
   { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
 ) {

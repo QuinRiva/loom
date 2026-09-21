@@ -1,5 +1,8 @@
 import { type ThreadId } from "@t3tools/contracts";
 
+import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
+
+import { toKindScopedComposerContextId } from "./composerContextReferences";
 import { extractTrailingElementContexts, type ParsedElementContextEntry } from "./elementContext";
 
 export interface TerminalContextSelection {
@@ -369,4 +372,37 @@ export function removeInlineTerminalContextPlaceholder(
   }
 
   return { prompt, cursor: prompt.length };
+}
+
+// Upstream v0.0.43 composer-context references. Loom still sends the trailing
+// <terminal_context> block above; these are what the reference-based composer
+// surfaces (ComposerPromptEditor, composerContextRecords) read.
+export interface TerminalContextReferenceSource {
+  id: string;
+  terminalLabel: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+/** The canonical inline link that stands for this context in the prompt. */
+export function formatTerminalContextReference(context: TerminalContextReferenceSource): string {
+  return formatComposerContextReference({
+    kind: "terminal",
+    contextId: toKindScopedComposerContextId("terminal", context.id),
+    label: formatTerminalContextLabel(context),
+  });
+}
+
+/** Binds legacy U+FFFC placeholders to contexts in array order; leftover placeholders vanish. */
+export function migrateLegacyTerminalContextPlaceholders(
+  prompt: string,
+  contexts: ReadonlyArray<TerminalContextReferenceSource>,
+): string {
+  if (!prompt.includes(INLINE_TERMINAL_CONTEXT_PLACEHOLDER)) return prompt;
+  let index = 0;
+  return prompt.replaceAll(INLINE_TERMINAL_CONTEXT_PLACEHOLDER, () => {
+    const context = contexts[index];
+    index += 1;
+    return context ? formatTerminalContextReference(context) : "";
+  });
 }

@@ -19,7 +19,7 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
-import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceLease.ts";
+import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceOccupancyLease.ts";
 
 // ensureIsolatedChildProvisioned is the shared turn-start guard (item 4): it
 // (re)provisions an isolated child's worktree and, on failure, parks the child

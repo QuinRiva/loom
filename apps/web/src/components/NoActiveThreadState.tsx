@@ -3,6 +3,7 @@ import { Loader2Icon } from "lucide-react";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
 import { isElectron } from "../env";
+import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
@@ -61,11 +62,9 @@ export function NoActiveThreadState() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-        <header className={HEADER_CLASS}>
+        <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           {isElectron ? (
-            <span className="text-xs text-muted-foreground/50 wco:pr-[var(--workspace-native-controls-inset)]">
-              No active thread
-            </span>
+            <span className="text-xs text-muted-foreground/50">No active thread</span>
           ) : (
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground md:text-muted-foreground/60">
@@ -73,7 +72,7 @@ export function NoActiveThreadState() {
               </span>
             </div>
           )}
-        </header>
+        </WorkspacePageHeader>
 
         <Empty className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">

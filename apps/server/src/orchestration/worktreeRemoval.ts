@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
-import { WorkspaceLease } from "../workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "../workspace/WorkspaceOccupancyLease.ts";
 
 /**
  * The single worktree-removal routine, shared by the conservative auto-reaper

@@ -1,6 +1,9 @@
-import type { PullRequestReviewPosition } from "@t3tools/contracts";
+import {
+  PlanCommentAnchor,
+  PullRequestContextMetadata,
+  type PullRequestReviewPosition,
+} from "@t3tools/contracts";
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
-import { PlanCommentAnchor } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -43,6 +46,7 @@ export const LineReviewCommentContextSchema = Schema.Struct({
   diff: Schema.String,
   fenceLanguage: Schema.optional(Schema.String),
   selection: Schema.optional(ReviewCommentSelectionSchema),
+  pullRequest: Schema.optional(PullRequestContextMetadata),
 });
 
 export const MdxAnchorReviewCommentContextSchema = Schema.Struct({
@@ -60,7 +64,6 @@ export const ReviewCommentContextSchema = Schema.Union([
 export type LineReviewCommentContext = typeof LineReviewCommentContextSchema.Type;
 export type MdxAnchorReviewCommentContext = typeof MdxAnchorReviewCommentContextSchema.Type;
 export type ReviewCommentContext = typeof ReviewCommentContextSchema.Type;
-
 interface DiffReviewLine {
   readonly change: "context" | "add" | "delete";
   readonly oldLineNumber: number | null;
@@ -354,7 +357,7 @@ export function buildFileReviewComment(input: {
   endLine: number;
   text: string;
   contents: string;
-}): ReviewCommentContext {
+}): LineReviewCommentContext {
   const startLine = Math.max(1, Math.min(input.startLine, input.endLine));
   const endLine = Math.max(startLine, Math.max(input.startLine, input.endLine));
   const selectedLines = input.contents.split("\n").slice(startLine - 1, endLine);
@@ -700,7 +703,7 @@ export function buildDiffReviewComment(input: {
   fileDiff: FileDiffMetadata;
   range: SelectedLineRange;
   text: string;
-}): ReviewCommentContext | null {
+}): LineReviewCommentContext | null {
   const includeExpandedContext = !input.fileDiff.isPartial;
   const startIndex = findDiffReviewLineIndex(
     input.fileDiff,

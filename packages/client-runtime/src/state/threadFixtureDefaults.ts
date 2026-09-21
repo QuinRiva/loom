@@ -1,0 +1,60 @@
+import { ProviderInstanceId, type OrchestrationThreadShell } from "@t3tools/contracts";
+
+/**
+ * Every non-identity field of a shell thread at its decoded default, so a test
+ * can write only what it is actually asserting on. Loom carries ~30 fork fields
+ * on the thread (all decode-defaulted but structurally required), which
+ * otherwise makes every upstream fixture that builds a thread literal fail to
+ * typecheck after a cadence pull.
+ */
+export const THREAD_FIXTURE_DEFAULTS = {
+  goalId: null,
+  parentThreadId: null,
+  role: null,
+  purpose: null,
+  brief: null,
+  planLane: "planned" as const,
+  attention: [],
+  blockedBy: [],
+  spawnGeneration: null,
+  forkFromThreadId: null,
+  continuesThreadId: null,
+  reportPath: null,
+  graphKey: null,
+  kickoffBriefPath: null,
+  planLaneSince: null,
+  dependenciesSince: null,
+  faninSince: null,
+  routes: [],
+  gateRounds: 0,
+  pendingRework: false,
+  lastOutcome: null,
+  isolation: "shared" as const,
+  fanInState: "none" as const,
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+  runtimeMode: "full-access" as const,
+  interactionMode: "default" as const,
+  branch: null,
+  worktreePath: null,
+  latestTurn: null,
+  cumulativeCostUsd: 0,
+  toolUses: null,
+  usedTokens: null,
+  maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
+  handoffDestinations: [],
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  latestUserMessageAt: null,
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
+  hasActionableProposedPlan: false,
+  lastActivityPreview: null,
+  consults: [],
+  peerMessages: [],
+  notifySendLog: [],
+  pullRequests: [],
+  session: null,
+} satisfies Partial<OrchestrationThreadShell>;

@@ -17,7 +17,7 @@ export type MergeAuthority = "agent" | "human";
  * more conservative.
  */
 export function resolveMergeAuthority(cwd: string): MergeAuthority {
-  for (let dir = NodePath.resolve(cwd); ; ) {
+  for (let dir = NodePath.resolve(cwd); ;) {
     let raw: string | undefined;
     try {
       raw = NodeFS.readFileSync(NodePath.join(dir, ".t3code", "ship.json"), "utf8");

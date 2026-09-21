@@ -11,7 +11,6 @@ import {
 } from "./model.ts";
 import {
   connectionCatalogDisplayUrl,
-  connectionPhaseMessage,
   connectionStatusText,
   connectionStatusTitle,
   presentEnvironmentConnection,
@@ -35,6 +34,7 @@ const ENTRY: ConnectionCatalogEntry = {
       wsBaseUrl: "wss://environment.example.test",
     }),
   ),
+  enabled: true,
 };
 
 function supervisorState(overrides: Partial<SupervisorConnectionState>): SupervisorConnectionState {
@@ -52,6 +52,21 @@ function supervisorState(overrides: Partial<SupervisorConnectionState>): Supervi
 }
 
 describe("connection presentation", () => {
+  it("labels a blocked protocol as unsupported", () => {
+    const connection = presentConnectionState(
+      supervisorState({
+        phase: "blocked",
+        lastFailure: new ConnectionBlockedError({
+          reason: "unsupported",
+          detail: "Update your app.",
+        }),
+      }),
+    );
+    expect(connection.phase).toBe("unsupported");
+    expect(connection.error).toBe("Update your app.");
+    expect(connectionStatusText(connection)).toBe("Client not supported");
+  });
+
   it("preserves profile display information without exposing credentials", () => {
     expect(connectionCatalogDisplayUrl(ENTRY)).toBe("https://environment.example.test");
   });
@@ -165,10 +180,6 @@ describe("connection presentation", () => {
       error: "Connection profile connection-1 is not a bearer connection.",
       traceId: null,
     });
-  });
-
-  it("gives offline status precedence in global messaging", () => {
-    expect(connectionPhaseMessage("connected", TARGET.label, "offline")).toBe("You are offline");
   });
 
   it("combines reconnect progress with the latest failure", () => {

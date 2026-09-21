@@ -42,7 +42,6 @@ import { visualQuestionsBlock } from "./blocks/visualQuestions";
 
 // Heterogeneous data types across blocks; the registry erases the type param and
 // each block's own zod schema re-narrows at render time.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPlanBlock = PlanBlock<any>;
 
 interface RegisteredBlock {
