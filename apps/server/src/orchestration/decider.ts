@@ -399,7 +399,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   Crypto.Crypto
 > {
   // loom: fork commands (goal.*, plan-lane/attention, dependencies, work.submit,
-  // consult.record, fanin.set, turn-start.fail, message.reasoning.complete) are
+  // consult.record, fanin.set, turn-start.fail) are
   // decided by the fork sibling. After this guard `command` narrows to the
   // upstream-only subset, so the switch's `default: command satisfies never`
   // still holds.
@@ -2431,10 +2431,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [unsettledEvent, sessionSetEvent];
     }
 
-    // loom: reasoning is ephemeral (v2) — streaming chunks ride the
-    // ReasoningStreamBus and the single durable `thread.message.reasoning.complete`
-    // lives in decider.loom.ts. Upstream's reasoning delta/complete arms stay dropped.
-    case "thread.message.assistant.delta": {
+    case "thread.message.assistant.delta":
+    case "thread.message.reasoning.delta": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2457,7 +2455,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: "assistant",
+          role: command.type === "thread.message.reasoning.delta" ? "reasoning" : "assistant",
           text: command.delta,
           turnId: command.turnId ?? null,
           streaming: true,
@@ -2467,7 +2465,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.message.assistant.complete": {
+    case "thread.message.assistant.complete":
+    case "thread.message.reasoning.complete": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2490,7 +2489,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: "assistant",
+          role: command.type === "thread.message.reasoning.complete" ? "reasoning" : "assistant",
           text: "",
           turnId: command.turnId ?? null,
           streaming: false,

@@ -30,9 +30,6 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     origin: Schema.NullOr(MessageOrigin),
     controlPayload: Schema.NullOr(Schema.fromJsonString(ControlPayload)),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-    reasoningText: Schema.NullOr(Schema.String),
-    reasoningStreaming: Schema.NullOr(Schema.Number),
-    reasoningMs: Schema.NullOr(Schema.Number),
     context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
   }),
 );
@@ -53,11 +50,6 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
-    ...(row.reasoningText !== null ? { reasoningText: row.reasoningText } : {}),
-    ...(row.reasoningStreaming !== null
-      ? { reasoningStreaming: row.reasoningStreaming === 1 }
-      : {}),
-    ...(row.reasoningMs !== null ? { reasoningMs: row.reasoningMs } : {}),
     ...(row.context !== null ? { context: row.context } : {}),
   };
 }
@@ -85,9 +77,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json,
           context_json,
           is_streaming,
-          reasoning_text,
-          reasoning_streaming,
-          reasoning_ms,
           created_at,
           updated_at
         )
@@ -116,9 +105,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             )
           ),
           ${row.isStreaming ? 1 : 0},
-          ${row.reasoningText ?? null},
-          ${row.reasoningStreaming === undefined ? null : row.reasoningStreaming ? 1 : 0},
-          ${row.reasoningMs ?? null},
           ${row.createdAt},
           ${row.updatedAt}
         )
@@ -142,18 +128,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             projection_thread_messages.context_json
           ),
           is_streaming = excluded.is_streaming,
-          reasoning_text = COALESCE(
-            excluded.reasoning_text,
-            projection_thread_messages.reasoning_text
-          ),
-          reasoning_streaming = COALESCE(
-            excluded.reasoning_streaming,
-            projection_thread_messages.reasoning_streaming
-          ),
-          reasoning_ms = COALESCE(
-            excluded.reasoning_ms,
-            projection_thread_messages.reasoning_ms
-          ),
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `;
@@ -227,9 +201,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -271,9 +242,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages

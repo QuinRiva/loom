@@ -49,6 +49,7 @@ import {
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
+  BrainIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -107,7 +108,6 @@ import {
 } from "~/lib/previewAnnotation";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { ReasoningBlock } from "~/loom/ReasoningBlock";
 import { SpawnCardSection } from "~/loom/SpawnCardSection";
 import { ConsultCardSection } from "~/loom/ConsultCardSection";
 // loom: `/handoff` receipt row.
@@ -115,7 +115,7 @@ import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
 import { type HandoffReceiptView } from "~/loom/handoffReceipts.logic";
 import { ControlDigestCard } from "~/loom/ControlDigestCard";
 import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
-import { type ReasoningDisplayMode, type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat } from "@t3tools/contracts/settings";
 import {
   formatChatTimestampTooltip,
   formatShortTimestamp,
@@ -145,7 +145,6 @@ import {
 
 interface TimelineRowSharedState {
   timestampFormat: TimestampFormat;
-  reasoningDisplay: ReasoningDisplayMode;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
@@ -158,6 +157,8 @@ interface TimelineRowSharedState {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  expandedReasoningMessageIds: ReadonlySet<string>;
+  onToggleReasoning: (messageId: string, anchorKey: string) => void;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
 }
@@ -309,6 +310,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
+  const [expandedReasoningMessageIds, setExpandedReasoningMessageIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
   const disclosureAnchorKeyRef = useRef<string | null>(null);
@@ -383,6 +387,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           next.delete(groupId);
         } else {
           next.add(groupId);
+        }
+        return next;
+      });
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
+  const onToggleReasoning = useCallback(
+    (messageId: string, anchorKey: string) => {
+      suspendEndScrollMaintenanceForDisclosure(anchorKey);
+      setExpandedReasoningMessageIds((existing) => {
+        const next = new Set(existing);
+        if (next.has(messageId)) {
+          next.delete(messageId);
+        } else {
+          next.add(messageId);
         }
         return next;
       });
@@ -531,11 +550,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, []);
   useTimelineAvailableWidthVar(timelineViewportElement, handleTimelineMeasure);
 
-  const reasoningDisplay = useClientSettings((settings) => settings.reasoningDisplay);
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       timestampFormat,
-      reasoningDisplay,
       routeThreadKey,
       threadRef: parseScopedThreadKey(routeThreadKey),
       markdownCwd,
@@ -548,12 +565,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      expandedReasoningMessageIds,
+      onToggleReasoning,
       agentPanelModel,
       onOpenAgents,
     }),
     [
       timestampFormat,
-      reasoningDisplay,
       routeThreadKey,
       markdownCwd,
       resolvedTheme,
@@ -565,6 +583,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      expandedReasoningMessageIds,
+      onToggleReasoning,
       agentPanelModel,
       onOpenAgents,
     ],
@@ -1022,6 +1042,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}
+      {row.kind === "message" && row.message.role === "reasoning" ? (
+        <ReasoningTimelineRow row={row} />
+      ) : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "turn-plan" ? <TurnPlanTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
@@ -1212,19 +1235,72 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   );
 }
 
+/**
+ * A provider's thinking trace, as its own durable `role: "reasoning"` message
+ * row (upstream's model). Collapsed by default: reasoning is context for the
+ * answer, not the answer. The open/closed flag lives on the list so it survives
+ * row recycling in the virtualizer.
+ */
+const ReasoningTimelineRow = memo(function ReasoningTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const { message } = row;
+  const expanded = ctx.expandedReasoningMessageIds.has(message.id);
+  const { onToggleReasoning } = ctx;
+  const toggle = useCallback(
+    () => onToggleReasoning(message.id, row.id),
+    [message.id, row.id, onToggleReasoning],
+  );
+
+  if (message.text.trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={cn("flex min-w-0 flex-col px-1", expanded && "mb-1")}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        data-scroll-anchor-ignore
+        onClick={toggle}
+        className="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 py-0.5 text-start transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      >
+        <BrainIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground/65" />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">Thought</span>
+        <ChevronRightIcon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/65 transition-transform duration-200",
+            expanded && "rotate-90",
+          )}
+        />
+      </button>
+      {expanded ? (
+        <div className="mt-1 ms-5 flex max-h-96 min-w-0 flex-col overflow-auto py-1 text-muted-foreground select-text">
+          <ChatMarkdown
+            text={message.text}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(message.streaming)}
+            lineBreaks
+            skills={ctx.skills}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const hasReasoning =
-    ctx.reasoningDisplay !== "off" && (row.message.reasoningText?.length ?? 0) > 0;
-  // Suppress the "(empty response)" placeholder when a message carries only
-  // reasoning so far (reasoning-only in-flight message renders just the block).
-  const messageText =
-    row.message.text || (row.message.streaming || hasReasoning ? "" : "(empty response)");
+  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        {hasReasoning ? <ReasoningBlock message={row.message} mode={ctx.reasoningDisplay} /> : null}
         <ChatMarkdown
           text={messageText}
           cwd={ctx.markdownCwd}

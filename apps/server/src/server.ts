@@ -269,10 +269,8 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadSettlementReactor.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
-  // loom: fork reactors + transient reasoning bus (bundle in loom/serverLayers.ts).
-  // Spliced here so the bundle's exported ReasoningStreamBus feeds the earlier
-  // ProviderRuntimeIngestion + the routes layer, while the later AgentAwareness/
-  // RuntimeReceiptBus steps still feed the fork reactors.
+  // loom: fork reactors (bundle in loom/serverLayers.ts). Spliced here so the
+  // later AgentAwareness/RuntimeReceiptBus steps still feed the fork reactors.
   Layer.provideMerge(LoomReactorsLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),

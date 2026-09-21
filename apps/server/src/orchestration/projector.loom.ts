@@ -24,7 +24,6 @@ import * as Effect from "effect/Effect";
 
 import type { OrchestrationProjectorDecodeError } from "./Errors.ts";
 import {
-  ThreadMessageReasoningPayload,
   ThreadStatusSetPayload,
   ThreadPlanLaneSetPayload,
   ThreadAttentionRaisedPayload,
@@ -112,7 +111,7 @@ function updateGoalTasks(
  * Fork event projection. Called by `projectEvent` (after it has built
  * `nextBase`) for every event the fork adds — goal.*, the plan-lane/attention/
  * dependencies/report/outcome/route/fanin thread events, the legacy
- * `thread.status-set` migration remap, and `thread.message-reasoning`. Events
+ * `thread.status-set` migration remap. Events
  * with no case (`thread.turn-start-failed`, `thread.consult-recorded`, and the
  * `thread.peer-message-delivered`/`-expired` lifecycle events, which only touch
  * the SQL edge projection) fall to the default, returning the model unchanged —
@@ -632,69 +631,6 @@ export function projectLoomEvent(
           }),
         })),
       );
-
-    case "thread.message-reasoning":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          ThreadMessageReasoningPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
-        if (!thread) {
-          return nextBase;
-        }
-
-        // v2 REPLACE semantics: the durable event carries the full accumulated
-        // reasoning text, so set it directly (never append).
-        const existingMessage = thread.messages.find((entry) => entry.id === payload.messageId);
-        const messages = existingMessage
-          ? thread.messages.map((entry) =>
-              entry.id === payload.messageId
-                ? {
-                    ...entry,
-                    reasoningText: payload.reasoningText,
-                    reasoningStreaming: payload.reasoningStreaming,
-                    ...(payload.reasoningMs !== undefined
-                      ? { reasoningMs: payload.reasoningMs }
-                      : {}),
-                    updatedAt: payload.updatedAt,
-                  }
-                : entry,
-            )
-          : [
-              ...thread.messages,
-              yield* decodeForEvent(
-                OrchestrationMessage,
-                {
-                  id: payload.messageId,
-                  role: "assistant",
-                  text: "",
-                  turnId: payload.turnId,
-                  streaming: true,
-                  reasoningText: payload.reasoningText,
-                  reasoningStreaming: payload.reasoningStreaming,
-                  ...(payload.reasoningMs !== undefined
-                    ? { reasoningMs: payload.reasoningMs }
-                    : {}),
-                  createdAt: payload.createdAt,
-                  updatedAt: payload.updatedAt,
-                },
-                event.type,
-                "message",
-              ),
-            ];
-        const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
-
-        return {
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            messages: cappedMessages,
-            updatedAt: event.occurredAt,
-          }),
-        };
-      });
 
     default:
       return Effect.succeed(nextBase);

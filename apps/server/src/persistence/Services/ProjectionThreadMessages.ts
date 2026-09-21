@@ -38,9 +38,6 @@ export const ProjectionThreadMessage = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
   isStreaming: Schema.Boolean,
-  reasoningText: Schema.optional(Schema.String),
-  reasoningStreaming: Schema.optional(Schema.Boolean),
-  reasoningMs: Schema.optional(Schema.Number),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

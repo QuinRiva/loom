@@ -20,7 +20,6 @@ import * as Layer from "effect/Layer";
 import { layerConfig as SqliteReadLayerLive } from "../persistence/Layers/SqliteRead.ts";
 import { WorkstreamLivenessSweepLive } from "../orchestration/Layers/WorkstreamLivenessSweep.ts";
 import { ExhaustionResumeSweepLive } from "../orchestration/Layers/ExhaustionResumeSweep.ts";
-import { ReasoningStreamBusLive } from "../orchestration/Layers/ReasoningStreamBus.ts";
 import { WorkstreamDispatcherLive } from "../orchestration/Layers/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactorLive } from "../orchestration/Layers/WorkstreamFanInReactor.ts";
 import { HandoffDrafterReactorLive } from "../orchestration/Layers/HandoffDrafterReactor.ts";
@@ -47,10 +46,6 @@ import * as UserInputHttp from "../mcp/UserInputHttp.ts";
  * consumes `WorktreeReaper`: the original interleaved ordering had
  * `WorkstreamWorktreeStatus` earliest and `WorktreeReaper` later (later provides
  * to earlier), so the reaper must `provideMerge` into the status layer here too.
- * `ReasoningStreamBusLive` is `provideMerge`'d last so it both feeds the fork
- * reactors AND is merged out — exported to the earlier upstream reactors
- * (`ProviderRuntimeIngestion` consumes it) and the routes/ws layer via the outer
- * `provideMerge` at the splice site.
  */
 export const LoomReactorsLive = WorkstreamWorktreeStatus.layer.pipe(
   Layer.provideMerge(WorkstreamDispatcherLive),
@@ -58,7 +53,6 @@ export const LoomReactorsLive = WorkstreamWorktreeStatus.layer.pipe(
   // `/handoff` fork-drafter settlement (plan D5/D6).
   Layer.provideMerge(HandoffDrafterReactorLive),
   Layer.provideMerge(WorktreeReaperLive),
-  Layer.provideMerge(ReasoningStreamBusLive),
 );
 
 /** SQLite read-lane persistence; joins `PersistenceLayerLive`. */
