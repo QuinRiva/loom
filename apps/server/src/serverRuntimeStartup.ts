@@ -999,6 +999,11 @@ export const make = (options?: StartupOptions) =>
         }),
       );
 
+      // A process exit during a worktree setup leaves its record saying
+      // `running` forever, which every client reads as "still preparing" with
+      // no way out. Settle those before clients can attach.
+      yield* runStartupPhase("worktree-setups.reconcile", reconcileWorktreeSetups);
+
       // loom: reconcile stale session lifecycle state after reactors have started
       // but before command readiness — live provider sessions are visible, and no
       // queued user command can start a new turn mid-reconcile (logic in loom/startup.ts).

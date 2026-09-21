@@ -468,7 +468,6 @@ describe("ProviderCommandReactor", () => {
       input?.ensureIsolatedChildProvisioned ?? (() => Effect.succeed(true)),
     );
     const worktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
-      provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
       ensureIsolatedChildProvisioned,
       hasPendingProvisionFailure: () => false,
     } as never);
