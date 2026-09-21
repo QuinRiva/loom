@@ -145,208 +145,13 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
-  it.each(["running", "stopped"] as const)(
-    "sends async answers with a %s session and rejects old duplicate replies",
-    async (status) => {
-      const directory = await NodeFSP.mkdtemp(
-        NodePath.join(NodeOS.tmpdir(), "t3-async-questions-"),
-      );
-      const databasePath = NodePath.join(directory, "state.sqlite");
-      let system = await createOrchestrationSystem(databasePath);
-      const threadId = ThreadId.make("async-thread");
-      const projectId = ProjectId.make("async-project");
-      const requestId = ApprovalRequestId.make("codex-async:question-1");
-      try {
-        await system.run(
-          system.engine.dispatch({
-            type: "project.create",
-            commandId: CommandId.make("async-project"),
-            projectId,
-            title: "Async questions",
-            workspaceRoot: "/tmp/async-questions",
-            createdAt: now(),
-          }),
-        );
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.create",
-            commandId: CommandId.make("async-thread"),
-            threadId,
-            projectId,
-            title: "Async questions",
-            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdAt: now(),
-          }),
-        );
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.session.set",
-            commandId: CommandId.make("async-session"),
-            threadId,
-            createdAt: now(),
-            session: {
-              threadId,
-              status,
-              providerName: "codex",
-              runtimeMode: "full-access",
-              activeTurnId: status === "running" ? TurnId.make("turn-1") : null,
-              lastError: null,
-              updatedAt: now(),
-              queuedMessages: { steering: [], followUp: [] },
-            },
-          }),
-        );
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.activity.append",
-            commandId: CommandId.make("async-question"),
-            threadId,
-            createdAt: now(),
-            activity: {
-              id: EventId.make("async-question"),
-              kind: "user-input.requested",
-              summary: "User input requested",
-              tone: "info",
-              turnId: TurnId.make("turn-1"),
-              createdAt: now(),
-              payload: {
-                requestId,
-                responseMode: "message",
-                questions: [
-                  {
-                    id: "0",
-                    header: "Question",
-                    question: "Which package manager?",
-                    options: [{ label: "pnpm", description: "" }],
-                  },
-                  {
-                    id: "1",
-                    header: "Question",
-                    question: "What should it be named?",
-                    options: [],
-                  },
-                ],
-              },
-            },
-          }),
-        );
-        const appendWork = async (prefix: string, createdAt: string) => {
-          for (let index = 0; index < 501; index += 1) {
-            await system.run(
-              system.engine.dispatch({
-                type: "thread.activity.append",
-                commandId: CommandId.make(`${prefix}-${index}`),
-                threadId,
-                createdAt,
-                activity: {
-                  id: EventId.make(`${prefix}-${index}`),
-                  kind: "tool.completed",
-                  summary: "Work continued",
-                  payload: {},
-                  tone: "info",
-                  turnId: TurnId.make("turn-1"),
-                  createdAt,
-                },
-              }),
-            );
-          }
-        };
-        await appendWork("work", "2026-01-01T00:00:01.000Z");
-        const before = await system.readModel();
-        expect(
-          before.threads[0]?.activities.some((activity) => activity.id === "async-question"),
-        ).toBe(true);
-        if (status === "stopped") {
-          await system.dispose();
-          system = await createOrchestrationSystem(databasePath);
-        }
-        const response = {
-          type: "thread.user-input.respond" as const,
-          commandId: CommandId.make("async-response"),
-          threadId,
-          requestId,
-          answers: { "0": "pnpm", "1": "Example" },
-          attachmentsByQuestionId: {
-            "1": [
-              {
-                type: "file" as const,
-                id: "thread-1-00000000-0000-4000-8000-0000000000aa-txt",
-                name: "spec.txt",
-                mimeType: "text/plain",
-                sizeBytes: 4,
-              },
-            ],
-          },
-          createdAt: "2026-01-01T00:00:02.000Z",
-        };
-        await expect(
-          system.run(
-            system.engine.dispatch({
-              ...response,
-              commandId: CommandId.make("incomplete-answer"),
-              answers: { "0": "pnpm" },
-            }),
-          ),
-        ).rejects.toThrow("Answer each question before sending.");
-        await system.run(system.engine.dispatch(response));
-        const after = await system.readModel();
-        const userMessages = after.threads[0]?.messages.filter(
-          (message) => message.role === "user",
-        );
-        expect(userMessages).toHaveLength(1);
-        expect(userMessages?.[0]?.attachments).toEqual(response.attachmentsByQuestionId["1"]);
-        expect(userMessages?.[0]?.text).toBe(
-          "Which package manager?\npnpm\n\nWhat should it be named?\nExample\nAttached file: spec.txt (thread-1-00000000-0000-4000-8000-0000000000aa-txt)",
-        );
-        expect(
-          after.threads[0]?.activities.find((activity) => activity.kind === "user-input.resolved")
-            ?.payload,
-        ).toMatchObject({ requestId, responseMode: "message", answers: response.answers });
-        const events = await system.run(Stream.runCollect(system.engine.readEvents(0)));
-        expect(
-          Array.from(events)
-            .filter((event) => event.commandId === response.commandId)
-            .map((event) => event.type),
-        ).toEqual([
-          "thread.activity-appended",
-          "thread.message-sent",
-          "thread.turn-start-requested",
-        ]);
-        await expect(
-          system.run(
-            system.engine.dispatch({
-              ...response,
-              commandId: CommandId.make("second-client-reply"),
-            }),
-          ),
-        ).rejects.toThrow("This question has already been answered.");
-        await appendWork("later-work", "2026-01-01T00:00:03.000Z");
-        const afterEviction = Option.getOrThrow(await system.readThread(threadId));
-        expect(
-          afterEviction.activities.some((activity) => activity.kind === "user-input.resolved"),
-        ).toBe(false);
-        if (status === "stopped") {
-          await system.dispose();
-          system = await createOrchestrationSystem(databasePath);
-        }
-        await expect(
-          system.run(
-            system.engine.dispatch({
-              ...response,
-              commandId: CommandId.make("reply-after-eviction"),
-            }),
-          ),
-        ).rejects.toThrow("This question has already been answered.");
-      } finally {
-        await system.dispose();
-        await NodeFSP.rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
+  // loom: upstream's message-mode async-question cases are deleted, not skipped.
+  // They exercise the `responseMode: "message"` composition in
+  // `thread.user-input.respond` (validate every question answered, then emit the
+  // answer message + turn start). loom re-homed that arm onto settle-first, and
+  // only CodexAdapter ever sets `responseMode: "message"` — a provider the
+  // pi-only driver registry cannot instantiate. See
+  // docs/upstream-sync/25-cadence-pull-v0.0.43-nightly-20260920.md.
 
   it("bootstraps command handling from persisted projections without reading the full snapshot", async () => {
     let nextSequence = 8;
@@ -960,7 +765,10 @@ describe("OrchestrationEngine", () => {
     // from byte-identical persisted state via `getCommandReadModel` while the live
     // engine keeps its in-memory model. Probing two freshly-created systems would
     // make BOTH cases hydration paths and the comparison tautological again.
-    const liveSystem = await createOrchestrationSystem(baseDir);
+    // `createOrchestrationSystem` takes the database FILE path, not a home dir.
+    const liveSystem = await createOrchestrationSystem(
+      NodePath.join(baseDir, "userdata", "state.sqlite"),
+    );
     await seed(liveSystem);
 
     const restartedDir = NodeFS.mkdtempSync(
@@ -973,7 +781,7 @@ describe("OrchestrationEngine", () => {
     const live = await probe(liveSystem);
     await liveSystem.dispose();
 
-    const restartedSystem = await createOrchestrationSystem(restartedDir);
+    const restartedSystem = await createOrchestrationSystem(restartedDbPath);
     const restarted = await probe(restartedSystem);
     await restartedSystem.dispose();
 
