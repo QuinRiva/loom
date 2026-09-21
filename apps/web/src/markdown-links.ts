@@ -103,6 +103,8 @@ export function resolveInlineCodeFileLinkMeta(
       ? trimmed
       : trimmed.replaceAll("\\", "/");
 
+  // loom: both arms below are loom's (upstream's copy of this module only
+  // delegates to `inlineCodeFilePathCandidate`).
   if (!isLinkablePathText(text)) {
     // `Makefile:12` — conventional extensionless names carry no path intent of
     // their own, but the :line suffix already marked the span as a reference.
