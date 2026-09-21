@@ -276,6 +276,8 @@ throughout, matching upstream's renamed base.
    Whether those loom hunks are live product or pull-6 leftovers has not been
    determined and needs the lost-feature audit.
 
+   **Resolved for `SettingsPanels`:** the lost-feature audit confirmed its two dropped auto-open Settings hunks were live product, and the mount plus changed-label spread are restored.
+
 ---
 
 ## Session 2 — 12 of the 15 hand-resolutions landed; 3 web files remain
