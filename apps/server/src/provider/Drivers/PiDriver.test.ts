@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { PI_DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PiSettings } from "@t3tools/contracts";
@@ -8,6 +8,7 @@ import {
   piBackendLabel,
   piCatalogModels,
   piCommandsToSnapshot,
+  piModels,
   piToolDetail,
   piToolItemPayload,
   slimPiToolPayloadData,
@@ -214,6 +215,13 @@ const decodePiSettings = Schema.decodeSync(PiSettings);
 
 describe("piCatalogModels backend disambiguation", () => {
   const settings = decodePiSettings({});
+
+  it("names and attributes the default model in the initial snapshot", () => {
+    expect(piModels(settings).find((entry) => entry.slug === PI_DEFAULT_MODEL)).toMatchObject({
+      name: "Claude Opus 5",
+      subProvider: "CLI Proxy",
+    });
+  });
   const model = (provider: string, id: string, name: string) => ({
     id,
     name,

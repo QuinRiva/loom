@@ -361,7 +361,7 @@ function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel
 }
 
 /** Synchronous snapshot shown before the live catalogue arrives. */
-function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
+export function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   return [
     ...CURATED_PI_MODELS.map((model) => ({
       slug: model.slug,

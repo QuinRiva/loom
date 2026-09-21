@@ -1743,6 +1743,48 @@ describe("CheckpointReactor", () => {
     ).toBe(false);
   });
 
+  it("defers the baseline for an appended user message until its turn starts", async () => {
+    const harness = await createHarness({
+      hasSession: false,
+      seedFilesystemCheckpoints: false,
+      threadWorktreePath: null,
+    });
+    if (runtime === null) throw new Error("Checkpoint test runtime was not initialized.");
+    const threadId = ThreadId.make("thread-1");
+    const messageId = MessageId.make("deferred-user-message");
+    const baselineRef = checkpointBaselineRefForThreadTurn(threadId, 1);
+
+    await runtime.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.user.append",
+        commandId: CommandId.make("cmd-append-deferred-message"),
+        threadId,
+        message: { messageId, text: "Run this after setup", attachments: [] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    await harness.drain();
+    expect(gitRefExists(harness.cwd, baselineRef)).toBe(false);
+
+    await runtime.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-start-deferred-message"),
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "Run this after setup",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+    await waitForGitRefExists(harness.cwd, baselineRef);
+  });
+
   it("captures turn completion checkpoint from project workspace root when provider session cwd is unavailable", async () => {
     const harness = await createHarness({
       hasSession: false,
