@@ -468,11 +468,9 @@ describe("ProviderCommandReactor", () => {
       input?.ensureIsolatedChildProvisioned ?? (() => Effect.succeed(true)),
     );
     const worktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
-      provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
       provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
       ensureIsolatedChildProvisioned,
       hasPendingProvisionFailure: () => false,
-      runSetup: () => Effect.void,
     } as never);
 
     let titleRegenerationCompletionDispatchAttempts = 0;

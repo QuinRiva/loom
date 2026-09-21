@@ -180,11 +180,9 @@ const ids = (threads: ReadonlyArray<OrchestrationThreadLeanShell>) =>
 // Worktree isolation: dispatcher-selection tests use only `shared` threads, so
 // the provisioner is never invoked — a no-op stub satisfies the layer.
 const WorktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
-  provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
   provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
   ensureIsolatedChildProvisioned: () => Effect.succeed(true),
   hasPendingProvisionFailure: () => false,
-  runSetup: () => Effect.void,
 } as never);
 
 describe("selectThreadsToDispatch", () => {
