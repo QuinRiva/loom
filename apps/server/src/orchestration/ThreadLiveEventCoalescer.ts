@@ -2,7 +2,6 @@ import type {
   OrchestrationEvent,
   OrchestrationGetSnapshotError,
   OrchestrationThreadStreamItem,
-  ReasoningStreamItem,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -21,12 +20,7 @@ const MAX_PENDING_UPDATES = 512;
 
 export type ThreadLiveInput =
   | { readonly kind: "event"; readonly event: OrchestrationEvent }
-  | { readonly kind: "synchronized" }
-  // loom: transient reasoning deltas ride the SAME buffer as durable events so
-  // chunks published while the snapshot is loading are not lost (#4079). They
-  // are never coalesced — each one is a fragment the client appends — so like a
-  // non-update event they close the current tool-update window first.
-  | { readonly kind: "reasoning-delta"; readonly payload: ReasoningStreamItem };
+  | { readonly kind: "synchronized" };
 
 function isToolUpdated(event: OrchestrationEvent): boolean {
   return (
@@ -202,14 +196,6 @@ export const makeThreadLiveEventCoalescer = Effect.fn("makeThreadLiveEventCoales
                   Effect.flatMap((marker) => Queue.offer(output, marker)),
                   Effect.uninterruptible,
                 );
-              }
-              if (input.kind === "reasoning-delta") {
-                yield* budget
-                  .retain({ kind: "reasoning-delta" as const, payload: input.payload })
-                  .pipe(
-                    Effect.flatMap((item) => Queue.offer(output, item)),
-                    Effect.uninterruptible,
-                  );
               }
             }),
           { discard: true },

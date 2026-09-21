@@ -10,31 +10,12 @@ import type {
   OrchestrationSession,
   OrchestrationThread,
   OrchestrationThreadActivity,
-  ReasoningStreamItem,
   ThreadPullRequestLink,
   TurnId,
 } from "@t3tools/contracts";
 import { threadPullRequestKeysEqual } from "@t3tools/shared/threadPullRequests";
 import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
-
-/**
- * Retention limits for collections within a thread. These prevent unbounded
- * growth of in-memory thread state on long-lived live subscriptions.
- */
-export interface ThreadDetailRetentionLimits {
-  readonly maxMessages: number;
-  readonly maxProposedPlans: number;
-  readonly maxCheckpoints: number;
-  readonly maxActivities: number;
-}
-
-export const DEFAULT_THREAD_DETAIL_LIMITS: ThreadDetailRetentionLimits = {
-  maxMessages: 512,
-  maxProposedPlans: 64,
-  maxCheckpoints: 256,
-  maxActivities: 128,
-};
 
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
@@ -153,71 +134,9 @@ function isResolvableContextWindowActivity(activity: OrchestrationThreadActivity
  * (e.g. resolving attachment preview URLs, normalising model slugs, adding
  * scoped fields like `environmentId`) is the caller's responsibility.
  */
-/**
- * Apply a transient `ReasoningStreamItem` (the ephemeral live channel) to a
- * thread for live display. `finalized` is true once the durable
- * `thread.message-reasoning` event has REPLACED the message's reasoning, in
- * which case out-of-order transient items are dropped so they cannot duplicate
- * the authoritative full text.
- */
-export function applyReasoningStreamItem(
-  thread: OrchestrationThread,
-  item: ReasoningStreamItem,
-  finalized: boolean,
-  now: string,
-  limits: ThreadDetailRetentionLimits = DEFAULT_THREAD_DETAIL_LIMITS,
-): ThreadDetailReducerResult {
-  if (finalized) {
-    return { kind: "unchanged" };
-  }
-  const existing = thread.messages.find((entry) => entry.id === item.messageId);
-  if (item.kind === "complete") {
-    if (!existing) {
-      return { kind: "unchanged" };
-    }
-    return {
-      kind: "updated",
-      thread: {
-        ...thread,
-        messages: Arr.map(thread.messages, (entry) =>
-          entry.id !== item.messageId
-            ? entry
-            : { ...entry, reasoningStreaming: false, reasoningMs: item.reasoningMs },
-        ),
-      },
-    };
-  }
-  const messages = existing
-    ? Arr.map(thread.messages, (entry) =>
-        entry.id !== item.messageId
-          ? entry
-          : {
-              ...entry,
-              reasoningText: `${entry.reasoningText ?? ""}${item.text}`,
-              reasoningStreaming: true,
-            },
-      )
-    : Arr.append(thread.messages, {
-        id: item.messageId,
-        role: "assistant",
-        text: "",
-        turnId: item.turnId,
-        streaming: true,
-        reasoningText: item.text,
-        reasoningStreaming: true,
-        createdAt: now,
-        updatedAt: now,
-      } satisfies OrchestrationMessage);
-  return {
-    kind: "updated",
-    thread: { ...thread, messages: Arr.takeRight(messages, limits.maxMessages) },
-  };
-}
-
 export function applyThreadDetailEvent(
   thread: OrchestrationThread,
   event: OrchestrationEvent,
-  limits: ThreadDetailRetentionLimits = DEFAULT_THREAD_DETAIL_LIMITS,
 ): ThreadDetailReducerResult {
   switch (event.type) {
     // ── Project events (irrelevant to thread detail) ────────────────
@@ -710,44 +629,6 @@ export function applyThreadDetailEvent(
           latestTurn,
           updatedAt: event.occurredAt,
         },
-      };
-    }
-
-    case "thread.message-reasoning": {
-      // v2 durable event: REPLACE with the authoritative full reasoning text.
-      const existingMessage = thread.messages.find((entry) => entry.id === event.payload.messageId);
-      const messages = existingMessage
-        ? Arr.map(thread.messages, (entry) =>
-            entry.id !== event.payload.messageId
-              ? entry
-              : {
-                  ...entry,
-                  reasoningText: event.payload.reasoningText,
-                  reasoningStreaming: false,
-                  ...(event.payload.reasoningMs !== undefined
-                    ? { reasoningMs: event.payload.reasoningMs }
-                    : {}),
-                  updatedAt: event.payload.updatedAt,
-                },
-          )
-        : Arr.append(thread.messages, {
-            id: event.payload.messageId,
-            role: "assistant",
-            text: "",
-            turnId: event.payload.turnId,
-            streaming: true,
-            reasoningText: event.payload.reasoningText,
-            reasoningStreaming: false,
-            ...(event.payload.reasoningMs !== undefined
-              ? { reasoningMs: event.payload.reasoningMs }
-              : {}),
-            createdAt: event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
-          } satisfies OrchestrationMessage);
-      const cappedMessages = Arr.takeRight(messages, limits.maxMessages);
-      return {
-        kind: "updated",
-        thread: { ...thread, messages: cappedMessages, updatedAt: event.occurredAt },
       };
     }
 

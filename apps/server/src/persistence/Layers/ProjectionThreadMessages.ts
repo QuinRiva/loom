@@ -27,12 +27,12 @@ import {
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
+    // loom: fork columns on every projection message row — `origin` is the
+    // provenance of a user-role message (absent ⇒ human) and `controlPayload`
+    // carries a control notice. Both are read/written throughout this file.
     origin: Schema.NullOr(MessageOrigin),
     controlPayload: Schema.NullOr(Schema.fromJsonString(ControlPayload)),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-    reasoningText: Schema.NullOr(Schema.String),
-    reasoningStreaming: Schema.NullOr(Schema.Number),
-    reasoningMs: Schema.NullOr(Schema.Number),
     context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
   }),
 );
@@ -46,6 +46,7 @@ function toProjectionThreadMessage(
     threadId: row.threadId,
     turnId: row.turnId,
     role: row.role,
+    // loom: fork columns, see the row schema above.
     ...(row.origin !== null ? { origin: row.origin } : {}),
     ...(row.controlPayload !== null ? { controlPayload: row.controlPayload } : {}),
     text: row.text,
@@ -53,11 +54,6 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
-    ...(row.reasoningText !== null ? { reasoningText: row.reasoningText } : {}),
-    ...(row.reasoningStreaming !== null
-      ? { reasoningStreaming: row.reasoningStreaming === 1 }
-      : {}),
-    ...(row.reasoningMs !== null ? { reasoningMs: row.reasoningMs } : {}),
     ...(row.context !== null ? { context: row.context } : {}),
   };
 }
@@ -79,15 +75,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id,
           turn_id,
           role,
+          -- loom: fork columns
           origin,
           control_payload_json,
           text,
           attachments_json,
           context_json,
           is_streaming,
-          reasoning_text,
-          reasoning_streaming,
-          reasoning_ms,
           created_at,
           updated_at
         )
@@ -96,6 +90,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.turnId},
           ${row.role},
+          -- loom: fork columns
           ${row.origin ?? null},
           ${controlPayloadJson},
           ${row.text},
@@ -116,9 +111,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             )
           ),
           ${row.isStreaming ? 1 : 0},
-          ${row.reasoningText ?? null},
-          ${row.reasoningStreaming === undefined ? null : row.reasoningStreaming ? 1 : 0},
-          ${row.reasoningMs ?? null},
           ${row.createdAt},
           ${row.updatedAt}
         )
@@ -127,6 +119,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id = excluded.thread_id,
           turn_id = excluded.turn_id,
           role = excluded.role,
+          -- loom: fork columns
           origin = COALESCE(excluded.origin, projection_thread_messages.origin),
           control_payload_json = COALESCE(
             excluded.control_payload_json,
@@ -142,18 +135,6 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             projection_thread_messages.context_json
           ),
           is_streaming = excluded.is_streaming,
-          reasoning_text = COALESCE(
-            excluded.reasoning_text,
-            projection_thread_messages.reasoning_text
-          ),
-          reasoning_streaming = COALESCE(
-            excluded.reasoning_streaming,
-            projection_thread_messages.reasoning_streaming
-          ),
-          reasoning_ms = COALESCE(
-            excluded.reasoning_ms,
-            projection_thread_messages.reasoning_ms
-          ),
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `;
@@ -221,15 +202,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          -- loom: fork columns
           origin,
           control_payload_json AS "controlPayload",
           text,
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -265,15 +244,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          -- loom: fork columns
           origin,
           control_payload_json AS "controlPayload",
           text,
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
