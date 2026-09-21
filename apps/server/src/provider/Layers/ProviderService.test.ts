@@ -1135,7 +1135,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
         provider: CODEX_DRIVER,
         providerInstanceId: codexInstanceId,
         threadId,
-        cwd: "/tmp/project-get-session-no-binding",
+        cwd: fixtureCwd("project-get-session-no-binding"), // loom: validated workspace fixture
         runtimeMode: "full-access",
       });
       return yield* provider.getSession(threadId);
@@ -1203,7 +1203,7 @@ it.effect(
           provider: CODEX_DRIVER,
           providerInstanceId: codexInstanceId,
           threadId,
-          cwd: "/tmp/project-get-session-binding-read-fails",
+          cwd: fixtureCwd("project-get-session-binding-read-fails"), // loom: validated workspace fixture
           runtimeMode: "full-access",
         });
         failBindingReads = true;
@@ -1273,7 +1273,7 @@ it.effect(
           provider: CODEX_DRIVER,
           providerInstanceId: codexInstanceId,
           threadId,
-          cwd: "/tmp/project-get-session-wrong-instance",
+          cwd: fixtureCwd("project-get-session-wrong-instance"), // loom: validated workspace fixture
           runtimeMode: "full-access",
         });
         return yield* Effect.exit(provider.getSession(threadId));
@@ -1317,7 +1317,7 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
         provider: CODEX_DRIVER,
         providerInstanceId: codexInstanceId,
         threadId,
-        cwd: "/tmp/project-get-session",
+        cwd: fixtureCwd("project-get-session"), // loom: validated workspace fixture
         runtimeMode: "approval-required",
       });
       yield* provider.sendTurn({ threadId, input: "hello", attachments: [] });
@@ -1363,7 +1363,8 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
     assert.equal(result.found?.threadId, result.started.threadId);
     assert.equal(result.found?.providerInstanceId, codexInstanceId);
     assert.equal(result.found?.provider, "codex");
-    assert.equal(result.found?.cwd, "/tmp/project-get-session");
+    // loom: the validated workspace fixture is preserved on the live session.
+    assert.equal(result.found?.cwd, fixtureCwd("project-get-session"));
     assert.equal(result.found?.runtimeMode, "approval-required");
     assert.equal(result.found?.activeTurnId, asTurnId("turn-get-session"));
 
@@ -1413,7 +1414,7 @@ it.effect(
           provider: CODEX_DRIVER,
           providerInstanceId: codexInstanceId,
           threadId,
-          cwd: "/tmp/project-get-session-mismatch",
+          cwd: fixtureCwd("project-get-session-mismatch"), // loom: validated workspace fixture
           runtimeMode: "full-access",
         });
         yield* directory.upsert({
@@ -1509,7 +1510,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
         provider: CODEX_DRIVER,
         providerInstanceId: codexInstanceId,
         threadId: activeThreadId,
-        cwd: "/tmp/project-list-sessions",
+        cwd: fixtureCwd("project-list-sessions"), // loom: validated workspace fixture
         runtimeMode: "full-access",
       });
       getBindingCalls = 0;
@@ -5548,6 +5549,17 @@ const getBinding = vi.fn((threadId: ThreadId) =>
     }),
   ),
 );
+// loom: listSessions now reads the bounded binding projection in one query.
+const listBindings = vi.fn(() =>
+  Effect.succeed<ReadonlyArray<ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata>>([
+    {
+      threadId: activeSessionThreadId,
+      provider: CODEX_DRIVER,
+      providerInstanceId: codexInstanceId,
+      lastSeenAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]),
+);
 const boundedListing = makeProviderServiceLayer({
   directory: {
     upsert: () => Effect.void,
@@ -5555,13 +5567,13 @@ const boundedListing = makeProviderServiceLayer({
     getProvider: () => Effect.die("ProviderService.listSessions does not use getProvider"),
     getBinding,
     listThreadIds,
-    listBindings: () => Effect.die("ProviderService.listSessions does not use listBindings"),
+    listBindings,
     removeIfStopped: () => Effect.die("unused"),
   },
 });
 
 boundedListing.layer("ProviderServiceLive session listing", (it) => {
-  it.effect("looks up bindings for active sessions without scanning historical threads", () =>
+  it.effect("lists active bindings without scanning historical thread ids", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
       yield* boundedListing.codex.startSession({
@@ -5573,12 +5585,14 @@ boundedListing.layer("ProviderServiceLive session listing", (it) => {
       });
       listThreadIds.mockClear();
       getBinding.mockClear();
+      listBindings.mockClear();
 
       const sessions = yield* provider.listSessions();
 
       assert.equal(sessions.length, 1);
       assert.equal(listThreadIds.mock.calls.length, 0);
-      assert.deepEqual(getBinding.mock.calls, [[activeSessionThreadId]]);
+      assert.equal(getBinding.mock.calls.length, 0);
+      assert.equal(listBindings.mock.calls.length, 1);
     }),
   );
 });

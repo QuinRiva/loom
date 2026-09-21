@@ -2574,20 +2574,13 @@ export function makeOpenCodeAdapter(
         }
 
         case "question.asked": {
-          context.pendingQuestions.set(event.properties.id, event.properties);
-          context.questionReleaseById.set(event.properties.id, yield* Deferred.make<void>());
-          yield* emit({
-            ...(yield* buildEventBase({
-              threadId: context.session.threadId,
-              turnId,
-              requestId: event.properties.id,
-              raw: event,
-            })),
-            type: "user-input.requested",
-            payload: {
-              questions: normalizeQuestionRequest(event.properties),
-            },
-          });
+          // The shared opener owns the late/stopped/duplicate guards, so a request
+          // that arrives after the turn stopped is ignored rather than reopened.
+          yield* emitPendingOpenCodeRequest(context, event, event);
+          // loom: arm the question-release handshake only for a question we opened.
+          if (context.pendingQuestions.has(event.properties.id)) {
+            context.questionReleaseById.set(event.properties.id, yield* Deferred.make<void>());
+          }
           break;
         }
 
@@ -2630,6 +2623,35 @@ export function makeOpenCodeAdapter(
             payload: { answers: {}, outcome: "cancelled" },
           });
           yield* releaseOpenCodeQuestion(context, event.properties.requestID);
+          break;
+        }
+
+        case "todo.updated": {
+          if (turnId === undefined) break;
+          const base = yield* buildEventBase({
+            threadId: context.session.threadId,
+            turnId,
+            raw: event,
+          });
+          // Session-wide task updates must not reopen progress after a turn ends.
+          if (context.activeTurnId !== turnId) break;
+          emitUnsafe({
+            ...base,
+            type: "turn.plan.updated",
+            payload: {
+              plan: event.properties.todos
+                .filter((todo) => todo.status !== "cancelled")
+                .map((todo) => ({
+                  step: trimText(todo.content) ?? "Task",
+                  status:
+                    todo.status === "completed"
+                      ? "completed"
+                      : todo.status === "in_progress"
+                        ? "inProgress"
+                        : "pending",
+                })),
+            },
+          });
           break;
         }
 

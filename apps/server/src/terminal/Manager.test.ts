@@ -2151,49 +2151,9 @@ it.layer(
     ),
   );
 
-  it.effect("resolves the legacy Codex default instance", () =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const environment = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
-        serverSettings,
-        path,
-        rawProviderInstanceId: "codex",
-        env: undefined,
-      });
-
-      expect(environment.CODEX_HOME).toMatch(/[\\/][.]codex-legacy$/);
-    }).pipe(
-      Effect.provide(
-        ServerSettings.ServerSettingsService.layerTest({
-          providerInstances: {},
-          providers: { codex: { homePath: "~/.codex-legacy" } },
-        }),
-      ),
-    ),
-  );
-
-  it.effect("resolves the legacy Claude default instance", () =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const environment = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
-        serverSettings,
-        path,
-        rawProviderInstanceId: "claudeAgent",
-        env: undefined,
-      });
-
-      expect(environment.CLAUDE_CONFIG_DIR).toMatch(/[\\/][.]claude-legacy$/);
-    }).pipe(
-      Effect.provide(
-        ServerSettings.ServerSettingsService.layerTest({
-          providerInstances: {},
-          providers: { claudeAgent: { homePath: "~/.claude-legacy" } },
-        }),
-      ),
-    ),
-  );
+  // loom: upstream's two legacy-default cases (codex, claudeAgent) are deleted —
+  // the Pi-first registry ships pi only, so neither instance resolves, exactly as
+  // ProviderRegistry.test.ts drops upstream's non-pi provider cases.
 
   it.effect("prefers an explicit default instance over legacy provider settings", () =>
     Effect.gen(function* () {

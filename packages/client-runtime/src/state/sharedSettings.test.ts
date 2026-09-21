@@ -140,7 +140,8 @@ describe("filterSharedServerPatch", () => {
       const settings = {
         ...DEFAULT_SERVER_SETTINGS,
         providerInstances: {
-          codex: { driver: ProviderDriverKind.make("codex"), enabled: false, config: {} },
+          // loom: Pi is the fork default, so disable Pi to exercise the default-provider reset.
+          pi: { driver: ProviderDriverKind.make("pi"), enabled: false, config: {} },
           claudeAgent: {
             driver: ProviderDriverKind.make("claudeAgent"),
             enabled: true,

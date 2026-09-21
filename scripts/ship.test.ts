@@ -31,6 +31,8 @@ it("orders the sequence set-default → commit → rebase → gate → push → 
     "commit",
     "fetch",
     "rebase",
+    // typecheck, vp check, and the unmarked-delta sweep.
+    "check",
     "check",
     "check",
     "push",
