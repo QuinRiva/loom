@@ -2477,7 +2477,7 @@ const makeWsRpcLayer = (
               const liveBudget = yield* makeLiveStreamBudget();
               const liveBuffer = yield* Queue.unbounded<
                 RetainedLiveItem<ShellLiveInput>,
-                OrchestrationGetSnapshotError
+                OrchestrationGetSnapshotError | Cause.Done
               >();
               // Fires once the live tail is reached (and the completion marker,
               // when requested, is queued): the point after which ending the
