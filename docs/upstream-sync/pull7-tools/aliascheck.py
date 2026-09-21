@@ -20,7 +20,10 @@ def select_cols(sql):
         c=sql[k]
         if c=='(': depth+=1
         elif c==')': depth-=1
-        elif depth==0 and up.startswith('FROM', k) and (k==0 or not sql[k-1].isalnum()):
+        # Word-boundary on BOTH sides: `fork_from_thread_id` must not read as FROM.
+        elif (depth==0 and up.startswith('FROM', k)
+              and (k==0 or not (sql[k-1].isalnum() or sql[k-1]=='_'))
+              and (k+4>=len(sql) or not (sql[k+4].isalnum() or sql[k+4]=='_'))):
             j=k; break
     sel=sql[i+6: j if j else len(sql)]
     parts=[]; depth=0; cur=''
