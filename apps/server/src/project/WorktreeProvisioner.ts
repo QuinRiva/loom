@@ -464,15 +464,35 @@ const make = Effect.gen(function* () {
       // snapshot settles when the script exits, so the setup row sits next to
       // the child's first work instead of vanishing.
       if (setupScript) {
+        // Re-record at the handoff, because from here the projection is the
+        // only truth a client has: clients attach the live stream only while
+        // the thread still has no turn, and the kickoff turn starts on this
+        // return. Left at the `begin` snapshot for the whole script run, the
+        // card would claim every stage is still pending — stale rows, a
+        // blocked composer, and a Cancel button that cannot cancel, since the
+        // fibre handle was just dropped (`markUncancellable`). Recording the
+        // handed-off snapshot (`agent: done`) is how the card learns both that
+        // the stages moved and that cancelling is over.
+        const handedOff = yield* setupTracker.get(threadId);
+        if (handedOff) yield* recordSetup(handedOff);
         yield* setupScript.completion.pipe(
           Effect.matchEffect({
-            onFailure: (error) =>
-              setupTracker.stageStatus(
+            onFailure: (error) => {
+              // A vanished terminal is not a failed script. A child that
+              // finishes before its setup script does has its terminals torn
+              // down with it, and the runner reports that as "Setup terminal
+              // exited before the setup command completed." — the script's
+              // outcome is then unknown, so warn rather than accuse a healthy
+              // child of a broken setup.
+              const detail = describeSetupFailure(error);
+              const terminalGone = detail.startsWith("Setup terminal exited");
+              return setupTracker.stageStatus(
                 threadId,
                 "setup-script",
-                "failed",
-                describeSetupFailure(error),
-              ),
+                terminalGone ? "warning" : "failed",
+                terminalGone ? "terminal closed before the script finished" : detail,
+              );
+            },
             onSuccess: (completion) =>
               setupTracker.stageStatus(
                 threadId,
