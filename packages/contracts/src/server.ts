@@ -585,11 +585,6 @@ export const USAGE_METER_PROVIDER_NAMES: Record<string, ReadonlyArray<string>> =
   codex: ["openai-codex", "openai"],
 };
 
-// ── /usage dashboard breakdown (docs/usage-dashboard-design.md §3 D3) ─────────
-// Pull RPC: aggregates the usage ledger over the selected provider window into
-// gauges (official %), a stacked burn-chart series, a per-model table, and a
-// per-thread consumers rollup. No push stream — the client refetches on a
-// timer.
 /**
  * A palette the environment's machine publishes for T3 Code to follow, read
  * from a theme file next to the rest of the environment's state. Two seed
