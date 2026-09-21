@@ -1,6 +1,6 @@
 import { forwardRef, type ReactNode } from "react";
 
-import { formatCostUsd } from "../lib/contextWindow";
+import { formatCostUsd } from "../loom/costFormat";
 import {
   type ChildIndex,
   formatRelativeAge,

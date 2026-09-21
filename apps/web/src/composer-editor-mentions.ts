@@ -5,10 +5,6 @@ import {
   collectComposerInlineTokens,
   type ComposerInlineToken,
 } from "@t3tools/shared/composerInlineTokens";
-import {
-  INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
-  type TerminalContextDraft,
-} from "./lib/terminalContext";
 
 export type ComposerPromptSegment =
   | {
@@ -18,12 +14,6 @@ export type ComposerPromptSegment =
   | {
       type: "mention";
       path: string;
-      source: string;
-    }
-  | {
-      type: "thread";
-      id: string;
-      label: string;
       source: string;
     }
   | {
@@ -42,12 +32,6 @@ export type ComposerPromptSegment =
       contextId: string;
       label: string;
       source: string;
-    }
-  // loom: a terminal-context chip occupies one placeholder codepoint in the
-  // prompt; the draft it stands for is supplied positionally by the caller.
-  | {
-      type: "terminal-context";
-      context: TerminalContextDraft | null;
     };
 
 function rangeIncludesIndex(start: number, end: number, index: number): boolean {
@@ -143,13 +127,6 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
         path: match.value,
         source: match.source,
       });
-    } else if (match.type === "thread") {
-      segments.push({
-        type: "thread",
-        id: match.id,
-        label: match.label,
-        source: match.source,
-      });
     } else {
       segments.push({ type: "skill", name: match.value, source: match.source });
     }
@@ -198,19 +175,6 @@ export function selectionTouchesMentionBoundary(
   });
 }
 
-export function splitPromptIntoComposerSegments(
-  prompt: string,
-  terminalContexts: ReadonlyArray<TerminalContextDraft> = [],
-): ComposerPromptSegment[] {
-  if (!prompt.includes(INLINE_TERMINAL_CONTEXT_PLACEHOLDER)) {
-    return splitPromptTextIntoComposerSegments(prompt);
-  }
-  const segments: ComposerPromptSegment[] = [];
-  prompt.split(INLINE_TERMINAL_CONTEXT_PLACEHOLDER).forEach((text, index) => {
-    if (index > 0) {
-      segments.push({ type: "terminal-context", context: terminalContexts[index - 1] ?? null });
-    }
-    segments.push(...splitPromptTextIntoComposerSegments(text));
-  });
-  return segments;
+export function splitPromptIntoComposerSegments(prompt: string): ComposerPromptSegment[] {
+  return splitPromptTextIntoComposerSegments(prompt);
 }

@@ -1,7 +1,8 @@
 import type { PreviewAnnotationPayload } from "@t3tools/contracts";
 
 import { dataUrlToFile } from "./imageCompression";
-import { buildElementContextBlock, normalizeElementContextSelection } from "./elementContext";
+import { normalizeElementContextSelection } from "./elementContext";
+import { buildElementContextBlock } from "../loom/legacyContextBlocks";
 
 const TRAILING_PREVIEW_ANNOTATION_BLOCK_PATTERN =
   /\n*<preview_annotation>\n((?:(?!<preview_annotation>)[\s\S])*)\n<\/preview_annotation>\s*$/;

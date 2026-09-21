@@ -16,11 +16,10 @@ import {
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
   isCollapsedCursorAdjacentToInlineToken,
-  parseHandoffDraft,
-  parseRetroDraft,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
+import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
 import { formatTerminalContextReference } from "./lib/terminalContext";
 
 const terminalReference = formatTerminalContextReference({
@@ -252,49 +251,106 @@ describe("detectComposerTrigger", () => {
     const text = "Compare this with #8737";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "8737",
       rangeStart: "Compare this with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("opens pull request completion from a bare hash", () => {
+  it("opens hash completion from a bare hash", () => {
     const text = "Compare with #";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("detects a one-word pull request search", () => {
+  it("detects a one-word hash search", () => {
     const text = "Compare with #composer";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "composer",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("supports hyphenated pull request search terms", () => {
+  it("supports hyphenated hash search terms", () => {
     const text = "Find #inline-context";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "inline-context",
       rangeStart: "Find ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("does not keep pull request completion active for headings or embedded hashes", () => {
-    expect(detectComposerTrigger("# Heading", "# Heading".length)).toBeNull();
+  it("ignores a hash that does not start a token", () => {
     expect(detectComposerTrigger("issue#123", "issue#123".length)).toBeNull();
+  });
+
+  // loom (plan D-D): the unified `#` menu lists pull requests AND threads, and
+  // thread titles are multi-word, so the query scans back over spaces to the
+  // nearest token-starting `#`. The composer closes the menu once both sections
+  // settle empty, which is what keeps a stray `#` in prose from hanging.
+  it("scans a multi-word hash query back to the opening hash", () => {
+    const text = "Consult #upstream sync doctrine";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "hash",
+      query: "upstream sync doctrine",
+      rangeStart: "Consult ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("treats a line-leading hash as a hash query", () => {
+    expect(detectComposerTrigger("# Heading", "# Heading".length)).toEqual({
+      kind: "hash",
+      query: " Heading",
+      rangeStart: 0,
+      rangeEnd: "# Heading".length,
+    });
+  });
+
+  it("gives the current token's @path trigger precedence over an earlier hash", () => {
+    const text = "#old text @file";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "path",
+      query: "file",
+      rangeStart: "#old text ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("gives the current token's $skill trigger precedence over an earlier hash", () => {
+    const text = "#old text $skill";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "skill",
+      query: "skill",
+      rangeStart: "#old text ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("keeps a slash command ahead of a hash later on the line", () => {
+    const text = "/plan";
+
+    expect(detectComposerTrigger(text, text.length)?.kind).toBe("slash-command");
+  });
+
+  it("scopes the hash query to the cursor's own line", () => {
+    const text = "#earlier query\nplain";
+
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("detects @path trigger in the middle of existing text", () => {
@@ -322,44 +378,6 @@ describe("detectComposerTrigger", () => {
       query: "sr",
       rangeStart: "Please inspect ".length,
       rangeEnd: cursorAfterQuery,
-    });
-  });
-
-  it("detects a # thread trigger and spans spaces in the query", () => {
-    const text = "see #thread ref";
-    const trigger = detectComposerTrigger(text, text.length);
-    expect(trigger).toEqual({
-      kind: "thread",
-      query: "thread ref",
-      rangeStart: "see ".length,
-      rangeEnd: text.length,
-    });
-  });
-
-  it("opens a # thread trigger with an empty query", () => {
-    const text = "ask #";
-    const trigger = detectComposerTrigger(text, text.length);
-    expect(trigger).toEqual({
-      kind: "thread",
-      query: "",
-      rangeStart: "ask ".length,
-      rangeEnd: text.length,
-    });
-  });
-
-  it("does not treat a mid-word # as a thread trigger", () => {
-    const text = "issue#5";
-    expect(detectComposerTrigger(text, text.length)).toBeNull();
-  });
-
-  it("tracks the nearest token-start # when several are present", () => {
-    const text = "#one two #three";
-    const trigger = detectComposerTrigger(text, text.length);
-    expect(trigger).toEqual({
-      kind: "thread",
-      query: "three",
-      rangeStart: "#one two ".length,
-      rangeEnd: text.length,
     });
   });
 
@@ -504,16 +522,6 @@ describe("expandCollapsedComposerCursor", () => {
     );
   });
 
-  it("maps a collapsed thread cursor to the expanded source length", () => {
-    const text = "consult [Refactor pass](thread://abc-123) now";
-    const collapsedCursorAfterThread = "consult ".length + 1;
-    const expandedCursorAfterThread = "consult [Refactor pass](thread://abc-123)".length;
-
-    expect(expandCollapsedComposerCursor(text, collapsedCursorAfterThread)).toBe(
-      expandedCursorAfterThread,
-    );
-  });
-
   it("allows path trigger detection to close after selecting a mention", () => {
     const text = "what's in my @AGENTS.md ";
     const collapsedCursorAfterMention = "what's in my ".length + 2;
@@ -534,6 +542,23 @@ describe("expandCollapsedComposerCursor", () => {
 });
 
 describe("composerStateAtPromptEnd", () => {
+  it("puts the caret at the end of a restored parked draft", () => {
+    const prompt = carryDisplacedCustomAnswerIntoPrompt("first half\n", "second half");
+
+    expect(composerStateAtPromptEnd(prompt)).toEqual({
+      cursor: prompt.length,
+      trigger: null,
+    });
+  });
+
+  it("collapses mention chips so the next keystroke lands after the draft", () => {
+    const prompt = carryDisplacedCustomAnswerIntoPrompt("", "see @AGENTS.md please");
+
+    expect(composerStateAtPromptEnd(prompt).cursor).toBe("see ".length + 1 + " please".length);
+    expect(composerStateAtPromptEnd(prompt).cursor).not.toBe(0);
+    expect(composerStateAtPromptEnd(prompt).cursor).not.toBe(prompt.length);
+  });
+
   it("keeps a trailing mention trigger when the restored draft ends with @", () => {
     const prompt = "look at @";
 
@@ -597,20 +622,10 @@ describe("collapseExpandedComposerCursor", () => {
     expect(expandCollapsedComposerCursor(text, collapsedCursor)).toBe(expandedCursor);
   });
 
-  it("maps an expanded thread cursor back to a single collapsed step", () => {
-    const text = "consult [Refactor pass](thread://abc-123) now";
-    const collapsedCursorAfterThread = "consult ".length + 1;
-    const expandedCursorAfterThread = "consult [Refactor pass](thread://abc-123)".length;
-
-    expect(collapseExpandedComposerCursor(text, expandedCursorAfterThread)).toBe(
-      collapsedCursorAfterThread,
-    );
-  });
-
-  it("maps expanded skill cursor back to collapsed cursor", () => {
-    const text = "run $review-follow-up then";
+  it.each(["$", "€", "𑿝"])("maps expanded %s skill cursor back to collapsed cursor", (prefix) => {
+    const text = `run ${prefix}review-follow-up then`;
     const collapsedCursorAfterSkill = "run ".length + 2;
-    const expandedCursorAfterSkill = "run $review-follow-up ".length;
+    const expandedCursorAfterSkill = `run ${prefix}review-follow-up `.length;
 
     expect(collapseExpandedComposerCursor(text, expandedCursorAfterSkill)).toBe(
       collapsedCursorAfterSkill,
@@ -776,85 +791,5 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
-  });
-
-  it("never claims /handoff (which is not a mode toggle)", () => {
-    expect(parseStandaloneComposerSlashCommand("/handoff")).toBeNull();
-    expect(parseStandaloneComposerSlashCommand("/handoff the retry logic")).toBeNull();
-  });
-});
-
-describe("parseHandoffDraft", () => {
-  it("returns not-handoff for ordinary prompts", () => {
-    expect(parseHandoffDraft("fix the retry logic")).toEqual({ kind: "not-handoff" });
-    expect(parseHandoffDraft("")).toEqual({ kind: "not-handoff" });
-  });
-
-  it("does not match a word that merely starts with handoff", () => {
-    expect(parseHandoffDraft("/handoffs are great")).toEqual({ kind: "not-handoff" });
-    expect(parseHandoffDraft("/handoffnow")).toEqual({ kind: "not-handoff" });
-  });
-
-  it("reports empty-error for /handoff with no explanation", () => {
-    expect(parseHandoffDraft("/handoff")).toEqual({ kind: "empty-error" });
-    expect(parseHandoffDraft("  /handoff   ")).toEqual({ kind: "empty-error" });
-  });
-
-  it("extracts the explanation, trimming surrounding whitespace", () => {
-    expect(parseHandoffDraft("/handoff the retry logic is broken")).toEqual({
-      kind: "handoff",
-      explanation: "the retry logic is broken",
-    });
-    expect(parseHandoffDraft("   /handoff   out of scope here  ")).toEqual({
-      kind: "handoff",
-      explanation: "out of scope here",
-    });
-  });
-
-  it("is case-insensitive on the command and keeps multi-line explanations", () => {
-    expect(parseHandoffDraft("/HANDOFF fix it")).toEqual({
-      kind: "handoff",
-      explanation: "fix it",
-    });
-    expect(parseHandoffDraft("/handoff line one\nline two")).toEqual({
-      kind: "handoff",
-      explanation: "line one\nline two",
-    });
-  });
-});
-
-describe("parseRetroDraft", () => {
-  it("returns not-retro for ordinary prompts", () => {
-    expect(parseRetroDraft("review this thread")).toEqual({ kind: "not-retro" });
-    expect(parseRetroDraft("")).toEqual({ kind: "not-retro" });
-  });
-
-  it("does not match a word that merely starts with retro", () => {
-    expect(parseRetroDraft("/retrofit the engine")).toEqual({ kind: "not-retro" });
-    expect(parseRetroDraft("/retrospective")).toEqual({ kind: "not-retro" });
-  });
-
-  it("recognises a bare /retro with no focus", () => {
-    expect(parseRetroDraft("/retro")).toEqual({ kind: "retro", focus: undefined });
-    expect(parseRetroDraft("  /retro   ")).toEqual({ kind: "retro", focus: undefined });
-  });
-
-  it("extracts the focus, trimming surrounding whitespace", () => {
-    expect(parseRetroDraft("/retro the rework loop")).toEqual({
-      kind: "retro",
-      focus: "the rework loop",
-    });
-    expect(parseRetroDraft("   /retro   gate outcomes  ")).toEqual({
-      kind: "retro",
-      focus: "gate outcomes",
-    });
-  });
-
-  it("is case-insensitive on the command and keeps multi-line focus", () => {
-    expect(parseRetroDraft("/RETRO briefs")).toEqual({ kind: "retro", focus: "briefs" });
-    expect(parseRetroDraft("/retro line one\nline two")).toEqual({
-      kind: "retro",
-      focus: "line one\nline two",
-    });
   });
 });

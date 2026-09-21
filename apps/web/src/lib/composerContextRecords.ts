@@ -38,6 +38,8 @@ import {
   type TerminalContextDraft,
 } from "./terminalContext";
 import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
+// loom: `#`-mentioned threads.
+import { threadContextRecord, type ThreadReferenceDraft } from "~/loom/threadReference";
 
 /**
  * Builds the wire records behind a draft's inline references, and the reverse for reading a
@@ -179,9 +181,8 @@ export function terminalContextRecord(context: TerminalContextDraft): TerminalCo
   };
 }
 
-// `mdx-anchor` review comments do not participate in the context-record system:
-// the record shape is line-indexed and diff-carrying, and nothing constructs an
-// mdx-anchor comment yet.
+// loom: `mdx-anchor` review comments do not participate in the context-record
+// system: the record shape is line-indexed and diff-carrying.
 export function reviewCommentContextRecord(
   comment: LineReviewCommentContext,
 ): ReviewCommentContextRecord {
@@ -308,6 +309,7 @@ export function buildMessageContext(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   reviewComments: ReadonlyArray<ReviewCommentContext>;
   previewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
+  threadReferences?: ReadonlyArray<ThreadReferenceDraft>; // loom:
   attachments?: ReadonlyArray<BoundComposerAttachment>;
 }): OrchestrationMessageContext | undefined {
   // An annotation's screenshot travels as the image attachment that reuses its id.
@@ -318,6 +320,7 @@ export function buildMessageContext(input: {
   );
   const records: ComposerContextRecord[] = [
     ...input.terminalContexts.map(terminalContextRecord),
+    // loom: only the `line` variant has a record shape.
     ...input.reviewComments
       .filter((comment) => comment.kind === "line")
       .map(reviewCommentContextRecord),
@@ -327,6 +330,7 @@ export function buildMessageContext(input: {
       }),
     ),
     ...(input.attachments ?? []).map(attachmentContextRecord),
+    ...(input.threadReferences ?? []).map(threadContextRecord), // loom:
   ];
   return records.length === 0 ? undefined : { version: 1, records };
 }
@@ -429,7 +433,7 @@ export function reviewCommentFromRecord(
   record: ReviewCommentContextRecord,
 ): LineReviewCommentContext {
   return {
-    kind: "line",
+    kind: "line", // loom:
     id: producerIdFromComposerContextId("review-comment", record.contextId),
     sectionId: record.sectionId,
     sectionTitle: record.sectionTitle,

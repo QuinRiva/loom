@@ -905,11 +905,20 @@ function normalizePiTokenUsage(
   };
 }
 
+/**
+ * Attachment bytes pi can hand a model as an image block. Everything else — a
+ * PDF, a ZIP, folded clipboard text, an image format the model APIs reject —
+ * would fail the turn if sent as an image, so it rides only as the on-disk path
+ * `ProviderService` already puts in the prompt text.
+ */
+const PI_NATIVE_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 function imageAttachments(
   attachmentsDir: string,
   attachments: ReadonlyArray<ChatAttachment> | undefined,
 ) {
   return (attachments ?? []).flatMap((attachment) => {
+    if (!PI_NATIVE_IMAGE_MIMES.has(attachment.mimeType.trim().toLowerCase())) return [];
     const path = resolveAttachmentPath({ attachmentsDir, attachment });
     return path && NodeFS.existsSync(path)
       ? [
@@ -1890,6 +1899,9 @@ export function makePiAdapter(input: {
                 options: options.map((option) => ({ label: option, description: option })),
               },
             ],
+            // loom: a native dialog can be cancelled (see the dismiss handler
+            // below), so the panel keeps its escape hatch for an orphaned one.
+            dismissible: true,
           },
         });
       }
@@ -2496,7 +2508,9 @@ export function makePiAdapter(input: {
                       ...sessionBase(active),
                       requestId: RuntimeRequestId.make(event.requestId),
                       type: "user-input.requested",
-                      payload: { questions: event.questions },
+                      // loom: broker questions settle through the poll outcome,
+                      // so they are dismissible even without a responseMode.
+                      payload: { questions: event.questions, dismissible: true },
                     }),
                   );
                 }
@@ -2553,7 +2567,7 @@ export function makePiAdapter(input: {
               return yield* new ProviderAdapterValidationError({
                 provider: DRIVER_KIND,
                 operation: "sendTurn",
-                issue: "Pi turns require text input or at least one image attachment.",
+                issue: "Pi turns require text input or at least one attachment.",
               });
             }
             // A pending retry timer means we're in a T3 backoff window: the T3

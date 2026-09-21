@@ -707,6 +707,9 @@ export function runtimeEventToActivities(
             ...(event.requestId ? { requestId: event.requestId } : {}),
             questions: event.payload.questions,
             ...(event.payload.responseMode ? { responseMode: event.payload.responseMode } : {}),
+            // loom: the asking provider's dismissibility must survive this
+            // explicit rebuild, or the panel loses its escape hatch.
+            ...(event.payload.dismissible ? { dismissible: true } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

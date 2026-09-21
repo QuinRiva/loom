@@ -1,7 +1,6 @@
 import {
   requestKindFromRequestType,
   type PendingApproval,
-  type PendingUserInput,
 } from "@t3tools/client-runtime/pending-requests";
 import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
@@ -32,7 +31,6 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
-import { parseUserInputQuestions } from "@t3tools/shared/userInputQuestions";
 
 import {
   isImageAttachment,
@@ -318,55 +316,6 @@ export function derivePendingApprovals(
     ) {
       openByRequestId.delete(requestId);
       continue;
-    }
-  }
-
-  return [...openByRequestId.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
-}
-
-/**
- * Open questions, cleared by `user-input.resolved` and nothing else. Terminal-wins
- * per requestId, matching the server's fold exactly — a resolved request can never
- * be reopened by a late or duplicate `requested` row, so the panel cannot
- * reappear for a question that is over.
- */
-export function derivePendingUserInputs(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): PendingUserInput[] {
-  const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const resolvedRequestIds = new Set<ApprovalRequestId>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-
-  for (const activity of ordered) {
-    const payload =
-      activity.payload && typeof activity.payload === "object"
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    if (payload === null || typeof payload.requestId !== "string") {
-      continue;
-    }
-    const requestId = ApprovalRequestId.make(payload.requestId);
-
-    if (activity.kind === "user-input.resolved") {
-      resolvedRequestIds.add(requestId);
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (activity.kind === "user-input.requested" && !resolvedRequestIds.has(requestId)) {
-      const questions = parseUserInputQuestions(payload);
-      if (!questions) {
-        continue;
-      }
-      openByRequestId.set(requestId, {
-        requestId,
-        createdAt: activity.createdAt,
-        questions,
-        // Async questions can be dismissed without a reply; native callbacks cannot.
-        dismissible: payload.responseMode === "message",
-      });
     }
   }
 

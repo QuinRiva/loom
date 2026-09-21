@@ -12,27 +12,28 @@ export type ComposerInlineToken =
       readonly source: string;
       readonly start: number;
       readonly end: number;
-    }
-  | {
-      readonly type: "thread";
-      readonly id: string;
-      readonly label: string;
-      readonly source: string;
-      readonly start: number;
-      readonly end: number;
     };
 
 export interface CollectComposerInlineTokensOptions {
   readonly preserveTrailingFrom?: ReadonlyArray<ComposerInlineToken>;
 }
 
-const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s)/g;
-// Same skill grammar as SKILL_TOKEN_REGEX but also anchors at end-of-string so a
-// trailing `$name` (no following whitespace) still expands on send.
-const SKILL_SEND_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
+/**
+ * A skill name may start with a digit, but compact monetary amounts and
+ * numeric expressions like "$20", "$20k", "$100M", and "$1e6" must stay prose:
+ * the composer chips any matched `$name` token, known or not. Tokens beginning
+ * with digits must not match numbers with currency/exponent suffixes, and must
+ * contain at least one letter.
+ */
+const SKILL_TOKEN_REGEX =
+  /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s)/gu;
+// loom: same grammar as SKILL_TOKEN_REGEX but also anchored at end-of-string so
+// a trailing skill token (no following whitespace) still expands on send.
+const SKILL_SEND_TOKEN_REGEX =
+  /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 
 /**
- * Rewrite the composer's user-facing `$name` skill tokens into the literal
+ * loom: rewrite the composer's user-facing `$name` skill tokens into the literal
  * `/skill:<name>` text pi expands from the prompt string itself. Applied to the
  * user-typed prompt at send time so the persisted/sent message is the expanded
  * literal the runtime actually received.
@@ -69,10 +70,6 @@ const FILE_LINK_TOKEN_REGEX = new RegExp(
   `(^|\\s)\\[((?:\\\\.|[^\\]\\\\]){0,${MAX_FILE_LINK_LABEL_LENGTH}})\\]\\(([^)\\s]+)\\)(?=\\s)`,
   "g",
 );
-// loom: `thread://` links are parsed in their own branch; the file-link branch
-// above deliberately skips them via the external-scheme check, so they never
-// become file mentions.
-const THREAD_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(thread:\/\/([^)\s]+)\)(?=\s)/g;
 const URI_SCHEME_REGEX = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 // Autocomplete emits canonical file links, so ambiguous bare @scope/package text stays a package.
@@ -137,26 +134,6 @@ export function collectComposerInlineTokens(
   options: CollectComposerInlineTokensOptions = {},
 ): ReadonlyArray<ComposerInlineToken> {
   const matches = collectMentionTokens(text);
-
-  for (const match of text.matchAll(THREAD_LINK_TOKEN_REGEX)) {
-    const fullMatch = match[0];
-    const prefix = match[1] ?? "";
-    const label = (match[2] ?? "").replace(/\\(.)/g, "$1");
-    const id = match[3] ?? "";
-    if (!id) {
-      continue;
-    }
-    const start = (match.index ?? 0) + prefix.length;
-    const end = start + fullMatch.length - prefix.length;
-    matches.push({
-      type: "thread",
-      id,
-      label,
-      source: text.slice(start, end),
-      start,
-      end,
-    });
-  }
 
   for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
     const fullMatch = match[0];

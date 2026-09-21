@@ -571,12 +571,8 @@ export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
 const UserInputQuestionOption = Schema.Struct({
   label: TrimmedNonEmptyStringSchema,
-  // Upstream widened this from a trimmed-non-empty string; loom's `preview`
-  // and `recommended` ride alongside upstream's `value`.
   description: Schema.String,
   value: Schema.optional(Schema.String),
-  preview: Schema.optional(TrimmedNonEmptyStringSchema),
-  recommended: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 
@@ -584,7 +580,6 @@ export const UserInputQuestion = Schema.Struct({
   id: TrimmedNonEmptyStringSchema,
   header: TrimmedNonEmptyStringSchema,
   question: TrimmedNonEmptyStringSchema,
-  stakes: Schema.optional(TrimmedNonEmptyStringSchema),
   options: Schema.Array(UserInputQuestionOption),
   allowCustomAnswer: Schema.optional(Schema.Boolean),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
@@ -596,6 +591,10 @@ export type UserInputQuestion = typeof UserInputQuestion.Type;
 export const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
   responseMode: Schema.optional(Schema.Literal("message")),
+  // loom: Pi questions carry no `responseMode`, but PiDriver can cancel both
+  // its native dialogs and broker questions — so the asking provider declares
+  // dismissibility directly and clients OR it with upstream's derivation.
+  dismissible: Schema.optional(Schema.Boolean),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
