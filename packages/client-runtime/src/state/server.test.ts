@@ -734,7 +734,6 @@ describe("server state projection", () => {
       resolveServerConfigValue(
         {
           config: cached,
-          accountUsage: [],
           latestEvent: snapshotEvent(cached),
           source: "cache",
         },
@@ -745,7 +744,6 @@ describe("server state projection", () => {
       resolveServerConfigValue(
         {
           config: staleLive,
-          accountUsage: [],
           latestEvent: snapshotEvent(staleLive),
           source: "live",
         },
@@ -756,7 +754,6 @@ describe("server state projection", () => {
       resolveServerConfigValue(
         {
           config: live,
-          accountUsage: [],
           latestEvent: snapshotEvent(live),
           source: "live",
         },

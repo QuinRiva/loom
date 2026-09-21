@@ -840,71 +840,12 @@ const AccountUpdatedPayload = Schema.Struct({
 });
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
-// Normalised, provider-neutral subscription-usage shape. Each adapter maps its
-// provider-specific rate-limit form into these windows at the adapter boundary.
-// `primary` ≈ the 5-hour rolling window, `secondary` ≈ the weekly window.
-export const AccountUsageWindowKind = Schema.Literals(["primary", "secondary"]);
-export type AccountUsageWindowKind = typeof AccountUsageWindowKind.Type;
-
-export const AccountUsageWindow = Schema.Struct({
-  kind: AccountUsageWindowKind,
-  usedPercent: Schema.Number,
-  resetsAt: Schema.NullOr(IsoDateTime),
-  windowDurationMins: Schema.NullOr(Schema.Number),
-  scope: Schema.optional(
-    Schema.Struct({
-      displayName: TrimmedNonEmptyString,
-      modelId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-    }),
-  ),
-});
-export type AccountUsageWindow = typeof AccountUsageWindow.Type;
-
-// Account-scoped usage snapshot keyed (downstream) by provider instance. This is
-// the client-facing wire shape; `providerName` is the driver kind (e.g. "codex",
-// "claudeAgent"). Anything a provider cannot supply stays null — never faked.
-export const AccountUsageSnapshot = Schema.Struct({
-  providerName: TrimmedNonEmptyString,
-  providerInstanceId: Schema.NullOr(ProviderInstanceId),
-  // Distinguishes pooled accounts within a single instance (e.g. two Anthropic
-  // subscriptions behind one router proxy). Absent ⇒ the instance's sole
-  // account (today's shape). When present it discriminates the registry entry
-  // so two accounts of one instance never collapse into one snapshot; routing/
-  // exhaustion still keys by the instance alone (best-remaining across accounts).
-  accountLabel: Schema.optional(TrimmedNonEmptyString),
-  windows: Schema.Array(AccountUsageWindow),
-  planType: Schema.NullOr(TrimmedNonEmptyString),
-  observedAt: IsoDateTime,
-  // Provider-agnostic explicit exhaustion flag (e.g. Codex `limit_reached` /
-  // `allowed: false`). Absent ⇒ no explicit signal (today's shape, mobile-safe);
-  // when true the account is exhausted account-wide regardless of window percent.
-  limitReached: Schema.optional(Schema.Boolean),
-  // Ledger backend provider ids this account's official meter covers, declared
-  // on the instance's usage-source config (e.g. ["cliproxy"] for a pooled
-  // router). Absent ⇒ coverage comes from the static meter → backend map (or
-  // none). Never inferred — see ProviderUsageSource.providerIds.
-  meteredProviderIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
-});
-export type AccountUsageSnapshot = typeof AccountUsageSnapshot.Type;
-
-// Runtime-event payload: only the usage-specific data the adapter produces. The
-// provider identity (`provider`, `providerInstanceId`) and timestamp
-// (`createdAt`) already ride the runtime-event envelope, so ingestion assembles
-// the full AccountUsageSnapshot from envelope + payload rather than duplicating
-// them here.
-// Two consumers, two shapes, and an adapter supplies whichever its native
-// payload can express:
-//   `limits` — upstream's normalised update, folded into the provider snapshot
-//     by ProviderUsageLimitsIngestion.
-//   `windows` / `planType` — loom's account-usage rollup, folded by
-//     ProviderRuntimeIngestion into the AccountUsageRegistry.
-// Both are optional because no adapter can currently derive both from one
-// native notification; each consumer skips an event that does not carry its
-// field rather than inventing values for the other.
+/**
+ * Adapters normalise their native rate-limit payload at the boundary so the
+ * consumer that folds it into the provider snapshot never sees driver shapes.
+ */
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  windows: Schema.optional(Schema.Array(AccountUsageWindow)),
-  planType: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  limits: Schema.optional(ProviderUsageLimitsUpdate),
+  limits: ProviderUsageLimitsUpdate,
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

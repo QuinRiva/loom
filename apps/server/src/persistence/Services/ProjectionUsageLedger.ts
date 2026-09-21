@@ -1,6 +1,6 @@
 /**
  * ProjectionUsageLedgerRepository - Repository for the per-message usage
- * ledger behind the /usage dashboard (docs/usage-dashboard-design.md §3 D1).
+ * ledger behind the workstream spend surfaces (docs/usage-dashboard-design.md §3 D1).
  *
  * One row per `thread.token-usage.updated` runtime event: model attribution,
  * the four token buckets, and the provider-authoritative cost delta. Written

@@ -733,6 +733,8 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
               : Effect.succeed(input.providerSessions ?? []),
         } as unknown as ProviderService["Service"]),
         Layer.succeed(ProviderHealthRegistry, {
+          applyUsage: () => Effect.void,
+          usage: Effect.succeed([]),
           isExhausted: () => Effect.succeed(false),
           exhaustedUntil: () => Effect.succeed(null),
           markExhausted: () => Effect.void,

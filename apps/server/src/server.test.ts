@@ -114,7 +114,6 @@ import * as ServerConfig from "./config.ts";
 import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceOccupancyLease.ts";
-import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { HTTP_ROUTER_CONFIG, makeRoutesLayer } from "./server.ts";
@@ -133,7 +132,6 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationThreadSettleBlockedError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
@@ -1267,40 +1265,14 @@ const buildAppUnderTest = (options?: {
         Layer.provide(resourceTelemetryLayer),
         Layer.provide(UsageService.layerTest),
         Layer.provide(
-          Layer.mock(AccountUsageRegistry.AccountUsageRegistry)({
-            snapshot: Effect.succeed([]),
-            update: () => Effect.void,
-            streamChanges: Stream.empty,
-            usageSlopePerMinute: () => Effect.succeed(null),
-          }),
-        ),
-        Layer.provide(
           Layer.mock(ProviderHealthRegistry)({
+            applyUsage: () => Effect.void,
+            usage: Effect.succeed([]),
             isExhausted: () => Effect.succeed(false),
             exhaustedUntil: () => Effect.succeed(null),
             markExhausted: () => Effect.void,
             snapshot: Effect.succeed([]),
             streamChanges: Stream.empty,
-          }),
-        ),
-        Layer.provide(
-          Layer.mock(UsageBreakdownQuery.UsageBreakdownQuery)({
-            getBreakdown: (input) =>
-              Effect.succeed({
-                window: input.window,
-                scope: input.scope ?? "all",
-                windowStart: "1970-01-01T00:00:00.000Z",
-                windowEnd: "1970-01-01T00:00:00.000Z",
-                boundarySource: "trailing" as const,
-                generatedAt: "1970-01-01T00:00:00.000Z",
-                gauges: [],
-                bucketMinutes: input.window === "primary" ? 5 : 60,
-                series: [],
-                projectedCostAtReset: null,
-                models: [],
-                consumers: [],
-                providers: [],
-              }),
           }),
         ),
         Layer.provide(

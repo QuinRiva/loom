@@ -168,6 +168,8 @@ function makeFakeCodexAdapter(
       readonly cwd?: string | undefined;
     }) => boolean;
     readonly supportsConversationRollback?: boolean;
+    /** MCP capabilities the driver requests on its sessions' credential (loom: PiDriver asks for "workstream"). */
+    readonly mcp?: ReadonlyArray<"preview" | "workstream" | "device" | "pull-requests">;
   },
 ) {
   const supportsConversationRollback = options?.supportsConversationRollback;
@@ -327,6 +329,7 @@ function makeFakeCodexAdapter(
       ...(options?.resumeState !== undefined ? { resumeState: options.resumeState } : {}),
       ...(supportsConversationRollback !== undefined ? { supportsConversationRollback } : {}),
       ...(provider === CODEX_DRIVER ? { promptlessTurnContinuation: true } : {}),
+      ...(options?.mcp ? { mcp: options.mcp } : {}), // loom:
     },
     ...(options?.resumeState === "session-file" ? { canResumeThread } : {}),
     startSession,
@@ -5589,13 +5592,20 @@ describe("agent browser access", () => {
     access: boolean | { readonly browser: boolean; readonly device: boolean },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
-    options?: { readonly withoutOrchestration?: boolean },
+    options?: {
+      readonly withoutOrchestration?: boolean;
+      /** loom: capabilities the driver itself requests (ProviderAdapterCapabilities.mcp). */
+      readonly adapterMcp?: ReadonlyArray<"preview" | "workstream" | "device" | "pull-requests">;
+    },
   ) =>
     Effect.gen(function* () {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
       const enableAgentDeviceAccess = typeof access === "boolean" ? access : access.device;
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
-      const codex = makeFakeCodexAdapter();
+      const codex = makeFakeCodexAdapter(
+        CODEX_DRIVER,
+        options?.adapterMcp ? { mcp: options.adapterMcp } : {},
+      );
       const providerAdapterLayer = Layer.succeed(
         ProviderAdapterRegistry.ProviderAdapterRegistry,
         makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter }),
@@ -5723,6 +5733,21 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(false, threadId);
 
       assert.deepEqual(issued, [{ threadId, capabilities: ["pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  // loom: PiDriver requests `workstream` on its sessions' credential rather than
+  // the session registry granting it to every driver. Without it every
+  // workstream/goal/task MCP endpoint 401s — the pull-6 regression.
+  it.effect("issues a credential with the capabilities the driver requests", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-driver-mcp");
+
+      const issued = yield* startSessionWith(false, threadId, undefined, {
+        adapterMcp: ["workstream"],
+      });
+
+      assert.deepEqual(issued, [{ threadId, capabilities: ["pull-requests", "workstream"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

@@ -7,6 +7,17 @@ manager_sessions:
 
 # Subscription usage visibility
 
+> **Status (post-pull-7, D10f).** The sidebar usage pill and the
+> `AccountUsageRegistry` this document designed are **deleted**. Upstream's
+> Usage → Limits page is now the only account-usage surface, and
+> `SubscriptionUsagePoller` feeds it by folding each account's windows into the
+> pi instance's published `usageLimits` (window ids are namespaced by account
+> key, e.g. `codex:primary`). The same reading still feeds loom's
+> exhaustion/failover telemetry, which now lives inside
+> `ProviderHealthRegistry` (`apps/server/src/provider/accountUsage.loom.ts`) and
+> never crosses the wire. Read the rest as history for the poller's cadence,
+> backoff and account-keying rationale, which are unchanged.
+
 ## Problem
 
 When you drive Claude or Codex on a **subscription** (Claude Pro/Max, ChatGPT

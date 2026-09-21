@@ -6,7 +6,8 @@ export interface SubscriptionUsagePollerShape {
   /**
    * Start the background subscription-usage poller within the provided scope.
    * It reads provider OAuth tokens from disk, fetches account-level rolling-window
-   * usage on a timer, and feeds the shared {@link AccountUsageRegistry} — driver-
+   * usage on a timer, and feeds both upstream's per-instance usage limits and
+   * loom's exhaustion telemetry ({@link ProviderHealthRegistry}) — driver-
    * independent, so the sidebar usage pill lights for pi-driven sessions that
    * never emit per-turn rate-limit windows.
    */

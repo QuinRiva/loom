@@ -5,7 +5,7 @@ export const PI_SUBSCRIPTION_ACCOUNT_NAMESPACES: Record<string, ReadonlyArray<st
   "openai-codex": ["openai-codex"],
 };
 
-// pi driver slug namespace → subscription account key (AccountUsageRegistry key
+// pi driver slug namespace → subscription account key (the health registry's key
 // space: providerInstanceId ?? providerName). `google-vertex-claude` is
 // API-billed — no subscription window, so it never maps to an account key and
 // never registers exhaustion in v1.

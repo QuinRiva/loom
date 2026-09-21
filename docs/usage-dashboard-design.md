@@ -5,6 +5,17 @@ manager_sessions:
     authored_at: 2026-07-03T03:35:38.547Z
 ---
 
+> **Status (post-pull-7, D10f).** The `/usage` dashboard this document designed
+> is **retired**: `/usage` now renders upstream's Usage page (Cost / Tokens /
+> Limits), `AccountUsageRegistry`, the `accountUsage` WS stream and the
+> `server.getUsageBreakdown` RPC are deleted, and account subscription windows
+> reach upstream's Limits tab from `SubscriptionUsagePoller`
+> (`apps/server/src/provider/Layers/SubscriptionUsagePoller.ts`). What survives
+> from this design is **§3 D1, the per-message usage ledger**
+> (`projection_usage_ledger`, migrations 1014/1019) and the per-thread
+> `cumulativeCostUsd` it feeds to the workstream panel, quick facts and active
+> strip. Read the rest as history.
+
 # Usage-window cost breakdown dashboard — design
 
 **Status:** implementation-ready design (v1 scope approved by orchestrator)

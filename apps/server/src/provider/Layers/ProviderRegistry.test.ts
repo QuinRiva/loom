@@ -56,7 +56,6 @@ import {
 } from "../providerStatusCache.ts";
 import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
-import { AccountUsageRegistryLive } from "../Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistryLive } from "../Services/ProviderHealthRegistry.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
@@ -2279,9 +2278,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
             const providerRegistryLayer = ProviderRegistryLive.pipe(
               Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-              Layer.provideMerge(
-                ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-              ),
+              Layer.provideMerge(ProviderHealthRegistryLive),
               Layer.provideMerge(
                 Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
               ),
@@ -2378,9 +2375,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           const providerRegistryLayer = ProviderRegistryLive.pipe(
             Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
             Layer.provideMerge(AntigravityInstallation.layer),
-            Layer.provideMerge(
-              ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-            ),
+            Layer.provideMerge(ProviderHealthRegistryLive),
             Layer.provideMerge(
               Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
             ),
@@ -2451,9 +2446,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           const providerRegistryLayer = ProviderRegistryLive.pipe(
             Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
             Layer.provideMerge(AntigravityInstallation.layer),
-            Layer.provideMerge(
-              ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-            ),
+            Layer.provideMerge(ProviderHealthRegistryLive),
             Layer.provideMerge(
               Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
             ),

@@ -25,13 +25,11 @@ import { WorkstreamFanInReactorLive } from "../orchestration/Layers/WorkstreamFa
 import { HandoffDrafterReactorLive } from "../orchestration/Layers/HandoffDrafterReactor.ts";
 import { WorktreeReaperLive } from "../orchestration/Layers/WorktreeReaper.ts";
 import * as WorkstreamWorktreeStatus from "../orchestration/WorkstreamWorktreeStatus.ts";
-import { AccountUsageRegistryLive } from "../provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 import { layer as WorktreeProvisionerLive } from "../project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "../git/WorktreeMutationLock.ts";
 import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceOccupancyLease.ts";
-import { UsageBreakdownQueryOnSqlReadClient } from "../persistence/Layers/SqliteLanes.ts";
 import * as WorkstreamSpawnHttp from "../mcp/WorkstreamSpawnHttp.ts";
 import * as GoalTaskHttp from "../mcp/GoalTaskHttp.ts";
 import * as GoalHandoffHttp from "../mcp/GoalHandoffHttp.ts";
@@ -66,16 +64,12 @@ export const LoomProviderRuntimeLive = Layer.mergeAll(
 );
 
 /**
- * Joins the `CheckpointingLayerLive` mergeAll step. `UsageBreakdownQueryLive`
- * (/usage dashboard aggregation) exposes `UsageBreakdownQuery` for the ws RPC
- * handler; `WorktreeProvisionerLive` is the shared provisioner for root
- * bootstrap + dispatcher promotion. Both resolve their SqlClient / git / setup /
- * orchestration deps from later `RuntimeCore` provideMerge steps.
+ * Joins the `CheckpointingLayerLive` mergeAll step. `WorktreeProvisionerLive`
+ * is the shared provisioner for root bootstrap + dispatcher promotion; it
+ * resolves its SqlClient / git / setup / orchestration deps from later
+ * `RuntimeCore` provideMerge steps.
  */
-export const LoomRuntimeCoreLive = Layer.mergeAll(
-  UsageBreakdownQueryOnSqlReadClient,
-  WorktreeProvisionerLive,
-);
+export const LoomRuntimeCoreLive = WorktreeProvisionerLive;
 
 /**
  * Per-worktree mutation lock shared by the provisioner and the fan-in reactor so
@@ -97,17 +91,14 @@ export const LoomWorktreeMutationLockLive = WorktreeMutationLockLive;
 export const LoomWorkspaceLeaseLive = WorkspaceLeaseLive;
 
 /**
- * Exhaustion state (`ProviderHealthRegistryLive`) + the ephemeral,
- * account-scoped usage store it derives marks from (`AccountUsageRegistryLive`,
- * nested-provided and merged out for its other consumers). Joins the
- * `ProviderEventLoggers` mergeAll so it is provided to the built-in drivers
- * (PiDriver requires ProviderHealthRegistry for quota classification). The
- * health registry also reads `providerFailover` from ServerSettings (a later
- * RuntimeCore step).
+ * Exhaustion state (`ProviderHealthRegistryLive`), which also holds the
+ * ephemeral account-usage telemetry the marks derive from (fed by
+ * `SubscriptionUsagePoller`). Joins the `ProviderEventLoggers` mergeAll so it
+ * is provided to the built-in drivers (PiDriver requires ProviderHealthRegistry
+ * for quota classification). The health registry also reads `providerFailover`
+ * from ServerSettings (a later RuntimeCore step).
  */
-export const LoomProviderHealthLive = ProviderHealthRegistryLive.pipe(
-  Layer.provideMerge(AccountUsageRegistryLive),
-);
+export const LoomProviderHealthLive = ProviderHealthRegistryLive;
 
 /** Fork MCP HTTP routes, merged with `McpHttpServer.layer` in `makeRoutesLayer`. */
 export const LoomMcpHttpLive = Layer.mergeAll(
