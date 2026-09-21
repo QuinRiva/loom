@@ -86,6 +86,9 @@ const request = {
   },
 };
 it.layer(NodeServices.layer)("question attachment answers", (it) => {
+  // loom: settle-first means ONE durable row per request (`user-input.resolved`,
+  // carrying the attachments) instead of upstream's separate
+  // `user-input.answer-submitted` row; the delivery intent is unchanged.
   it.effect("persists the original answer with its attachment and emits a provider response", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
@@ -100,8 +103,13 @@ it.layer(NodeServices.layer)("question attachment answers", (it) => {
       ]);
       expect(events[0]?.payload).toMatchObject({
         activity: {
-          kind: "user-input.answer-submitted",
-          payload: { answers: { q: "" }, attachmentsByQuestionId: command.attachmentsByQuestionId },
+          kind: "user-input.resolved",
+          payload: {
+            requestId,
+            outcome: "answered",
+            answers: { q: "" },
+            attachmentsByQuestionId: command.attachmentsByQuestionId,
+          },
         },
       });
       expect(events[1]?.payload).toMatchObject({
