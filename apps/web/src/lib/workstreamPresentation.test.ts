@@ -498,7 +498,6 @@ describe("buildThreadLifecycleRows", () => {
       ev("c", "thread.plan-lane-set", { planLane: "in_progress" }),
     ]);
     expect(rows.map((r) => r.label)).toEqual(["Started", "Yielded", "Resumed"]);
-    expect(rows[2]?.deepLink).toBe(true);
   });
 
   it("labels a terminal gate reopen (in_progress after done, no spawnGeneration) as Reopened", () => {
@@ -512,10 +511,10 @@ describe("buildThreadLifecycleRows", () => {
       ev("e", "thread.plan-lane-set", { planLane: "in_progress" }),
     ]);
     expect(rows.map((r) => r.label)).toEqual(["Started", "Yielded", "Resumed", "Done", "Reopened"]);
-    expect(rows[4]).toMatchObject({ tone: "sky", deepLink: true });
+    expect(rows[4]).toMatchObject({ tone: "sky" });
   });
 
-  it("maps outcomes to the shared verdict vocabulary (label + tone), deep-linkable", () => {
+  it("maps outcomes to the shared verdict vocabulary (label + tone)", () => {
     const rows = buildThreadLifecycleRows([
       ev("a", "thread.outcome-recorded", { outcome: "needs_rework", decision: "loop", round: 2 }),
       ev("b", "thread.outcome-recorded", {
@@ -526,9 +525,9 @@ describe("buildThreadLifecycleRows", () => {
       ev("c", "thread.outcome-recorded", { outcome: "clean", decision: "resolve", round: 3 }),
     ]);
     // Labels/tones come from describeOutcomeVerdict — fixed_inline stays distinct.
-    expect(rows[0]).toMatchObject({ label: "needs rework \u27f22", tone: "amber", deepLink: true });
-    expect(rows[1]).toMatchObject({ label: "fixed inline", tone: "emerald", deepLink: true });
-    expect(rows[2]).toMatchObject({ label: "clean", tone: "emerald", deepLink: true });
+    expect(rows[0]).toMatchObject({ label: "needs rework \u27f22", tone: "amber" });
+    expect(rows[1]).toMatchObject({ label: "fixed inline", tone: "emerald" });
+    expect(rows[2]).toMatchObject({ label: "clean", tone: "emerald" });
     // Chip and timeline agree (single source): same label off the primitive.
     expect(
       describeOutcomeVerdict({ outcome: "fixed_inline", decision: "resolve", round: 3 })?.chip
@@ -561,14 +560,8 @@ describe("buildThreadLifecycleRows", () => {
       "merge conflict",
       "merged",
     ]);
-    expect(rows.find((r) => r.label === "merge conflict")).toMatchObject({
-      tone: "amber",
-      deepLink: false,
-    });
-    expect(rows.find((r) => r.label === "merged")).toMatchObject({
-      tone: "emerald",
-      deepLink: false,
-    });
+    expect(rows.find((r) => r.label === "merge conflict")).toMatchObject({ tone: "amber" });
+    expect(rows.find((r) => r.label === "merged")).toMatchObject({ tone: "emerald" });
   });
 
   it("marks a terminal reopen (spawnGeneration) to ready distinctly from a first release", () => {
@@ -580,11 +573,11 @@ describe("buildThreadLifecycleRows", () => {
     expect(reopened?.label).toBe("Reopened");
   });
 
-  it("renders attention rows without deep-links", () => {
+  it("renders attention rows with their reason and tone", () => {
     const rows = buildThreadLifecycleRows([
       ev("a", "thread.attention-raised", { reason: "needs_guidance" }),
     ]);
-    expect(rows[0]).toMatchObject({ label: "Attention raised", tone: "amber", deepLink: false });
+    expect(rows[0]).toMatchObject({ label: "Attention raised", tone: "amber" });
   });
 
   it("attaches each round's report path to its following outcome row only", () => {
