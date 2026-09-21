@@ -4,21 +4,18 @@
  *
  * Only ROOT threads appear: workstream children belong to the WorkstreamPanel,
  * and showing them here would rebuild the nesting the design retired. State
- * chips derive from the same helpers the sidebar rows use (`resolveSidebarThreadStatus`,
- * `effectiveSettled`, `isStagedHandoffThread`) rather than a second state model.
+ * chips derive from the same helpers the sidebar rows use
+ * (`resolveSidebarThreadStatus`, the server's `settledOverride`,
+ * `isStagedHandoffThread`) rather than a second state model.
  */
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { effectiveSettled } from "@t3tools/shared/threadSettled";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { isStagedHandoffThread } from "../components/Sidebar.logic.loom";
-import { useClientSettings } from "../hooks/useSettings";
-import { useNowMinute } from "../hooks/useNowMinute";
 import { cn } from "../lib/utils";
-import { buildGraphRollupByThreadKey } from "../lib/workstreamRollup";
 import { formatCompactAge, getLastActivityAt } from "../lib/workstreamPresentation";
 import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -73,31 +70,17 @@ export function GoalThreadsSection({
 }) {
   const navigate = useNavigate();
   const allShells = useThreadShells();
-  const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
-  // Minute-quantised so settled classification doesn't churn the list on every
-  // render; auto-settle thresholds are day-granular anyway.
-  const nowMinute = useNowMinute();
-
   const rows = useMemo(() => {
     const environmentThreads = allShells.filter(
       (thread) => thread.environmentId === environmentId && thread.archivedAt === null,
     );
-    const rollups = buildGraphRollupByThreadKey(environmentThreads);
-    const now = `${nowMinute}:00.000Z`;
     return orderGoalThreadsByHandoff(
       filterRootThreads(environmentThreads.filter((thread) => thread.goalId === goalId)),
     ).map(({ thread, isContinuation }) => {
-      const rollup = rollups.get(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
-      const settled = effectiveSettled(thread, {
-        now,
-        autoSettleAfterDays,
-        workstream: {
-          hasNonTerminalDescendant: rollup !== undefined && rollup.total > rollup.breakdown.done,
-        },
-      });
+      const settled = thread.settledOverride === "settled";
       return { thread, isContinuation, settled, chip: resolveChipStyle(thread, settled) };
     });
-  }, [allShells, autoSettleAfterDays, environmentId, goalId, nowMinute]);
+  }, [allShells, environmentId, goalId]);
 
   return (
     <section className="mt-4">

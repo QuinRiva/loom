@@ -16,13 +16,7 @@ import {
 import { SortableContext, useSortable } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  canSnooze,
-  changeRequestAutoSettles,
-  effectiveSettled,
-  effectiveSnoozed,
-  threadWokeAt,
-} from "@t3tools/shared/threadSettled";
+import { canSnooze, effectiveSnoozed, threadWokeAt } from "@t3tools/shared/threadSettled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import {
   threadSearchMatchKey,
@@ -129,7 +123,6 @@ import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   readThreadShell,
@@ -187,7 +180,6 @@ import {
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
-  threadChangeRequest, // loom:
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
@@ -997,8 +989,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // False on environments whose server predates thread.settle/unsettle:
   // the lifecycle affordances hide entirely rather than fail on click.
   settlementSupported: boolean;
-  // loom: drilled rather than read per row — the list owns the one subscription.
-  autoSettleOnMerge: boolean;
   // Same contract for thread.snooze/unsnooze.
   snoozeSupported: boolean;
   // Pinned threads show the same pin marker in active, settled, and snoozed
@@ -1148,12 +1138,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const isWoke =
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
-    thread.settledOverride !== "settled" &&
-    // loom: a wake signal that a merged/closed PR already answered is stale too.
-    !changeRequestAutoSettles(threadChangeRequest(thread), {
-      autoSettleOnMerge: props.autoSettleOnMerge,
-      thread,
-    });
+    thread.settledOverride !== "settled";
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
@@ -2210,8 +2195,6 @@ export default function Sidebar() {
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
-  const autoSettleOnMerge = useClientSettings((s) => s.sidebarAutoSettleOnMerge);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -2420,7 +2403,6 @@ export default function Sidebar() {
     [projectGroups],
   );
 
-  const nowMinute = useNowMinute();
   // Snooze wake times are second-precise, so classifying with the quantized
   // minute would hold a woken thread on the shelf for up to a minute. The
   // tick is a plain counter bumped exactly at the next wake boundary (armed
@@ -2609,13 +2591,10 @@ export default function Sidebar() {
     settledThreads,
     snoozeNow,
   } = useMemo(() => {
-    // loom: settle classification runs on the quantized minute so the whole
-    // list does not re-partition on every tick.
-    const now = `${nowMinute}:00.000Z`;
-    // Snooze classification uses a REAL clock, not the quantized minute:
-    // wake times are second-precise and a woken thread must not linger on
-    // the shelf for the rest of the minute. snoozeWakeTick re-runs this
-    // memo exactly at the next wake boundary.
+    // Snooze classification uses a real clock: wake times are second-precise
+    // and a woken thread must not linger on the shelf for the rest of the
+    // minute. snoozeWakeTick re-runs this memo at the next wake boundary.
+    // Settlement needs no clock at all: the server stamps it.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
     // loom: only ROOT threads reach the inbox — workstream sub-threads stay
@@ -2643,10 +2622,6 @@ export default function Sidebar() {
       const supportsSettlement = capabilities?.threadSettlement === true;
       const supportsSnooze = capabilities?.threadSnooze === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-      // loom: the PR the settle rules read now comes from the shell's own
-      // links (upstream retired the client-side snapshot atom).
-      const changeRequest = threadChangeRequest(thread);
-      const rollup = graphRollupByThreadKey.get(threadKey);
       if (capabilities?.threadActiveReorder === true) activeReorderable.add(threadKey);
       // Older servers retain their existing drag actions. Active placement
       // additionally requires its own ordering capability at the drop target.
@@ -2677,24 +2652,6 @@ export default function Sidebar() {
         settled.push(thread);
       } else if (thread.pinnedAt != null) {
         pinned.push(thread);
-      } else if (
-        supportsSettlement &&
-        effectiveSettled(thread, {
-          now,
-          autoSettleAfterDays,
-          autoSettleOnMerge,
-          changeRequest,
-          // loom: workstream lifecycle as blockers/triggers. The rollup was
-          // already built above from the unfiltered shells, and its
-          // `total` (non-archived descendants) minus `breakdown.done`
-          // (plan-terminal ones) IS the non-terminal-descendant fact — no
-          // second traversal. A root with no descendants has no rollup.
-          workstream: {
-            hasNonTerminalDescendant: rollup !== undefined && rollup.total > rollup.breakdown.done,
-          },
-        })
-      ) {
-        settled.push(thread);
       } else {
         active.push(thread);
       }
@@ -2737,17 +2694,7 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [
-    autoSettleAfterDays,
-    autoSettleOnMerge,
-    graphRollupByThreadKey,
-    nowMinute,
-    optimisticDrop,
-    scopedProjectKeys,
-    serverConfigs,
-    snoozeWakeTick,
-    threads,
-  ]);
+  }, [optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -4847,7 +4794,6 @@ export default function Sidebar() {
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSettlement === true
                             }
-                            autoSettleOnMerge={autoSettleOnMerge}
                             snoozeSupported={
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSnooze === true

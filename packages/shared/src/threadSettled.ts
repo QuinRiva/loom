@@ -1,136 +1,13 @@
 // @effect-diagnostics globalDate:off -- UI snooze presets use local calendar boundaries and Intl labels.
+//
+// loom: settle CLASSIFICATION is not here. The server sweep
+// (ThreadSettlementPolicy/Reactor + the decider's `thread.auto-settle` arm)
+// is the single owner of what is settled; clients read `settledOverride`.
+// What remains are the client-side action guards and the snooze overlay,
+// which has no server-side lifecycle.
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
-// loom: the canonical "a done isolated child still owes its branch merge"
-// predicate, shared with the dispatcher's generation-join gate.
-import { isFanInPending } from "./workstreamIsolation.ts";
-
-export type ChangeRequestStateLike = "open" | "closed" | "merged";
-
-/**
- * loom: the thread fields settle classification actually reads. Narrower than
- * `OrchestrationThreadShell` so the SERVER can classify from a lean projection
- * row (W2-2) without assembling a full shell — a full shell still satisfies it
- * structurally, so every client call site is unchanged.
- */
-export type ThreadSettledShell = Pick<
-  OrchestrationThreadShell,
-  | "hasPendingApprovals"
-  | "hasPendingUserInput"
-  | "session"
-  | "latestUserMessageAt"
-  | "latestTurn"
-  | "settledOverride"
-  | "settledAt"
-  | "attention"
-  | "planLane"
-  | "pendingRework"
-  | "isolation"
-  | "fanInState"
-  | "createdAt"
->;
-
-/**
- * The slice of a change request the settle rules need. `updatedAt` is the
- * provider's last-activity timestamp; for a merged/closed request it bounds
- * when the terminal state landed.
- */
-export interface ChangeRequestSettleSource {
-  readonly state: ChangeRequestStateLike;
-  readonly updatedAt?: string | null | undefined;
-}
-
-/** What the settle rules need to know about the thread's own timeline. */
-export type ThreadActivitySource = Pick<
-  OrchestrationThreadShell,
-  "createdAt" | "latestUserMessageAt" | "latestTurn"
->;
-
-/**
- * Latest USER-initiated activity: messages and the turn requests they start,
- * deliberately not the agent-side started/completed stamps. The settle-on-
- * merge anchor uses this so a merge landing mid-turn still settles the
- * thread when that turn finishes, while a user re-engaging after the merge
- * blocks it for good. Falls back to creation time for untouched threads.
- */
-function threadUserActivityAnchorAt(thread: ThreadActivitySource): string {
-  const messageAt = thread.latestUserMessageAt;
-  const requestedAt = thread.latestTurn?.requestedAt;
-  let anchor = thread.createdAt;
-  for (const candidate of [messageAt, requestedAt]) {
-    if (candidate != null && Date.parse(candidate) > Date.parse(anchor)) {
-      anchor = candidate;
-    }
-  }
-  return anchor;
-}
-
-/**
- * Returns whether the change request settles the thread immediately. A
- * terminal request settles the thread only while it postdates every user-
- * initiated event in it: settling on a merge happens ONCE. A request last
- * touched before the thread was created is inherited branch history (a new
- * thread started at a worktree root whose PR already merged), and one older
- * than the user's latest engagement was already adjudicated — re-engaging a
- * thread whose PR merged is the user saying the conversation outlived the
- * PR. Unknown timestamps keep the old always-settle behavior.
- */
-export function changeRequestAutoSettles(
-  changeRequest: ChangeRequestSettleSource | null | undefined,
-  options: {
-    readonly autoSettleOnMerge?: boolean | undefined;
-    readonly thread?: ThreadActivitySource | null | undefined;
-  } = {},
-): boolean {
-  if (changeRequest == null) return false;
-  const terminal =
-    changeRequest.state === "closed" ||
-    (changeRequest.state === "merged" && options.autoSettleOnMerge !== false);
-  if (!terminal) return false;
-  if (changeRequest.updatedAt == null || options.thread == null) return true;
-  const updatedAtMs = Date.parse(changeRequest.updatedAt);
-  const anchorAtMs = Date.parse(threadUserActivityAnchorAt(options.thread));
-  // Malformed timestamps fall back to settling, matching servers that never
-  // report updatedAt.
-  if (Number.isNaN(updatedAtMs) || Number.isNaN(anchorAtMs)) return true;
-  return updatedAtMs >= anchorAtMs;
-}
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
-
-/**
- * Last real activity on a thread, falling back to `createdAt`.
- *
- * loom: the fallback is load-bearing (W2-2). A thread that has never run —
- * scaffolded but un-briefed, or briefed and never dispatched — has no user
- * message and no turn, so every candidate below is null. Returning null there
- * made `effectiveSettled` bail before the inactivity check, which meant such a
- * thread could NEVER auto-settle at any age. `createdAt` is non-null on every
- * thread and is the honest "nothing has happened since" timestamp, so the
- * inactivity window measures from it.
- */
-export function threadLastActivityAt(
-  shell: Pick<OrchestrationThreadShell, "createdAt" | "latestUserMessageAt" | "latestTurn">,
-): string {
-  const candidates = [
-    shell.latestUserMessageAt,
-    shell.latestTurn?.requestedAt,
-    shell.latestTurn?.startedAt,
-    shell.latestTurn?.completedAt,
-  ];
-  let latest: string = shell.createdAt;
-  let latestTimestamp = Date.parse(shell.createdAt);
-
-  for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined) continue;
-    const timestamp = Date.parse(candidate);
-    if (timestamp > latestTimestamp) {
-      latest = candidate;
-      latestTimestamp = timestamp;
-    }
-  }
-
-  return latest;
-}
 
 /**
  * A queued turn start lives for at most this long: session adoption takes
@@ -175,14 +52,14 @@ export function hasQueuedTurnStart(
 }
 
 /**
- * A thread may be settled only when none of effectiveSettled's activity
- * blockers hold. This is deliberately the same list: anything the partition
- * refuses to CLASSIFY as settled must also be refused as a settle TARGET.
- * The server enforces its own invariants; this client-side twin exists so
- * the UI can disable/reject before a round trip.
+ * A thread may be settled only when none of the decider's activity blockers
+ * hold. Deliberately the same list: the server enforces its own invariants,
+ * and this client-side twin exists so the UI can disable/reject before a
+ * round trip.
  *
- * loom: the workstream blockers are deliberately NOT here — they suppress
- * auto-settle only, so an abandoned graph stays a legal settle target.
+ * loom: the decider's plan-state blockers (yielded, live descendant) are
+ * deliberately NOT here — they suppress the SWEEP only, so an abandoned graph
+ * stays a legal settle target.
  */
 export function canSettle(
   shell: Pick<
@@ -320,174 +197,6 @@ export function threadWokeAt(
   }
   // No raised hand: woke iff the timer elapsed (still-snoozed → null).
   return wakeAtMs <= Date.parse(options.now) ? shell.snoozedUntil : null;
-}
-
-// ---------------------------------------------------------------------------
-// loom: workstream lifecycle → settle classification, ONE DIRECTION ONLY.
-// The plan lane never writes `settledOverride` and settle state never writes
-// the plan lane; workstream state only enters here, at read time, as blockers
-// and triggers. Everything below is additive and opt-in: `effectiveSettled`
-// applies it only when the caller passes a `workstream` context, so callers
-// that do not (mobile, ChatView) keep upstream behaviour exactly.
-// ---------------------------------------------------------------------------
-
-/**
- * The one workstream input that is not on the shell. Descendant liveness is a
- * subtree fact, so the caller supplies it — the sidebar derives it from the
- * rollup it already builds rather than walking the graph again.
- */
-export interface WorkstreamSettleContext {
-  /** Any descendant in a lane other than done/cancelled, anywhere in the subtree. */
-  readonly hasNonTerminalDescendant: boolean;
-}
-
-/**
- * AUTO-settle blockers — plan state, so they suppress the inactivity/PR
- * auto-settle but an explicit settle outranks them (see `effectiveSettled`):
- *  1. a stored attention flag (`error`, `awaiting_acceptance`,
- *     `needs_guidance`) — something needs a human, and only a human clears it;
- *  2. `yielded` — parked awaiting a decision: quiescent by every runtime
- *     signal, yet owed. The single sharpest divergence between the two axes;
- *  3. a non-terminal descendant — the idle orchestrator whose subtree is still
- *     burning tokens is quiescent but load-bearing.
- * `planned` is deliberately neither blocker nor trigger. The derived attention
- * reasons are covered by `workstreamLiveAttentionBlocked` instead, and are
- * included here too only because they trivially also block auto-settle.
- */
-export function workstreamAutoSettleBlocked(
-  shell: Pick<OrchestrationThreadShell, "attention" | "planLane">,
-  workstream: WorkstreamSettleContext,
-): boolean {
-  return (
-    shell.attention.length > 0 ||
-    shell.planLane === "yielded" ||
-    workstream.hasNonTerminalDescendant
-  );
-}
-
-/**
- * The attention reasons that describe LIVE runtime rather than plan state:
- * `awaiting_approval` / `awaiting_input` are derived from open approval and
- * user-input requests (never stored), so they mirror upstream's
- * `hasPendingApprovals` / `hasPendingUserInput` blockers and rank with them —
- * outranking an explicit settle, and clearing themselves when the request
- * resolves. Deliberately redundant with those two shell flags: it is the
- * derivation, not this predicate, that could drift.
- */
-export function workstreamLiveAttentionBlocked(
-  shell: Pick<OrchestrationThreadShell, "attention">,
-): boolean {
-  return shell.attention.some(
-    (reason) => reason === "awaiting_approval" || reason === "awaiting_input",
-  );
-}
-
-/**
- * The finished-work trigger: a plan-terminal thread that owes nothing settles
- * immediately instead of loitering for the whole inactivity window. Two
- * exceptions keep it honest — `pendingRework` marks a `done` thread a gate can
- * reopen at any moment (settling then un-settling on the reopen is churn that
- * hides a coder the reviewer is actively bouncing), and a `done` isolated child
- * whose fan-in has not landed still owes a branch merge that must stay visible.
- * `cancelled` never fans in, so it always qualifies.
- */
-export function workstreamSettleTriggered(
-  shell: Pick<OrchestrationThreadShell, "planLane" | "pendingRework" | "isolation" | "fanInState">,
-): boolean {
-  if (shell.planLane !== "done" && shell.planLane !== "cancelled") return false;
-  return !shell.pendingRework && !isFanInPending(shell);
-}
-
-/**
- * Settled resolution over the server-backed settled lifecycle. Activity
- * blockers (pending approval/user-input, a live session, an unadjudicated
- * queued turn) are checked first and hold a thread active regardless of any
- * override. Past the blockers, the explicit user override (thread.settle /
- * thread.unsettle commands, projected into settledOverride + settledAt)
- * wins in both directions; without one, a thread can auto-settle on a
- * merged PR or always on a closed PR (both only while the terminal state is
- * the thread's latest event, see changeRequestAutoSettles), or settles on
- * inactivity past the window.
- * An open PR blocks the inactivity path entirely. The server
- * un-settles on real activity (user message, session start, approval/
- * user-input request), so an override never goes stale silently.
- */
-export function effectiveSettled(
-  shell: ThreadSettledShell,
-  options: {
-    readonly now: string;
-    readonly autoSettleAfterDays: number | null;
-    readonly autoSettleOnMerge?: boolean;
-    readonly changeRequest?: ChangeRequestSettleSource | null;
-    // loom: opt-in workstream lifecycle inputs (see WorkstreamSettleContext).
-    // Absent/null ⇒ upstream classification, unchanged.
-    readonly workstream?: WorkstreamSettleContext | null;
-  },
-): boolean {
-  // Blocked work must remain visible even when a user explicitly settled it.
-  if (shell.hasPendingApprovals || shell.hasPendingUserInput) return false;
-  if (shell.session?.status === "starting" || shell.session?.status === "running") return false;
-  if (hasQueuedTurnStart(shell, { now: options.now })) {
-    // The queued-turn blocker alone is forgivable: it is clock-derived, and
-    // list callers pass a coarser `now` than the settle action used. When
-    // the server already adjudicated the queued message by accepting a
-    // settle after it (settledAt stamps server accept time), trust that
-    // ruling — otherwise a settle near the grace boundary leaves the row
-    // pinned active until the caller's clock ticks over. A message NEWER
-    // than settledAt is genuinely new work and keeps the block until the
-    // server's auto-unsettle lands.
-    const serverAdjudicated =
-      shell.settledOverride === "settled" &&
-      shell.settledAt !== null &&
-      shell.latestUserMessageAt !== null &&
-      Date.parse(shell.settledAt) >= Date.parse(shell.latestUserMessageAt);
-    if (!serverAdjudicated) return false;
-  }
-  // loom: derived attention (`awaiting_approval` / `awaiting_input`) ranks with
-  // the activity blockers above — it mirrors the very pending requests they
-  // check, so it outranks an explicit settle for the same reason.
-  if (options.workstream != null && workstreamLiveAttentionBlocked(shell)) return false;
-  if (shell.settledOverride === "settled") return true;
-  // "active" is the explicit keep-active pin: it suppresses auto-settle
-  // until real activity clears it server-side.
-  if (shell.settledOverride === "active") return false;
-  // loom: workstream blockers suppress AUTO-settle only, and are therefore
-  // checked BELOW the override. Upstream's blockers outrank an explicit settle
-  // because they describe live runtime that clears itself; loom's describe PLAN
-  // state, which can stay stale indefinitely with only a human to clear it — so
-  // an abandoned graph (children left `ready`, a lingering `needs_guidance`)
-  // must still be manually settleable, or the Settle action silently does
-  // nothing. Nothing is hidden by that: any real news re-opens the row, because
-  // the server un-settles on activity and the dispatcher's parent wake arrives
-  // as a turn start on the root itself.
-  if (options.workstream != null && workstreamAutoSettleBlocked(shell, options.workstream))
-    return false;
-  // loom: the finished-work trigger, no-override case only. A settled row
-  // has no `settledAt`, so it sorts by last activity like every other
-  // derived settle (`resolveSettledTimestamp`) — a just-finished thread
-  // lands at the head of the shelf, which is the wanted order.
-  if (options.workstream != null && workstreamSettleTriggered(shell)) return true;
-  if (
-    changeRequestAutoSettles(options.changeRequest, {
-      autoSettleOnMerge: options.autoSettleOnMerge,
-      thread: shell,
-    })
-  ) {
-    return true;
-  }
-  // An open PR is unfinished business regardless of how long the thread has
-  // been quiet: review can take days, and hiding the thread would bury the
-  // work waiting on it. A configured merge, a close, or an explicit user
-  // settle resolves it.
-  if (options.changeRequest?.state === "open") return false;
-  if (options.autoSettleAfterDays === null) return false;
-
-  // A malformed `now` yields NaN, the comparison is false, and the thread stays
-  // active (never a surprise auto-settle on bad input).
-  return (
-    Date.parse(threadLastActivityAt(shell)) <
-    Date.parse(options.now) - options.autoSettleAfterDays * DAY_MS
-  );
 }
 
 const HOUR_MS = 60 * 60 * 1_000;
