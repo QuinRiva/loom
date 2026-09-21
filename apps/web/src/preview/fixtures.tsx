@@ -368,6 +368,13 @@ const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 - Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) stays a thread chip.
 `;
 
+// loom: guards the `thread:` sanitiser allow-list — without it the mention
+// renders as an href-less `<a>` that does nothing on click.
+const THREAD_MENTION_MARKDOWN = `Ask [Use the ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
+
+A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
+`;
+
 const FILE_CHIP_STATES_KINDS: Record<string, ProjectPathKind> = {
   [FILE_CHIP_STATES_PRESENT]: "file",
   [FILE_CHIP_STATES_MISSING]: "missing",
@@ -1019,6 +1026,12 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "While streaming, prose linking and code-block decoration are deferred: the SAME content renders as plain text (no chips, no clickable code paths) until the message completes — satisfying the 'no per-token rescans' requirement.",
         "/Users/julius/project",
         true,
+      ),
+      markdownFixture(
+        "thread-mention",
+        "Thread mentions (thread://)",
+        THREAD_MENTION_MARKDOWN,
+        "loom: an assistant `[Title](thread://<id>)` mention must render as a thread chip. Regression guard for the sanitiser stripping the thread: protocol, which left a dead href-less anchor.",
       ),
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),

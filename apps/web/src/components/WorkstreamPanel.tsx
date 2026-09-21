@@ -1,7 +1,7 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
-import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
+import { rootOf, subtreeCostOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
   BugIcon,
@@ -222,6 +222,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   // The root orchestrator's shell (with its `promptDebugPath` sidecar), for the
   // header Prompt button. The root is in the subtree the panel already built.
   const rootShell = rootThreadId ? subtreeById.get(rootThreadId) : undefined;
+  const workstreamCost = formatCostUsd(rootThreadId ? subtreeCostOf(rootThreadId, subtree) : null);
 
   // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
   // control plane at kickoff and `blocked` is derived from dependencies, so
@@ -368,6 +369,18 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                 </TooltipPopup>
               </Tooltip>
             ) : null}
+            {workstreamCost ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] tabular-nums text-white/55" />
+                  }
+                >
+                  Workstream {workstreamCost}
+                </TooltipTrigger>
+                <TooltipPopup>Own spend across the root and every descendant</TooltipPopup>
+              </Tooltip>
+            ) : null}
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] tabular-nums text-white/55">
               {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
             </span>
@@ -403,6 +416,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
           {view === "board" ? (
             <WorkstreamBoard
               threads={children}
+              workstreamThreads={subtree}
               childById={childById}
               onOpenThread={openThread}
               onSetLane={setLane}
@@ -534,6 +548,7 @@ interface CardControls {
 
 function WorkstreamBoard({
   threads,
+  workstreamThreads,
   childById,
   onOpenThread,
   onSetLane,
@@ -542,6 +557,7 @@ function WorkstreamBoard({
   onSetDependencies,
 }: {
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
+  readonly workstreamThreads: ReadonlyArray<SidebarThreadSummary>;
 } & CardControls) {
   const groups = groupChildrenByColumn(threads, childById);
   return (
@@ -566,6 +582,7 @@ function WorkstreamBoard({
                   key={thread.id}
                   thread={thread}
                   siblings={threads}
+                  workstreamThreads={workstreamThreads}
                   childById={childById}
                   onOpenThread={onOpenThread}
                   onSetLane={onSetLane}
@@ -584,6 +601,7 @@ function WorkstreamBoard({
 function WorkstreamCard({
   thread,
   siblings,
+  workstreamThreads,
   childById,
   onOpenThread,
   onSetLane,
@@ -593,6 +611,7 @@ function WorkstreamCard({
 }: {
   readonly thread: SidebarThreadSummary;
   readonly siblings: ReadonlyArray<SidebarThreadSummary>;
+  readonly workstreamThreads: ReadonlyArray<SidebarThreadSummary>;
 } & CardControls) {
   const status = getThreadStatus(thread, childById);
   const activity = getActivity(thread, status.column);
@@ -606,11 +625,16 @@ function WorkstreamCard({
   const gateWait = getGateWaitLabel(thread, childById);
   const fanInChip = getFanInChip(thread);
   const diffMetric = formatDiffMetric(thread.diffAdditions, thread.diffDeletions);
-  // Quiet metadata (model · spend · context) rides in the header next to the age
-  // as muted text. Context% is a health signal, not a vanity stat: hidden below
-  // 20% (a near-empty window says nothing actionable), shown muted 20-50%, red
-  // above 50%. Own spend only; the subtree roll-up belongs in the detail popover.
+  // Quiet metadata (model · spend · context) rides in the header next to the age.
+  // Parents distinguish their own spend from the descendant roll-up; leaves keep
+  // the compact single figure. Context% is hidden below 20%, muted at 20–50%, red
+  // above 50%.
   const ownCost = formatCostUsd(thread.cumulativeCostUsd);
+  // The roll-up shows only when descendants actually spent something, so a leaf
+  // (or a parent whose children are free) keeps the compact single figure.
+  const subtreeTotal = subtreeCostOf(thread.id, workstreamThreads);
+  const subtreeCost =
+    subtreeTotal > (thread.cumulativeCostUsd ?? 0) ? formatCostUsd(subtreeTotal) : null;
   const contextPercentRaw =
     thread.usedTokens !== null && thread.maxTokens !== null && thread.maxTokens > 0
       ? (thread.usedTokens / thread.maxTokens) * 100
@@ -642,14 +666,18 @@ function WorkstreamCard({
             </TooltipTrigger>
             <TooltipPopup>{`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}</TooltipPopup>
           </Tooltip>
-          {ownCost ? (
+          {ownCost || subtreeCost ? (
             <>
               <span className="text-white/20">·</span>
               <Tooltip>
                 <TooltipTrigger render={<span className="tabular-nums" />}>
-                  {ownCost}
+                  {subtreeCost ? `own ${ownCost ?? "—"} · subtree ${subtreeCost}` : ownCost}
                 </TooltipTrigger>
-                <TooltipPopup>This sub-thread&rsquo;s own spend</TooltipPopup>
+                <TooltipPopup>
+                  {subtreeCost
+                    ? "This sub-thread's own spend and its whole descendant subtree"
+                    : "This sub-thread's own spend"}
+                </TooltipPopup>
               </Tooltip>
             </>
           ) : null}

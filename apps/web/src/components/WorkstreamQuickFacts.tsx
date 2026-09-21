@@ -1,3 +1,4 @@
+import { subtreeCostOf } from "@t3tools/shared/workstreamGraph";
 import { forwardRef, type ReactNode } from "react";
 
 import { formatCostUsd } from "../loom/costFormat";
@@ -29,9 +30,10 @@ export const WorkstreamQuickFacts = forwardRef<
   HTMLDivElement,
   {
     readonly thread: SidebarThreadSummary;
+    readonly threads: ReadonlyArray<SidebarThreadSummary>;
     readonly threadById: ChildIndex;
   }
->(function WorkstreamQuickFacts({ thread, threadById }, ref) {
+>(function WorkstreamQuickFacts({ thread, threads, threadById }, ref) {
   const status = getThreadStatus(thread, threadById);
   const verdictChip = getVerdictChip(thread);
   const gateWait = getGateWaitLabel(thread, threadById);
@@ -47,6 +49,10 @@ export const WorkstreamQuickFacts = forwardRef<
       status.column === "blocked") &&
     thread.toolUses === null;
   const cost = formatCostUsd(thread.cumulativeCostUsd);
+  // Roll-up only when descendants actually spent something (see WorkstreamCard).
+  const subtreeTotal = subtreeCostOf(thread.id, threads);
+  const subtreeCost =
+    subtreeTotal > (thread.cumulativeCostUsd ?? 0) ? formatCostUsd(subtreeTotal) : null;
   const preview = thread.lastActivityPreview;
   const forkedFrom = thread.forkFromThreadId
     ? (threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId)
@@ -85,7 +91,9 @@ export const WorkstreamQuickFacts = forwardRef<
           <WorkstreamModelPill selection={thread.modelSelection} />
         </FactRow>
         <FactRow label="Cost">
-          <span className="font-mono">{cost ?? "—"}</span>
+          <span className="font-mono">
+            {subtreeCost ? `own ${cost ?? "—"} · subtree ${subtreeCost}` : (cost ?? "—")}
+          </span>
         </FactRow>
         {hasGate || thread.gateRounds > 0 ? (
           <FactRow label="Gate rounds">

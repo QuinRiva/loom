@@ -110,17 +110,11 @@ for its installation and routing configuration.
 
 <!-- loom: pooled-subscription usage sources (providerInstances[].usageSources). -->
 
-## My Router Pools Several Subscriptions — Make The Usage Pill Accurate
+## View limits for a pooled Claude router
 
-By default T3 Code reads your subscription usage from the Claude account you logged in with
-(`~/.pi/agent/auth.json`). If you route Claude traffic through a local proxy that pools **several**
-Anthropic subscriptions (e.g. CLIProxyAPI), that default is misleading: the pill and the
-failover/exhaustion logic watch one account while real consumption drains the pooled ones.
-
-Point the provider instance at the token files the proxy keeps fresh on disk with a `usageSources`
-array in the instance config. Each source is polled directly against Anthropic's usage endpoint every
-cycle; the token is re-read fresh each time (T3 Code never caches or refreshes it — the proxy owns
-refresh).
+If a local router spreads Claude traffic across several Anthropic subscriptions, add each
+subscription's token file to the routing provider instance's `usageSources`. Keep the sources on the
+same instance that you select for the routed models.
 
 ```jsonc
 // ServerSettings → providerInstances["<your-instance-id>"]
@@ -132,40 +126,25 @@ refresh).
       "kind": "anthropic-oauth",
       "tokenFile": "~/cli-proxy/auths/claude-carl@unseen.id.json",
       "label": "carl@",
-      "providerIds": ["cliproxy"],
     },
     {
       "kind": "anthropic-oauth",
       "tokenFile": "~/cli-proxy/auths/claude-caaarl@unseen.id.json",
       "label": "caaarl@",
-      "providerIds": ["cliproxy"],
     },
   ],
 }
 ```
 
-Each source field:
+Use `anthropic-oauth` for `kind`. `tokenFile` is the proxy's JSON token file; `~` expands to your
+home directory. `label` identifies the account on the Limits page and defaults to the token file's
+name. If the bearer token is not stored in `access_token`, set `tokenField` to its field name.
+Restart the server after adding or removing sources.
 
-- `kind` — `"anthropic-oauth"` (the only kind today).
-- `tokenFile` — path to the proxy's JSON token file; a leading `~` expands to your home directory.
-- `tokenField` — optional; the flat JSON field holding the bearer token. Defaults to `access_token`.
-- `label` — optional human label shown on the pill. Defaults to the token file's basename.
-- `providerIds` — optional; the ledger backend provider ids this source's meter covers — the slug
-  namespace(s) your routed traffic runs under (e.g. `["cliproxy"]` for `cliproxy/*` models). This is
-  what links the pooled gauges to that backend's tab on the `/usage` dashboard: with it set, the tab
-  shows the official pooled gauges and its rows scope correctly; without it, the tab reads "no
-  official meter". Declared explicitly because the same instance may also route API-billed backends
-  (e.g. Vertex) that report into no meter.
+Open **Usage** from the sidebar, then choose **Limits**. T3 Code shows each labelled subscription's
+5-hour and weekly allowance, percentage left, and reset time. A per-account window means pooled
+allowances are not combined into one gauge: five subscriptions can show five separate 5-hour windows
+and five separate weekly windows, so you can see which account restores capacity next. The pooled
+provider remains available while at least one account still has allowance in the relevant window.
 
-With usage sources configured, the sidebar renders **one pill per pooled account** (labelled), and
-exhaustion is judged on the _best remaining_ account: the instance is only treated as exhausted for a
-window once **every** pooled account has spent it, matching how the router fails over between them.
-That instance-scoped exhaustion is honoured by the fallback/resume/spawn paths too — a routed model
-selection whose instance id is this configured instance is marked (and waits for reset) under the
-instance's own account key, and the `/usage` dashboard shows one labelled official gauge per pooled
-account. Missing or unreadable token files are skipped quietly. Adding or removing sources takes
-effect on the next server start.
-
-> Put `usageSources` on the **same provider instance that actually routes the pooled traffic** (its
-> `instanceId` is what a thread's model selection carries). An instance that declares usage sources
-> but routes nothing will report an accurate pill, but its exhaustion marks won't gate any traffic.
+If an expected account is missing, check that its token file exists and is readable by the server.

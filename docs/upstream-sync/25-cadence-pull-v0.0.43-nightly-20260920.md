@@ -276,6 +276,8 @@ throughout, matching upstream's renamed base.
    Whether those loom hunks are live product or pull-6 leftovers has not been
    determined and needs the lost-feature audit.
 
+   **Resolved for `SettingsPanels`:** the lost-feature audit confirmed its two dropped auto-open Settings hunks were live product, and the mount plus changed-label spread are restored.
+
 ---
 
 ## Session 2 — 12 of the 15 hand-resolutions landed; 3 web files remain
@@ -1668,6 +1670,17 @@ is a lost feature.
 | usage limits                                      | ✓ PR #210 — the poller emits upstream's per-account limits shape, so Pi reaches the Limits page; loom's registry and `/usage` are retired |
 | skills                                            | ✓ via pi's `get_commands`                                                                                                                 |
 | `uploadFeedback`                                  | ✗ not implemented — upstream's thread-feedback upload is refused for Pi                                                                   |
+| text generation                                   | ✓ titles, commits, change-request content and branch names are real one-shot `pi --print` calls (`PiTextGeneration.ts`); stubs deleted    |
+
+**Text generation was the fourth such no-op.** Upstream's title flow ran end to
+end on Pi and could still only echo the prompt, because every per-operation
+method on `PiDriver` was a deterministic stub (`titleFromText`, `branchFromText`,
+`"Update from pi"`) while only the fork's `generateStructured` reached a model.
+All of them now run the shared prompt through
+[`PiTextGeneration.ts`](../../apps/server/src/textGeneration/PiTextGeneration.ts),
+and a failed call fails the operation instead of inventing a placeholder, so
+upstream's retry runs and upstream's own fallback (keep the seed title, skip the
+branch rename) decides what the user sees.
 
 **The trap this catches, concretely.** Upstream's restart continuation (#9167)
 gates on `binding.resumeCursor != null`. Pi never produces a cursor, so the
@@ -1694,6 +1707,9 @@ an exclusion: the fork's later startup scan cancels every boot-inherited
 user-input request. What remains in `loom/startup.ts` is the fork's other boot
 repairs — stuck-launch recovery, stale pending-turn-start clearing, the
 open-user-input scan, and the reset of sessions upstream declined to continue.
+Loom defaults `continueThreadsAfterServerUpdate` on because its deployctl/systemd
+path does not write upstream's self-updater continuation marker; users can still
+disable it in Settings.
 
 **Not carried over: the queued-steer rescue.** Loom's deleted arm folded the
 steers a human typed during the interrupted turn into its resume message. That

@@ -476,7 +476,12 @@ export default function WorkstreamGraph({
           ) : null}
         </svg>
         {hovered ? (
-          <WorkstreamQuickFacts ref={factsRef} thread={hovered.thread} threadById={threadById} />
+          <WorkstreamQuickFacts
+            ref={factsRef}
+            thread={hovered.thread}
+            threads={threads}
+            threadById={threadById}
+          />
         ) : null}
       </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
