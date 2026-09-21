@@ -482,6 +482,139 @@ describe("ThreadSettlementReactor", () => {
         }),
       ),
   );
+  // loom: the finished-work trigger. A root whose plan lane reaches a terminal
+  // lane leaves the inbox without waiting out the inactivity window. The
+  // blocker half of the rule (a root with a live subtree is refused) lives in
+  // the decider's `thread.auto-settle` arm and is covered by
+  // decider.settled.test.ts "blocks the sweep on plan state". What the reactor
+  // owns, and this test pins, is WHEN the check runs and which threads it
+  // aims at — including the two retries without which the trigger is silently
+  // lost: a descendant finishing, and the root's own turn ending.
+  it.effect("settles a finished root, retrying when a child finishes or its turn ends", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        // Recent enough that neither the inactivity window nor the queued-turn
+        // grace applies, so any settle here is the finished-work trigger's.
+        const ACTIVE_AT = "2026-08-28T11:00:00.000Z";
+        const recent = { createdAt: ACTIVE_AT, latestUserMessageAt: ACTIVE_AT };
+        const root = makeThread("root", recent);
+        const child = makeThread("child", { ...recent, parentThreadId: root.id });
+        const fixture = yield* makeHarness({ snapshot: makeSnapshot([root, child]) });
+        const eventBase = (eventId: string, aggregateId: ThreadId) => ({
+          sequence: 2,
+          eventId: EventId.make(eventId),
+          aggregateKind: "thread" as const,
+          aggregateId,
+          occurredAt: NOW,
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+        });
+        const patchRoot = (patch: Partial<OrchestrationThreadShell>) =>
+          Ref.update(fixture.snapshots, (snapshot) => ({
+            ...snapshot,
+            threads: snapshot.threads.map((entry) =>
+              entry.id === root.id ? { ...entry, ...patch } : entry,
+            ),
+          }));
+        const setLane = (
+          thread: OrchestrationThreadShell,
+          planLane: OrchestrationThreadShell["planLane"],
+        ) =>
+          Effect.gen(function* () {
+            yield* Ref.update(fixture.snapshots, (snapshot) => ({
+              ...snapshot,
+              threads: snapshot.threads.map((entry) =>
+                entry.id === thread.id ? { ...entry, planLane } : entry,
+              ),
+            }));
+            yield* fixture.publishEvent({
+              ...eventBase(`plan-lane-${thread.id}-${planLane}`, thread.id),
+              type: "thread.plan-lane-set",
+              payload: { threadId: thread.id, planLane, updatedAt: NOW },
+            });
+          });
+        const runningSession = {
+          threadId: root.id,
+          status: "running" as const,
+          providerName: "Pi",
+          runtimeMode: "full-access" as const,
+          activeTurnId: null,
+          lastError: null,
+          queuedMessages: { steering: [], followUp: [] },
+          updatedAt: NOW,
+        };
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+          // The trigger's pass reads the snapshot once per wake, so one read
+          // taken then a drain is "the pass that wake caused has finished".
+          const settlePass = Effect.andThen(Queue.take(fixture.snapshotReads), reactor.drain);
+          const settledThreadIds = Ref.get(fixture.commands).pipe(
+            Effect.map((commands) => commands.map(({ threadId }) => threadId)),
+          );
+
+          // A child finishing under a root that is still working is not
+          // finished work: nothing is aimed at either thread.
+          yield* setLane(child, "done");
+          yield* settlePass;
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+
+          // Reopening the child is non-terminal, so it triggers nothing; the
+          // root's own `done` behind it is what wakes the trigger. The decider
+          // refuses this one (live child) and the mock records the attempt.
+          yield* setLane(child, "in_progress");
+          yield* setLane(root, "done");
+          yield* settlePass;
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map(({ threadId, settledAt }) => [
+              threadId,
+              settledAt,
+            ]),
+            [[root.id, ACTIVE_AT]],
+          );
+
+          // The child finishing retries the ROOT, not the child that moved:
+          // this is what settles a root that was refused while it was live.
+          yield* setLane(child, "done");
+          yield* settlePass;
+          assert.deepStrictEqual(yield* settledThreadIds, [root.id, root.id]);
+
+          // A live session of the root's OWN blocks settlement — and the two
+          // ordinary ways a root finishes move its lane mid-turn: marking its
+          // plan done, and a cancel cascade that interrupts the turn in
+          // flight. The lane transition must therefore not be the only wake.
+          yield* patchRoot({ session: runningSession });
+          yield* setLane(root, "cancelled");
+          yield* settlePass;
+          assert.deepStrictEqual(yield* settledThreadIds, [root.id, root.id]);
+
+          // …the turn ending is where that blocker clears, so it wakes too.
+          const idleSession = { ...runningSession, status: "idle" as const };
+          yield* patchRoot({ session: idleSession });
+          yield* fixture.publishEvent({
+            ...eventBase("session-idle", root.id),
+            type: "thread.session-set",
+            payload: { threadId: root.id, session: idleSession },
+          });
+          // Both workers wake on a quiet session: the sweep and the trigger.
+          yield* Queue.take(fixture.snapshotReads);
+          yield* settlePass;
+          assert.deepStrictEqual(yield* settledThreadIds, [root.id, root.id, root.id]);
+
+          // No settings read decided any of this, and no pull-request lookup
+          // was needed: finishing is not a timer.
+          assert.deepStrictEqual(yield* Ref.get(fixture.branchCalls), []);
+          assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), []);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("uses saved PRs without settling resumed threads or branches with newer PRs", () =>
     Effect.scoped(
       Effect.gen(function* () {

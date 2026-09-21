@@ -61,13 +61,13 @@ the one region upstream rewrote 75% of in nine days.
 
 ## B. What landed where
 
-| Change-set               | Commit       | Seam                                                                                | Convention                                                                |
-| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files                    |
-| Settle semantics         | `9ed6b9e4c`  | ~~`client-runtime/src/state/threadSettled.ts`~~ → `decider.ts` (server-owned)       | deleted at pull 7; two marked auto-settle blockers in the decider, see §J |
-| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)                            |
-| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                                |
-| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                                |
+| Change-set               | Commit       | Seam                                                                                | Convention                                                                                               |
+| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files                                                   |
+| Settle semantics         | `9ed6b9e4c`  | ~~`client-runtime/src/state/threadSettled.ts`~~ → `decider.ts` (server-owned)       | deleted at pull 7; two marked auto-settle blockers in the decider plus the finished-work trigger, see §J |
+| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)                                                           |
+| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                                                               |
+| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                                                               |
 
 Conventions used throughout, unchanged from previous cycles:
 
@@ -394,3 +394,45 @@ Consequence, accepted: settlement now runs with every client closed, and a root
 whose children are genuinely still running can be settled by hand — the row
 returns when the dispatcher's parent wake arrives as a turn start on the root
 (`decider.ts`, `thread.turn.start` lifecycle reset).
+
+**The finished-work trigger** (restored after PR #199 dropped it with the client
+rule). Upstream's sweep only settles on a timer or a terminal pull request, so
+every finished orchestration loitered in the active inbox until the 3-day idle
+sweep. Loom settles a **root** whose plan lane has reached `done` or
+`cancelled`, as soon as nothing else blocks it: `finishedRootSettlesAt` in
+`ThreadSettlementPolicy.ts`, fired by `settleFinishedRoots` in
+`ThreadSettlementReactor.ts`. Roots only — a child is not an inbox row.
+
+- It is **not** part of the sweep and **not** configurable: it needs no settings
+  and no pull-request lookup. Finishing is not a timer, so disabling the
+  inactivity/merge policies does not disable it.
+- It adds **no** new blocker. The dispatch is an ordinary `thread.auto-settle`,
+  so the two blockers above still decide — a root whose subtree is still live is
+  refused, and the refusal is silent rather than logged because it is the
+  expected answer, not a fault.
+- **It settles when the last blocker clears, which is usually not the lane
+  transition itself.** A live session blocks settlement, and both ordinary ways
+  a root finishes move its lane _mid-turn_: an orchestrator marking its own plan
+  `done` (`workstream_set_lane` defaults to the calling thread), and a cancel
+  cascade that interrupts the turn in flight. So the trigger wakes on **two**
+  events — `thread.plan-lane-set` reaching a terminal lane, and
+  `thread.session-set` going quiet. Waking on the lane alone drops the settle
+  permanently in exactly those common cases.
+- Each wake runs **one coalesced pass** over the active snapshot rather than a
+  targeted lookup per event: cancelling a 30-node subtree emits 30 terminal lane
+  events that all concern one root, and turns end constantly. Measured: 30
+  cascade events cost 1 snapshot read, not 30.
+- There is no reverse rule: reopening a settled root un-settles through the
+  existing activity path (its turn start), exactly as the sweep's settles do.
+
+**Consequence, restored deliberately and worth the human's eye.** Messaging a
+`done` root pops the row back to active for the duration of the turn (the
+activity un-settle clears `settledOverride` to `null`) and the trigger
+re-settles it when that turn ends. That is precisely what the deleted client
+rule did (`workstreamSettleTriggered` sat below `effectiveSettled`'s
+running-session blocker), so it is a faithful restoration rather than a new
+behaviour — but if the wanted behaviour is "a user who just messaged a finished
+thread keeps the row active", that is a product change, not a bug fix. The
+explicit **Un-settle** button already pins a row active for good
+(`reason: "user"` → `settledOverride: "active"`), and the trigger never
+overrides it.
