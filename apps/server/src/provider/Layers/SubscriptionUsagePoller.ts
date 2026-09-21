@@ -19,7 +19,6 @@ import {
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { AccountUsageWindow } from "../accountUsage.loom.ts";
-import { PI_SUBSCRIPTION_ACCOUNT_NAMESPACES } from "../exhaustionMapping.ts";
 import { ProviderHealthRegistry } from "../Services/ProviderHealthRegistry.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
@@ -153,29 +152,20 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  // Which instances should show this account's windows on upstream's Limits
-  // page: the instance itself when the account is instance-scoped (a pooled
-  // router's usage source), otherwise every pi instance whose catalogue serves
-  // the account's slug namespaces (loom runs one pi instance over both
-  // subscriptions, so the windows are labelled by account).
-  const limitsTargets = (attribution: {
-    readonly providerName: string;
-    readonly providerInstanceId: ProviderInstanceId | null;
-  }) =>
-    attribution.providerInstanceId !== null
-      ? Effect.succeed([attribution.providerInstanceId])
+  // Which instances show this account's windows on upstream's Limits page: the
+  // instance itself when the account is instance-scoped (a pooled router's
+  // usage source), otherwise every pi instance — pi routes turns to whichever
+  // subscription the chosen model belongs to, so both accounts' windows belong
+  // on its card, labelled by account.
+  const limitsTargets = (providerInstanceId: ProviderInstanceId | null) =>
+    providerInstanceId !== null
+      ? Effect.succeed([providerInstanceId])
       : providerRegistry.getProviders.pipe(
-          Effect.map((providers) => {
-            const namespaces = new Set(
-              PI_SUBSCRIPTION_ACCOUNT_NAMESPACES[attribution.providerName] ?? [],
-            );
-            return providers.flatMap((provider) =>
-              provider.driver === "pi" &&
-              provider.models.some((model) => namespaces.has(model.slug.split("/")[0] ?? ""))
-                ? [provider.instanceId]
-                : [],
-            );
-          }),
+          Effect.map((providers) =>
+            providers.flatMap((provider) =>
+              provider.driver === "pi" ? [provider.instanceId] : [],
+            ),
+          ),
         );
 
   const feed = (
@@ -217,7 +207,7 @@ const make = Effect.gen(function* () {
                   usage.windows,
                 ),
               };
-              for (const instanceId of yield* limitsTargets(attribution)) {
+              for (const instanceId of yield* limitsTargets(attribution.providerInstanceId)) {
                 const instance = yield* instanceRegistry.getInstance(instanceId);
                 if (instance)
                   yield* instance.snapshot.applyUsageLimits({ ...limits, checkedAt: observedAt });
