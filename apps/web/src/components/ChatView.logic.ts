@@ -21,7 +21,7 @@ import {
   type Thread,
   type ThreadShell,
 } from "../types";
-import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
+import { parseHandoffDraft, parseRetroDraft } from "../loom/composerIntercepts";
 
 import {
   type ComposerImageAttachment,

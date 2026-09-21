@@ -2304,6 +2304,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
   );
 
+  // loom: `/handoff` (plan D2) and `/retro` fork the active thread, so they are
+  // offered only for a pi-backed server thread that is not mid-turn (D7/D8).
+  // The server re-checks and rejects these cases as a backstop.
+  const canDraftHandoff =
+    _isServerThread && activeThread?.session?.providerName === "pi" && phase !== "running";
+
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2340,6 +2346,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 command: "default",
                 label: "/default",
                 description: "Switch this thread back to normal build mode",
+              },
+            ] as const)
+          : []),
+        // loom: the two client-side intercepts.
+        ...(canDraftHandoff
+          ? ([
+              {
+                id: "slash:handoff",
+                type: "slash-command",
+                command: "handoff",
+                label: "/handoff",
+                description: "Hand off out-of-scope work without polluting this thread",
+              },
+              {
+                id: "slash:retro",
+                type: "slash-command",
+                command: "retro",
+                label: "/retro",
+                description: "Fork a retro reviewer over this thread\u2019s development process",
               },
             ] as const)
           : []),
@@ -3576,6 +3601,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        if (item.command === "handoff" || item.command === "retro") {
+          // loom: unlike the mode toggles, `/handoff` and `/retro` take free-text,
+          // so selecting one inserts the command and leaves the human to type the
+          // explanation/focus (mirrors provider-slash-command insertion).
+          const replacement = `/${item.command} `;
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
