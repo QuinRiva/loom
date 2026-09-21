@@ -10,7 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
+import * as Layer from "effect/Layer"; // loom: Layer.mock-based provision of the loom services
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 

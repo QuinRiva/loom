@@ -113,7 +113,7 @@ export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironm
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
 /**
- * A subscription-usage source an instance polls for its own account usage.
+ * loom: a subscription-usage source an instance polls for its own account usage.
  *
  * Driver-agnostic on purpose: Loom reads each source's OAuth token fresh off
  * disk every poll cycle and hits the provider's usage endpoint, so a router
@@ -157,7 +157,7 @@ export const ProviderInstanceConfig = Schema.Struct({
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),
-  usageSources: Schema.optionalKey(Schema.Array(ProviderUsageSource)),
+  usageSources: Schema.optionalKey(Schema.Array(ProviderUsageSource)), // loom: pooled usage
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 

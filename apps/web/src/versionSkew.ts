@@ -119,6 +119,7 @@ export function manualServerUpdateCommand(targetVersion: string): string {
   return `npx t3@${targetVersion}`;
 }
 
+// loom: guidance names the server and covers every self-update capability.
 export function serverUpdateGuidance(
   capability: ServerSelfUpdateCapability | null,
   serverLabel: string,

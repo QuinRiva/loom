@@ -17,6 +17,7 @@ import {
   type OrchestrationEvent,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+// loom: restart-fidelity coverage over a shared on-disk database.
 // The restart-fidelity test needs a unique on-disk database the two engine
 // instances SHARE, created before either layer is built — a filesystem fact, not
 // an Effect one.

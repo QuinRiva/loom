@@ -56,6 +56,7 @@ describe("makeDrainableWorker", () => {
   );
 });
 
+// loom: coalescing trigger worker (one idempotent pass, bounded backlog).
 describe("makeCoalescingWorker", () => {
   it.live("collapses a burst of triggers arriving mid-pass into exactly one follow-up pass", () =>
     Effect.scoped(

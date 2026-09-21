@@ -36,6 +36,7 @@ function withUsageLimits(
   return usageLimits ? { ...rest, usageLimits } : rest;
 }
 
+// loom: a base refresh must never publish a snapshot that lost palette content.
 /**
  * Snapshot list fields whose content can regress across a refresh: the model
  * catalogue and the two command palettes.

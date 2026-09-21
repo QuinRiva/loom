@@ -126,7 +126,7 @@ interface PendingApproval {
   readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
 }
 
-// Grok's ask_user_question response models exactly two shapes: accepted (with
+// loom: Grok's ask_user_question response models exactly two shapes: accepted (with
 // answers) or cancelled. A dismissal and a supersede are therefore both delivered
 // as CANCELLED — honest, because neither is a selection — and the supersede's
 // message content is re-delivered as a new turn by the caller.

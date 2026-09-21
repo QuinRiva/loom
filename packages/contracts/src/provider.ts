@@ -49,7 +49,7 @@ export const ProviderSession = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastError: Schema.optional(TrimmedNonEmptyString),
-  // Classification of the last error (set alongside `lastError`). Lets the
+  // loom: classification of the last error (set alongside `lastError`). Lets the
   // exhaustion resume sweep find `quota_exhausted`-stalled sessions without
   // re-parsing the raw string. Absent for sessions that never errored.
   lastErrorClass: Schema.optional(RuntimeErrorClass),
@@ -65,23 +65,23 @@ export const ProviderSessionStartInput = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
-  // Standing instruction appended to the session's system prompt once at
+  // loom: standing instruction appended to the session's system prompt once at
   // session spawn (e.g. the active-goal context). Not part of any turn input.
   appendSystemPrompt: Schema.optional(TrimmedNonEmptyString),
-  // Role-driven pi options: skill paths (absolute, repeated `--skill`) and a
+  // loom: role-driven pi options: skill paths (absolute, repeated `--skill`) and a
   // tool-name allowlist (`--tools`). Pi-only — other drivers drop them.
   skills: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   tools: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
-  // Thread fork (MVP): when set, the driver forks this source thread's pi
+  // loom: thread fork (MVP) — when set, the driver forks this source thread's pi
   // session at the child's FIRST launch (native `pi --fork`) so the child
   // starts with a full copy of the source context, then diverges. Applied once
   // — every later resume launches normally (the child's own session file now
   // exists). Pi-only; other drivers ignore it.
   forkFromThreadId: Schema.optional(ThreadId),
-  // How a fork's FIRST launch resolves its system-prompt/tool identity.
+  // loom: how a fork's FIRST launch resolves its system-prompt/tool identity.
   // "replay" (default, and the only prior behaviour) replays the source's
   // captured launch argv verbatim to preserve the shared cacheable prefix.
   // "compose" uses this thread's OWN reactor-composed identity instead — for
@@ -133,7 +133,7 @@ export const ProviderRespondToRequestInput = Schema.Struct({
 });
 export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
 
-// The question is already settled durably by the time this input exists (the
+// loom: the question is already settled durably by the time this input exists (the
 // server settles first, then delivers), so `outcome` tells the adapter WHICH
 // terminal outcome to hand its waiting tool call — not whether to settle.
 // Absent means `answered`; `message` carries the plain text that superseded the

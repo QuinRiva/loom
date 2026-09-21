@@ -72,6 +72,7 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    // loom: out-of-workspace file chips.
     readAbsoluteFile: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:read-absolute-file",
       tag: WS_METHODS.projectsReadAbsoluteFile,

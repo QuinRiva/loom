@@ -299,6 +299,7 @@ export function resolveDefaultProviderModelSelection(
   return model ? { instanceId, model } : null;
 }
 
+// loom: open model-selection routing keys (custom instance ids).
 /**
  * Resolve an open model-selection routing key back to a driver kind.
  * Custom instance ids such as `claude_openrouter` are not themselves

@@ -1141,6 +1141,7 @@ describe("deriveWorkLogEntries", () => {
     );
   });
 
+  // loom: work-log entries never echo the command back as detail.
   it("does not duplicate the command as detail when derived from detail fallback", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

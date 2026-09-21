@@ -35,7 +35,7 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.snapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          // The only consumers (the `t3` CLI project/goal resolvers) read just
+          // loom: the only consumers (the `t3` CLI project/goal resolvers) read just
           // `.projects`/`.goals`, so use the command read model — it returns the
           // same OrchestrationReadModel shape but never materialises the
           // per-thread activity/message/checkpoint tables (hundreds of MB on a

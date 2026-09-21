@@ -14,7 +14,7 @@ import { cn } from "~/lib/utils";
 const SKILL_TOKEN_REGEX =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 
-// Subtrees whose text is literal and must never be rewritten into chips: code
+// loom: subtrees whose text is literal and must never be rewritten into chips: code
 // (inline spans and the `code`/`pre` of a fenced block, whose text is the code
 // itself) and links (whose label is read back from the hast node).
 const SKILL_INLINE_SKIP_TAGS = new Set(["code", "pre", "a"]);
@@ -62,7 +62,7 @@ export function renderSkillInlineMarkdownChildren(
     if (!isValidElement<{ children?: ReactNode; node?: { tagName?: string } }>(child)) {
       return child;
     }
-    // Identify by the hast node react-markdown attaches, not by `child.type`:
+    // loom: identify by the hast node react-markdown attaches, not by `child.type`:
     // once `components` overrides a tag its element type is a function
     // component, so comparing against intrinsic tag names never matches. The
     // string comparison stays for trees rendered without those overrides.

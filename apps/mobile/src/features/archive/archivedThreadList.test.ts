@@ -14,7 +14,7 @@ function makeProject(
     workspaceRoot: `/workspaces/${input.id}`,
     repositoryIdentity: null,
     defaultModelSelection: null,
-    defaultStartFromOrigin: null,
+    defaultStartFromOrigin: null, // loom: per-project start-from-origin default
     scripts: [],
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
@@ -27,6 +27,7 @@ function makeThread(
     Pick<OrchestrationThreadShell, "id" | "projectId" | "title">,
 ): OrchestrationThreadShell {
   return {
+    // loom: workstream fields on the thread shell (goal, graph, cost, activity).
     goalId: null,
     parentThreadId: null,
     role: null,
@@ -91,7 +92,7 @@ function makeSnapshot(
     snapshot: {
       snapshotSequence: 1,
       projects,
-      goals: [],
+      goals: [], // loom: goals travel in the snapshot
       threads,
       updatedAt: "2026-06-04T00:00:00.000Z",
     },

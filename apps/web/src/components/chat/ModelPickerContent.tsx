@@ -489,7 +489,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       // When searching, we only respect locked provider (by driver kind),
       // ignoring sidebar selection so account-scoped searches can find a
       // model before the user chooses a specific instance rail item.
-      // Excluded models (hidden / unselected in allow-list mode) still match
+      // loom: excluded models (hidden / unselected in allow-list mode) still match
       // a search, but always rank as a separated block below the curated
       // results — the settings-free escape hatch for one-off model use.
       const matches =

@@ -73,8 +73,9 @@ export interface OrchestrationEventStoreShape {
     input: OrchestrationAggregateReplayRange & { readonly maxEvents: number },
   ) => Effect.Effect<OrchestrationAggregateReplayStats, OrchestrationEventStoreError>;
 
+  // loom: single-aggregate replay (bounded by events returned, not scanned).
   /**
-   * loom: Replay ONE aggregate's events from an exclusive sequence cursor.
+   * Replay ONE aggregate's events from an exclusive sequence cursor.
    *
    * Prefer this over {@link readFromSequence} when resuming a single aggregate.
    * Filtering the global stream instead makes the limit bound events *scanned*

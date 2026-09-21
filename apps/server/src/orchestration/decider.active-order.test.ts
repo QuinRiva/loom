@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
-import { loomThreadFixtureDefaults } from "./deciderTestThread.ts";
+import { loomThreadFixtureDefaults } from "./deciderTestThread.ts"; // loom: thread-shape defaults
 
 const NOW = "2026-01-01T00:00:00.000Z";
 // The Effect test clock starts at the epoch.

@@ -368,6 +368,7 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  // loom: workstream model presets/profiles.
   it("replaces workstreamModelPresets wholesale when the patch key is present", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,

@@ -31,6 +31,7 @@ function makeReadModel(input: {
       {
         id: ThreadId.make("thread-1"),
         projectId: ProjectId.make("project-1"),
+        // loom: workstream fields on the thread shape.
         goalId: null,
         parentThreadId: null,
         role: null,

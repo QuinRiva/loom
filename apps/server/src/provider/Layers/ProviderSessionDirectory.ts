@@ -188,7 +188,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     repository.list().pipe(
       Effect.mapError(toPersistenceError("ProviderSessionDirectory.listBindings:list")),
       Effect.flatMap((rows) =>
-        // Skip rows whose persisted provider is unknown to this build instead of
+        // loom: skip rows whose persisted provider is unknown to this build instead of
         // failing the whole listing — enumerating sessions must not be disabled
         // by a single row written by another build.
         Effect.forEach(

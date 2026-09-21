@@ -57,6 +57,7 @@ function threadDetailToShell(
     environmentId,
     id: thread.id,
     projectId: thread.projectId,
+    // loom: carry the workstream fields (goal, graph, cost, activity) onto the shell.
     goalId: thread.goalId,
     parentThreadId: thread.parentThreadId,
     role: thread.role,

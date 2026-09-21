@@ -31,6 +31,8 @@ import {
   type VcsStatusInput,
   type VcsStatusResult,
 } from "@t3tools/contracts";
+// loom: git lock retry, batched remote status, --no-verify commits and the
+// commit-all result shape.
 import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import {
   makeGitVcsDriverCore,

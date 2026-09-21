@@ -688,6 +688,7 @@ effectIt.layer(NodeServices.layer)("resolveWindowsEnvironment", (it) => {
   );
 });
 
+// loom: worktree-local node_modules/.bin on PATH.
 describe("withLocalNodeModulesBin", () => {
   it("prepends <cwd>/node_modules/.bin ahead of the inherited PATH (posix)", () => {
     const result = withLocalNodeModulesBin({ PATH: "/usr/bin:/bin" }, "/home/me/worktree", "linux");

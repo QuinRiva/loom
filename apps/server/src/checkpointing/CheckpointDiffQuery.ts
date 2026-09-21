@@ -138,7 +138,7 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      // Adjacent-turn diffs prefer the turn's start-of-turn baseline ref so
+      // loom: adjacent-turn diffs prefer the turn's start-of-turn baseline ref so
       // the result covers exactly what the turn changed — sibling edits made in
       // a shared worktree between turns fall in the unattributed gap. Wider
       // ranges and pre-baseline threads keep the `turn/<n>` anchors.

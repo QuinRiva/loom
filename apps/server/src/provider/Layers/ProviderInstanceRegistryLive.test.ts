@@ -432,6 +432,7 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
   );
 });
 
+// loom: the adapter drivers this slice exercises are not the fork's built-ins.
 /**
  * loom: upstream types this registry call `BuiltInDriversEnv`, but loom is
  * Pi-first — `BUILT_IN_DRIVERS` is `[PiDriver]`, so that alias is `PiDriverEnv`

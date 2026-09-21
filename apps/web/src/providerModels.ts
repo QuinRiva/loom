@@ -106,6 +106,7 @@ export function getDefaultServerModel(
   );
 }
 
+// loom: provider display name and interaction-mode toggle lookups.
 export function getProviderDisplayName(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderDriverKind,

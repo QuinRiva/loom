@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { PI_DEFAULT_MODEL } from "./model.ts"; // loom: pi is the fork's default provider
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -673,11 +674,12 @@ describe("ClientSettings pull request merge methods", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
-  it("defaults text generation to Luna at low reasoning effort", () => {
+  // loom: the fork is Pi-first, so text generation defaults to pi's default
+  // model rather than upstream's codex/Luna selection.
+  it("defaults text generation to the pi default model", () => {
     expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-5.6-luna",
-      options: [{ id: "reasoningEffort", value: "low" }],
+      instanceId: ProviderInstanceId.make("pi"),
+      model: PI_DEFAULT_MODEL,
     });
   });
 
@@ -856,6 +858,7 @@ describe("ServerSettingsPatch.providerInstances", () => {
   });
 });
 
+// loom: workstream model presets and profiles in ServerSettings.
 describe("ServerSettings.workstreamModelPresets", () => {
   it("defaults to an empty record so configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.workstreamModelPresets).toEqual({});

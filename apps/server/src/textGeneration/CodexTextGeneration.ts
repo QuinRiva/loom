@@ -34,7 +34,7 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-  type TextGenerationOperation,
+  type TextGenerationOperation, // loom: adds the structured-generation operation
 } from "./TextGenerationUtils.ts";
 import { codexModelFamily, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../codexModelOptions.ts";

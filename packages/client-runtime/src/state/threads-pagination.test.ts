@@ -89,6 +89,7 @@ function checkpoint(turnId: string, turnCount: number): OrchestrationThread["che
 const BASE_THREAD: OrchestrationThread = {
   id: THREAD_ID,
   projectId: ProjectId.make("project-1"),
+  // loom: workstream fields on the thread shape.
   goalId: null,
   parentThreadId: null,
   role: null,

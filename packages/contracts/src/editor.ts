@@ -11,7 +11,7 @@ type EditorDefinition = {
   readonly baseArgs?: readonly string[];
   readonly launchStyle: EditorLaunchStyle;
   /**
-   * Editors the CLIENT launches via a URL handler rather than the server
+   * loom: editors the CLIENT launches via a URL handler rather than the server
    * spawning a binary. Used when the server is remote (e.g. loom on a VM) and
    * the editor runs on the operator's machine, reaching back over SSH.
    */
@@ -79,6 +79,7 @@ export const EDITORS = [
   { id: "rustrover", label: "RustRover", commands: ["rustrover"], launchStyle: "line-column" },
   { id: "webstorm", label: "WebStorm", commands: ["webstorm"], launchStyle: "line-column" },
   { id: "file-manager", label: "File Manager", commands: null, launchStyle: "direct-path" },
+  // loom: client-launched remote editor (the server never spawns it).
   {
     id: "zed-remote",
     label: "Zed (remote)",
@@ -88,7 +89,7 @@ export const EDITORS = [
   },
 ] as const satisfies ReadonlyArray<EditorDefinition>;
 
-/** Editor ids the client launches itself; the server must never spawn these. */
+/** loom: editor ids the client launches itself; the server must never spawn these. */
 export const CLIENT_LAUNCH_EDITORS: ReadonlyArray<EditorId> = EDITORS.filter(
   (editor) => "clientLaunch" in editor,
 ).map((editor) => editor.id);
@@ -98,7 +99,7 @@ export function isClientLaunchEditor(editor: EditorId): boolean {
 }
 
 /**
- * Build a Zed remote hotlink for `host`, which must name an SSH host the
+ * loom: build a Zed remote hotlink for `host`, which must name an SSH host the
  * CLIENT machine can resolve. Zed's hotlink form carries no line/column, so any
  * trailing `:line[:col]` suffix is dropped rather than silently mangling the path.
  */

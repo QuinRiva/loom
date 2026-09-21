@@ -75,8 +75,9 @@ export interface ProviderSessionDirectoryShape {
     ProviderSessionDirectoryPersistenceError
   >;
 
+  // loom: retention support for stopped runtime bindings.
   /**
-   * loom: retention support — the fork's long-running workstream accumulates
+   * Retention support — the fork's long-running workstream accumulates
    * stopped bindings indefinitely, and nothing upstream ever removed them.
    *
    * Drop a persisted binding, but only while it is still `stopped`.

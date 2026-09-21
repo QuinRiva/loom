@@ -31,6 +31,7 @@ type CommandInput<T extends CommandType> = Omit<
 export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
+// loom: goal commands.
 export type CreateGoalInput = CommandInput<"goal.create">;
 export type UpdateGoalMetaInput = CommandInput<"goal.meta.update">;
 export type ArchiveGoalInput = CommandInput<"goal.archive">;
@@ -54,6 +55,7 @@ export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
 export type StartThreadTurnInput = CommandInput<"thread.turn.start">;
 export type InterruptThreadTurnInput = CommandInput<"thread.turn.interrupt">;
+// loom: workstream plan/attention/dependency commands.
 export type SetThreadPlanLaneInput = CommandInput<"thread.plan-lane.set">;
 export type ClearThreadAttentionInput = CommandInput<"thread.attention.clear">;
 export type SetThreadDependenciesInput = CommandInput<"thread.dependencies.set">;
@@ -131,6 +133,7 @@ export const deleteProject: (input: DeleteProjectInput) => CommandEffect = Effec
   });
 });
 
+// loom: goal lifecycle commands.
 export const createGoal: (input: CreateGoalInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.createGoal",
 )(function* (input) {
@@ -370,7 +373,7 @@ export const interruptThreadTurn: (input: InterruptThreadTurnInput) => CommandEf
   });
 });
 
-// Workstream plan axis (`workstream_set_lane`). `in_progress` is control-plane
+// loom: workstream plan axis (`workstream_set_lane`). `in_progress` is control-plane
 // only — the decider rejects it from a client commandId.
 export const setThreadPlanLane: (input: SetThreadPlanLaneInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.setThreadPlanLane",
@@ -384,7 +387,7 @@ export const setThreadPlanLane: (input: SetThreadPlanLaneInput) => CommandEffect
   });
 });
 
-// Workstream attention axis: an omitted `reason` clears all stored attention.
+// loom: workstream attention axis: an omitted `reason` clears all stored attention.
 export const clearThreadAttention: (input: ClearThreadAttentionInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.clearThreadAttention",
 )(function* (input) {
@@ -397,7 +400,7 @@ export const clearThreadAttention: (input: ClearThreadAttentionInput) => Command
   });
 });
 
-// Workstream dependency edges (`blockedBy`). Self-refs/dangling ids tolerated.
+// loom: workstream dependency edges (`blockedBy`). Self-refs/dangling ids tolerated.
 export const setThreadDependencies: (input: SetThreadDependenciesInput) => CommandEffect =
   Effect.fn("EnvironmentCommands.setThreadDependencies")(function* (input) {
     const metadata = yield* timestampedCommandMetadata(input);

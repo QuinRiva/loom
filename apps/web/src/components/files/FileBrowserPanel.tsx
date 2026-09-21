@@ -32,6 +32,7 @@ interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
+  // loom: directory chips reveal a directory in the tree.
   /** Workspace-relative directory to reveal/scroll to on `revealRequestId` change. */
   revealPath?: string | null;
   revealRequestId?: number;
@@ -392,7 +393,7 @@ export default function FileBrowserPanel({
     if (expandAll && !query.trim()) setAllDirectoriesExpanded(model, directoryPaths, true);
   }, [directoryPaths, expandAll, model, query]);
 
-  // Reveal a directory targeted by an in-workspace chip: expand ancestors, then
+  // loom: reveal a directory targeted by an in-workspace chip: expand ancestors, then
   // scroll to and select it. Runs when the request id changes or once the tree
   // paths that contain the target have loaded.
   const handledDirectoryRevealRef = useRef<number>(0);

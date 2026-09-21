@@ -84,7 +84,7 @@ import {
 } from "../Services/ProviderAdapter.ts";
 import { renderUserInputOutcomeHandoff } from "@t3tools/shared/userInputOutcome";
 
-// The single key a non-answer outcome's framing is delivered under. Cursor's
+// loom: the single key a non-answer outcome's framing is delivered under. Cursor's
 // ask_question response has no field for "the user did not answer", so the
 // explanation rides the answers map rather than masquerading as a selection.
 const NON_ANSWER_OUTCOME_KEY = "t3_outcome";

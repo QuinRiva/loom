@@ -295,7 +295,7 @@ describe("detectComposerTrigger", () => {
     expect(detectComposerTrigger("issue#123", "issue#123".length)).toBeNull();
   });
 
-  // loom (plan D-D): the unified `#` menu lists pull requests AND threads, and
+  // loom: (plan D-D) the unified `#` menu lists pull requests AND threads, and
   // thread titles are multi-word, so the query scans back over spaces to the
   // nearest token-starting `#`. The composer closes the menu once both sections
   // settle empty, which is what keeps a stray `#` in prose from hanging.

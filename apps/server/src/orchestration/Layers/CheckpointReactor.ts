@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodePath from "node:path";
+import * as NodePath from "node:path"; // loom: start-of-turn baseline refs
 
 import {
   CommandId,

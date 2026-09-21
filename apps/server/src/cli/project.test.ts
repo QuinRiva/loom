@@ -25,6 +25,9 @@ it("maps declared server failures into structural project command errors", () =>
   assert.strictEqual(error.cause, cause);
 });
 
+// loom: the CLI surfaces the cause message (upstream deliberately did not,
+// to avoid echoing a credential back); the generic fallback still applies to
+// non-Error failures.
 it("surfaces the cause message for unexpected Error failures", () => {
   const cause = new Error("connect ECONNREFUSED 127.0.0.1:13900");
 

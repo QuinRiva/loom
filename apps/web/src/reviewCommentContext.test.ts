@@ -82,6 +82,7 @@ describe("review comment context parsing", () => {
     );
   });
 
+  // loom: review comments are a discriminated union (line | mdx-anchor).
   it("uses file extensions for source comments and preserves nested markdown fences", () => {
     expect(inferReviewCommentFenceLanguage("docs/plan.md")).toBe("md");
     expect(inferReviewCommentFenceLanguage("src/view.tsx")).toBe("tsx");

@@ -331,6 +331,7 @@ function isOpenCodeDefaultTitle(title: string): boolean {
   return OPENCODE_DEFAULT_TITLE_PATTERN.test(title);
 }
 
+// loom: the question-release handshake for the user-input outcome contract.
 // Bounded so a never-arriving terminal event cannot strand the human's message:
 // after this the fallback turn is dispatched anyway, which is the safer failure
 // (a possible steer) than silence (a certainly-lost reply).

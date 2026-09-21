@@ -1,3 +1,4 @@
+// loom: the Claude model catalogue and the CLI capability probe.
 // @effect-diagnostics nodeBuiltinImport:off
 // node:child_process directly: the capability probe must hand the Agent SDK a
 // raw `SpawnedProcess`, and it needs the underlying handle to force-kill an

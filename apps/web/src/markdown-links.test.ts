@@ -12,7 +12,66 @@ import {
   resolveMarkdownFileLinkMeta,
   resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
+  shouldOpenMarkdownFileLinkInBrowserByDefault,
+  shouldOpenMarkdownFileLinkInEditor,
 } from "./markdown-links";
+
+describe("isWindowsDrivePathHref", () => {
+  it.each([
+    ["C:\\repo\\image.png", true],
+    ["C:%5Crepo%5Cimage.png", true],
+    ["https://example.com/image.png", false],
+  ])("classifies %s as %s", (href, expected) => {
+    expect(isWindowsDrivePathHref(href)).toBe(expected);
+  });
+});
+
+describe("extractMarkdownLinkHrefs", () => {
+  it("extracts angle-bracketed paths containing spaces", () => {
+    expect(
+      extractMarkdownLinkHrefs(
+        "[Open the Bike Receipts folder](</Users/dara/Downloads/Lime Ride Artifacts/Bike Receipts>)",
+      ),
+    ).toEqual(["/Users/dara/Downloads/Lime Ride Artifacts/Bike Receipts"]);
+  });
+
+  it("preserves ordinary destinations and ignores link titles", () => {
+    expect(
+      extractMarkdownLinkHrefs(
+        '[source](apps/web/src/markdown-links.ts "implementation") and [docs](https://example.com)',
+      ),
+    ).toEqual(["apps/web/src/markdown-links.ts", "https://example.com"]);
+  });
+});
+
+describe("shouldOpenMarkdownFileLinkInEditor", () => {
+  it("uses command-click on macOS", () => {
+    expect(shouldOpenMarkdownFileLinkInEditor({ metaKey: true, ctrlKey: false }, "MacIntel")).toBe(
+      true,
+    );
+    expect(shouldOpenMarkdownFileLinkInEditor({ metaKey: false, ctrlKey: true }, "MacIntel")).toBe(
+      false,
+    );
+  });
+
+  it("uses control-click on other platforms", () => {
+    expect(
+      shouldOpenMarkdownFileLinkInEditor({ metaKey: false, ctrlKey: true }, "Linux x86_64"),
+    ).toBe(true);
+    expect(
+      shouldOpenMarkdownFileLinkInEditor({ metaKey: true, ctrlKey: false }, "Linux x86_64"),
+    ).toBe(false);
+  });
+});
+
+describe("shouldOpenMarkdownFileLinkInBrowserByDefault", () => {
+  it("keeps PDFs browser-first while source files open in the file viewer", () => {
+    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.pdf")).toBe(true);
+    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.PDF?download=1")).toBe(true);
+    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.html")).toBe(false);
+    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.xml")).toBe(false);
+  });
+});
 
 function renderMarkdownLinkHref(markdown: string): string | undefined {
   let renderedHref: string | undefined;
@@ -33,6 +92,7 @@ function renderMarkdownLinkHref(markdown: string): string | undefined {
   return renderedHref;
 }
 
+// loom: out-of-workspace preview paths and the loom inline-code chip rules.
 describe("isAbsolutePreviewablePath", () => {
   it("accepts POSIX absolute paths the out-of-workspace preview can serve", () => {
     expect(isAbsolutePreviewablePath("/home/carl/report.md")).toBe(true);

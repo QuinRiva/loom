@@ -2,6 +2,7 @@ import {
   ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
+  // loom: goal, workstream plan/attention/dependency and reasoning payloads.
   GoalCreatedPayload as ContractsGoalCreatedPayloadSchema,
   GoalMetaUpdatedPayload as ContractsGoalMetaUpdatedPayloadSchema,
   GoalArchivedPayload as ContractsGoalArchivedPayloadSchema,

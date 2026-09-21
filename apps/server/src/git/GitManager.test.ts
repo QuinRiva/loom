@@ -765,6 +765,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  // loom: repository-wide PR batches must disambiguate same-named fork PRs.
   it.effect("repository batches disambiguate same-named fork PRs", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

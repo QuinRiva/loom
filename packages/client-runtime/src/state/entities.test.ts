@@ -88,6 +88,7 @@ describe("scoped entity keys", () => {
 const THREAD_SHELL = {
   id: THREAD_ID,
   projectId: PROJECT_ID,
+  // loom: workstream fields on the thread shape.
   goalId: null,
   parentThreadId: null,
   role: null,

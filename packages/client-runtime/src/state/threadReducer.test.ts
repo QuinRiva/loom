@@ -19,6 +19,7 @@ import {
   oldestActivityByChronology,
 } from "./threadReducer.ts";
 
+// loom: activity live-window helpers.
 const activity = (id: string, createdAt: string, sequence?: number): OrchestrationThreadActivity =>
   ({
     id,
@@ -42,6 +43,7 @@ const baseEventFields = {
 const baseThread: OrchestrationThread = {
   id: ThreadId.make("thread-1"),
   projectId: ProjectId.make("project-1"),
+  // loom: workstream fields on the thread shape.
   goalId: null,
   parentThreadId: null,
   role: null,
