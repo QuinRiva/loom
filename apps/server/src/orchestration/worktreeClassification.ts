@@ -94,11 +94,17 @@ export interface WorktreeOwnership {
 const isTerminal = (planLane: string): boolean => planLane === "done" || planLane === "cancelled";
 
 /**
- * Resolve the thread that owns a worktree. Meta (`worktreePath`) match wins,
- * preferring an isolated thread over attached residents; a fanned-in child
- * whose meta was already repointed to the parent is recovered via the
- * `ws/…-<first8(threadId)>` branch-suffix convention (see
- * `workstreamChildBranchName` in WorktreeProvisioner).
+ * Resolve the thread that owns a worktree. A `worktreePath` match alone is
+ * ambiguous — shared children run in their root's tree, and a fanned-in child's
+ * meta is repointed there too — so ownership is decided by the strongest signal
+ * available, in order:
+ *
+ * 1. the checked-out branch: the thread this checkout was provisioned for is the
+ *    one whose meta records that branch;
+ * 2. the `ws/…-<first8(threadId)>` convention (see `workstreamChildBranchName`
+ *    in WorktreeProvisioner), which recovers a child whose meta was repointed;
+ * 3. among the residents, the one that most plausibly owns the tree rather than
+ *    merely occupying it: a live thread over a finished one, a root over a child.
  */
 export const resolveWorktreeOwnership = (
   entry: GitWorktreeListEntry,
@@ -109,10 +115,12 @@ export const resolveWorktreeOwnership = (
     (t) => t.worktreePath !== null && NodePath.resolve(t.worktreePath) === resolvedPath,
   );
   const owner =
-    byPath.find((t) => t.isolation === "isolated") ??
+    (entry.branch === null ? undefined : byPath.find((t) => t.branch === entry.branch)) ??
     (entry.branch !== null && entry.branch.startsWith("ws/")
       ? threads.find((t) => entry.branch!.endsWith(`-${t.id.slice(0, 8)}`))
       : undefined) ??
+    byPath.find((t) => !isTerminal(t.planLane) && t.parentThreadId === null) ??
+    byPath.find((t) => !isTerminal(t.planLane)) ??
     byPath[0];
   const parent =
     owner?.parentThreadId != null ? threads.find((t) => t.id === owner.parentThreadId) : undefined;
