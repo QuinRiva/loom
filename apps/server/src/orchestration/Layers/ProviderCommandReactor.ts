@@ -639,14 +639,15 @@ const make = Effect.gen(function* () {
   });
 
   // loom: the settle-open-questions paths need the question activities and
-  // nothing else, so they read a detail narrowed to those two kinds rather than
-  // the full activity window.
+  // nothing else. A narrowed `getThreadDetailById` still lists the thread's
+  // messages, plans, pull requests and checkpoints, so stop/interrupt paid for
+  // the whole history and died on any row that failed to decode.
   const resolveThreadUserInputActivities = Effect.fnUntraced(function* (threadId: ThreadId) {
-    return yield* projectionSnapshotQuery
-      .getThreadDetailById(threadId, {
-        activityKinds: ["user-input.requested", "user-input.resolved"],
-      })
-      .pipe(Effect.map(Option.getOrUndefined));
+    const activities = yield* projectionSnapshotQuery.listThreadActivitiesByKinds({
+      threadId,
+      activityKinds: ["user-input.requested", "user-input.resolved"],
+    });
+    return { id: threadId, activities };
   });
 
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
@@ -2121,14 +2122,11 @@ const make = Effect.gen(function* () {
     // Settle BEFORE the liveness check: an interrupt of a thread whose provider is
     // already gone must still end its open questions, or a human pressing Stop on
     // a wedged thread changes nothing.
-    const threadQuestions = yield* resolveThreadUserInputActivities(event.payload.threadId);
-    if (threadQuestions) {
-      yield* settleOpenUserInputRequests({
-        thread: threadQuestions,
-        createdAt: event.payload.createdAt,
-        tag: "turn-interrupt",
-      });
-    }
+    yield* settleOpenUserInputRequests({
+      thread: yield* resolveThreadUserInputActivities(event.payload.threadId),
+      createdAt: event.payload.createdAt,
+      tag: "turn-interrupt",
+    });
 
     const session = thread.session;
     if (!session || session.status === "stopped") {
@@ -2382,14 +2380,11 @@ const make = Effect.gen(function* () {
     // As with interrupt: settle from the command path first, so a stop against an
     // inactive adapter (where `ProviderService` skips `adapter.stopSession`
     // entirely) still ends the thread's open questions.
-    const stopThreadQuestions = yield* resolveThreadUserInputActivities(event.payload.threadId);
-    if (stopThreadQuestions) {
-      yield* settleOpenUserInputRequests({
-        thread: stopThreadQuestions,
-        createdAt: now,
-        tag: "session-stop",
-      });
-    }
+    yield* settleOpenUserInputRequests({
+      thread: yield* resolveThreadUserInputActivities(event.payload.threadId),
+      createdAt: now,
+      tag: "session-stop",
+    });
     const wasCompacting = compactingThreadIds.has(thread.id);
     stoppingThreadIds.add(thread.id);
     const clearStopping = Effect.sync(() => void stoppingThreadIds.delete(thread.id));

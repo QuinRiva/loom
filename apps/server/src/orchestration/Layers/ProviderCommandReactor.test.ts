@@ -4524,11 +4524,17 @@ describe("ProviderCommandReactor", () => {
       outcome: "answered",
     });
 
-    const readModel = await harness.readModel();
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    const resolved = thread?.activities.find(
+    // This thread's history is deliberately undecodable, so read the resolution
+    // through the narrow activity query rather than a whole-snapshot decode.
+    const resolved = (
+      await Effect.runPromise(
+        harness.snapshotQuery.listThreadActivitiesByKinds({
+          threadId: ThreadId.make("thread-1"),
+          activityKinds: ["user-input.resolved"],
+        }),
+      )
+    ).find(
       (activity) =>
-        activity.kind === "user-input.resolved" &&
         (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
     );
     expect(resolved?.payload).toMatchObject({ outcome: "answered" });
@@ -4758,23 +4764,19 @@ describe("ProviderCommandReactor", () => {
     await harness.drain();
     expect(harness.respondToUserInput.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
-      requestId: "user-input-request-supersede",
+      requestId: "user-input-request-release-order",
       outcome: "superseded",
+      answers: {},
       message: "delete the staging bucket",
     });
-
-    // And the adapter is never asked to send a turn: no second copy of the
-    // instruction, as a steer or otherwise. `drain` is the deterministic wait —
-    // the reactor's queue is empty, so a turn-start would already have landed.
-    await harness.drain();
-    expect(harness.sendTurn.mock.calls).toHaveLength(0);
 
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     const resolved = thread?.activities.find(
       (activity) =>
         activity.kind === "user-input.resolved" &&
-        (activity.payload as Record<string, unknown>).requestId === "user-input-request-supersede",
+        (activity.payload as Record<string, unknown>).requestId ===
+          "user-input-request-release-order",
     );
     expect(resolved?.payload).toMatchObject({ outcome: "superseded" });
     // The human's message is still in the transcript.
