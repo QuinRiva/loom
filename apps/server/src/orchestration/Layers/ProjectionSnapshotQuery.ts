@@ -2374,6 +2374,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sessions.runtime_mode AS "runtimeMode",
           sessions.active_turn_id AS "activeTurnId",
           sessions.last_error AS "lastError",
+          -- loom: the fork's session row schema requires this column; omitting
+          -- it fails the decode at runtime, where typecheck cannot see it —
+          -- and this query gates EVERY provider runtime event's ingestion.
+          sessions.last_error_class AS "lastErrorClass",
           sessions.updated_at AS "updatedAt"
         FROM projection_threads AS threads
         LEFT JOIN projection_thread_sessions AS sessions
