@@ -1,3 +1,4 @@
+import { ThreadId } from "@t3tools/contracts";
 import type { ComposerContextId, ComposerContextRecord } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -198,6 +199,25 @@ describe("provider projection", () => {
     expect(project("a\nb\n")).toContain("3 | a\n4 | b\n</context>");
     expect(project("a\nb\n")).not.toContain("5 |");
     expect(project("a\n")).toContain("3 | a\n4 | \n</context>");
+  });
+
+  // loom: a mentioned thread projects as the `thread://` link the pi-side
+  // tools document, and carries no envelope entry (the link IS the payload).
+  it("projects a thread reference as a thread:// link with no envelope entry", () => {
+    const thread: ComposerContextRecord = {
+      version: 1,
+      contextId: ctx("ctx_th"),
+      kind: "thread",
+      label: "Sidebar re-home",
+      threadId: ThreadId.make("11111111-1111-4111-8111-111111111111"),
+    };
+    const projected = projectComposerContextForProvider({
+      text: "ask [Sidebar re-home](t3-context://v1/thread/ctx_th) and [T1](t3-context://v1/terminal/ctx_t)",
+      records: [thread, terminal],
+    });
+    expect(projected).toContain("[Sidebar re-home](thread://11111111-1111-4111-8111-111111111111)");
+    expect(projected).not.toContain('kind="thread"');
+    expect(projected).toContain('<context kind="terminal" id="ctx_t">');
   });
 
   it("formats markers with kind, label and ref", () => {

@@ -21,7 +21,6 @@ interface AskUserQuestionBody {
 interface RawQuestion {
   readonly header?: unknown;
   readonly question?: unknown;
-  readonly stakes?: unknown;
   readonly options?: unknown;
   readonly multiSelect?: unknown;
 }
@@ -29,8 +28,6 @@ interface RawQuestion {
 interface RawOption {
   readonly label?: unknown;
   readonly description?: unknown;
-  readonly preview?: unknown;
-  readonly recommended?: unknown;
 }
 
 const LONG_POLL_MS = 25_000;
@@ -81,11 +78,6 @@ export const validateAskUserQuestions = (
       return { error: `questions[${questionIndex}].options must contain between 2 and 4 options.` };
     if (question.multiSelect !== undefined && typeof question.multiSelect !== "boolean")
       return { error: `questions[${questionIndex}].multiSelect must be a boolean when provided.` };
-    const stakes = question.stakes === undefined ? undefined : requiredString(question.stakes);
-    if (question.stakes !== undefined && !stakes)
-      return {
-        error: `questions[${questionIndex}].stakes must be a non-empty string when provided.`,
-      };
 
     const options: Array<UserInputQuestion["options"][number]> = [];
     for (const [optionIndex, rawOption] of question.options.entries()) {
@@ -102,35 +94,11 @@ export const validateAskUserQuestions = (
         return {
           error: `Option label "${label}" is reserved by Loom's custom-answer control; choose another label.`,
         };
-      const preview = option.preview === undefined ? undefined : requiredString(option.preview);
-      if (option.preview !== undefined && !preview)
-        return {
-          error: `questions[${questionIndex}].options[${optionIndex}].preview must be a non-empty string when provided.`,
-        };
-      if (question.multiSelect === true && preview)
-        return {
-          error: `questions[${questionIndex}].options[${optionIndex}].preview is only supported for single-select questions.`,
-        };
-      if (option.recommended !== undefined && typeof option.recommended !== "boolean")
-        return {
-          error: `questions[${questionIndex}].options[${optionIndex}].recommended must be a boolean when provided.`,
-        };
-      const recommended = option.recommended === true;
-      if (recommended && options.some((existing) => existing.recommended))
-        return {
-          error: `questions[${questionIndex}] marks more than one option recommended; at most one option per question may be recommended.`,
-        };
-      options.push({
-        label,
-        description,
-        ...(preview ? { preview } : {}),
-        ...(recommended ? { recommended: true } : {}),
-      });
+      options.push({ label, description });
     }
     questions.push({
       header,
       question: text,
-      ...(stakes ? { stakes } : {}),
       options,
       multiSelect: question.multiSelect ?? false,
     });

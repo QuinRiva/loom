@@ -180,6 +180,12 @@ describe("PiDriver user input", () => {
                 ? ["A", "B"]
                 : [],
           );
+          // loom: the shape the composer's question panel consumes — never a
+          // multi-select, always dismissible (the dialog can be cancelled), and
+          // input/editor rely on the panel's default-on custom answer.
+          expect(requested.payload.questions[0]?.multiSelect).toBeUndefined();
+          expect(requested.payload.questions[0]?.allowCustomAnswer).toBeUndefined();
+          expect(requested.payload.dismissible).toBe(true);
           yield* adapter.respondToUserInput(threadId, ApprovalRequestId.make(testCase.id), {
             [testCase.id]: testCase.answer,
           });
@@ -319,7 +325,7 @@ describe("PiDriver user input", () => {
               question: "Which option?",
               options: [
                 { label: "A", description: "First" },
-                { label: "B", description: "Second", preview: "**Preview**" },
+                { label: "B", description: "Second" },
               ],
               multiSelect: false,
             },
@@ -329,7 +335,9 @@ describe("PiDriver user input", () => {
           throw new Error("Expected the live driver to present the question.");
         const requested = yield* takeEvent(events, "user-input.requested");
         expect(requested.requestId).toBe(opened.requestId);
-        expect(requested.payload.questions[0]?.options[1]?.preview).toBe("**Preview**");
+        // loom: broker questions settle through the poll outcome, so the panel
+        // must offer Dismiss even though pi sends no `responseMode`.
+        expect(requested.payload.dismissible).toBe(true);
 
         const result = waitForPiAskUserQuestion(threadId, opened.requestId, 1_000);
         const questionId = `${opened.requestId}:1`;

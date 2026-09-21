@@ -339,10 +339,6 @@
       "types": "./src/userInputOutcome.ts",
       "import": "./src/userInputOutcome.ts"
     },
-    "./userInputAnswers": {
-      "types": "./src/userInputAnswers.ts",
-      "import": "./src/userInputAnswers.ts"
-    },
     "./devHome": {
       "types": "./src/devHome.ts",
       "import": "./src/devHome.ts"

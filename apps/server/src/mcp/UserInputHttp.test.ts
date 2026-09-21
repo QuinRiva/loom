@@ -6,21 +6,37 @@ const question = (overrides: Record<string, unknown> = {}) => ({
   header: "Choice",
   question: "Which option?",
   options: [
-    { label: "A", description: "First", preview: "**A preview**" },
+    { label: "A", description: "First" },
     { label: "B", description: "Second" },
   ],
   ...overrides,
 });
 
 describe("ask_user_question validation", () => {
-  it("accepts and preserves single-select markdown previews", () => {
+  it("accepts a well-formed question and defaults multiSelect", () => {
     const result = validateAskUserQuestions([question()]);
     expect("questions" in result && result.questions[0]?.multiSelect).toBe(false);
-    expect("questions" in result && result.questions[0]?.options[0]).toEqual({
-      label: "A",
-      description: "First",
-      preview: "**A preview**",
-    });
+    expect("questions" in result && result.questions[0]?.options).toEqual([
+      { label: "A", description: "First" },
+      { label: "B", description: "Second" },
+    ]);
+  });
+
+  it("drops fields the contract no longer carries", () => {
+    const result = validateAskUserQuestions([
+      question({
+        stakes: "Dropping the column loses live rows.",
+        options: [
+          { label: "A", description: "First", preview: "**A**", recommended: true },
+          { label: "B", description: "Second" },
+        ],
+      }),
+    ]);
+    expect("questions" in result && result.questions[0]).not.toHaveProperty("stakes");
+    expect("questions" in result && result.questions[0]?.options).toEqual([
+      { label: "A", description: "First" },
+      { label: "B", description: "Second" },
+    ]);
   });
 
   it("rejects more than four questions and fewer than two options", () => {
@@ -47,57 +63,9 @@ describe("ask_user_question validation", () => {
     ).toMatchObject({ error: expect.stringContaining("reserved") });
   });
 
-  it("rejects previews on multi-select questions", () => {
-    expect(validateAskUserQuestions([question({ multiSelect: true })])).toMatchObject({
-      error: expect.stringContaining("only supported for single-select"),
+  it("rejects a non-boolean multiSelect", () => {
+    expect(validateAskUserQuestions([question({ multiSelect: "yes" })])).toMatchObject({
+      error: expect.stringContaining("multiSelect must be a boolean"),
     });
-  });
-
-  it("preserves stakes and a single recommended option", () => {
-    const result = validateAskUserQuestions([
-      question({
-        stakes: "Dropping the column loses live rows.",
-        options: [
-          { label: "A", description: "First", recommended: true },
-          { label: "B", description: "Second" },
-        ],
-      }),
-    ]);
-    expect("questions" in result && result.questions[0]?.stakes).toBe(
-      "Dropping the column loses live rows.",
-    );
-    expect("questions" in result && result.questions[0]?.options).toEqual([
-      { label: "A", description: "First", recommended: true },
-      { label: "B", description: "Second" },
-    ]);
-  });
-
-  it("rejects more than one recommended option per question", () => {
-    expect(
-      validateAskUserQuestions([
-        question({
-          options: [
-            { label: "A", description: "First", recommended: true },
-            { label: "B", description: "Second", recommended: true },
-          ],
-        }),
-      ]),
-    ).toMatchObject({ error: expect.stringContaining("more than one option recommended") });
-  });
-
-  it("rejects blank stakes and non-boolean recommended", () => {
-    expect(validateAskUserQuestions([question({ stakes: "   " })])).toMatchObject({
-      error: expect.stringContaining("stakes must be a non-empty string"),
-    });
-    expect(
-      validateAskUserQuestions([
-        question({
-          options: [
-            { label: "A", description: "First", recommended: "yes" },
-            { label: "B", description: "Second" },
-          ],
-        }),
-      ]),
-    ).toMatchObject({ error: expect.stringContaining("recommended must be a boolean") });
   });
 });

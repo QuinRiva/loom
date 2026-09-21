@@ -168,7 +168,10 @@ export function derivePendingRequests(activities: ReadonlyArray<OrchestrationThr
         requestId,
         createdAt: activity.createdAt,
         questions,
-        dismissible: payload.responseMode === "message",
+        // loom: providers that can cancel an open question (pi, both its native
+        // dialogs and broker questions) say so on the payload, since they carry
+        // no `responseMode`.
+        dismissible: payload.responseMode === "message" || payload.dismissible === true,
       });
     } else if (
       activity.kind === "approval.resolved" ||

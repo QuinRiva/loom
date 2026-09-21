@@ -233,6 +233,10 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
       return `path: ${record.path}`;
     case "skill":
       return `name: ${record.name}`;
+    // loom: threads project inline as `[Title](thread://<id>)` and are skipped
+    // by the envelope loop below; this arm exists only to keep the switch total.
+    case "thread":
+      return `thread: ${record.threadId}`;
   }
 }
 
@@ -266,19 +270,28 @@ export function projectComposerContextForProvider(input: {
     // Even callers that bypass the wire schema must not silently select an ambiguous payload.
     recordsById.set(record.contextId, recordsById.has(record.contextId) ? undefined : record);
   }
-  const body = replaceComposerContextReferences(input.text, (occurrence) =>
-    formatComposerContextProviderMarker(
-      recordsById.get(occurrence.contextId)?.kind ?? occurrence.kind,
+  const body = replaceComposerContextReferences(input.text, (occurrence) => {
+    const record = recordsById.get(occurrence.contextId);
+    // loom: a mentioned thread keeps the wire form the pi-side tools document —
+    // `[Title](thread://<id>)` — so agents need no new vocabulary for it.
+    // (`threadId in record` also excludes an unknown-kind record, whose open
+    // `kind` string is not narrowed by the literal comparison alone.)
+    if (record?.kind === "thread" && "threadId" in record)
+      return `[${occurrence.label}](thread://${record.threadId})`;
+    return formatComposerContextProviderMarker(
+      record?.kind ?? occurrence.kind,
       occurrence.label,
       occurrence.contextId,
-    ),
-  );
+    );
+  });
   const seen = new Set<ComposerContextId>();
   const entries: string[] = [];
   for (const occurrence of occurrences) {
     if (seen.has(occurrence.contextId)) continue;
     seen.add(occurrence.contextId);
     const record = recordsById.get(occurrence.contextId);
+    // loom: the thread link above carries the whole payload — no envelope entry.
+    if (record?.kind === "thread") continue;
     const entry = formatEnvelopeEntry(
       record?.kind ?? occurrence.kind,
       occurrence.contextId,
