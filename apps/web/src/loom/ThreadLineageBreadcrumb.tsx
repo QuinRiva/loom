@@ -112,12 +112,29 @@ export function ThreadLineageBreadcrumb({
     // over the goal chip that follows. Clipping degrades the same way upstream's
     // own breadcrumb does: the trailing chip is cut at the boundary, and the
     // parent link (the reason this cluster exists) survives intact.
-    <span className="flex min-w-0 items-center gap-1 overflow-clip [overflow-clip-margin:2px] text-muted-foreground">
+    //
+    // The width rule yields to upstream's project/title breadcrumb, which is
+    // `flex-1 basis-0` and so only ever gets what this cluster leaves behind:
+    // unbounded, loom's two header chips took the whole header and the title
+    // measured 0px. `calc(50% - 15rem)` reserves the title's share at every
+    // width and goes inert once the header can hold everything (~1100px); below
+    // a 42rem header — where the cap would leave an unreadable stub, and where
+    // upstream has already collapsed its own toolbar into a menu — the cluster
+    // steps aside entirely. A header that narrow is narrow *because* the side
+    // panels are open, and the Workstream panel shows this same lineage.
+    // The container name belongs to ChatHeader, this component's only caller.
+    <span className="hidden min-w-0 max-w-[calc(50%-15rem)] items-center gap-1 overflow-clip [overflow-clip-margin:2px] text-muted-foreground @2xl/header-actions:flex">
       <CornerLeftUpIcon className="size-3.5 shrink-0" />
       {nodes}
-      {separator("sep-role")}
-      <span className="shrink-0 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground">
-        {role?.trim() || "sub-thread"}
+      {/* The role is the cluster's least-load-bearing chip and its last, so it
+          is the first thing the clip above eats. Below the header width at
+          which the cap stops squeezing this cluster (~64rem) it drops out
+          instead, leaving the parent link whole rather than half-painted. */}
+      <span className="hidden shrink-0 items-center gap-1 @5xl/header-actions:flex">
+        {separator("sep-role")}
+        <span className="shrink-0 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground">
+          {role?.trim() || "sub-thread"}
+        </span>
       </span>
     </span>
   );
