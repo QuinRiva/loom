@@ -30,7 +30,6 @@ import {
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   type PreviewEvent,
-  type ReasoningStreamItem,
   ProjectId,
   type ProviderAuthState,
   ProviderDriverKind,
@@ -115,7 +114,6 @@ import * as ServerConfig from "./config.ts";
 import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceOccupancyLease.ts";
-import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -1303,14 +1301,6 @@ const buildAppUnderTest = (options?: {
                 consumers: [],
                 providers: [],
               }),
-          }),
-        ),
-        Layer.provide(
-          Layer.mock(ReasoningStreamBus.ReasoningStreamBus)({
-            publish: () => Effect.void,
-            subscribe: Effect.flatMap(PubSub.unbounded<ReasoningStreamItem>(), (pubsub) =>
-              PubSub.subscribe(pubsub),
-            ),
           }),
         ),
         Layer.provide(

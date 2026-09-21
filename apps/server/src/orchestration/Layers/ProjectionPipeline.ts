@@ -1525,11 +1525,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        // NOTE: `thread.message-reasoning` is deliberately NOT in this group.
-        // refreshThreadShellSummary recomputes counts/latest-user-message that a
-        // reasoning event cannot change; under v2 reasoning fires once per
-        // segment, but even so it has no business triggering the full shell
-        // re-read. Its row write is handled by applyThreadMessagesProjection.
         case "thread.message-sent":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
@@ -1763,34 +1758,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { context: event.payload.context ?? previousMessage?.context }
               : {}),
             isStreaming: false,
-            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
-          });
-          return;
-        }
-
-        case "thread.message-reasoning": {
-          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
-            messageId: event.payload.messageId,
-          });
-          const previousMessage = Option.getOrUndefined(existingMessage);
-          yield* projectionThreadMessageRepository.upsert({
-            messageId: event.payload.messageId,
-            threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
-            // Reasoning may precede the answer; default a stub assistant message.
-            role: previousMessage?.role ?? "assistant",
-            text: previousMessage?.text ?? "",
-            ...(previousMessage?.attachments !== undefined
-              ? { attachments: [...previousMessage.attachments] }
-              : {}),
-            isStreaming: previousMessage?.isStreaming ?? true,
-            // v2 REPLACE: the event carries the full accumulated text.
-            reasoningText: event.payload.reasoningText,
-            reasoningStreaming: event.payload.reasoningStreaming,
-            ...(event.payload.reasoningMs !== undefined
-              ? { reasoningMs: event.payload.reasoningMs }
-              : {}),
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
