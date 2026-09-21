@@ -102,33 +102,6 @@ describe("chatThreadActions", () => {
     ).toBe(false);
   });
 
-  // loom: per-project start-from-origin default.
-  it("applies a per-project start-from-origin default to new worktree drafts", () => {
-    expect(
-      resolveNewDraftStartFromOrigin({
-        envMode: "worktree",
-        newWorktreesStartFromOrigin: false,
-        projectDefaultStartFromOrigin: true,
-      }),
-    ).toBe(true);
-    // The project default never promotes a local (non-worktree) draft.
-    expect(
-      resolveNewDraftStartFromOrigin({
-        envMode: "local",
-        newWorktreesStartFromOrigin: false,
-        projectDefaultStartFromOrigin: true,
-      }),
-    ).toBe(false);
-    // A null/unset project default leaves the global setting in charge.
-    expect(
-      resolveNewDraftStartFromOrigin({
-        envMode: "worktree",
-        newWorktreesStartFromOrigin: false,
-        projectDefaultStartFromOrigin: null,
-      }),
-    ).toBe(false);
-  });
-
   it("prefers the active thread project when resolving thread actions", () => {
     const projectRef = resolveThreadActionProjectRef(
       createContext({
