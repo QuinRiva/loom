@@ -251,7 +251,13 @@ export const make = Effect.gen(function* () {
   ): Effect.Effect<ProjectReadFileResult, E> =>
     Effect.acquireUseRelease(
       Effect.tryPromise({
-        try: () => NodeFSP.open(realTargetPath, "r"),
+        // Non-blocking so a FIFO cannot hang the open; the stat below rejects
+        // it. Regular files ignore the flag. Windows lacks it.
+        try: () =>
+          NodeFSP.open(
+            realTargetPath,
+            NodeFS.constants.O_RDONLY | (NodeFS.constants.O_NONBLOCK ?? 0),
+          ),
         catch: (cause) => errors.operation("open", cause),
       }),
       (handle) =>
