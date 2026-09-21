@@ -12,49 +12,39 @@ export interface PiInvocation {
 
 const WINDOWS_COMMAND_SCRIPT_PATTERN = /\.(?:bat|cmd)$/i;
 
-// loom: the bundled pi CLI, newest package name first. Each entry resolves its
-// own literal so the dependency is visible to static tooling (knip) rather than
-// hidden behind a loop variable.
-const BUNDLED_PI_PACKAGES = [
-  {
-    name: "@earendil-works/pi-coding-agent",
-    resolve: () => import.meta.resolve("@earendil-works/pi-coding-agent"),
-  },
-  {
-    name: "@mariozechner/pi-coding-agent",
-    resolve: () => import.meta.resolve("@mariozechner/pi-coding-agent"),
-  },
-] as const;
+// loom: the bundled pi CLI. The name is resolved from a literal so the
+// dependency stays visible to static tooling (knip).
+const BUNDLED_PI_PACKAGE = "@earendil-works/pi-coding-agent";
 
 export function resolveBundledPiCliPath(): string | undefined {
-  for (const { name: packageName, resolve } of BUNDLED_PI_PACKAGES) {
-    try {
-      // pi ships as ESM with an `exports` map that only defines the `import`
-      // condition and never exposes `./package.json`, so neither a CJS
-      // `require.resolve` nor a `/package.json` subpath resolve works. Resolve
-      // the package's main entry via the `import` condition, walk up to the
-      // package root, and take the CLI declared in `bin.pi` (dist/bundle/cli.js
-      // since pi 0.84, dist/cli.js before that).
-      let dir = NodePath.dirname(NodeURL.fileURLToPath(resolve()));
-      while (dir !== NodePath.dirname(dir)) {
-        const manifestPath = NodePath.join(dir, "package.json");
-        if (NodeFS.existsSync(manifestPath)) {
-          const manifest = JSON.parse(NodeFS.readFileSync(manifestPath, "utf8")) as {
-            readonly name?: string;
-            readonly bin?: string | Record<string, string>;
-          };
-          if (manifest.name === packageName) {
-            const binRel =
-              typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.pi ?? "dist/cli.js");
-            const cliPath = NodePath.join(dir, binRel);
-            return NodeFS.existsSync(cliPath) ? cliPath : undefined;
-          }
+  try {
+    // pi ships as ESM with an `exports` map that only defines the `import`
+    // condition and never exposes `./package.json`, so neither a CJS
+    // `require.resolve` nor a `/package.json` subpath resolve works. Resolve
+    // the package's main entry via the `import` condition, walk up to the
+    // package root, and take the CLI declared in `bin.pi` (dist/bundle/cli.js
+    // since pi 0.84, dist/cli.js before that).
+    let dir = NodePath.dirname(
+      NodeURL.fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent")),
+    );
+    while (dir !== NodePath.dirname(dir)) {
+      const manifestPath = NodePath.join(dir, "package.json");
+      if (NodeFS.existsSync(manifestPath)) {
+        const manifest = JSON.parse(NodeFS.readFileSync(manifestPath, "utf8")) as {
+          readonly name?: string;
+          readonly bin?: string | Record<string, string>;
+        };
+        if (manifest.name === BUNDLED_PI_PACKAGE) {
+          const binRel =
+            typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.pi ?? "dist/cli.js");
+          const cliPath = NodePath.join(dir, binRel);
+          return NodeFS.existsSync(cliPath) ? cliPath : undefined;
         }
-        dir = NodePath.dirname(dir);
       }
-    } catch {
-      // Try the next known package name.
+      dir = NodePath.dirname(dir);
     }
+  } catch {
+    // No bundled copy; `resolvePiInvocation` falls back to `pi` on PATH.
   }
   return undefined;
 }
