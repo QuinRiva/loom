@@ -161,14 +161,24 @@ The seed is the default: it is reproducible and owns nothing. When you need
 server against a copy of the cockpit database — never against
 `~/.t3/cockpit/userdata` itself.
 
+The copy goes in the **port-scoped** home the runner actually opens
+(`<home-dir>/dev-instances/<serverPort>/userdata`), exactly as in step 1 — drop
+it in `$COPY_HOME/userdata` and the server silently comes up on a fresh empty
+database instead.
+
 ```sh
 PORT=13951                                   # a free 139xx port; never 13900 (the live cockpit)
 COPY_HOME=/tmp/t3dbcopy
-mkdir -p "$COPY_HOME/userdata"
-rm -f "$COPY_HOME/userdata/state.sqlite"*    # VACUUM INTO refuses to overwrite
-bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '$COPY_HOME/userdata/state.sqlite'\")"
+COPY_DATA="$COPY_HOME/dev-instances/$PORT/userdata"
+mkdir -p "$COPY_DATA"
+rm -f "$COPY_DATA/state.sqlite"*             # VACUUM INTO refuses to overwrite
+bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '$COPY_DATA/state.sqlite'\")"
 T3CODE_NO_BROWSER=1 setsid pnpm dev --home-dir "$COPY_HOME" --port "$PORT" > /tmp/t3dbcopy-dev.log 2>&1 &
 ```
+
+A 4 GB cockpit database takes ~5 minutes to `VACUUM INTO` and another ~3 to
+boot, so budget for it; the copies are also ~4 GB each, so delete them when you
+are done.
 
 `VACUUM INTO` is safe while the cockpit has the file open and yields one
 consistent snapshot; a plain `cp` of a live database is a corrupt copy. Copy in,
