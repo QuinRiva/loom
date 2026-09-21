@@ -1,7 +1,6 @@
 import {
   ORCHESTRATION_WS_METHODS,
   type EnvironmentId as EnvironmentIdType,
-  type MessageId,
   type OrchestrationThread,
   type OrchestrationThreadDetailPage,
   type OrchestrationThreadDetailSnapshot,
@@ -9,7 +8,6 @@ import {
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -459,6 +457,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       return;
     }
 
+    // loom: the no-data guard runs BEFORE the sequence cursor (upstream advances
+    // the cursor first), so a `thread.deleted` for a thread whose detail was
+    // never loaded still marks it deleted instead of being dropped by the
+    // cursor check.
     const current = yield* SubscriptionRef.get(state);
     if (Option.isNone(current.data)) {
       if (item.kind === "event" && item.event.type === "thread.deleted") {
