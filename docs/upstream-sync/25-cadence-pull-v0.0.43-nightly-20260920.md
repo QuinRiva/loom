@@ -1512,11 +1512,11 @@ parsing was rewritten alongside (scalar subqueries, `--` comments, single-line
 only usable without those false positives. It takes an optional file argument,
 which is how its own regressions are tested:
 
-| tree | expected | actual |
-| --- | --- | --- |
-| HEAD | clean | `0 problems; 0 unreadable`, exit 0 |
-| `2130f1187c^` | flags `listActiveThreadRows` | `SELECT omits ['linkedPullRequest', 'branchPullRequest', 'titleState']` |
-| `b276cb4c16^` | flags `getThreadRuntimeContextRow` | `SELECT omits ['lastErrorClass']` |
+| tree          | expected                           | actual                                                                  |
+| ------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| HEAD          | clean                              | `0 problems; 0 unreadable`, exit 0                                      |
+| `2130f1187c^` | flags `listActiveThreadRows`       | `SELECT omits ['linkedPullRequest', 'branchPullRequest', 'titleState']` |
+| `b276cb4c16^` | flags `getThreadRuntimeContextRow` | `SELECT omits ['lastErrorClass']`                                       |
 
 (`activeOrderKey`, the fourth column that commit restored, is `Schema.optional`
 in the row schema and is correctly not flagged.) `aliascheck.py` still reports

@@ -1620,7 +1620,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       if (
         yield* refuseForeignHomeSideEffect("ProviderService.startSession", parsed.cwd ?? threadId)
       ) {
-        return yield* toValidationError("ProviderService.startSession", FOREIGN_HOME_REFUSAL_DETAIL);
+        return yield* toValidationError(
+          "ProviderService.startSession",
+          FOREIGN_HOME_REFUSAL_DETAIL,
+        );
       }
 
       const resolvedInstanceId = yield* requireBindingInstanceId(
