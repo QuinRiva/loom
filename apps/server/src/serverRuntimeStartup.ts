@@ -33,7 +33,10 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as ServerConfig from "./config.ts";
-import { detectForeignDatabase } from "./workspace/foreignHomeGuard.loom.ts"; // loom:
+import {
+  detectForeignDatabase,
+  refuseForeignHomeSideEffect,
+} from "./workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
@@ -884,6 +887,12 @@ export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
     workspaceRoots,
     (cwd) =>
       Effect.gen(function* () {
+        // loom: a pull rewrites a checkout this home may not own — the DB-copy
+        // smoke recipe boots on a database whose workspace roots are the real
+        // ones (docs/dev-site-testing.md).
+        if (yield* refuseForeignHomeSideEffect("autoPullProjects.pullCurrentBranch", cwd)) {
+          return;
+        }
         const status = yield* git.statusDetails(cwd);
         if (
           !status.isRepo ||

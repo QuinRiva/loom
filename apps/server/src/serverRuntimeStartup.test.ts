@@ -24,6 +24,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import { setForeignDatabaseForTest } from "./workspace/foreignHomeGuard.loom.ts";
 
 it.effect("automatic pull only updates enabled, behind, clean default-branch checkouts", () =>
   Effect.gen(function* () {
@@ -87,6 +88,20 @@ it.effect("automatic pull only updates enabled, behind, clean default-branch che
       { ...overrides({ "/opted-out": false }), defaultAutoPull: true },
     ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
     assert.deepStrictEqual(pulled, ["/inherited"]);
+
+    // loom: a copied database records another home's workspace roots, so the
+    // boot pull must refuse rather than rewrite a checkout this home does not own.
+    pulled.length = 0;
+    setForeignDatabaseForTest({
+      worktreesDir: "/this-home/worktrees",
+      recordedExample: "/elsewhere",
+    });
+    yield* ServerRuntimeStartup.autoPullProjects(
+      [project("/clean")],
+      overrides({ "/clean": true }),
+    ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
+    setForeignDatabaseForTest(null);
+    assert.deepStrictEqual(pulled, []);
   }),
 );
 
