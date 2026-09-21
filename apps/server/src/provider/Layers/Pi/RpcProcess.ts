@@ -53,7 +53,13 @@ export type PiRpcRequestCommand =
       readonly images?: ReadonlyArray<PiRpcImage>;
       readonly streamingBehavior?: "steer" | "followUp";
     }
-  | { readonly type: "abort" };
+  | { readonly type: "abort" }
+  // Manual context compaction (pi's own `/compact`): summarises older messages
+  // and rebuilds the context from the summary onwards. Answers only after the
+  // summarisation LLM call returns, so callers must pass a long timeout.
+  // pi's `set_auto_compaction` is deliberately not sent: pi auto-compacts by
+  // default and T3 has no setting that would turn that off.
+  | { readonly type: "compact"; readonly customInstructions?: string };
 
 export type PiRpcWriteOnlyCommand =
   | { readonly type: "extension_ui_response"; readonly id: string; readonly value: string }
@@ -141,6 +147,25 @@ export type PiRpcStdoutEvent =
       readonly toolName: string;
       readonly result?: unknown;
       readonly isError?: boolean;
+    }
+  // Compaction lifecycle, emitted for BOTH a manual `compact` request
+  // (`reason: "manual"`) and pi's own auto-compaction (`threshold`/`overflow`).
+  // `result` is null when compaction was aborted or failed; `errorMessage`
+  // carries the failure when `aborted` is false.
+  | { readonly type: "compaction_start"; readonly reason?: string }
+  | {
+      readonly type: "compaction_end";
+      readonly reason?: string;
+      readonly result?: {
+        readonly summary?: string;
+        readonly firstKeptEntryId?: string;
+        readonly tokensBefore?: number;
+        readonly estimatedTokensAfter?: number;
+        readonly usage?: Record<string, unknown>;
+      } | null;
+      readonly aborted?: boolean;
+      readonly willRetry?: boolean;
+      readonly errorMessage?: string;
     }
   | {
       readonly type: "queue_update";
