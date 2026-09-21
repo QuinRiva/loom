@@ -5,7 +5,8 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeCoalescingWorker, makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { isTerminalLane } from "@t3tools/shared/workstreamGraph"; // loom: finished-work trigger
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -25,6 +26,7 @@ import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./Services/ProjectionSnapshotQuery.ts";
 import { pullRequestMatchesProject } from "./ThreadPullRequestReactor.ts";
 import {
+  finishedRootSettlesAt, // loom: finished-work trigger
   isAutoSettlementCandidate,
   resolveAutoSettlementAt,
   type SettlementPullRequest,
@@ -306,8 +308,74 @@ export const make = Effect.gen(function* () {
     runSweep(null, threadId),
   );
 
+  // loom: the finished-work trigger — one idempotent pass settling every root
+  // that `finishedRootSettlesAt` now accepts. Deliberately not part of the
+  // sweep above: it reads no settings and needs no pull-request lookup.
+  //
+  // Whole-snapshot rather than targeted, and COALESCED, because every trigger
+  // asks the same question: cancelling a 30-node subtree emits 30 terminal lane
+  // events that all concern one root, and a busy environment ends turns
+  // constantly — N triggers must cost one pass, not N reads of the active-thread
+  // query. The dispatch is a plain `thread.auto-settle`, so the decider's arm
+  // remains the only place the blockers live, and its refusal is the ordinary
+  // answer while a root's subtree is still working.
+  const settleFinishedRoots = Effect.fn("ThreadSettlementReactor.settleFinishedRoots")(
+    function* () {
+      const snapshot = yield* snapshots.getShellSnapshot();
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* Effect.forEach(
+        snapshot.threads.flatMap((thread) => {
+          const settledAt = isAutoSettlementCandidate(thread, now)
+            ? finishedRootSettlesAt(thread)
+            : null;
+          return settledAt === null ? [] : [{ thread, settledAt }];
+        }),
+        ({ thread, settledAt }) =>
+          Effect.gen(function* () {
+            const uuid = yield* crypto.randomUUIDv4;
+            yield* engine.dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`server:finished-work-settle:${thread.id}:${uuid}`),
+              threadId: thread.id,
+              snapshotSequence: snapshot.snapshotSequence,
+              settledAt,
+            });
+          }).pipe(
+            // Blocked is this trigger's ordinary answer while the root's
+            // subtree is still live; the next wake retries. Only a real fault
+            // deserves a warning.
+            Effect.catchTag("OrchestrationThreadSettleBlockedError", () => Effect.void),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.failCause(cause)
+                : Effect.logWarning("finished-work thread settlement skipped", {
+                    threadId: thread.id,
+                    cause: Cause.pretty(cause),
+                  }),
+            ),
+          ),
+        { concurrency: 8, discard: true },
+      );
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("finished-work thread settlement pass failed", {
+                cause: Cause.pretty(cause),
+              }),
+        ),
+      ),
+  );
+  const finishedWorkWorker = yield* makeCoalescingWorker(settleFinishedRoots());
+
   const processEvent = (event: OrchestrationEvent) => {
     switch (event.type) {
+      // loom: finished-work trigger — a lane reaching done/cancelled is the
+      // transition that makes a root settleable.
+      case "thread.plan-lane-set":
+        return isTerminalLane(event.payload.planLane) ? finishedWorkWorker.enqueue() : Effect.void;
       case "thread.pull-request-linked":
       case "thread.pull-request-synced":
       case "thread.pull-request-unlinked":
@@ -319,7 +387,15 @@ export const make = Effect.gen(function* () {
           event.payload.session.status !== "running" &&
           event.payload.session.status !== "starting"
         ) {
-          return worker.enqueue(event.payload.threadId);
+          // loom: the finished-work trigger retries here too. A live session
+          // blocks settlement, and the two ordinary ways a root finishes move
+          // its lane WHILE its own session runs — marking its plan `done`
+          // mid-turn, and a cancel cascade that interrupts the turn in flight.
+          // This is the only event where that blocker clears.
+          return Effect.andThen(
+            worker.enqueue(event.payload.threadId),
+            finishedWorkWorker.enqueue(),
+          );
         }
         break;
     }
@@ -354,7 +430,12 @@ export const make = Effect.gen(function* () {
     yield* forkParked(Stream.runForEach(events, processEvent));
   });
 
-  return { start, drain: worker.drain } satisfies ThreadSettlementReactor["Service"];
+  return {
+    start,
+    // loom: the finished-work trigger runs on its own worker, so a drain that
+    // waited only on the sweep would let a caller observe a half-finished pass.
+    drain: Effect.andThen(worker.drain, finishedWorkWorker.drain),
+  } satisfies ThreadSettlementReactor["Service"];
 });
 
 export const layer = Layer.effect(ThreadSettlementReactor, make);

@@ -232,6 +232,9 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
         ["yielded", graph("yielded", null)],
         // The idle orchestrator whose subtree is still burning tokens.
         ["live-descendant", graph("in_progress", "in_progress")],
+        // Same blocker under the finished-work trigger: a root that reported
+        // done waits for its subtree before it leaves the inbox.
+        ["done-root-live-descendant", graph("done", "in_progress")],
       ] as const) {
         expect(yield* autoSettle(label, readModel).pipe(Effect.flip)).toMatchObject({
           _tag: "OrchestrationThreadSettleBlockedError",
