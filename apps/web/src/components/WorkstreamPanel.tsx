@@ -16,7 +16,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { selectWorkstreamPanelState, useWorkstreamUiStore } from "../loom/workstreamUiStore";
 
 import { newThreadId } from "../lib/utils";
-import { formatCostUsd } from "../lib/contextWindow";
+import { formatCostUsd } from "../loom/costFormat";
 import {
   ATTENTION_STYLES,
   buildNodeContextMenuItems,

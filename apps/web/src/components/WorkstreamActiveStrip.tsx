@@ -6,7 +6,7 @@ import {
   getThreadStatus,
   formatRelativeAge,
 } from "../lib/workstreamPresentation";
-import { formatCostUsd } from "../lib/contextWindow";
+import { formatCostUsd } from "../loom/costFormat";
 import { attentionReasonsOf, hasRunningSignal } from "../lib/workstreamRollup";
 import type { SidebarThreadSummary } from "../types";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
