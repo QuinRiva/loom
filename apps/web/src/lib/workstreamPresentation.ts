@@ -846,8 +846,8 @@ export interface LifecycleRow {
   readonly detail: string | null;
   readonly tone: LifecycleTone;
   /**
-   * Whether the row maps cleanly to a message/turn in the thread's chat so it
-   * can deep-link via `requestScrollToDispatch`. Only set where the mapping is
+   * Whether the row maps cleanly to a message/turn in the thread's chat, so
+   * the timeline renders it as a link into that thread. Only set where the mapping is
    * unambiguous (a turn boundary: start/resume/yield, and each submitted
    * outcome) — control-plane-only rows (route-taken, fan-in) are not linked.
    */

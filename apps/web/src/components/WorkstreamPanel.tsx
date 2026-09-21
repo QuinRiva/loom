@@ -51,7 +51,6 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
-import { useLoomScrollStore } from "../loom/loomScrollStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { readLocalApi } from "../localApi";
@@ -120,7 +119,6 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(subtree.map((thread) => [thread.id, thread])),
     [subtree],
   );
-  const requestScrollToDispatch = useLoomScrollStore((store) => store.requestScrollToDispatch);
   const spawnThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const setPlanLane = useAtomCommand(threadEnvironment.setPlanLane);
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
@@ -201,14 +199,11 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
 
-  // Clicking an orchestrator (bridge) node: route to the dispatching orchestrator
-  // thread, then ask its timeline to scroll to the turn that spawned the wave.
-  const openDispatch = (
-    threadId: ThreadId,
-    anchorAtIso: string,
-    expandConsultTargetId?: ThreadId,
-  ) => {
-    requestScrollToDispatch(threadId, anchorAtIso, expandConsultTargetId);
+  // Clicking an orchestrator (bridge) node routes to the dispatching
+  // orchestrator thread. It no longer scrolls that thread's timeline to the
+  // dispatching turn: upstream's timeline owns scrolling and the fork's
+  // scroll-request bridge retired with the chat-surface re-home.
+  const openDispatch = (threadId: ThreadId) => {
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
