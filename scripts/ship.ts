@@ -178,6 +178,15 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       args: ["run", "typecheck"],
     },
     {
+      // An unmarked loom hunk in an upstream-owned file is invisible to every
+      // audit and is silently dropped at the next cadence pull. Scoped to what
+      // this branch changes; the whole-fork backlog is `--report`, not a gate.
+      kind: "check",
+      title: "Gate: unmarked-delta sweep",
+      executable: "docs/upstream-sync/pull7-tools/unmarkedsweep.sh",
+      args: [],
+    },
+    {
       kind: "push",
       title: "Push branch and set upstream",
       executable: "git",
