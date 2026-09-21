@@ -33,6 +33,11 @@ function LineageSegmentChip({
             onClick={() => onNavigate(segment.threadId)}
             className={cn(
               "flex min-w-0 items-center gap-1 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
+              // The root chip's label is one fixed word, so squeezing the chip
+              // below it does not shorten anything — it just paints the word
+              // outside its own border and over the chips that follow. It keeps
+              // its width and the wrapper clips the cluster's tail instead.
+              isRoot ? "shrink-0" : "",
               segment.archived ? "opacity-60" : "",
             )}
           >
@@ -101,7 +106,13 @@ export function ThreadLineageBreadcrumb({
   });
 
   return (
-    <span className="flex min-w-0 items-center gap-1 text-muted-foreground">
+    // `overflow-clip` is load-bearing, not cosmetic: this is a shrinkable flex
+    // item whose chips are all `shrink-0`, so on a narrow header the box shrinks
+    // below its content and the chips paint outside it — over each other and
+    // over the goal chip that follows. Clipping degrades the same way upstream's
+    // own breadcrumb does: the trailing chip is cut at the boundary, and the
+    // parent link (the reason this cluster exists) survives intact.
+    <span className="flex min-w-0 items-center gap-1 overflow-clip [overflow-clip-margin:2px] text-muted-foreground">
       <CornerLeftUpIcon className="size-3.5 shrink-0" />
       {nodes}
       {separator("sep-role")}
