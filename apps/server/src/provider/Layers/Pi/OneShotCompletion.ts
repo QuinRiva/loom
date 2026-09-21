@@ -8,7 +8,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { normalizeCliError } from "../../../textGeneration/TextGenerationUtils.ts";
+import {
+  normalizeCliError,
+  type TextGenerationOperation,
+} from "../../../textGeneration/TextGenerationUtils.ts";
 import { quoteWindowsPiShellCommand, resolvePiInvocation, shouldUseWindowsPiShell } from "./Cli.ts";
 
 const PI_ONE_SHOT_TIMEOUT_MS = 120_000;
@@ -117,9 +120,15 @@ function runPiOneShot(input: {
 
 /**
  * One-shot non-interactive pi completion that returns structured JSON decoded
- * against `outputSchema`. Backs the pi driver's `generateStructured`, so the
- * default `pi` text-generation instance produces real titles/goals without a
+ * against `outputSchema`. Every pi text-generation operation (titles, commit
+ * messages, change-request content, branch names, the fork's goal derivation)
+ * runs through here, so the `pi` instance produces real model output without a
  * configured side model.
+ *
+ * Metadata prompts are self-contained, so context files and skills are left out
+ * to keep the call cheap and fast. Extensions stay enabled: they are what
+ * register custom providers (a model slug such as `cliproxy/claude-sonnet-5`
+ * fails with "Unknown provider" under `--no-extensions`).
  */
 export const generatePiStructured = Effect.fn("generatePiStructured")(function* <
   S extends Schema.Top,
@@ -128,6 +137,7 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
   readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv;
   readonly cwd?: string | undefined;
+  readonly operation: TextGenerationOperation;
   readonly prompt: string;
   readonly outputSchema: S;
   readonly modelSelection: ModelSelection;
@@ -141,6 +151,8 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
     "json",
     "--no-tools",
     "--no-session",
+    "--no-context-files",
+    "--no-skills",
     "--thinking",
     "off",
     ...(model ? ["--provider", model.provider, "--model", model.modelId] : []),
@@ -161,7 +173,7 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
         shell: useWindowsShell,
       }),
     catch: (cause) =>
-      normalizeCliError("pi", "generateStructured", cause, "Pi one-shot completion failed"),
+      normalizeCliError("pi", input.operation, cause, "Pi one-shot completion failed"),
   }).pipe(
     Effect.timeoutOption(PI_ONE_SHOT_TIMEOUT_MS),
     Effect.flatMap(
@@ -169,7 +181,7 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
         onNone: () =>
           Effect.fail(
             new TextGenerationError({
-              operation: "generateStructured",
+              operation: input.operation,
               detail: "Pi one-shot completion timed out.",
             }),
           ),
@@ -181,7 +193,7 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
   const jsonString = extractJsonObject(lastAssistantText(stdout));
   if (!jsonString) {
     return yield* new TextGenerationError({
-      operation: "generateStructured",
+      operation: input.operation,
       detail: "Pi returned no structured output.",
     });
   }
@@ -191,7 +203,7 @@ export const generatePiStructured = Effect.fn("generatePiStructured")(function* 
     Effect.catchTag("SchemaError", (cause) =>
       Effect.fail(
         new TextGenerationError({
-          operation: "generateStructured",
+          operation: input.operation,
           detail: "Pi returned invalid structured output.",
           cause,
         }),
