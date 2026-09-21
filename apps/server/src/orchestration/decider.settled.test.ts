@@ -189,6 +189,84 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
+  // loom: the sweep is the single owner of auto-settle, so the plan-state
+  // blockers live here. They suppress `thread.auto-settle` ONLY — an explicit
+  // settle stays legal, or an abandoned graph could never be cleared by hand.
+  it.effect("blocks the sweep on plan state, never an explicit settle", () =>
+    Effect.gen(function* () {
+      const base = makeReadModel(null);
+      const root = base.threads[0]!;
+      const graph = (
+        lane: OrchestrationThread["planLane"],
+        descendantLane: OrchestrationThread["planLane"] | null,
+      ): OrchestrationReadModel => ({
+        ...base,
+        threads: [
+          { ...root, planLane: lane },
+          ...(descendantLane === null
+            ? []
+            : [
+                {
+                  ...root,
+                  id: ThreadId.make("thread-2"),
+                  parentThreadId: ThreadId.make("thread-1"),
+                  planLane: descendantLane,
+                },
+              ]),
+        ],
+      });
+      const autoSettle = (label: string, readModel: OrchestrationReadModel) =>
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.auto-settle" as const,
+            commandId: CommandId.make(`cmd-auto-settle-${label}`),
+            threadId: ThreadId.make("thread-1"),
+            snapshotSequence: 0,
+            settledAt: SETTLED_AT,
+          },
+          readModel,
+        });
+
+      for (const [label, readModel] of [
+        // Parked awaiting a decision: quiescent by every runtime signal, owed.
+        ["yielded", graph("yielded", null)],
+        // The idle orchestrator whose subtree is still burning tokens.
+        ["live-descendant", graph("in_progress", "in_progress")],
+      ] as const) {
+        expect(yield* autoSettle(label, readModel).pipe(Effect.flip)).toMatchObject({
+          _tag: "OrchestrationThreadSettleBlockedError",
+          threadId: ThreadId.make("thread-1"),
+          message: SETTLE_BLOCKED_MESSAGE,
+        });
+      }
+
+      // A stored attention flag is deliberately NOT a blocker: it ages out with
+      // inactivity, and the settled row still carries the flag.
+      const flagged = yield* autoSettle("attention", {
+        ...base,
+        threads: [{ ...root, attention: ["needs_guidance" as const] }],
+      });
+      expect((Array.isArray(flagged) ? flagged : [flagged])[0]?.type).toBe("thread.settled");
+
+      // Terminal descendants are not live work, so the root sweeps normally.
+      const doneSubtree = yield* autoSettle("done-descendant", graph("in_progress", "done"));
+      expect((Array.isArray(doneSubtree) ? doneSubtree : [doneSubtree])[0]?.type).toBe(
+        "thread.settled",
+      );
+
+      // The user can always settle by hand, whatever the plan says.
+      const explicit = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-yielded"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: graph("yielded", "in_progress"),
+      });
+      expect((Array.isArray(explicit) ? explicit : [explicit])[0]?.type).toBe("thread.settled");
+    }),
+  );
+
   it.effect("settling a snoozed thread also wakes it", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({

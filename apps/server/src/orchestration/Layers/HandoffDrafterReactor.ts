@@ -248,10 +248,9 @@ const make = Effect.gen(function* () {
     // axis): `settleSuccess` is a MULTI-PASS sequence — it sets `planLane: done`,
     // requests the provider stop, and returns; the `thread.archive` is dispatched
     // only on a LATER pass, once a snapshot reads `session.status === "stopped"`.
-    // A shared `done` drafter is settled IMMEDIATELY by
-    // `workstreamSettleTriggered` — the trigger is lane-based, not idle-based —
-    // so a settledness filter drops the drafter in exactly the window between
-    // stop and archive, and it is never archived. It also makes the stuck-stop
+    // A shared `done` drafter can be settled by the sweep (or by hand) inside
+    // exactly the window between stop and archive, so a settledness filter
+    // would drop it there and it would never be archived. It also makes the stuck-stop
     // backstop unreachable: that path is explicitly gated on re-reading a `done`
     // snapshot (`drafter.planLane === "done"`), which is the very state excluded.
     const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot({

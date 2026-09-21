@@ -77,9 +77,10 @@ const CODER_CANCELLED_ID = ThreadId.make("seed-thread-coder-cancelled");
 const CODER_DEP_ID = ThreadId.make("seed-thread-coder-dep");
 const CODER_BLOCKED_ID = ThreadId.make("seed-thread-coder-blocked");
 // An abandoned orchestration: a root carrying a STORED `needs_guidance` and no
-// descendants. It can never auto-settle (correct — a human is owed), so it is
-// the fixture for the settle-precedence rule (docs/upstream-sync/23 §I): an
-// explicit Settle must clear it out of the inbox even though the flag stands.
+// descendants. A stored flag is deliberately NOT a sweep blocker — it ages out
+// with inactivity and the settled row still carries it — so this is the fixture
+// for the settle-precedence rule (docs/upstream-sync/23 §I): an explicit Settle
+// must clear it out of the inbox even though the flag stands.
 const ABANDONED_ROOT_ID = ThreadId.make("seed-thread-abandoned-root");
 
 const MODEL_SELECTION = {

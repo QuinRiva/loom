@@ -14,7 +14,6 @@ import {
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
 import { sortPinnedThreadsByOrderKey } from "@t3tools/client-runtime/state/thread-sort";
-import type { ChangeRequestSettleSource } from "@t3tools/shared/threadSettled";
 import {
   type EnvironmentId,
   resolveEnvironmentMachineKind,

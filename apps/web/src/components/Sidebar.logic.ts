@@ -1,7 +1,4 @@
-import {
-  resolveThreadCurrentPullRequestLink,
-  threadPullRequestSearchTerms,
-} from "@t3tools/shared/threadPullRequests";
+import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -14,11 +11,7 @@ import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contract
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
-import {
-  effectiveSnoozed,
-  type ChangeRequestSettleSource,
-  type ThreadSnoozeShell,
-} from "@t3tools/shared/threadSettled";
+import { effectiveSnoozed, type ThreadSnoozeShell } from "@t3tools/shared/threadSettled";
 import {
   getThreadSortTimestamp,
   resolveSettledThreadTimestamp,
@@ -1101,21 +1094,6 @@ export function shouldNavigateAfterProjectRemoval(input: {
       thread.environmentId === routeTarget.threadRef.environmentId &&
       thread.id === routeTarget.threadRef.threadId,
   );
-}
-
-/**
- * loom: the change-request fact the settle rules read, taken from the thread
- * shell's own pull-request links. Upstream retired the client-side snapshot
- * atom loom used to feed this (its data now rides the shell), so this replaces
- * `changeRequestSnapshotByKey` and its per-row write-back. A worktree thread
- * only accepts a request whose head branch is that worktree's branch.
- */
-export function threadChangeRequest(
-  thread: Pick<SidebarThreadSummary, "pullRequests" | "branch" | "worktreePath">,
-): ChangeRequestSettleSource | null {
-  const snapshot = resolveThreadCurrentPullRequestLink(thread.pullRequests ?? [])?.snapshot ?? null;
-  if (snapshot === null) return null;
-  return thread.worktreePath === null || snapshot.headBranch === thread.branch ? snapshot : null;
 }
 
 export type ActivityTimestampInput = Pick<
