@@ -32,6 +32,12 @@ import { WorktreeSetupTracker, layer as WorktreeSetupTrackerLive } from "./Workt
 const CHILD_WORKTREE = "/tmp/child-worktree";
 const CHILD_BRANCH = "ws/main/coder-child-is";
 
+/** The shape `describeSetupFailure` reads off a setup-script completion failure. */
+interface SetupError {
+  readonly _tag: string;
+  readonly cause: Error;
+}
+
 const setupSnapshots = (commands: ReadonlyArray<OrchestrationCommand>) =>
   commands.flatMap((command) =>
     command.type === "thread.activity.append" &&
@@ -56,6 +62,10 @@ describe("ensureIsolatedChildProvisioned", () => {
     readonly blockCheckout?: Deferred.Deferred<void>;
     /** Completed once `createWorktree` has claimed the directory. */
     readonly checkoutStarted?: Deferred.Deferred<void>;
+    /** Keeps a started setup script running until this settles. */
+    readonly scriptCompletion?: Deferred.Deferred<{ readonly exitCode: number | null }, SetupError>;
+    /** Completed once the setup card's record settles (the detached fibre's receipt). */
+    readonly settled?: Deferred.Deferred<void>;
   }) => {
     const dispatched: Array<OrchestrationCommand> = [];
     const removed: Array<string> = [];
@@ -63,8 +73,16 @@ describe("ensureIsolatedChildProvisioned", () => {
     const engineStub = Layer.succeed(OrchestrationEngineService, {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           dispatched.push(command);
+          if (
+            opts.settled &&
+            command.type === "thread.activity.append" &&
+            command.activity.kind === WORKTREE_SETUP_ACTIVITY_KIND &&
+            (command.activity.payload as WorktreeSetupSnapshot).phase !== "running"
+          ) {
+            yield* Deferred.succeed(opts.settled, undefined);
+          }
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
@@ -103,7 +121,21 @@ describe("ensureIsolatedChildProvisioned", () => {
       withLock: <A, E, R>(_path: string, effect: Effect.Effect<A, E, R>) => effect,
     } as never);
     const setupStub = Layer.succeed(ProjectSetupScriptRunner, {
-      runForThread: () => Effect.succeed({ status: "no-script" as const }),
+      runForThread: () =>
+        Effect.succeed(
+          opts.scriptCompletion
+            ? {
+                status: "started" as const,
+                scriptId: "setup",
+                scriptName: "Setup Worktree",
+                scriptCommand: "vp i",
+                terminalId: "terminal-1",
+                cwd: CHILD_WORKTREE,
+                async: true,
+                completion: Deferred.await(opts.scriptCompletion),
+              }
+            : { status: "no-script" as const },
+        ),
     } as never);
     const vcsStub = Layer.succeed(VcsStatusBroadcaster, {
       refreshStatus: () => Effect.succeed(undefined),
@@ -206,6 +238,88 @@ describe("ensureIsolatedChildProvisioned", () => {
           ),
         ).size,
       ).toBe(1);
+    }),
+  );
+
+  // The child's kickoff turn starts the moment provisioning returns, so from
+  // then on a client renders the card from the projection alone (the live
+  // stream is only attached while the thread has no turn). The record must
+  // therefore carry the handed-off state, or the card shows four pending
+  // stages and a Cancel button whose cancel has already been refused.
+  it.effect("publishes the handed-off record while an async setup script still runs", () =>
+    Effect.gen(function* () {
+      const scriptCompletion = yield* Deferred.make<
+        { readonly exitCode: number | null },
+        SetupError
+      >();
+      const { dispatched, layer } = harness({ scriptCompletion });
+
+      const cancelled = yield* Effect.gen(function* () {
+        const provisioner = yield* WorktreeProvisioner;
+        yield* provisioner.ensureIsolatedChildProvisioned({
+          threadId,
+          role: "coder",
+          projectId,
+          branch: "main",
+          worktreePath: "/tmp/parent-worktree",
+        });
+        // The script is still running, so the setup has not settled: this is
+        // exactly the window the live tester saw a dead Cancel in.
+        return yield* (yield* WorktreeSetupTracker).cancel(threadId);
+      }).pipe(Effect.provide(layer));
+
+      expect(cancelled).toBe(false);
+      const snapshots = setupSnapshots(dispatched);
+      expect(snapshots.map((snapshot) => snapshot.phase)).toEqual(["running", "running"]);
+      const handedOff = snapshots.at(-1)!;
+      // `agent: done` is what tells every client the cancel window is over.
+      expect(handedOff.stages.find((stage) => stage.id === "agent")?.status).toBe("done");
+      expect(handedOff.stages.find((stage) => stage.id === "checkout")?.status).toBe("done");
+      expect(handedOff.stages.find((stage) => stage.id === "setup-script")?.status).toBe("running");
+      expect(handedOff.worktreePath).toBe(CHILD_WORKTREE);
+      expect(handedOff.setupScript?.terminalId).toBe("terminal-1");
+    }),
+  );
+
+  // A child that finishes before its setup script does has its terminals torn
+  // down with it; the runner then reports the vanished terminal as a failure,
+  // which used to end the card on "setup script failed" for a perfectly
+  // healthy child.
+  it.effect("records a torn-down setup terminal as a warning, not a failed script", () =>
+    Effect.gen(function* () {
+      const scriptCompletion = yield* Deferred.make<
+        { readonly exitCode: number | null },
+        SetupError
+      >();
+      const settled = yield* Deferred.make<void>();
+      const { dispatched, layer } = harness({ scriptCompletion, settled });
+
+      yield* Effect.gen(function* () {
+        const provisioner = yield* WorktreeProvisioner;
+        yield* provisioner.ensureIsolatedChildProvisioned({
+          threadId,
+          role: "coder",
+          projectId,
+          branch: "main",
+          worktreePath: "/tmp/parent-worktree",
+        });
+        yield* Deferred.fail(scriptCompletion, {
+          _tag: "ProjectSetupScriptOperationError",
+          cause: new Error("Setup terminal exited before the setup command completed."),
+        });
+        yield* Deferred.await(settled);
+      }).pipe(Effect.provide(layer));
+
+      const final = setupSnapshots(dispatched).at(-1)!;
+      expect(final.phase).toBe("done");
+      expect(final.stages.find((stage) => stage.id === "setup-script")?.status).toBe("warning");
+      // Tone follows the stages, so the thread's activity is not an error either.
+      expect(
+        dispatched.findLast(
+          (c) =>
+            c.type === "thread.activity.append" && c.activity.kind === WORKTREE_SETUP_ACTIVITY_KIND,
+        ),
+      ).toMatchObject({ activity: { tone: "info" } });
     }),
   );
 
