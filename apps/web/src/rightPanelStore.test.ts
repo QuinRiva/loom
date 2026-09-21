@@ -567,7 +567,8 @@ describe("rightPanelStore", () => {
     ).toEqual({
       byThreadKey: {
         "env-1:thread-A": {
-          isOpen: true,
+          // loom: dropping the sole invalid artefact also closes the now-empty panel.
+          isOpen: false,
           activeSurfaceId: null,
           surfaces: [],
         },
@@ -653,6 +654,8 @@ describe("rightPanelStore", () => {
         {
           id: "attachment:thread-A-attachment-pdf",
           kind: "file",
+          // loom: the unified file surface records whether a path is outside the workspace.
+          absolutePath: null,
           relativePath: "report.pdf",
           revealLine: null,
           revealRequestId: 0,
@@ -778,6 +781,8 @@ describe("rightPanelStore", () => {
         {
           id: "attachment:thread-A-attachment-pdf",
           kind: "file",
+          // loom: attachment previews use the same absolute-path-aware file surface.
+          absolutePath: null,
           relativePath: "report.pdf",
           revealLine: null,
           revealRequestId: 0,

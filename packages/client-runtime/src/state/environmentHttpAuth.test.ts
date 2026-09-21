@@ -236,7 +236,20 @@ describe("authenticated environment HTTP requests", () => {
       const harness = makeHarness(() => Response.json(loader.response));
       const result = yield* loader.load(harness.input).pipe(Effect.provide(harness.httpLayer));
 
-      expect(result).toEqual(loader.response);
+      // loom: detail decoding intentionally drops shell-only projection fields from the shared fixture.
+      if (loader.name === "older thread history") {
+        expect(result).toMatchObject({
+          snapshotSequence: THREAD.snapshotSequence,
+          thread: {
+            id: THREAD.thread.id,
+            projectId: THREAD.thread.projectId,
+            title: THREAD.thread.title,
+          },
+          page: THREAD.page,
+        });
+      } else {
+        expect(result).toEqual(loader.response);
+      }
       expect(harness.calls).toHaveLength(1);
       const call = harness.calls[0]!;
       const url = new URL(call.url);

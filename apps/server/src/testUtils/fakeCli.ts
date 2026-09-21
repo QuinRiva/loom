@@ -47,11 +47,15 @@ export function writeFakeCli(options: FakeCliOptions): string {
 
   if ((options.platform ?? HostProcessPlatform.defaultValue()) === "win32") {
     const launcherPath = NodePath.join(options.directory, `${options.name}.cmd`);
+    // loom: use the running Node binary even when the test narrows PATH.
     NodeFS.writeFileSync(
       launcherPath,
-      ["@echo off", `node "%~dp0${options.name}-stub.mjs" %*`, "exit /b %ERRORLEVEL%", ""].join(
-        "\r\n",
-      ),
+      [
+        "@echo off",
+        `${JSON.stringify(process.execPath)} ${JSON.stringify(stubPath)} %*`,
+        "exit /b %ERRORLEVEL%",
+        "",
+      ].join("\r\n"),
       "utf8",
     );
     return launcherPath;
@@ -60,7 +64,10 @@ export function writeFakeCli(options: FakeCliOptions): string {
   const launcherPath = NodePath.join(options.directory, options.name);
   NodeFS.writeFileSync(
     launcherPath,
-    ["#!/bin/sh", `exec node "$(dirname "$0")/${options.name}-stub.mjs" "$@"`, ""].join("\n"),
+    // loom: tests deliberately narrow PATH to the fake CLI directory; use the running Node binary.
+    ["#!/bin/sh", `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(stubPath)} "$@"`, ""].join(
+      "\n",
+    ),
     "utf8",
   );
   NodeFS.chmodSync(launcherPath, 0o755);
