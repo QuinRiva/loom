@@ -97,6 +97,10 @@ export function PullRequestMarkdown({
               text={segment.text}
               cwd={cwd}
               threadRef={resolvedThreadRef}
+              pullRequestPanelRef={resolvedThreadRef ?? PULL_REQUESTS_PANEL_REF}
+              environmentId={environmentId}
+              extraRemarkPlugins={extraRemarkPlugins}
+              githubMedia
             />
           );
         }

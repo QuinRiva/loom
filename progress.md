@@ -1,5 +1,9 @@
 # Progress — DB-authoritative goals & tasks migration
 
+## Chat-surface re-home slice 1 consult
+
+- **2026-09-21 — ChatMarkdown artefact/thread-link seams.** Consulted plan author `debb9b3a-76a9-4af1-bba9-f4478333415f` via `/home/Carl/.t3/cockpit/worktrees/loom/t3code-ea251a06/.artifacts/chat-surface-rehome/plan.mdx`. **Confidence: high on plan intent / medium on whether the coder brief deliberately narrowed it.** The author says the artefact/preview targets and two legacy `thread://` branches are deliberate slice-1 seams, not stale text. Because the spawn brief simultaneously says the only loom behaviour is the verification wrapper, the conflict was escalated to parent orchestrator `62b0b8f9-d1eb-4101-b0f3-1eec63496957` before choosing either scope.
+
 Status: COMPLETE — all phases done; typecheck + lint:mobile pass; goal CLI round-trip validated. vp check has only pre-existing lint debt (untouched ProviderRuntimeIngestion.test.ts).
 
 ## DB lane D3 consults
