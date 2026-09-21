@@ -107,6 +107,8 @@ const knownRecords: Record<(typeof COMPOSER_CONTEXT_KINDS)[number], Record<strin
   },
   mention: { ...base, kind: "mention", label: "@src/index.ts", path: "src/index.ts" },
   skill: { ...base, kind: "skill", label: "$pinchtab", name: "pinchtab" },
+  // loom:
+  thread: { ...base, kind: "thread", label: "Sidebar re-home", threadId: "thr_1" },
 };
 
 describe("ComposerContextRecord", () => {

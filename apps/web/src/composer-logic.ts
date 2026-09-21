@@ -9,58 +9,9 @@ import {
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
 
-export type ComposerTriggerKind = "path" | "thread" | "pull-request" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff" | "retro";
+export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+export type ComposerSlashCommand = "model" | "plan" | "default";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
-
-/**
- * Result of recognising a `/handoff <explanation>` composer draft (plan D2).
- * `/handoff` is intercepted client-side and NEVER becomes a turn on the source
- * thread, so the send authority branches on this typed parse before it
- * dispatches anything.
- */
-export type HandoffDraftParse =
-  | { readonly kind: "not-handoff" }
-  | { readonly kind: "empty-error" }
-  | { readonly kind: "handoff"; readonly explanation: string };
-
-// `/handoff` followed by end-of-input or whitespace + free-text explanation.
-// `/handofff…` (no boundary after the word) is deliberately NOT a match.
-const HANDOFF_COMMAND_PATTERN = /^\/handoff(?:\s+([\s\S]*))?$/i;
-
-export function parseHandoffDraft(text: string): HandoffDraftParse {
-  const match = HANDOFF_COMMAND_PATTERN.exec(text.trim());
-  if (!match) {
-    return { kind: "not-handoff" };
-  }
-  const explanation = (match[1] ?? "").trim();
-  if (explanation.length === 0) {
-    return { kind: "empty-error" };
-  }
-  return { kind: "handoff", explanation };
-}
-
-/**
- * Result of recognising a `/retro [focus]` composer draft. `/retro` is
- * intercepted client-side and NEVER becomes a turn on the source thread. The
- * focus is optional — a bare `/retro` runs a general review.
- */
-export type RetroDraftParse =
-  | { readonly kind: "not-retro" }
-  | { readonly kind: "retro"; readonly focus: string | undefined };
-
-// `/retro` followed by end-of-input or whitespace + optional free-text focus.
-// `/retrofit…` (no boundary after the word) is deliberately NOT a match.
-const RETRO_COMMAND_PATTERN = /^\/retro(?:\s+([\s\S]*))?$/i;
-
-export function parseRetroDraft(text: string): RetroDraftParse {
-  const match = RETRO_COMMAND_PATTERN.exec(text.trim());
-  if (!match) {
-    return { kind: "not-retro" };
-  }
-  const focus = (match[1] ?? "").trim();
-  return { kind: "retro", focus: focus.length === 0 ? undefined : focus };
-}
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -112,23 +63,6 @@ function tokenStartForCursor(text: string, cursor: number): number {
   return index + 1;
 }
 
-/**
- * Locate the `#` that opens the active thread mention the cursor sits inside, or
- * null if there is none. Unlike `@`/`$` (single whitespace-delimited tokens), a
- * thread query spans spaces — titles are multi-word — so we scan the current
- * line back to the nearest `#` that starts a token (line start or preceded by
- * whitespace). Everything from there to the cursor is the live query; callers
- * close the menu once that query matches no thread, so a stray `#` in prose
- * never leaves a menu hanging.
- */
-function threadMentionStart(text: string, lineStart: number, cursor: number): number | null {
-  for (let index = cursor - 1; index >= lineStart; index -= 1) {
-    if (text[index] !== "#") continue;
-    if (index === lineStart || isWhitespace(text[index - 1] ?? "")) return index;
-  }
-  return null;
-}
-
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
   const collapsedCursor = clampCursor(text, cursorInput);
   const segments = splitPromptIntoComposerSegments(text);
@@ -142,7 +76,6 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   for (const segment of segments) {
     if (
       segment.type === "mention" ||
-      segment.type === "thread" || // loom:
       segment.type === "citation" ||
       segment.type === "context-reference"
     ) {
@@ -161,15 +94,6 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
       }
       remaining -= 1;
       expandedCursor += expandedLength;
-      continue;
-    }
-    // loom: a terminal-context chip is one codepoint in both coordinate spaces.
-    if (segment.type === "terminal-context") {
-      if (remaining <= 1) {
-        return expandedCursor + remaining;
-      }
-      remaining -= 1;
-      expandedCursor += 1;
       continue;
     }
 
@@ -225,7 +149,6 @@ export function collapseExpandedComposerCursor(text: string, cursorInput: number
   for (const segment of segments) {
     if (
       segment.type === "mention" ||
-      segment.type === "thread" || // loom:
       segment.type === "citation" ||
       segment.type === "context-reference"
     ) {
@@ -249,14 +172,6 @@ export function collapseExpandedComposerCursor(text: string, cursorInput: number
         return collapsedCursor + 1;
       }
       remaining -= expandedLength;
-      collapsedCursor += 1;
-      continue;
-    }
-    if (segment.type === "terminal-context") {
-      if (remaining <= 1) {
-        return collapsedCursor + remaining;
-      }
-      remaining -= 1;
       collapsedCursor += 1;
       continue;
     }
@@ -338,26 +253,16 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeEnd: cursor,
     };
   }
-  if (token.startsWith("@")) {
-    return {
-      kind: "path",
-      query: token.slice(1),
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
-    };
+  if (!token.startsWith("@")) {
+    return null;
   }
 
-  const threadStart = threadMentionStart(text, lineStart, cursor);
-  if (threadStart !== null) {
-    return {
-      kind: "thread",
-      query: text.slice(threadStart + 1, cursor),
-      rangeStart: threadStart,
-      rangeEnd: cursor,
-    };
-  }
-
-  return null;
+  return {
+    kind: "path",
+    query: token.slice(1),
+    rangeStart: tokenStart,
+    rangeEnd: cursor,
+  };
 }
 
 /** Caret and trigger after replacing composer text and continuing at the end. */
@@ -372,9 +277,9 @@ export function composerStateAtPromptEnd(text: string): {
   };
 }
 
-// loom: the fork widened ComposerSlashCommand with `handoff`/`retro`, which are
-// parsed by their own recognisers, so this stays explicitly plan/default.
-export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
+export function parseStandaloneComposerSlashCommand(
+  text: string,
+): Exclude<ComposerSlashCommand, "model"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
@@ -394,11 +299,4 @@ export function replaceTextRange(
   const safeEnd = Math.max(safeStart, Math.min(text.length, rangeEnd));
   const nextText = `${text.slice(0, safeStart)}${replacement}${text.slice(safeEnd)}`;
   return { text: nextText, cursor: safeStart + replacement.length };
-}
-
-export function shouldSubmitComposerOnEnter(input: {
-  isMobileViewport: boolean;
-  shiftKey: boolean;
-}): boolean {
-  return !input.isMobileViewport && !input.shiftKey;
 }

@@ -6,6 +6,9 @@ import {
   PositiveInt,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+// loom: the fork's `thread` record lives in its own module; the import is
+// strictly one-way (see that file's constraint note).
+import { makeLoomThreadContextRecord } from "./composerContext.loom.ts";
 
 /**
  * Inline context records: the typed payload behind every composer chip.
@@ -25,6 +28,7 @@ export const COMPOSER_CONTEXT_KINDS = [
   "review-comment",
   "mention",
   "skill",
+  "thread", // loom:
 ] as const;
 export type KnownComposerContextKind = (typeof COMPOSER_CONTEXT_KINDS)[number];
 
@@ -215,6 +219,10 @@ export const SkillContextRecord = Schema.Struct({
 });
 export type SkillContextRecord = typeof SkillContextRecord.Type;
 
+// loom: `#`-mentioned threads ride the generic context-reference machinery.
+export const ThreadContextRecord = makeLoomThreadContextRecord(recordBase);
+export type ThreadContextRecord = typeof ThreadContextRecord.Type;
+
 /**
  * Catch-all for kinds this build does not know. Known discriminators are excluded so a
  * malformed known record fails its own schema instead of sliding through unchecked.
@@ -245,6 +253,7 @@ export const KnownComposerContextRecord = Schema.Union([
   ReviewCommentContextRecord,
   MentionContextRecord,
   SkillContextRecord,
+  ThreadContextRecord, // loom:
 ]);
 export type KnownComposerContextRecord = typeof KnownComposerContextRecord.Type;
 

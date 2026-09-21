@@ -37,7 +37,7 @@ import {
   normalizeTerminalContextText,
   type TerminalContextDraft,
 } from "./terminalContext";
-import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
+import type { ReviewCommentContext } from "~/reviewCommentContext";
 
 /**
  * Builds the wire records behind a draft's inline references, and the reverse for reading a
@@ -58,16 +58,7 @@ function clampContextText(value: string, max: number): string {
   return `${value.slice(0, Math.max(0, max - TRUNCATION_MARKER.length))}${TRUNCATION_MARKER}`;
 }
 
-// loom: the fork's ReviewCommentContext is a union (`line` | `mdx-anchor`).
-// Only the `line` variant carries the diff / index / pull-request fields, so the
-// helpers below read them through these accessors rather than off the union.
 type ReviewCommentPresentation = ReviewCommentContext | ReviewCommentContextRecord;
-
-const commentDiff = (comment: ReviewCommentPresentation): string =>
-  "diff" in comment ? comment.diff : "";
-
-const commentPullRequest = (comment: ReviewCommentPresentation) =>
-  "pullRequest" in comment ? comment.pullRequest : undefined;
 
 function basename(filePath: string): string {
   return filePath.split(/[\\/]/).at(-1) ?? filePath;
@@ -86,17 +77,16 @@ export function reviewCommentContextLabel(comment: ReviewCommentPresentation): s
 }
 
 export function isPullRequestSummaryContext(comment: ReviewCommentPresentation): boolean {
-  if (commentPullRequest(comment) !== undefined) return true;
+  if (comment.pullRequest !== undefined) return true;
   return (
     comment.sectionId.startsWith("pull-request:") &&
-    commentDiff(comment).trim().length === 0 &&
+    comment.diff.trim().length === 0 &&
     /^PR #\d+$/u.test(comment.filePath)
   );
 }
 
 function pullRequestContextNumber(comment: ReviewCommentPresentation): number | null {
-  const metadata = commentPullRequest(comment);
-  if (metadata !== undefined) return metadata.number;
+  if (comment.pullRequest !== undefined) return comment.pullRequest.number;
   const legacyNumber = /^PR #(\d+)$/u.exec(comment.filePath)?.[1];
   return legacyNumber === undefined ? null : Number(legacyNumber);
 }
@@ -106,7 +96,7 @@ export type PullRequestContextDisplayState = "open" | "draft" | "merged" | "clos
 export function pullRequestContextDisplayState(
   comment: ReviewCommentPresentation,
 ): PullRequestContextDisplayState | null {
-  const pullRequest = commentPullRequest(comment);
+  const pullRequest = comment.pullRequest;
   if (pullRequest === undefined) return null;
   return pullRequest.state === "open" && pullRequest.isDraft ? "draft" : pullRequest.state;
 }
@@ -179,11 +169,8 @@ export function terminalContextRecord(context: TerminalContextDraft): TerminalCo
   };
 }
 
-// `mdx-anchor` review comments do not participate in the context-record system:
-// the record shape is line-indexed and diff-carrying, and nothing constructs an
-// mdx-anchor comment yet.
 export function reviewCommentContextRecord(
-  comment: LineReviewCommentContext,
+  comment: ReviewCommentContext,
 ): ReviewCommentContextRecord {
   return {
     version: 1,
@@ -318,9 +305,7 @@ export function buildMessageContext(input: {
   );
   const records: ComposerContextRecord[] = [
     ...input.terminalContexts.map(terminalContextRecord),
-    ...input.reviewComments
-      .filter((comment) => comment.kind === "line")
-      .map(reviewCommentContextRecord),
+    ...input.reviewComments.map(reviewCommentContextRecord),
     ...input.previewAnnotations.map((annotation) =>
       previewAnnotationContextRecord(annotation, {
         screenshotContextId: screenshotAttachmentIds.has(annotation.id) ? annotation.id : undefined,
@@ -425,11 +410,8 @@ export function terminalContextDraftFromRecord(
   };
 }
 
-export function reviewCommentFromRecord(
-  record: ReviewCommentContextRecord,
-): LineReviewCommentContext {
+export function reviewCommentFromRecord(record: ReviewCommentContextRecord): ReviewCommentContext {
   return {
-    kind: "line",
     id: producerIdFromComposerContextId("review-comment", record.contextId),
     sectionId: record.sectionId,
     sectionTitle: record.sectionTitle,

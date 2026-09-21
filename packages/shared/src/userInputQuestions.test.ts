@@ -9,87 +9,43 @@ function makeQuestion(overrides: Record<string, unknown>): Record<string, unknow
     question: "Which layout?",
     options: [
       { label: "stacked", description: "One column" },
-      { label: "split", description: "Two columns", preview: "```\n| a | b |\n```" },
+      { label: "split", description: "Two columns", value: "split-value" },
     ],
     ...overrides,
   };
 }
 
 describe("parseUserInputQuestions", () => {
-  it("keeps option previews on single-select questions", () => {
-    const parsed = parseUserInputQuestions({ questions: [makeQuestion({ multiSelect: false })] });
-
-    expect(parsed?.[0]?.options).toEqual([
-      { label: "stacked", description: "One column" },
-      { label: "split", description: "Two columns", preview: "```\n| a | b |\n```" },
-    ]);
-  });
-
-  it("drops option previews on multi-select questions", () => {
-    const parsed = parseUserInputQuestions({ questions: [makeQuestion({ multiSelect: true })] });
-
-    expect(parsed?.[0]?.options).toEqual([
-      { label: "stacked", description: "One column" },
-      { label: "split", description: "Two columns" },
-    ]);
-  });
-
-  it("ignores blank and non-string previews", () => {
+  it("carries option values and allowCustomAnswer through to the client", () => {
     const parsed = parseUserInputQuestions({
-      questions: [
-        makeQuestion({
-          options: [
-            { label: "a", description: "A", preview: "   " },
-            { label: "b", description: "B", preview: 42 },
-          ],
-        }),
-      ],
+      questions: [makeQuestion({ allowCustomAnswer: false })],
     });
 
-    expect(parsed?.[0]?.options).toEqual([
-      { label: "a", description: "A" },
-      { label: "b", description: "B" },
-    ]);
+    expect(parsed?.[0]).toEqual({
+      id: "layout",
+      header: "Layout",
+      question: "Which layout?",
+      options: [
+        { label: "stacked", description: "One column" },
+        { label: "split", description: "Two columns", value: "split-value" },
+      ],
+      multiSelect: false,
+      allowCustomAnswer: false,
+    });
   });
 
-  it("keeps stakes and the first recommended option, dropping later badges", () => {
+  it("drops fields the contract no longer carries", () => {
     const parsed = parseUserInputQuestions({
       questions: [
         makeQuestion({
           stakes: "Hard to undo once shipped.",
-          options: [
-            { label: "a", description: "A", recommended: true },
-            { label: "b", description: "B", recommended: true },
-          ],
-        }),
-      ],
-    });
-
-    expect(parsed?.[0]?.stakes).toBe("Hard to undo once shipped.");
-    expect(parsed?.[0]?.options).toEqual([
-      { label: "a", description: "A", recommended: true },
-      { label: "b", description: "B" },
-    ]);
-  });
-
-  it("omits blank stakes and non-true recommended flags", () => {
-    const parsed = parseUserInputQuestions({
-      questions: [
-        makeQuestion({
-          stakes: "  ",
-          options: [
-            { label: "a", description: "A", recommended: "yes" },
-            { label: "b", description: "B", recommended: false },
-          ],
+          options: [{ label: "a", description: "A", preview: "```\nx\n```", recommended: true }],
         }),
       ],
     });
 
     expect(parsed?.[0]).not.toHaveProperty("stakes");
-    expect(parsed?.[0]?.options).toEqual([
-      { label: "a", description: "A" },
-      { label: "b", description: "B" },
-    ]);
+    expect(parsed?.[0]?.options).toEqual([{ label: "a", description: "A" }]);
   });
 
   it("returns null when the payload carries no usable questions", () => {
