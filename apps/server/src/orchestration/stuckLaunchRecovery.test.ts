@@ -242,7 +242,6 @@ describe("thread.stuck-launch.recover CAS (real decider)", () => {
               title: "Project",
               workspaceRoot: "/tmp/project-cas",
               defaultModelSelection: null,
-              defaultStartFromOrigin: null,
               scripts: [],
               createdAt: t,
               updatedAt: t,

@@ -75,7 +75,6 @@ function makeReadModel(pullRequests: ReadonlyArray<ThreadPullRequestLink>): Orch
             remoteUrl: "https://github.com/t3tools/t3code.git",
           },
         },
-        defaultStartFromOrigin: null,
       },
     ],
     threads: [

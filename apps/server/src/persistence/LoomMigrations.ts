@@ -70,6 +70,7 @@ import Migration1036 from "./Migrations/1036_ProjectionThreadActivitySummaryInde
 import Migration1037 from "./Migrations/1037_ProjectionThreadMessageReasoningMs.ts";
 import Migration1038 from "./Migrations/1038_ReasoningTextToReasoningMessages.ts";
 import Migration1039 from "./Migrations/1039_DropTitleProvenance.ts";
+import Migration1040 from "./Migrations/1040_DropProjectDefaultStartFromOrigin.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -114,6 +115,7 @@ export const loomMigrationEntries = [
   [1037, "ProjectionThreadMessageReasoningMs", Migration1037],
   [1038, "ReasoningTextToReasoningMessages", Migration1038],
   [1039, "DropTitleProvenance", Migration1039],
+  [1040, "DropProjectDefaultStartFromOrigin", Migration1040],
 ] as const;
 
 const makeLoomMigrationLoader = (throughId?: number) =>
