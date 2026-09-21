@@ -125,104 +125,23 @@ interface CollapsedDiffFilesState {
 
 const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
 
-const DIFF_PANEL_UNSAFE_CSS = `
-[data-diffs-header],
-[data-diff],
-[data-file],
-[data-error-wrapper],
-[data-virtualizer-buffer] {
-  --diffs-header-font-family: var(--font-sans) !important;
-  --diffs-font-family: var(--font-mono) !important;
-  --diffs-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-light-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-dark-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-token-light-bg: transparent;
-  --diffs-token-dark-bg: transparent;
+// loom: the "By coder" diff scope lets a parent thread review a child coder's
+// checkpoints without leaving the parent. Upstream has no equivalent; every
+// hunk below marked `// loom:` belongs to that feature.
+const EMPTY_CODER_CHECKPOINTS_BY_ID: ReadonlyMap<
+  ThreadId,
+  ReadonlyArray<TurnDiffSummary>
+> = new Map();
 
-  --diffs-bg-context-override: color-mix(in srgb, var(--background) 97%, var(--foreground));
-  --diffs-bg-hover-override: color-mix(in srgb, var(--background) 94%, var(--foreground));
-  --diffs-bg-separator-override: color-mix(in srgb, var(--background) 95%, var(--foreground));
-  --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
-
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 92%, var(--success));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 88%, var(--success));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 85%, var(--success));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 80%, var(--success));
-
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 92%, var(--destructive));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 88%, var(--destructive));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 85%, var(--destructive));
-  --diffs-bg-deletion-emphasis-override: color-mix(
-    in srgb,
-    var(--background) 80%,
-    var(--destructive)
-  );
-
-  background-color: var(--diffs-bg) !important;
+interface CoderDiffOption {
+  readonly thread: ThreadShell;
+  readonly orderedCheckpoints: ReadonlyArray<TurnDiffSummary>;
+  readonly inferredCheckpointTurnCountByTurnId: Record<string, number>;
+  readonly additions: number;
+  readonly deletions: number;
 }
 
-[data-file-info] {
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
-  border-block-color: var(--border) !important;
-  color: var(--foreground) !important;
-}
-
-[data-diffs-header] {
-  position: sticky !important;
-  top: 0;
-  z-index: 4;
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
-  border-bottom: 1px solid var(--border) !important;
-  align-items: center !important;
-  font-family: var(--font-sans) !important;
-  font-size: 12px !important;
-  line-height: 1 !important;
-  min-height: 32px !important;
-  padding-block: 6px !important;
-}
-
-[data-diffs-header] [data-header-content] {
-  align-items: center !important;
-  line-height: 1 !important;
-}
-
-[data-diffs-header] [data-metadata] {
-  align-items: center !important;
-  line-height: 1 !important;
-  font-variant-numeric: tabular-nums;
-}
-
-[data-diffs-header] [data-additions-count],
-[data-diffs-header] [data-deletions-count] {
-  font-family: var(--font-mono) !important;
-  font-size: 11px !important;
-  font-variant-numeric: tabular-nums;
-  line-height: 1 !important;
-}
-
-[data-diffs-header] [data-change-icon],
-[data-diffs-header] [data-rename-icon] {
-  display: block;
-  flex-shrink: 0;
-}
-
-[data-title] {
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    text-decoration-color 120ms ease;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 2px;
-  font-family: var(--font-sans) !important;
-}
-
-[data-title]:hover {
-  color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
-  text-decoration-color: currentColor;
-}
-`;
-
+// loom: extracted from upstream's inline sort so coder checkpoints order the same way.
 function orderTurnDiffSummaries(
   summaries: ReadonlyArray<TurnDiffSummary>,
   inferredCheckpointTurnCountByTurnId: Record<string, number>,
@@ -239,6 +158,7 @@ function orderTurnDiffSummaries(
   });
 }
 
+// loom: every coder thread beneath the active thread, oldest first.
 function collectCoderDescendants(
   threads: ReadonlyArray<ThreadShell>,
   rootThreadId: ThreadId | null,
@@ -262,6 +182,7 @@ function collectCoderDescendants(
   return coders.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
+// loom:
 function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
   return (
     <Tooltip>
@@ -280,6 +201,7 @@ function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
   );
 }
 
+// loom:
 function DiffScopeBadge({ children }: { readonly children: string }) {
   return (
     <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -365,6 +287,7 @@ export default function DiffPanel({
     () => orderTurnDiffSummaries(turnDiffSummaries, inferredCheckpointTurnCountByTurnId),
     [inferredCheckpointTurnCountByTurnId, turnDiffSummaries],
   );
+  // loom: coder scope options — descendants, their checkpoints, and the totals shown in the menu.
   const coderDescendants = useMemo(
     () =>
       collectCoderDescendants(
@@ -443,6 +366,7 @@ export default function DiffPanel({
       orderedTurnDiffSummaries.map((summary) => summary.turnId),
     );
   }, [diffSelection.kind, orderedTurnDiffSummaries, routeThreadRef]);
+  // loom:
   useEffect(() => {
     if (!routeThreadRef || diffSelection.kind !== "coder") return;
     useDiffPanelStore.getState().reconcileCoderSelection(
@@ -458,6 +382,8 @@ export default function DiffPanel({
     );
   }, [coderDescendants, coderDiffOptions, diffSelection.kind, routeThreadRef]);
 
+  // loom: upstream tests "no turn selected" for the git scopes; with a third `coder`
+  // kind that no longer holds, so the git and checkpoint scopes are named explicitly.
   const isGitSelection = diffSelection.kind === "branch" || diffSelection.kind === "unstaged";
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
@@ -470,6 +396,7 @@ export default function DiffPanel({
       ? undefined
       : (orderedTurnDiffSummaries.find((summary) => summary.turnId === selectedRouteTurnId) ??
         orderedTurnDiffSummaries[0]);
+  // loom: a coder selection redirects the checkpoint query at the child thread.
   const selectedCoderOption =
     diffSelection.kind === "coder"
       ? coderDiffOptions.find((option) => option.thread.id === diffSelection.threadId)
@@ -480,21 +407,22 @@ export default function DiffPanel({
           (summary) => summary.turnId === diffSelection.turnId,
         )
       : undefined;
-  const selectedCheckpointThreadId = selectedCoderOption?.thread.id ?? activeThreadId;
-  const selectedCheckpoint = selectedCoderTurn ?? selectedTurn;
+  const selectedCheckpointThreadId = selectedCoderOption?.thread.id ?? activeThreadId; // loom:
+  const selectedCheckpoint = selectedCoderTurn ?? selectedTurn; // loom:
   const selectedCheckpointTurnCount =
     selectedCheckpoint &&
     (selectedCheckpoint.checkpointTurnCount ??
       (selectedCoderOption?.inferredCheckpointTurnCountByTurnId ??
         inferredCheckpointTurnCountByTurnId)[selectedCheckpoint.turnId]);
   const latestTurn = orderedTurnDiffSummaries[0];
+  // loom: the child's newest checkpoint — the upper bound of its "All turns" range.
   const latestCoderTurnCount =
     selectedCoderOption &&
     (selectedCoderOption.orderedCheckpoints[0]?.checkpointTurnCount ??
       selectedCoderOption.inferredCheckpointTurnCountByTurnId[
         selectedCoderOption.orderedCheckpoints[0]?.turnId ?? ""
       ]);
-  const selectedScopeLabel = selectedCoderOption
+  const selectedScopeLabel = selectedCoderOption // loom: coder arms
     ? selectedCoderTurn
       ? `${selectedCoderOption.thread.title} · Turn ${selectedCheckpointTurnCount ?? "?"}`
       : selectedCoderOption.thread.title
@@ -505,7 +433,7 @@ export default function DiffPanel({
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
-  const reviewSectionId = selectedCoderOption
+  const reviewSectionId = selectedCoderOption // loom: coder arms
     ? selectedCoderTurn
       ? `coder:${selectedCoderOption.thread.id}:turn:${selectedCoderTurn.turnId}`
       : `coder:${selectedCoderOption.thread.id}:all`
@@ -516,21 +444,29 @@ export default function DiffPanel({
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
-  const reviewSectionTitle = selectedTurn
-    ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
-    : selectedGitScope === "unstaged"
-      ? "Working tree"
-      : "Branch changes";
-  const selectedCheckpointRange = useMemo(
-    () =>
-      typeof selectedCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
-            toTurnCount: selectedCheckpointTurnCount,
-          }
-        : null,
-    [selectedCheckpointTurnCount],
-  );
+  const reviewSectionTitle = selectedCoderOption // loom: coder arms
+    ? selectedCoderTurn
+      ? `${selectedCoderOption.thread.title} · Turn ${selectedCheckpointTurnCount ?? "?"}`
+      : selectedCoderOption.thread.title
+    : selectedTurn
+      ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
+      : selectedGitScope === "unstaged"
+        ? "Working tree"
+        : "Branch changes";
+  const selectedCheckpointRange = useMemo(() => {
+    // loom: "All turns" for a coder spans the child's whole history, turn 0 → its latest.
+    if (selectedCoderOption && selectedCoderTurn === undefined) {
+      return typeof latestCoderTurnCount === "number"
+        ? { fromTurnCount: 0, toTurnCount: latestCoderTurnCount }
+        : null;
+    }
+    return typeof selectedCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
+          toTurnCount: selectedCheckpointTurnCount,
+        }
+      : null;
+  }, [latestCoderTurnCount, selectedCheckpointTurnCount, selectedCoderOption, selectedCoderTurn]);
   const activeCheckpointDiff = useCheckpointDiff(
     {
       environmentId: activeThread?.environmentId ?? null,
@@ -538,7 +474,7 @@ export default function DiffPanel({
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
-      cacheScope: selectedCoderOption
+      cacheScope: selectedCoderOption // loom: coder arm
         ? `coder:${selectedCoderOption.thread.id}:${selectedCoderTurn?.turnId ?? "all"}`
         : selectedTurn
           ? `turn:${selectedTurn.turnId}`
@@ -661,7 +597,7 @@ export default function DiffPanel({
     ...matchingBaseRefChoices.map(valueForBaseRefChoice),
   ];
   const gitDiff = selectedGitSource?.diff;
-  const isCheckpointSelection = selectedTurn !== undefined || selectedCoderOption !== undefined;
+  const isCheckpointSelection = selectedTurn !== undefined || selectedCoderOption !== undefined; // loom: see isGitSelection
 
   const selectedPatch = isCheckpointSelection ? activeCheckpointDiff.data?.diff : gitDiff;
   const isSelectedPatchTruncated = !isCheckpointSelection && selectedGitSource?.truncated === true;
@@ -851,6 +787,7 @@ export default function DiffPanel({
     revealDiffFile(selectedFilePath);
   }, [lazySource, selectedFilePath, selectedFileRevealRequestId, filePatchScope, revealDiffFile]);
 
+  // loom: file actions on a coder diff resolve against the child's worktree, not the parent's.
   const selectedDiffThreadRef =
     routeThreadRef && selectedCoderOption
       ? { environmentId: routeThreadRef.environmentId, threadId: selectedCoderOption.thread.id }
@@ -926,6 +863,7 @@ export default function DiffPanel({
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
+  // loom:
   const selectCoder = (threadId: ThreadId, turnId: TurnId | null = null) => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectCoder(routeThreadRef, threadId, turnId);
@@ -1000,6 +938,7 @@ export default function DiffPanel({
                 })}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {/* loom: the "By coder" group */}
             {coderDiffOptions.length > 0 && (
               <>
                 <DropdownMenuSeparator />
@@ -1542,17 +1481,4 @@ export default function DiffPanel({
       )}
     </DiffPanelShell>
   );
-}
-
-export const EMPTY_CODER_CHECKPOINTS_BY_ID: ReadonlyMap<
-  ThreadId,
-  ReadonlyArray<TurnDiffSummary>
-> = new Map();
-
-interface CoderDiffOption {
-  readonly thread: ThreadShell;
-  readonly orderedCheckpoints: ReadonlyArray<TurnDiffSummary>;
-  readonly inferredCheckpointTurnCountByTurnId: Record<string, number>;
-  readonly additions: number;
-  readonly deletions: number;
 }

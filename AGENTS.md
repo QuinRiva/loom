@@ -143,6 +143,17 @@ HTML artefact.
   adapter") applies to the adapters that remain, not to the registry.
 - Upstream sync doctrine and per-area resolutions live in
   [`docs/upstream-sync/`](docs/upstream-sync/).
+- **Mark every loom hunk.** Any hunk you add to a file that also exists
+  upstream carries a `// loom:` comment; larger additions belong in a
+  `*.loom.ts` module or `apps/web/src/loom/`. Unmarked hunks are invisible to
+  the lost-feature audit and are silently dropped at the next upstream pull.
+  The `pnpm ship` gate enforces this
+  (`docs/upstream-sync/pull7-tools/unmarkedsweep.sh`); the convention is in
+  [`docs/upstream-sync/23-sidebar-v2-rehome.md`](docs/upstream-sync/23-sidebar-v2-rehome.md).
+- **Never `git stash` in this repo.** Every worktree shares one `.git`, so the
+  stash stack is global across all concurrent threads and a `pop` can hand you
+  another thread's work and drop yours. Commit a WIP (`--no-verify`) or use
+  `git diff > patch` / `git apply` instead.
 
 ## The three ways to hurt yourself
 

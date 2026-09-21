@@ -1,0 +1,38 @@
+# Files exempt from the unmarked-delta sweep (one path or prefix per line).
+# Loom-only files (absent at the upstream base) are exempt automatically and
+# do not belong here — this list is only for upstream-owned files whose delta
+# is deliberately unmarked, with the reason.
+
+# Lockfiles, generated and vendored trees: not hand-written fork code.
+pnpm-lock.yaml
+.repos/
+
+# Sync bookkeeping about the fork itself; markers would be noise.
+docs/upstream-sync/
+
+# Under active re-home in the post-pull-7 stack — markers land with the
+# re-home, not before. Drop each block as its slice lands.
+
+# Stage 3 slices 2-4: the chat-surface closure.
+apps/web/src/components/ChatComposer.tsx
+apps/web/src/components/ChatView.tsx
+apps/web/src/components/MessagesTimeline.tsx
+apps/web/src/components/ComposerCommandMenu.tsx
+apps/web/src/components/chatComposer.logic.ts
+apps/web/src/components/chatView.logic.ts
+apps/web/src/components/messagesTimeline.logic.ts
+apps/web/src/components/ComposerPromptEditor.tsx
+apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx
+apps/web/src/components/chat/ComposerPendingUserInputPanel.test.tsx
+apps/web/src/components/chat/ComposerPrimaryActions.tsx
+apps/web/src/components/chat/ComposerPrimaryActions.test.tsx
+apps/web/src/components/chat/ComposerPendingApprovalActions.tsx
+apps/web/src/components/chat/ContextWindowMeter.tsx
+apps/web/src/composer-logic.test.ts
+apps/web/src/composer-editor-mentions.ts
+apps/web/src/pendingUserInput.ts
+apps/web/src/pendingUserInput.test.ts
+apps/web/src/lib/contextWindow.ts
+apps/web/src/lib/elementContext.ts
+apps/web/src/lib/terminalContext.ts
+packages/shared/src/composerTrigger.test.ts
