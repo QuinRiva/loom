@@ -462,7 +462,7 @@ export const ServerSignalProcessResult = Schema.Struct({
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
 
-// Workstream worktrees maintenance surface (phase 3 visibility panel).
+// loom: workstream worktrees maintenance surface (phase 3 visibility panel).
 // The wire vocabulary mirrors the server's `worktreeClassification` truth:
 // one disposition, plus a stale reason when the auto-reaper deliberately
 // declined to remove the worktree. The UI maps these to human labels.

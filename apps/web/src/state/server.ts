@@ -100,6 +100,7 @@ export const primaryServerAvailableEditorsAtom = Atom.make(
     get(primaryServerConfigAtom)?.availableEditors ?? EMPTY_AVAILABLE_EDITORS,
 ).pipe(Atom.withLabel("web-primary-server-available-editors"));
 
+// loom: primary-environment views the fork's settings surfaces read directly.
 export const primaryServerKeybindingsConfigPathAtom = Atom.make(
   (get): string | null => get(primaryServerConfigAtom)?.keybindingsConfigPath ?? null,
 ).pipe(Atom.withLabel("web-primary-server-keybindings-config-path"));

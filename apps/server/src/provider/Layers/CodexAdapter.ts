@@ -447,8 +447,8 @@ function normalizeCodexTokenUsage(
 
   return {
     usedTokens,
-    // The Codex CLI talks to OpenAI — its backend is unambiguous, so attribute
-    // usage to the OpenAI provider identity (lands in the codex/OpenAI scope).
+    // loom: the Codex CLI talks to OpenAI — its backend is unambiguous, so
+    // attribute usage to the OpenAI provider identity (the codex/OpenAI scope).
     providerId: "openai",
     ...(totalProcessedTokens !== undefined && totalProcessedTokens > usedTokens
       ? { totalProcessedTokens }
@@ -2148,7 +2148,7 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           message,
-          // Classify subscription/quota exhaustion (§9: direct drivers get
+          // loom: classify subscription/quota exhaustion (§9: direct drivers get
           // classification only — the resume sweep restarts them at reset).
           ...(!willRetry
             ? {
@@ -2672,8 +2672,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       ),
     );
 
-  // DELIVERY ONLY: the durable resolution already exists, so nothing here can
-  // leave the question open.
+  // loom: DELIVERY ONLY — the durable resolution already exists, so nothing
+  // here can leave the question open.
   const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
     threadId,
     requestId,

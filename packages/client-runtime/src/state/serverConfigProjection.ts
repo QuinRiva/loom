@@ -51,7 +51,6 @@ export function applyServerConfigProjection(
     }
     case "keybindingsUpdated":
       return Option.map(current, (projection) => ({
-        ...projection,
         config: {
           ...projection.config,
           keybindings: event.payload.keybindings,
@@ -62,7 +61,6 @@ export function applyServerConfigProjection(
       }));
     case "providerStatuses":
       return Option.map(current, (projection) => ({
-        ...projection,
         config: {
           ...projection.config,
           providers: event.payload.providers,
@@ -72,7 +70,6 @@ export function applyServerConfigProjection(
       }));
     case "settingsUpdated":
       return Option.map(current, (projection) => ({
-        ...projection,
         config: {
           ...projection.config,
           settings: event.payload.settings,
@@ -82,7 +79,6 @@ export function applyServerConfigProjection(
       }));
     case "environmentThemesUpdated":
       return Option.map(current, (projection) => ({
-        ...projection,
         config: {
           ...projection.config,
           environmentThemes: event.payload.themes.length > 0 ? event.payload.themes : undefined,
@@ -92,7 +88,6 @@ export function applyServerConfigProjection(
       }));
     case "usageLimitSourcesUpdated":
       return Option.map(current, (projection) => ({
-        ...projection,
         config: {
           ...projection.config,
           usageLimitSources: event.payload.sources.length > 0 ? event.payload.sources : undefined,
