@@ -10,9 +10,6 @@ describe("ChangedFilesCard", () => {
       <ChangedFilesCard
         turnId={TurnId.make("turn-1")}
         files={[{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }]}
-        expanded
-        showCompactPreview={false}
-        onExpandedChange={() => {}}
         allDirectoriesExpanded
         resolvedTheme="light"
         onToggleAllDirectories={() => {}}
@@ -42,9 +39,6 @@ describe("ChangedFilesCard", () => {
           },
           { path: "README.md", kind: "modified", additions: 3, deletions: 0 },
         ]}
-        expanded
-        showCompactPreview={false}
-        onExpandedChange={() => {}}
         allDirectoriesExpanded={false}
         resolvedTheme="light"
         onToggleAllDirectories={() => {}}
@@ -68,9 +62,6 @@ describe("ChangedFilesCard", () => {
       <ChangedFilesCard
         turnId={TurnId.make("turn-1")}
         files={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 }]}
-        expanded
-        showCompactPreview={false}
-        onExpandedChange={() => {}}
         allDirectoriesExpanded={false}
         resolvedTheme="light"
         onToggleAllDirectories={() => {}}
