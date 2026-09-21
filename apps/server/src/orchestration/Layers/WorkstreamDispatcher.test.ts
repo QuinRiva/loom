@@ -5201,7 +5201,6 @@ effectIt.layer(NodeServices.layer)(
               title: "Project",
               workspaceRoot: "/tmp/project-epoch",
               defaultModelSelection: null,
-              defaultStartFromOrigin: null,
               scripts: [],
               createdAt: t,
               updatedAt: t,

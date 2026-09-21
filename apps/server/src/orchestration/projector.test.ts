@@ -241,7 +241,6 @@ describe("orchestration projector", () => {
                   remoteUrl: "https://github.com/pingdotgg/t3code.git",
                 },
               },
-              defaultStartFromOrigin: null,
             },
           ],
         },

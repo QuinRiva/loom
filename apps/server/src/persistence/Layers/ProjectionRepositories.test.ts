@@ -294,7 +294,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
         },
-        defaultStartFromOrigin: null,
         defaultThreadEnvMode: null,
         autoPull: false,
         scripts: [],
