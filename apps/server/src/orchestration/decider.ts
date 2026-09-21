@@ -2309,11 +2309,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // out of the projection's attachment GC, the delivery intent is what
       // reaches the provider.
       const attachmentsByQuestionId = command.attachmentsByQuestionId;
+      const requested =
+        userInputActivity?.kind === "user-input.requested"
+          ? decodeUserInputRequestedPayload(userInputActivity.payload)
+          : Option.none();
       if (Object.values(attachmentsByQuestionId ?? {}).flat().length > 0) {
-        const requested =
-          userInputActivity?.kind === "user-input.requested"
-            ? decodeUserInputRequestedPayload(userInputActivity.payload)
-            : Option.none();
         if (Option.isNone(requested)) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
@@ -2329,6 +2329,31 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
               detail: "This question does not accept file references.",
+            });
+          }
+        }
+      }
+      // Every question needs an answer before the form is sent. An attachment
+      // stands in for a blank answer, but not for a missing one.
+      //
+      // loom: upstream runs this only inside its message-mode branch, which the
+      // settle-first redesign does not have — and Pi questions carry no
+      // `responseMode` at all, so scoping it that way would leave this fork's
+      // main question surface unguarded. It therefore guards every answered
+      // settlement, ahead of the transaction: settle-first makes the blank
+      // durable and the question over. Dismissal has its own arm and never
+      // reaches here. The blankness test is loom's narrowed answers contract
+      // (`string | string[]`, for multi-select) rather than upstream's
+      // string-only one.
+      if (Option.isSome(requested)) {
+        for (const question of requested.value.questions) {
+          const answer = command.answers[question.id];
+          const blank =
+            typeof answer === "string" ? answer.trim().length === 0 : (answer?.length ?? 0) === 0;
+          if (answer === undefined || (blank && !attachmentsByQuestionId?.[question.id]?.length)) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "Answer each question before sending.",
             });
           }
         }
