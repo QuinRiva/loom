@@ -1,9 +1,12 @@
 import {
+  ANTIGRAVITY_DEFAULT_MODEL,
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
   type ModelSelection,
-  type ProviderDriverKind,
+  ProviderDriverKind,
+  type ProviderInstanceId,
+  type ProviderInteractionMode,
   type ServerProvider,
   type ScopedProjectRef,
   type ScopedThreadRef,
@@ -28,11 +31,13 @@ import {
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
+import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
+import { stripInlineContextReferences } from "../lib/composerContextReferences";
 import {
-  filterTerminalContextsWithText,
-  stripInlineTerminalContextPlaceholders,
-  type TerminalContextDraft,
-} from "../lib/terminalContext";
+  NO_PROVIDER_MODEL_SELECTION,
+  resolveSelectableProviderInstanceEntry,
+  type ProviderInstanceEntry,
+} from "../providerInstances";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
@@ -470,22 +475,22 @@ export function deriveComposerSendState(options: {
   imageCount: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   /**
-   * Preview annotations + review comments. They contribute to "sendable
-   * content" exactly like images and (text-bearing) terminal contexts do: a
-   * prompt of just context chips is still a valid send.
+   * Optional element-pick attachment count. Element contexts contribute to
+   * "sendable content" exactly like images and (text-bearing) terminal
+   * contexts do: a prompt of just element chips is still a valid send.
    */
-  attachedContextCount?: number;
+  elementContextCount?: number;
 }): {
   trimmedPrompt: string;
   sendableTerminalContexts: TerminalContextDraft[];
   expiredTerminalContextCount: number;
   hasSendableContent: boolean;
 } {
-  const trimmedPrompt = stripInlineTerminalContextPlaceholders(options.prompt).trim();
+  const trimmedPrompt = stripInlineContextReferences(options.prompt).trim();
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
-  const attachedContextCount = options.attachedContextCount ?? 0;
+  const elementContextCount = options.elementContextCount ?? 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
@@ -494,7 +499,7 @@ export function deriveComposerSendState(options: {
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
       sendableTerminalContexts.length > 0 ||
-      attachedContextCount > 0,
+      elementContextCount > 0,
   };
 }
 
@@ -789,4 +794,132 @@ export function resolveDraftPromotionNavigationTarget(input: {
   const messagePersisted =
     input.serverThread?.messages.some((message) => message.role === "user") ?? false;
   return turnStarted || startupStopped || messagePersisted ? input.serverThreadRef : null;
+}
+
+// loom: interim — forward-ported verbatim from upstream's ChatView.logic.ts at
+// c14f6015bf because slice 2's adopted ChatComposer imports them from here.
+// Slice 4 adopts that file wholesale and these disappear into it.
+
+/** Use the same enabled instance for the composer, provider status, and chat actions. */
+export function resolveComposerProviderSelection(input: {
+  entries: ReadonlyArray<ProviderInstanceEntry>;
+  candidateInstanceIds: ReadonlyArray<ProviderInstanceId | null | undefined>;
+  lockedProvider: ProviderDriverKind | null;
+  lockedInstanceId: ProviderInstanceId | null | undefined;
+}) {
+  const requestedInstanceId = input.candidateInstanceIds.find(
+    (candidate) => candidate != null && candidate !== NO_PROVIDER_MODEL_SELECTION.instanceId,
+  );
+  const requestedDriverKind =
+    input.lockedProvider ??
+    input.entries.find((entry) => entry.instanceId === requestedInstanceId)?.driverKind ??
+    input.entries[0]?.driverKind ??
+    ProviderDriverKind.make("unconfigured");
+  const lockedContinuationGroupKey = input.lockedProvider
+    ? (input.entries.find((entry) => entry.instanceId === input.lockedInstanceId)
+        ?.continuationGroupKey ?? null)
+    : null;
+  // Missing metadata must not move Antigravity history into another Google profile.
+  const requiresExactInstance =
+    input.lockedProvider === "antigravity" &&
+    input.lockedInstanceId != null &&
+    lockedContinuationGroupKey === null;
+  const compatibleEntries = input.entries.filter(
+    (entry) =>
+      (!input.lockedProvider || entry.driverKind === input.lockedProvider) &&
+      (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey) &&
+      (!requiresExactInstance || entry.instanceId === input.lockedInstanceId),
+  );
+  const selectedProviderEntry =
+    input.candidateInstanceIds
+      .map((candidate) =>
+        compatibleEntries.find(
+          (entry) => entry.instanceId === candidate && entry.enabled && entry.isAvailable,
+        ),
+      )
+      .find((entry) => entry !== undefined) ??
+    resolveSelectableProviderInstanceEntry(
+      compatibleEntries.filter((entry) => entry.driverKind === requestedDriverKind),
+      undefined,
+    ) ??
+    resolveSelectableProviderInstanceEntry(compatibleEntries, undefined);
+  const unavailableProviderInstanceId = selectedProviderEntry
+    ? undefined
+    : input.lockedProvider
+      ? (input.lockedInstanceId ?? requestedInstanceId)
+      : requestedInstanceId;
+  return {
+    selectedProviderEntry,
+    requestedDriverKind,
+    lockedContinuationGroupKey,
+    unavailableProviderInstanceId,
+  };
+}
+
+/** Keep restored drafts and every plan control on the selected instance's supported mode. */
+export function resolveComposerInteractionMode(input: {
+  planModeEnabled: boolean;
+  provider: Pick<ServerProvider, "showInteractionModeToggle"> | null | undefined;
+  interactionMode: ProviderInteractionMode;
+}): { enabled: boolean; interactionMode: ProviderInteractionMode } {
+  const enabled =
+    input.planModeEnabled &&
+    input.provider != null &&
+    input.provider.showInteractionModeToggle !== false;
+  return {
+    enabled,
+    interactionMode: enabled ? input.interactionMode : "default",
+  };
+}
+
+export function getAntigravitySendBlockReason(
+  provider:
+    | Pick<ServerProvider, "driver" | "installed" | "auth" | "models" | "status">
+    | null
+    | undefined,
+  model: string,
+): string | null {
+  if (provider?.driver !== "antigravity") return null;
+  if (!provider.installed) {
+    return "Install Antigravity in provider settings before sending.";
+  }
+  if (provider.auth.status === "unauthenticated") {
+    return "Sign in to Antigravity in provider settings before sending.";
+  }
+  const slug = model.trim();
+  if (slug.length === 0) return "Choose an Antigravity model before sending.";
+  // A restart clears the account status and catalog. Session startup checks
+  // saved credentials and validates the model before sending the prompt.
+  if (provider.auth.status === "unknown") return null;
+  if (provider.models.length === 0) {
+    return "Refresh Antigravity models in provider settings before sending.";
+  }
+  // A saved model that left the catalog is kept in the picker as unavailable
+  // so the user sees what the thread used. The server rejects it at turn
+  // start, so block here unless the provider is in an error state, where a
+  // retry with the same model is the right move.
+  if (
+    provider.status === "ready" &&
+    slug !== ANTIGRAVITY_DEFAULT_MODEL &&
+    !provider.models.some((entry) => entry.slug === slug || entry.aliases?.includes(slug))
+  ) {
+    return "That Antigravity model is no longer available. Choose another model.";
+  }
+  return null;
+}
+
+/**
+ * Whether a thread ran at least one turn, judged from its shell alone.
+ *
+ * `threadHasStarted` needs the detail: a thread whose latest turn was cleared
+ * still has messages, and the loading shell carries none. The shell records
+ * when the last user message landed, which every started thread has.
+ */
+export function threadShellHasStarted(
+  shell: Pick<ThreadShell, "latestTurn" | "latestUserMessageAt" | "session"> | null | undefined,
+): boolean {
+  return Boolean(
+    shell &&
+    (shell.latestTurn !== null || shell.latestUserMessageAt !== null || shell.session !== null),
+  );
 }

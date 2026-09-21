@@ -2743,6 +2743,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           .filter((c) => wanted.has(terminalContextReference(c).contextId))
           .map(terminalContextRecord),
         ...composerReviewComments
+          // loom: only the `line` arm of the fork's union has a record shape.
+          .filter((c) => c.kind === "line")
           .filter((c) => wanted.has(reviewCommentContextId(c.id)))
           .map(reviewCommentContextRecord),
         ...composerPreviewAnnotations
@@ -2917,7 +2919,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const existingRecord =
           existing?.kind === "terminal"
             ? terminalContextRecord(existing.record)
-            : existing?.kind === "review-comment"
+            : // loom: `mdx-anchor` review comments carry no record shape.
+              existing?.kind === "review-comment" && existing.record.kind === "line"
               ? reviewCommentContextRecord(existing.record)
               : existing?.kind === "preview-annotation"
                 ? previewAnnotationContextRecord(existing.record)
@@ -4405,7 +4408,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // records so the restore can resolve every chip.
     const stashedRecords: ComposerContextRecord[] = [
       ...composerTerminalContextsRef.current.map(terminalContextRecord),
-      ...composerReviewComments.map(reviewCommentContextRecord),
+      // loom: only the `line` arm of the fork's union has a record shape.
+      ...composerReviewComments.filter((c) => c.kind === "line").map(reviewCommentContextRecord),
       ...composerPreviewAnnotations.map((annotation) =>
         previewAnnotationContextRecord(annotation, {
           screenshotContextId: images.some((image) => image.id === annotation.id)

@@ -316,7 +316,7 @@ describe("deriveComposerSendState", () => {
       prompt: "",
       imageCount: 0,
       terminalContexts: [],
-      attachedContextCount: 1,
+      elementContextCount: 1,
     });
 
     expect(state.trimmedPrompt).toBe("");
@@ -330,7 +330,7 @@ describe("deriveComposerSendState", () => {
         prompt: "",
         imageCount: 0,
         terminalContexts: [],
-        attachedContextCount: 0,
+        elementContextCount: 0,
       }).hasSendableContent,
     ).toBe(false);
   });

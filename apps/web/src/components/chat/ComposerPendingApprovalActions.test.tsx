@@ -11,7 +11,6 @@ describe("ComposerPendingApprovalActions", () => {
         requestId={ApprovalRequestId.make("approval-1")}
         isResponding={false}
         onRespondToApproval={async () => undefined}
-        scheduleComposerFocus={() => undefined}
       />,
     );
 
@@ -32,7 +31,6 @@ describe("ComposerPendingApprovalActions", () => {
           { decision: "accept", label: "Approve" },
         ]}
         onRespondToApproval={async () => undefined}
-        scheduleComposerFocus={() => undefined}
       />,
     );
 
@@ -51,7 +49,6 @@ describe("ComposerPendingApprovalActions", () => {
           { decision: "decline", label: "Deny" },
         ]}
         onRespondToApproval={async () => undefined}
-        scheduleComposerFocus={() => undefined}
       />,
     );
 

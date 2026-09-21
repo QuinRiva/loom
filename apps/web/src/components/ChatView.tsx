@@ -209,11 +209,11 @@ import {
   type DraftId,
 } from "../composerDraftStore";
 import {
-  appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
+import { appendTerminalContextsToPrompt } from "../loom/legacyContextBlocks";
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
@@ -4638,7 +4638,7 @@ function ChatViewContent(props: ChatViewProps) {
       prompt: promptForSend,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
-      attachedContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
+      elementContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
     });
     // `/handoff <explanation>` is intercepted here at the real send authority
     // (plan D2): it must NEVER become a turn on the source thread. Every

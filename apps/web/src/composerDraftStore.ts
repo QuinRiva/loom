@@ -2182,7 +2182,11 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.reviewComments.length > 0
         ? {
-            reviewComments: draft.reviewComments.map((comment) => ({ ...comment })),
+            // loom: the fork's `mdx-anchor` arm nests a readonly anchor, so the
+            // shallow clone needs the same cast the annotation line above uses.
+            reviewComments: draft.reviewComments.map(
+              (comment) => ({ ...comment }) as DeepMutable<ReviewCommentContext>,
+            ),
           }
         : {}),
       ...(hasModelData
