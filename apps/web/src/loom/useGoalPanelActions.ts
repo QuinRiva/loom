@@ -55,9 +55,6 @@ export function useGoalPanelActions(input: {
       handleNewThread(scopeProjectRef(environmentId, goal.projectId), {
         ...seed,
         goalId: goal.id as GoalId,
-        // Re-clicking the entry point resumes the goal's draft bucket; the seed
-        // only initialises a fresh one (same contract as the sidebar's button).
-        contextMode: "seed",
       }),
     );
     if (result._tag === "Failure") {
