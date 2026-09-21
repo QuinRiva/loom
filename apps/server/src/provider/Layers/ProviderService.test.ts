@@ -5602,9 +5602,10 @@ describe("agent browser access", () => {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
       const enableAgentDeviceAccess = typeof access === "boolean" ? access : access.device;
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
-      const codex = makeFakeCodexAdapter(CODEX_DRIVER, {
-        ...(options?.adapterMcp ? { mcp: options.adapterMcp } : {}),
-      });
+      const codex = makeFakeCodexAdapter(
+        CODEX_DRIVER,
+        options?.adapterMcp ? { mcp: options.adapterMcp } : {},
+      );
       const providerAdapterLayer = Layer.succeed(
         ProviderAdapterRegistry.ProviderAdapterRegistry,
         makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter }),

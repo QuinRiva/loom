@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./usageDashboard": {
-      "types": "./src/usageDashboard.ts",
-      "default": "./src/usageDashboard.ts"
-    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

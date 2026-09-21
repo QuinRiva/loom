@@ -519,7 +519,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(AntigravityInstallationRefreshLive),
   Layer.provideMerge(ProviderAuthServiceLive),
   // Core Services
-  // loom: LoomRuntimeCoreLive (UsageBreakdownQuery + WorktreeProvisioner) joins
+  // loom: LoomRuntimeCoreLive (WorktreeProvisioner) joins
   // this mergeAll (see loom/serverLayers.ts for its dependency rationale).
   Layer.provideMerge(Layer.mergeAll(CheckpointingLayerLive, LoomRuntimeCoreLive)),
   // loom: WorktreeMutationLock rides this later, dependency-free step so it feeds
