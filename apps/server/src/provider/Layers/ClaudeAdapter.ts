@@ -4355,11 +4355,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // Same reason as the approvals above: a request nobody can answer any more
     // must not stay open, or the thread can never be settled. loom's pending
     // shape carries the settlement deferred rather than upstream's `cancel`
-    // effect, so unpark the blocked callback with a dismissal.
+    // effect, so unpark the blocked callback as cancelled — a teardown is not a
+    // human dismissing the question.
     for (const [requestId, pending] of [...context.pendingUserInputs.entries()]) {
       context.pendingUserInputs.delete(requestId);
       yield* Deferred.succeed(pending.settlement, {
-        outcome: "dismissed",
+        outcome: "cancelled",
         answers: {},
       }).pipe(Effect.ignore);
     }

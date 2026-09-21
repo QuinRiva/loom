@@ -65,6 +65,10 @@ export type EnrichableField = "models" | "slashCommands" | "skills";
  * Without this the `$` palette and model picker blank for the seconds until
  * enrichment lands — every refresh interval, forever.
  *
+ * A base snapshot that reports the provider as *not installed* is never carried
+ * forward from: its emptiness is an observation (the executable is gone), not a
+ * probe that failed to see anything.
+ *
  * Genuine loss still propagates: `enrichSnapshot` publishes its own
  * observations directly (pi now omits the palette fields when `get_commands`
  * fails or comes back empty, so its last good palette stands rather than being
@@ -81,6 +85,7 @@ function carryForwardEnrichment(input: {
 }): ServerProvider {
   const carry = (field: EnrichableField) =>
     input.base.enabled &&
+    input.base.installed &&
     input.previous[field].length > 0 &&
     (input.enrichmentOwnedFields.includes(field) || input.base[field].length === 0);
   return {

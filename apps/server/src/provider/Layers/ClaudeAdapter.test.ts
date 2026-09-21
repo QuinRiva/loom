@@ -7697,9 +7697,8 @@ describe("ClaudeAdapterLive", () => {
         { [question.id]: "Compact and continue" },
       );
 
-      const resolved = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(resolved._tag, "Some");
-      if (resolved._tag === "Some") assert.equal(resolved.value.type, "user-input.resolved");
+      // No `user-input.resolved` from the adapter: the server settles the
+      // question durably before delivery reaches it (settle-first).
       assert.deepEqual(yield* Effect.promise(() => dialogPromise), {
         behavior: "completed",
         result: "compact",
@@ -8100,7 +8099,7 @@ describe("ClaudeAdapterLive", () => {
         return;
       }
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 2).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 1).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -8134,15 +8133,13 @@ describe("ClaudeAdapterLive", () => {
         message: "User cancelled tool execution.",
       } satisfies PermissionResult);
 
+      // The pre-aborted signal releases the callback as CANCELLED; settlement
+      // itself is the server's, so the adapter emits no terminal event.
       const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
       assert.deepEqual(
         runtimeEvents.map((event) => event.type),
-        ["user-input.requested", "user-input.resolved"],
+        ["user-input.requested"],
       );
-      const resolvedEvent = runtimeEvents[1];
-      if (resolvedEvent?.type === "user-input.resolved") {
-        assert.deepEqual(resolvedEvent.payload.answers, {});
-      }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -8196,13 +8193,8 @@ describe("ClaudeAdapterLive", () => {
       // The session dies while the question is still on screen.
       yield* adapter.stopSession(THREAD_ID);
 
-      const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
-      if (resolvedEvent._tag !== "Some" || resolvedEvent.value.type !== "user-input.resolved") {
-        assert.fail("Expected user-input.resolved event");
-        return;
-      }
-      assert.deepEqual(resolvedEvent.value.payload.answers, {});
-
+      // Session teardown releases the blocked callback as cancelled; the
+      // durable settlement is the server's, so no terminal event is emitted here.
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.deepEqual(permissionResult, {
         behavior: "deny",
