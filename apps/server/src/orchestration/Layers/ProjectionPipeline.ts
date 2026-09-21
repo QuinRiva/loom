@@ -1173,6 +1173,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.activeOrderKey !== undefined
+              ? { activeOrderKey: event.payload.activeOrderKey }
+              : {}),
+            ...(event.payload.titleState !== undefined
+              ? { titleState: event.payload.titleState }
+              : {}),
             ...(event.payload.titleProvenance !== undefined
               ? { titleProvenance: event.payload.titleProvenance }
               : {}),
@@ -1189,12 +1195,114 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
               : {}),
+            ...(event.payload.linkedPullRequest !== undefined
+              ? { linkedPullRequest: event.payload.linkedPullRequest }
+              : {}),
+            ...(event.payload.branchPullRequest !== undefined
+              ? { branchPullRequest: event.payload.branchPullRequest }
+              : {}),
             ...(event.payload.finalCommitSha !== undefined
               ? { finalCommitSha: event.payload.finalCommitSha }
               : {}),
             ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
             ...(event.payload.role !== undefined ? { role: event.payload.role } : {}),
             ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          // Legacy single-link events replay into the link table. The old
+          // field held one user-chosen link, so it only ever owns the manual
+          // rows; created/agent/stack links are left alone.
+          if (event.payload.linkedPullRequest !== undefined) {
+            yield* projectionThreadPullRequestRepository.deleteByThreadIdAndSource({
+              threadId: event.payload.threadId,
+              source: "manual",
+            });
+            if (event.payload.linkedPullRequest !== null) {
+              const linked = event.payload.linkedPullRequest;
+              yield* projectionThreadPullRequestRepository.upsert({
+                threadId: event.payload.threadId,
+                ...legacyThreadPullRequestKey(linked),
+                url: linked.url,
+                source: "manual",
+                linkedAt: event.payload.updatedAt,
+                snapshot: null,
+                stack: null,
+              });
+            }
+          }
+          return;
+        }
+
+        case "thread.pull-request-linked": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadPullRequestRepository.upsert({
+            threadId: event.payload.threadId,
+            ...event.payload.link,
+          });
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.pull-request-unlinked": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const links = yield* projectionThreadPullRequestRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const link = links.find((candidate) =>
+            threadPullRequestKeysEqual(candidate, event.payload),
+          );
+          if (link !== undefined) {
+            yield* projectionThreadPullRequestRepository.delete({
+              threadId: event.payload.threadId,
+              host: link.host,
+              repository: link.repository,
+              number: link.number,
+            });
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.pull-request-synced": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          // A sync for a link the user removed in the meantime is stale; drop it.
+          const links = yield* projectionThreadPullRequestRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const link = links.find((candidate) =>
+            threadPullRequestKeysEqual(candidate, event.payload),
+          );
+          if (link === undefined) {
+            return;
+          }
+          yield* projectionThreadPullRequestRepository.upsert({
+            ...link,
+            snapshot: event.payload.snapshot,
+            stack: event.payload.stack,
+          });
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
             updatedAt: event.payload.updatedAt,
           });
           return;
