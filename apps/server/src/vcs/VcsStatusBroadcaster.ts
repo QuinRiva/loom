@@ -425,6 +425,44 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const maybeAutoPull = Effect.fn("VcsStatusBroadcaster.maybeAutoPull")(function* (
+    cwd: string,
+    remote: VcsStatusRemoteResult | null,
+    policyCwds: ReadonlyArray<string>,
+  ) {
+    return yield* Effect.gen(function* () {
+      const autoPullEnabled = (yield* Effect.forEach(policyCwds, autoPullPolicy.isEnabled, {
+        concurrency: "unbounded",
+      })).some(Boolean);
+      if (
+        remote === null ||
+        !remote.hasUpstream ||
+        remote.aheadCount > 0 ||
+        remote.behindCount <= 0 ||
+        !autoPullEnabled
+      ) {
+        return null;
+      }
+
+      yield* workflow.invalidateLocalStatus(cwd);
+      const local = yield* workflow.localStatus({ cwd });
+      if (!local.isRepo || !local.isDefaultRef || local.hasWorkingTreeChanges) return null;
+
+      yield* workflow.pullCurrentBranch(cwd);
+      yield* workflow.invalidateStatus(cwd);
+      const [refreshedLocal, refreshedRemote] = yield* Effect.all(
+        [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd }, { refreshUpstream: false })],
+        { concurrency: "unbounded" },
+      );
+      yield* updateCachedStatus(cwd, refreshedLocal, refreshedRemote, { publish: true });
+      return { local: refreshedLocal, remote: refreshedRemote };
+    }).pipe(
+      Effect.catch(() =>
+        Effect.logWarning("Automatic project pull failed", { cwd }).pipe(Effect.as(null)),
+      ),
+    );
+  });
+
   const refreshLocalStatusCore = Effect.fn("VcsStatusBroadcaster.refreshLocalStatusCore")(
     function* (cwd: string) {
       yield* workflow.invalidateLocalStatus(cwd);
@@ -463,7 +501,10 @@ export const make = Effect.gen(function* () {
   )(function* (
     repositoryKey: string,
     cwds: ReadonlyArray<string>,
-    options?: { readonly refreshUpstream?: boolean },
+    options?: {
+      readonly refreshUpstream?: boolean;
+      readonly policyCwds?: ReadonlyArray<string>;
+    },
   ) {
     const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
     if (!poller || cwds.length === 0) return;
@@ -497,7 +538,19 @@ export const make = Effect.gen(function* () {
     yield* Effect.forEach(
       entries,
       (entry, index) =>
-        updateCachedRemoteStatus(entry.cwd, remotes[index] ?? null, { publish: true }),
+        Effect.gen(function* () {
+          const remote = remotes[index] ?? null;
+          // loom: upstream auto-pulls inside its per-cwd remote refresh; the repo
+          // batch does it per entry, defaulting the policy scope to this
+          // repository's subscribers (upstream's demandCwds).
+          const pulled = yield* maybeAutoPull(
+            entry.cwd,
+            remote,
+            options?.policyCwds ?? [...poller.subscribers.keys()],
+          );
+          if (pulled !== null) return;
+          yield* updateCachedRemoteStatus(entry.cwd, remote, { publish: true });
+        }),
       { discard: true },
     );
   });
@@ -612,25 +665,37 @@ export const make = Effect.gen(function* () {
     "VcsStatusBroadcaster.refreshStatus",
   )(function* (rawCwd) {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
-    yield* workflow.invalidateStatus(cwd);
-    const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
-    if (!repositoryKey) {
-      const [local, remote] = yield* Effect.all(
-        [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd })],
-        { concurrency: "unbounded" },
-      );
-      return yield* updateCachedStatus(cwd, local, remote, { publish: true });
-    }
+    // The write lock spans the read and the cache write, so a slower read that
+    // started earlier cannot land on top of this refresh's fresher result.
+    return yield* withRemoteWriteLock(
+      cwd,
+      Effect.gen(function* () {
+        yield* workflow.invalidateStatus(cwd);
+        const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
+        if (!repositoryKey) {
+          const [local, remote] = yield* Effect.all(
+            [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd })],
+            { concurrency: "unbounded" },
+          );
+          const pulled = yield* maybeAutoPull(cwd, remote, [rawCwd]);
+          if (pulled !== null) return mergeGitStatusParts(pulled.local, pulled.remote);
+          return yield* updateCachedStatus(cwd, local, remote, { publish: true });
+        }
 
-    // An explicit refresh is scoped to the requesting cwd: the repo-wide reads it
-    // performs are shared anyway, and its siblings (including ones with automatic
-    // refresh disabled) keep their own cadence.
-    const local = yield* updateCachedLocalStatus(cwd, yield* workflow.localStatus({ cwd }), {
-      publish: true,
-    });
-    yield* refreshRepositoryRemoteStatus(repositoryKey, [cwd], { refreshUpstream: true });
-    const remote = (yield* getCachedStatus(cwd))?.remote?.value ?? null;
-    return mergeGitStatusParts(local, remote);
+        // loom: an explicit refresh is scoped to the requesting cwd: the repo-wide
+        // reads it performs are shared anyway, and its siblings (including ones
+        // with automatic refresh disabled) keep their own cadence.
+        const local = yield* updateCachedLocalStatus(cwd, yield* workflow.localStatus({ cwd }), {
+          publish: true,
+        });
+        yield* refreshRepositoryRemoteStatus(repositoryKey, [cwd], {
+          refreshUpstream: true,
+          policyCwds: [rawCwd],
+        });
+        const remote = (yield* getCachedStatus(cwd))?.remote?.value ?? null;
+        return mergeGitStatusParts(local, remote);
+      }),
+    );
   });
 
   // loom: upstream keys pollers by cwd and reads `poller.demandCwds`; loom keys

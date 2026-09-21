@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { PI_DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PiSettings } from "@t3tools/contracts";
@@ -8,6 +8,7 @@ import {
   piBackendLabel,
   piCatalogModels,
   piCommandsToSnapshot,
+  piModels,
   piToolDetail,
   piToolItemPayload,
   slimPiToolPayloadData,
@@ -214,6 +215,13 @@ const decodePiSettings = Schema.decodeSync(PiSettings);
 
 describe("piCatalogModels backend disambiguation", () => {
   const settings = decodePiSettings({});
+
+  it("names and attributes the default model in the initial snapshot", () => {
+    expect(piModels(settings).find((entry) => entry.slug === PI_DEFAULT_MODEL)).toMatchObject({
+      name: "Claude Opus 5",
+      subProvider: "CLI Proxy",
+    });
+  });
   const model = (provider: string, id: string, name: string) => ({
     id,
     name,
@@ -232,12 +240,13 @@ describe("piCatalogModels backend disambiguation", () => {
       settings,
     );
     expect(models.map((entry) => [entry.slug, entry.name, entry.subProvider])).toEqual([
-      // Curated shortlist entries sort first (default model, then GPT-5.5).
-      ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
+      // The curated shortlist sorts first; the default model (cliproxy Opus 5)
+      // is not in this catalogue fixture, so GPT-5.5 on Codex leads.
       ["openai-codex/gpt-5.5", "GPT-5.5 (Codex)", "Codex"],
       ["openai/gpt-5.5", "GPT-5.5 (OpenAI)", "OpenAI"],
       // Unique names stay clean (pi already suffixes its Vertex Claude names).
       ["anthropic/claude-opus-4-8", "Claude Opus 4.8", "Anthropic"],
+      ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
     ]);
   });
 

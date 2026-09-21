@@ -5149,11 +5149,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.environment.environmentId, testEnvironmentDescriptor.environmentId);
       assert.equal(response.auth.policy, "desktop-managed-local");
-      // loom: advertise only markers the server actually emits. The thread marker
-      // is implemented (same-queue, re-homed from upstream 8e3467fe6); the shell
-      // one is not, because loom's shell leg keeps its error channel by never
-      // forking into a value-only buffer and no client requests it.
-      assert.equal(response.shellResumeCompletionMarker, false);
+      // Both markers are implemented and advertised: the thread one same-queue
+      // (re-homed from upstream 8e3467fe6), the shell one on upstream's
+      // scope-bound live buffer that pull 7 adopted (see ws.ts).
+      assert.equal(response.shellResumeCompletionMarker, true);
       assert.equal(response.threadResumeCompletionMarker, true);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -8957,7 +8956,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           orchestrationEngine: {
-            streamDomainEvents: Stream.fromPubSub(liveEvents),
+            // loom: the shell path attaches EAGERLY via subscribeDomainEvents
+            // (closing its connect-gap), so stub that rather than the lazy
+            // streamDomainEvents value it no longer reads.
+            subscribeDomainEvents: Effect.map(PubSub.subscribe(liveEvents), (subscription) =>
+              Stream.fromSubscription(subscription),
+            ),
           },
           projectionSnapshotQuery: {
             getShellSnapshot: () =>
@@ -8990,68 +8994,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
-  it.effect("buffers thread events published while the initial snapshot loads", () =>
-    Effect.gen(function* () {
-      const thread = makeDefaultOrchestrationReadModel().threads[0]!;
-      const liveEvents = yield* PubSub.unbounded<OrchestrationEvent>();
-      const messageEvent = {
-        sequence: 2,
-        eventId: EventId.make("event-message"),
-        aggregateKind: "thread",
-        aggregateId: defaultThreadId,
-        occurredAt: "2026-01-01T00:00:01.000Z",
-        commandId: null,
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        type: "thread.message-sent",
-        payload: {
-          threadId: defaultThreadId,
-          messageId: MessageId.make("message-1"),
-          role: "user",
-          text: "First message",
-          turnId: null,
-          streaming: false,
-          createdAt: "2026-01-01T00:00:01.000Z",
-          updatedAt: "2026-01-01T00:00:01.000Z",
-        },
-      } satisfies Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
-
-      yield* buildAppUnderTest({
-        layers: {
-          orchestrationEngine: {
-            streamDomainEvents: Stream.fromPubSub(liveEvents),
-          },
-          projectionSnapshotQuery: {
-            getThreadDetailSnapshot: () =>
-              Effect.gen(function* () {
-                yield* PubSub.publish(liveEvents, messageEvent);
-                return Option.some({ snapshotSequence: 1, thread });
-              }),
-          },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const items = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
-            threadId: defaultThreadId,
-            requestCompletionMarker: true,
-          }).pipe(
-            Stream.takeUntil((item) => item.kind === "synchronized"),
-            Stream.runCollect,
-          ),
-        ),
-      );
-
-      assert.equal(items[0]?.kind, "snapshot");
-      assert.equal(items[1]?.kind, "event");
-      assert.equal(items[1]?.kind === "event" ? items[1].event.sequence : null, 2);
-      assert.equal(items[2]?.kind, "synchronized");
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
+  // loom: upstream's duplicate of this case (it stubbed the lazy
+  // streamDomainEvents the thread path no longer reads) is dropped; the
+  // eager-attach version below is the one that matches the fork's ws seam.
   it.effect("buffers thread events published while the initial snapshot loads", () =>
     Effect.gen(function* () {
       const thread = makeDefaultOrchestrationReadModel().threads[0]!;
@@ -9289,6 +9234,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           orchestrationEngine: {
+            // loom: the shell replay bounds itself by the ENGINE head it
+            // captured (latestSequence), not the projection snapshot sequence.
+            latestSequence: Effect.succeed(3),
             readEvents: (from, limit) => {
               readLimits.push(limit);
               return Stream.make(makeThreadUnarchivedEvent(from + 1, threadId));
@@ -9419,7 +9367,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         if (delivered?.kind === "thread-upserted") {
           assert.equal(delivered.threads[0]?.id, threadId);
         }
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        // Live clock: the shell live leg coalesces on a real time window, so a
+        // frozen TestClock would hold the event in the coalescer forever.
+      }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   // loom: same connect-gap invariant on the capped fallback (gap > cap) — the
@@ -9485,7 +9435,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         if (delivered?.kind === "thread-upserted") {
           assert.equal(delivered.threads[0]?.id, threadId);
         }
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        // Live clock: the shell live leg coalesces on a real time window, so a
+        // frozen TestClock would hold the event in the coalescer forever.
+      }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   // ── loom: thread catch-up truncation fix ────────────────────────────────
@@ -9522,18 +9474,22 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   makeThreadDetailEvent(from + 1 + index, ThreadId.make(`thread-noise-${index}`)),
                 ),
               ),
-            readStreamEvents: (input) => {
-              requestedStreams.push({
-                aggregateKind: input.aggregateKind,
-                streamId: input.streamId,
-              });
+            // loom: the per-thread catch-up reads `readThreadEvents` over a
+            // measured range instead of upstream's `readStreamEvents`.
+            latestSequence: Effect.succeed(1_700),
+            getThreadReplayStats: () =>
+              Effect.succeed({
+                eventCount: threadEventSequences.length,
+                payloadBytes: 300,
+                hasCreateEvent: false,
+              }),
+            readThreadEvents: (input) => {
+              requestedStreams.push({ aggregateKind: "thread", streamId: input.threadId });
               return Stream.fromIterable(
                 threadEventSequences
-                  .filter((sequence) => sequence > input.sequenceExclusive)
+                  .filter((sequence) => sequence > input.fromSequenceExclusive)
                   .slice(0, input.limit)
-                  .map((sequence) =>
-                    makeThreadDetailEvent(sequence, ThreadId.make(input.streamId)),
-                  ),
+                  .map((sequence) => makeThreadDetailEvent(sequence, input.threadId)),
               );
             },
           },
@@ -9616,17 +9572,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("replays the thread when the catch-up gap sits within the cap", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("thread-within-cap");
-      const readLimits: number[] = [];
+      const readLimits: Array<number | undefined> = [];
       let snapshotServed = false;
 
       yield* buildAppUnderTest({
         layers: {
           orchestrationEngine: {
-            readStreamEvents: (input) => {
+            latestSequence: Effect.succeed(50),
+            getThreadReplayStats: () =>
+              Effect.succeed({ eventCount: 2, payloadBytes: 200, hasCreateEvent: false }),
+            readThreadEvents: (input) => {
               readLimits.push(input.limit);
               return Stream.make(
-                makeThreadDetailEvent(input.sequenceExclusive + 1, threadId),
-                makeThreadDetailEvent(input.sequenceExclusive + 2, threadId),
+                makeThreadDetailEvent(input.fromSequenceExclusive + 1, threadId),
+                makeThreadDetailEvent(input.fromSequenceExclusive + 2, threadId),
               );
             },
           },
@@ -9655,9 +9614,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       ).pipe(Effect.timeout("5 seconds"));
 
-      // Reads one past the cap so a full window is distinguishable from a
-      // truncated one, without a truncation signal on the store contract.
-      assert.deepEqual(readLimits, [501]);
+      // loom: the range is MEASURED first (getThreadReplayStats), so the read
+      // itself carries the plain cap rather than upstream's cap+1 probe.
+      assert.deepEqual(readLimits, [1_000]);
       assert.deepEqual(
         items.map((item) => (item.kind === "event" ? item.event.sequence : null)),
         [11, 12],
@@ -9791,13 +9750,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
               Stream.fromSubscription(subscription),
             ),
+            latestSequence: Effect.succeed(50),
+            getThreadReplayStats: () =>
+              Effect.succeed({ eventCount: 1, payloadBytes: 100, hasCreateEvent: false }),
             // Signal that catch-up is in flight (so the eager subscribe has run),
             // then block until a live event has been published into the buffer.
-            readStreamEvents: (input) =>
+            readThreadEvents: (input) =>
               Stream.fromEffect(
                 Deferred.succeed(catchUpInFlight, undefined).pipe(
                   Effect.andThen(Deferred.await(releaseCatchUp)),
-                  Effect.as(makeThreadDetailEvent(input.sequenceExclusive + 1, threadId)),
+                  Effect.as(makeThreadDetailEvent(input.fromSequenceExclusive + 1, threadId)),
                 ),
               ),
           },
@@ -9845,8 +9807,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           orchestrationEngine: {
-            readStreamEvents: (input) =>
-              Stream.make(makeThreadDetailEvent(input.sequenceExclusive + 1, threadId)),
+            latestSequence: Effect.succeed(50),
+            getThreadReplayStats: () =>
+              Effect.succeed({ eventCount: 1, payloadBytes: 100, hasCreateEvent: false }),
+            readThreadEvents: (input) =>
+              Stream.make(makeThreadDetailEvent(input.fromSequenceExclusive + 1, threadId)),
           },
           projectionSnapshotQuery: {
             getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 50 }),

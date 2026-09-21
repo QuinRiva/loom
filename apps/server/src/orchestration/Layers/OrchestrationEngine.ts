@@ -56,7 +56,6 @@ const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
   OrchestrationCommandPreviouslyRejectedError,
 );
 const isOrchestrationCommandIdConflictError = Schema.is(OrchestrationCommandIdConflictError);
-const isOrchestrationCommandInvariantError = Schema.is(OrchestrationCommandInvariantError);
 
 /**
  * Slow-command telemetry threshold. The command worker is a single serial fiber
@@ -94,6 +93,7 @@ type CommandAttribution = ReturnType<typeof commandToAggregateRef> & {
 };
 
 interface CommandQueueInterval {
+  startedAtMs: number;
   commandCount: number;
   queueWaitBuckets: number[];
   queueWaitMaxMs: number;
@@ -102,7 +102,8 @@ interface CommandQueueInterval {
   maxProcessingCommand: CommandAttribution | null;
 }
 
-const makeCommandQueueInterval = (): CommandQueueInterval => ({
+const makeCommandQueueInterval = (nowMs: number): CommandQueueInterval => ({
+  startedAtMs: nowMs,
   commandCount: 0,
   queueWaitBuckets: COMMAND_QUEUE_WAIT_BUCKETS_MS.map(() => 0),
   queueWaitMaxMs: 0,
@@ -188,7 +189,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
-  let commandQueueInterval = makeCommandQueueInterval();
+  let commandQueueInterval = makeCommandQueueInterval(yield* Clock.currentTimeMillis);
 
   const recordCommandQueueTelemetry = (input: {
     readonly attribution: CommandAttribution;
@@ -212,14 +213,27 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     }
   };
 
-  const logCommandQueueInterval = Effect.sync(() => {
-    const interval = commandQueueInterval;
-    commandQueueInterval = makeCommandQueueInterval();
-    return interval;
-  }).pipe(
-    Effect.flatMap((interval) =>
+  // Flushed from the command worker once an interval's worth of wall clock has
+  // passed, rather than from a periodic fibre: a scheduled ticker fires on an
+  // idle server with nothing to report, and any test that moves the clock to an
+  // absolute date replays every tick in between.
+  const logCommandQueueIntervalIfDue = Effect.suspend(() =>
+    Clock.currentTimeMillis.pipe(
+      Effect.flatMap((nowMs) => {
+        if (nowMs - commandQueueInterval.startedAtMs < COMMAND_QUEUE_LOG_INTERVAL_MS) {
+          return Effect.void;
+        }
+        const interval = commandQueueInterval;
+        commandQueueInterval = makeCommandQueueInterval(nowMs);
+        return logCommandQueueInterval(interval, nowMs - interval.startedAtMs);
+      }),
+    ),
+  );
+
+  const logCommandQueueInterval = (interval: CommandQueueInterval, intervalMs: number) =>
+    Effect.suspend(() =>
       Effect.logInfo("orchestration command queue interval", {
-        intervalMs: COMMAND_QUEUE_LOG_INTERVAL_MS,
+        intervalMs,
         commandCount: interval.commandCount,
         queueWaitP50Ms: queueWaitPercentile(interval, 0.5),
         queueWaitP95Ms: queueWaitPercentile(interval, 0.95),
@@ -243,8 +257,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               maxProcessingAggregateId: interval.maxProcessingCommand.aggregateId,
             }),
       }),
-    ),
-  );
+    );
 
   const projectEventsOntoReadModel = (
     baseReadModel: OrchestrationReadModel,
@@ -371,6 +384,30 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
+        if (
+          envelope.command.type === "thread.auto-settle" &&
+          (yield* eventStore.hasEventAfter({
+            aggregateKind: "thread",
+            aggregateId: envelope.command.threadId,
+            sequenceExclusive: envelope.command.snapshotSequence,
+          }))
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: envelope.command.type,
+            detail: `thread ${envelope.command.threadId} changed before automatic settlement`,
+          });
+        }
+
+        if (
+          envelope.command.type === "thread.auto-settle" &&
+          threadBackgroundLiveness.getThreadBackgroundLiveness(envelope.command.threadId) !== null
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: envelope.command.type,
+            detail: `thread ${envelope.command.threadId} has live background work`,
+          });
+        }
+
         // The decider compares the lookup inputs. Only recreation needs an
         // event check, since it can reset a thread to the same field values.
         if (
@@ -436,7 +473,16 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 }),
           ),
         );
-        const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
+        const plannedEvents = Array.isArray(eventBase) ? eventBase : [eventBase];
+        // Stamp the dispatching client's origin onto every event the command
+        // produced. The decider stays pure; attribution is an engine concern.
+        const eventBases =
+          envelope.origin === undefined
+            ? plannedEvents
+            : plannedEvents.map((planned) => ({
+                ...planned,
+                metadata: { ...planned.metadata, origin: envelope.origin },
+              }));
         // loom (W2-4): a decider may legitimately decide a command is a NO-OP and
         // emit nothing — the unchanged-value guards on the set-style commands
         // (raising an attention flag that is already up, re-setting a fan-in state /
@@ -576,6 +622,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             ...aggregateRef,
           };
           recordCommandQueueTelemetry({ attribution, queueWaitMs, processingMs });
+          yield* logCommandQueueIntervalIfDue;
           if (processingMs >= SLOW_COMMAND_PROCESSING_LOG_THRESHOLD_MS) {
             yield* Effect.logWarning("orchestration command processing slow", {
               ...attribution,
@@ -656,7 +703,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               }
             }
 
-            if (isOrchestrationCommandInvariantError(error)) {
+            // Every rejection, not only the invariant one: a blocked settle must
+            // leave a rejected receipt too, or the client never learns why.
+            if (isOrchestrationCommandRejection(error)) {
               yield* commandReceiptRepository
                 .upsert({
                   commandId: envelope.command.commandId,
@@ -682,11 +731,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const worker = Effect.forever(Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)));
   yield* Effect.forkScoped(worker);
-  yield* Effect.forkScoped(
-    Effect.forever(
-      Effect.sleep(COMMAND_QUEUE_LOG_INTERVAL_MS).pipe(Effect.andThen(logCommandQueueInterval)),
-    ),
-  );
   yield* Effect.logDebug("orchestration engine started").pipe(
     Effect.annotateLogs({ sequence: commandReadModel.snapshotSequence }),
   );

@@ -65,6 +65,10 @@ export type EnrichableField = "models" | "slashCommands" | "skills";
  * Without this the `$` palette and model picker blank for the seconds until
  * enrichment lands — every refresh interval, forever.
  *
+ * A base snapshot that reports the provider as *not installed* is never carried
+ * forward from: its emptiness is an observation (the executable is gone), not a
+ * probe that failed to see anything.
+ *
  * Genuine loss still propagates: `enrichSnapshot` publishes its own
  * observations directly (pi now omits the palette fields when `get_commands`
  * fails or comes back empty, so its last good palette stands rather than being
@@ -81,6 +85,7 @@ function carryForwardEnrichment(input: {
 }): ServerProvider {
   const carry = (field: EnrichableField) =>
     input.base.enabled &&
+    input.base.installed &&
     input.previous[field].length > 0 &&
     (input.enrichmentOwnedFields.includes(field) || input.base[field].length === 0);
   return {
@@ -197,16 +202,38 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       return yield* Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot));
     }
 
-    const baseSnapshot = yield* input.checkProvider;
+    if (
+      !forceRefresh &&
+      input.checkProviderOnSettingsChange?.(previousSettings, nextSettings) === false
+    ) {
+      const state = yield* Ref.get(snapshotStateRef);
+      const nextGeneration = state.enrichmentGeneration + 1;
+      yield* Ref.set(snapshotStateRef, {
+        ...state,
+        enrichmentGeneration: nextGeneration,
+      });
+      yield* Ref.set(settingsRef, nextSettings);
+      yield* restartSnapshotEnrichment(nextSettings, state.snapshot, nextGeneration);
+      return state.snapshot;
+    }
+
+    const probedSnapshot = yield* input.checkProvider;
     const [nextSnapshot, nextGeneration] = yield* Ref.modify(snapshotStateRef, (state) => {
       const generation = input.enrichSnapshot
         ? state.enrichmentGeneration + 1
         : state.enrichmentGeneration;
-      const snapshot = carryForwardEnrichment({
-        base: baseSnapshot,
-        previous: state.snapshot,
-        enrichmentOwnedFields: input.enrichmentOwnedFields ?? [],
-      });
+      const snapshot = withUsageLimits(
+        // loom: a regressed probe must not blank the palette content we already have.
+        carryForwardEnrichment({
+          base: probedSnapshot,
+          previous: state.snapshot,
+          enrichmentOwnedFields: input.enrichmentOwnedFields ?? [],
+        }),
+        resolveUsageLimitsAfterProbe({
+          published: state.snapshot.usageLimits,
+          probed: probedSnapshot.usageLimits,
+        }),
+      );
       return [
         [snapshot, generation] as const,
         {

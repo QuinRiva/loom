@@ -249,6 +249,7 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
 export const USAGE_BACKEND_DISPLAY_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
   bedrock: "Bedrock",
+  cliproxy: "CLI Proxy", // loom: pooled Pi backend label in model and usage surfaces
   "google-vertex": "Vertex",
   "google-vertex-claude": "Vertex",
   openai: "OpenAI",
