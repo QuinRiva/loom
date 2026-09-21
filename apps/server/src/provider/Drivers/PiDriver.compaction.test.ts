@@ -140,11 +140,16 @@ afterEach(() => {
   process.env.HOME = realHome;
 });
 
-/** Seed a linear pi session file with `prompts` user turns, as pi would write it. */
+/**
+ * Seed a linear pi session file with `prompts` user turns, as pi would write it.
+ * `modelChangeBeforePrompt` inserts pi's `model_change` entry ahead of that
+ * prompt index, reproducing an in-session model switch.
+ */
 const seedConversation = (input: {
   readonly threadId: ThreadId;
   readonly cwd: string;
   readonly prompts: ReadonlyArray<string>;
+  readonly modelChangeBeforePrompt?: number;
 }): string => {
   const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "pi-compaction-home-"));
   process.env.HOME = home;
@@ -163,6 +168,19 @@ const seedConversation = (input: {
     }),
   ];
   input.prompts.forEach((prompt, index) => {
+    if (input.modelChangeBeforePrompt === index) {
+      const id = `model-change-${index}`;
+      lines.push(
+        JSON.stringify({
+          type: "model_change",
+          id,
+          parentId,
+          provider: "anthropic",
+          modelId: "claude-x",
+        }),
+      );
+      parentId = id;
+    }
     // One turn = a user prompt, the assistant reply, and a tool result — the
     // last of which is role `toolResult`, never `user`.
     for (const message of [
@@ -178,6 +196,15 @@ const seedConversation = (input: {
   NodeFS.writeFileSync(path, lines.join("\n") + "\n");
   return path;
 };
+
+/** An entry re-parented onto an earlier one: a second branch, not the tail. */
+const SIBLING_BRANCH_ENTRY =
+  JSON.stringify({
+    type: "message",
+    id: "branch-1",
+    parentId: "user-0",
+    message: { role: "user", content: "sibling branch" },
+  }) + "\n";
 
 const promptsIn = (path: string): ReadonlyArray<string> =>
   NodeFS.readFileSync(path, "utf8")
@@ -309,6 +336,70 @@ describe("PiDriver conversation rollback", () => {
 
           expect(promptsIn(path)).toEqual([]);
           expect(yield* adapter.canResumeThread!({ threadId, cwd })).toBe(true);
+        }),
+      fake,
+    );
+  });
+
+  // pi rebuilds a resumed session's model from the retained branch, so a rewind
+  // that drops the `model_change` brings the fresh process up on the PREVIOUS
+  // model. Without a forced re-assert the adapter's dedupe sees a matching slug
+  // and stays quiet, and every later turn runs on the wrong model while the
+  // cost ledger bills the new one.
+  effectIt.effect("re-asserts the session model when the rewind drops a model change", () => {
+    const fake = makeFakeProcess();
+    return withAdapter(
+      (adapter, _fake, _events, cwd) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.make("77777777-1111-4111-8111-111111111111");
+          yield* Effect.sync(() =>
+            seedConversation({
+              threadId,
+              cwd,
+              prompts: ["first", "second"],
+              modelChangeBeforePrompt: 1,
+            }),
+          );
+          yield* startSession(adapter, threadId);
+          yield* adapter.sendTurn({
+            threadId,
+            input: "third",
+            modelSelection: { instanceId: INSTANCE, model: "anthropic/claude-x" },
+          });
+          const setModelsBefore = fake.requests.filter(
+            (request) => request.type === "set_model",
+          ).length;
+
+          yield* adapter.rollbackThread(threadId, 1);
+
+          const setModels = fake.requests.filter((request) => request.type === "set_model");
+          expect(setModels.length).toBe(setModelsBefore + 1);
+          expect(setModels.at(-1)).toMatchObject({ provider: "anthropic", modelId: "claude-x" });
+        }),
+      fake,
+    );
+  });
+
+  // A branched session would need its whole retained path rebuilt; the driver
+  // never creates one, so the promise in `planPiSessionRewind` is to refuse
+  // rather than truncate something it has misread.
+  effectIt.effect("refuses to rewind a branched session rather than guess", () => {
+    const fake = makeFakeProcess();
+    return withAdapter(
+      (adapter, _fake, _events, cwd) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.make("88888888-1111-4111-8111-111111111111");
+          const path = yield* Effect.sync(() =>
+            seedConversation({ threadId, cwd, prompts: ["first", "second"] }),
+          );
+          const original = yield* Effect.sync(() => NodeFS.readFileSync(path, "utf8"));
+          yield* Effect.sync(() => NodeFS.appendFileSync(path, SIBLING_BRANCH_ENTRY));
+          yield* startSession(adapter, threadId);
+
+          const failure = yield* Effect.flip(adapter.rollbackThread(threadId, 1));
+          expect(failure.message).toContain("branched");
+          // Refusing means leaving the history alone, not half-rewriting it.
+          expect(NodeFS.readFileSync(path, "utf8").startsWith(original)).toBe(true);
         }),
       fake,
     );

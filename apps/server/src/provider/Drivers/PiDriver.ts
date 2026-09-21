@@ -856,6 +856,11 @@ export function piToolItemPayload(
   };
 }
 
+/** A token count pi reported, or undefined when it is missing or not a count. */
+function reportedTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 /**
  * Translate pi's per-message `Usage` into the generic context-window snapshot
  * the orchestration layer ingests. `usedTokens` mirrors pi's own
@@ -865,11 +870,6 @@ export function piToolItemPayload(
  * `output` is the newly generated text. pi has no thread-cumulative figure, so
  * `totalProcessedTokens` is left unset.
  */
-/** A token count pi reported, or undefined when it is missing or not a count. */
-function positiveTokenCount(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
 function normalizePiTokenUsage(
   usage: unknown,
   maxTokens: number | undefined,
@@ -1232,10 +1232,17 @@ export function makePiAdapter(input: {
   // session start (pi would otherwise silently run the user's global default)
   // and on every turn that carries a selection. Applies tier-2 effective
   // routing so an exhausted intent runs on its fallback from the first dispatch.
+  //
+  // `force` re-sends `set_model` even when the slug already matches what this
+  // adapter last applied: after the process has been replaced against a
+  // REWRITTEN history (see `rollbackThread`), the dedupe memory describes the
+  // dead process, while pi derives the fresh one's model from the retained
+  // branch — so a matching slug is exactly the case that must still be sent.
   const applyModelSelection = (
     session: ActivePiSession,
     selection: ModelSelection,
     resolution?: EffectiveResolution,
+    force = false,
   ): Effect.Effect<void, ProviderAdapterRequestError> =>
     Effect.gen(function* () {
       const resolved =
@@ -1249,7 +1256,7 @@ export function makePiAdapter(input: {
       // until the first turn fails.
       if (resolved.kind !== "exhausted") {
         const model = resolvePiModel(resolved.slug);
-        if (model && resolved.slug !== session.session.model) {
+        if (model && (force || resolved.slug !== session.session.model)) {
           yield* Effect.tryPromise({
             try: () =>
               session.process.request({
@@ -1517,7 +1524,7 @@ export function makePiAdapter(input: {
         slugRoutesToAnthropic(toSlug) &&
         threadSessionHasPoisonedToolIds(session.session.threadId)
       )
-        yield* relaunchWithSanitisedHistory(session);
+        yield* relaunchWithRewrittenHistory(session);
       const d = yield* describeExhaustion(fromSlug);
       session.lastRerouteWindowLabel = d.windowLabel;
       session.lastRerouteResetAt = d.resetsAt;
@@ -1696,8 +1703,8 @@ export function makePiAdapter(input: {
             },
           });
         }
-        const beforeTokens = positiveTokenCount(result.tokensBefore);
-        const afterTokens = positiveTokenCount(result.estimatedTokensAfter);
+        const beforeTokens = reportedTokenCount(result.tokensBefore);
+        const afterTokens = reportedTokenCount(result.estimatedTokensAfter);
         const maxTokens = session.session.model
           ? input.modelContextWindows.get(session.session.model)
           : undefined;
@@ -2032,15 +2039,24 @@ export function makePiAdapter(input: {
     });
   };
 
-  // Restart the pi process from a freshly sanitised session file. The codex
-  // poison lives in pi's IN-MEMORY history too (pi owns it, we can't rewrite
+  // Restart the pi process against a rewritten session file, the rewrite
+  // running while no pi process is alive to race it. Disk is the source of
+  // truth for a pi resume, so the replacement comes up on exactly the history
+  // the rewrite left behind. Only safe between turns (no in-flight pi run to
+  // lose).
+  //
+  // Two rewrites use this. The default SANITISES codex-poisoned tool ids: that
+  // poison lives in pi's in-memory history too (pi owns it, we can't rewrite
   // it), so an in-session set_model into an Anthropic-family model would replay
-  // the poison and hit a fatal 400. Stopping the process first means the disk
-  // rewrite never races a live writer; the replacement reads the clean file and
-  // resumes identically (disk is the source of truth for a pi resume). Model +
-  // thinking level are cleared so the caller's set_model/thinking re-applies on
-  // the fresh process. Only safe between turns (no in-flight pi run to lose).
-  const relaunchWithSanitisedHistory = (
+  // the poison and hit a fatal 400. `rollbackThread` passes a branch
+  // truncation instead.
+  //
+  // The thinking-level dedupe is cleared so the caller's set_thinking_level
+  // re-applies on the fresh process. The MODEL dedupe (`session.session.model`)
+  // is deliberately left alone, because it doubles as the session's reported
+  // model: a caller whose rewrite can change the model pi resumes on must
+  // re-assert it (`applyModelSelection(..., force)`), as `rollbackThread` does.
+  const relaunchWithRewrittenHistory = (
     session: ActivePiSession,
     rewriteHistory: () => void = () => sanitisePiSessionForThread(session.session.threadId),
   ): Effect.Effect<void, ProviderAdapterProcessError> =>
@@ -2165,9 +2181,44 @@ export function makePiAdapter(input: {
       if (plan.removedUserMessages === 0) {
         return { threadId, turns: session.turns };
       }
-      yield* relaunchWithSanitisedHistory(session, () =>
+      // pi rebuilds a resumed session's model and thinking level from the
+      // RETAINED branch (`getSessionContextSettings`: the last `model_change`,
+      // else the last assistant message), so a rewind across an in-session
+      // switch brings the fresh process up on the pre-switch settings while
+      // this adapter still believes the newer ones are live. Nothing would
+      // correct that — the dedupe in `applyModelSelection` sees a matching slug
+      // and skips — so every later turn would silently run the old model and be
+      // costed as the new one. Re-assert both against the fresh process.
+      const intendedModel = session.session.model;
+      const intendedThinkingLevel = session.thinkingLevel;
+      yield* relaunchWithRewrittenHistory(session, () =>
         NodeFS.writeFileSync(sessionFile, plan.retainedText),
       );
+      if (intendedModel !== undefined) {
+        yield* applyModelSelection(
+          session,
+          { instanceId: input.instanceId, model: intendedModel },
+          undefined,
+          true,
+        );
+      }
+      if (intendedThinkingLevel !== undefined) {
+        yield* Effect.tryPromise({
+          try: () =>
+            session.process.request({
+              type: "set_thinking_level",
+              level: intendedThinkingLevel,
+            }),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: DRIVER_KIND,
+              method: "set_thinking_level",
+              detail: detailFromCause(cause, "Failed to restore Pi thinking level after rewind."),
+              cause,
+            }),
+        });
+        session.thinkingLevel = intendedThinkingLevel;
+      }
       session.turns.splice(Math.max(0, session.turns.length - numTurns));
       session.activeTurnId = undefined;
       session.turnStartedFor = undefined;
@@ -2580,7 +2631,7 @@ export function makePiAdapter(input: {
                 !slugRoutesToAnthropic(session.session.model ?? "") &&
                 threadSessionHasPoisonedToolIds(session.session.threadId)
               )
-                yield* relaunchWithSanitisedHistory(session);
+                yield* relaunchWithRewrittenHistory(session);
               yield* applyModelSelection(session, turnInput.modelSelection, resolution);
             }
             // A send while a turn is already running is a steer: pi folds the
