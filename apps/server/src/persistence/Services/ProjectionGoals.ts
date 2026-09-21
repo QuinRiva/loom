@@ -5,14 +5,7 @@
  *
  * @module ProjectionGoalRepository
  */
-import {
-  GoalId,
-  GoalTaskId,
-  IsoDateTime,
-  NonNegativeInt,
-  ProjectId,
-  TitleProvenance,
-} from "@t3tools/contracts";
+import { GoalId, GoalTaskId, IsoDateTime, NonNegativeInt, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
@@ -25,7 +18,6 @@ export const ProjectionGoal = Schema.Struct({
   projectId: ProjectId,
   slug: Schema.String,
   title: Schema.String,
-  titleProvenance: TitleProvenance, // loom: §4 title provenance
   description: Schema.String,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

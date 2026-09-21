@@ -217,10 +217,6 @@ export interface ThreadTitlePromptInput {
   policy?: TextGenerationPolicy | undefined;
 }
 
-// NOTE: only consumed by the now call-less `generateThreadTitle` (see
-// TextGeneration.ts). Live first-turn titling uses buildThreadInterpretationPrompt,
-// which yields the title + emergent goal together. Retained to stay close to
-// upstream T3 Code rather than diverge.
 // Keep shared editorial rules in these two prompts in sync. Regeneration
 // intentionally adds guidance for thread history and the previous title.
 const INITIAL_THREAD_TITLE_PROMPT = `Generate a title that will help the user recognize this T3 Code thread weeks later.
@@ -333,29 +329,29 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 }
 
 // ---------------------------------------------------------------------------
-// Thread interpretation (title + emergent goal)
+// loom: emergent goal ("every session has a goal")
 // ---------------------------------------------------------------------------
 
-export interface ThreadInterpretationPromptInput {
+export interface EmergentGoalPromptInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   policy?: TextGenerationPolicy | undefined;
 }
 
 /**
- * Interpret what a developer is trying to achieve from the transcript-so-far
- * and distil it into a thread title plus a short emergent goal. The wire field
- * for the goal objective is `description` so it maps 1:1 onto the existing
- * `goal.create` / `goal.meta.update` command field.
+ * loom: interpret what a developer is trying to achieve from the
+ * transcript-so-far and distil it into a short emergent GOAL. The thread title
+ * is upstream's concern (`buildThreadTitlePrompt`) and is deliberately not
+ * produced here. The wire field for the goal objective is `description` so it
+ * maps 1:1 onto the existing `goal.create` / `goal.meta.update` command field.
  */
-export function buildThreadInterpretationPrompt(input: ThreadInterpretationPromptInput) {
+export function buildEmergentGoalPrompt(input: EmergentGoalPromptInput) {
   const prompt = buildPromptFromMessage({
     instruction:
-      "You interpret what a developer is trying to achieve in a coding thread and distil it into a thread title and a short goal.",
+      "You interpret what a developer is trying to achieve in a coding thread and distil it into a short goal.",
     responseShape:
-      "Return a JSON object with keys: title, goal (an object with keys title and description), and confidence.",
+      "Return a JSON object with keys: goal (an object with keys title and description) and confidence.",
     rules: [
-      "title: 3-5 words summarizing the objective; summarize, do not restate verbatim; no quotes, prefixes, or trailing punctuation.",
       "goal.title: a short noun phrase naming the objective.",
       "goal.description: one or two sentences stating the objective the developer is pursuing.",
       'confidence: "high" only if you are confident this is the thread\'s actual objective, otherwise "low".',
@@ -366,7 +362,6 @@ export function buildThreadInterpretationPrompt(input: ThreadInterpretationPromp
     additionalInstructions: input.policy?.threadTitleInstructions,
   });
   const outputSchema = Schema.Struct({
-    title: Schema.String,
     goal: Schema.Struct({
       title: Schema.String,
       description: Schema.String,

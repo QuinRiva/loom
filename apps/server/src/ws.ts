@@ -36,7 +36,6 @@ import {
   ClientSurface,
   ClientWebDeployment,
   CommandId,
-  DEFAULT_THREAD_TITLE,
   type DiscoveredLocalServerList,
   GoalId,
   EventId,
@@ -1570,24 +1569,13 @@ const makeWsRpcLayer = (
                 // launch.
                 forkFromThreadId: bootstrap.createThread.forkFromThreadId ?? null,
                 title: bootstrap.createThread.title,
-                // loom: §4 trust boundary. The bootstrap create title is the
-                // client's truncated FIRST MESSAGE (a seed), never a human-typed
-                // curated title — so stamp it `seed` here rather than letting the
-                // decider conservatively infer `curated` from a non-placeholder
-                // title. This keeps the real local-draft first-send path
-                // automation-malleable so the reactor can upgrade it to the LLM
-                // `derived` title. A blank-context "New thread" stays `default`.
-                //
                 // loom: `/handoff` fork-drafter (plan D4) — a server-injected
-                // bootstrap may supply an explicit CURATED provenance (the
-                // drafter title is curated, not a first-message seed) so the
-                // auto-title reactor never renames a drafter. Honour it when
-                // present; otherwise keep the seed/default inference.
-                titleProvenance:
-                  bootstrap.createThread.titleProvenance ??
-                  (bootstrap.createThread.title.trim() === DEFAULT_THREAD_TITLE
-                    ? "default"
-                    : "seed"),
+                // bootstrap supplies a DELIBERATE title, so the first-turn title
+                // generator must leave it alone. The ordinary local-draft
+                // first-send path carries the composer seed and omits this.
+                ...(bootstrap.createThread.titleSource !== undefined
+                  ? { titleSource: bootstrap.createThread.titleSource }
+                  : {}),
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,
                 interactionMode: bootstrap.createThread.interactionMode,

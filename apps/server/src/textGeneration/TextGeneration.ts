@@ -76,6 +76,9 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+// loom: generic structured-generation input — the fork's one JSON-in/JSON-out
+// text-generation seam (used by the first-turn goal derivation), instead of a
+// bespoke per-operation method on every driver.
 export interface StructuredGenerationInput<S extends Schema.Top> {
   /** Fully-built prompt instructing the model to return JSON for `outputSchema`. */
   readonly prompt: string;
@@ -85,6 +88,7 @@ export interface StructuredGenerationInput<S extends Schema.Top> {
   readonly modelSelection: ModelSelection;
 }
 
+// loom: promise-shaped view of the service, kept for the fork's driver plumbing.
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -117,33 +121,17 @@ export class TextGeneration extends Context.Service<
 
     /**
      * Generate a concise branch name from a user message.
-     *
-     * NOTE: currently call-less. First-turn worktree-branch renaming now reuses the
-     * generated thread title (one interpretation round-trip, see
-     * ProviderCommandReactor's interpretThreadIntent / renameWorktreeBranchToTitle),
-     * so branch and title stay consistent. Retained — not deleted — for the same
-     * reason as generateThreadTitle: removing it across the shape + every driver
-     * would be a standing merge-conflict liability against upstream T3 Code for
-     * little gain.
      */
     readonly generateBranchName: (
       input: BranchNameGenerationInput,
     ) => Effect.Effect<BranchNameGenerationResult, TextGenerationError>;
 
-    /**
-     * Generate a concise thread title from a user's first message.
-     *
-     * NOTE: currently call-less. First-turn titling now flows through
-     * `generateStructured` + `buildThreadInterpretationPrompt`, which produces the
-     * title and the emergent goal in one round-trip (see ProviderCommandReactor's
-     * interpretThreadIntent). This method is intentionally retained — not deleted —
-     * to minimise divergence from upstream T3 Code.
-     */
     /** Generate a concise thread title from a first message or thread history. */
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
 
+    // loom: generic structured generation (see StructuredGenerationInput).
     /**
      * Generic structured generation: run a caller-built prompt through the
      * driver's JSON runner and decode the response against `outputSchema`.
@@ -156,6 +144,7 @@ export class TextGeneration extends Context.Service<
   }
 >()("t3/textGeneration/TextGeneration") {}
 
+// loom: name the fork's drivers (PiDriver) and tests still import.
 /** @deprecated Use `TextGeneration["Service"]`. */
 export type TextGenerationShape = TextGeneration["Service"];
 
@@ -164,6 +153,7 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
+  // loom: structured-generation op.
   | "generateStructured";
 
 const resolveInstance = (
@@ -217,6 +207,7 @@ export const make = Effect.gen(function* () {
           }),
         ),
       ),
+    // loom: structured-generation passthrough.
     generateStructured: (input) =>
       resolveInstance(registry, "generateStructured", input.modelSelection.instanceId).pipe(
         Effect.flatMap((textGeneration) => textGeneration.generateStructured(input)),

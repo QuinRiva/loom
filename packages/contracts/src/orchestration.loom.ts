@@ -72,64 +72,15 @@ export const UserInputResolvedOutcome = Schema.Literals([
 export type UserInputResolvedOutcome = typeof UserInputResolvedOutcome.Type;
 export const DEFAULT_USER_INPUT_RESOLVED_OUTCOME: UserInputResolvedOutcome = "answered";
 
-// loom: title provenance ladder (stale/empty-goal fix §4). Tracks how the
-// CURRENT title of a thread or goal was produced, lowest → highest authority:
-//   `default`  — the placeholder "New thread" (never a real subject).
-//   `seed`     — the truncated first user message (a rough client-side guess).
-//   `derived`  — the side-channel LLM interpretation of the thread's intent.
-//   `curated`  — a human/tool rename (set_thread_title, spawn/handoff titles,
-//                goal_update). Never overwritten by anything automatic.
-// Automatic writers may only replace a title whose provenance ranks strictly
-// below theirs; a `curated` title is immutable to automation. The rank helper
-// `titleProvenanceRank` and guard `canReplaceTitle` live below.
-export const TitleProvenance = Schema.Literals(["default", "seed", "derived", "curated"]);
-export type TitleProvenance = typeof TitleProvenance.Type;
-
-// loom: the placeholder title a fresh thread carries until it gains a real
-// subject. Single-sourced here so the decider, reactor, projector, pipeline and
-// migration all agree on which titles are "never a real subject".
-export const DEFAULT_THREAD_TITLE = "New thread";
-
-/**
- * Conservative provenance for a title that arrives WITHOUT an explicit
- * provenance — the single inference shared by every replay/backfill path
- * (in-memory projector, durable pipeline, migration 057). The `"New thread"`
- * placeholder never carried a real subject, so it is `default` (freely
- * replaceable by automation); every other title is `curated` — the safe choice
- * that automation may not clobber. Keeping this identical across all three
- * paths is what stops a projection rebuild from disagreeing with the migration.
- */
-export function inferLegacyTitleProvenance(title: string): TitleProvenance {
-  return title.trim() === DEFAULT_THREAD_TITLE ? "default" : "curated";
-}
-
-const TITLE_PROVENANCE_RANK: Record<TitleProvenance, number> = {
-  default: 0,
-  seed: 1,
-  derived: 2,
-  curated: 3,
-};
-
-export function titleProvenanceRank(provenance: TitleProvenance | undefined): number {
-  // A missing provenance is treated as `curated` — the conservative default so
-  // legacy/unlabelled titles are never clobbered by automation.
-  return provenance === undefined
-    ? TITLE_PROVENANCE_RANK.curated
-    : TITLE_PROVENANCE_RANK[provenance];
-}
-
-/**
- * Whether a writer stamping `next` provenance may replace a title whose current
- * provenance is `current`. `curated` always wins (a human/tool rename); every
- * other writer needs to rank strictly above the current title.
- */
-export function canReplaceTitle(
-  current: TitleProvenance | undefined,
-  next: TitleProvenance,
-): boolean {
-  if (next === "curated") return true;
-  return titleProvenanceRank(next) > titleProvenanceRank(current);
-}
+// loom: a thread created with a DELIBERATE title (a workstream child's brief
+// title, a `/handoff` or `/retro` fork label, a scaffold node label) opts in
+// here, and the decider stamps upstream's `titleState` as `manual` on the
+// created thread — exactly what upstream stamps for a rename. Without it
+// upstream's first-turn generator would treat the brief title as a replaceable
+// seed (it equals the turn's `titleSeed`) and overwrite it. A client bootstrap
+// create carries the composer seed and leaves this absent, so it stays
+// generatable.
+const TitleSource = Schema.Literal("manual");
 
 // Worktree isolation policy for a workstream sub-thread (worktree-isolation
 // design §1). `isolated` = own worktree + `ws/…` branch, merged back on
@@ -329,7 +280,6 @@ export const OrchestrationGoal = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   tasks: Schema.Array(OrchestrationGoalTask),
   createdAt: IsoDateTime,
@@ -344,7 +294,6 @@ export const OrchestrationGoalShell = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   tasks: Schema.Array(OrchestrationGoalTask),
   createdAt: IsoDateTime,
@@ -423,10 +372,6 @@ export const LoomThreadFields = {
   // historical rows — and upstream's own decode tests, which construct thread
   // literals with no knowledge of fork fields.
   goalId: Schema.NullOr(GoalId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  // loom: §4 title provenance. Optional so dev seeds/tests may omit it; every
-  // live write path stamps it and the decider treats an absent value as
-  // `curated` (the conservative default that automation may not overwrite).
-  titleProvenance: Schema.optional(TitleProvenance),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -626,7 +571,7 @@ export const LoomThreadShellFields = {
  * a thread row. Anything building a thread literal by hand — a client-side
  * optimistic shell, a fixture — spreads this first and overrides after, so the
  * next fork field is one edit here rather than one per construction site.
- * Optional fields (`titleProvenance`, `finalCommitSha`, …) are deliberately
+ * Optional fields (`titleSource`, `finalCommitSha`, …) are deliberately
  * absent: under `exactOptionalPropertyTypes` an explicit `undefined` is not the
  * same as omission.
  */
@@ -794,10 +739,8 @@ export const LoomThreadCreateCommandFields = {
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  // loom: §4 provenance of the create-time title. Spawn/handoff titles are
-  // `curated`; the client bootstrap create leaves it absent (the decider then
-  // infers `default` for the "New thread" placeholder).
-  titleProvenance: Schema.optional(TitleProvenance),
+  // loom: mark the create-time title as deliberate (see `TitleSource`).
+  titleSource: Schema.optional(TitleSource),
   // Intrinsic run-condition carried at node creation: the dispatcher defers the
   // kick-off turn until every blockedBy thread is `done`. A dependency-bearing
   // create is validated at the decider boundary (self/root/dangling/cycle
@@ -833,10 +776,6 @@ export const LoomThreadMetaUpdateFields = {
   // Post-completion engagement (plan §8 item 3): stamp the child's tip commit at
   // fan-in / cancel. Partial-update semantics — an absent value never clobbers.
   finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  // loom: §4 provenance the writer is stamping onto a title change. The decider
-  // applies the title only when this rank may replace the current provenance;
-  // absent-with-title is treated as `curated` (a conservative human-ish write).
-  titleProvenance: Schema.optional(TitleProvenance),
 } as const;
 
 // Spread into `ThreadTurnStartCommand`. All three flags are server-only; see
@@ -878,12 +817,11 @@ export const LoomBootstrapCreateThreadFields = {
   // Thread fork (MVP): the UI's fork affordance seeds a draft thread carrying
   // the source id; the first-send bootstrap create relays it into thread.create.
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
-  // `/handoff` fork-drafter (plan D4): a server-injected bootstrap (the drafter
-  // launch) supplies a CURATED title, not the client's truncated first-message
-  // seed. When present the dispatcher stamps it verbatim instead of inferring
-  // seed/default from the title text, so the auto-title reactor never renames a
-  // drafter. Absent on the ordinary local-draft first-send path (stays seed).
-  titleProvenance: Schema.optional(TitleProvenance),
+  // `/handoff` fork-drafter (plan D4): a server-injected bootstrap supplies a
+  // DELIBERATE title, not the client's truncated first-message seed, so the
+  // first-turn title generator must not rename the drafter. Absent on the
+  // ordinary local-draft first-send path (which stays generatable).
+  titleSource: Schema.optional(TitleSource),
 } as const;
 
 // Spread into `ThreadCreatedPayload`.
@@ -899,7 +837,9 @@ export const LoomThreadCreatedPayloadFields = {
   // A scaffold node is born unbriefed, but the field is carried so a future
   // create path may seed a brief pointer at creation time.
   kickoffBriefPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
+  // loom: the created title is deliberate (see `TitleSource`); the projector
+  // stamps upstream's `titleState` as manual from it.
+  titleSource: Schema.optional(TitleSource),
   planLane: Schema.optional(ThreadPlanLane),
   attention: Schema.optional(ThreadAttention),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
@@ -922,7 +862,6 @@ export const LoomThreadMetaUpdatedPayloadFields = {
   // Post-completion engagement (plan §8 item 3): the child's tip commit stamped
   // at fan-in / cancel. Folded onto the shell by the projector; absent otherwise.
   finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -938,7 +877,6 @@ const GoalCreateCommand = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
 });
@@ -949,7 +887,6 @@ const GoalMetaUpdateCommand = Schema.Struct({
   goalId: GoalId,
   slug: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
 });
 
@@ -1360,7 +1297,6 @@ export const GoalCreatedPayload = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1370,7 +1306,6 @@ export const GoalMetaUpdatedPayload = Schema.Struct({
   goalId: GoalId,
   slug: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
-  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
   updatedAt: IsoDateTime,
 });
