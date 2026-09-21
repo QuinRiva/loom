@@ -19,7 +19,7 @@ type SqliteReadLayerConfig = {
   readonly spanAttributes?: Record<string, unknown>;
 };
 
-export const layer = (config: SqliteReadLayerConfig): Layer.Layer<SqlReadClient, SqlError> =>
+const layer = (config: SqliteReadLayerConfig): Layer.Layer<SqlReadClient, SqlError> =>
   Layer.effect(SqlReadClient, SqlClient.SqlClient).pipe(
     Layer.provide(
       NodeSqliteWorkerClient.layer({
@@ -30,7 +30,7 @@ export const layer = (config: SqliteReadLayerConfig): Layer.Layer<SqlReadClient,
     ),
   );
 
-export const makeSqliteReadLive = Effect.fn("makeSqliteReadLive")(function* (dbPath: string) {
+const makeSqliteReadLive = Effect.fn("makeSqliteReadLive")(function* (dbPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   yield* fs.makeDirectory(path.dirname(dbPath), { recursive: true });

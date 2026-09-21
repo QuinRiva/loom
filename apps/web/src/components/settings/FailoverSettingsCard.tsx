@@ -66,7 +66,7 @@ const ACCOUNT_EXHAUSTED_PERCENT = 100;
  * this is a best-effort settings display. Paused accounts with no live usage
  * still surface so they can be unpaused.
  */
-export function deriveFailoverAccounts(
+function deriveFailoverAccounts(
   providers: ReadonlyArray<ServerProvider>,
   pausedAccounts: ReadonlyArray<string>,
 ): ReadonlyArray<FailoverAccountRow> {

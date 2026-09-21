@@ -22,14 +22,14 @@ export interface JsonData {
   wrap?: boolean;
 }
 
-export const jsonSchema = z.object({
+const jsonSchema = z.object({
   title: z.string().trim().max(200).optional(),
   json: z.string().max(200_000),
   collapsedDepth: z.number().int().min(0).max(20).optional(),
   wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<JsonData>;
 
-export const jsonMdx: BlockMdxConfig<JsonData> = {
+const jsonMdx: BlockMdxConfig<JsonData> = {
   tag: "Json",
   toAttrs: (data) => ({
     title: data.title,
@@ -147,7 +147,7 @@ function JsonNode({
   );
 }
 
-export function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
+function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
   const [wrap, setWrap] = useState(data.wrap ?? false);
   const parsed = useMemo(() => {
     try {

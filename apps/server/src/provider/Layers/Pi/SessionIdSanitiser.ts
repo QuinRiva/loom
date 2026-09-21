@@ -81,7 +81,7 @@ const forEachToolId = (
  * Rewrite invalid tool ids across parsed pi session entries in place, returning
  * the number of id fields changed.
  */
-export const sanitiseSessionEntries = (entries: ReadonlyArray<Record<string, unknown>>): number => {
+const sanitiseSessionEntries = (entries: ReadonlyArray<Record<string, unknown>>): number => {
   let changed = 0;
   forEachToolId(entries, (id) => {
     const next = sanitiseId(id);
@@ -94,9 +94,7 @@ export const sanitiseSessionEntries = (entries: ReadonlyArray<Record<string, unk
 };
 
 /** True iff any tool id in the parsed entries fails Anthropic's id pattern. */
-export const entriesHavePoisonedToolIds = (
-  entries: ReadonlyArray<Record<string, unknown>>,
-): boolean => {
+const entriesHavePoisonedToolIds = (entries: ReadonlyArray<Record<string, unknown>>): boolean => {
   let poisoned = false;
   forEachToolId(entries, (id) => {
     if (!VALID_TOOL_ID.test(id)) poisoned = true;
@@ -135,7 +133,7 @@ const readSessionLines = (
  * false. Non-message and unparseable lines (e.g. the leading `{"type":"session"}`
  * header) are preserved verbatim, so only tool-id fields ever change.
  */
-export const sanitiseSessionFile = (path: string): boolean => {
+const sanitiseSessionFile = (path: string): boolean => {
   const rows = readSessionLines(path);
   if (rows === undefined) return false;
   const entries = rows.flatMap((row) => (row.value === null ? [] : [row.value]));

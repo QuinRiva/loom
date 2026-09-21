@@ -30,7 +30,7 @@ export function resolvePiModel(model: string): { provider: string; modelId: stri
 /** Slow-tier retry schedule on the turn's current backend. */
 export const T3_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 30_000, 45_000, 60_000, 90_000];
 /** Brief allowance on the fallback backend before giving up. */
-export const T3_FALLBACK_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 60_000];
+const T3_FALLBACK_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 60_000];
 /** Short settle before a reactive tier-2 switch re-prompts on the fallback. */
 export const T3_QUOTA_FAILOVER_DELAY_MS = 2_000;
 
@@ -51,7 +51,7 @@ export const PI_TRANSIENT_PROVIDER_ERROR_RE =
  * Classified as `validation_error` so it burns neither pi's/the T3 transient
  * ladder nor the exhaustion resume sweep (which only re-runs `quota_exhausted`).
  */
-export const PI_NON_RETRYABLE_REQUEST_ERROR_RE =
+const PI_NON_RETRYABLE_REQUEST_ERROR_RE =
   /invalid_request_error|\[HTTP 400\]|should match pattern|tool_use\.id/i;
 
 /** Preferred capacity-pool partner per provider namespace (checked first; the

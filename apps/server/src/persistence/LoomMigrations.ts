@@ -116,7 +116,7 @@ export const loomMigrationEntries = [
   [1039, "DropTitleProvenance", Migration1039],
 ] as const;
 
-export const makeLoomMigrationLoader = (throughId?: number) =>
+const makeLoomMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(
     Object.fromEntries(
       loomMigrationEntries
@@ -154,9 +154,7 @@ const historicalLedgerTail: ReadonlyArray<readonly [id: number, name: string]> =
   [66, "ProjectionThreadsSnoozed"],
 ];
 
-export class LoomLedgerReconciliationError extends Data.TaggedError(
-  "LoomLedgerReconciliationError",
-)<{
+class LoomLedgerReconciliationError extends Data.TaggedError("LoomLedgerReconciliationError")<{
   readonly message: string;
 }> {}
 

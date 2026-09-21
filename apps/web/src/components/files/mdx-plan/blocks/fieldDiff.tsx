@@ -44,14 +44,14 @@ const fieldDiffFieldSchema = z.object({
   note: z.string().trim().max(1000).optional(),
 }) as z.ZodType<FieldDiffField>;
 
-export const fieldDiffSchema = z.object({
+const fieldDiffSchema = z.object({
   title: z.string().trim().max(400).optional(),
   beforeLabel: z.string().trim().max(80).optional(),
   afterLabel: z.string().trim().max(80).optional(),
   fields: z.array(fieldDiffFieldSchema).min(1).max(40),
 }) as unknown as z.ZodType<FieldDiffData>;
 
-export const fieldDiffMdx: BlockMdxConfig<FieldDiffData> = {
+const fieldDiffMdx: BlockMdxConfig<FieldDiffData> = {
   tag: "FieldDiff",
   toAttrs: (data) => ({
     title: data.title,

@@ -71,7 +71,7 @@ export interface ExhaustionMark {
 }
 
 /** Human label for a usage-window kind (§5.4 reroute reasons). */
-export const windowKindLabel = (kind: "primary" | "secondary"): string =>
+const windowKindLabel = (kind: "primary" | "secondary"): string =>
   kind === "primary" ? "5-hour" : "weekly";
 
 export interface ProviderHealthRegistryShape {

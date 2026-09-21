@@ -31,17 +31,12 @@ export interface WrappedTerminalLinkLine {
   segments: ReadonlyArray<WrappedTerminalLinkLineSegment>;
 }
 
-export const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
-// loom: exported — absolute (POSIX/`~`/`./`/`../`/Windows drive/UNC) paths, or
-// `name/name`-style relative paths with a separator and optional
-// `:line`/`:line:col` suffix. Bare filenames with no separator are deliberately
-// excluded (too noisy in prose). Shared with the chat-markdown prose/code-block
-// path scanner (markdown-links).
-export const FILE_PATH_PATTERN =
+const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
+const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 
-export function trimClosingDelimiters(value: string): string {
+function trimClosingDelimiters(value: string): string {
   let output = value.replace(TRAILING_PUNCTUATION_PATTERN, "");
   if (output.length === 0) return output;
 
@@ -223,6 +218,8 @@ export function resolvePathLinkTarget(rawPath: string, cwd: string): string {
   return formatFilePathPosition({ ...position, path: resolvedPath });
 }
 
+// loom: splits a `path:line[:col]` suffix off a scanned path — shared with the
+// chat-markdown file-chip scanner (markdown-links).
 export function splitPathAndPosition(value: string): {
   path: string;
   line: string | undefined;

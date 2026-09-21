@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
-export const CLI_TOKEN_SECRET = "cli-token";
+const CLI_TOKEN_SECRET = "cli-token";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

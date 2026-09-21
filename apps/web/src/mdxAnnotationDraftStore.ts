@@ -22,7 +22,7 @@ interface MdxAnnotationDraftStoreState {
 }
 
 /** Stable per-target prefix so drafts don't collide across threads. */
-export function draftTargetKey(target: ScopedThreadRef | DraftId): string {
+function draftTargetKey(target: ScopedThreadRef | DraftId): string {
   return typeof target === "string" ? target : scopedThreadKey(target);
 }
 

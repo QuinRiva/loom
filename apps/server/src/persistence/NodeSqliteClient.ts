@@ -34,7 +34,7 @@ import {
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
 
-export const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
+const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
 
 export type TypeId = "~local/sqlite-node/SqliteClient";
 
@@ -157,13 +157,6 @@ const makeMemory = (
       });
       return database;
     },
-  );
-
-export const layerConfig = (
-  config: Config.Wrap<SqliteClientConfig>,
-): Layer.Layer<Client.SqlClient, Config.ConfigError | SqlError> =>
-  Layer.effect(Client.SqlClient, Config.unwrap(config).pipe(Effect.flatMap(make))).pipe(
-    Layer.provide(Reactivity.layer),
   );
 
 export const layer = (config: SqliteClientConfig): Layer.Layer<Client.SqlClient, SqlError> =>

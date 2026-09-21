@@ -103,10 +103,6 @@ export function hasRunningSignal(thread: SidebarThreadSummary): boolean {
  * `in_progress` is the plan phase, never relabelled "running". The live signal
  * is surfaced separately as the activity overlay.
  */
-export function resolveBaseColumn(thread: SidebarThreadSummary): WorkstreamColumnId {
-  return thread.planLane;
-}
-
 /**
  * The attention reasons a thread carries: the wire array (stored reasons, plus
  * the server-unioned derived `awaiting_input`) unioned with the render-time
@@ -129,7 +125,7 @@ export function attentionReasonsOf(thread: SidebarThreadSummary): ReadonlyArray<
 }
 
 /** The single highest-priority attention reason on a thread, or `null`. */
-export function highestAttentionReasonOf(thread: SidebarThreadSummary): AttentionReason | null {
+function highestAttentionReasonOf(thread: SidebarThreadSummary): AttentionReason | null {
   return attentionReasonsOf(thread)[0] ?? null;
 }
 

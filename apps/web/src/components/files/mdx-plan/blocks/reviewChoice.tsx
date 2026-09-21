@@ -28,13 +28,13 @@ export interface ReviewChoiceData {
   placeholder?: string;
 }
 
-export const reviewChoiceSchema = z.object({
+const reviewChoiceSchema = z.object({
   itemId: z.string().trim().min(1).max(120),
   label: z.string().trim().max(120).optional(),
   placeholder: z.string().trim().max(240).optional(),
 }) as unknown as z.ZodType<ReviewChoiceData>;
 
-export const reviewChoiceMdx: BlockMdxConfig<ReviewChoiceData> = {
+const reviewChoiceMdx: BlockMdxConfig<ReviewChoiceData> = {
   tag: "ReviewChoice",
   toAttrs: (data) => ({
     itemId: data.itemId,

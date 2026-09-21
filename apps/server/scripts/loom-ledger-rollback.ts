@@ -122,7 +122,7 @@ export const rollbackLedgers = Effect.fn("rollbackLedgers")(function* (options: 
   return `rolled back ${options.databasePath} to the single-ledger layout (1..66) — now revert the code`;
 });
 
-export const runLedgerRollback = Effect.fn("runLedgerRollback")(function* (options: {
+const runLedgerRollback = Effect.fn("runLedgerRollback")(function* (options: {
   readonly baseDir: string;
   readonly dryRun: boolean;
 }) {
@@ -133,7 +133,7 @@ export const runLedgerRollback = Effect.fn("runLedgerRollback")(function* (optio
   );
 });
 
-export const loomLedgerRollbackCommand = Command.make(
+const loomLedgerRollbackCommand = Command.make(
   "loom-ledger-rollback",
   {
     baseDir: Flag.String("base-dir").pipe(

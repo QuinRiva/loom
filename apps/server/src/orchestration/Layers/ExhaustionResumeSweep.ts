@@ -67,7 +67,7 @@ import {
 
 const SWEEP_INTERVAL = Duration.seconds(60);
 /** Minimum gap between resume attempts for one thread (tight-loop guard). */
-export const RESUME_COOLDOWN_MS = 5 * 60_000;
+const RESUME_COOLDOWN_MS = 5 * 60_000;
 
 /**
  * In-band control-plane framing for the resume re-prompt: same contract as
@@ -124,7 +124,7 @@ export const resolveExhaustionResumeText = (input: {
  * cooldown has elapsed. Caller filters the projection down to genuinely stalled
  * threads before invoking this.
  */
-export const decideResume = (input: {
+const decideResume = (input: {
   readonly resumeOnReset: boolean;
   /** Intended model healthy again, OR a healthy fallback is now reachable. */
   readonly providerReady: boolean;

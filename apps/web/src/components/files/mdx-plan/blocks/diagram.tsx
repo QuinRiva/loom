@@ -67,14 +67,14 @@ const noteSchema = z.object({
   y: z.number().min(0).max(100).optional(),
 }) as z.ZodType<DiagramNote>;
 
-export const diagramSchema = z.object({
+const diagramSchema = z.object({
   caption: z.string().trim().max(600).optional(),
   nodes: z.array(nodeSchema).max(80).optional(),
   edges: z.array(edgeSchema).max(120).optional(),
   notes: z.array(noteSchema).max(40).optional(),
 }) as unknown as z.ZodType<DiagramData>;
 
-export const diagramMdx: BlockMdxConfig<DiagramData> = {
+const diagramMdx: BlockMdxConfig<DiagramData> = {
   tag: "Diagram",
   toAttrs: (data) => ({
     caption: data.caption,
@@ -110,7 +110,7 @@ function positioned(nodes: DiagramNode[]): (DiagramNode & { x: number; y: number
   });
 }
 
-export function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
+function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
   const nodes = useMemo(() => positioned(data.nodes ?? []), [data.nodes]);
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const edges = data.edges ?? [];

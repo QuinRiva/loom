@@ -80,7 +80,7 @@ interface SandboxedHtmlFrameProps {
 }
 
 /** The shared sandboxed-iframe host both surfaces render through. */
-export function SandboxedHtmlFrame({
+function SandboxedHtmlFrame({
   html,
   sandbox,
   csp,
@@ -129,7 +129,7 @@ export interface PrototypeData {
 
 const PROTOTYPE_DEFAULT_HEIGHT = 420;
 
-export const prototypeSchema = z.object({
+const prototypeSchema = z.object({
   html: z.string().max(500_000),
   caption: z.string().max(500).optional(),
   height: z.number().int().positive().max(4000).optional(),
@@ -180,7 +180,7 @@ export interface HtmlBlockData {
 
 const HTML_DEFAULT_HEIGHT = 240;
 
-export const htmlBlockSchema = z.object({
+const htmlBlockSchema = z.object({
   html: z.string().max(500_000),
   caption: z.string().max(500).optional(),
   height: z.number().int().positive().max(4000).optional(),

@@ -16,7 +16,7 @@
  */
 
 /** pi slug namespace → human backend label (mirrors PiDriver's PI_BACKEND_LABELS). */
-export const PI_NAMESPACE_LABELS: Record<string, string> = {
+const PI_NAMESPACE_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   bedrock: "Bedrock",
   "google-vertex": "Google Vertex (Gemini)",
@@ -46,7 +46,7 @@ export const failoverNamespaceOf = (slug: string): string => {
 };
 
 /** A target entry is "same model on a pool" when it carries no `/modelId`. */
-export const isSameModelTarget = (target: string): boolean => !target.includes("/");
+const isSameModelTarget = (target: string): boolean => !target.includes("/");
 
 export const failoverNamespaceLabel = (namespace: string): string =>
   PI_NAMESPACE_LABELS[namespace] ?? namespace;

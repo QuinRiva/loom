@@ -72,7 +72,7 @@ export const questionFormSchema = z.object({
   submitLabel: z.string().trim().max(80).optional(),
 }) as unknown as z.ZodType<QuestionFormData>;
 
-export const questionFormMdx: BlockMdxConfig<QuestionFormData> = {
+const questionFormMdx: BlockMdxConfig<QuestionFormData> = {
   tag: "QuestionForm",
   toAttrs: (data) => ({
     questions: data.questions,
@@ -310,7 +310,7 @@ function WriteInAnswer({
   );
 }
 
-export function QuestionFormRead(props: PlanBlockReadProps<QuestionFormData>) {
+function QuestionFormRead(props: PlanBlockReadProps<QuestionFormData>) {
   return <QuestionListRead {...props} blockType="question-form" />;
 }
 

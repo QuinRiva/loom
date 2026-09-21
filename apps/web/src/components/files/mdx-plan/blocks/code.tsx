@@ -25,7 +25,7 @@ export interface CodeData {
   wrap?: boolean;
 }
 
-export const codeSchema = z.object({
+const codeSchema = z.object({
   code: z.string().max(100_000),
   language: z.string().trim().max(40).optional(),
   filename: z.string().trim().max(400).optional(),
@@ -34,7 +34,7 @@ export const codeSchema = z.object({
   wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<CodeData>;
 
-export const codeMdx: BlockMdxConfig<CodeData> = {
+const codeMdx: BlockMdxConfig<CodeData> = {
   tag: "Code",
   toAttrs: (data) => ({
     filename: data.filename,
@@ -80,7 +80,7 @@ function CodeBody({ code, language, wrap }: { code: string; language: string; wr
   );
 }
 
-export function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
+function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
   const language = data.language?.trim() || "text";
   const lines = useMemo(() => data.code.split("\n"), [data.code]);
   const maxLines = data.maxLines ?? DEFAULT_CODE_MAX_LINES;

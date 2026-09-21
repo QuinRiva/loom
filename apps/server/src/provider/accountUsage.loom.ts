@@ -58,7 +58,7 @@ type StorageIdentity = RoutingIdentity & Pick<AccountUsageSnapshot, "accountLabe
 export const accountUsageRoutingKey = (snapshot: RoutingIdentity): string =>
   snapshot.providerInstanceId ?? snapshot.providerName;
 
-export const accountUsageStorageKey = (snapshot: StorageIdentity): string =>
+const accountUsageStorageKey = (snapshot: StorageIdentity): string =>
   snapshot.accountLabel
     ? `${accountUsageRoutingKey(snapshot)}\u0000${snapshot.accountLabel}`
     : accountUsageRoutingKey(snapshot);

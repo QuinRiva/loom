@@ -35,7 +35,7 @@ export const TAB_JUMP_KEYBINDING_COMMANDS = [
 ] as const;
 export type TabJumpKeybindingCommand = (typeof TAB_JUMP_KEYBINDING_COMMANDS)[number];
 
-export const TAB_KEYBINDING_COMMANDS = [
+const TAB_KEYBINDING_COMMANDS = [
   "tab.close",
   "tab.reopenClosed",
   "tab.previous",

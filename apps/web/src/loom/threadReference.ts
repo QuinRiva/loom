@@ -58,8 +58,3 @@ export function threadReferenceFromRecord(record: ThreadContextRecord): ThreadRe
     label: record.label,
   };
 }
-
-/** Recovers the mentioned thread id from a context id minted by this module. */
-export function threadIdFromContextId(contextId: string): ThreadId {
-  return ThreadId.make(producerIdFromComposerContextId("thread", contextId));
-}

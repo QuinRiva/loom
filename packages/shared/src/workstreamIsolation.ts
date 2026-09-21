@@ -30,7 +30,7 @@ export const roleDefaultIsolation = (role: string | null): ThreadIsolation => {
  * must not wake the parent yet, but a conflicted or failed one must (the parent
  * is the only live actor that can act on it).
  */
-export const isFanInSettled = (fanInState: ThreadFanInState): boolean => fanInState !== "none";
+const isFanInSettled = (fanInState: ThreadFanInState): boolean => fanInState !== "none";
 
 /**
  * Does an isolated child that has reached `done` still owe an unsettled fan-in?

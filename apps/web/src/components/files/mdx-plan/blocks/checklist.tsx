@@ -30,11 +30,11 @@ const checklistItemSchema = z.object({
   note: z.string().trim().max(800).optional(),
 }) as z.ZodType<ChecklistItem>;
 
-export const checklistSchema = z.object({
+const checklistSchema = z.object({
   items: z.array(checklistItemSchema).max(200),
 }) as unknown as z.ZodType<ChecklistData>;
 
-export const checklistMdx: BlockMdxConfig<ChecklistData> = {
+const checklistMdx: BlockMdxConfig<ChecklistData> = {
   tag: "Checklist",
   toAttrs: (data) => ({ items: data.items }),
   fromAttrs: (attrs) => ({
@@ -42,7 +42,7 @@ export const checklistMdx: BlockMdxConfig<ChecklistData> = {
   }),
 };
 
-export function ChecklistRead({ data, blockId }: PlanBlockReadProps<ChecklistData>) {
+function ChecklistRead({ data, blockId }: PlanBlockReadProps<ChecklistData>) {
   const items = data.items ?? [];
   return (
     <ul

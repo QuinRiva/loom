@@ -32,12 +32,12 @@ export interface DetailsData {
   open?: boolean;
 }
 
-export const detailsSchema = z.object({
+const detailsSchema = z.object({
   summary: z.string().trim().min(1).max(300),
   open: z.boolean().optional(),
 }) as unknown as z.ZodType<DetailsData>;
 
-export const detailsMdx: BlockMdxConfig<DetailsData> = {
+const detailsMdx: BlockMdxConfig<DetailsData> = {
   tag: "Details",
   passChildren: true,
   toAttrs: (data) => ({ summary: data.summary, open: data.open }),
