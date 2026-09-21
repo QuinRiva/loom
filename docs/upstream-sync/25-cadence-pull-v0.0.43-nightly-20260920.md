@@ -1670,6 +1670,17 @@ is a lost feature.
 | usage limits                                      | ✓ PR #210 — the poller emits upstream's per-account limits shape, so Pi reaches the Limits page; loom's registry and `/usage` are retired |
 | skills                                            | ✓ via pi's `get_commands`                                                                                                                 |
 | `uploadFeedback`                                  | ✗ not implemented — upstream's thread-feedback upload is refused for Pi                                                                   |
+| text generation                                   | ✓ titles, commits, change-request content and branch names are real one-shot `pi --print` calls (`PiTextGeneration.ts`); stubs deleted    |
+
+**Text generation was the fourth such no-op.** Upstream's title flow ran end to
+end on Pi and could still only echo the prompt, because every per-operation
+method on `PiDriver` was a deterministic stub (`titleFromText`, `branchFromText`,
+`"Update from pi"`) while only the fork's `generateStructured` reached a model.
+All of them now run the shared prompt through
+[`PiTextGeneration.ts`](../../apps/server/src/textGeneration/PiTextGeneration.ts),
+and a failed call fails the operation instead of inventing a placeholder, so
+upstream's retry runs and upstream's own fallback (keep the seed title, skip the
+branch rename) decides what the user sees.
 
 **The trap this catches, concretely.** Upstream's restart continuation (#9167)
 gates on `binding.resumeCursor != null`. Pi never produces a cursor, so the
