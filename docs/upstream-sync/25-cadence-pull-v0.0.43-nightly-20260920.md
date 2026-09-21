@@ -1461,35 +1461,69 @@ The gate is branch-scoped **because the accumulated backlog is far too large to
 block on**: the first whole-fork run found **161 files** with a non-trivial
 unmarked delta — 87 non-test (≈8,700 changed lines) and 74 test (≈14,200). A
 repo-wide blocking gate would fail every ship on day one and be switched off
-within a day, which is worse than no gate. Retiring the backlog is its own
-stack item; the gate stops it growing.
+within a day, which is worse than no gate. Retiring the backlog was its own
+stack item (below); the gate stops it growing.
 
-First run — the largest non-test hits. The verdict column is a **triage signal,
-not an adjudication**: it counts loom vocabulary (workstream/goal/planLane/
-handoff/coder/…) in the added lines, and it under-detects — `index.css` scores
-zero yet is 933 lines of loom chat-composer styling.
+Backlog retired (2026-09-22). The whole-fork audit is **clean**: every
+upstream-owned file with a non-trivial fork delta now carries at least one
+`// loom:` marker, or is exempt in `docs/upstream-sync/unmarkedsweep.allow` with
+its reason. 137 files were touched across seven commits, one per package.
 
-| lines | file                                                                | signal                                             |
-| ----: | ------------------------------------------------------------------- | -------------------------------------------------- |
-|   935 | `apps/web/src/index.css`                                            | (a) loom — composer glass/theming, vocabulary-free |
-|   562 | `apps/server/src/provider/Layers/ClaudeProvider.ts`                 | (b/c) capability probe; likely upstream's          |
-|   457 | `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts` | (a) loom — 43 vocabulary hits                      |
-|   442 | `apps/server/src/workspace/WorkspaceFileSystem.ts`                  | (b/c) review                                       |
-|   415 | `apps/server/src/project/ProjectSetupScriptRunner.ts`               | (b/c) review                                       |
-|   374 | `apps/server/src/orchestration/Layers/CheckpointReactor.ts`         | (b/c) review                                       |
-|   340 | `apps/web/src/reviewCommentContext.ts`                              | (a) loom — plan-comment anchors                    |
-|   304 | `apps/server/src/git/GitManager.ts`                                 | (b/c) review                                       |
-|   257 | `packages/contracts/src/server.ts`                                  | (a) loom — workstream worktrees surface            |
-|   224 | `apps/server/src/persistence/Layers/ProjectionThreads.ts`           | (a) loom — 30 vocabulary hits                      |
-|   200 | `apps/server/src/provider/Layers/OpenCodeAdapter.ts`                | (b/c) review                                       |
-|   154 | `packages/contracts/src/rpc.ts`                                     | (a) loom — 47 vocabulary hits                      |
+| package                                   | files | src | test | notable (b) reverts                                                               |
+| ----------------------------------------- | ----: | --: | ---: | --------------------------------------------------------------------------------- |
+| root (`scripts/`, `infra/`, `docs/user/`) |     6 |   5 |    1 | dead `T3CODE_HOME` block; licence unicode escape; a swallowed upstream paragraph  |
+| `apps/mobile`                             |     6 |   1 |    5 | an import shuffle                                                                 |
+| `packages/contracts`                      |     6 |   5 |    1 | duplicate `WsServerSignalProcessRpc` registration; stray `export` on 6 RPC consts |
+| `packages/shared`                         |     9 |   4 |    5 | five dropped `applyServerSettingsPatch` arms                                      |
+| `packages/client-runtime`                 |    12 |   6 |    6 | —                                                                                 |
+| `apps/web`                                |    25 |  14 |   11 | four upstream `markdown-links` describes restored                                 |
+| `apps/server`                             |    73 |  35 |   38 | eleven upstream `externalLauncher` editor cases restored                          |
 
-Two notes for whoever retires the backlog. Test files are the larger half by
-line count and markers read badly in them — decide once whether tests are in
-scope at all rather than file by file. And `apps/server/src/orchestration/`
-has **two** `ProjectionSnapshotQuery.ts` (under `Layers/` and `Services/`);
-only the `Layers/` one is live, which is worth confirming before marking the
-other.
+Classification followed the three rules the backlog item set: (a) loom product
+gets a marker naming the feature, (b) a hunk that differs from upstream with no
+loom purpose is reverted to upstream's text, (c) test files follow their source.
+In practice nearly everything was (a) — the fork's thread shape alone forces a
+fixture change in ~30 test files. The (b) column above is the interesting part,
+because each entry is behaviour the merge silently changed:
+
+- **`applyServerSettingsPatch` (`packages/shared`)** — the pull-7 resolution
+  replaced upstream's replacement arms for `projectSettingsOverrides`,
+  `defaultModelSelection`, `defaultProjectScripts`, `usageLimitSources` and
+  `usagePriceOverrides` with loom's `workstreamModelPresets`/`Profiles`/
+  `providerFailover` arms. The five patch keys were still destructured out of
+  the merge object, so those settings patches were being **dropped**. Restored
+  alongside loom's arms.
+- **`scripts/dev-runner.ts`** — upstream's `T3CODE_HOME` block was laid back on
+  top of loom's port-scoped dev home, making the feature unreachable (and
+  leaving 8 red cases). The dead block is gone, the feature is live again, and
+  the `HOST` cases now assert loom's IPv4-loopback default: 80/80 pass.
+- **`packages/contracts/src/rpc.ts`** — `WsServerSignalProcessRpc` was
+  registered twice in `WsRpcGroup`; six upstream RPC consts had gained an
+  `export` nothing imports. Loom's own new RPC consts are module-private for the
+  same reason.
+- **Dropped upstream tests** — `markdown-links.test.ts` (4 describes) and
+  `externalLauncher.test.ts` (11 editor discovery/launch cases) had lost
+  coverage of functions the fork does not change. Restored; both files green.
+
+Three files are exempt rather than marked, all in
+`docs/upstream-sync/unmarkedsweep.allow`: `third-party-licenses.config.json` and
+`packages/shared/package.json` (JSON has no comment syntax; the delta is
+licence notices and subpath exports for loom-only modules) and
+`apps/web/src/routeTree.gen.ts` (generated — a marker would be erased on the
+next regeneration).
+
+Residue, deliberately left: the audit's second list — **marked but thin** (a
+file over 200 changed lines carrying fewer than three markers) — still names ~29
+files. That list is advisory, not a failure: each of those files is marked, and
+placing a marker on every one of their hunks is the re-home's job, not the
+sweep's. The gate (branch-scoped, no flag) keeps both lists from growing.
+
+Test-file policy, decided once rather than file by file: **tests are in scope
+and are marked like source.** No loom-only test file needed deleting — every hit
+was an upstream test file carrying loom additions or loom's thread-shape
+fixtures. Where an upstream case pinned behaviour loom deliberately changed
+(the Pi-first text-generation default, the dev-runner `HOST` default) the case
+was realigned and marked, not deleted.
 
 ### A related blind spot in `sqlcolsweep.py` — FIXED
 
