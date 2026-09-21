@@ -27,6 +27,9 @@ import {
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
+    // loom: fork columns on every projection message row — `origin` is the
+    // provenance of a user-role message (absent ⇒ human) and `controlPayload`
+    // carries a control notice. Both are read/written throughout this file.
     origin: Schema.NullOr(MessageOrigin),
     controlPayload: Schema.NullOr(Schema.fromJsonString(ControlPayload)),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
@@ -43,6 +46,7 @@ function toProjectionThreadMessage(
     threadId: row.threadId,
     turnId: row.turnId,
     role: row.role,
+    // loom: fork columns, see the row schema above.
     ...(row.origin !== null ? { origin: row.origin } : {}),
     ...(row.controlPayload !== null ? { controlPayload: row.controlPayload } : {}),
     text: row.text,
@@ -71,6 +75,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id,
           turn_id,
           role,
+          -- loom: fork columns
           origin,
           control_payload_json,
           text,
@@ -85,6 +90,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.turnId},
           ${row.role},
+          -- loom: fork columns
           ${row.origin ?? null},
           ${controlPayloadJson},
           ${row.text},
@@ -113,6 +119,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id = excluded.thread_id,
           turn_id = excluded.turn_id,
           role = excluded.role,
+          -- loom: fork columns
           origin = COALESCE(excluded.origin, projection_thread_messages.origin),
           control_payload_json = COALESCE(
             excluded.control_payload_json,
@@ -195,6 +202,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          -- loom: fork columns
           origin,
           control_payload_json AS "controlPayload",
           text,
@@ -236,6 +244,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          -- loom: fork columns
           origin,
           control_payload_json AS "controlPayload",
           text,

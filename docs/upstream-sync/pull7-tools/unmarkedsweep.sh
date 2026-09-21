@@ -17,8 +17,10 @@
 #                               pulls; the accumulated backlog is large and is
 #                               tracked in the sync notes, not gated on.
 #
-# Files absent at the comparison base (loom-only) are exempt automatically;
-# deliberate exemptions live in docs/upstream-sync/unmarkedsweep.allow.
+# Files absent at the comparison base (loom-only) are exempt automatically, as
+# are files whose content now matches the upstream base: a completed re-home
+# has zero fork delta, so there is no hunk left to mark.
+# Deliberate exemptions live in docs/upstream-sync/unmarkedsweep.allow.
 # MIN_LINES (default 15) sets what counts as non-trivial.
 
 set -euo pipefail
@@ -61,6 +63,7 @@ while read -r added deleted path; do
   (( added + deleted >= MIN_LINES )) || continue
   [[ -f $path ]] || continue                                     # deleted in HEAD
   git cat-file -e "$upstream_base:$path" 2>/dev/null || continue # loom-only file
+  git diff --quiet "$upstream_base" -- "$path" && continue      # back to upstream: no delta
   allowed "$path" && continue
   # Non-TS files carry the marker in their own comment syntax, so match bare `loom:`.
   case $path in
