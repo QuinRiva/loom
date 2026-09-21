@@ -1534,3 +1534,151 @@ pulls) and confirms `docs/upstream-sync/UPSTREAM_BASE` was advanced to the new
 upstream tip. A reviewer who sees a loom hunk with no `// loom:` marker treats
 it as a defect in the change under review, not a pre-existing condition:
 unmarked is how features get silently dropped.
+
+Added after pull 7: the **PiDriver capability-parity diff** (see "Post-pull-7
+stack" below). Loom ships one adapter, so an upstream capability `PiDriver` does
+not implement is a feature that no-ops with no error and no log.
+
+---
+
+# Post-pull-7 stack
+
+Pull 7 merged as PR #195 but is **not a deploy point**: `main` carries a stacked
+series of follow-up PRs that finish the re-home, and the whole stack deploys as
+one. The human's rule throughout: adopt upstream's approach as the baseline and
+delete loom's workaround wherever upstream now owns the concern; re-attach only
+the behaviour explicitly ruled KEEP; no compatibility shims.
+
+## PRs
+
+| PR   | What it did                                                                          |
+| ---- | ------------------------------------------------------------------------------------ |
+| #195 | The merge itself (`c14f6015bf`), sync note 25                                        |
+| #196 | Chat re-home slice 1 — `ChatMarkdown` on upstream's, loom's chips/viewer re-attached |
+| #197 | Upstream's PR-projection arms; `last_error_class` restored                           |
+| #198 | Diff tab "By coder" scope repaired and marked                                        |
+| #199 | Auto-settle: the server sweep is the single owner; loom's client rule deleted        |
+| #200 | Reasoning: upstream's durable rows adopted, loom's ephemeral v2 deleted (doc 26)     |
+| #201 | PiDriver compaction (pi's `compact` RPC) and conversation rollback                   |
+| #202 | Child/staged-root provisioning through `WorktreeSetupTracker`                        |
+| #203 | DB-copy smoke safety guard; `sqlcolsweep.py` overrides; dev-verify recipe            |
+| #204 | Chat re-home slice 2 — composer closure; loom's question card deleted end to end     |
+| #205 | Chat re-home slice 3 — timeline on upstream's, 15 marked hunks                       |
+| #206 | Sidebar ordering: upstream's comparator; loom's activity anchor deleted              |
+| #207 | Titles: upstream's flow wholesale; `title_provenance` dropped (migration 1039)       |
+| #208 | Startup phases restored; welded server tests realigned; dead projections deleted     |
+
+Later stack PRs (chat slice 4, usage/limits, lint-and-doctrine) append to this
+table. `docs/upstream-sync/UPSTREAM_BASE` records the upstream commit the fork's
+merge-base sits at (`c14f6015bf` for pull 7); the ship gate
+(`pull7-tools/unmarkedsweep.sh`) diffs against it, so a pull is not finished
+until that file is advanced to the new upstream tip.
+
+## Standing drops — three entries struck
+
+The "intentional loom drops" list was inherited unchanged across pulls, which is
+how a stale entry survives. Three are now void:
+
+- **DiffPanel working-tree diff** — struck. Upstream defaults its panel to the
+  working tree (#12139) with a file tree (#9330); the pull took upstream's
+  `DiffPanel` and loom has what the original fork wanted. The old
+  `GET /api/vcs/diff` route is already gone from the tree.
+- **`pinnedCollapsedThread`** — struck. Doc 23 §D restored it and voided the
+  entry; the list re-listed it anyway. HEAD carries upstream's
+  `LegacySidebar.tsx` **byte-identical**, feature included.
+- **Plan sidebar** — reworded, not a loom drop. Upstream deleted its own
+  provider `PlanSidebar` in #5558 ("plans stop hijacking the UI"). Loom's MDX
+  plans (`plans/<slug>/plan.mdx` in the file preview, the `mdx-visual-plan` /
+  `mdx-visual-recap` skills, the review blocks) are a different product surface,
+  unrelated to and unaffected by that deletion. There is nothing to restore.
+
+**The v1 sidebar.** `apps/web/src/components/LegacySidebar.tsx` is byte-identical
+to upstream and carries no `// loom:` hunk; the only fork code near it
+(`useThreadTabKeyboard` in `routes/_chat.tsx`) is tab-strip keyboard wiring, not
+sidebar code. Standing rule: **loom code touching the v1 sidebar is dropped, not
+re-homed** — v2 owns loom's navigation (doc 23), and upstream's `sidebar-v2-only`
+branch deletes v1 outright. Anything a future merge lands inside `LegacySidebar.tsx`
+is a resolution error.
+
+## PiDriver capability parity — a standing check
+
+Upstream declares per-adapter capabilities on `ProviderAdapter` and its features
+key off them. Loom ships **one** adapter, so every capability upstream adds is a
+feature that silently no-ops on Pi until `PiDriver` implements it — and a no-op
+is invisible: no error, no log, just a button that never appears or a recovery
+that never runs. Pull 7 produced three of these at once (compaction, rollback,
+restart continuation).
+
+**Every pull runs this diff**: the fields of `ProviderAdapterCapabilities` and
+the optional members of `ProviderAdapterShape` in
+[`apps/server/src/provider/Services/ProviderAdapter.ts`](../../apps/server/src/provider/Services/ProviderAdapter.ts),
+against [`apps/server/src/provider/Drivers/PiDriver.ts`](../../apps/server/src/provider/Drivers/PiDriver.ts).
+A capability Pi cannot serve is recorded here as a deliberate gap; anything else
+is a lost feature.
+
+| Capability / member                               | PiDriver after this stack                                                                       |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `sessionModelSwitch`                              | ✓ `in-session` — pi switches model on a live session                                            |
+| `emitsExitOnStop`                                 | ✓ `true` — `stopSession` awaits `process.stop()`, the child `exit` emits `session.exited`       |
+| `resumeState`                                     | ✓ `session-file` — pi owns a deterministic per-thread `.jsonl`; **no resume cursor exists**     |
+| `canResumeThread`                                 | ✓ probes the session file, which is what lets recovery restart into the same conversation       |
+| `promptlessTurnContinuation`                      | ✗ deliberate — Pi is continued with an explicit prompt; upstream's fallback branch covers it    |
+| `supportsConversationRollback` / `rollbackThread` | ✓ PR #201 — "Edit from here" works on Pi                                                        |
+| `compaction`                                      | ✓ PR #201 — native, pi's `compact` RPC                                                          |
+| `respondToUserInput`                              | ✓ native ask-user dialogs, dismissible without a provider round trip                            |
+| attachments                                       | ✓ image blocks only (`PI_NATIVE_IMAGE_MIMES`); other types are passed as paths                  |
+| reasoning                                         | ✓ PR #200 — upstream's durable reasoning rows (doc 26)                                          |
+| usage limits                                      | ~ loom's `windows`/`planType` rollup via the poller; upstream's normalised shape pending (D10f) |
+| skills                                            | ✓ via pi's `get_commands`                                                                       |
+| `uploadFeedback`                                  | ✗ not implemented — upstream's thread-feedback upload is refused for Pi                         |
+
+**The trap this catches, concretely.** Upstream's restart continuation (#9167)
+gates on `binding.resumeCursor != null`. Pi never produces a cursor, so the
+feature was dead for the entire fork _and_ actively harmful: its reconcile phase
+settled every interrupted thread as "Provider session did not survive a server
+restart" before loom's own resume could see it. The fix is in upstream's file,
+marked: resume state may be a `session-file` driver's on-disk session. Read the
+gate, not just the capability list.
+
+## Restart continuation — upstream owns it
+
+Upstream's #9167 (`reconcileProviderSessions`, phase `provider-sessions.reconcile`)
+is the single mechanism. Loom's Option-1 resume in
+[`apps/server/src/loom/startup.ts`](../../apps/server/src/loom/startup.ts) is
+deleted and `plans/2026-07-16-restart-turn-continuation.md` is a one-line
+superseded note. Three marked hunks carry the fork's requirements into upstream's
+path: resume state may be a session-file session (above); a thread flagged for
+attention or `cancelled` is never continued (a continuation revives work a human
+or the control plane stopped); and the queued steers the dead turn never consumed
+ride along in the continuation prompt, because nothing else re-delivers them.
+What remains in `loom/startup.ts` is the fork's other boot repairs — stuck-launch
+recovery, stale pending-turn-start clearing, the open-user-input scan, and the
+reset of sessions upstream declined to continue.
+
+## Lint and knip — upstream's configuration, no fork exemptions
+
+Both of session 1's open questions are closed. The lint configuration in
+`vite.config.ts` is upstream's verbatim: no raised `maxOccurrences` ceilings, no
+fork entry in the `no-mobile-uniwind-theme-escape-hatches` allow-list, no
+relaxed `react/no-unstable-nested-components`. `knip.jsonc`,
+`scripts/knip-schemas.ts` and the `knip*` scripts were already byte-identical.
+The one remaining fork line is a `fmt` ignore for `plans/**` (MDX deliverables
+the formatter rewrites — the same class as upstream's `.macroscope/ignore.md`).
+
+Doctrine: **a lint or knip finding on fork code is fixed or deleted, never
+exempted.** A ceiling entry or an ignore list for a fork file is a
+review-stopping defect. What that cost in practice: three loom test files moved
+onto the harness runtime upstream already exposes, one loom mobile component
+deleted (it rendered the file preview twice), three unused loom modules deleted,
+four unused dependencies dropped, and `Pi/Cli.ts` restructured so knip can see
+the bundled pi package rather than needing an `ignoreDependencies` entry.
+
+Gates: `vp check` 0 errors; `knip --include files,dependencies` clean.
+`knip --exports` reports **231 unused fork exports** (loom's workstream server
+modules, `apps/web/src/loom/*`, the MDX-plan block registry, loom RPCs in
+`contracts/src/rpc.ts`) — upstream's own habit is to keep such symbols
+module-private, so the backlog is real, but it is a mechanical pass of its own
+and several of the MDX-plan entries are reached by name through the registry, so
+it is tracked, not swept blind. `knip:production` is noisy for upstream files
+too (dev scripts and integration fixtures are not production entries); it is an
+exploratory command, not a gate.
