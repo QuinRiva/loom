@@ -6,6 +6,9 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+// loom: the only fork delta left in this file — the snooze/action guards live
+// in packages/shared/threadSettled, not upstream's client-runtime module.
+// Settle classification itself is the server's (`thread.settledOverride`).
 import { canSnooze, effectiveSnoozed } from "@t3tools/shared/threadSettled";
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
