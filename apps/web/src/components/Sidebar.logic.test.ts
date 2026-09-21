@@ -23,7 +23,6 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
-  resolveSidebarNewThreadEnvMode,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
@@ -534,25 +533,6 @@ describe("isTrailingDoubleClick", () => {
 
   it("ignores further clicks of a triple-click", () => {
     expect(isTrailingDoubleClick(3)).toBe(true);
-  });
-});
-
-describe("resolveSidebarNewThreadEnvMode", () => {
-  it("uses the app default when the caller does not request a specific mode", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("worktree");
-  });
-
-  it("preserves an explicit requested mode over the app default", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        requestedEnvMode: "local",
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("local");
   });
 });
 
