@@ -13,12 +13,9 @@ import {
 
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
 import {
-  FILE_PATH_PATTERN,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
   splitPathAndPosition,
-  trimClosingDelimiters,
-  URL_PATTERN,
 } from "./terminal-links";
 
 export { normalizeMarkdownLinkDestination };
@@ -106,20 +103,21 @@ export function resolveInlineCodeFileLinkMeta(
       ? trimmed
       : trimmed.replaceAll("\\", "/");
 
-  // loom: keep the Windows normalisation above, then hand the normalised span to
-  // upstream's extracted candidate test so both stay in one place.
   if (!isLinkablePathText(text)) {
     // `Makefile:12` — conventional extensionless names carry no path intent of
     // their own, but the :line suffix already marked the span as a reference.
-    return cwd &&
-      BARE_EXTENSIONLESS_POSITION_PATTERN.test(text) &&
+    return BARE_EXTENSIONLESS_POSITION_PATTERN.test(text) &&
       EXTENSIONLESS_FILE_NAMES.has(text.replace(POSITION_SUFFIX_PATTERN, ""))
-      ? buildFileLinkMetaFromTarget(resolvePathLinkTarget(text, cwd), cwd)
+      ? resolveMarkdownFileLinkMeta(text, cwd, baseDir)
       : null;
   }
 
-  const candidate = inlineCodeFilePathCandidate(text);
-  return candidate === null ? null : resolveMarkdownFileLinkMeta(candidate, cwd, baseDir);
+  // loom: upstream's candidate test additionally demands a path separator or a
+  // `:line` suffix, so a bare `package.json` / `AGENTS.md` never reaches it. The
+  // gate above already required a known file extension, and loom renders a chip
+  // only once the server confirms the file exists, so a bare span that clears
+  // the gate resolves directly.
+  return resolveMarkdownFileLinkMeta(inlineCodeFilePathCandidate(text) ?? text, cwd, baseDir);
 }
 
 function basenameOfPath(path: string): string {
@@ -341,15 +339,15 @@ function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): Markdown
   };
 }
 
-export const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 
-export const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
+const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
 
-export const BARE_EXTENSIONLESS_POSITION_PATTERN = /^[A-Za-z0-9_-]+(?::\d+){1,2}$/;
+const BARE_EXTENSIONLESS_POSITION_PATTERN = /^[A-Za-z0-9_-]+(?::\d+){1,2}$/;
 
 // Any `Name:digits` shape also matches `error:1`, `port:3000`, `TODO:12`, so
 // extensionless linking is limited to conventional filenames.
-export const EXTENSIONLESS_FILE_NAMES = new Set([
+const EXTENSIONLESS_FILE_NAMES = new Set([
   "Makefile",
   "makefile",
   "GNUmakefile",
@@ -379,14 +377,14 @@ export const EXTENSIONLESS_FILE_NAMES = new Set([
   "CODEOWNERS",
 ]);
 
-export const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
+const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 
-export function normalizeWindowsDrivePath(path: string): string {
+function normalizeWindowsDrivePath(path: string): string {
   return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
 }
 
 /** `127.0.0.1`, `localhost`, `example.com`, `1.2.3` — hosts and versions, not files. */
-export function looksLikeHostname(segment: string, hasPosition: boolean): boolean {
+function looksLikeHostname(segment: string, hasPosition: boolean): boolean {
   if (segment.startsWith(".")) return false;
   const lowered = segment.toLowerCase();
   if (SINGLE_LABEL_HOSTNAMES.has(lowered)) return true;
@@ -398,17 +396,15 @@ export function looksLikeHostname(segment: string, hasPosition: boolean): boolea
   return !hasPosition && COUNTRY_HOSTNAME_TLDS.has(lastLabel);
 }
 
-export const RELATIVE_PATH_PREFIX_PATTERN = /^(~\/|\.{1,2}\/)/;
+const SINGLE_LABEL_HOSTNAMES = new Set(["localhost"]);
 
-export const SINGLE_LABEL_HOSTNAMES = new Set(["localhost"]);
-
-export const NUMERIC_DOTTED_PATTERN = /^\d+(?:\.\d+)+$/;
+const NUMERIC_DOTTED_PATTERN = /^\d+(?:\.\d+)+$/;
 
 // Allowlists, not full public-suffix detection: treating every dotted first
 // segment as a host would swallow real paths like `conf.d/x.conf` or
 // `Makefile.in:12`. Extensions that double as filename suffixes (`sh`, `md`,
 // `ts`, `rs`, `in`, ...) are deliberately absent from both sets.
-export const GENERIC_HOSTNAME_TLDS = new Set([
+const GENERIC_HOSTNAME_TLDS = new Set([
   "com",
   "net",
   "org",
@@ -439,7 +435,7 @@ export const GENERIC_HOSTNAME_TLDS = new Set([
 // Country codes collide with file extensions (`.pl` Perl, `.pt` PyTorch,
 // `.es` ES modules), so they only count as host evidence when the candidate
 // lacks a :line suffix — an explicit line reference marks a file and wins.
-export const COUNTRY_HOSTNAME_TLDS = new Set([
+const COUNTRY_HOSTNAME_TLDS = new Set([
   "uk",
   "de",
   "fr",
