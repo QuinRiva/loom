@@ -9,7 +9,9 @@ import {
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
 
-export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+// loom: upstream's `pull-request` trigger becomes `hash` \u2014 one `#` menu with a
+// pull-request section and a thread section (plan D-D).
+export type ComposerTriggerKind = "path" | "hash" | "slash-command" | "skill";
 // loom: `/handoff` and `/retro` are client-side intercepts (loom/composerIntercepts.ts).
 export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff" | "retro";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
@@ -62,6 +64,23 @@ function tokenStartForCursor(text: string, cursor: number): number {
     index -= 1;
   }
   return index + 1;
+}
+
+/**
+ * loom: locate the `#` that opens the active hash query the cursor sits inside,
+ * or null if there is none. Unlike `@`/`$` (single whitespace-delimited
+ * tokens), the query spans spaces \u2014 thread titles are multi-word \u2014 so we scan
+ * the current line back to the nearest `#` that starts a token (line start or
+ * preceded by whitespace). Everything from there to the cursor is the live
+ * query; the menu closes once both sections settle empty, so a stray `#` in
+ * prose never leaves a menu hanging.
+ */
+function hashTriggerStart(text: string, lineStart: number, cursor: number): number | null {
+  for (let index = cursor - 1; index >= lineStart; index -= 1) {
+    if (text[index] !== "#") continue;
+    if (index === lineStart || isWhitespace(text[index - 1] ?? "")) return index;
+  }
+  return null;
 }
 
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
@@ -236,15 +255,6 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
-  const pullRequestMatch = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
-  if (pullRequestMatch) {
-    return {
-      kind: "pull-request",
-      query: pullRequestMatch[1] ?? "",
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
-    };
-  }
   const skillPrefix = /^\p{Sc}/u.exec(token);
   if (skillPrefix) {
     return {
@@ -254,16 +264,26 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeEnd: cursor,
     };
   }
-  if (!token.startsWith("@")) {
-    return null;
+  if (token.startsWith("@")) {
+    return {
+      kind: "path",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
   }
 
-  return {
-    kind: "path",
-    query: token.slice(1),
-    rangeStart: tokenStart,
-    rangeEnd: cursor,
-  };
+  // loom: the hash scan-back runs LAST so the current token's `$`/`@`/`/`
+  // triggers keep precedence over an earlier `#` on the same line.
+  const hashStart = hashTriggerStart(text, lineStart, cursor);
+  return hashStart === null
+    ? null
+    : {
+        kind: "hash",
+        query: text.slice(hashStart + 1, cursor),
+        rangeStart: hashStart,
+        rangeEnd: cursor,
+      };
 }
 
 /** Caret and trigger after replacing composer text and continuing at the end. */

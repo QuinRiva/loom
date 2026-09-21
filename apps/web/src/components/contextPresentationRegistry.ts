@@ -44,6 +44,12 @@ const DEFINITIONS = [
     kind: "skill",
     capabilities: { details: "tooltip", expanded: "none", defaultDraftView: "compact" },
   },
+  // loom: a `#`-mentioned thread. The chip is a link to the thread, so it needs
+  // no details surface of its own.
+  {
+    kind: "thread",
+    capabilities: { details: "tooltip", expanded: "none", defaultDraftView: "compact" },
+  },
 ] as const satisfies ReadonlyArray<ContextPresentationDefinition>;
 
 function buildDefinitionRegistry(

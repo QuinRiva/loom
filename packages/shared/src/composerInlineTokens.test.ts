@@ -169,9 +169,7 @@ describe("collectComposerInlineTokens", () => {
     const tokens = collectComposerInlineTokens(`see [${label}](src/${label}) ok`);
 
     expect(tokens).toHaveLength(1);
-    const token = tokens[0];
-    // loom: the token union also carries a `thread` variant (no `value`), so narrow.
-    expect(token && "value" in token ? token.value : null).toBe(`src/${label}`);
+    expect(tokens[0]?.value).toBe(`src/${label}`);
   });
 
   it("leaves a file link past the label cap as plain text", () => {

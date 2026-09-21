@@ -76,6 +76,14 @@ import { getDefaultServerModel } from "./providerModels";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
+// loom: `#`-mentioned threads are an ordinary context kind.
+import {
+  isThreadReferenceDraft,
+  threadReferenceContextId,
+  threadReferenceContextReference,
+  ThreadReferenceDraftSchema,
+  type ThreadReferenceDraft,
+} from "./loom/threadReference";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -234,6 +242,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
   previewAnnotations: Schema.optionalKey(Schema.Array(PreviewAnnotationPayloadSchema)),
   reviewComments: Schema.optionalKey(Schema.Array(ReviewCommentContextSchema)),
+  threadReferences: Schema.optionalKey(Schema.Array(ThreadReferenceDraftSchema)), // loom:
   // Keyed by `ProviderInstanceId` (open branded slug) so custom provider
   // instances (e.g. `codex_personal`) round-trip alongside the built-in
   // `codex` / `claudeAgent` / ... entries. Every prior `ProviderDriverKind`
@@ -389,6 +398,7 @@ export interface ComposerThreadDraftState {
   terminalContexts: TerminalContextDraft[];
   previewAnnotations: PreviewAnnotationPayload[];
   reviewComments: ReviewCommentContext[];
+  threadReferences: ThreadReferenceDraft[]; // loom:
   /**
    * Per-instance model selection. Keyed by `ProviderInstanceId` (open
    * branded slug) so a default `codex` instance and a user-authored
@@ -431,7 +441,8 @@ export function composerDraftHasUserContent(
     draft.persistedAttachments.length > 0 ||
     draft.terminalContexts.length > 0 ||
     draft.previewAnnotations.length > 0 ||
-    draft.reviewComments.length > 0
+    draft.reviewComments.length > 0 ||
+    draft.threadReferences.length > 0 // loom:
   );
 }
 
@@ -731,6 +742,14 @@ interface ComposerDraftStoreState {
     comments: ReadonlyArray<ReviewCommentContext>,
   ) => void;
   removeReviewComment: (threadRef: ComposerThreadTarget, commentId: string) => void;
+  /** loom: insert a `#`-mentioned thread as a context reference. */
+  addThreadReference: (
+    threadRef: ComposerThreadTarget,
+    reference: ThreadReferenceDraft,
+    options?: ComposerContextAddOptions,
+  ) => void;
+  /** loom: drop a `#`-mentioned thread and its chip. */
+  removeThreadReference: (threadRef: ComposerThreadTarget, threadId: ThreadId) => void;
   clearPersistedAttachments: (threadRef: ComposerThreadTarget) => void;
   syncPersistedAttachments: (
     threadRef: ComposerThreadTarget,
@@ -824,6 +843,8 @@ const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 const EMPTY_PREVIEW_ANNOTATIONS: PreviewAnnotationPayload[] = [];
 const EMPTY_REVIEW_COMMENTS: ReviewCommentContext[] = [];
+const EMPTY_THREAD_REFERENCES: ThreadReferenceDraft[] = []; // loom:
+Object.freeze(EMPTY_THREAD_REFERENCES);
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_FILES);
 Object.freeze(EMPTY_IDS);
@@ -846,6 +867,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
   previewAnnotations: EMPTY_PREVIEW_ANNOTATIONS,
   reviewComments: EMPTY_REVIEW_COMMENTS,
+  threadReferences: EMPTY_THREAD_REFERENCES, // loom:
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,
@@ -868,6 +890,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     terminalContexts: [],
     previewAnnotations: [],
     reviewComments: [],
+    threadReferences: [], // loom:
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
@@ -962,6 +985,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.terminalContexts.length === 0 &&
     draft.previewAnnotations.length === 0 &&
     draft.reviewComments.length === 0 &&
+    draft.threadReferences.length === 0 && // loom:
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
@@ -2246,6 +2270,7 @@ export function partializeComposerDraftStoreState(
       draft.terminalContexts.length === 0 &&
       draft.previewAnnotations.length === 0 &&
       draft.reviewComments.length === 0 &&
+      draft.threadReferences.length === 0 && // loom:
       !hasModelData &&
       draft.runtimeMode === null &&
       draft.interactionMode === null
@@ -2304,6 +2329,10 @@ export function partializeComposerDraftStoreState(
               (comment) => ({ ...comment }) as DeepMutable<ReviewCommentContext>,
             ),
           }
+        : {}),
+      // loom: `#` mentions persist with the draft so a reload keeps the chip.
+      ...(draft.threadReferences.length > 0
+        ? { threadReferences: draft.threadReferences.map((entry) => ({ ...entry })) }
         : {}),
       ...(hasModelData
         ? {
@@ -2565,6 +2594,8 @@ function toHydratedThreadDraft(
       ...(persistedDraft.previewAnnotations ?? []).map(previewAnnotationContextReference),
       ...files.map(fileContextReference),
     ]),
+    // loom: hydration is plain \u2014 the canonical links are already in the prompt.
+    threadReferences: persistedDraft.threadReferences?.map((entry) => ({ ...entry })) ?? [],
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
     files,
     nonPersistedImageIds: [],
@@ -3168,6 +3199,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               terminalContexts: src.terminalContexts.map((context) => ({ ...context })),
               previewAnnotations: src.previewAnnotations.map((annotation) => ({ ...annotation })),
               reviewComments: src.reviewComments.map((comment) => ({ ...comment })),
+              threadReferences: src.threadReferences.map((entry) => ({ ...entry })), // loom:
             };
             if (shouldRemoveDraft(next)) {
               return state;
@@ -4062,6 +4094,68 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             };
           });
         },
+        // loom: `#`-mention insert/remove, mirroring the review-comment pair.
+        addThreadReference: (threadRef, reference, options) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef);
+          if (!threadKey || !isThreadReferenceDraft(reference)) return;
+          const contextReference = threadReferenceContextReference(reference);
+          const alreadyPresent =
+            get().draftsByThreadKey[threadKey]?.threadReferences.some(
+              (entry) => entry.threadId === reference.threadId,
+            ) ?? false;
+          const shouldPlaceReference =
+            options?.appendReference !== false &&
+            (!alreadyPresent || options?.allowDuplicateReference === true);
+          const placedAtCaret =
+            shouldPlaceReference &&
+            options?.insertAtCaret !== false &&
+            (contextInsertionHandlers.get(threadKey)?.([contextReference]) ?? false);
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  prompt:
+                    !shouldPlaceReference || placedAtCaret
+                      ? existing.prompt
+                      : appendInlineContextReference(existing.prompt, contextReference),
+                  threadReferences: [
+                    ...existing.threadReferences.filter(
+                      (entry) => entry.threadId !== reference.threadId,
+                    ),
+                    { ...reference },
+                  ],
+                },
+              },
+            };
+          });
+        },
+        removeThreadReference: (threadRef, threadId) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef);
+          if (!threadKey || !threadId) return;
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) return state;
+            const threadReferences = current.threadReferences.filter(
+              (entry) => entry.threadId !== threadId,
+            );
+            if (threadReferences.length === current.threadReferences.length) return state;
+            const nextDraft = {
+              ...current,
+              prompt: removeInlineContextReference(
+                current.prompt,
+                threadReferenceContextId(threadId),
+              ).prompt,
+              threadReferences,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadKey[threadKey];
+            else nextDraftsByThreadKey[threadKey] = nextDraft;
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
         setContextInsertionHandler: (threadRef, handler) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           if (!threadKey) return;
@@ -4197,6 +4291,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               terminalContexts: [],
               previewAnnotations: [],
               reviewComments: [],
+              threadReferences: [], // loom:
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
@@ -4226,6 +4321,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 ...current.terminalContexts.map(terminalContextReference),
                 ...current.reviewComments.map(reviewCommentContextReference),
                 ...current.previewAnnotations.map(previewAnnotationContextReference),
+                ...current.threadReferences.map(threadReferenceContextReference), // loom:
               ]),
               images: [],
               files: [],
@@ -4258,6 +4354,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               ...draft.terminalContexts.map(terminalContextReference),
               ...draft.reviewComments.map(reviewCommentContextReference),
               ...draft.previewAnnotations.map(previewAnnotationContextReference),
+              ...draft.threadReferences.map(threadReferenceContextReference), // loom:
             ];
             const nextDestination: ComposerThreadDraftState = {
               ...destination,

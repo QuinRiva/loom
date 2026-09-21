@@ -231,6 +231,16 @@ import {
   terminalContextReference,
   terminalContextRecord,
 } from "~/lib/composerContextRecords";
+// loom: the `#` menu's thread section (plan D-A / D-D).
+import { matchThreadMentionItems } from "~/lib/threadMention";
+import { useThreadShells } from "~/state/entities";
+import {
+  threadContextRecord,
+  threadReferenceContextId,
+  threadReferenceContextReference,
+  threadReferenceFromRecord,
+  type ThreadReferenceDraft,
+} from "~/loom/threadReference";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
@@ -1266,6 +1276,9 @@ export interface ChatComposerHandle {
     terminalContexts: TerminalContextDraft[];
     previewAnnotations: PreviewAnnotationPayload[];
     reviewComments: ReviewCommentContext[];
+    threadReferences: ThreadReferenceDraft[]; // loom:
+    /** loom: interim \u2014 loom's ChatView still expands `$skill` tokens at send. */
+    selectedProviderSkillNames: ReadonlyArray<string>;
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
@@ -1600,6 +1613,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerTerminalContexts = composerDraft.terminalContexts;
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
+  const composerThreadReferences = composerDraft.threadReferences; // loom:
+  const threadShells = useThreadShells(); // loom: the `#` menu's thread section
   const pendingSnapShotAnimations = useSyncExternalStore(
     subscribeToPendingSnapShotAnimations,
     getPendingSnapShotAnimations,
@@ -1666,6 +1681,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         previewAnnotations: composerPreviewAnnotations,
         images: composerImages,
         files: composerFiles,
+        threadReferences: composerThreadReferences, // loom:
         uploadsByImageId,
       }),
     [
@@ -1674,6 +1690,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations,
       composerReviewComments,
       composerTerminalContexts,
+      composerThreadReferences,
       uploadsByImageId,
     ],
   );
@@ -2214,10 +2231,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
-  const pullRequestTriggerQuery =
-    composerTrigger?.kind === "pull-request" ? composerTrigger.query : "";
+  // loom: the `#` menu is unified (plan D-D) \u2014 the pull-request section takes the
+  // whole scan-back query exactly as upstream's whole-token query did.
+  const pullRequestTriggerQuery = composerTrigger?.kind === "hash" ? composerTrigger.query : "";
   const pullRequestTextQuery =
-    composerTriggerKind === "pull-request" &&
+    composerTriggerKind === "hash" &&
     pullRequestTriggerQuery.length > 0 &&
     !/^\d+$/u.test(pullRequestTriggerQuery)
       ? pullRequestTriggerQuery
@@ -2244,7 +2262,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const pullRequestListTargets = useMemo(
     () =>
-      composerTriggerKind !== "pull-request" ||
+      composerTriggerKind !== "hash" || // loom:
       pullRequestProjectId === null ||
       (pullRequestTextQuery !== null && settledPullRequestTextQuery === null)
         ? EMPTY_PULL_REQUEST_LIST_TARGETS
@@ -2271,7 +2289,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const pullRequestLookup = usePullRequestList(pullRequestListTargets);
   const pullRequestTriggerNumber = useMemo(() => {
-    if (composerTrigger?.kind !== "pull-request" || composerTrigger.query.length === 0) {
+    if (composerTrigger?.kind !== "hash" || composerTrigger.query.length === 0) {
       return null;
     }
     const number = Number(composerTrigger.query);
@@ -2418,11 +2436,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           (skill.scope ? `${skill.scope} skill` : "Run provider skill"),
       }));
     }
-    if (
-      composerTrigger.kind === "pull-request" &&
-      pullRequestProjectId !== null &&
-      pullRequestRepository !== null
-    ) {
+    // loom: one `#` menu, two sections \u2014 pull requests (upstream's lookup, whole
+    // query) then threads (local match over the sidebar's shells).
+    if (composerTrigger.kind === "hash") {
+      const threadItems = matchThreadMentionItems(
+        threadShells,
+        composerTrigger.query,
+        activeThreadId,
+      );
+      if (pullRequestProjectId === null || pullRequestRepository === null) {
+        return threadItems;
+      }
       const exactPullRequest =
         exactPullRequestLookup.data?.number === pullRequestTriggerNumber
           ? [exactPullRequestLookup.data]
@@ -2453,26 +2477,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }),
             composerTrigger.query,
           ).slice(0, COMPOSER_PULL_REQUEST_RESULT_LIMIT);
-      return matches.map((pullRequest) => ({
-        id: `pull-request:${pullRequest.projectId}:${pullRequest.repository}:${pullRequest.number}`,
-        type: "pull-request",
-        pullRequest: {
-          number: pullRequest.number,
-          title: pullRequest.title,
-          url: pullRequest.url,
-          headBranch: pullRequest.headBranch,
-          baseBranch: pullRequest.baseBranch,
-          state: pullRequest.state,
-          isDraft: pullRequest.isDraft,
-        },
-        label: `#${pullRequest.number}`,
-        description: pullRequest.title,
-      }));
+      return [
+        ...matches.map((pullRequest) => ({
+          id: `pull-request:${pullRequest.projectId}:${pullRequest.repository}:${pullRequest.number}`,
+          type: "pull-request" as const,
+          pullRequest: {
+            number: pullRequest.number,
+            title: pullRequest.title,
+            url: pullRequest.url,
+            headBranch: pullRequest.headBranch,
+            baseBranch: pullRequest.baseBranch,
+            state: pullRequest.state,
+            isDraft: pullRequest.isDraft,
+          },
+          label: `#${pullRequest.number}`,
+          description: pullRequest.title,
+        })),
+        ...threadItems,
+      ];
     }
     return [];
   }, [
+    activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
+    threadShells,
     exactPullRequestLookup.data,
     planModeUiEnabled,
     pullRequestLookup.data,
@@ -2556,7 +2585,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const isComposerMenuLoading =
     (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
-    (composerTriggerKind === "pull-request" &&
+    (composerTriggerKind === "hash" && // loom:
       pullRequestProjectId !== null &&
       pullRequestRepository !== null &&
       (pullRequestLookup.isPending ||
@@ -2567,9 +2596,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
-    if (composerTriggerKind === "pull-request") {
+    // loom: the `#` menu also lists threads, so its empty state names both.
+    if (composerTriggerKind === "hash") {
       if (pullRequestProjectId === null || pullRequestRepository === null) {
-        return "Pull requests are not available for this project.";
+        return composerTrigger?.query
+          ? `No thread matches ${composerTrigger.query}.`
+          : "No threads found.";
       }
       if (
         pullRequestLookup.error !== null ||
@@ -2578,8 +2610,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return "Pull requests could not be read for this project.";
       }
       return composerTrigger?.query
-        ? `No pull request matches ${composerTrigger.query}.`
-        : "No pull requests found in this repository.";
+        ? `No pull request or thread matches ${composerTrigger.query}.`
+        : "No pull requests or threads found.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."
@@ -2747,6 +2779,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (store) => store.addTerminalContexts,
   );
   const addComposerDraftReviewComment = useComposerDraftStore((store) => store.addReviewComment);
+  // loom:
+  const addComposerDraftThreadReference = useComposerDraftStore(
+    (store) => store.addThreadReference,
+  );
+  const removeComposerDraftThreadReference = useComposerDraftStore(
+    (store) => store.removeThreadReference,
+  );
   const addComposerDraftPreviewAnnotation = useComposerDraftStore(
     (store) => store.addPreviewAnnotation,
   );
@@ -2781,6 +2820,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 : undefined,
             }),
           ),
+        // loom:
+        ...composerThreadReferences
+          .filter((entry) => wanted.has(threadReferenceContextId(entry.threadId)))
+          .map(threadContextRecord),
         ...[...composerImages, ...composerFiles]
           .filter((attachment) =>
             wanted.has(toKindScopedComposerContextId(attachment.type, attachment.id)),
@@ -2944,8 +2987,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const existingRecord =
           existing?.kind === "terminal"
             ? terminalContextRecord(existing.record)
-            : // loom: `mdx-anchor` review comments carry no record shape.
-              existing?.kind === "review-comment" && existing.record.kind === "line"
+            : // loom:
+              existing?.kind === "thread"
+              ? threadContextRecord(existing.record)
+              : // loom: `mdx-anchor` review comments carry no record shape.
+                existing?.kind === "review-comment" && existing.record.kind === "line"
               ? reviewCommentContextRecord(existing.record)
               : existing?.kind === "preview-annotation"
                 ? previewAnnotationContextRecord(existing.record)
@@ -2969,6 +3015,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               appendReference: false,
             });
             rewritten.set(record.contextId, terminalContextReference(draft).contextId);
+            break;
+          }
+          // loom: a pasted/recalled thread chip keeps its record.
+          case "thread": {
+            const imported = threadReferenceFromRecord(record);
+            addComposerDraftThreadReference(composerDraftTarget, imported, {
+              appendReference: false,
+              ...(conflicts ? { allowDuplicateReference: true } : {}),
+            });
+            rewritten.set(record.contextId, threadReferenceContextId(imported.threadId));
             break;
           }
           case "review-comment": {
@@ -3324,7 +3380,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const removedContextPayloadsRef = useRef<{
     terminals: Map<string, TerminalContextDraft>;
     reviewComments: Map<string, ReviewCommentContext>;
-  }>({ terminals: new Map(), reviewComments: new Map() });
+    threadReferences: Map<string, ThreadReferenceDraft>; // loom:
+  }>({ terminals: new Map(), reviewComments: new Map(), threadReferences: new Map() });
   const removedAttachmentContextPayloadsRef = useRef<RetainedAttachmentContextPayloads>({
     files: new Map(),
     previewAnnotations: new Map(),
@@ -3406,6 +3463,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const comment = retained.reviewComments.get(contextId);
         if (comment) {
           addComposerDraftReviewComment(composerDraftTarget, comment, { appendReference: false });
+        }
+      }
+
+      // loom: same delete/undo bookkeeping as review comments, for `#` mentions.
+      for (const entry of composerThreadReferences) {
+        const contextId = threadReferenceContextId(entry.threadId);
+        if (!referenced.has(contextId)) {
+          retained.threadReferences.set(contextId, entry);
+          removeComposerDraftThreadReference(composerDraftTarget, entry.threadId);
+        }
+      }
+      const liveThreadIds = new Set<string>(
+        composerThreadReferences.map((entry) => threadReferenceContextId(entry.threadId)),
+      );
+      for (const contextId of referenced) {
+        if (liveThreadIds.has(contextId)) continue;
+        const entry = retained.threadReferences.get(contextId);
+        if (entry) {
+          addComposerDraftThreadReference(composerDraftTarget, entry, { appendReference: false });
         }
       }
 
@@ -3690,9 +3766,40 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
+      // loom: a thread mention inserts an ordinary context reference (plan D-A).
+      if (item.type === "thread") {
+        if (
+          trigger.kind !== "hash" ||
+          !composerMenuItemsRef.current.some((candidate) => candidate.id === item.id)
+        ) {
+          return;
+        }
+        const reference = { threadId: item.threadId, label: item.label };
+        const replacement = `${formatInlineContextReference(
+          threadReferenceContextReference(reference),
+        )} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          addComposerDraftThreadReference(composerDraftTarget, reference, {
+            appendReference: false,
+          });
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       if (item.type === "pull-request") {
         if (
-          trigger.kind !== "pull-request" ||
+          trigger.kind !== "hash" ||
           !composerMenuItemsRef.current.some((candidate) => candidate.id === item.id)
         ) {
           return;
@@ -3723,6 +3830,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [
       addComposerDraftReviewComment,
+      addComposerDraftThreadReference,
       applyPromptReplacement,
       composerDraftTarget,
       handleInteractionModeChange,
@@ -4456,6 +4564,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ...composerTerminalContextsRef.current.map(terminalContextRecord),
       // loom: only the `line` arm of the fork's union has a record shape.
       ...composerReviewComments.filter((c) => c.kind === "line").map(reviewCommentContextRecord),
+      ...composerThreadReferences.map(threadContextRecord), // loom:
       ...composerPreviewAnnotations.map((annotation) =>
         previewAnnotationContextRecord(annotation, {
           screenshotContextId: images.some((image) => image.id === annotation.id)
@@ -4567,6 +4676,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       clearComposerDraftTerminalContexts(stashTarget);
       for (const comment of composerReviewComments) {
         removeComposerDraftReviewComment(stashTarget, comment.id);
+      }
+      // loom:
+      for (const entry of composerThreadReferences) {
+        removeComposerDraftThreadReference(stashTarget, entry.threadId);
       }
       for (const annotation of composerPreviewAnnotations) {
         releaseAttachmentUpload(annotation.id);
@@ -6011,6 +6124,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         terminalContexts: composerTerminalContextsRef.current,
         previewAnnotations: composerPreviewAnnotations,
         reviewComments: composerReviewComments,
+        threadReferences: composerThreadReferences, // loom:
+        selectedProviderSkillNames: selectedProviderSkills.map((skill) => skill.name), // loom:
         selectedPromptEffort,
         selectedModelOptionsForDispatch,
         selectedModelSelection,

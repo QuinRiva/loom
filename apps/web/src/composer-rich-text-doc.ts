@@ -92,10 +92,7 @@ interface DocLine {
 }
 
 function atomJsonForSegment(
-  segment: Exclude<
-    ReturnType<typeof splitPromptIntoComposerSegments>[number],
-    { type: "text" } | { type: "thread" } | { type: "terminal-context" }
-  >,
+  segment: Exclude<ReturnType<typeof splitPromptIntoComposerSegments>[number], { type: "text" }>,
   skillLabelFor: (name: string) => SkillMeta,
 ): InlineJson {
   if (segment.type === "mention") {
@@ -182,10 +179,6 @@ export function buildTiptapContent(
   const text = splitPromptIntoComposerSegments(value)
     .map((segment) => {
       if (segment.type === "text") return segment.text;
-      // loom: thread mentions and terminal-context chips have no atom in this
-      // schema (both are Lexical-only), so they round-trip as literal text.
-      if (segment.type === "thread") return segment.source;
-      if (segment.type === "terminal-context") return "";
       atoms.push(atomJsonForSegment(segment, skillLabelFor));
       return sentinel;
     })

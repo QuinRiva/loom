@@ -38,6 +38,8 @@ import {
   type TerminalContextDraft,
 } from "./terminalContext";
 import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
+// loom: `#`-mentioned threads.
+import { threadContextRecord, type ThreadReferenceDraft } from "~/loom/threadReference";
 
 /**
  * Builds the wire records behind a draft's inline references, and the reverse for reading a
@@ -307,6 +309,7 @@ export function buildMessageContext(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   reviewComments: ReadonlyArray<ReviewCommentContext>;
   previewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
+  threadReferences?: ReadonlyArray<ThreadReferenceDraft>; // loom:
   attachments?: ReadonlyArray<BoundComposerAttachment>;
 }): OrchestrationMessageContext | undefined {
   // An annotation's screenshot travels as the image attachment that reuses its id.
@@ -327,6 +330,7 @@ export function buildMessageContext(input: {
       }),
     ),
     ...(input.attachments ?? []).map(attachmentContextRecord),
+    ...(input.threadReferences ?? []).map(threadContextRecord), // loom:
   ];
   return records.length === 0 ? undefined : { version: 1, records };
 }
