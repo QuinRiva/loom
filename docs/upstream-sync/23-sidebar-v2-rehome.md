@@ -308,54 +308,17 @@ reintroduces `handoffCount` anywhere, delete it rather than reconciling the two.
 
 ## I. Post-ship live-use deviations (three fixes after PR #171)
 
-Three defects surfaced within a day of dogfooding v2 as the default. All three
-are behaviour changes **against upstream's v2**, so they are listed here with
-their revert paths, not just as bug fixes.
+Three defects surfaced within a day of dogfooding v2 as the default, each fixed
+by a behaviour change **against upstream's v2**, so they are listed here with
+their revert paths rather than as plain bug fixes. I1 has since been reverted.
 
-### I1. Active rows sort by last activity, not `createdAt` — PROVISIONAL
+### I1. Upstream owns active-row ordering
 
-> **Status: provisional, revisit deliberately.** Upstream's creation order is
-> not a mistake, and it may be the better long-term default here too. This
-> deviation is a response to present conditions, not a verdict — see "Why now,
-> and what would prompt revisiting" below.
-
-Upstream's `sortThreadsForSidebarV2` orders the active block by `createdAt`
-descending, deliberately: a row holds its position from open until settled, so
-the screen never jumps. But the row _labels_ activity age
-(`threadTimeLabel`), so **the list is sorted by a value it never displays** —
-and the timestamp column reads as random. Confirmed against the live cockpit DB:
-root threads at creation-age 4.94d / 5.03d / 5.93d carried last-activity ages of
-1.01d / 0.5d / 0.04d, so a thread answered an hour ago sat eleven rows below one
-answered four days ago.
-
-**Loom sorts the active block by last activity, most recent first**
-(`sortActiveThreadsByActivityForSidebarV2` in `apps/web/src/components/Sidebar.logic.ts`),
-because loom's sidebar is an orchestration inbox where "what moved" is the
-question. Upstream's function is left **intact and unused** beside it, and the
-label now reads the same resolver (`resolveActivityTimestamp` — extracted from
-`resolveSettledTimestamp`, so settled rows are unchanged), which makes
-label/order disagreement structurally impossible.
-
-**Why now, and what would prompt revisiting.** Upstream's no-jump property — a
-row holding its position from open until settled, so the screen never moves
-under the pointer — is a genuine virtue, and it is worth more the shorter the
-list is. It is worth less right now: loom's active block is clogged with stale
-unsettled threads carried over from before the workstream-settle migration, and
-with a backlog that noisy "what moved" is the only question the list can
-usefully answer — creation order buries the one thread that just came back
-eleven rows down. **Revisit once the migration has fully landed and the backlog
-is cleaned up.** If the active block is small enough to read at a glance by
-then, prefer upstream's stability and drop this deviation; the two functions
-sitting side by side keep that a one-line choice rather than a rewrite.
-
-- **Revert** = call `sortThreadsForSidebarV2` again at the one call site in
-  `SidebarV2.tsx` (`activeThreads:`). Point `threadTimeLabel` at whatever the
-  sort keys on so the two still agree — for creation order that means labelling
-  `createdAt`, **not** restoring the old `latestUserMessageAt ?? updatedAt`
-  label, which is the sort/label mismatch that caused this defect.
-- **Known divergence:** `apps/mobile/src/features/threads/threadListV2.ts`
-  still mirrors upstream's creation order (`sortThreadsForListV2`). Web and
-  mobile now disagree; unify when mobile's v2 list is next touched.
+The post-pull-7 stack retired loom's activity anchor and now uses upstream's
+`sortThreadsForSidebar` comparator unchanged: new or reopened rows lead until a
+manual drag assigns their stable order. The buried-thread problem is handled by
+server-owned auto-settle, collapsed shelves and drag-to-settle rather than by
+moving recently active rows under the pointer.
 
 ### I2. `SidebarContent` renders visible scrollbars
 
