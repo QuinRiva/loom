@@ -660,13 +660,6 @@ export function isTrailingDoubleClick(detail: number): boolean {
 
 export type SidebarNewThreadEnvMode = "local" | "worktree";
 
-export function resolveSidebarNewThreadEnvMode(input: {
-  requestedEnvMode?: SidebarNewThreadEnvMode;
-  defaultEnvMode: SidebarNewThreadEnvMode;
-}): SidebarNewThreadEnvMode {
-  return input.requestedEnvMode ?? input.defaultEnvMode;
-}
-
 // loom: fork residual — this upstream helper carries fork modifications
 // (goalWorktree / newWorktreesStartFromOrigin inputs, all-fields return shape).
 // It stays here because it is upstream-owned; the fork's standalone goal/ordering

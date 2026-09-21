@@ -19,7 +19,6 @@ function makeProject(
     workspaceRoot: `/workspaces/${input.id}`,
     repositoryIdentity: null,
     defaultModelSelection: null,
-    defaultStartFromOrigin: null, // loom: per-project start-from-origin default
     scripts: [],
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",

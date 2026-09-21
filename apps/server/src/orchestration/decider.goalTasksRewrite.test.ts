@@ -61,7 +61,6 @@ const seedEvents: ReadonlyArray<OrchestrationEvent> = [
     title: "Tasks Rewrite",
     workspaceRoot: "/tmp/tasks-rewrite",
     defaultModelSelection: null,
-    defaultStartFromOrigin: null,
     scripts: [],
     createdAt: now,
     updatedAt: now,

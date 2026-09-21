@@ -33,7 +33,6 @@ const seed = Effect.gen(function* () {
       title: "Project",
       workspaceRoot: "/tmp/project-1",
       defaultModelSelection: null,
-      defaultStartFromOrigin: null,
       scripts: [],
       createdAt: now,
       updatedAt: now,

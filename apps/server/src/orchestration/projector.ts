@@ -363,8 +363,6 @@ export function projectEvent(
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
-            // loom: fork project field (start-from-origin default).
-            defaultStartFromOrigin: payload.defaultStartFromOrigin,
             defaultThreadEnvMode: null,
             autoPull: false,
             faviconPath: payload.faviconPath ?? null,
@@ -400,10 +398,6 @@ export function projectEvent(
                     : {}),
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
-                    : {}),
-                  // loom: fork project field (start-from-origin default).
-                  ...(payload.defaultStartFromOrigin !== undefined
-                    ? { defaultStartFromOrigin: payload.defaultStartFromOrigin }
                     : {}),
                   ...(payload.defaultThreadEnvMode !== undefined
                     ? { defaultThreadEnvMode: payload.defaultThreadEnvMode }

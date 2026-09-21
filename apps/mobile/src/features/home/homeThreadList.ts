@@ -263,7 +263,6 @@ export function buildHomeThreadGroups(input: {
             workspaceRoot: pendingTask.projectCwd ?? String(pendingTask.projectId),
             repositoryIdentity: null,
             defaultModelSelection: null,
-            defaultStartFromOrigin: null,
             scripts: [],
             createdAt: pendingTask.createdAt,
             updatedAt: pendingTask.createdAt,
