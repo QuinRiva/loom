@@ -1337,21 +1337,95 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
     event: ProviderRuntimeEvent,
   ): Effect.Effect<void> =>
-    Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
-      Effect.flatMap((canonicalEvent) =>
-        increment(providerRuntimeEventsTotal, {
-          provider: canonicalEvent.provider,
-          eventType: canonicalEvent.type,
-        }).pipe(
-          Effect.andThen(
-            canonicalEvent.type === "session.exited"
-              ? reconcileExitedSession(source, canonicalEvent)
-              : Effect.void,
-          ),
-          Effect.andThen(publishRuntimeEvent(canonicalEvent)),
-        ),
-      ),
-    );
+    Effect.gen(function* () {
+      const canonicalEvent = correlateRuntimeEventWithInstance(source, event);
+      yield* increment(providerRuntimeEventsTotal, {
+        provider: canonicalEvent.provider,
+        eventType: canonicalEvent.type,
+      });
+      if (canonicalEvent.type === "turn.started") {
+        yield* observeTurnStartedForAnalytics(source, canonicalEvent);
+      } else if (canonicalEvent.type === "model.rerouted") {
+        yield* observeModelReroutedForAnalytics(source, canonicalEvent);
+      } else if (
+        canonicalEvent.type === "turn.completed" ||
+        canonicalEvent.type === "turn.aborted"
+      ) {
+        yield* recordTurnCompletedAnalytics(source, canonicalEvent);
+        if (source.provider === "claudeAgent") {
+          // Background Claude turns have no sendTurn response to persist their
+          // new native boundary. Save it before clients can checkpoint the turn.
+          yield* Effect.gen(function* () {
+            const adapter = yield* registry.getByInstance(source.instanceId);
+            const session = (yield* adapter.listSessions()).find(
+              (session) => session.threadId === canonicalEvent.threadId,
+            );
+            if (session?.resumeCursor !== undefined) {
+              const binding = yield* directory.getBinding(session.threadId);
+              if (
+                Option.isNone(binding) ||
+                binding.value.providerInstanceId !== source.instanceId
+              ) {
+                return;
+              }
+              yield* directory.upsert({
+                threadId: session.threadId,
+                provider: source.provider,
+                providerInstanceId: source.instanceId,
+                resumeCursor: session.resumeCursor,
+              });
+            }
+          }).pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("failed to persist Claude turn resume state", { cause }),
+            ),
+          );
+        }
+      } else if (canonicalEvent.type === "session.exited") {
+        // loom: death-time reconciliation (see `reconcileExitedSession`) stands
+        // in for upstream's bare analytics clear — it clears the analytics
+        // session too, via the lease release and the stopped row write.
+        yield* reconcileExitedSession(source, canonicalEvent);
+        yield* clearTurnAnalyticsSession(source.instanceId, canonicalEvent.threadId);
+      }
+      // Compaction routing. A manual compaction is a request waiting on a
+      // terminal event from the provider, so the events of the thread being
+      // compacted are inspected on their way out: the native path settles on
+      // the `compacted` state (or any turn terminal), the slash-command path
+      // hands them to `processFallbackCompactionEvent`, which also synthesises
+      // the `compacted` state for providers that only complete a turn.
+      if (
+        isCompactedEvent(canonicalEvent) &&
+        timedOutNativeCompactions.delete(canonicalEvent.threadId)
+      ) {
+        yield* publishRuntimeEvent(canonicalEvent);
+        return;
+      }
+      const pendingCompaction = pendingCompactions.get(canonicalEvent.threadId);
+      if (!pendingCompaction || pendingCompaction.providerInstanceId !== source.instanceId) {
+        yield* publishRuntimeEvent(canonicalEvent);
+        return;
+      }
+      if (pendingCompaction.native) {
+        const compacted = isCompactedEvent(canonicalEvent);
+        const terminal = compacted ? "completed" : compactionTerminal(canonicalEvent);
+        yield* publishRuntimeEvent(
+          compacted ? withCompactionRequestId(canonicalEvent, pendingCompaction) : canonicalEvent,
+        );
+        if (terminal !== null)
+          yield* settleCompaction(canonicalEvent.threadId, pendingCompaction, terminal);
+        return;
+      }
+      if (
+        pendingCompaction.expectedTurnId === undefined &&
+        canonicalEvent.turnId !== undefined &&
+        (isCompactedEvent(canonicalEvent) || compactionTerminal(canonicalEvent) !== null)
+      ) {
+        pendingCompaction.earlyEvents.push(canonicalEvent);
+        return;
+      }
+      yield* processFallbackCompactionEvent(pendingCompaction, canonicalEvent);
+    });
 
   // `subscribedAdapters` is our source-of-truth for "which instance adapters
   // are currently wired into the runtime event bus". It both tracks the set
@@ -2280,6 +2354,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           }
           yield* routed.adapter.stopSession(routed.threadId);
         }
+        // A stop kills the provider run a compaction was waiting on, so settle
+        // the pending request instead of leaving its caller on the 10-minute
+        // deadline, and drop the timed-out marker that would refuse the next
+        // attempt on a session that no longer exists.
+        const pendingCompaction = pendingCompactions.get(input.threadId);
+        if (pendingCompaction !== undefined) {
+          yield* settleCompaction(input.threadId, pendingCompaction, "turn.aborted");
+        }
+        timedOutNativeCompactions.delete(input.threadId);
+        yield* clearTurnAnalyticsSession(routed.instanceId, input.threadId);
         // A stop ends the launch, so its hold goes now rather than waiting for an
         // exit event that may never come.
         //
