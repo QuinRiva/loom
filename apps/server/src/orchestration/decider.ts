@@ -399,8 +399,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   Crypto.Crypto
 > {
   // loom: fork commands (goal.*, plan-lane/attention, dependencies, work.submit,
-  // consult.record, fanin.set, turn-start.fail) are
-  // decided by the fork sibling. After this guard `command` narrows to the
+  // consult.record, fanin.set, turn-start.fail) are decided by the fork
+  // sibling. After this guard `command` narrows to the
   // upstream-only subset, so the switch's `default: command satisfies never`
   // still holds.
   if (isLoomOrchestrationCommand(command)) {
