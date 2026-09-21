@@ -3286,6 +3286,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <LegacyFeaturesSection />
     </SettingsPageContainer>
   );
 }

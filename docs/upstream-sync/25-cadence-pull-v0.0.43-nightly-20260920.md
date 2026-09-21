@@ -278,6 +278,8 @@ throughout, matching upstream's renamed base.
 
    **Resolved for `SettingsPanels`:** the lost-feature audit confirmed its two dropped auto-open Settings hunks were live product, and the mount plus changed-label spread are restored.
 
+   **Also restored in `SettingsPanels`:** the merge dropped upstream's `<LegacyFeaturesSection />` mount from the General panel, so the plan-mode / context-window-indicator / legacy-sidebar switches were unreachable; the mount is back where upstream has it, and `contextWindowMeterEnabled` now defaults **on** for loom (upstream's non-legacy replacement, the "Resume with less context" banner, is `claudeAgent`-only, so on a Pi-only fork the meter is the sole context-usage display and the only route to Compact).
+
 ---
 
 ## Session 2 — 12 of the 15 hand-resolutions landed; 3 web files remain
