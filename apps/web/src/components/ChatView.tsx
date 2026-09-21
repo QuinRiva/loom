@@ -2077,12 +2077,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadEnvironmentIdForActivities, activeThreadIdForActivities, loadThreadActivities],
   );
-  const {
-    mergedActivities: threadActivities,
-    hasMoreOlder: hasMoreOlderActivities,
-    loadingOlder: loadingOlderActivities,
-    loadOlder: loadOlderActivities,
-  } = useOlderThreadActivities({
+  const { mergedActivities: threadActivities } = useOlderThreadActivities({
     threadKey: activeThread ? `${activeThread.environmentId}\u0000${activeThread.id}` : null,
     liveActivities: activeThread?.activities ?? EMPTY_ACTIVITIES,
     hasMoreLiveActivities: activeThread?.hasMoreActivities ?? false,
@@ -2486,48 +2481,10 @@ function ChatViewContent(props: ChatViewProps) {
     attachDraftHeroComposerAnchorRef,
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
-  const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const byMessageId = new Map<MessageId, TurnDiffSummary>();
-    for (const summary of turnDiffSummaries) {
-      if (!summary.assistantMessageId) continue;
-      byMessageId.set(summary.assistantMessageId, summary);
-    }
-    return byMessageId;
-  }, [turnDiffSummaries]);
-  const revertTurnCountByUserMessageId = useMemo(() => {
-    const byUserMessageId = new Map<MessageId, number>();
-    for (let index = 0; index < timelineEntries.length; index += 1) {
-      const entry = timelineEntries[index];
-      if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
-        continue;
-      }
-
-      for (let nextIndex = index + 1; nextIndex < timelineEntries.length; nextIndex += 1) {
-        const nextEntry = timelineEntries[nextIndex];
-        if (!nextEntry || nextEntry.kind !== "message") {
-          continue;
-        }
-        if (nextEntry.message.role === "user") {
-          break;
-        }
-        const summary = turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
-        if (!summary) {
-          continue;
-        }
-        const turnCount =
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-        if (typeof turnCount !== "number") {
-          break;
-        }
-        byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
-        break;
-      }
-    }
-
-    return byUserMessageId;
-  }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
+  // The per-message revert-count and assistant-summary maps loom derived here are
+  // upstream's own job now: the adopted timeline builds both internally from
+  // `turnDiffSummaries` + `supportsConversationRollback`.
+  const { turnDiffSummaries } = useTurnDiffSummaries(activeThread);
 
   const gitCwd = activeProject
     ? projectScriptCwd({
@@ -5832,20 +5789,6 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
-  // Both the Map and the revert handler are read from refs at call-time so
-  // the callback reference is fully stable and never busts context identity.
-  const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
-  revertTurnCountRef.current = revertTurnCountByUserMessageId;
-  const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
-  onRevertToTurnCountRef.current = onRevertToTurnCount;
-  const onRevertUserMessage = useCallback((messageId: MessageId) => {
-    const targetTurnCount = revertTurnCountRef.current.get(messageId);
-    if (typeof targetTurnCount !== "number") {
-      return;
-    }
-    void onRevertToTurnCountRef.current(targetTurnCount);
-  }, []);
-
   // Empty state: no active thread. When the thread is known to exist (its
   // shell is already in the environment snapshot — e.g. a freshly spawned
   // sub-thread opened from the workstream graph) but the per-thread detail
