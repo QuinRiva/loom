@@ -879,6 +879,56 @@ describe("ThreadSettlementReactor", () => {
     ),
   );
 
+  // loom: the sweep must not aim at the threads the fork's two auto-settle
+  // blockers protect. The decider refuses them either way, but a refusal per
+  // thread per minute is a WARN with a pretty-printed cause per thread per
+  // minute (198 in 30 minutes on the real database). What is pinned here is
+  // that the dispatch never happens, including transitively.
+  it.effect("never dispatches threads the workstream blockers protect", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const liveParent = makeThread("live-parent");
+        const doneMiddle = makeThread("done-middle", {
+          parentThreadId: liveParent.id,
+          planLane: "done",
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([
+            makeThread("yielded", { planLane: "yielded" }),
+            liveParent,
+            doneMiddle,
+            // Non-terminal under a terminal child: the blocker is the whole live
+            // subtree, so it must reach `live-parent` through `done-middle`.
+            makeThread("live-grandchild", { parentThreadId: doneMiddle.id }),
+            makeThread("finished-parent", { planLane: "done" }),
+            makeThread("finished-child", {
+              parentThreadId: ThreadId.make("finished-parent"),
+              planLane: "cancelled",
+            }),
+            makeThread("plain-idle"),
+          ]),
+        });
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          // A childless non-terminal thread is not blocked by its own lane, so
+          // `live-grandchild` and the two finished threads still settle.
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map(({ threadId }) => threadId).sort(),
+            [
+              ThreadId.make("finished-child"),
+              ThreadId.make("finished-parent"),
+              ThreadId.make("live-grandchild"),
+              ThreadId.make("plain-idle"),
+            ],
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("reevaluates inactivity and pull request state once per minute", () =>
     Effect.scoped(
       Effect.gen(function* () {

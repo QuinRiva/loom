@@ -1,4 +1,4 @@
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationThreadShell, ThreadId } from "@t3tools/contracts";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import { isTerminalLane } from "@t3tools/shared/workstreamGraph"; // loom: finished-work trigger
 
@@ -144,6 +144,52 @@ export function finishedRootSettlesAt(thread: OrchestrationThreadShell): string 
   return thread.parentThreadId === null && isTerminalLane(thread.planLane)
     ? threadActivityAt(thread)
     : null;
+}
+
+/**
+ * loom: the sweep-side mirror of the two workstream blockers the decider
+ * enforces on `thread.auto-settle` (`decider.ts`) — the ids the sweep must not
+ * aim at, alongside upstream's own pre-filter below.
+ *
+ * Upstream pre-filters ITS blockers in `isAutoSettlementCandidate`, so a
+ * decider rejection is a rare race and worth the reactor's WARN. Loom's two
+ * blockers lived ONLY in the decider, so every thread they protect was
+ * dispatched and rejected on every one-minute sweep — 198
+ * `automatic thread settlement skipped` warnings, each with a pretty-printed
+ * cause, in 30 minutes across 20 threads. The decider stays the enforcement
+ * point; this only keeps the ordinary case off the dispatch path.
+ *
+ * A graph pass rather than a per-thread predicate, because the live-descendant
+ * blocker is a graph question: any non-terminal thread blocks all of its
+ * ancestors. Walking up stops at the first already-blocked ancestor — it was
+ * reached by a walk that ran to the root — so the whole pass is linear.
+ *
+ * The shell snapshot carries only ACTIVE threads while the decider walks its
+ * read model through archived ones, so a live descendant hidden behind an
+ * archived parent is admitted here and still refused (with a warning) there.
+ * That residual is the right direction: this filter can never suppress a
+ * settle the decider would have allowed.
+ */
+export function loomAutoSettleBlockedThreadIds(
+  threads: ReadonlyArray<Pick<OrchestrationThreadShell, "id" | "parentThreadId" | "planLane">>,
+): ReadonlySet<ThreadId> {
+  const parentOf = new Map(threads.map((thread) => [thread.id, thread.parentThreadId]));
+  const blocked = new Set<ThreadId>();
+  for (const thread of threads) {
+    if (isTerminalLane(thread.planLane)) continue;
+    for (
+      let ancestor = thread.parentThreadId;
+      ancestor !== null && !blocked.has(ancestor);
+      ancestor = parentOf.get(ancestor) ?? null
+    ) {
+      blocked.add(ancestor);
+    }
+  }
+  // Yielded is a thread's OWN blocker (quiescent by every runtime signal, yet
+  // owed a decision). Added after the ancestor walk, whose early exit assumes
+  // every id already in the set had its own ancestors marked.
+  for (const thread of threads) if (thread.planLane === "yielded") blocked.add(thread.id);
+  return blocked;
 }
 
 /** Cheap checks that run before any source control lookup. */

@@ -892,7 +892,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             command.type === "thread.auto-settle" ||
             activity.kind !== "user-input.requested" ||
             !Predicate.isObject(activity.payload) ||
-            activity.payload.responseMode !== "message",
+            // loom: a pi question carries `dismissible: true` and no
+            // `responseMode`, and the panel offers Dismiss for it — so the
+            // same requests the client calls dismissible are the ones an
+            // explicit settle may dismiss (mirrors `derivePendingRequests`).
+            (activity.payload.responseMode !== "message" && activity.payload.dismissible !== true),
         )
       ) {
         return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });

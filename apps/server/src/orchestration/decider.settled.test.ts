@@ -489,6 +489,50 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
+  // loom: a pi question carries `dismissible: true` and no `responseMode`, and
+  // the panel offers Dismiss for it — so Settle must not error where Dismiss
+  // works. A request the client cannot dismiss still blocks.
+  it.effect("an explicit settle dismisses a question marked dismissible", () =>
+    Effect.gen(function* () {
+      const question = (
+        requestId: string,
+        payload: Record<string, unknown>,
+      ): OrchestrationThread["activities"][number] => ({
+        id: EventId.make(requestId),
+        kind: "user-input.requested",
+        summary: "Question",
+        tone: "approval",
+        turnId: null,
+        createdAt: NOW,
+        payload: { requestId, ...payload },
+      });
+      const command = {
+        type: "thread.settle" as const,
+        commandId: CommandId.make("settle-dismissible"),
+        threadId: ThreadId.make("thread-1"),
+      };
+      const result = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel(null, null, makeSession("ready"), [
+          question("pi-question", { questions: [], dismissible: true }),
+        ]),
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.settled",
+        "thread.activity-appended",
+      ]);
+
+      const blocked = yield* decideOrchestrationCommand({
+        command,
+        readModel: makeReadModel(null, null, makeSession("ready"), [
+          question("native-callback", { dismissible: false }),
+        ]),
+      }).pipe(Effect.flip);
+      expect(blocked).toMatchObject({ _tag: "OrchestrationThreadSettleBlockedError" });
+    }),
+  );
+
   it.effect("async questions do not bypass automatic settlement or other blockers", () =>
     Effect.gen(function* () {
       const question: OrchestrationThread["activities"][number] = {
