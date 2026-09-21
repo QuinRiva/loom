@@ -135,6 +135,7 @@ describe("connection presentation", () => {
     });
   });
 
+  // loom: expired cookie-auth session surfaces as sign-in required.
   it("flags an authentication-blocked connection as needing sign-in", () => {
     expect(
       presentConnectionState(

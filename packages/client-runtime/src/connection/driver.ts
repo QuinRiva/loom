@@ -49,6 +49,7 @@ export const make = Effect.gen(function* () {
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
 
+  // loom: classify a rejected cookie-auth upgrade as blocked-on-sign-in.
   // A browser WebSocket hides the HTTP status of a rejected upgrade, so a
   // cookie-authenticated primary connection whose socket fails to establish is
   // indistinguishable from a transient outage at the socket layer. Probe the
