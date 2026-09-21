@@ -69,6 +69,8 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       ".repos/**",
+      // loom: MDX plans/recaps are product deliverables whose block attributes
+      // the formatter rewrites (same class as `.macroscope/ignore.md` below).
       ".plans",
       "plans/**",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
@@ -118,11 +120,6 @@ export default defineConfig({
       perf: "warn",
     },
     rules: {
-      // Config objects of renderers are our normal shape (react-markdown's
-      // `components` map, command-descriptor `icon:` render props). Those are
-      // props, not components defined during render, so allow them and keep the
-      // rule live for genuine in-render component definitions.
-      "react/no-unstable-nested-components": ["warn", { allowAsProps: true }],
       "unicorn/no-array-sort": "off",
       "unicorn/consistent-function-scoping": "off",
       "oxc/no-map-spread": "off",
@@ -216,7 +213,6 @@ export default defineConfig({
           "apps/mobile/src/native/T3ComposerEditor.ios.tsx",
           "apps/mobile/src/native/T3ComposerEditor.native.tsx",
           "apps/mobile/src/native/SelectableMarkdownText.android.tsx",
-          "apps/mobile/src/components/MarkdownBlock.tsx",
         ],
         rules: {
           "t3code/no-mobile-uniwind-theme-escape-hatches": ["error", { allowUniwindTheme: true }],
@@ -228,10 +224,8 @@ export default defineConfig({
         "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts": 42,
         "apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts": 5,
         "apps/server/src/orchestration/Layers/OrchestrationReactor.test.ts": 4,
-        // loom: ceilings above upstream's cover the fork's own cases in the same
-        // files (workstream launch claims, user-input settlement).
-        "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts": 69,
-        "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts": 30,
+        "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts": 66,
+        "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts": 29,
         "apps/server/src/orchestration/Layers/ThreadDeletionReactor.test.ts": 2,
         "apps/server/src/orchestration/commandInvariants.test.ts": 5,
         "apps/server/src/orchestration/projector.test.ts": 20,
@@ -240,8 +234,7 @@ export default defineConfig({
         "apps/server/src/provider/Layers/CursorAdapter.test.ts": 1,
         "apps/server/src/provider/Layers/CursorProvider.test.ts": 1,
         "apps/server/src/provider/Layers/ProviderService.test.ts": 2,
-        "apps/server/src/provider/Layers/ProviderSessionReaper.test.ts": 14,
-        "apps/server/src/orchestration/userInputSettlement.test.ts": 3, // loom:
+        "apps/server/src/provider/Layers/ProviderSessionReaper.test.ts": 12,
         "apps/server/src/provider/acp/CursorAcpSupport.test.ts": 1,
       }).map(([file, maxOccurrences]) => {
         const rule: ["error", { maxOccurrences: number }] = ["error", { maxOccurrences }];

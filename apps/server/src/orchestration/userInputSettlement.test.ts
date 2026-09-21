@@ -27,6 +27,7 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
@@ -48,6 +49,7 @@ import {
   registerUserInputSettlementReporter,
   registerUserInputSettlementSink,
   settleUserInputRequestsDurably,
+  type UserInputSettlementReport,
   userInputResolvedActivity,
 } from "./userInputSettlement.ts";
 import {
@@ -229,7 +231,9 @@ const resolvedOutcomes = (threadId: ThreadId) =>
     `;
   });
 
-it.layer(TestLayer)("user-input settlement guarantee", (it) => {
+// `excludeTestServices`: two cases exercise the dispatch helper's retry backoff,
+// which sleeps — the default test clock never advances those sleeps.
+it.layer(TestLayer, { excludeTestServices: true })("user-input settlement guarantee", (it) => {
   // INCIDENT 1. The pi process dies with its event queue already shut down, so
   // the cancellation cannot ride the queue. The forensic signature of the bug is
   // "cancellation in the canonical log, absent from the database"; here the
@@ -245,39 +249,55 @@ it.layer(TestLayer)("user-input settlement guarantee", (it) => {
       // registers, against the real event store and projection. The chain under
       // test is therefore unbroken — pi process exit → broker → registered sink →
       // command path → DB — which is the whole point: incident 1's cancellation
-      // existed in the canonical log and never reached the database.
-      const settlementServices = yield* Effect.context<never>();
+      // existed in the canonical log and never reached the database. The sink
+      // boundary is promise-shaped (production's caller is a Node `exit`
+      // listener), so a queue drained by a forked fibre is the bridge: the
+      // dispatch still runs on this test's runtime and context.
+      const sinkCalls = yield* Queue.make<{
+        readonly input: Parameters<Parameters<typeof registerUserInputSettlementSink>[0]>[0];
+        readonly resolve: (report: UserInputSettlementReport) => void;
+      }>();
       const sinkTags: Array<string> = [];
       let nextSettlementId = 0;
       const unregisterSink = registerUserInputSettlementSink((sinkInput) => {
         sinkTags.push(sinkInput.tag);
-        return Effect.runPromiseWith(settlementServices)(
-          dispatchUserInputResolutions({
-            dispatch: (command) =>
-              eventStore
-                .append(
-                  nextEvent({
-                    type: "thread.activity-appended",
-                    eventId: EventId.make(`evt-${command.activity.id}`),
-                    aggregateKind: "thread",
-                    aggregateId: command.threadId,
-                    occurredAt: command.createdAt,
-                    metadata: {},
-                    payload: { threadId: command.threadId, activity: command.activity },
-                  } as never),
-                )
-                .pipe(Effect.flatMap((saved) => pipeline.projectEvent(saved))),
-            newId: Effect.sync(() => {
-              nextSettlementId += 1;
-              return `act-settlement-${nextSettlementId}`;
-            }),
-            threadId: sinkInput.threadId,
-            resolutions: sinkInput.resolutions,
-            createdAt: "2026-07-27T07:07:05.964Z",
-            tag: sinkInput.tag,
-          }),
-        );
+        const settled = Promise.withResolvers<UserInputSettlementReport>();
+        Queue.offerUnsafe(sinkCalls, { input: sinkInput, resolve: settled.resolve });
+        return settled.promise;
       });
+      yield* Effect.forkScoped(
+        Effect.forever(
+          Effect.gen(function* () {
+            const call = yield* Queue.take(sinkCalls);
+            call.resolve(
+              yield* dispatchUserInputResolutions({
+                dispatch: (command) =>
+                  eventStore
+                    .append(
+                      nextEvent({
+                        type: "thread.activity-appended",
+                        eventId: EventId.make(`evt-${command.activity.id}`),
+                        aggregateKind: "thread",
+                        aggregateId: command.threadId,
+                        occurredAt: command.createdAt,
+                        metadata: {},
+                        payload: { threadId: command.threadId, activity: command.activity },
+                      } as never),
+                    )
+                    .pipe(Effect.flatMap((saved) => pipeline.projectEvent(saved))),
+                newId: Effect.sync(() => {
+                  nextSettlementId += 1;
+                  return `act-settlement-${nextSettlementId}`;
+                }),
+                threadId: call.input.threadId,
+                resolutions: call.input.resolutions,
+                createdAt: "2026-07-27T07:07:05.964Z",
+                tag: call.input.tag,
+              }),
+            );
+          }),
+        ),
+      );
 
       // The emitter is registered, but its queue is gone: `offer` resolves
       // without delivering, exactly as it does mid-shutdown.
@@ -391,36 +411,30 @@ it.layer(TestLayer)("user-input settlement guarantee", (it) => {
   );
 
   // The dispatch helper's own contract: `persisted` counts CONFIRMED writes, so a
-  // caller (the startup scan) cannot log success over a still-wedged thread.
-  // The dispatch helper's own contract: `persisted` counts CONFIRMED writes, so a
-  // caller (the startup scan) cannot log success over a still-wedged thread. The
-  // effect is run against the default (real-clock) runtime because the retry
-  // backoff sleeps, and the layer's test clock never advances them.
+  // caller (the startup scan) cannot log success over a still-wedged thread. Run
+  // on the live clock (`it.live`): the retry backoff sleeps, and the layer's test
+  // clock never advances them.
   it.effect("counts only confirmed writes when the command path keeps failing", () =>
     Effect.gen(function* () {
       const attempts: Array<string> = [];
-      const report = yield* Effect.promise(() =>
-        Effect.runPromise(
-          dispatchUserInputResolutions({
-            dispatch: () =>
-              Effect.sync(() => attempts.push("try")).pipe(
-                Effect.andThen(
-                  Effect.fail(
-                    new OrchestrationCommandInvariantError({
-                      commandType: "thread.activity.append",
-                      detail: "command rejected",
-                    }),
-                  ),
-                ),
+      const report = yield* dispatchUserInputResolutions({
+        dispatch: () =>
+          Effect.sync(() => attempts.push("try")).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new OrchestrationCommandInvariantError({
+                  commandType: "thread.activity.append",
+                  detail: "command rejected",
+                }),
               ),
-            newId: Effect.succeed("act-never-persisted"),
-            threadId: INCIDENT_THREAD,
-            resolutions: [{ requestId: "never-persisted", outcome: "cancelled" }],
-            createdAt: AT,
-            tag: "always-fails",
-          }),
-        ),
-      );
+            ),
+          ),
+        newId: Effect.succeed("act-never-persisted"),
+        threadId: INCIDENT_THREAD,
+        resolutions: [{ requestId: "never-persisted", outcome: "cancelled" }],
+        createdAt: AT,
+        tag: "always-fails",
+      });
       expect(report).toEqual({ persisted: 0, failed: 1 });
       // It really did retry before giving up, rather than failing once quietly.
       expect(attempts.length).toBeGreaterThan(1);
@@ -437,37 +451,33 @@ it.layer(TestLayer)("user-input settlement guarantee", (it) => {
     Effect.gen(function* () {
       const dispatched: Array<{ readonly commandId: string; readonly activityId: string }> = [];
       let attempts = 0;
-      const report = yield* Effect.promise(() =>
-        Effect.runPromise(
-          dispatchUserInputResolutions({
-            dispatch: (command) =>
-              Effect.suspend(() => {
-                attempts += 1;
-                dispatched.push({
-                  commandId: String(command.commandId),
-                  activityId: String(command.activity.id),
-                });
-                // First attempt: the write lands, then the ack is lost (the
-                // ambiguous case). The retry must be byte-identical.
-                return attempts === 1
-                  ? Effect.fail(
-                      new OrchestrationCommandInvariantError({
-                        commandType: "thread.activity.append",
-                        detail: "ack lost",
-                      }),
-                    )
-                  : Effect.void;
-              }),
-            // Deliberately id-per-call: if the helper allocated inside the retry,
-            // the two attempts would differ and the assertion below would fail.
-            newId: Effect.sync(() => `act-ambiguous-${attempts}`),
-            threadId: INCIDENT_THREAD,
-            resolutions: [{ requestId: "ambiguous-write", outcome: "cancelled" }],
-            createdAt: AT,
-            tag: "ambiguous",
+      const report = yield* dispatchUserInputResolutions({
+        dispatch: (command) =>
+          Effect.suspend(() => {
+            attempts += 1;
+            dispatched.push({
+              commandId: String(command.commandId),
+              activityId: String(command.activity.id),
+            });
+            // First attempt: the write lands, then the ack is lost (the
+            // ambiguous case). The retry must be byte-identical.
+            return attempts === 1
+              ? Effect.fail(
+                  new OrchestrationCommandInvariantError({
+                    commandType: "thread.activity.append",
+                    detail: "ack lost",
+                  }),
+                )
+              : Effect.void;
           }),
-        ),
-      );
+        // Deliberately id-per-call: if the helper allocated inside the retry,
+        // the two attempts would differ and the assertion below would fail.
+        newId: Effect.sync(() => `act-ambiguous-${attempts}`),
+        threadId: INCIDENT_THREAD,
+        resolutions: [{ requestId: "ambiguous-write", outcome: "cancelled" }],
+        createdAt: AT,
+        tag: "ambiguous",
+      });
 
       expect(report).toEqual({ persisted: 1, failed: 0 });
       expect(dispatched).toHaveLength(2);
