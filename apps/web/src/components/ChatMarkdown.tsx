@@ -107,7 +107,9 @@ import { MediaVideoPlayer } from "./media/MediaVideoPlayer";
 import { MediaActions, type MediaActionSource } from "./media/MediaActions";
 import { resolveProtocolRelativeMediaUrl } from "./media/mediaContent";
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
-// loom: file-chip existence verification, artifact routing, legacy thread links.
+// loom: artifact-viewer routing for `.html` chips.
+import { isArtifactViewerPath } from "./artifact/artifactView";
+// loom: file-chip existence verification and legacy thread links.
 import {
   THREAD_LINK_HREF_PREFIX,
   ThreadLinkChip,
@@ -1155,6 +1157,11 @@ interface MarkdownFileLinkProps {
   openInEditorMenuLabel: string;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenMedia?: (() => void) | undefined;
+  // loom: primary-action override for an in-workspace `.html` artifact on a
+  // runtime with no integrated browser — the chip stays upstream's link (same
+  // context menu: copy paths, open in editor, reveal), only the click opens the
+  // sandboxed artifact viewer instead of the read-only files panel.
+  onOpenArtifact?: (() => void) | undefined;
   onReveal?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
       reveal item to show. */
@@ -1896,6 +1903,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   openInEditorMenuLabel,
   onOpenInBrowser,
   onOpenMedia,
+  onOpenArtifact,
   onReveal,
   revealLabel,
   className,
@@ -2183,6 +2191,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                   handleOpenInEditor();
                   return;
                 }
+                // loom: artifact viewer wins the plain click; see onOpenArtifact.
+                if (onOpenArtifact) {
+                  onOpenArtifact();
+                  return;
+                }
                 if (useBrowserPrimaryAction) {
                   handleOpenInBrowser();
                   return;
@@ -2247,6 +2260,8 @@ function areMarkdownFileLinkPropsEqual(
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onOpenMedia === next.onOpenMedia &&
+    // loom: artifact-viewer primary action.
+    previous.onOpenArtifact === next.onOpenArtifact &&
     previous.onReveal === next.onReveal &&
     previous.revealLabel === next.revealLabel &&
     previous.className === next.className
@@ -2608,6 +2623,15 @@ function useChatMarkdownState({
       const panelPath =
         fileLinkMeta.workspaceRelativePath ??
         (!canPreviewMedia && isAbsolutePath(fileLinkMeta.filePath) ? fileLinkMeta.filePath : null);
+      // loom: an in-workspace `.html` artifact opens the sandboxed viewer panel
+      // on a runtime with no integrated browser to open it in.
+      const artifactTarget =
+        threadRef &&
+        fileLinkMeta.workspaceRelativePath !== null &&
+        isArtifactViewerPath(fileLinkMeta.filePath) &&
+        !isPreviewSupportedInRuntime()
+          ? { threadRef, relativePath: fileLinkMeta.workspaceRelativePath }
+          : null;
 
       return (
         <MarkdownFileLink
@@ -2626,6 +2650,15 @@ function useChatMarkdownState({
           onOpenMedia={
             threadRef && canPreviewMedia
               ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)
+              : undefined
+          }
+          // loom: see artifactTarget above.
+          onOpenArtifact={
+            artifactTarget
+              ? () =>
+                  useRightPanelStore
+                    .getState()
+                    .openArtifact(artifactTarget.threadRef, artifactTarget.relativePath)
               : undefined
           }
           openInEditorMenuLabel={preferredEditorMenuLabel}
@@ -2661,12 +2694,10 @@ function useChatMarkdownState({
     ],
   );
 
-  // loom: verify chip targets exist before they are clickable, and route
-  // in-workspace `.html` artifacts to the sandboxed viewer panel. An existing
-  // file renders exactly upstream's chip.
+  // loom: verify chip targets exist before they are clickable. An existing file
+  // renders exactly upstream's chip.
   const verifiedFileLinkChip = useVerifiedFileLinkChip({
     environmentId,
-    threadRef,
     metas: useMemo(
       () => [...markdownFileLinkMetaByHref.values(), ...inlineCodeFileLinkMetaByText.values()],
       [inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref],

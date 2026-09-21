@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectPathKind, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectPathKind } from "@t3tools/contracts";
 import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -20,7 +20,6 @@ vi.mock("~/components/ui/tooltip", async () => {
 import { useVerifiedFileLinkChip } from "./verifiedFileChips";
 
 const ENV = "env-1" as EnvironmentId;
-const THREAD_REF = { environmentId: ENV, threadId: "thread-1" } as unknown as ScopedThreadRef;
 const CWD = "/w";
 
 function meta(filePath: string): MarkdownFileLinkMeta {
@@ -37,7 +36,6 @@ function meta(filePath: string): MarkdownFileLinkMeta {
 function Harness({ metas }: { metas: ReadonlyArray<MarkdownFileLinkMeta> }) {
   const chip = useVerifiedFileLinkChip({
     environmentId: ENV,
-    threadRef: THREAD_REF,
     metas,
     renderChip: (fileLinkMeta) => <b data-upstream-chip>{fileLinkMeta.basename}</b>,
   });
@@ -108,19 +106,11 @@ describe("useVerifiedFileLinkChip", () => {
     await act(async () => renderer.unmount());
   });
 
-  it("routes an existing in-workspace .html artifact to the viewer instead of upstream's chip", async () => {
-    const renderer = await renderHarness([meta(`${CWD}/report.html`)], {
-      [`${CWD}/report.html`]: "file",
-    });
-    // No integrated browser in this runtime, so the artifact opens in-panel.
-    expect(renderer.root.findAllByType("button")).toHaveLength(1);
-    expect(renderer.root.findAllByType("b")).toHaveLength(0);
-    await act(async () => renderer.unmount());
-  });
-
-  it("does not route a missing .html artifact — missing outranks artifact routing", async () => {
+  // Artifact routing now lives in upstream's chip (`onOpenArtifact`), so the
+  // seam only has to keep a missing artifact from rendering as a live chip.
+  it("still reports a missing .html artifact — missing outranks artifact routing", async () => {
     const renderer = await renderHarness([meta(`${CWD}/stale.html`)], {});
-    expect(renderer.root.findAllByType("button")).toHaveLength(0);
+    expect(renderer.root.findAllByType("b")).toHaveLength(0);
     expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(1);
     await act(async () => renderer.unmount());
   });
