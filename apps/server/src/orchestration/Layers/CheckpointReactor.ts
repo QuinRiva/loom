@@ -269,10 +269,22 @@ const make = Effect.gen(function* () {
       input.threadId,
       input.turnCount,
     );
-    const baselineExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: input.cwd,
-      checkpointRef: baselineCheckpointRef,
-    });
+    // Same rule as the previous-completion lookup below: a failed ref lookup
+    // degrades to "no baseline" rather than failing the whole capture.
+    const baselineExists = yield* checkpointStore
+      .hasCheckpointRef({
+        cwd: input.cwd,
+        checkpointRef: baselineCheckpointRef,
+      })
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("checkpoint capture baseline ref lookup failed", {
+            threadId: input.threadId,
+            checkpointRef: baselineCheckpointRef,
+            category: error._tag,
+          }).pipe(Effect.as(false)),
+        ),
+      );
     const fromCheckpointRef = baselineExists
       ? baselineCheckpointRef
       : checkpointRefForThreadTurn(input.threadId, fromTurnCount);
@@ -772,8 +784,15 @@ const make = Effect.gen(function* () {
       { type: "thread.turn-start-requested" | "thread.message-sent" }
     >,
   ) =>
+    // A bootstrap or imported message lands before the worktree exists; its
+    // baseline would snapshot the project checkout. The turn-start event that
+    // follows captures it against the right cwd.
     event.type === "thread.message-sent" &&
-    (event.payload.role !== "user" || event.payload.streaming || event.payload.turnId !== null)
+    (event.metadata.historyImport === true ||
+      event.metadata.deferredTurn === true ||
+      event.payload.role !== "user" ||
+      event.payload.streaming ||
+      event.payload.turnId !== null)
       ? Effect.void
       : capturePreTurnBaseline({
           threadId: event.payload.threadId,
@@ -860,34 +879,38 @@ const make = Effect.gen(function* () {
     // restoring a whole-tree snapshot (plus clean) would destroy their
     // uncommitted work. Cheap read-model check; no locking. Keyed off the
     // checkpoint cwd upstream now resolves (session runtime preferred, thread
-    // worktree as fallback) rather than the session runtime alone.
-    const shellSnapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
-    const revertCwd = checkpointCwd === undefined ? undefined : NodePath.resolve(checkpointCwd);
-    const occupants = shellSnapshot.threads.filter((occupant) => {
-      if (revertCwd === undefined) return false;
-      if (
-        occupant.id === event.payload.threadId ||
-        occupant.planLane === "done" ||
-        occupant.planLane === "cancelled"
-      ) {
-        return false;
-      }
-      const occupantCwd = resolveThreadWorkspaceCwd({
-        thread: occupant,
-        projects: shellSnapshot.projects,
+    // worktree as fallback) rather than the session runtime alone. Scoped to a
+    // FILE restore: a conversation-only rewind writes nothing to the tree, so
+    // sharing the worktree is no reason to refuse it.
+    if (event.payload.restoreFiles !== false) {
+      const shellSnapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
+      const revertCwd = checkpointCwd === undefined ? undefined : NodePath.resolve(checkpointCwd);
+      const occupants = shellSnapshot.threads.filter((occupant) => {
+        if (revertCwd === undefined) return false;
+        if (
+          occupant.id === event.payload.threadId ||
+          occupant.planLane === "done" ||
+          occupant.planLane === "cancelled"
+        ) {
+          return false;
+        }
+        const occupantCwd = resolveThreadWorkspaceCwd({
+          thread: occupant,
+          projects: shellSnapshot.projects,
+        });
+        return occupantCwd !== undefined && NodePath.resolve(occupantCwd) === revertCwd;
       });
-      return occupantCwd !== undefined && NodePath.resolve(occupantCwd) === revertCwd;
-    });
-    if (occupants.length > 0) {
-      yield* appendRevertFailureActivity({
-        threadId: event.payload.threadId,
-        turnCount: event.payload.turnCount,
-        detail: `Revert refused: ${occupants.length} other live thread(s) share this worktree (${occupants
-          .map((occupant) => occupant.title)
-          .join(", ")}); reverting would destroy their uncommitted work.`,
-        createdAt: now,
-      }).pipe(Effect.catch(() => Effect.void));
-      return;
+      if (occupants.length > 0) {
+        yield* appendRevertFailureActivity({
+          threadId: event.payload.threadId,
+          turnCount: event.payload.turnCount,
+          detail: `Revert refused: ${occupants.length} other live thread(s) share this worktree (${occupants
+            .map((occupant) => occupant.title)
+            .join(", ")}); reverting would destroy their uncommitted work.`,
+          createdAt: now,
+        }).pipe(Effect.catch(() => Effect.void));
+        return;
+      }
     }
 
     const currentTurnCount = thread.checkpoints.reduce(
