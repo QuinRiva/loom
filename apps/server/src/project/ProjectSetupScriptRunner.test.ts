@@ -154,10 +154,14 @@ describe("ProjectSetupScriptRunner", () => {
           FORCE_COLOR: "0",
         },
       });
+      // loom: the runner appends a per-run completion marker so the setup card
+      // can observe the exit status; its suffix is random per run.
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-default-setup",
-        data: "npm install\r",
+        data: expect.stringMatching(
+          /^npm install\rprintf '\\n__T3CODE_SETUP_DONE_[0-9a-f]{16}__:%s\\n' "\$\?"\r$/,
+        ) as unknown as string,
       });
     }).pipe(
       Effect.provide(

@@ -5551,11 +5551,12 @@ const getBinding = vi.fn((threadId: ThreadId) =>
 );
 // loom: listSessions now reads the bounded binding projection in one query.
 const listBindings = vi.fn(() =>
-  Effect.succeed([
+  Effect.succeed<ReadonlyArray<ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata>>([
     {
       threadId: activeSessionThreadId,
       provider: CODEX_DRIVER,
       providerInstanceId: codexInstanceId,
+      lastSeenAt: "2026-01-01T00:00:00.000Z",
     },
   ]),
 );
