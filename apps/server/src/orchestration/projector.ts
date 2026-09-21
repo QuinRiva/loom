@@ -364,6 +364,7 @@ export function projectEvent(
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
+            // loom: fork project field (start-from-origin default).
             defaultStartFromOrigin: payload.defaultStartFromOrigin,
             defaultThreadEnvMode: null,
             autoPull: false,
@@ -401,6 +402,7 @@ export function projectEvent(
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
+                  // loom: fork project field (start-from-origin default).
                   ...(payload.defaultStartFromOrigin !== undefined
                     ? { defaultStartFromOrigin: payload.defaultStartFromOrigin }
                     : {}),
@@ -667,6 +669,7 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               ...(payload.title !== undefined ? { title: payload.title } : {}),
               ...(payload.titleState !== undefined ? { titleState: payload.titleState } : {}),
+              // loom: §4 title provenance.
               ...(payload.titleProvenance !== undefined
                 ? { titleProvenance: payload.titleProvenance }
                 : {}),
@@ -686,7 +689,7 @@ export function projectEvent(
               ...(payload.branchPullRequest !== undefined
                 ? { branchPullRequest: payload.branchPullRequest }
                 : {}),
-              // Post-completion engagement (plan §8 item 3): fan-in tip marker.
+              // loom: post-completion engagement (plan §8 item 3): fan-in tip marker.
               ...(payload.finalCommitSha !== undefined
                 ? { finalCommitSha: payload.finalCommitSha }
                 : {}),
