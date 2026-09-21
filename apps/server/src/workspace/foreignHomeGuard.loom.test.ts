@@ -46,33 +46,32 @@ const initRepoWithCommit = (cwd: string) =>
   });
 
 describe("foreign-home guard", () => {
-  it("treats a database whose worktree paths are all elsewhere as foreign", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        yield* detectForeignDatabase({
-          worktreesDir: "/home/me/.t3/dev/worktrees",
-          recordedWorktreePaths: ["/home/someone/.t3/cockpit/worktrees/repo/ws-coder-1"],
-        });
-        assert.isTrue(isForeignDatabase());
+  it.effect("treats a database whose worktree paths are all elsewhere as foreign", () =>
+    Effect.gen(function* () {
+      yield* detectForeignDatabase({
+        worktreesDir: "/home/me/.t3/dev/worktrees",
+        recordedWorktreePaths: ["/home/someone/.t3/cockpit/worktrees/repo/ws-coder-1"],
+      });
+      assert.isTrue(isForeignDatabase());
 
-        // One recorded path inside our own worktrees dir is proof of ownership.
-        yield* detectForeignDatabase({
-          worktreesDir: "/home/me/.t3/dev/worktrees",
-          recordedWorktreePaths: [
-            "/home/someone/.t3/cockpit/worktrees/repo/ws-coder-1",
-            "/home/me/.t3/dev/worktrees/repo/ws-coder-2",
-          ],
-        });
-        assert.isFalse(isForeignDatabase());
+      // One recorded path inside our own worktrees dir is proof of ownership.
+      yield* detectForeignDatabase({
+        worktreesDir: "/home/me/.t3/dev/worktrees",
+        recordedWorktreePaths: [
+          "/home/someone/.t3/cockpit/worktrees/repo/ws-coder-1",
+          "/home/me/.t3/dev/worktrees/repo/ws-coder-2",
+        ],
+      });
+      assert.isFalse(isForeignDatabase());
 
-        // A database with no worktrees at all has no foreign checkout to damage.
-        yield* detectForeignDatabase({
-          worktreesDir: "/home/me/.t3/dev/worktrees",
-          recordedWorktreePaths: [],
-        });
-        assert.isFalse(isForeignDatabase());
-      }),
-    ));
+      // A database with no worktrees at all has no foreign checkout to damage.
+      yield* detectForeignDatabase({
+        worktreesDir: "/home/me/.t3/dev/worktrees",
+        recordedWorktreePaths: [],
+      });
+      assert.isFalse(isForeignDatabase());
+    }),
+  );
 
   // The location rule, on the remover that acts on RECORDED paths (the reaper and
   // the maintenance panel both go through it).
