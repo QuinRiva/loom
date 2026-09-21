@@ -544,7 +544,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -564,7 +563,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -604,7 +602,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -762,15 +759,6 @@ interface ComposerDraftStoreState {
    * prompt stash. Session-bound context stays in the source draft.
    */
   clearComposerPromptAndImages: (threadRef: ComposerThreadTarget) => void;
-  /**
-   * loom: moves the prompt text and file/image attachments from one composer target
-   * to another. Used when a draft changes project: the new project gets its
-   * own draft session and the typed content follows it. Session-bound extras
-   * (terminal contexts, preview annotations, review comments) stay on the
-   * source — they reference sessions the destination cannot use, so the moved
-   * prompt is re-anchored to whatever references the destination already has.
-   */
-  moveComposerPromptAndImages: (from: ComposerThreadTarget, to: ComposerThreadTarget) => void;
 }
 
 export interface EffectiveComposerModelState {
@@ -1611,7 +1599,6 @@ function createDraftThreadState(
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
-    projectDefaultStartFromOrigin?: boolean | null; // loom:
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
     environmentSelection?: "auto" | "manual";
@@ -1641,8 +1628,7 @@ function createDraftThreadState(
   const nextStartFromOrigin =
     options?.startFromOrigin === undefined
       ? projectChanged
-        ? // loom: a fresh project bucket seeds from that project's default.
-          (options?.projectDefaultStartFromOrigin ?? false)
+        ? false
         : (existingThread?.startFromOrigin ?? false)
       : options.startFromOrigin;
   // loom: a fresh project bucket drops the goal.
@@ -2946,11 +2932,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextStartFromOrigin =
               options.startFromOrigin === undefined
                 ? projectChanged
-                  ? // loom: a fresh project bucket seeds from that project's default.
-                    (options.projectDefaultStartFromOrigin ?? false)
+                  ? false
                   : existing.startFromOrigin
                 : options.startFromOrigin;
-            // loom: a fresh project bucket drops the goal.
             // loom: a fresh project bucket drops the goal.
             const nextGoalId =
               options.goalId === undefined
@@ -4344,66 +4328,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               delete nextDraftsByThreadKey[threadKey];
             } else {
               nextDraftsByThreadKey[threadKey] = nextDraft;
-            }
-            return { draftsByThreadKey: nextDraftsByThreadKey };
-          });
-        },
-        // loom: draft follows a project change
-        moveComposerPromptAndImages: (from, to) => {
-          set((state) => {
-            const fromKey = resolveComposerDraftKey(state, from);
-            const toKey = resolveComposerDraftKey(state, to);
-            if (!fromKey || !toKey || fromKey === toKey) {
-              return state;
-            }
-            const source = state.draftsByThreadKey[fromKey];
-            if (!source) {
-              return state;
-            }
-            const destination = state.draftsByThreadKey[toKey] ?? createEmptyThreadDraft();
-            const referencesFor = (draft: ComposerThreadDraftState) => [
-              ...draft.terminalContexts.map(terminalContextReference),
-              ...draft.reviewComments.map(reviewCommentContextReference),
-              ...draft.previewAnnotations.map(previewAnnotationContextReference),
-              ...draft.threadReferences.map(threadReferenceContextReference), // loom:
-            ];
-            const nextDestination: ComposerThreadDraftState = {
-              ...destination,
-              // The source's context references stay behind, so re-anchor the
-              // moved prompt to the destination's own references.
-              prompt: ensureInlineContextReferences(source.prompt, referencesFor(destination)),
-              images: [...destination.images, ...source.images],
-              files: [...destination.files, ...source.files],
-              nonPersistedImageIds: [
-                ...destination.nonPersistedImageIds,
-                ...source.nonPersistedImageIds,
-              ],
-              persistedAttachments: [
-                ...destination.persistedAttachments,
-                ...source.persistedAttachments,
-              ],
-            };
-            // Same clearing shape as clearComposerPromptAndImages, but the
-            // preview URLs are NOT revoked: the images moved and their blobs
-            // are still referenced from the destination.
-            const nextSource: ComposerThreadDraftState = {
-              ...source,
-              prompt: ensureInlineContextReferences("", referencesFor(source)),
-              images: [],
-              files: [],
-              nonPersistedImageIds: [],
-              persistedAttachments: [],
-            };
-            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
-            for (const [key, draft] of [
-              [fromKey, nextSource],
-              [toKey, nextDestination],
-            ] as const) {
-              if (shouldRemoveDraft(draft)) {
-                delete nextDraftsByThreadKey[key];
-              } else {
-                nextDraftsByThreadKey[key] = draft;
-              }
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
