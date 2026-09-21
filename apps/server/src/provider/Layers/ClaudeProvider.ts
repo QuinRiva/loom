@@ -26,7 +26,6 @@ import {
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
-import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   query as claudeQuery,
   type Options as ClaudeQueryOptions,
@@ -76,19 +75,6 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
   reportsContextWindow: true,
 } as const;
-const MINIMUM_CLAUDE_OPUS_5_VERSION = "2.1.219";
-/**
- * Fable 5.1 is released after Opus 5, so any Claude Code that serves it is at
- * least the Opus 5 release. The exact minimum is not published yet, and this is
- * the tightest bound we can justify: it never hides 5.1 from a CLI that can run
- * it, and a CLI below it already gets the Opus 5 upgrade message, which names
- * this very version. Tighten once the real release is known.
- */
-const MINIMUM_CLAUDE_FABLE_5_1_VERSION = MINIMUM_CLAUDE_OPUS_5_VERSION;
-const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
-const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
-const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
-
 const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5"]);
 
 export function isLegacyClaudeModel(model: string): boolean {
@@ -398,69 +384,6 @@ const CLAUDE_MODEL_CATALOG: ReadonlyArray<ServerProviderModel> = [
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = CLAUDE_MODEL_CATALOG.map((model) =>
   isLegacyClaudeModel(model.slug) ? { ...model, isLegacy: true } : model,
 );
-
-function supportsClaudeOpus5(version: string | null | undefined): boolean {
-  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_OPUS_5_VERSION) >= 0 : false;
-}
-
-function supportsClaudeFable51(version: string | null | undefined): boolean {
-  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_FABLE_5_1_VERSION) >= 0 : false;
-}
-
-function supportsClaudeFable5(version: string | null | undefined): boolean {
-  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_FABLE_5_VERSION) >= 0 : false;
-}
-
-function supportsClaudeOpus48(version: string | null | undefined): boolean {
-  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_OPUS_4_8_VERSION) >= 0 : false;
-}
-
-function supportsClaudeOpus47(version: string | null | undefined): boolean {
-  return version ? compareSemverVersions(version, MINIMUM_CLAUDE_OPUS_4_7_VERSION) >= 0 : false;
-}
-
-function getBuiltInClaudeModelsForVersion(
-  version: string | null | undefined,
-): ReadonlyArray<ServerProviderModel> {
-  return BUILT_IN_MODELS.filter((model) => {
-    if (model.slug === "claude-opus-5") {
-      return supportsClaudeOpus5(version);
-    }
-    if (model.slug === "claude-fable-5-1") {
-      return supportsClaudeFable51(version);
-    }
-    if (model.slug === "claude-fable-5") {
-      return supportsClaudeFable5(version);
-    }
-    if (model.slug === "claude-opus-4-8") {
-      return supportsClaudeOpus48(version);
-    }
-    if (model.slug === "claude-opus-4-7") {
-      return supportsClaudeOpus47(version);
-    }
-    return true;
-  });
-}
-
-function formatClaudeOpus5UpgradeMessage(version: string | null): string {
-  const versionLabel = version ? `v${version}` : "the installed version";
-  return `Claude Code ${versionLabel} is too old for Claude Opus 5. Upgrade to v${MINIMUM_CLAUDE_OPUS_5_VERSION} or newer to access it.`;
-}
-
-function formatClaudeFable5UpgradeMessage(version: string | null): string {
-  const versionLabel = version ? `v${version}` : "the installed version";
-  return `Claude Code ${versionLabel} is too old for Claude Fable 5. Upgrade to v${MINIMUM_CLAUDE_FABLE_5_VERSION} or newer to access it.`;
-}
-
-function formatClaudeOpus48UpgradeMessage(version: string | null): string {
-  const versionLabel = version ? `v${version}` : "the installed version";
-  return `Claude Code ${versionLabel} is too old for Claude Opus 4.8. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_8_VERSION} or newer to access it.`;
-}
-
-function formatClaudeOpus47UpgradeMessage(version: string | null): string {
-  const versionLabel = version ? `v${version}` : "the installed version";
-  return `Claude Code ${versionLabel} is too old for Claude Opus 4.7. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_7_VERSION} or newer to access it.`;
-}
 
 export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
   const slug = model?.trim();
