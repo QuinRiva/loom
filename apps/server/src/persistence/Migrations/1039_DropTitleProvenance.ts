@@ -32,7 +32,7 @@ export default Effect.gen(function* () {
     if (threadColumns.has("title_state_json")) {
       yield* sql`
         UPDATE projection_threads
-        SET title_state_json = '{"source":"manual","version":"loom-migration-1038","needsRefinement":false}'
+        SET title_state_json = '{"source":"manual","version":"loom-migration-1039","needsRefinement":false}'
         WHERE title_provenance = 'curated' AND title_state_json IS NULL
       `;
     }

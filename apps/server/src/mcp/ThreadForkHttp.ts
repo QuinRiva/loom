@@ -109,6 +109,8 @@ const handleThreadFork = Effect.gen(function* () {
     planLane: "planned",
     isolation: sourceThread.isolation,
     title: threadTitle,
+    // loom: the fork label is a deliberate title, not a composer seed.
+    titleSource: "manual",
     modelSelection: sourceThread.modelSelection,
     runtimeMode: sourceThread.runtimeMode,
     interactionMode: sourceThread.interactionMode,

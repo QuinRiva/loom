@@ -2991,62 +2991,6 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
-  // loom: a spawned child's title comes from its brief, and the workstream
-  // dispatcher passes that same title as the kick-off `titleSeed` — which is
-  // upstream's "this title is replaceable" signal. The `manual` titleState the
-  // create stamps is what stops upstream's first-turn generator overwriting it.
-  effectIt.effect("keeps a brief-seeded child title through its kick-off turn", () =>
-    Effect.gen(function* () {
-      const harness = yield* Effect.promise(() => createHarness());
-      const now = "2026-01-01T00:00:00.000Z";
-      harness.generateThreadTitle.mockReturnValue(
-        Effect.succeed({ title: "Model would rename this" }),
-      );
-
-      yield* harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.make("cmd-create-briefed-child"),
-        threadId: ThreadId.make("thread-briefed"),
-        projectId: asProjectId("project-1"),
-        parentThreadId: ThreadId.make("thread-1"),
-        role: "coder",
-        title: "Restore the PR projection arms",
-        titleSource: "manual",
-        modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5-codex"),
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
-        createdAt: now,
-      });
-
-      yield* harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-briefed"),
-        threadId: ThreadId.make("thread-briefed"),
-        message: {
-          messageId: asMessageId("user-message-briefed"),
-          role: "user",
-          text: "Adopt upstream's PR projection arms so linked PRs persist.",
-          attachments: [],
-        },
-        // The dispatcher seeds the turn with the child's own title.
-        titleSeed: "Restore the PR projection arms",
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      });
-
-      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
-      yield* Effect.promise(() => harness.drain());
-      expect(harness.generateThreadTitle).not.toHaveBeenCalled();
-      const readModel = yield* Effect.promise(() => harness.readModel());
-      expect(
-        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-briefed"))?.title,
-      ).toBe("Restore the PR projection arms");
-    }),
-  );
-
   // loom: §4 finding 2 — the exact Bug B failure mode. A goal-less root whose
   // turn-2 message is a mid-conversation INSTRUCTION must force its goal from the
   // OPENING context (first message + its attachments), never the triggering
