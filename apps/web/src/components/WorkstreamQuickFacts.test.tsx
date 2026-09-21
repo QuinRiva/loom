@@ -36,8 +36,13 @@ const summary = (over: Partial<SidebarThreadSummary>): SidebarThreadSummary =>
     ...over,
   }) as unknown as SidebarThreadSummary;
 
-const render = (thread: SidebarThreadSummary) =>
-  renderToStaticMarkup(<WorkstreamQuickFacts thread={thread} threadById={EMPTY_INDEX} />);
+const render = (
+  thread: SidebarThreadSummary,
+  threads: ReadonlyArray<SidebarThreadSummary> = [thread],
+) =>
+  renderToStaticMarkup(
+    <WorkstreamQuickFacts thread={thread} threads={threads} threadById={EMPTY_INDEX} />,
+  );
 
 describe("WorkstreamQuickFacts", () => {
   it("renders tool calls, the provider pill, cost and the turn line for a running thread", () => {
@@ -56,6 +61,16 @@ describe("WorkstreamQuickFacts", () => {
     expect(markup).toContain("Editing sessionStore.ts");
     // Goal is shown in full — no line clamp on the purpose block.
     expect(markup).not.toContain("line-clamp-3");
+  });
+
+  it("shows own and subtree spend for a thread with descendants", () => {
+    const parent = summary({ cumulativeCostUsd: 1.25 });
+    const child = summary({
+      id: ThreadId.make("grandchild"),
+      parentThreadId: parent.id,
+      cumulativeCostUsd: 2.5,
+    });
+    expect(render(parent, [parent, child])).toContain("own $1.25 · subtree $3.75");
   });
 
   it("degrades honestly for a not-yet-run planned thread", () => {
