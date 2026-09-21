@@ -2329,15 +2329,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "provider.thread_id": input.threadId,
         "provider.request_id": input.requestId,
       });
-      return yield* routed.adapter.respondToUserInput(
-        routed.threadId,
-        input.requestId,
-        input.answers,
-        {
-          outcome: input.outcome ?? DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
-          ...(input.message !== undefined ? { message: input.message } : {}),
-        },
-      );
+      // Attachments become on-disk path references inside the answer text: no
+      // provider's question protocol has an attachment slot, and every agent can
+      // read a file the server has already copied into its attachments dir.
+      const answers = yield* appendUserInputAttachmentPaths({
+        ...input,
+        attachmentsDir: serverConfig.attachmentsDir,
+      }).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
+      return yield* routed.adapter.respondToUserInput(routed.threadId, input.requestId, answers, {
+        outcome: input.outcome ?? DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
+        ...(input.message !== undefined ? { message: input.message } : {}),
+      });
     }).pipe(
       withMetrics({
         counter: providerTurnsTotal,
