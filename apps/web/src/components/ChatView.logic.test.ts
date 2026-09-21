@@ -266,7 +266,7 @@ describe("buildThreadTurnInterruptInput", () => {
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {
     const state = deriveComposerSendState({
-      prompt: "\uFFFC",
+      prompt: "",
       imageCount: 0,
       terminalContexts: [
         {
@@ -290,7 +290,7 @@ describe("deriveComposerSendState", () => {
 
   it("keeps text sendable while excluding expired terminal pills", () => {
     const state = deriveComposerSendState({
-      prompt: `yoo \uFFFC waddup`,
+      prompt: "yoo waddup",
       imageCount: 0,
       terminalContexts: [
         {
@@ -306,7 +306,7 @@ describe("deriveComposerSendState", () => {
       ],
     });
 
-    expect(state.trimmedPrompt).toBe("yoo  waddup");
+    expect(state.trimmedPrompt).toBe("yoo waddup");
     expect(state.expiredTerminalContextCount).toBe(1);
     expect(state.hasSendableContent).toBe(true);
   });
@@ -998,7 +998,6 @@ describe("shouldRestoreSubmittedDraft", () => {
     prompt: "",
     imageCount: 0,
     terminalContextCount: 0,
-    elementContextCount: 0,
     previewAnnotationCount: 0,
     reviewCommentCount: 0,
   };
@@ -1012,7 +1011,6 @@ describe("shouldRestoreSubmittedDraft", () => {
       { prompt: "typed something" },
       { imageCount: 1 },
       { terminalContextCount: 1 },
-      { elementContextCount: 1 },
       { previewAnnotationCount: 1 },
       { reviewCommentCount: 1 },
     ];

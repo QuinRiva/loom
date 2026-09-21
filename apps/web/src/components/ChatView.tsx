@@ -5016,10 +5016,13 @@ function ChatViewContent(props: ChatViewProps) {
                       interactionMode,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
+                      // loom: upstream's payload omits both and the server
+                      // defaults them to null, so a "New session" started from
+                      // the Goal panel would silently lose its goal and a fork
+                      // would silently become an ordinary thread. Relaying the
+                      // fork source lets the pi driver fork the source session
+                      // once, at this child's first launch.
                       goalId: activeThread.goalId ?? null,
-                      // Thread fork (MVP): relay the fork source so the server
-                      // forks the source's pi session at this child's first
-                      // launch (fork-once, in the pi driver).
                       forkFromThreadId: activeThread.forkFromThreadId ?? null,
                       createdAt: activeThread.createdAt,
                     },
@@ -5605,7 +5608,7 @@ function ChatViewContent(props: ChatViewProps) {
         interactionMode: "default",
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
-        goalId: activeThread.goalId ?? null,
+        goalId: activeThread.goalId ?? null, // loom: keep the goal on plan-implementation threads
         createdAt,
       },
     });

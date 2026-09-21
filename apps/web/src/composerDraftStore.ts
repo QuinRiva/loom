@@ -2563,7 +2563,9 @@ export function hydrateImagesFromPersisted(
   });
 }
 
-function toHydratedThreadDraft(
+// loom: exported so the draft-lifetime tests can assert a real persist/hydrate
+// round trip rather than reaching into the persist middleware.
+export function toHydratedThreadDraft(
   persistedDraft: PersistedComposerThreadDraftState,
 ): ComposerThreadDraftState {
   // The persisted draft is already in v3 shape (migration handles older formats)
