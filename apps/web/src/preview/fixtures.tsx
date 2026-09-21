@@ -1,5 +1,6 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
+import { EnvironmentId, type ProjectPathKind } from "@t3tools/contracts";
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
 import {
@@ -17,6 +18,7 @@ import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/
 import { PendingQuestionCard } from "../components/chat/PendingQuestionCard";
 import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
+import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
 /**
@@ -349,6 +351,53 @@ Inline code must stay literal: \`use $probe now\` — no chip, and it copies ver
 
 - A [link label mentioning $probe](https://example.com/probe) stays literal too.
 `;
+
+/**
+ * The three chip states loom's verification seam produces, in one message:
+ * a file that exists (upstream's live chip), one the server reports as gone
+ * (the muted "missing?" chip, not a dead link), and a non-file link (untouched
+ * by the seam). The harness has no backend, so the fixture drives the shared
+ * existence store directly — the same injection point its unit tests use.
+ */
+const FILE_CHIP_STATES_CWD = "/Users/julius/project";
+const FILE_CHIP_STATES_PRESENT = `${FILE_CHIP_STATES_CWD}/src/main.ts`;
+const FILE_CHIP_STATES_MISSING = `${FILE_CHIP_STATES_CWD}/src/removed-by-a-refactor.ts`;
+const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
+
+- Present: \`src/main.ts\` renders upstream's live chip.
+- Missing: \`src/removed-by-a-refactor.ts\` was moved or deleted, so it must NOT look clickable.
+- Non-file link: [the upstream repo](https://github.com/pingdotgg/t3code) is untouched by the seam.
+- Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) stays a thread chip.
+`;
+
+const FILE_CHIP_STATES_KINDS: Record<string, ProjectPathKind> = {
+  [FILE_CHIP_STATES_PRESENT]: "file",
+  [FILE_CHIP_STATES_MISSING]: "missing",
+};
+
+function FileChipStatesFixture() {
+  // Installed during the first render, before ChatMarkdown's children register
+  // their paths with the store (a mount effect would land after the reset that
+  // swapping the fetcher performs, dropping those registrations).
+  useState(() => {
+    __setStatFetcherForTests((_environmentId, paths) =>
+      Promise.resolve(
+        paths.map((path) => ({ path, kind: FILE_CHIP_STATES_KINDS[path] ?? "missing" })),
+      ),
+    );
+    return null;
+  });
+  useEffect(() => () => __setStatFetcherForTests(null), []);
+  return (
+    <TimelineLayoutFrame>
+      <ChatMarkdown
+        text={FILE_CHIP_STATES_MARKDOWN}
+        cwd={FILE_CHIP_STATES_CWD}
+        environmentId={EnvironmentId.make("preview-environment")}
+      />
+    </TimelineLayoutFrame>
+  );
+}
 
 function markdownFixture(
   id: string,
@@ -1153,6 +1202,13 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         CONSULT_REPORT_CODE_BLOCKS_MARKDOWN,
         "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine must show their body text.",
       ),
+      {
+        id: "file-chip-states",
+        title: "File chips: present, missing, non-file link",
+        description:
+          "loom's verification seam over upstream's chip renderer: an existing path renders upstream's chip unchanged, a path the server reports as gone renders muted with a 'missing — moved or deleted?' tooltip instead of a dead link, and a plain web link is untouched. The legacy thread:// mention keeps its thread chip.",
+        render: () => <FileChipStatesFixture />,
+      },
       {
         id: "skill-token-chips",
         title: "Skill token chips vs literal code",
