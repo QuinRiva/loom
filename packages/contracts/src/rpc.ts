@@ -292,7 +292,7 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
-  // Connection keepalive (authenticated-session-only, carries no data)
+  // loom: connection keepalive (authenticated-session-only, carries no data)
   heartbeat: "heartbeat",
 
   // Project registry methods
@@ -301,6 +301,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsListEntries: "projects.listEntries",
   projectsReadFile: "projects.readFile",
+  // loom: out-of-workspace file chips.
   projectsReadAbsoluteFile: "projects.readAbsoluteFile",
   projectsListAbsoluteDirectory: "projects.listAbsoluteDirectory",
   projectsStatPaths: "projects.statPaths",
@@ -399,12 +400,13 @@ export const WS_METHODS = {
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
+  // loom: workstream worktree surface.
   serverGetWorkstreamWorktrees: "server.getWorkstreamWorktrees",
   serverRemoveWorkstreamWorktree: "server.removeWorkstreamWorktree",
-  // `/handoff` fork-drafter (plan D2/D4): human composer intercept → fork the
+  // loom: `/handoff` fork-drafter (plan D2/D4): human composer intercept → fork the
   // source into a throwaway drafter root + inject its kickoff turn.
   serverHandoffDraft: "server.handoffDraft",
-  // `/retro` fork-reviewer: human composer intercept → fork the source into a
+  // loom: `/retro` fork-reviewer: human composer intercept → fork the source into a
   // visible retro-reviewer root + inject its kickoff turn.
   serverRetroDraft: "server.retroDraft",
   serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
@@ -476,16 +478,16 @@ export const WS_METHODS = {
 } as const;
 
 /**
- * Lightweight application-level keepalive. The client transport calls this on
+ * loom: lightweight application-level keepalive. The client transport calls this on
  * an interval so the WebSocket keeps carrying bytes and survives idle-timeout
  * proxies/tunnels. Empty payload, void success — the RPC's own resolution is
  * the freshness signal. Authenticated-session-only on the server (no scope).
  */
-export const WsHeartbeatRpc = Rpc.make(WS_METHODS.heartbeat, {
+const WsHeartbeatRpc = Rpc.make(WS_METHODS.heartbeat, {
   payload: Schema.Struct({}),
 });
 
-export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
+const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
   success: ServerUpsertKeybindingResult,
   error: Schema.Union([KeybindingsConfigError, EnvironmentAuthorizationError]),
@@ -657,7 +659,7 @@ const WsServerGetProcessResourceHistoryRpc = Rpc.make(WS_METHODS.serverGetProces
   error: EnvironmentAuthorizationError,
 });
 
-export const WsServerGetResourceTelemetryHistoryRpc = Rpc.make(
+const WsServerGetResourceTelemetryHistoryRpc = Rpc.make(
   WS_METHODS.serverGetResourceTelemetryHistory,
   {
     payload: ResourceTelemetryHistoryInput,
@@ -694,13 +696,14 @@ const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   error: EnvironmentAuthorizationError,
 });
 
-export const WsServerGetWorkstreamWorktreesRpc = Rpc.make(WS_METHODS.serverGetWorkstreamWorktrees, {
+// loom: workstream worktrees, and the /handoff + /retro fork drafters.
+const WsServerGetWorkstreamWorktreesRpc = Rpc.make(WS_METHODS.serverGetWorkstreamWorktrees, {
   payload: Schema.Struct({}),
   success: WorkstreamWorktreesResult,
   error: EnvironmentAuthorizationError,
 });
 
-export const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
+const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
   WS_METHODS.serverRemoveWorkstreamWorktree,
   {
     payload: WorkstreamRemoveWorktreeInput,
@@ -709,19 +712,19 @@ export const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
   },
 );
 
-export const WsServerHandoffDraftRpc = Rpc.make(WS_METHODS.serverHandoffDraft, {
+const WsServerHandoffDraftRpc = Rpc.make(WS_METHODS.serverHandoffDraft, {
   payload: HandoffDraftInput,
   success: HandoffDraftResult,
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerRetroDraftRpc = Rpc.make(WS_METHODS.serverRetroDraft, {
+const WsServerRetroDraftRpc = Rpc.make(WS_METHODS.serverRetroDraft, {
   payload: RetroDraftInput,
   success: RetroDraftResult,
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
+const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
   payload: Schema.Struct({}),
   success: RelayClientStatusSchema,
   error: EnvironmentAuthorizationError,
@@ -1009,13 +1012,14 @@ const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
   error: Schema.Union([ProjectReadFileError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsReadAbsoluteFileRpc = Rpc.make(WS_METHODS.projectsReadAbsoluteFile, {
+// loom: out-of-workspace file chips (read, list, stat).
+const WsProjectsReadAbsoluteFileRpc = Rpc.make(WS_METHODS.projectsReadAbsoluteFile, {
   payload: ProjectReadAbsoluteFileInput,
   success: ProjectReadFileResult,
   error: Schema.Union([ProjectReadAbsoluteFileError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(
+const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(
   WS_METHODS.projectsListAbsoluteDirectory,
   {
     payload: ProjectListAbsoluteDirectoryInput,
@@ -1024,13 +1028,13 @@ export const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(
   },
 );
 
-export const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
+const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
   payload: ProjectStatPathsInput,
   success: ProjectStatPathsResult,
   error: Schema.Union([ProjectStatPathsError, EnvironmentAuthorizationError]),
 });
 
-export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
+const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
@@ -1371,7 +1375,8 @@ const WsOrchestrationGetTurnDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getTurnD
   error: Schema.Union([OrchestrationGetTurnDiffError, EnvironmentAuthorizationError]),
 });
 
-export const WsOrchestrationGetThreadActivitiesRpc = Rpc.make(
+// loom: thread activity feed.
+const WsOrchestrationGetThreadActivitiesRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getThreadActivities,
   {
     payload: OrchestrationGetThreadActivitiesInput,
@@ -1380,7 +1385,7 @@ export const WsOrchestrationGetThreadActivitiesRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
+const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getFullThreadDiff,
   {
     payload: OrchestrationGetFullThreadDiffInput,
@@ -1395,7 +1400,8 @@ const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.search
   error: Schema.Union([OrchestrationSearchThreadsError, EnvironmentAuthorizationError]),
 });
 
-export const WsOrchestrationGetThreadLifecycleRpc = Rpc.make(
+// loom: thread lifecycle timeline.
+const WsOrchestrationGetThreadLifecycleRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getThreadLifecycle,
   {
     payload: OrchestrationGetThreadLifecycleInput,
@@ -1404,7 +1410,7 @@ export const WsOrchestrationGetThreadLifecycleRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
+const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
   {
     payload: OrchestrationRpcSchemas.getArchivedShellSnapshot.input,
@@ -1494,7 +1500,7 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
-  WsHeartbeatRpc,
+  WsHeartbeatRpc, // loom
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -1521,7 +1527,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
   WsServerGetProcessResourceHistoryRpc,
-  WsServerSignalProcessRpc,
+  // loom: workstream worktrees + the /handoff and /retro fork drafters.
   WsServerGetWorkstreamWorktreesRpc,
   WsServerRemoveWorkstreamWorktreeRpc,
   WsServerHandoffDraftRpc,
@@ -1573,6 +1579,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeProjectClonesRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
+  // loom: out-of-workspace file chips.
   WsProjectsReadAbsoluteFileRpc,
   WsProjectsListAbsoluteDirectoryRpc,
   WsProjectsStatPathsRpc,
@@ -1641,9 +1648,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetWorkflowScriptRpc,
   WsOrchestrationGetTurnDiffRpc,
-  WsOrchestrationGetThreadActivitiesRpc,
+  WsOrchestrationGetThreadActivitiesRpc, // loom
   WsOrchestrationGetFullThreadDiffRpc,
-  WsOrchestrationGetThreadLifecycleRpc,
+  WsOrchestrationGetThreadLifecycleRpc, // loom
   WsOrchestrationSearchThreadsRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
