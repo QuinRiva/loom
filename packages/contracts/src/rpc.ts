@@ -703,14 +703,11 @@ const WsServerGetWorkstreamWorktreesRpc = Rpc.make(WS_METHODS.serverGetWorkstrea
   error: EnvironmentAuthorizationError,
 });
 
-const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
-  WS_METHODS.serverRemoveWorkstreamWorktree,
-  {
-    payload: WorkstreamRemoveWorktreeInput,
-    success: WorkstreamRemoveWorktreeResult,
-    error: EnvironmentAuthorizationError,
-  },
-);
+const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(WS_METHODS.serverRemoveWorkstreamWorktree, {
+  payload: WorkstreamRemoveWorktreeInput,
+  success: WorkstreamRemoveWorktreeResult,
+  error: EnvironmentAuthorizationError,
+});
 
 const WsServerHandoffDraftRpc = Rpc.make(WS_METHODS.serverHandoffDraft, {
   payload: HandoffDraftInput,
@@ -1019,14 +1016,11 @@ const WsProjectsReadAbsoluteFileRpc = Rpc.make(WS_METHODS.projectsReadAbsoluteFi
   error: Schema.Union([ProjectReadAbsoluteFileError, EnvironmentAuthorizationError]),
 });
 
-const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(
-  WS_METHODS.projectsListAbsoluteDirectory,
-  {
-    payload: ProjectListAbsoluteDirectoryInput,
-    success: ProjectListAbsoluteDirectoryResult,
-    error: Schema.Union([ProjectListAbsoluteDirectoryError, EnvironmentAuthorizationError]),
-  },
-);
+const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(WS_METHODS.projectsListAbsoluteDirectory, {
+  payload: ProjectListAbsoluteDirectoryInput,
+  success: ProjectListAbsoluteDirectoryResult,
+  error: Schema.Union([ProjectListAbsoluteDirectoryError, EnvironmentAuthorizationError]),
+});
 
 const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
   payload: ProjectStatPathsInput,
@@ -1385,14 +1379,11 @@ const WsOrchestrationGetThreadActivitiesRpc = Rpc.make(
   },
 );
 
-const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getFullThreadDiff,
-  {
-    payload: OrchestrationGetFullThreadDiffInput,
-    success: OrchestrationRpcSchemas.getFullThreadDiff.output,
-    error: Schema.Union([OrchestrationGetFullThreadDiffError, EnvironmentAuthorizationError]),
-  },
-);
+const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getFullThreadDiff, {
+  payload: OrchestrationGetFullThreadDiffInput,
+  success: OrchestrationRpcSchemas.getFullThreadDiff.output,
+  error: Schema.Union([OrchestrationGetFullThreadDiffError, EnvironmentAuthorizationError]),
+});
 
 const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.searchThreads, {
   payload: OrchestrationSearchThreadsInput,
@@ -1401,14 +1392,11 @@ const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.search
 });
 
 // loom: thread lifecycle timeline.
-const WsOrchestrationGetThreadLifecycleRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadLifecycle,
-  {
-    payload: OrchestrationGetThreadLifecycleInput,
-    success: OrchestrationRpcSchemas.getThreadLifecycle.output,
-    error: Schema.Union([OrchestrationGetThreadLifecycleError, EnvironmentAuthorizationError]),
-  },
-);
+const WsOrchestrationGetThreadLifecycleRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getThreadLifecycle, {
+  payload: OrchestrationGetThreadLifecycleInput,
+  success: OrchestrationRpcSchemas.getThreadLifecycle.output,
+  error: Schema.Union([OrchestrationGetThreadLifecycleError, EnvironmentAuthorizationError]),
+});
 
 const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
