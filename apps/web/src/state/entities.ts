@@ -251,13 +251,27 @@ export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
 }
 
-// loom: session hook for loom surfaces.
+// loom: session and sync-error hooks for loom surfaces.
 export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
   return useAtomValue(
     ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),
   );
 }
 
+/**
+ * loom: the diagnostic from the thread-detail subscription's last failed
+ * attempt, or null. Upstream exposes the atom but renders it nowhere, so a
+ * failed subscription sits behind "Loading messages..." with no explanation.
+ */
+export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
+  return useAtomValue(
+    ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
+  );
+}
+
 const EMPTY_SESSION_ATOM = Atom.make<OrchestrationSession | null>(null).pipe(
   Atom.withLabel("web-thread-session:empty"),
+);
+const EMPTY_SYNC_ERROR_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("web-thread-sync-error:empty"),
 );
