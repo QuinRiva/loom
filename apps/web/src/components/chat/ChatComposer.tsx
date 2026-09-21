@@ -5291,7 +5291,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeTasksProgress.totalSteps > 0;
   const activityStackContent = hasBannerItems ? (
     props.threadSyncPhase ? (
-      <ComposerActivityRow phase={props.threadSyncPhase} />
+      // loom: threadRef lets the row surface the subscription's error text.
+      <ComposerActivityRow phase={props.threadSyncPhase} threadRef={routeThreadRef} />
     ) : !hasBlockingComposerTopDrawer && activeTasksProgress && activeTaskSteps ? (
       <ComposerTasksContent
         expanded={isTasksDrawerOpen}
@@ -6320,7 +6321,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-activity-strip="true">
                 {props.threadSyncPhase ? (
-                  <ComposerActivityRow phase={props.threadSyncPhase} />
+                  // loom: threadRef lets the row surface the subscription's error text.
+                  <ComposerActivityRow phase={props.threadSyncPhase} threadRef={routeThreadRef} />
                 ) : (
                   inlineTasksBadge
                 )}
