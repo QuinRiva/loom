@@ -9,6 +9,7 @@ export type DiffPanelSelection =
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
   | { kind: "turn"; turnId: TurnId; filePath: string | null; revealRequestId: number }
+  // loom: the "By coder" scope inspects a child coder's checkpoints from the parent thread.
   | { kind: "coder"; threadId: ThreadId; turnId: TurnId | null };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
@@ -19,8 +20,9 @@ interface DiffPanelStoreState {
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
-  selectCoder: (ref: ScopedThreadRef, threadId: ThreadId, turnId?: TurnId | null) => void;
+  selectCoder: (ref: ScopedThreadRef, threadId: ThreadId, turnId?: TurnId | null) => void; // loom:
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
+  // loom:
   reconcileCoderSelection: (
     ref: ScopedThreadRef,
     availableCoders: ReadonlyArray<{
@@ -95,6 +97,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      // loom:
       selectCoder: (ref, threadId, turnId = null) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -124,6 +127,8 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      // loom: a coder selection falls back to the branch scope when the child
+      // disappears, and to "All turns" when the pinned turn is gone.
       reconcileCoderSelection: (ref, availableCoders) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -173,6 +178,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     }),
     {
       name: "t3code:diff-panel-state:v1",
+      // loom: v2 adds the `coder` selection kind; persisted v1 state is reset rather than mapped.
       version: 2,
       migrate: () => ({ byThreadKey: {}, branchBaseRefByThreadKey: {} }),
       storage: createJSONStorage(() =>
