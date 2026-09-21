@@ -111,9 +111,13 @@ const seedProgram = Effect.gen(function* () {
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
 
-  // The seeded project's workspace lives under the durable state dir so it
-  // survives alongside the sqlite the dev server reads.
-  const workspaceRoot = path.join(config.stateDir, "seed-workspace");
+  // The seeded project's workspace lives under this home's `worktreesDir`.
+  // It has to: the foreign-home guard (`workspace/foreignHomeGuard.loom.ts`)
+  // decides provenance from whether ANY recorded worktree path sits inside the
+  // running home's `worktreesDir`, so a seed rooted anywhere else reads as a
+  // database copied from another home and the instance boots read-only —
+  // no provider session start, no worktree create, no checkpoints.
+  const workspaceRoot = path.join(config.worktreesDir, "seed-workspace");
 
   // Idempotence: a fully-seeded home already has this project. Re-running must
   // not corrupt state, so refuse with a clear message and let the caller wipe.
