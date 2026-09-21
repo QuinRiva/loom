@@ -1,7 +1,6 @@
 import {
   CommandId,
   EventId,
-  type GitCommandError,
   type OrchestrationCommand,
   type ProjectId,
   type ThreadId,
@@ -10,9 +9,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
-import type * as PlatformError from "effect/PlatformError";
 
-import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -65,15 +62,6 @@ export interface ProvisionIsolatedChildInput {
   /** The parent branch the child branches from and later fans back into. */
   readonly parentBranch: string;
 }
-
-// Provisioning surfaces git + command-dispatch failures to the caller (both
-// callers wrap the call in a catch); setup + activity + status side effects are
-// swallowed internally.
-type ProvisionError =
-  | GitCommandError
-  | OrchestrationDispatchError
-  | PlatformError.PlatformError
-  | WorktreeProvisionCancelled;
 
 export class WorktreeProvisioner extends Context.Service<
   WorktreeProvisioner,
