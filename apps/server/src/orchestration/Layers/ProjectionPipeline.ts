@@ -196,6 +196,13 @@ function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
     case "user-input.requested":
     case "user-input.resolved":
     case "provider.user-input.respond.failed":
+    // loom: the summary query also derives `tool_uses` (board card chip) and
+    // `cumulative_cost_usd` (per-thread cost ledger), so the kinds those two
+    // columns sum over must refresh as well — upstream has neither column.
+    case "tool.started":
+    case "tool.updated":
+    case "tool.completed":
+    case "context-window.updated":
       return true;
     default:
       return false;
@@ -581,6 +588,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             SELECT MAX(created_at)
             FROM projection_thread_messages
             WHERE thread_id = ${threadId} AND role = 'user'
+              AND message_id NOT GLOB 'import:*'
           ) AS "latestUserMessageAt",
           (
             SELECT COUNT(*)
@@ -892,8 +900,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       },
     );
 
+    // `updatedAt` is folded in rather than written by a separate upsert: every
+    // thread-row write fans out a shell frame to each client, so a refreshed
+    // activity must still cost exactly one write.
     const refreshThreadShellSummary = Effect.fn("refreshThreadShellSummary")(function* (
       threadId: ThreadId,
+      updatedAt?: string,
     ) {
       const existingRow = yield* projectionThreadRepository.getById({
         threadId,
@@ -913,6 +925,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
         ...summary,
+        ...(updatedAt === undefined ? {} : { updatedAt }),
         hasActionableProposedPlan: latestPlan?.implementedAt === null ? 1 : 0,
       });
     });
@@ -1633,11 +1646,38 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "thread.message-sent":
+        // A message cannot change any summary field except latestUserMessageAt,
+        // which is a monotonic maximum that folds in directly. The full refresh
+        // would re-read every summary source in the thread per user message.
+        case "thread.message-sent": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const previousLatest = existingRow.value.latestUserMessageAt;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+            latestUserMessageAt:
+              event.payload.role === "user" &&
+              !isImportedAgentSessionMessageId(event.payload.messageId) &&
+              (previousLatest === null || event.payload.createdAt > previousLatest)
+                ? event.payload.createdAt
+                : previousLatest,
+          });
+          return;
+        }
+
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
         case "thread.user-input-response-requested": {
+          if (shouldRefreshThreadShellSummary(event)) {
+            yield* refreshThreadShellSummary(event.payload.threadId, event.occurredAt);
+            return;
+          }
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
@@ -1648,9 +1688,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             updatedAt: event.occurredAt,
           });
-          if (shouldRefreshThreadShellSummary(event)) {
-            yield* refreshThreadShellSummary(event.payload.threadId);
-          }
           return;
         }
 
