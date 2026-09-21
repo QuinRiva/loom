@@ -47,7 +47,6 @@ const makeSource = (overrides: Partial<OrchestrationThread> = {}): Orchestration
     kickoffBriefPath: null,
     handoffDestinations: [],
     title: "Source thread",
-    titleProvenance: "curated",
     modelSelection,
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -171,7 +170,7 @@ describe("buildHandoffDraftTurnStart", () => {
     expect(create?.parentThreadId).toBeNull();
     expect(create?.role).toBe(HANDOFF_DRAFTER_ROLE);
     expect(create?.forkFromThreadId).toBe("source");
-    expect(create?.titleProvenance).toBe("curated");
+    expect(create?.titleSource).toBe("manual");
     expect(create?.title).toBe("Handoff: fix the retry logic");
   });
 

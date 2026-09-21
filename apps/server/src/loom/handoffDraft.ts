@@ -136,7 +136,7 @@ export const buildHandoffDraftTurnStart = (input: {
         role: HANDOFF_DRAFTER_ROLE,
         forkFromThreadId: source.id,
         title,
-        titleProvenance: "curated",
+        titleSource: "manual",
         modelSelection: input.modelSelection,
         runtimeMode: source.runtimeMode,
         interactionMode: source.interactionMode,

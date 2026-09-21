@@ -45,7 +45,6 @@ const makeSource = (overrides: Partial<OrchestrationThread> = {}): Orchestration
     kickoffBriefPath: null,
     handoffDestinations: [],
     title: "Web HTML artefact viewer",
-    titleProvenance: "curated",
     modelSelection,
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -111,7 +110,7 @@ describe("buildRetroDraftTurnStart", () => {
     expect(create?.parentThreadId).toBeNull();
     expect(create?.role).toBe(RETRO_REVIEWER_ROLE);
     expect(create?.forkFromThreadId).toBe("source");
-    expect(create?.titleProvenance).toBe("curated");
+    expect(create?.titleSource).toBe("manual");
     expect(create?.title).toBe("Retro: Web HTML artefact viewer");
   });
 

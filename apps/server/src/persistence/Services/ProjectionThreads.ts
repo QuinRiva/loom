@@ -24,7 +24,6 @@ import {
   ThreadId,
   ThreadIsolation,
   ThreadPlanLane,
-  TitleProvenance,
   TurnId,
   WorkOutcomeRecord,
   WorkstreamRoute,
@@ -94,7 +93,6 @@ export const ProjectionThread = Schema.Struct({
   isolation: ThreadIsolation,
   fanInState: ThreadFanInState,
   title: Schema.String,
-  titleProvenance: TitleProvenance, // loom: §4 title provenance
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

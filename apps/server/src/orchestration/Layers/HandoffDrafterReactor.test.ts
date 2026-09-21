@@ -478,7 +478,7 @@ describe("HandoffDrafterReactor stop redelivery (real engine receipt store)", ()
         projectId: ProjectId.make("project-1"),
         role: HANDOFF_DRAFTER_ROLE,
         title: "Handoff: fix retry",
-        titleProvenance: "curated",
+        titleSource: "manual",
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "full-access",

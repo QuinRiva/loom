@@ -127,7 +127,7 @@ export const buildRetroDraftTurnStart = (input: {
         role: RETRO_REVIEWER_ROLE,
         forkFromThreadId: source.id,
         title,
-        titleProvenance: "curated",
+        titleSource: "manual",
         modelSelection: input.modelSelection,
         runtimeMode: source.runtimeMode,
         interactionMode: source.interactionMode,

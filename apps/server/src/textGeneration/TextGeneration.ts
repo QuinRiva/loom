@@ -117,28 +117,11 @@ export class TextGeneration extends Context.Service<
 
     /**
      * Generate a concise branch name from a user message.
-     *
-     * NOTE: currently call-less. First-turn worktree-branch renaming now reuses the
-     * generated thread title (one interpretation round-trip, see
-     * ProviderCommandReactor's interpretThreadIntent / renameWorktreeBranchToTitle),
-     * so branch and title stay consistent. Retained — not deleted — for the same
-     * reason as generateThreadTitle: removing it across the shape + every driver
-     * would be a standing merge-conflict liability against upstream T3 Code for
-     * little gain.
      */
     readonly generateBranchName: (
       input: BranchNameGenerationInput,
     ) => Effect.Effect<BranchNameGenerationResult, TextGenerationError>;
 
-    /**
-     * Generate a concise thread title from a user's first message.
-     *
-     * NOTE: currently call-less. First-turn titling now flows through
-     * `generateStructured` + `buildThreadInterpretationPrompt`, which produces the
-     * title and the emergent goal in one round-trip (see ProviderCommandReactor's
-     * interpretThreadIntent). This method is intentionally retained — not deleted —
-     * to minimise divergence from upstream T3 Code.
-     */
     /** Generate a concise thread title from a first message or thread history. */
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,

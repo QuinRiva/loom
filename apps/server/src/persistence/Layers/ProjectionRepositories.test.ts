@@ -366,7 +366,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         isolation: "shared" as const,
         fanInState: "none" as const,
         title: "Null options thread",
-        titleProvenance: "curated" as const,
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
@@ -467,7 +466,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         isolation: "shared" as const,
         fanInState: "none" as const,
         title: "Scaffolded node",
-        titleProvenance: "curated" as const,
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
@@ -548,7 +546,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         isolation: "shared" as const,
         fanInState: "none" as const,
         title: "Settled thread",
-        titleProvenance: "curated" as const,
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
@@ -657,7 +654,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         lastOutcome: null,
         isolation: "shared" as const,
         fanInState: "none" as const,
-        titleProvenance: "default" as const,
         cumulativeCostUsd: 0,
         toolUses: null,
         usedTokens: null,
