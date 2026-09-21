@@ -162,7 +162,6 @@ import {
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
   reduceSidebarProjectScopeMenuState,
-  resolveActivityTimestamp, // loom:
   resolveAdjacentThreadId,
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
@@ -176,10 +175,10 @@ import {
   shouldNavigateAfterProjectRemoval,
   sidebarListItemId,
   sidebarMarkerId,
-  sortActiveThreadsByActivityForSidebar, // loom:
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
+  sortThreadsForSidebar,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
@@ -270,12 +269,8 @@ function compactSidebarTimeLabel(label: string): string {
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
-// loom: reads the same resolveActivityTimestamp the active sort keys on, so a
-// row can never be ordered by a value it doesn't display (it used to label
-// latestUserMessageAt while the list sorted by createdAt). Turn stamps count
-// as activity too: an agent-only turn moves the row and its label together.
 function threadTimeLabel(thread: SidebarThreadSummary): string {
-  const timestamp = resolveActivityTimestamp(thread) ?? thread.updatedAt;
+  const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
   return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
 }
 
@@ -2662,10 +2657,7 @@ export default function Sidebar() {
     // sort, or mixed-version fleets would render different pinned orders on
     // web and mobile from the same data.
     const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-    // loom: activity order for unarranged rows, upstream's saved keys for
-    // arranged ones (see sortActiveThreadsByActivityForSidebar in
-    // Sidebar.logic.ts and docs/upstream-sync/23-sidebar-v2-rehome.md).
-    const sortedActive = sortActiveThreadsByActivityForSidebar(active);
+    const sortedActive = sortThreadsForSidebar(active);
     return {
       pinnedThreads:
         optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
