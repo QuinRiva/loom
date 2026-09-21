@@ -394,8 +394,8 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  const upsert: ProviderSessionRuntimeRepository["Service"]["upsert"] = (runtime) =>
-    upsertRuntimeRow(runtime).pipe(
+  const upsert: ProviderSessionRuntimeRepository["Service"]["upsert"] = (runtime, options) =>
+    (options?.onConflict === "ignore" ? insertRuntimeRow(runtime) : upsertRuntimeRow(runtime)).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProviderSessionRuntimeRepository.upsert:query",

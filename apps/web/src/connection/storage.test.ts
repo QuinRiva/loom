@@ -120,6 +120,7 @@ describe("thread snapshot cache schema", () => {
   );
 
   it("pins the current version so a future bump is a deliberate edit", () => {
-    expect(THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION).toBe(3);
+    // loom: schema v4 includes the workstream-aware thread snapshot shape.
+    expect(THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION).toBe(4);
   });
 });
