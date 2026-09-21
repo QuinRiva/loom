@@ -87,6 +87,10 @@ import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import { WorkspaceLease, type WorkspaceHold } from "../../workspace/WorkspaceOccupancyLease.ts";
+import {
+  FOREIGN_HOME_REFUSAL_DETAIL,
+  refuseForeignHomeSideEffect,
+} from "../../workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as ServerSettings from "../../serverSettings.ts";
 import type { ServerSettings as ServerSettingsValue } from "@t3tools/contracts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -1682,6 +1686,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         schema: ProviderSessionStartInput,
         payload: rawInput,
       });
+
+      // loom: a copied database's threads name another home's checkouts and
+      // provider sessions, so a launch here would spawn an agent in someone
+      // else's worktree and resume their real session file. Refused whole:
+      // there is no safe subset (foreignHomeGuard.loom.ts).
+      if (
+        yield* refuseForeignHomeSideEffect("ProviderService.startSession", parsed.cwd ?? threadId)
+      ) {
+        return yield* toValidationError("ProviderService.startSession", FOREIGN_HOME_REFUSAL_DETAIL);
+      }
 
       const resolvedInstanceId = yield* requireBindingInstanceId(
         "ProviderService.startSession",
