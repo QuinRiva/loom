@@ -569,13 +569,16 @@ describe("AssetAccess", () => {
       const separatorIndex = suffix.indexOf("/");
       const token = suffix.slice(0, separatorIndex);
 
+      // loom: workspace-backed assets are mutable, so the HTTP layer revalidates them.
       expect(yield* resolveAsset(token, "report.html")).toEqual({
         kind: "file",
         path: canonicalHtmlPath,
+        mutable: true,
       });
       expect(yield* resolveAsset(token, "report.css")).toEqual({
         kind: "file",
         path: canonicalCssPath,
+        mutable: true,
       });
       expect(yield* resolveAsset(token, "../secret.txt")).toBeNull();
     }).pipe(Effect.provide(testLayer)),
@@ -630,9 +633,11 @@ describe("AssetAccess", () => {
       const separatorIndex = suffix.indexOf("/");
       const token = suffix.slice(0, separatorIndex);
 
+      // loom: workspace-backed assets are mutable, so the HTTP layer revalidates them.
       expect(yield* resolveAsset(token, "report.html")).toEqual({
         kind: "file",
         path: canonicalHtmlPath,
+        mutable: true,
       });
     }).pipe(Effect.provide(testLayer)),
   );
@@ -767,6 +772,8 @@ describe("AssetAccess", () => {
       ).toEqual({
         kind: "file",
         path: attachmentPath,
+        // loom: attachments are content-addressed, so they cache immutably.
+        mutable: false,
         fileName: "demo.mp4",
         mimeType: "video/mp4",
       });
@@ -815,6 +822,8 @@ describe("AssetAccess", () => {
       ).toEqual({
         kind: "file",
         path: attachmentPath,
+        // loom: attachments are content-addressed, so they cache immutably.
+        mutable: false,
         fileName: "report.pdf",
         mimeType: "application/pdf",
       });
@@ -847,6 +856,8 @@ describe("AssetAccess", () => {
         ).toEqual({
           kind: "file",
           path: attachmentPath,
+          // loom: attachments are content-addressed, so they cache immutably.
+          mutable: false,
           fileName: "recording.wav",
           mimeType: disposition === "inline" ? "audio/wav" : "application/octet-stream",
           ...(disposition === "attachment" ? { download: true } : {}),
@@ -989,13 +1000,18 @@ describe("AssetAccess", () => {
       expect(result.relativeUrl).toMatch(/\/v[0-9a-f]{64}-custom\.png$/);
       expect(
         yield* resolveAsset(suffix.slice(0, separatorIndex), suffix.slice(separatorIndex + 1)),
-      ).toEqual({ kind: "file", path: canonicalPath });
+        // loom: a saved favicon lives on a live path, so it is mutable.
+      ).toEqual({ kind: "file", path: canonicalPath, mutable: true });
       const tamperedSuffixResult = yield* resolveAsset(
         suffix.slice(0, separatorIndex),
         "sibling.png",
       );
-      expect(tamperedSuffixResult).toEqual({ kind: "file", path: canonicalPath });
-      expect(tamperedSuffixResult).not.toEqual({ kind: "file", path: canonicalSiblingPath });
+      expect(tamperedSuffixResult).toEqual({ kind: "file", path: canonicalPath, mutable: true });
+      expect(tamperedSuffixResult).not.toEqual({
+        kind: "file",
+        path: canonicalSiblingPath,
+        mutable: true,
+      });
     }).pipe(Effect.provide(testLayer)),
   );
 

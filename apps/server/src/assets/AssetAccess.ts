@@ -771,7 +771,14 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     // Attachments are content-addressed by id: the bytes for a given id never
     // change, so they are safe to cache long.
     return Option.isSome(info) && info.value.type === "File"
-      ? ({ kind: "file", path: attachmentPath, mutable: false } satisfies ResolvedAsset)
+      ? ({
+          kind: "file",
+          path: attachmentPath,
+          mutable: false,
+          ...(claims.download ? { download: true } : {}),
+          ...(claims.fileName !== undefined ? { fileName: claims.fileName } : {}),
+          ...(claims.mimeType !== undefined ? { mimeType: claims.mimeType } : {}),
+        } satisfies ResolvedAsset)
       : null;
   }
 
