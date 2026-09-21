@@ -39,6 +39,12 @@ import {
   parseRemoteRefWithRemoteNames,
 } from "../git/remoteRefs.ts";
 import { ServerConfig } from "../config.ts";
+// loom: see workspace/foreignHomeGuard.loom.ts — this driver is the choke point
+// every worktree/branch mutation in the server passes through.
+import {
+  FOREIGN_HOME_REFUSAL_DETAIL,
+  refuseForeignHomeSideEffect,
+} from "../workspace/foreignHomeGuard.loom.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const gitProcesses = Semaphore.makeUnsafe(8);
@@ -3406,6 +3412,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
+    // loom: a checkout cut from a foreign database's recorded repository writes a
+    // branch and a working tree into a repo this home does not own.
+    if (yield* refuseForeignHomeSideEffect("GitVcsDriver.createWorktree", input.cwd)) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.createWorktree",
+          cwd: input.cwd,
+          args: ["worktree", "add"],
+        }),
+        detail: FOREIGN_HOME_REFUSAL_DETAIL,
+      });
+    }
     const targetBranch = input.newRefName ?? input.refName;
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
@@ -3757,6 +3775,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       args.push("--force");
     }
     args.push(input.path);
+    // loom: provenance guard (foreignHomeGuard.loom.ts). A typed failure, not a
+    // silent success: in both removers the branch delete is sequenced on the
+    // removal succeeding, so refusing here also refuses the branch delete.
+    // The complementary location rule — a recorded path must live under this
+    // home's `worktreesDir` — belongs to the record-driven removers
+    // (`worktreeRemoval.ts`, the fan-in reactor, storage cleanup), not to this
+    // primitive, which legitimately drives worktrees anywhere a caller names.
+    if (yield* refuseForeignHomeSideEffect("GitVcsDriver.removeWorktree", input.path)) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.removeWorktree",
+          cwd: input.cwd,
+          args,
+        }),
+        detail: FOREIGN_HOME_REFUSAL_DETAIL,
+      });
+    }
     const result = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.removeWorktree",
       input.cwd,
@@ -3801,6 +3836,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const pruneWorktrees: GitVcsDriver.GitVcsDriver["Service"]["pruneWorktrees"] = Effect.fn(
     "pruneWorktrees",
   )(function* (input) {
+    // loom: prune drops the admin entries of worktrees whose directories are gone —
+    // on a foreign repository that is this home rewriting someone else's registry.
+    if (yield* refuseForeignHomeSideEffect("GitVcsDriver.pruneWorktrees", input.cwd)) return;
     yield* executeGit("GitVcsDriver.pruneWorktrees", input.cwd, ["worktree", "prune"], {
       timeoutMs: 15_000,
       fallbackErrorDetail: "git worktree prune failed",
@@ -4053,12 +4091,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return { status: "conflict", conflictPaths: conflicts } as const;
     });
 
-  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = (input) =>
-    runGit("GitVcsDriver.deleteBranch", input.cwd, [
+  // loom: branch deletion has no worktree path to contain, so provenance is the
+  // only rule available here — and it is the one that matters: the observed
+  // incident was a copied database asking for `branch -d` on a live sibling's
+  // branch, which survived only because git refuses a checked-out branch.
+  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = Effect.fn(
+    "deleteBranch",
+  )(function* (input) {
+    if (yield* refuseForeignHomeSideEffect("GitVcsDriver.deleteBranch", input.branch)) return;
+    yield* runGit("GitVcsDriver.deleteBranch", input.cwd, [
       "branch",
       input.force === false ? "-d" : "-D",
       input.branch,
     ]);
+  });
 
   // Worktree reaper (phase 3): parse `git worktree list --porcelain`. Git
   // always lists the main worktree first; blank lines separate entries.

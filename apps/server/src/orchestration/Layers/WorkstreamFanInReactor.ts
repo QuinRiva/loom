@@ -29,6 +29,8 @@ import { GIT_LOCK_RETRY } from "../../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
 import { WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
+import { isInsideDirectory } from "../../workspace/foreignHomeGuard.loom.ts"; // loom:
+import { ServerConfig } from "../../config.ts"; // loom:
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
@@ -89,6 +91,38 @@ const make = Effect.gen(function* () {
   const workspaceLease = yield* WorkspaceLease;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const { worktreesDir } = yield* ServerConfig; // loom:
+
+  // loom: the one place this reactor deletes a checkout, so the one place the
+  // containment rule has to hold: `childCwd` comes from a thread row, and a
+  // database copied from another home records that home's LIVE worktrees
+  // (foreignHomeGuard.loom.ts). Everything this server provisions sits under its
+  // own `worktreesDir`, so a recorded path outside it is never ours. Returns
+  // whether the checkout is actually gone, because the branch delete that
+  // follows must not run when it is not.
+  const removeChildWorktree = Effect.fn("removeChildWorktree")(function* (input: {
+    readonly parentCwd: string;
+    readonly childCwd: string;
+  }) {
+    if (!isInsideDirectory(worktreesDir, input.childCwd)) {
+      yield* Effect.logWarning(
+        "fan-in: worktree removal refused, the recorded path is outside this server's worktrees directory",
+        { path: input.childCwd, worktreesDir },
+      );
+      return false;
+    }
+    return yield* gitWorkflow
+      .removeWorktree({ cwd: input.parentCwd, path: input.childCwd, force: true })
+      .pipe(
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("fan-in: worktree removal failed", {
+            path: input.childCwd,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(false)),
+        ),
+      );
+  });
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -460,12 +494,20 @@ const make = Effect.gen(function* () {
   }) {
     const finalCommitSha =
       input.finalCommitSha ?? (yield* commitCheckout(input.childCwd, "wip: fan-in settle"));
-    yield* gitWorkflow
-      .removeWorktree({ cwd: input.parentCwd, path: input.childCwd, force: true })
-      .pipe(Effect.ignoreCause({ log: true }));
-    yield* gitWorkflow
-      .deleteBranch({ cwd: input.parentCwd, branch: input.childBranch, force: false })
-      .pipe(Effect.ignoreCause({ log: true }));
+    // loom: the branch delete is sequenced on the checkout actually going away.
+    // Unsequenced, a refused (or failed) removal still ran `branch -d` against
+    // the recorded branch — which is exactly what a copied database aimed at a
+    // live sibling's branch, and only git's refusal of a checked-out branch
+    // stopped it.
+    const removed = yield* removeChildWorktree({
+      parentCwd: input.parentCwd,
+      childCwd: input.childCwd,
+    });
+    if (removed) {
+      yield* gitWorkflow
+        .deleteBranch({ cwd: input.parentCwd, branch: input.childBranch, force: false })
+        .pipe(Effect.ignoreCause({ log: true }));
+    }
     yield* repointMeta(input.childId, input.parentBranch, input.parentWorktreePath, finalCommitSha);
     yield* repointResidents({
       childId: input.childId,
@@ -651,9 +693,7 @@ const make = Effect.gen(function* () {
         yield* removeExclusively(
           childCwd,
           Effect.gen(function* () {
-            yield* gitWorkflow
-              .removeWorktree({ cwd: parentCwd, path: childCwd, force: true })
-              .pipe(Effect.ignoreCause({ log: true }));
+            yield* removeChildWorktree({ parentCwd, childCwd }); // loom: contained
             // Land the dead thread's meta in the parent tree so a later reopen is
             // safe; keep its branch name for discovery/recovery. Also repoint any
             // resident (e.g. a cascade-cancelled attached reviewer) off the removed
