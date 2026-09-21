@@ -488,7 +488,10 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "file", "t3-citation", "t3-context"],
+    // loom: `thread:` is on the href allow-list so a `[Title](thread://<id>)`
+    // mention reaches the anchor renderer's thread-chip branch instead of
+    // being sanitised into a dead, href-less anchor.
+    href: [...(defaultSchema.protocols?.href ?? []), "file", "t3-citation", "t3-context", "thread"],
     src: [...(defaultSchema.protocols?.src ?? []), "file", "t3-context"],
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
