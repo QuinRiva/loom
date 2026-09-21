@@ -163,6 +163,15 @@ overrides:
   # the 3.0.4 that `hast-util-to-html`/`-to-jsx-runtime` resolve, which fails
   # HighlightedCodeLines.tsx. One version serves the whole graph.
   "@types/hast": 3.0.5
+  # loom: same shape again, and this one decides whether apps/web's tests run.
+  # jsdom (loom-only, for the mdx-plan DOM tests) takes `@noble/hashes` as an
+  # optional peer via `@exodus/bytes`, so apps/web — which carries the catalog's
+  # 1.8.0 — got its own jsdom, hence its own vite-plus and vitest. A second
+  # vitest copy in a worker loads its fake timers after the runner publishes
+  # `__vitest_required__`, so it also hijacks `node:timers`' `setImmediate` —
+  # the call React's `act` uses to flush async work — and every `await act()`
+  # under `vi.useFakeTimers()` hung. One peer version, one vitest.
+  "@noble/hashes": 1.8.0
   "@expo/dom-webview": 57.0.1
   "@expo/metro-config": 57.0.12
   expo-constants: 57.0.16
