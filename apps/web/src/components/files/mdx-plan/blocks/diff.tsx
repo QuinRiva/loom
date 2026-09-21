@@ -51,7 +51,7 @@ const diffAnnotationSchema = z.object({
   note: z.string().trim().min(1).max(4000),
 }) as z.ZodType<DiffAnnotation>;
 
-export const diffSchema = z.object({
+const diffSchema = z.object({
   filename: z.string().trim().max(400).optional(),
   language: z.string().trim().max(40).optional(),
   before: z.string().max(100_000),
@@ -61,7 +61,7 @@ export const diffSchema = z.object({
   wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<DiffData>;
 
-export const diffMdx: BlockMdxConfig<DiffData> = {
+const diffMdx: BlockMdxConfig<DiffData> = {
   tag: "Diff",
   toAttrs: (data) => ({
     filename: data.filename,
@@ -110,7 +110,7 @@ function toLineTokens(text: string): string[] {
 }
 
 /** A minimal LCS line-level diff producing jsdiff-compatible `Change[]`. */
-export function diffLines(before: string, after: string): Change[] {
+function diffLines(before: string, after: string): Change[] {
   const a = toLineTokens(before);
   const b = toLineTokens(after);
   const n = a.length;
@@ -295,7 +295,7 @@ function DiffLine({
   );
 }
 
-export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
+function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
   const rows = useMemo(
     () => buildRows(diffLines(data.before, data.after)),
     [data.before, data.after],

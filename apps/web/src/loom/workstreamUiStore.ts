@@ -57,7 +57,7 @@ export interface WorkstreamPanelState {
   spawnDraft: WorkstreamSpawnDraft;
 }
 
-export const EMPTY_SPAWN_DRAFT: WorkstreamSpawnDraft = { role: "", title: "", purpose: "" };
+const EMPTY_SPAWN_DRAFT: WorkstreamSpawnDraft = { role: "", title: "", purpose: "" };
 
 export const DEFAULT_WORKSTREAM_PANEL_STATE: WorkstreamPanelState = {
   view: "graph",

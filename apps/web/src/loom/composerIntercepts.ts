@@ -21,7 +21,7 @@ export type HandoffDraftParse =
 // `/handofff…` (no boundary after the word) is deliberately NOT a match.
 const HANDOFF_COMMAND_PATTERN = /^\/handoff(?:\s+([\s\S]*))?$/i;
 
-export function parseHandoffDraft(text: string): HandoffDraftParse {
+function parseHandoffDraft(text: string): HandoffDraftParse {
   const match = HANDOFF_COMMAND_PATTERN.exec(text.trim());
   if (!match) {
     return { kind: "not-handoff" };
@@ -42,7 +42,7 @@ export type RetroDraftParse =
 // `/retrofit…` (no boundary after the word) is deliberately NOT a match.
 const RETRO_COMMAND_PATTERN = /^\/retro(?:\s+([\s\S]*))?$/i;
 
-export function parseRetroDraft(text: string): RetroDraftParse {
+function parseRetroDraft(text: string): RetroDraftParse {
   const match = RETRO_COMMAND_PATTERN.exec(text.trim());
   if (!match) {
     return { kind: "not-retro" };

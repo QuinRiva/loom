@@ -242,7 +242,7 @@ const renderThreadCandidateLines = (candidates: ReadonlyArray<ConsultCandidate>)
  * by consult_thread and notify_thread. `toolName` is the tool to call again;
  * `action` completes the "Confirm which one ..., then <action>" instruction.
  */
-export const renderThreadCandidates = (
+const renderThreadCandidates = (
   candidates: ReadonlyArray<ConsultCandidate>,
   options: { readonly toolName: string; readonly action: string },
 ): string =>

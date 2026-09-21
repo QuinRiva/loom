@@ -18,7 +18,7 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 const highlighterByLanguage = new Map<string, Promise<DiffsHighlighter>>();
 
 /** Lazily load (and cache) a highlighter for one language, falling back to text. */
-export function highlighterFor(language: string): Promise<DiffsHighlighter> {
+function highlighterFor(language: string): Promise<DiffsHighlighter> {
   const cached = highlighterByLanguage.get(language);
   if (cached) return cached;
   const promise = getSharedHighlighter({

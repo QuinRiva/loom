@@ -61,7 +61,7 @@ export function getProjectFileQueryAtom(
 }
 
 // loom: out-of-workspace file chips (absolute read + directory listing).
-export function getProjectAbsoluteFileQueryAtom(
+function getProjectAbsoluteFileQueryAtom(
   environmentId: EnvironmentId,
   absolutePath: string | null,
   maxBytes?: number,
@@ -72,7 +72,7 @@ export function getProjectAbsoluteFileQueryAtom(
   });
 }
 
-export function getProjectAbsoluteDirectoryQueryAtom(
+function getProjectAbsoluteDirectoryQueryAtom(
   environmentId: EnvironmentId,
   absolutePath: string | null,
 ) {

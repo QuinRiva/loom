@@ -44,7 +44,7 @@ type GuardNode = {
  * expressions compile to executable JS and are NOT reached by the body-node walk,
  * so without this an author could run arbitrary browser JS via any `.mdx`.
  */
-export function remarkRejectCodeEscapes() {
+function remarkRejectCodeEscapes() {
   return (tree: GuardNode) => {
     const walk = (node: GuardNode) => {
       if (DISALLOWED_MDX_NODES.has(node.type)) {
@@ -81,7 +81,7 @@ const MDX_JSX_NODE_TYPES = new Set(["mdxJsxFlowElement", "mdxJsxTextElement"]);
  * guard, so smuggled attribute expressions are still rejected doc-wide rather
  * than silently discarded here. Lowercase (HTML) tags are left to MDX.
  */
-export function remarkUnknownBlockFallback() {
+function remarkUnknownBlockFallback() {
   return (tree: GuardNode) => {
     const walk = (node: GuardNode) => {
       for (const child of node.children ?? []) {
@@ -122,7 +122,7 @@ const evaluateOptions = {
  * module the main thread instantiates with `run(...)`. The remark guards run
  * here, in the worker, before any executable module exists.
  */
-export const planCompileOptions = {
+const planCompileOptions = {
   remarkPlugins: PLAN_REMARK_PLUGINS,
   outputFormat: "function-body",
   development: false,

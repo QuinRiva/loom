@@ -41,12 +41,12 @@ const entrySchema = z.object({
   language: z.string().trim().max(40).optional(),
 }) as z.ZodType<FileTreeEntry>;
 
-export const fileTreeSchema = z.object({
+const fileTreeSchema = z.object({
   title: z.string().trim().max(180).optional(),
   entries: z.array(entrySchema).min(1).max(200),
 }) as unknown as z.ZodType<FileTreeData>;
 
-export const fileTreeMdx: BlockMdxConfig<FileTreeData> = {
+const fileTreeMdx: BlockMdxConfig<FileTreeData> = {
   tag: "FileTree",
   toAttrs: (data) => ({
     title: data.title,
@@ -208,7 +208,7 @@ function TreeLevel({ node, depth }: { node: TreeNode; depth: number }) {
   );
 }
 
-export function FileTreeRead({ data, blockId }: PlanBlockReadProps<FileTreeData>) {
+function FileTreeRead({ data, blockId }: PlanBlockReadProps<FileTreeData>) {
   const tree = useMemo(() => buildTree(data.entries ?? []), [data.entries]);
   return (
     <section

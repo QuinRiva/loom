@@ -91,7 +91,7 @@ export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, ent
  * remark pass rewrites such elements to this component (attrs/children dropped)
  * so ONE bad tag degrades to an inline card instead of `_missingMdxReference`
  * killing the whole document at the top-level error boundary. */
-export function UnknownPlanBlock({ tag }: { tag?: unknown }) {
+function UnknownPlanBlock({ tag }: { tag?: unknown }) {
   return (
     <PlanBlockError
       tag={typeof tag === "string" ? tag : "?"}

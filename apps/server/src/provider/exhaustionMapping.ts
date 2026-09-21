@@ -1,4 +1,4 @@
-export const PI_SUBSCRIPTION_ACCOUNT_NAMESPACES: Record<string, ReadonlyArray<string>> = {
+const PI_SUBSCRIPTION_ACCOUNT_NAMESPACES: Record<string, ReadonlyArray<string>> = {
   claudeAgent: ["anthropic"],
   anthropic: ["anthropic"],
   codex: ["openai-codex"],
@@ -9,7 +9,7 @@ export const PI_SUBSCRIPTION_ACCOUNT_NAMESPACES: Record<string, ReadonlyArray<st
 // space: providerInstanceId ?? providerName). `google-vertex-claude` is
 // API-billed — no subscription window, so it never maps to an account key and
 // never registers exhaustion in v1.
-export const PI_SLUG_NAMESPACE_TO_ACCOUNT_KEY: Record<string, string> = {
+const PI_SLUG_NAMESPACE_TO_ACCOUNT_KEY: Record<string, string> = {
   anthropic: "claudeAgent",
   "openai-codex": "codex",
 };
@@ -27,7 +27,7 @@ export function accountKeyForModelSlug(slug: string): string | null {
 const SUBSCRIPTION_ACCOUNT_KEYS = new Set(Object.values(PI_SLUG_NAMESPACE_TO_ACCOUNT_KEY));
 
 /** The modelId (slug tail) of a pi model slug, or the whole string if unslashed. */
-export function modelIdForModelSlug(slug: string): string {
+function modelIdForModelSlug(slug: string): string {
   const slash = slug.indexOf("/");
   return slash === -1 ? slug : slug.slice(slash + 1);
 }
@@ -137,7 +137,7 @@ export const PI_QUOTA_ERROR_RE =
 /** True when an error message is quota-shaped on wording alone. */
 export const classifiesAsQuota = (message: string): boolean => PI_QUOTA_ERROR_RE.test(message);
 
-export const normaliseModelScopeName = (value: string): string =>
+const normaliseModelScopeName = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 export function scopedDisplayNameToModelId(input: {

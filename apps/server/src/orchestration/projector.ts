@@ -65,8 +65,7 @@ import { projectLoomEvent } from "./projector.loom.ts";
 // loom: exported so the fork sibling patches threads through the same helper.
 export type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 
-// loom: exported so the fork sibling projector can cap message arrays identically.
-export const MAX_THREAD_MESSAGES = 2_000;
+const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
 // Async questions can stay open while the agent produces more activity.

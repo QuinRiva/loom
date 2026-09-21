@@ -34,7 +34,7 @@ import {
  * All tabs in one provisional group share the same resolved root, so probing the
  * first tab is sufficient.
  */
-export function computeGroupMoves(
+function computeGroupMoves(
   groups: Record<string, ThreadTabGroup>,
   resolveGroupKey: ThreadGroupResolver,
 ): Array<{ from: string; to: string }> {

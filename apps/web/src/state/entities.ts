@@ -259,21 +259,6 @@ export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSess
   );
 }
 
-export function useThreadProposedPlans(
-  ref: ScopedThreadRef | null,
-): ReadonlyArray<OrchestrationProposedPlan> {
-  return useAtomValue(
-    ref === null ? EMPTY_PROPOSED_PLANS_ATOM : environmentThreadDetails.proposedPlansAtom(ref),
-  );
-}
-
-/** Last error reported by the thread's detail subscription (null while healthy). */
-export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
-  return useAtomValue(
-    ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
-  );
-}
-
 const EMPTY_PROPOSED_PLANS: ReadonlyArray<OrchestrationProposedPlan> = [];
 const EMPTY_PROPOSED_PLANS_ATOM = Atom.make(EMPTY_PROPOSED_PLANS).pipe(
   Atom.withLabel("web-thread-proposed-plans:empty"),

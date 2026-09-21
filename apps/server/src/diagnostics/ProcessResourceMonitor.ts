@@ -16,7 +16,7 @@ const RETENTION_MS = 60 * 60_000;
 const MAX_RETAINED_SAMPLES = 20_000;
 
 /** Trailing window the slow-tool health read summarises (≆ 6 samples). */
-export const PROCESS_TREE_ACTIVITY_WINDOW_MS = 30_000;
+const PROCESS_TREE_ACTIVITY_WINDOW_MS = 30_000;
 
 export interface ProcessResourceSample {
   readonly sampledAt: DateTime.Utc;
@@ -47,7 +47,7 @@ export interface ProcessTreeActivity {
 }
 
 /** Peak-CPU floor (percent) above which a process subtree counts as working. */
-export const PROCESS_TREE_ACTIVE_CPU_THRESHOLD = 1;
+const PROCESS_TREE_ACTIVE_CPU_THRESHOLD = 1;
 
 /**
  * Pure trailing-window health read for the process subtree whose provider

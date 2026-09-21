@@ -22,7 +22,7 @@
  */
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
-export { defaultSessionsRoot, resolveSessionFilePath } from "../provider/piSessionFiles.ts";
+export { resolveSessionFilePath } from "../provider/piSessionFiles.ts";
 
 /** The minimal thread fields name resolution reads (a subset of the shell). */
 export interface ThreadNameCandidate {

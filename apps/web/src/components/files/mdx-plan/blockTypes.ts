@@ -86,8 +86,3 @@ export interface PlanBlock<TData> {
   /** Read-only renderer. */
   Read: FC<PlanBlockReadProps<TData>>;
 }
-
-/** Identity helper for authoring a block with full type inference. */
-export function definePlanBlock<TData>(block: PlanBlock<TData>): PlanBlock<TData> {
-  return block;
-}

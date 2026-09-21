@@ -53,7 +53,7 @@ const isTerminal = (planLane: string): boolean => planLane === "done" || planLan
  * done+none child can persist beyond one tick interval. Matches the dispatcher's
  * idle-wake-repass cadence for consistency (decision: coordinator model).
  */
-export const FAN_IN_RECONCILIATION_INTERVAL_MS = 60_000;
+const FAN_IN_RECONCILIATION_INTERVAL_MS = 60_000;
 
 type ProjectRef = {
   readonly id: OrchestrationThreadLeanShell["projectId"];

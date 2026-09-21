@@ -241,62 +241,6 @@ function isStalePendingApprovalFailureDetail(detail: string | undefined): boolea
   );
 }
 
-export function derivePendingApprovals(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): PendingApproval[] {
-  const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-
-  for (const activity of ordered) {
-    const payload =
-      activity.payload && typeof activity.payload === "object"
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const requestId =
-      payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.make(payload.requestId)
-        : null;
-    const requestKind =
-      payload &&
-      (payload.requestKind === "command" ||
-        payload.requestKind === "file-read" ||
-        payload.requestKind === "file-change")
-        ? payload.requestKind
-        : payload
-          ? requestKindFromRequestType(payload.requestType)
-          : null;
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
-
-    if (activity.kind === "approval.requested" && requestId && requestKind) {
-      openByRequestId.set(requestId, {
-        requestId,
-        requestKind,
-        createdAt: activity.createdAt,
-        ...(detail ? { detail } : {}),
-      });
-      continue;
-    }
-
-    if (activity.kind === "approval.resolved" && requestId) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.approval.respond.failed" &&
-      requestId &&
-      isStalePendingApprovalFailureDetail(detail)
-    ) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-  }
-
-  return [...openByRequestId.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
-}
-
 function planStateFromActivity(activity: OrchestrationThreadActivity): ActivePlanState | null {
   const payload =
     activity.payload && typeof activity.payload === "object"

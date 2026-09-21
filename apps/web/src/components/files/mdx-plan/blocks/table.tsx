@@ -13,7 +13,7 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  * JSON attributes; `density` is dropped when "normal").
  */
 
-export const TABLE_DENSITIES = ["compact", "normal", "relaxed"] as const;
+const TABLE_DENSITIES = ["compact", "normal", "relaxed"] as const;
 export type TableDensity = (typeof TABLE_DENSITIES)[number];
 
 export interface TableData {
@@ -23,7 +23,7 @@ export interface TableData {
   filterable?: boolean;
 }
 
-export const tableSchema = z.object({
+const tableSchema = z.object({
   columns: z.array(z.string()),
   rows: z.array(z.array(z.string())),
   density: z.enum(TABLE_DENSITIES).optional(),

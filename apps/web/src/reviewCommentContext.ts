@@ -251,12 +251,6 @@ export function parseReviewCommentMessageSegments(
   return segments;
 }
 
-export function hasReviewCommentMessageSegments(value: string): boolean {
-  return parseReviewCommentMessageSegments(value).some(
-    (segment) => segment.kind === "review-comment",
-  );
-}
-
 export function formatReviewCommentFence(language: string, contents: string): string {
   const longestBacktickRun = Math.max(
     0,
@@ -337,18 +331,6 @@ export function formatReviewCommentContext(comment: ReviewCommentContext): strin
     formatReviewCommentFence(comment.fenceLanguage ?? "diff", comment.diff),
     "</review_comment>",
   ].join("\n");
-}
-
-export function appendReviewCommentsToPrompt(
-  prompt: string,
-  comments: ReadonlyArray<ReviewCommentContext>,
-): string {
-  const blocks = comments.map(formatReviewCommentContext);
-  if (blocks.length === 0) return prompt;
-  const trimmedPrompt = prompt.trim();
-  return trimmedPrompt.length > 0
-    ? `${trimmedPrompt}\n\n${blocks.join("\n\n")}`
-    : blocks.join("\n\n");
 }
 
 export function buildFileReviewComment(input: {

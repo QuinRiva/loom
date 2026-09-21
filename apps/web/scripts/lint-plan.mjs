@@ -140,9 +140,20 @@ async function renderFindings(mdxSource) {
   }));
 }
 
+/** Render findings as terse `file:line:col severity: message` lines + a summary. */
+function formatFindings(findings, file) {
+  const errors = findings.filter((finding) => finding.severity === "error").length;
+  if (!findings.length) return `${file}: OK \u2014 no findings.`;
+  const lines = findings.map(
+    (finding) =>
+      `${file}${finding.line !== undefined ? `:${finding.line}${finding.column !== undefined ? `:${finding.column}` : ""}` : ""} ${finding.severity}: ${finding.message}`,
+  );
+  return [...lines, "", `${errors} error(s), ${findings.length - errors} warning(s)`].join("\n");
+}
+
 let failed = false;
 try {
-  const { lintPlanSource, formatFindings } = await server.ssrLoadModule(
+  const { lintPlanSource } = await server.ssrLoadModule(
     "/src/components/files/mdx-plan/planLint.ts",
   );
   const findings = await lintPlanSource(source);

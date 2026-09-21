@@ -27,12 +27,12 @@ export interface MermaidData {
   caption?: string;
 }
 
-export const mermaidSchema = z.object({
+const mermaidSchema = z.object({
   source: z.string().max(50_000),
   caption: z.string().trim().max(400).optional(),
 }) as unknown as z.ZodType<MermaidData>;
 
-export const mermaidMdx: BlockMdxConfig<MermaidData> = {
+const mermaidMdx: BlockMdxConfig<MermaidData> = {
   tag: "Mermaid",
   toAttrs: (data) => ({ source: data.source, caption: data.caption }),
   fromAttrs: (attrs) =>
@@ -110,7 +110,7 @@ async function renderMermaidSvg(source: string, isDark: boolean): Promise<string
   return sanitizeSvgMarkup(svg);
 }
 
-export function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
+function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [svg, setSvg] = useState<string | null>(null);

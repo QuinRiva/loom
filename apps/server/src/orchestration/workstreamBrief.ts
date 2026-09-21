@@ -26,7 +26,7 @@ import * as Path from "effect/Path";
 import { ServerConfig } from "../config.ts";
 
 /** Filesystem-safe brief file name for a thread (threadIds are uuids). */
-export const workstreamBriefFileName = (threadId: ThreadId): string =>
+const workstreamBriefFileName = (threadId: ThreadId): string =>
   `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}.md`;
 
 /**

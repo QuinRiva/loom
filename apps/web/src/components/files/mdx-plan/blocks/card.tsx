@@ -28,14 +28,14 @@ export interface CardData {
   meta?: string[];
 }
 
-export const cardSchema = z.object({
+const cardSchema = z.object({
   heading: z.string().trim().min(1).max(300),
   tone: z.enum(["neutral", "info", "success", "warning", "risk", "accent"]).optional(),
   badge: z.string().trim().max(60).optional(),
   meta: z.array(z.string().trim().min(1).max(120)).max(8).optional(),
 }) as unknown as z.ZodType<CardData>;
 
-export const cardMdx: BlockMdxConfig<CardData> = {
+const cardMdx: BlockMdxConfig<CardData> = {
   tag: "Card",
   passChildren: true,
   toAttrs: (data) => ({
@@ -71,7 +71,7 @@ const TONE: Record<CardTone, { border: string; badge: string }> = {
   },
 };
 
-export function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
+function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
   const tone = TONE[data.tone ?? "neutral"];
   return (
     <section

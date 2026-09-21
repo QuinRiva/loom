@@ -90,7 +90,7 @@ export const EDITORS = [
 ] as const satisfies ReadonlyArray<EditorDefinition>;
 
 /** loom: editor ids the client launches itself; the server must never spawn these. */
-export const CLIENT_LAUNCH_EDITORS: ReadonlyArray<EditorId> = EDITORS.filter(
+const CLIENT_LAUNCH_EDITORS: ReadonlyArray<EditorId> = EDITORS.filter(
   (editor) => "clientLaunch" in editor,
 ).map((editor) => editor.id);
 

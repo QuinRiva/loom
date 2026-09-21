@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
-export const DEFAULT_PI_BINARY_PATH = "pi";
+const DEFAULT_PI_BINARY_PATH = "pi";
 
 export interface PiInvocation {
   readonly command: string;

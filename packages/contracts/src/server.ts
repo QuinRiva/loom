@@ -564,27 +564,6 @@ export const RetroDraftResult = Schema.Struct({
 });
 export type RetroDraftResult = typeof RetroDraftResult.Type;
 
-// Static meter → backend-provider-id map. A meter scope key is a gauge account
-// key (`providerInstanceId ?? providerName`); the poller emits "claudeAgent" for
-// the Anthropic OAuth subscription meter and "codex" for the Codex subscription.
-// Ledger rows carry the model's REAL backend in `provider_id` (the `providerID`
-// half of pi/OpenCode's `providerID/modelID` slug). Each meter maps to the
-// backend provider ids its subscription OFFICIALLY meters (counts toward its
-// %). This single map is the source of truth for three things that must not
-// drift: (1) which gauge card attaches to a per-backend scope tab, (2) the
-// "not counted in any meter" (meterless) badge — anything not listed here is
-// pay-per-use, and (3) the server-side row filter for a legacy meter-key scope.
-// This is what fixes the Codex tab: gpt-* usage resolves to the OpenAI backend
-// ids below, which the codex meter now matches. Vertex-served Claude and
-// Bedrock are billed by Google/AWS, NOT the Anthropic OAuth subscription, so
-// they are deliberately meterless — they appear as their own per-backend tabs
-// with tracked burn but no official gauge (the user's Claude-on-Vertex vs
-// Claude-on-Anthropic comparison lives at that per-backend granularity).
-export const USAGE_METER_PROVIDER_NAMES: Record<string, ReadonlyArray<string>> = {
-  claudeAgent: ["anthropic"],
-  codex: ["openai-codex", "openai"],
-};
-
 /**
  * A palette the environment's machine publishes for T3 Code to follow, read
  * from a theme file next to the rest of the environment's state. Two seed

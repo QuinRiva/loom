@@ -56,7 +56,7 @@ export const WORKTREE_REAP_INTERVAL_MS = 30 * 60_000;
  * and `Effect.forEach` preserves input order, so dispositions are identical to
  * the sequential version.
  */
-export const WORKTREE_CLASSIFY_CONCURRENCY = 12;
+const WORKTREE_CLASSIFY_CONCURRENCY = 12;
 
 /**
  * The fact-free probe: classify with both git facts unknown.

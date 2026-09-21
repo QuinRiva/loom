@@ -346,7 +346,7 @@ export const resolvePresetSelection = (input: {
 // validate → categorical rationale. The per-shape tables ARE the specification.
 // ---------------------------------------------------------------------------
 
-export const TASK_SHAPES: ReadonlyArray<TaskShape> = ["explore", "thorough", "mechanical"];
+const TASK_SHAPES: ReadonlyArray<TaskShape> = ["explore", "thorough", "mechanical"];
 const VALID_TASK_SHAPES = new Set<TaskShape>(TASK_SHAPES);
 
 // Optional `sensitive` spawn marker → the profile `unsuitableFor` token it
@@ -795,7 +795,7 @@ export const resolveSpawnModelSelection = (input: {
  * is resolved (shared {@link resolveFailoverTarget}), it is named; otherwise the
  * warning states the child will not start until the limit resets.
  */
-export const buildSpawnExhaustionWarning = (input: {
+const buildSpawnExhaustionWarning = (input: {
   readonly slug: string;
   readonly resetHint: string;
   readonly fallbackTarget: string | undefined;
@@ -1133,7 +1133,7 @@ export const forkFromGateConflictMessage = (nothingClause = "Nothing was spawned
   `gate and forkFrom cannot be combined: a forked child is a normal worker that inherits the source's session, not a gated reviewer — v1 does not compose the two (the attached-worktree promotion has no reasoned semantics here). Drop one. ${nothingClause}`;
 
 /** Shared pi-backed rejection so spawn and scaffold read identically. */
-export const forkSourceNotPiBackedMessage = (input: {
+const forkSourceNotPiBackedMessage = (input: {
   readonly forkFrom: ThreadId;
   readonly title: string | null;
   readonly instanceId: string;
@@ -3660,72 +3660,72 @@ const handleSetThreadTitle = Effect.gen(function* () {
   ),
 );
 
-export const workstreamSpawnRouteLayer = HttpRouter.add(
+const workstreamSpawnRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_spawn,
   handleWorkstreamSpawn,
 );
-export const workstreamScaffoldRouteLayer = HttpRouter.add(
+const workstreamScaffoldRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_scaffold,
   handleWorkstreamScaffold,
 );
-export const workstreamBriefRouteLayer = HttpRouter.add(
+const workstreamBriefRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_brief,
   handleWorkstreamBrief,
 );
-export const workstreamLaneRouteLayer = HttpRouter.add(
+const workstreamLaneRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_set_lane,
   handleWorkstreamSetLane,
 );
-export const workstreamAttentionRouteLayer = HttpRouter.add(
+const workstreamAttentionRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_request_attention,
   handleWorkstreamRequestAttention,
 );
-export const workstreamReleaseRouteLayer = HttpRouter.add(
+const workstreamReleaseRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_release,
   handleWorkstreamRelease,
 );
-export const workstreamStopRouteLayer = HttpRouter.add(
+const workstreamStopRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_stop,
   handleWorkstreamStop,
 );
-export const workstreamPromptRouteLayer = HttpRouter.add(
+const workstreamPromptRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_prompt,
   handleWorkstreamPrompt,
 );
-export const workstreamDependenciesRouteLayer = HttpRouter.add(
+const workstreamDependenciesRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_set_dependencies,
   handleWorkstreamSetDependencies,
 );
-export const workstreamSubmitRouteLayer = HttpRouter.add(
+const workstreamSubmitRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_submit,
   handleWorkstreamSubmit,
 );
-export const workstreamListRouteLayer = HttpRouter.add(
+const workstreamListRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_list,
   handleWorkstreamList,
 );
-export const workstreamConsultThreadRouteLayer = HttpRouter.add(
+const workstreamConsultThreadRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.consult_thread,
   handleWorkstreamConsultThread,
 );
-export const notifyThreadRouteLayer = HttpRouter.add(
+const notifyThreadRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.notify_thread,
   handleNotifyThread,
 );
-export const setThreadTitleRouteLayer = HttpRouter.add(
+const setThreadTitleRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.set_thread_title,
   handleSetThreadTitle,

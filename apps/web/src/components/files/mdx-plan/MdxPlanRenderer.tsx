@@ -176,7 +176,7 @@ export const PLAN_BLEED_ATTR = "data-plan-bleed";
  * Only direct children of the root are considered, so a block nested inside a
  * container block (`Columns`/`Tabs`/`Details`/`Card`/a canvas) never breaks out
  * of its container. Exported for verification. */
-export function stampBleedingBlocks(root: HTMLElement): void {
+function stampBleedingBlocks(root: HTMLElement): void {
   for (const child of Array.from(root.children)) {
     const mode = BLEED_MODE_BY_BLOCK_TYPE[child.getAttribute("data-plan-block-type") ?? ""];
     if (mode) child.setAttribute(PLAN_BLEED_ATTR, mode);

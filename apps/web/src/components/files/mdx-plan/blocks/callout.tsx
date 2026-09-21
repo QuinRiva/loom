@@ -28,14 +28,14 @@ export interface CalloutData {
   body: string;
 }
 
-export const calloutSchema = z.object({
+const calloutSchema = z.object({
   tone: z.enum(["info", "decision", "risk", "warning", "success"]).optional(),
   // `body` is the MDX prose *children*, not a prop, so it is absent from the
   // props the registry validates (mirrors `<Endpoint>`'s optional description).
   body: z.string().trim().max(10_000).optional(),
 }) as unknown as z.ZodType<CalloutData>;
 
-export const calloutMdx: BlockMdxConfig<CalloutData> = {
+const calloutMdx: BlockMdxConfig<CalloutData> = {
   tag: "Callout",
   childrenField: "body",
   toAttrs: (data) => ({ tone: data.tone }),
@@ -83,7 +83,7 @@ const TONE: Record<
   },
 };
 
-export function CalloutRead({ data, blockId, children }: PlanBlockReadProps<CalloutData>) {
+function CalloutRead({ data, blockId, children }: PlanBlockReadProps<CalloutData>) {
   const tone = TONE[data.tone ?? "info"];
   const Icon = tone.icon;
   return (

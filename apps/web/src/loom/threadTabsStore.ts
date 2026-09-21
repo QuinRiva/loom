@@ -631,11 +631,3 @@ export function selectActiveGroup(state: ThreadTabsState): ThreadTabGroup | null
   const groupKey = selectActiveGroupKey(state);
   return groupKey ? (state.groups[groupKey] ?? null) : null;
 }
-
-export function selectActiveKey(state: ThreadTabsState): string | null {
-  return state.activeKey;
-}
-
-export function selectIsPreview(group: ThreadTabGroup | null, key: string): boolean {
-  return group?.previewKey === key;
-}
