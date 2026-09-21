@@ -308,7 +308,6 @@ import {
   runComposerDraftIntercept,
 } from "../loom/composerIntercepts";
 import { useThreadTabsStore } from "../loom/threadTabsStore";
-import type { ThreadReferenceDraft } from "../loom/threadReference";
 import { expandSkillTokensToPromptText } from "@t3tools/shared/composerInlineTokens";
 import { GoalTasksPanel } from "./GoalTasksPanel";
 import { WorkstreamPanel } from "./WorkstreamPanel";
@@ -560,8 +559,6 @@ import {
 } from "./chat/composerPromptHistory";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
-// loom: a queued message predates the `#thread` chip, so its records are optional.
-const EMPTY_THREAD_REFERENCES: ThreadReferenceDraft[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedComposerMessage[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
@@ -7491,7 +7488,7 @@ export default function ChatView(props: ChatViewProps) {
       terminalContexts: composerTerminalContexts,
       previewAnnotations: sendContextPreviewAnnotations,
       reviewComments: composerReviewComments,
-      threadReferences: composerThreadReferences = EMPTY_THREAD_REFERENCES, // loom:
+      threadReferences: composerThreadReferences = [], // loom: `#thread` records
     } = queuedMessage ?? sendCtx;
     // loom: pi expands `$name` skill tokens as `/skill:name`; only enumerated
     // skills are expanded, so shell-style `$VARS` are left alone.
