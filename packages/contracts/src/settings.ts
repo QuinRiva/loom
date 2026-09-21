@@ -4,8 +4,8 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 // loom: fork additions live in the sibling file (one-way dependency). Re-export
-// them below so the `@t3tools/contracts/settings` subpath keeps exposing e.g.
-// `ReasoningDisplayMode` to web consumers. See the campaign plan, Slice A.
+// them below so the `@t3tools/contracts/settings` subpath keeps exposing them to
+// web consumers. See the campaign plan, Slice A.
 import {
   LoomClientSettingsFields,
   LoomClientSettingsPatchFields,
