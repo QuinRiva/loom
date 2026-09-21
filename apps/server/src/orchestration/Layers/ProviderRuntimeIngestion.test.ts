@@ -370,12 +370,14 @@ describe("ProviderRuntimeIngestion", () => {
     const snapshotQuery = await testRuntime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const ingestion = await testRuntime.runPromise(Effect.service(ProviderRuntimeIngestionService));
     scope = await Effect.runPromise(Scope.make("sequential"));
-    const startIngestion = () => Effect.runPromise(ingestion.start().pipe(Scope.provide(scope!)));
-    const drain = () => Effect.runPromise(ingestion.drain);
+    const startIngestion = () =>
+      testRuntime.runPromise(ingestion.start().pipe(Scope.provide(scope!)));
+    const drain = () => testRuntime.runPromise(ingestion.drain);
     if (options?.startIngestion !== false) await startIngestion();
-    const dispatch = (command: OrchestrationCommand) => Effect.runPromise(engine.dispatch(command));
+    const dispatch = (command: OrchestrationCommand) =>
+      testRuntime.runPromise(engine.dispatch(command));
     const emitAndDrain = (events: ReadonlyArray<LegacyProviderRuntimeEvent>) =>
-      Effect.runPromise(
+      testRuntime.runPromise(
         provider.emitAndWaitForEnqueue(events).pipe(Effect.andThen(ingestion.drain)),
       );
 

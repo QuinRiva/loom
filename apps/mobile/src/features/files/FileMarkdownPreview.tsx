@@ -1,4 +1,3 @@
-import { MarkdownBlock } from "../../components/MarkdownBlock";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { getBrowseDirectoryPath } from "@t3tools/client-runtime/state/projects";
@@ -265,7 +264,6 @@ export function FileMarkdownPreview(props: {
       }
     >
       <View className="mx-auto w-full max-w-[760px]">
-        <MarkdownBlock markdown={props.markdown} />
         {hasNativeSelectableMarkdownText() ? (
           <SelectableMarkdownText
             markdown={props.markdown}

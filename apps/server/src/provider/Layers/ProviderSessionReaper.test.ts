@@ -385,7 +385,7 @@ describe("ProviderSessionReaper", () => {
 
   /** Start the reaper's sweep fiber in a fresh scope the afterEach closes. */
   async function startReaper() {
-    scope = await Effect.runPromise(Scope.make("sequential"));
+    scope = await runtime!.runPromise(Scope.make("sequential"));
     await runtime!.runPromise(
       Effect.flatMap(Effect.service(ProviderSessionReaper), (reaper) =>
         reaper.start().pipe(Scope.provide(scope!)),
@@ -454,7 +454,7 @@ describe("ProviderSessionReaper", () => {
     });
 
     await startReaper();
-    await Effect.runPromise(drainFibers);
+    await runtime!.runPromise(drainFibers);
 
     expect(harness.stopSession).not.toHaveBeenCalled();
     expect(await bindingStillPersisted(threadId)).toBe(true);
@@ -570,7 +570,7 @@ describe("ProviderSessionReaper", () => {
     async (_label, planLane, expectReaped) => {
       const threadId = ThreadId.make(`thread-reaper-lane-${planLane}`);
       const tenSecondsAgo = DateTime.formatIso(
-        await Effect.runPromise(Effect.map(DateTime.now, DateTime.subtract({ seconds: 10 }))),
+        DateTime.subtract(DateTime.nowUnsafe(), { seconds: 10 }),
       );
       const harness = await createHarness({
         readModel: makeReadModel([
@@ -592,7 +592,7 @@ describe("ProviderSessionReaper", () => {
         await waitFor(() => harness.stopSession.mock.calls.length === 1);
         expect(harness.stoppedThreadIds.has(threadId)).toBe(true);
       } else {
-        await Effect.runPromise(drainFibers);
+        await runtime!.runPromise(drainFibers);
         expect(harness.stopSession).not.toHaveBeenCalled();
       }
     },
@@ -600,7 +600,7 @@ describe("ProviderSessionReaper", () => {
 
   it("does not reap sessions that are still within the inactivity threshold", async () => {
     const threadId = ThreadId.make("thread-reaper-fresh");
-    const now = DateTime.formatIso(await Effect.runPromise(DateTime.now));
+    const now = DateTime.formatIso(DateTime.nowUnsafe());
     const harness = await createHarness({
       readModel: makeReadModel([
         { id: threadId, session: { ...idleSessionFor(threadId), updatedAt: now } },
@@ -614,7 +614,7 @@ describe("ProviderSessionReaper", () => {
     });
 
     await startReaper();
-    await Effect.runPromise(drainFibers);
+    await runtime!.runPromise(drainFibers);
 
     expect(harness.stopSession).not.toHaveBeenCalled();
     expect(await bindingStillPersisted(threadId)).toBe(true);
