@@ -3276,10 +3276,10 @@ const make = Effect.gen(function* () {
     // `purpose`, `routes` — ~2.6 MB across the active set), not row count.
     //
     // More generally: settledness is a VISIBILITY partition, not a control-plane
-    // one. A user may settle any row at any time, and `workstreamSettleTriggered`
-    // settles any `done` thread immediately — so a thread that still owes
-    // control-plane work can always be classified settled. No sweep whose quarry
-    // is "a thread that still owes an action" can be gated on it.
+    // one. A user may settle any row at any time, and the server sweep settles
+    // any quiet thread — so a thread that still owes control-plane work can
+    // always be classified settled. No sweep whose quarry is "a thread that
+    // still owes an action" can be gated on it.
     const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const threads = snapshot.threads;
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));

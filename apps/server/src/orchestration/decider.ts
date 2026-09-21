@@ -868,14 +868,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // loom: the workstream auto-settle blocker, enforced HERE rather than only
-      // in the sidebar. Upstream's server-side sweep does not know that an idle
-      // orchestrator whose subtree is still working is load-bearing, so without
-      // this a root vanishes from the inbox while its children run. Same rule as
-      // `workstreamAutoSettleBlocked`'s third clause, read off the command read
-      // model's thread graph. An EXPLICIT settle still outranks it, exactly as
-      // on the client.
+      // loom: the workstream auto-settle blockers, enforced HERE rather than on
+      // the client. Upstream's server-side sweep does not know plan state, so
+      // without these an idle orchestrator vanishes from the inbox while its
+      // children run, and a thread parked awaiting a decision ages out of it.
+      // Both describe PLAN state, which only a human clears — so an EXPLICIT
+      // `thread.settle` still outranks them and stays a legal action. A stored
+      // attention flag is deliberately NOT a blocker: it ages out with
+      // inactivity, and the settled row still carries the flag.
       if (command.type === "thread.auto-settle") {
+        // Yielded = quiescent by every runtime signal, yet owed a decision.
+        if (thread.planLane === "yielded") {
+          return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
+        }
         const subtree = collectLiveSubtreeIds(readModel, command.threadId);
         const hasNonTerminalDescendant = readModel.threads.some(
           (descendant) =>
