@@ -58,7 +58,11 @@ export function GoalChip({
             onClick={onToggle}
             aria-pressed={panelOpen}
             className={cn(
-              "flex min-w-0 shrink items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs",
+              // Same width rule as the lineage cluster next door, for the same
+              // reason: upstream's project/title breadcrumb is `flex-1 basis-0`
+              // and only gets what loom's chips leave. See
+              // ThreadLineageBreadcrumb for the full note.
+              "hidden min-w-0 max-w-[calc(50%-15rem)] shrink items-center gap-1.5 overflow-clip rounded-md border px-2 py-0.5 text-xs @2xl/header-actions:flex",
               panelOpen
                 ? "border-primary/45 bg-primary/10 text-foreground"
                 : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -66,10 +70,17 @@ export function GoalChip({
           >
             <TargetIcon className="size-3 shrink-0" />
             <span className="min-w-0 max-w-40 truncate">{title}</span>
-            <span aria-hidden className="shrink-0 text-muted-foreground/50">
+            {/* The count is decoration and the title is the information, but
+                the count is `shrink-0` and would otherwise squeeze the title to
+                nothing. It drops out below the header width at which the cap
+                above stops squeezing this chip at all (~64rem). */}
+            <span
+              aria-hidden
+              className="hidden shrink-0 text-muted-foreground/50 @5xl/header-actions:block"
+            >
               &middot;
             </span>
-            <span className="shrink-0 tabular-nums">
+            <span className="hidden shrink-0 tabular-nums @5xl/header-actions:block">
               {threadCount} thread{threadCount === 1 ? "" : "s"}
             </span>
           </button>
