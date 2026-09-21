@@ -160,4 +160,29 @@ describe("worktreeClassification", () => {
     expect(owner?.id).toBe(deadOwner.id);
     expect(classify({ threads: [repointed, parent] }).disposition).toBe("reapable");
   });
+
+  it("a repointed finished child does not steal ownership of the tree it moved into", () => {
+    const repointed = thread({ ...deadOwner, worktreePath: "/repo" } as never);
+    const { owner } = resolveWorktreeOwnership(
+      entry({ path: "/repo", branch: "main", isMain: true }),
+      [repointed, parent],
+    );
+    expect(owner?.id).toBe("parent");
+  });
+
+  it("branchless residents: the live root owns the tree, not a finished co-resident", () => {
+    const finishedRoot = thread({ id: "finished-root", worktreePath: "/repo", branch: null });
+    const liveRoot = thread({
+      id: "live-root",
+      planLane: "in_progress",
+      worktreePath: "/repo",
+      branch: null,
+      isolation: "shared",
+    });
+    const { owner } = resolveWorktreeOwnership(entry({ path: "/repo", branch: "main" }), [
+      finishedRoot,
+      liveRoot,
+    ]);
+    expect(owner?.id).toBe("live-root");
+  });
 });
