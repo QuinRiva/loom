@@ -76,9 +76,12 @@ import {
   type ComposerImageAttachment,
   composerFileNeedsReattach,
   partializeComposerDraftStoreState,
+  toHydratedThreadDraft,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
+import { buildMessageContext } from "./lib/composerContextRecords";
+import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 import { insertInlineContextReference } from "./lib/composerContextReferences";
 import { terminalContextReference } from "./lib/composerContextRecords";
@@ -1756,7 +1759,10 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
-  it("clears branch and worktree but keeps env mode when remapping a draft to another environment", () => {
+  // loom: a project change lands the draft in that project's own bucket, so
+  // start-from-origin reseeds from the destination project's default rather than
+  // carrying the source project's choice. Absent a default, it is off.
+  it("clears branch, worktree and start-from-origin when remapping a draft to another environment", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {
       threadId,
@@ -1776,7 +1782,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: null,
       worktreePath: null,
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromOrigin: false,
     });
   });
 
@@ -1861,7 +1867,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(store.getComposerDraft(draftId)?.prompt).toBe("keep this prompt");
   });
 
-  it("clears branch and worktree but keeps env mode when changing a draft thread project ref", () => {
+  it("clears branch, worktree and start-from-origin when changing a draft thread project ref", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {
       threadId,
@@ -1881,7 +1887,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: null,
       worktreePath: null,
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromOrigin: false,
     });
   });
 });
@@ -3403,5 +3409,75 @@ describe("composerDraftStore attachment references", () => {
     expect(merged.draftsByThreadKey[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]?.prompt).toBe(
       prompt,
     );
+  });
+});
+
+// loom (plan D-A): a `#`-mentioned thread is an ordinary context reference, so
+// it has to survive every stage the other kinds do — insert, remove, the send
+// record, and a persist/hydrate round trip.
+describe("composerDraftStore thread references", () => {
+  const threadId = ThreadId.make("thread-mentions");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+  const mentioned = { threadId: ThreadId.make("thread-abc"), label: "Upstream sync" };
+  const mentionLink = "[Upstream sync](t3-context://v1/thread/thread_thread-abc)";
+
+  beforeEach(resetComposerDraftStore);
+
+  it("appends a link when a thread is mentioned and strips it on removal", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadRef, "ask");
+    store.addThreadReference(threadRef, mentioned);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe(`ask ${mentionLink} `);
+    // Re-mentioning the same thread refreshes the label without a second chip.
+    store.addThreadReference(threadRef, { ...mentioned, label: "Upstream sync (renamed)" });
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.threadReferences).toEqual([
+      { threadId: mentioned.threadId, label: "Upstream sync (renamed)" },
+    ]);
+    store.removeThreadReference(threadRef, mentioned.threadId);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("ask");
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.threadReferences).toEqual([]);
+  });
+
+  it("sends the thread record and projects it as a thread:// link for the agent", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadRef, "ask");
+    store.addThreadReference(threadRef, mentioned);
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID)!;
+    const context = buildMessageContext({
+      terminalContexts: [],
+      reviewComments: [],
+      previewAnnotations: [],
+      threadReferences: draft.threadReferences,
+    });
+    expect(context?.records).toEqual([
+      {
+        version: 1,
+        contextId: "thread_thread-abc",
+        kind: "thread",
+        label: "Upstream sync",
+        threadId: mentioned.threadId,
+      },
+    ]);
+    // The wire form the pi-side consult/notify tools already document.
+    expect(
+      projectComposerContextForProvider({
+        text: draft.prompt,
+        records: context!.records,
+      }).trim(),
+    ).toBe("ask [Upstream sync](thread://thread-abc)");
+  });
+
+  it("keeps the mention through a persist/hydrate round trip", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadRef, "ask");
+    store.addThreadReference(threadRef, mentioned);
+    const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const persistedDraft =
+      persisted.draftsByThreadKey[scopedThreadKey(threadRef)] ??
+      persisted.draftsByThreadKey[threadId];
+    expect(persistedDraft?.threadReferences).toEqual([mentioned]);
+    const hydrated = toHydratedThreadDraft(persistedDraft!);
+    expect(hydrated.threadReferences).toEqual([mentioned]);
+    expect(hydrated.prompt).toBe(`ask ${mentionLink} `);
   });
 });

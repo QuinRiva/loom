@@ -5,6 +5,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   EnvironmentId,
+  GoalId,
   ModelSelection,
   ProjectId,
   ProviderInstanceId,
@@ -75,6 +76,14 @@ import { getDefaultServerModel } from "./providerModels";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
+// loom: `#`-mentioned threads are an ordinary context kind.
+import {
+  isThreadReferenceDraft,
+  threadReferenceContextId,
+  threadReferenceContextReference,
+  ThreadReferenceDraftSchema,
+  type ThreadReferenceDraft,
+} from "./loom/threadReference";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -233,6 +242,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
   previewAnnotations: Schema.optionalKey(Schema.Array(PreviewAnnotationPayloadSchema)),
   reviewComments: Schema.optionalKey(Schema.Array(ReviewCommentContextSchema)),
+  threadReferences: Schema.optionalKey(Schema.Array(ThreadReferenceDraftSchema)), // loom:
   // Keyed by `ProviderInstanceId` (open branded slug) so custom provider
   // instances (e.g. `codex_personal`) round-trip alongside the built-in
   // `codex` / `claudeAgent` / ... entries. Every prior `ProviderDriverKind`
@@ -321,6 +331,10 @@ const PersistedDraftThreadState = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  goalId: Schema.optionalKey(Schema.NullOr(GoalId)), // loom:
+  // loom: thread fork — additive + decode-default null so pre-fork persisted
+  // drafts hydrate cleanly.
+  forkFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   promotedTo: Schema.optionalKey(
@@ -384,6 +398,7 @@ export interface ComposerThreadDraftState {
   terminalContexts: TerminalContextDraft[];
   previewAnnotations: PreviewAnnotationPayload[];
   reviewComments: ReviewCommentContext[];
+  threadReferences: ThreadReferenceDraft[]; // loom:
   /**
    * Per-instance model selection. Keyed by `ProviderInstanceId` (open
    * branded slug) so a default `codex` instance and a user-authored
@@ -426,7 +441,8 @@ export function composerDraftHasUserContent(
     draft.persistedAttachments.length > 0 ||
     draft.terminalContexts.length > 0 ||
     draft.previewAnnotations.length > 0 ||
-    draft.reviewComments.length > 0
+    draft.reviewComments.length > 0 ||
+    draft.threadReferences.length > 0 // loom:
   );
 }
 
@@ -448,8 +464,14 @@ export interface DraftSessionState {
   interactionMode: ProviderInteractionMode;
   branch: string | null;
   worktreePath: string | null;
+  goalId: GoalId | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
+  // loom: thread fork — the source thread this draft was forked from. Carried
+  // into the first-send bootstrap `thread.create` so the child forks the
+  // source's pi session at its first launch. Null for ordinary new-thread
+  // drafts.
+  forkFromThreadId: ThreadId | null;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -517,9 +539,12 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
+      goalId?: GoalId | null; // loom: goal-keeping + thread fork
+      forkFromThreadId?: ThreadId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -534,9 +559,33 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
+      goalId?: GoalId | null; // loom: goal-keeping + thread fork
+      forkFromThreadId?: ThreadId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
+      runtimeMode?: RuntimeMode;
+      interactionMode?: ProviderInteractionMode;
+      environmentSelection?: "auto" | "manual";
+      loadBalancedEnvironmentId?: EnvironmentId | null;
+    },
+  ) => void;
+  /**
+   * loom: thread fork — create a standalone fork draft keyed ONLY by `draftId`
+   * (no logical-project bucket mapping), so forking never clobbers the
+   * project's in-progress new-thread draft. The draft carries
+   * `forkFromThreadId` so the first send forks the source's pi session.
+   */
+  createForkDraftThread: (
+    draftId: DraftId,
+    projectRef: ScopedProjectRef,
+    options: {
+      threadId: ThreadId;
+      forkFromThreadId: ThreadId;
+      branch?: string | null;
+      worktreePath?: string | null;
+      goalId?: GoalId | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -549,10 +598,13 @@ interface ComposerDraftStoreState {
     options: {
       branch?: string | null;
       worktreePath?: string | null;
+      goalId?: GoalId | null; // loom: goal-keeping + thread fork
+      forkFromThreadId?: ThreadId | null;
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -571,6 +623,17 @@ interface ComposerDraftStoreState {
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
+  /**
+   * loom: thread fork — copy the COMPLETE unsent composer draft (prompt, images,
+   * attachments, terminal/element contexts, preview annotations, review
+   * comments) from one target onto another, merging over the destination's
+   * existing model/runtime fields (which the fork inherits separately). Never
+   * touches any prior message text — only the live, unsent composer state.
+   */
+  cloneComposerDraftContent: (
+    fromTarget: ComposerThreadTarget,
+    toTarget: ComposerThreadTarget,
+  ) => void;
   setTerminalContexts: (threadRef: ComposerThreadTarget, contexts: TerminalContextDraft[]) => void;
   setModelSelection: (
     threadRef: ComposerThreadTarget,
@@ -679,6 +742,14 @@ interface ComposerDraftStoreState {
     comments: ReadonlyArray<ReviewCommentContext>,
   ) => void;
   removeReviewComment: (threadRef: ComposerThreadTarget, commentId: string) => void;
+  /** loom: insert a `#`-mentioned thread as a context reference. */
+  addThreadReference: (
+    threadRef: ComposerThreadTarget,
+    reference: ThreadReferenceDraft,
+    options?: ComposerContextAddOptions,
+  ) => void;
+  /** loom: drop a `#`-mentioned thread and its chip. */
+  removeThreadReference: (threadRef: ComposerThreadTarget, threadId: ThreadId) => void;
   clearPersistedAttachments: (threadRef: ComposerThreadTarget) => void;
   syncPersistedAttachments: (
     threadRef: ComposerThreadTarget,
@@ -691,6 +762,15 @@ interface ComposerDraftStoreState {
    * prompt stash. Session-bound context stays in the source draft.
    */
   clearComposerPromptAndImages: (threadRef: ComposerThreadTarget) => void;
+  /**
+   * loom: moves the prompt text and file/image attachments from one composer target
+   * to another. Used when a draft changes project: the new project gets its
+   * own draft session and the typed content follows it. Session-bound extras
+   * (terminal contexts, preview annotations, review comments) stay on the
+   * source — they reference sessions the destination cannot use, so the moved
+   * prompt is re-anchored to whatever references the destination already has.
+   */
+  moveComposerPromptAndImages: (from: ComposerThreadTarget, to: ComposerThreadTarget) => void;
 }
 
 export interface EffectiveComposerModelState {
@@ -763,6 +843,8 @@ const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 const EMPTY_PREVIEW_ANNOTATIONS: PreviewAnnotationPayload[] = [];
 const EMPTY_REVIEW_COMMENTS: ReviewCommentContext[] = [];
+const EMPTY_THREAD_REFERENCES: ThreadReferenceDraft[] = []; // loom:
+Object.freeze(EMPTY_THREAD_REFERENCES);
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_FILES);
 Object.freeze(EMPTY_IDS);
@@ -785,6 +867,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
   previewAnnotations: EMPTY_PREVIEW_ANNOTATIONS,
   reviewComments: EMPTY_REVIEW_COMMENTS,
+  threadReferences: EMPTY_THREAD_REFERENCES, // loom:
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,
@@ -807,6 +890,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     terminalContexts: [],
     previewAnnotations: [],
     reviewComments: [],
+    threadReferences: [], // loom:
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
@@ -901,6 +985,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.terminalContexts.length === 0 &&
     draft.previewAnnotations.length === 0 &&
     draft.reviewComments.length === 0 &&
+    draft.threadReferences.length === 0 && // loom:
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
@@ -1372,6 +1457,26 @@ function logicalProjectDraftKey(logicalProjectKey: string): string {
   return logicalProjectKey.trim();
 }
 
+const GOAL_DRAFT_BUCKET_SUFFIX = "::goal-draft";
+
+/**
+ * loom: draft-session bucket key for the goal-level "new thread" entry point. Each
+ * logical project keeps two independent draft sessions — the project-level
+ * bucket (keyed by the logical project key itself) and one shared goal-level
+ * bucket — so the two entry points never leak context into each other's draft.
+ */
+export function goalDraftBucketKey(logicalProjectKey: string): string {
+  return `${logicalProjectKey}${GOAL_DRAFT_BUCKET_SUFFIX}`;
+}
+
+function isGoalDraftBucketKey(key: string): boolean {
+  return key.endsWith(GOAL_DRAFT_BUCKET_SUFFIX);
+}
+
+function stripGoalDraftBucketSuffix(key: string): string {
+  return isGoalDraftBucketKey(key) ? key.slice(0, -GOAL_DRAFT_BUCKET_SUFFIX.length) : key;
+}
+
 /**
  * Runtime composer storage key for app-facing identities only.
  *
@@ -1501,9 +1606,12 @@ function createDraftThreadState(
     threadId?: ThreadId;
     branch?: string | null;
     worktreePath?: string | null;
+    goalId?: GoalId | null; // loom: goal-keeping + thread fork
+    forkFromThreadId?: ThreadId | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
+    projectDefaultStartFromOrigin?: boolean | null; // loom:
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
     environmentSelection?: "auto" | "manual";
@@ -1532,8 +1640,18 @@ function createDraftThreadState(
       : (options.branch ?? null);
   const nextStartFromOrigin =
     options?.startFromOrigin === undefined
-      ? (existingThread?.startFromOrigin ?? false)
+      ? projectChanged
+        ? // loom: a fresh project bucket seeds from that project's default.
+          (options?.projectDefaultStartFromOrigin ?? false)
+        : (existingThread?.startFromOrigin ?? false)
       : options.startFromOrigin;
+  // loom: a fresh project bucket drops the goal.
+  const nextGoalId =
+    options?.goalId === undefined
+      ? projectChanged
+        ? null
+        : (existingThread?.goalId ?? null)
+      : (options.goalId ?? null);
   const environmentSelection =
     options?.environmentSelection ?? existingThread?.environmentSelection;
   return {
@@ -1557,9 +1675,16 @@ function createDraftThreadState(
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     branch: nextBranch,
     worktreePath: nextWorktreePath,
+    goalId: nextGoalId, // loom:
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
+    // loom: a fork source is intrinsic to the draft's identity: keep it across context
+    // tweaks unless explicitly overridden.
+    forkFromThreadId:
+      options?.forkFromThreadId !== undefined
+        ? options.forkFromThreadId
+        : (existingThread?.forkFromThreadId ?? null),
     promotedTo: null,
   };
 }
@@ -1592,8 +1717,10 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.interactionMode === right.interactionMode &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.goalId === right.goalId && // loom:
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    left.forkFromThreadId === right.forkFromThreadId && // loom:
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -1652,7 +1779,8 @@ function normalizePersistedDraftThreads(
       if (typeof threadId !== "string" || threadId.length === 0) {
         continue;
       }
-      const projectRef = parseScopedProjectKey(projectKey);
+      // loom: goal buckets share a project's scoped key with a suffix.
+      const projectRef = parseScopedProjectKey(stripGoalDraftBucketSuffix(projectKey));
       if (!projectRef) {
         continue;
       }
@@ -1715,17 +1843,19 @@ function normalizePersistedDraftThreads(
         continue;
       }
       const normalizedEnvironmentId = environmentId as EnvironmentId;
+      // loom: hoisted out of the literal below so the goalId arm can test it.
+      const logicalProjectKey =
+        typeof candidateDraftThread.logicalProjectKey === "string" &&
+        candidateDraftThread.logicalProjectKey.length > 0
+          ? candidateDraftThread.logicalProjectKey
+          : parsedThreadRef
+            ? projectDraftKey(scopeProjectRef(normalizedEnvironmentId, projectId as ProjectId))
+            : threadKeyOrId;
       draftThreadsByThreadKey[threadKey] = {
         threadId,
         environmentId: normalizedEnvironmentId,
         projectId: projectId as ProjectId,
-        logicalProjectKey:
-          typeof candidateDraftThread.logicalProjectKey === "string" &&
-          candidateDraftThread.logicalProjectKey.length > 0
-            ? candidateDraftThread.logicalProjectKey
-            : parsedThreadRef
-              ? projectDraftKey(scopeProjectRef(normalizedEnvironmentId, projectId as ProjectId))
-              : threadKeyOrId,
+        logicalProjectKey,
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
@@ -1740,6 +1870,14 @@ function normalizePersistedDraftThreads(
             : DEFAULT_INTERACTION_MODE,
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
+        // loom: only the goal-level draft bucket carries a goal; a stale goalId on a
+        // project-level draft (from before bucketed drafts) is dropped.
+        goalId:
+          typeof candidateDraftThread.goalId === "string" && isGoalDraftBucketKey(logicalProjectKey)
+            ? (candidateDraftThread.goalId as GoalId)
+            : null,
+        // loom: legacy drafts predate thread forking.
+        forkFromThreadId: null,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
         ...(candidateDraftThread.environmentSelection === "manual" ||
@@ -1768,7 +1906,8 @@ function normalizePersistedDraftThreads(
       if (typeof threadKeyOrId !== "string" || threadKeyOrId.length === 0) {
         continue;
       }
-      const projectRef = parseScopedProjectKey(logicalProjectKey);
+      // loom: goal buckets share a project's scoped key with a suffix.
+      const projectRef = parseScopedProjectKey(stripGoalDraftBucketSuffix(logicalProjectKey));
       const parsedThreadRef = parseScopedThreadKey(threadKeyOrId);
       const threadKey = normalizeLegacyComposerStorageKey(threadKeyOrId);
       logicalProjectDraftThreadKeyByLogicalProjectKey[logicalProjectKey] = threadKey;
@@ -1802,6 +1941,7 @@ function normalizePersistedDraftThreads(
           interactionMode: DEFAULT_INTERACTION_MODE,
           branch: null,
           worktreePath: null,
+          forkFromThreadId: null, // loom:
           envMode: "local",
           startFromOrigin: false,
           promotedTo: null,
@@ -2130,6 +2270,7 @@ export function partializeComposerDraftStoreState(
       draft.terminalContexts.length === 0 &&
       draft.previewAnnotations.length === 0 &&
       draft.reviewComments.length === 0 &&
+      draft.threadReferences.length === 0 && // loom:
       !hasModelData &&
       draft.runtimeMode === null &&
       draft.interactionMode === null
@@ -2182,8 +2323,16 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.reviewComments.length > 0
         ? {
-            reviewComments: draft.reviewComments.map((comment) => ({ ...comment })),
+            // loom: the fork's `mdx-anchor` arm nests a readonly anchor, so the
+            // shallow clone needs the same cast the annotation line above uses.
+            reviewComments: draft.reviewComments.map(
+              (comment) => ({ ...comment }) as DeepMutable<ReviewCommentContext>,
+            ),
           }
+        : {}),
+      // loom: `#` mentions persist with the draft so a reload keeps the chip.
+      ...(draft.threadReferences.length > 0
+        ? { threadReferences: draft.threadReferences.map((entry) => ({ ...entry })) }
         : {}),
       ...(hasModelData
         ? {
@@ -2414,7 +2563,9 @@ export function hydrateImagesFromPersisted(
   });
 }
 
-function toHydratedThreadDraft(
+// loom: exported so the draft-lifetime tests can assert a real persist/hydrate
+// round trip rather than reaching into the persist middleware.
+export function toHydratedThreadDraft(
   persistedDraft: PersistedComposerThreadDraftState,
 ): ComposerThreadDraftState {
   // The persisted draft is already in v3 shape (migration handles older formats)
@@ -2445,6 +2596,8 @@ function toHydratedThreadDraft(
       ...(persistedDraft.previewAnnotations ?? []).map(previewAnnotationContextReference),
       ...files.map(fileContextReference),
     ]),
+    // loom: hydration is plain \u2014 the canonical links are already in the prompt.
+    threadReferences: persistedDraft.threadReferences?.map((entry) => ({ ...entry })) ?? [],
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
     files,
     nonPersistedImageIds: [],
@@ -2485,6 +2638,8 @@ function toHydratedDraftThreadState(
     interactionMode: persistedDraftThread.interactionMode,
     branch: persistedDraftThread.branch,
     worktreePath: persistedDraftThread.worktreePath,
+    goalId: persistedDraftThread.goalId ?? null, // loom:
+    forkFromThreadId: persistedDraftThread.forkFromThreadId ?? null, // loom:
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
     ...(persistedDraftThread.environmentSelection
@@ -2720,6 +2875,27 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             options,
           );
         },
+        // loom: thread fork
+        createForkDraftThread: (draftId, projectRef, options) => {
+          if (draftId.length === 0) {
+            return;
+          }
+          set((state) => {
+            const nextDraftThread = createDraftThreadState(
+              projectRef,
+              options.threadId,
+              projectDraftKey(projectRef),
+              undefined,
+              options,
+            );
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [draftId]: nextDraftThread,
+              },
+            };
+          });
+        },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -2760,8 +2936,19 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 : (options.branch ?? null);
             const nextStartFromOrigin =
               options.startFromOrigin === undefined
-                ? existing.startFromOrigin
+                ? projectChanged
+                  ? // loom: a fresh project bucket seeds from that project's default.
+                    (options.projectDefaultStartFromOrigin ?? false)
+                  : existing.startFromOrigin
                 : options.startFromOrigin;
+            // loom: a fresh project bucket drops the goal.
+            // loom: a fresh project bucket drops the goal.
+            const nextGoalId =
+              options.goalId === undefined
+                ? projectChanged
+                  ? null
+                  : existing.goalId
+                : (options.goalId ?? null);
             const environmentSelection =
               options.environmentSelection ??
               (options.branch != null || options.worktreePath != null
@@ -2787,12 +2974,19 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               interactionMode: options.interactionMode ?? existing.interactionMode,
               branch: nextBranch,
               worktreePath: nextWorktreePath,
+              goalId: nextGoalId, // loom: // loom:
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
+              // loom: thread fork
+              forkFromThreadId:
+                options.forkFromThreadId !== undefined
+                  ? options.forkFromThreadId
+                  : (existing.forkFromThreadId ?? null),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =
+              nextDraftThread.forkFromThreadId === existing.forkFromThreadId && // loom:
               nextDraftThread.environmentId === existing.environmentId &&
               nextDraftThread.projectId === existing.projectId &&
               nextDraftThread.logicalProjectKey === existing.logicalProjectKey &&
@@ -2803,6 +2997,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.interactionMode === existing.interactionMode &&
               nextDraftThread.branch === existing.branch &&
               nextDraftThread.worktreePath === existing.worktreePath &&
+              nextDraftThread.goalId === existing.goalId && // loom:
               nextDraftThread.envMode === existing.envMode &&
               nextDraftThread.startFromOrigin === existing.startFromOrigin &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
@@ -2978,6 +3173,40 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        // loom: thread fork
+        cloneComposerDraftContent: (fromTarget, toTarget) => {
+          set((state) => {
+            const fromKey = resolveComposerDraftKey(state, fromTarget);
+            const toKey = resolveComposerDraftKey(state, toTarget);
+            if (!fromKey || !toKey || fromKey === toKey) {
+              return state;
+            }
+            const src = state.draftsByThreadKey[fromKey];
+            if (!src) {
+              return state;
+            }
+            // Merge content onto any existing destination draft so the fork's
+            // inherited model/runtime/interaction (set before this call) survive.
+            const base = state.draftsByThreadKey[toKey] ?? createEmptyThreadDraft();
+            const next: ComposerThreadDraftState = {
+              ...base,
+              prompt: src.prompt,
+              images: src.images.map((image) => ({ ...image })),
+              nonPersistedImageIds: [...src.nonPersistedImageIds],
+              persistedAttachments: src.persistedAttachments.map((attachment) => ({
+                ...attachment,
+              })),
+              terminalContexts: src.terminalContexts.map((context) => ({ ...context })),
+              previewAnnotations: src.previewAnnotations.map((annotation) => ({ ...annotation })),
+              reviewComments: src.reviewComments.map((comment) => ({ ...comment })),
+              threadReferences: src.threadReferences.map((entry) => ({ ...entry })), // loom:
+            };
+            if (shouldRemoveDraft(next)) {
+              return state;
+            }
+            return { draftsByThreadKey: { ...state.draftsByThreadKey, [toKey]: next } };
           });
         },
         setPrompt: (threadRef, prompt) => {
@@ -3867,6 +4096,68 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             };
           });
         },
+        // loom: `#`-mention insert/remove, mirroring the review-comment pair.
+        addThreadReference: (threadRef, reference, options) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef);
+          if (!threadKey || !isThreadReferenceDraft(reference)) return;
+          const contextReference = threadReferenceContextReference(reference);
+          const alreadyPresent =
+            get().draftsByThreadKey[threadKey]?.threadReferences.some(
+              (entry) => entry.threadId === reference.threadId,
+            ) ?? false;
+          const shouldPlaceReference =
+            options?.appendReference !== false &&
+            (!alreadyPresent || options?.allowDuplicateReference === true);
+          const placedAtCaret =
+            shouldPlaceReference &&
+            options?.insertAtCaret !== false &&
+            (contextInsertionHandlers.get(threadKey)?.([contextReference]) ?? false);
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  prompt:
+                    !shouldPlaceReference || placedAtCaret
+                      ? existing.prompt
+                      : appendInlineContextReference(existing.prompt, contextReference),
+                  threadReferences: [
+                    ...existing.threadReferences.filter(
+                      (entry) => entry.threadId !== reference.threadId,
+                    ),
+                    { ...reference },
+                  ],
+                },
+              },
+            };
+          });
+        },
+        removeThreadReference: (threadRef, threadId) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef);
+          if (!threadKey || !threadId) return;
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) return state;
+            const threadReferences = current.threadReferences.filter(
+              (entry) => entry.threadId !== threadId,
+            );
+            if (threadReferences.length === current.threadReferences.length) return state;
+            const nextDraft = {
+              ...current,
+              prompt: removeInlineContextReference(
+                current.prompt,
+                threadReferenceContextId(threadId),
+              ).prompt,
+              threadReferences,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadKey[threadKey];
+            else nextDraftsByThreadKey[threadKey] = nextDraft;
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
         setContextInsertionHandler: (threadRef, handler) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           if (!threadKey) return;
@@ -4002,6 +4293,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               terminalContexts: [],
               previewAnnotations: [],
               reviewComments: [],
+              threadReferences: [], // loom:
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
@@ -4031,6 +4323,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 ...current.terminalContexts.map(terminalContextReference),
                 ...current.reviewComments.map(reviewCommentContextReference),
                 ...current.previewAnnotations.map(previewAnnotationContextReference),
+                ...current.threadReferences.map(threadReferenceContextReference), // loom:
               ]),
               images: [],
               files: [],
@@ -4042,6 +4335,66 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               delete nextDraftsByThreadKey[threadKey];
             } else {
               nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        // loom: draft follows a project change
+        moveComposerPromptAndImages: (from, to) => {
+          set((state) => {
+            const fromKey = resolveComposerDraftKey(state, from);
+            const toKey = resolveComposerDraftKey(state, to);
+            if (!fromKey || !toKey || fromKey === toKey) {
+              return state;
+            }
+            const source = state.draftsByThreadKey[fromKey];
+            if (!source) {
+              return state;
+            }
+            const destination = state.draftsByThreadKey[toKey] ?? createEmptyThreadDraft();
+            const referencesFor = (draft: ComposerThreadDraftState) => [
+              ...draft.terminalContexts.map(terminalContextReference),
+              ...draft.reviewComments.map(reviewCommentContextReference),
+              ...draft.previewAnnotations.map(previewAnnotationContextReference),
+              ...draft.threadReferences.map(threadReferenceContextReference), // loom:
+            ];
+            const nextDestination: ComposerThreadDraftState = {
+              ...destination,
+              // The source's context references stay behind, so re-anchor the
+              // moved prompt to the destination's own references.
+              prompt: ensureInlineContextReferences(source.prompt, referencesFor(destination)),
+              images: [...destination.images, ...source.images],
+              files: [...destination.files, ...source.files],
+              nonPersistedImageIds: [
+                ...destination.nonPersistedImageIds,
+                ...source.nonPersistedImageIds,
+              ],
+              persistedAttachments: [
+                ...destination.persistedAttachments,
+                ...source.persistedAttachments,
+              ],
+            };
+            // Same clearing shape as clearComposerPromptAndImages, but the
+            // preview URLs are NOT revoked: the images moved and their blobs
+            // are still referenced from the destination.
+            const nextSource: ComposerThreadDraftState = {
+              ...source,
+              prompt: ensureInlineContextReferences("", referencesFor(source)),
+              images: [],
+              files: [],
+              nonPersistedImageIds: [],
+              persistedAttachments: [],
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            for (const [key, draft] of [
+              [fromKey, nextSource],
+              [toKey, nextDestination],
+            ] as const) {
+              if (shouldRemoveDraft(draft)) {
+                delete nextDraftsByThreadKey[key];
+              } else {
+                nextDraftsByThreadKey[key] = draft;
+              }
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });

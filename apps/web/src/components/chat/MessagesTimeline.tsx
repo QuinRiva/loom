@@ -95,12 +95,10 @@ import { TIMELINE_ROW_CLASS_NAME, useTimelineAvailableWidthVar } from "./timelin
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
-  type ParsedTerminalContextEntry,
-} from "~/lib/terminalContext";
-import {
   extractTrailingElementContexts,
   type ParsedElementContextEntry,
-} from "~/lib/elementContext";
+  type ParsedTerminalContextEntry,
+} from "~/loom/legacyContextBlocks";
 import {
   extractTrailingPreviewAnnotation,
   type ParsedPreviewAnnotation,

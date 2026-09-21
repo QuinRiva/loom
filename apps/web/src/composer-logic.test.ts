@@ -251,49 +251,106 @@ describe("detectComposerTrigger", () => {
     const text = "Compare this with #8737";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "8737",
       rangeStart: "Compare this with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("opens pull request completion from a bare hash", () => {
+  it("opens hash completion from a bare hash", () => {
     const text = "Compare with #";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("detects a one-word pull request search", () => {
+  it("detects a one-word hash search", () => {
     const text = "Compare with #composer";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "composer",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("supports hyphenated pull request search terms", () => {
+  it("supports hyphenated hash search terms", () => {
     const text = "Find #inline-context";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
+      kind: "hash",
       query: "inline-context",
       rangeStart: "Find ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("does not keep pull request completion active for headings or embedded hashes", () => {
-    expect(detectComposerTrigger("# Heading", "# Heading".length)).toBeNull();
+  it("ignores a hash that does not start a token", () => {
     expect(detectComposerTrigger("issue#123", "issue#123".length)).toBeNull();
+  });
+
+  // loom (plan D-D): the unified `#` menu lists pull requests AND threads, and
+  // thread titles are multi-word, so the query scans back over spaces to the
+  // nearest token-starting `#`. The composer closes the menu once both sections
+  // settle empty, which is what keeps a stray `#` in prose from hanging.
+  it("scans a multi-word hash query back to the opening hash", () => {
+    const text = "Consult #upstream sync doctrine";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "hash",
+      query: "upstream sync doctrine",
+      rangeStart: "Consult ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("treats a line-leading hash as a hash query", () => {
+    expect(detectComposerTrigger("# Heading", "# Heading".length)).toEqual({
+      kind: "hash",
+      query: " Heading",
+      rangeStart: 0,
+      rangeEnd: "# Heading".length,
+    });
+  });
+
+  it("gives the current token's @path trigger precedence over an earlier hash", () => {
+    const text = "#old text @file";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "path",
+      query: "file",
+      rangeStart: "#old text ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("gives the current token's $skill trigger precedence over an earlier hash", () => {
+    const text = "#old text $skill";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "skill",
+      query: "skill",
+      rangeStart: "#old text ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("keeps a slash command ahead of a hash later on the line", () => {
+    const text = "/plan";
+
+    expect(detectComposerTrigger(text, text.length)?.kind).toBe("slash-command");
+  });
+
+  it("scopes the hash query to the cursor's own line", () => {
+    const text = "#earlier query\nplain";
+
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("detects @path trigger in the middle of existing text", () => {

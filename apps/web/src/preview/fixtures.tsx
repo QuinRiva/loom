@@ -2,12 +2,10 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { EnvironmentId, type ProjectPathKind } from "@t3tools/contracts";
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
-import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
 import {
-  buildUserInputAnswers,
-  setUserInputCustomAnswer,
-  toggleUserInputOptionSelection,
-} from "@t3tools/shared/userInputAnswers";
+  togglePendingUserInputOptionSelection,
+  type PendingUserInputDraftAnswer,
+} from "../pendingUserInput";
 
 import { cn } from "~/lib/utils";
 
@@ -15,7 +13,7 @@ import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
 import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
-import { PendingQuestionCard } from "../components/chat/PendingQuestionCard";
+import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
 import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
@@ -585,170 +583,12 @@ const workstreamGraphFixture: PreviewFixture = {
 };
 
 // ---------------------------------------------------------------------------
-// Pending user-input panel — the pi `ask_user_question` chooser. Options may
-// carry a markdown `preview` (single-select only), so the panel must stay
-// bounded when an agent hands it a wide table or a long code fence.
+// Pending user-input panel — upstream's composer question wizard, driven by pi's
+// `ask_user_question`. One question at a time, Next/Submit on the last, and a
+// Dismiss affordance whenever the request declares itself dismissible.
 // ---------------------------------------------------------------------------
 
-const PENDING_USER_INPUT_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "panel_layout",
-    header: "Composer layout",
-    question: "Which pending-input layout should ship?",
-    multiSelect: false,
-    options: [
-      {
-        label: "Stacked preview",
-        description: "Preview sits below the option list",
-        preview: `### Stacked\n\n\`\`\`ts title="panel.tsx"\nexport function Panel() {\n  return <div className="flex flex-col gap-2">{options}{preview}</div>;\n}\n\`\`\`\n\n| Viewport | Behaviour |\n| --- | --- |\n| Narrow | Preview under the options, scrolls internally |\n| Wide | Same, full composer width |\n`,
-      },
-      {
-        label: "Side-by-side preview",
-        description: "Preview sits beside the option list on wide viewports",
-        preview: `### Side-by-side\n\n\`\`\`\n+----------------+  +--------------------------------+\n| 1 Stacked      |  | # Preview                      |\n| 2 Side-by-side |  | a very long line of preview co |\n| 3 No preview   |  | ntent that must not blow out t |\n+----------------+  +--------------------------------+\n\`\`\`\n\nThe option column keeps its measure; the preview pane takes the rest.\n`,
-      },
-      {
-        label: "No preview at all",
-        description: "This option deliberately carries no preview — it must look unchanged",
-      },
-    ],
-  },
-];
-
-/**
- * The hover-flicker case. Two things make it bite, and both are load-bearing:
- *
- *  - the previews are of **different heights**, so swapping them resizes the card;
- *  - the card is **bottom-anchored** (see `anchor`), as the composer anchors it,
- *    so it grows upward and the option rows translate under a resting cursor.
- *
- * A browser re-hit-tests under a stationary pointer after a layout change, so a
- * row sliding under the cursor fires `mouseenter` with nobody moving the mouse.
- * The height difference here is a few prose lines — comparable to the option-row
- * pitch — which is what turns a single hop into a self-sustaining oscillation
- * rather than something that settles after one swap.
- */
-const PENDING_USER_INPUT_UNEVEN_PREVIEWS: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "uneven_previews",
-    header: "Preview heights",
-    question: "Which rollout should ship?",
-    multiSelect: false,
-    options: [
-      {
-        label: "Six-line preview",
-        description: "Six lines of preview markdown",
-        preview: `${Array.from({ length: 6 }, (_, index) => `Line ${index + 1} of the taller preview.`).join("\n\n")}\n`,
-      },
-      {
-        label: "Three-line preview",
-        description: "Three lines — a few rows shorter than its neighbour",
-        preview: `${Array.from({ length: 3 }, (_, index) => `Line ${index + 1} of the shorter preview.`).join("\n\n")}\n`,
-      },
-      {
-        label: "Tall preview",
-        description: "Long enough to hit the pane's scroll cap",
-        preview: `### Tall\n\n${Array.from({ length: 14 }, (_, index) => `- step ${index + 1} of a long plan that makes this preview far taller than its neighbours`).join("\n")}\n`,
-      },
-    ],
-  },
-];
-
-const PENDING_USER_INPUT_STAKES_AND_RECOMMENDED: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "title_model",
-    header: "Title model",
-    question: "Auto-naming shares the 'Text generation model' setting. What do you want?",
-    stakes:
-      "A dedicated setting is a new persisted preference we cannot quietly remove later; relabelling is reversible in a line.",
-    multiSelect: false,
-    options: [
-      {
-        label: "Relabel only",
-        description:
-          "Smallest change and hard to break, but anyone wanting a cheap model for titles must accept it for all text generation.",
-        recommended: true,
-      },
-      {
-        label: "Dedicated picker",
-        description:
-          "Full control over cost per title, at the price of a second model setting to keep migrated and explained forever.",
-      },
-    ],
-  },
-];
-
-const PENDING_USER_INPUT_STAKES_ONLY: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "stakes_only",
-    header: "Migration",
-    question: "Should the rename run as one migration or in two deploys?",
-    stakes: "Getting this wrong drops rows that are already live; a rollback cannot recover them.",
-    multiSelect: false,
-    options: [
-      {
-        label: "Single migration",
-        description: "One deploy, but a brief window where old clients read a column that is gone.",
-      },
-      {
-        label: "Two deploys",
-        description: "No client ever sees a missing column, at the cost of a second release.",
-      },
-    ],
-  },
-];
-
-const PENDING_USER_INPUT_RECOMMENDED_ONLY: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "recommended_only",
-    header: "Badge only",
-    question: "Which package manager should the scripts assume?",
-    multiSelect: false,
-    options: [
-      {
-        label: "pnpm",
-        description: "Matches the lockfile already committed; no contributor has to switch.",
-        recommended: true,
-      },
-      { label: "npm", description: "Ubiquitous, but re-resolves the whole tree on every install." },
-    ],
-  },
-];
-
-const PENDING_USER_INPUT_MULTI_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "panel_targets",
-    header: "Targets",
-    question: "Which clients should render previews?",
-    multiSelect: true,
-    options: [
-      { label: "Web", description: "The composer panel" },
-      { label: "Mobile", description: "The pending-input card" },
-      { label: "Desktop", description: "Hosts the web renderer" },
-    ],
-  },
-];
-
-const PENDING_USER_INPUT_THREE_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "principles_home",
-    header: "Principles home",
-    question: "Where should the shared principles live?",
-    stakes: "Getting this wrong means every agent reads a different rulebook.",
-    multiSelect: false,
-    options: [
-      {
-        label: "Global AGENTS.md + posture",
-        description: "One file every project inherits, with a per-project posture override.",
-        recommended: true,
-      },
-      {
-        label: "Per-project only",
-        description: "Each project restates what it needs; nothing is inherited.",
-      },
-      { label: "Skill module", description: "Loaded on demand rather than always in context." },
-    ],
-  },
+const PENDING_USER_INPUT_SINGLE: ReadonlyArray<UserInputQuestion> = [
   {
     id: "enforcement",
     header: "Enforcement",
@@ -760,6 +600,9 @@ const PENDING_USER_INPUT_THREE_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
       { label: "Blocking", description: "The tool refuses outright." },
     ],
   },
+];
+
+const PENDING_USER_INPUT_MULTI: ReadonlyArray<UserInputQuestion> = [
   {
     id: "rollout",
     header: "Rollout",
@@ -773,64 +616,69 @@ const PENDING_USER_INPUT_THREE_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
   },
 ];
 
+const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
+  ...PENDING_USER_INPUT_SINGLE,
+  {
+    id: "owner",
+    header: "Owner",
+    question: "Who lands it?",
+    multiSelect: false,
+    options: [
+      { label: "Platform", description: "The team that owns the contracts." },
+      { label: "Surface", description: "Whoever owns the affected client." },
+    ],
+  },
+  ...PENDING_USER_INPUT_MULTI,
+];
+
 /**
- * The card wired to real answer drafts through the shared transitions, the way
- * `ChatView` wires it. Answering is the whole of the accordion's behaviour — a
- * fixture holding `drafts={{}}` could never show a question collapsing to its
- * summary or the next one opening. Submit and dismiss are inert here: the preview
- * harness has no backend, and dispatch is not what these fixtures are for.
+ * The panel wired to real answer state through the shared transition, the way
+ * `ChatView` wires it. Advancing is the whole of the wizard's behaviour, so a
+ * fixture holding a frozen `answers={{}}` could never show Next enabling or the
+ * next question opening. Dismiss and submit are inert: the harness has no
+ * backend, and dispatch is not what these fixtures are for.
  */
 function PendingUserInputPreview({
   questions,
-  anchor = "top",
+  dismissible,
 }: {
   readonly questions: ReadonlyArray<UserInputQuestion>;
-  /** `bottom` reproduces the composer's pinned-to-the-bottom placement. */
-  readonly anchor?: "top" | "bottom";
+  readonly dismissible: boolean;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, UserInputAnswerDraft>>({});
+  const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
+  const [questionIndex, setQuestionIndex] = useState(0);
 
   return (
-    <div
-      className={cn(
-        "mx-auto w-full min-w-0 max-w-3xl p-6",
-        anchor === "bottom" && "flex h-[85vh] flex-col justify-end",
-      )}
-    >
-      <div className="overflow-hidden rounded-[19px] border border-border/65">
-        <PendingQuestionCard
-          pendingUserInput={{
+    <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
+      <ComposerPendingUserInputPanel
+        pendingUserInputs={[
+          {
             requestId: "preview-request" as ApprovalRequestId,
             createdAt: "2026-02-23T00:00:00.000Z",
             questions,
-            dismissible: false,
-          }}
-          pendingCount={1}
-          drafts={drafts}
-          answers={buildUserInputAnswers(questions, drafts)}
-          isResponding={false}
-          isDismissing={false}
-          supersededByMessage={false}
-          onToggleOption={(question, optionLabel) =>
-            setDrafts((current) => ({
-              ...current,
-              [question.id]: toggleUserInputOptionSelection(
-                question,
-                current[question.id],
-                optionLabel,
-              ),
-            }))
-          }
-          onChangeCustomAnswer={(questionId, customAnswer) =>
-            setDrafts((current) => ({
-              ...current,
-              [questionId]: setUserInputCustomAnswer(current[questionId], customAnswer),
-            }))
-          }
-          onSubmit={() => {}}
-          onDismiss={() => {}}
-        />
-      </div>
+            dismissible,
+          },
+        ]}
+        respondingRequestIds={[]}
+        answers={answers}
+        questionIndex={questionIndex}
+        onToggleOption={(questionId, optionValue) => {
+          const question = questions.find((entry) => entry.id === questionId);
+          if (!question) return;
+          setAnswers((current) => ({
+            ...current,
+            [questionId]: togglePendingUserInputOptionSelection(
+              question,
+              current[questionId],
+              optionValue,
+            ),
+          }));
+        }}
+        onAdvance={() => {
+          setQuestionIndex((current) => Math.min(current + 1, questions.length - 1));
+        }}
+        onDismiss={() => {}}
+      />
     </div>
   );
 }
@@ -840,7 +688,7 @@ function pendingUserInputFixture(
   title: string,
   questions: ReadonlyArray<UserInputQuestion>,
   description: string,
-  anchor: "top" | "bottom" = "top",
+  dismissible = true,
 ): PreviewFixture {
   return {
     id,
@@ -848,7 +696,9 @@ function pendingUserInputFixture(
     description,
     // Keyed by fixture id: switching fixtures renders the same component type, so
     // without it one fixture's answers would carry into the next.
-    render: () => <PendingUserInputPreview key={id} questions={questions} anchor={anchor} />,
+    render: () => (
+      <PendingUserInputPreview key={id} questions={questions} dismissible={dismissible} />
+    ),
   };
 }
 
@@ -1100,47 +950,29 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     title: "Pending user input",
     fixtures: [
       pendingUserInputFixture(
-        "pending-user-input-previews",
-        "Single-select with markdown previews",
-        PENDING_USER_INPUT_QUESTIONS,
-        "Focusing an option or clicking a preview tab swaps the bordered preview pane — hovering deliberately does not (see the flicker fixture below). Wide tables and long code fences must stay inside the panel and scroll rather than blowing it out; the option without a preview looks exactly as it does today.",
-      ),
-      pendingUserInputFixture(
-        "pending-user-input-uneven-previews",
-        "Uneven preview heights, bottom-anchored",
-        PENDING_USER_INPUT_UNEVEN_PREVIEWS,
-        "The hover-flicker case: previews of very different heights in a card pinned to the bottom of its container, as the composer pins it. Park the cursor on an option row and leave it there — the option rows must not move and the preview must not oscillate.",
-        "bottom",
-      ),
-      pendingUserInputFixture(
-        "pending-user-input-stakes-recommended",
-        "Stakes + recommended option",
-        PENDING_USER_INPUT_STAKES_AND_RECOMMENDED,
-        "The decision the fields exist for: `stakes` frames what the choice costs to get wrong above the options, and the badged option carries the agent's pick. The badge must read as a suggestion, not as a pre-selected answer — nothing is selected until the user clicks.",
-      ),
-      pendingUserInputFixture(
-        "pending-user-input-stakes-only",
-        "Stakes only",
-        PENDING_USER_INPUT_STAKES_ONLY,
-        "An agent that framed the consequences but would not pick a side: framing renders, no badge appears.",
-      ),
-      pendingUserInputFixture(
-        "pending-user-input-recommended-only",
-        "Recommended only",
-        PENDING_USER_INPUT_RECOMMENDED_ONLY,
-        "A pick with no stakes line: the badge renders and the question spacing is unchanged from today.",
-      ),
-      pendingUserInputFixture(
-        "pending-user-input-accordion",
-        "Three questions (accordion)",
-        PENDING_USER_INPUT_THREE_QUESTIONS,
-        "The height case the accordion exists for: rendered in parallel this request cost ~1600px. At rest exactly one question is expanded and the other two keep a one-line header row, so the card reads as a prompt. Click any header to move the expansion; the free-text field stays behind its affordance until asked for.",
+        "pending-user-input-single",
+        "Single question, single-select",
+        PENDING_USER_INPUT_SINGLE,
+        "The ordinary pi question: the composer becomes the answer form. Picking an option enables Submit; nothing is preselected.",
       ),
       pendingUserInputFixture(
         "pending-user-input-multi",
-        "Multi-select (no previews, neither field)",
-        PENDING_USER_INPUT_MULTI_QUESTIONS,
-        "Multi-select questions never show previews, and with neither `stakes` nor `recommended` set the card is the plain option list — every non-pi provider sends questions in this shape.",
+        "Multi-select",
+        PENDING_USER_INPUT_MULTI,
+        "Options toggle independently and Submit stays disabled until at least one is on.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-wizard",
+        "Three questions (wizard)",
+        PENDING_USER_INPUT_WIZARD,
+        "One question at a time with a Next affordance; the last question submits. Answered questions collapse to their summary rather than stacking full height.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-not-dismissible",
+        "Not dismissible",
+        PENDING_USER_INPUT_SINGLE,
+        "A request that did not declare itself dismissible: no Dismiss affordance, so the only way out is answering. Pi questions always set `dismissible`, so this is the non-pi shape.",
+        false,
       ),
     ],
   },

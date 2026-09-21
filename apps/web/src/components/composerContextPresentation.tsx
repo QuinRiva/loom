@@ -29,6 +29,9 @@ import {
   uploadedAttachmentContextRecord,
 } from "~/lib/composerContextRecords";
 import type { TerminalContextDraft } from "~/lib/terminalContext";
+// loom: `#`-mentioned threads.
+import { threadReferenceContextId, type ThreadReferenceDraft } from "~/loom/threadReference";
+import { ThreadContextChip } from "~/loom/threadReferencePresentation";
 import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
 import {
@@ -62,7 +65,8 @@ export type ComposerDraftContextRecord =
   | { kind: "review-comment"; record: ReviewCommentContext }
   | { kind: "preview-annotation"; record: PreviewAnnotationPayload }
   | { kind: "image"; record: ComposerImageAttachment; upload?: AttachmentUploadState | undefined }
-  | { kind: "file"; record: ComposerFileAttachment; upload?: AttachmentUploadState | undefined };
+  | { kind: "file"; record: ComposerFileAttachment; upload?: AttachmentUploadState | undefined }
+  | { kind: "thread"; record: ThreadReferenceDraft }; // loom:
 
 /** What a chip can do beyond showing itself; the composer supplies the handlers. */
 export interface ComposerContextActions {
@@ -100,6 +104,7 @@ export function composerContextRecordsFromDraft(input: {
   previewAnnotations?: ReadonlyArray<PreviewAnnotationPayload>;
   images?: ReadonlyArray<ComposerImageAttachment>;
   files?: ReadonlyArray<ComposerFileAttachment>;
+  threadReferences?: ReadonlyArray<ThreadReferenceDraft>; // loom:
   uploadsByImageId?: Readonly<Record<string, AttachmentUploadState>>;
 }): ComposerDraftContextRecords {
   const records = new Map<string, ComposerDraftContextRecord>();
@@ -125,6 +130,10 @@ export function composerContextRecordsFromDraft(input: {
   }
   for (const record of input.previewAnnotations ?? []) {
     records.set(previewAnnotationContextId(record.id), { kind: "preview-annotation", record });
+  }
+  // loom:
+  for (const record of input.threadReferences ?? []) {
+    records.set(threadReferenceContextId(record.threadId), { kind: "thread", record });
   }
   return records;
 }
@@ -340,7 +349,7 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
   ComposerContextRenderContext,
   ReactElement
 >({
-  requiredKinds: ["image", "file", "terminal", "review-comment", "preview-annotation"],
+  requiredKinds: ["image", "file", "terminal", "review-comment", "preview-annotation", "thread"],
   handlers: [
     {
       kind: "terminal",
@@ -451,6 +460,17 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
             detailsMode={definition.capabilities.details}
             toneClassName={CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES["preview-annotation"]}
           />
+        ) : (
+          <UnresolvedContextChip label={context.label} />
+        ),
+    },
+    // loom:
+    {
+      kind: "thread",
+      canRender: (entry) => entry.kind === "thread",
+      render: (entry, context) =>
+        entry.kind === "thread" ? (
+          <ThreadContextChip reference={entry.record} />
         ) : (
           <UnresolvedContextChip label={context.label} />
         ),
