@@ -23,7 +23,7 @@ The dev runner keeps each web instance's state under a **port-scoped** home:
 land in that exact directory, so choose a server port up front and reuse it:
 
 ```sh
-PORT=13950                       # a free server port; web port is fixed at 5733+offset
+PORT=13950                       # a free server port; the web port is derived — read it from the banner
 HOME_ROOT=/tmp/t3verify          # scratch T3CODE_HOME root
 SEED_HOME="$HOME_ROOT/dev-instances/$PORT"
 ```
@@ -42,7 +42,11 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/seedWorkstream.ts
 This populates an orchestrator + 5 coder sub-threads (multi-turn rework coder,
 shared-isolation child, cancelled child) with real git checkpoint refs, and
 `git init`s the orchestrator's own worktree so the Diff surface is reachable.
-Optionally prove the read model and a per-turn diff without the UI:
+The fixture checkouts land under `$SEED_HOME/worktrees/seed-workspace/` — that
+location is load-bearing, not cosmetic: the foreign-home guard (below) decides
+provenance from whether any recorded worktree path sits inside the running
+home's `worktreesDir`, so a seed rooted anywhere else would boot the instance
+read-only. Optionally prove the read model and a per-turn diff without the UI:
 
 ```sh
 T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/verifySeed.ts
@@ -161,12 +165,19 @@ The seed is the default: it is reproducible and owns nothing. When you need
 server against a copy of the cockpit database — never against
 `~/.t3/cockpit/userdata` itself.
 
+The copy must land in the **port-scoped** home the runner will actually open
+(`--home-dir` is the root; the runner appends `dev-instances/<serverPort>`), so
+pick the free port first and spell the path with it — a copy at
+`$COPY_HOME/userdata/state.sqlite` is simply never read and the UI comes up
+empty.
+
 ```sh
 PORT=13951                                   # a free 139xx port; never 13900 (the live cockpit)
 COPY_HOME=/tmp/t3dbcopy
-mkdir -p "$COPY_HOME/userdata"
-rm -f "$COPY_HOME/userdata/state.sqlite"*    # VACUUM INTO refuses to overwrite
-bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '$COPY_HOME/userdata/state.sqlite'\")"
+COPY_STATE="$COPY_HOME/dev-instances/$PORT/userdata"
+mkdir -p "$COPY_STATE"
+rm -f "$COPY_STATE/state.sqlite"*            # VACUUM INTO refuses to overwrite
+bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '$COPY_STATE/state.sqlite'\")"
 T3CODE_NO_BROWSER=1 setsid pnpm dev --home-dir "$COPY_HOME" --port "$PORT" > /tmp/t3dbcopy-dev.log 2>&1 &
 ```
 
@@ -175,8 +186,9 @@ consistent snapshot; a plain `cp` of a live database is a corrupt copy. Copy in,
 never out.
 
 **The copy carries the cockpit's recorded paths, branches and provider
-sessions**, so a naive server on it would act on the live checkouts of every
-thread running on this machine — it has twice attempted `git worktree remove`
+sessions** (unlike the seed, whose recorded paths are its own), so a naive
+server on it would act on the live checkouts of every thread running on this
+machine — it has twice attempted `git worktree remove`
 and `git branch -d` against sibling worktrees of this clone. The server now
 detects that by itself: a database whose recorded worktree paths all sit outside
 the running home's `worktreesDir` did not come from this home, and the
@@ -209,3 +221,8 @@ Each `pnpm dev` picks its own free server/web port pair and its own state dir at
 worktree instances coexist without sharing sqlite or colliding on ports. Seed
 each one into its own per-port subdir. Never point a scratch web instance at the
 live cockpit server unless that is explicitly the intent.
+
+**Start them one at a time.** Only the _server_ port is pinned by `--port`; the
+web port is scanned for. Two `pnpm dev` launched in the same instant both see
+the same web port free and one of them loses it, so wait for the first
+`[dev-runner] web: …` banner line before launching the next.
