@@ -37,6 +37,8 @@ vi.mock("@effect/atom-react", () => ({
         {
           id: "thread-1",
           title: "Fix the login form",
+          // loom: sidebar status derives workstream attention before notification state.
+          attention: [],
           archivedAt: state.archivedAt,
           hasPendingUserInput: state.input,
           hasPendingApprovals: state.approval,

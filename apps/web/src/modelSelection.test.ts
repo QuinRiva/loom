@@ -407,6 +407,8 @@ describe("instance-scoped model selection", () => {
         null,
       ),
     ).toBe("claude-sonnet-4-6");
+    // loom: an excluded option is still a real catalogue model, so an explicit
+    // pick resolves to it whether or not unavailable selections are preserved.
     expect(
       resolveAppModelSelectionForInstance(
         ProviderInstanceId.make("claudeAgent"),
@@ -415,7 +417,7 @@ describe("instance-scoped model selection", () => {
         "claude-opus-4-6",
         { preserveUnavailableSelection: true },
       ),
-    ).toBe("claude-sonnet-4-6");
+    ).toBe("claude-opus-4-6");
   });
 
   it("falls back instead of resolving a custom slug against the wrong instance", () => {
@@ -808,6 +810,8 @@ describe("instance-scoped model selection", () => {
         },
       },
     };
+    // loom: hiding the only catalogue model excludes it from browsing, not from
+    // resolution — the default marker still resolves to the real model.
     expect(
       resolveAppModelSelectionForInstance(
         instanceId,
@@ -816,7 +820,7 @@ describe("instance-scoped model selection", () => {
         ANTIGRAVITY_DEFAULT_MODEL,
         { preserveUnavailableSelection: true },
       ),
-    ).toBeNull();
+    ).toBe(nativeModel);
     expect(
       getAppModelOptionsForInstance(
         settings,
