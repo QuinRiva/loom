@@ -411,9 +411,9 @@ it.layer(TestLayer, { excludeTestServices: true })("user-input settlement guaran
   );
 
   // The dispatch helper's own contract: `persisted` counts CONFIRMED writes, so a
-  // caller (the startup scan) cannot log success over a still-wedged thread. Run
-  // on the live clock (`it.live`): the retry backoff sleeps, and the layer's test
-  // clock never advances them.
+  // caller (the startup scan) cannot log success over a still-wedged thread. The
+  // retry backoff sleeps, which is why the whole suite runs on the live clock
+  // (`excludeTestServices` on the layer above).
   it.effect("counts only confirmed writes when the command path keeps failing", () =>
     Effect.gen(function* () {
       const attempts: Array<string> = [];

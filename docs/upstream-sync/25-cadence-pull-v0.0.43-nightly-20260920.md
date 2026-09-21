@@ -1551,25 +1551,28 @@ the behaviour explicitly ruled KEEP; no compatibility shims.
 
 ## PRs
 
-| PR   | What it did                                                                          |
-| ---- | ------------------------------------------------------------------------------------ |
-| #195 | The merge itself (`c14f6015bf`), sync note 25                                        |
-| #196 | Chat re-home slice 1 — `ChatMarkdown` on upstream's, loom's chips/viewer re-attached |
-| #197 | Upstream's PR-projection arms; `last_error_class` restored                           |
-| #198 | Diff tab "By coder" scope repaired and marked                                        |
-| #199 | Auto-settle: the server sweep is the single owner; loom's client rule deleted        |
-| #200 | Reasoning: upstream's durable rows adopted, loom's ephemeral v2 deleted (doc 26)     |
-| #201 | PiDriver compaction (pi's `compact` RPC) and conversation rollback                   |
-| #202 | Child/staged-root provisioning through `WorktreeSetupTracker`                        |
-| #203 | DB-copy smoke safety guard; `sqlcolsweep.py` overrides; dev-verify recipe            |
-| #204 | Chat re-home slice 2 — composer closure; loom's question card deleted end to end     |
-| #205 | Chat re-home slice 3 — timeline on upstream's, 15 marked hunks                       |
-| #206 | Sidebar ordering: upstream's comparator; loom's activity anchor deleted              |
-| #207 | Titles: upstream's flow wholesale; `title_provenance` dropped (migration 1039)       |
-| #208 | Startup phases restored; welded server tests realigned; dead projections deleted     |
+| PR   | What it did                                                                                                                                                        |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #195 | The merge itself (`c14f6015bf`), sync note 25                                                                                                                      |
+| #196 | Chat re-home slice 1 — `ChatMarkdown` on upstream's, loom's chips/viewer re-attached                                                                               |
+| #197 | Upstream's PR-projection arms; `last_error_class` restored                                                                                                         |
+| #198 | Diff tab "By coder" scope repaired and marked                                                                                                                      |
+| #199 | Auto-settle: the server sweep is the single owner; loom's client rule deleted                                                                                      |
+| #200 | Reasoning: upstream's durable rows adopted, loom's ephemeral v2 deleted (doc 26)                                                                                   |
+| #201 | PiDriver compaction (pi's `compact` RPC) and conversation rollback                                                                                                 |
+| #202 | Child/staged-root provisioning through `WorktreeSetupTracker`                                                                                                      |
+| #203 | DB-copy smoke safety guard; `sqlcolsweep.py` overrides; dev-verify recipe                                                                                          |
+| #204 | Chat re-home slice 2 — composer closure; loom's question card deleted end to end                                                                                   |
+| #205 | Chat re-home slice 3 — timeline on upstream's, 15 marked hunks                                                                                                     |
+| #206 | Sidebar ordering: upstream's comparator; loom's activity anchor deleted                                                                                            |
+| #207 | Titles: upstream's flow wholesale; `title_provenance` dropped (migration 1039)                                                                                     |
+| #208 | Startup phases restored; welded server tests realigned; dead projections deleted                                                                                   |
+| #209 | Chat re-home slice 4 — `ChatView` on upstream's with loom at 33 marked seams                                                                                       |
+| #210 | Usage: `AccountUsageRegistry` and `/usage` retired onto upstream's Limits page; the poller emits per-account limits; `PiDriver` requests the workstream capability |
+| #211 | Stage-4 cleanups — decider first-message dedupe, artefact-chip context menu, bare-filename chips, deep-link residue retired                                        |
 
-Later stack PRs (chat slice 4, usage/limits, lint-and-doctrine) append to this
-table. `docs/upstream-sync/UPSTREAM_BASE` records the upstream commit the fork's
+Later stack PRs (lint-and-doctrine, and whatever stage 4 still owes) append to
+this table. `docs/upstream-sync/UPSTREAM_BASE` records the upstream commit the fork's
 merge-base sits at (`c14f6015bf` for pull 7); the ship gate
 (`pull7-tools/unmarkedsweep.sh`) diffs against it, so a pull is not finished
 until that file is advanced to the new upstream tip.
@@ -1616,44 +1619,55 @@ against [`apps/server/src/provider/Drivers/PiDriver.ts`](../../apps/server/src/p
 A capability Pi cannot serve is recorded here as a deliberate gap; anything else
 is a lost feature.
 
-| Capability / member                               | PiDriver after this stack                                                                       |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `sessionModelSwitch`                              | ✓ `in-session` — pi switches model on a live session                                            |
-| `emitsExitOnStop`                                 | ✓ `true` — `stopSession` awaits `process.stop()`, the child `exit` emits `session.exited`       |
-| `resumeState`                                     | ✓ `session-file` — pi owns a deterministic per-thread `.jsonl`; **no resume cursor exists**     |
-| `canResumeThread`                                 | ✓ probes the session file, which is what lets recovery restart into the same conversation       |
-| `promptlessTurnContinuation`                      | ✗ deliberate — Pi is continued with an explicit prompt; upstream's fallback branch covers it    |
-| `supportsConversationRollback` / `rollbackThread` | ✓ PR #201 — "Edit from here" works on Pi                                                        |
-| `compaction`                                      | ✓ PR #201 — native, pi's `compact` RPC                                                          |
-| `respondToUserInput`                              | ✓ native ask-user dialogs, dismissible without a provider round trip                            |
-| attachments                                       | ✓ image blocks only (`PI_NATIVE_IMAGE_MIMES`); other types are passed as paths                  |
-| reasoning                                         | ✓ PR #200 — upstream's durable reasoning rows (doc 26)                                          |
-| usage limits                                      | ~ loom's `windows`/`planType` rollup via the poller; upstream's normalised shape pending (D10f) |
-| skills                                            | ✓ via pi's `get_commands`                                                                       |
-| `uploadFeedback`                                  | ✗ not implemented — upstream's thread-feedback upload is refused for Pi                         |
+| Capability / member                               | PiDriver after this stack                                                                                                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionModelSwitch`                              | ✓ `in-session` — pi switches model on a live session                                                                                      |
+| `emitsExitOnStop`                                 | ✓ `true` — `stopSession` awaits `process.stop()`, the child `exit` emits `session.exited`                                                 |
+| `resumeState`                                     | ✓ `session-file` — pi owns a deterministic per-thread `.jsonl`; **no resume cursor exists**                                               |
+| `canResumeThread`                                 | ✓ probes the session file, which is what lets recovery restart into the same conversation                                                 |
+| `promptlessTurnContinuation`                      | ✗ deliberate — Pi is continued with an explicit prompt; upstream's fallback branch covers it                                              |
+| `supportsConversationRollback` / `rollbackThread` | ✓ PR #201 — "Edit from here" works on Pi                                                                                                  |
+| `compaction`                                      | ✓ PR #201 — native, pi's `compact` RPC                                                                                                    |
+| `respondToUserInput`                              | ✓ native ask-user dialogs, dismissible without a provider round trip                                                                      |
+| attachments                                       | ✓ image blocks only (`PI_NATIVE_IMAGE_MIMES`); other types are passed as paths                                                            |
+| reasoning                                         | ✓ PR #200 — upstream's durable reasoning rows (doc 26)                                                                                    |
+| usage limits                                      | ✓ PR #210 — the poller emits upstream's per-account limits shape, so Pi reaches the Limits page; loom's registry and `/usage` are retired |
+| skills                                            | ✓ via pi's `get_commands`                                                                                                                 |
+| `uploadFeedback`                                  | ✗ not implemented — upstream's thread-feedback upload is refused for Pi                                                                   |
 
 **The trap this catches, concretely.** Upstream's restart continuation (#9167)
 gates on `binding.resumeCursor != null`. Pi never produces a cursor, so the
 feature was dead for the entire fork _and_ actively harmful: its reconcile phase
 settled every interrupted thread as "Provider session did not survive a server
 restart" before loom's own resume could see it. The fix is in upstream's file,
-marked: resume state may be a `session-file` driver's on-disk session. Read the
-gate, not just the capability list.
+marked: resume state may be a `session-file` driver's on-disk session. **Read the
+gate, not just the capability list** — `resumeState` was declared correctly and
+the feature was still dead.
 
 ## Restart continuation — upstream owns it
 
 Upstream's #9167 (`reconcileProviderSessions`, phase `provider-sessions.reconcile`)
 is the single mechanism. Loom's Option-1 resume in
 [`apps/server/src/loom/startup.ts`](../../apps/server/src/loom/startup.ts) is
-deleted and `plans/2026-07-16-restart-turn-continuation.md` is a one-line
-superseded note. Three marked hunks carry the fork's requirements into upstream's
-path: resume state may be a session-file session (above); a thread flagged for
-attention or `cancelled` is never continued (a continuation revives work a human
-or the control plane stopped); and the queued steers the dead turn never consumed
-ride along in the continuation prompt, because nothing else re-delivers them.
-What remains in `loom/startup.ts` is the fork's other boot repairs — stuck-launch
-recovery, stale pending-turn-start clearing, the open-user-input scan, and the
-reset of sessions upstream declined to continue.
+deleted, its tests with it, and `plans/2026-07-16-restart-turn-continuation.md`
+is a one-line superseded note. **Two** marked hunks carry the fork's requirements
+into upstream's path: resume state may be a session-file session (above); and a
+thread is not continued while it is flagged for attention, `cancelled`, or parked
+on an open approval whose consumer died with the process — `isRecoveryResumable`
+owns that rule for every caller, so this site derives the approval flag from the
+read model's activities rather than passing a literal. An open _question_ is not
+an exclusion: the fork's later startup scan cancels every boot-inherited
+user-input request. What remains in `loom/startup.ts` is the fork's other boot
+repairs — stuck-launch recovery, stale pending-turn-start clearing, the
+open-user-input scan, and the reset of sessions upstream declined to continue.
+
+**Not carried over: the queued-steer rescue.** Loom's deleted arm folded the
+steers a human typed during the interrupted turn into its resume message. That
+could never have worked, in either implementation: `queuedMessages` is ephemeral
+live state with no column behind it, and `mapSessionRow` hydrates every DB-backed
+session with an empty queue, so at boot the list is always `[]`. Rescuing those
+messages needs the queue persisted — a real gap, tracked as its own task, not a
+line in the continuation prompt.
 
 ## Lint and knip — upstream's configuration, no fork exemptions
 
@@ -1665,9 +1679,13 @@ relaxed `react/no-unstable-nested-components`. `knip.jsonc`,
 The one remaining fork line is a `fmt` ignore for `plans/**` (MDX deliverables
 the formatter rewrites — the same class as upstream's `.macroscope/ignore.md`).
 
-Doctrine: **a lint or knip finding on fork code is fixed or deleted, never
-exempted.** A ceiling entry or an ignore list for a fork file is a
-review-stopping defect. What that cost in practice: three loom test files moved
+Doctrine: **a lint or knip finding on fork _code_ is fixed or deleted, never
+exempted.** A ceiling entry or an ignore list for a fork source file is a
+review-stopping defect. The `plans/**` line is not one of those, and the
+distinction is worth keeping straight: it is a _formatter_ ignore for fork
+_content_ — `vp fmt` over a single plan rewrites ~400 lines, re-wrapping prose
+inside MDX component children and reflowing component attributes, i.e. damaging
+a deliverable. No lint rule is silenced for any fork source file. What that cost in practice: three loom test files moved
 onto the harness runtime upstream already exposes, one loom mobile component
 deleted (it rendered the file preview twice), three unused loom modules deleted,
 four unused dependencies dropped, and `Pi/Cli.ts` restructured so knip can see

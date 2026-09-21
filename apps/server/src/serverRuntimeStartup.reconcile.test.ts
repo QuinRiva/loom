@@ -45,6 +45,7 @@ const makeThread = (
   // loom: the fork's read model carries these, and reconciliation reads them.
   attention: [] as ReadonlyArray<unknown>,
   planLane: "in_progress" as const,
+  activities: [] as ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>,
   session: {
     threadId: ThreadId.make(id),
     status,
@@ -1021,16 +1022,11 @@ it.effect("settles failed opt-in recovery without retrying the provider turn", (
 // loom: pi is a `session-file` driver — it create-or-resumes a deterministic
 // per-thread session on disk and never produces a resume cursor. Gating
 // continuation on a cursor made restart continuation dead for the whole fork
-// (and settled every interrupted thread as an error instead). The undelivered
-// steers ride along with the prompt, because nothing else re-delivers them.
-it.effect("continues a cursor-less session-file thread and carries its queued steers", () =>
+// (and settled every interrupted thread as an error instead).
+it.effect("continues a cursor-less session-file thread", () =>
   Effect.gen(function* () {
     const turnId = TurnId.make("turn-session-file");
     const thread = makeThread("thread-session-file", "running", turnId);
-    const threadWithSteers = {
-      ...thread,
-      session: { ...thread.session, queuedMessages: { steering: ["ship it"], followUp: [] } },
-    };
     const sent = yield* Deferred.make<void>();
     const sends: ProviderSendTurnInput[] = [];
     const dispatched: OrchestrationCommand[] = [];
@@ -1042,7 +1038,7 @@ it.effect("continues a cursor-less session-file thread and carries its queued st
       runtimePayload: { activeTurnId: turnId },
     };
     yield* runReconciliation({
-      threads: [threadWithSteers],
+      threads: [thread],
       continueAfterRestart: true,
       providerService: {
         ...makeProviderService(),
@@ -1077,20 +1073,73 @@ it.effect("continues a cursor-less session-file thread and carries its queued st
         }),
     });
     yield* Deferred.await(sent);
-    assert.equal(sends.length, 1);
-    assert.equal(sends[0]?.threadId, thread.id);
-    assert.include(sends[0]?.input ?? "", "Continue where you left off.");
-    assert.include(sends[0]?.input ?? "", "- ship it");
+    assert.deepStrictEqual(sends, [
+      {
+        threadId: thread.id,
+        input: "Continue where you left off.",
+        interactionMode: "default",
+      },
+    ]);
     // The thread was prepared for continuation, never settled as an error.
     assert.deepStrictEqual(
       dispatched.map((command) => command.type === "thread.session.set" && command.session.status),
       ["starting"],
     );
+  }),
+);
+
+// loom: an open approval parks the thread on a human and its consumer died with
+// the process; continuing would run a fresh turn underneath an unanswerable
+// request. `isRecoveryResumable` owns the rule, so this call site must feed it.
+it.effect("does not continue a thread parked on an open approval", () =>
+  Effect.gen(function* () {
+    const turnId = TurnId.make("turn-parked-approval");
+    const base = makeThread("thread-parked-approval", "running", turnId);
+    const dispatched: OrchestrationCommand[] = [];
+    yield* runReconciliation({
+      threads: [
+        {
+          ...base,
+          activities: [
+            {
+              kind: "approval.requested",
+              payload: { requestId: "approval-open" },
+            },
+          ],
+        },
+      ],
+      continueAfterRestart: true,
+      providerService: {
+        ...makeProviderService(),
+        sendTurn: () => Effect.die("must not continue a thread parked on an approval"),
+      },
+      directory: {
+        getBinding: () =>
+          Effect.succeed(
+            Option.some({
+              threadId: base.id,
+              provider: ProviderDriverKind.make("pi"),
+              providerInstanceId,
+              status: "running" as const,
+              resumeCursor: { threadId: base.id },
+              runtimePayload: { activeTurnId: turnId },
+            }),
+          ),
+        upsert: () => Effect.void,
+        recordImportedTranscript: () => Effect.die("unused"),
+        getProvider: () => Effect.die("unused"),
+        listThreadIds: () => Effect.die("unused"),
+        listBindings: () => Effect.succeed([]),
+      },
+      dispatch: (command) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+    });
     assert.deepStrictEqual(
-      dispatched.flatMap((command) =>
-        command.type === "thread.session.set" ? [command.session.queuedMessages] : [],
-      ),
-      [{ steering: [], followUp: [] }],
+      dispatched.map((command) => command.type === "thread.session.set" && command.session.status),
+      ["error"],
     );
   }),
 );
