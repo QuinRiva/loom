@@ -266,7 +266,11 @@ describe("piCommandsToSnapshot", () => {
       },
     ]);
 
+    // pi implements `/compact` natively rather than as a command `get_commands`
+    // reports, so the palette always leads with it (the composer's Compact
+    // button renders off this entry).
     expect(slashCommands).toEqual([
+      { name: "compact", description: expect.any(String) },
       { name: "review", description: "Run a review" },
       { name: "summarise" },
     ]);
@@ -288,7 +292,7 @@ describe("piCommandsToSnapshot", () => {
       { name: "skill:   ", source: "skill" },
     ]);
 
-    expect(slashCommands).toEqual([]);
+    expect(slashCommands).toEqual([{ name: "compact", description: expect.any(String) }]);
     expect(skills).toEqual([{ name: "local", path: "local", enabled: true }]);
   });
 });

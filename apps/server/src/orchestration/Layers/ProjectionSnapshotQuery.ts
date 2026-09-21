@@ -196,9 +196,6 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     origin: Schema.NullOr(MessageOrigin),
     controlPayload: Schema.NullOr(Schema.fromJsonString(ControlPayload)),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-    reasoningText: Schema.NullOr(Schema.String),
-    reasoningStreaming: Schema.NullOr(Schema.Number),
-    reasoningMs: Schema.NullOr(Schema.Number),
     context: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageContext)),
   }),
 );
@@ -1498,9 +1495,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -2365,6 +2359,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sessions.runtime_mode AS "runtimeMode",
           sessions.active_turn_id AS "activeTurnId",
           sessions.last_error AS "lastError",
+          -- loom: the fork's session row schema requires this column; omitting
+          -- it fails the decode at runtime, where typecheck cannot see it —
+          -- and this query gates EVERY provider runtime event's ingestion.
+          sessions.last_error_class AS "lastErrorClass",
           sessions.updated_at AS "updatedAt"
         FROM projection_threads AS threads
         LEFT JOIN projection_thread_sessions AS sessions
@@ -2403,9 +2401,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         attachments_json AS "attachments",
         context_json AS "context",
         is_streaming AS "isStreaming",
-        reasoning_text AS "reasoningText",
-        reasoning_streaming AS "reasoningStreaming",
-        reasoning_ms AS "reasoningMs",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
         EXISTS (
@@ -2441,9 +2436,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -3021,9 +3013,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           attachments_json AS "attachments",
           context_json AS "context",
           is_streaming AS "isStreaming",
-          reasoning_text AS "reasoningText",
-          reasoning_streaming AS "reasoningStreaming",
-          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -4014,11 +4003,6 @@ pending_approval_requests AS (
                   ...(row.context !== null ? { context: row.context } : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
-                  ...(row.reasoningText !== null ? { reasoningText: row.reasoningText } : {}),
-                  ...(row.reasoningStreaming !== null
-                    ? { reasoningStreaming: row.reasoningStreaming === 1 }
-                    : {}),
-                  ...(row.reasoningMs !== null ? { reasoningMs: row.reasoningMs } : {}),
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                 });
@@ -5924,11 +5908,6 @@ pending_approval_requests AS (
             text: row.text,
             turnId: row.turnId,
             streaming: row.isStreaming === 1,
-            ...(row.reasoningText !== null ? { reasoningText: row.reasoningText } : {}),
-            ...(row.reasoningStreaming !== null
-              ? { reasoningStreaming: row.reasoningStreaming === 1 }
-              : {}),
-            ...(row.reasoningMs !== null ? { reasoningMs: row.reasoningMs } : {}),
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           };

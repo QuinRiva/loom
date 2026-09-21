@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import { refuseForeignHomeSideEffect } from "../workspace/foreignHomeGuard.loom.ts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
@@ -233,6 +234,18 @@ export const make = Effect.gen(function* () {
   const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = Effect.fn(
     "ProjectSetupScriptRunner.runForThread",
   )(function* (input) {
+    // loom: the setup script runs arbitrary project commands (installs, builds) in
+    // the recorded worktree. On a copied database that worktree belongs to another
+    // home, so report "nothing to run" rather than execute there
+    // (foreignHomeGuard.loom.ts).
+    if (
+      yield* refuseForeignHomeSideEffect(
+        "ProjectSetupScriptRunner.runForThread",
+        input.worktreePath,
+      )
+    ) {
+      return { status: "no-script" } as const;
+    }
     const errorContext = {
       threadId: input.threadId,
       worktreePath: input.worktreePath,

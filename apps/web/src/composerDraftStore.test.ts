@@ -3480,4 +3480,33 @@ describe("composerDraftStore thread references", () => {
     expect(hydrated.threadReferences).toEqual([mentioned]);
     expect(hydrated.prompt).toBe(`ask ${mentionLink} `);
   });
+
+  // The round trip above hydrates one draft in isolation; a real reload goes
+  // through the persist `merge`, whose normaliser rebuilds every persisted
+  // draft field by field. It dropped the mention record there — the chip came
+  // back from the canonical link while its identity did not, and the next
+  // persist wrote the draft back without the array.
+  it("keeps the mention record across a store reload and re-persists it", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadRef, "ask");
+    store.addThreadReference(threadRef, mentioned);
+    const threadKey = scopedThreadKey(threadRef);
+    const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+
+    const reloaded = useComposerDraftStore.persist.getOptions().merge!(
+      persisted,
+      useComposerDraftStore.getInitialState(),
+    ) as ReturnType<typeof useComposerDraftStore.getState>;
+    expect(reloaded.draftsByThreadKey[threadKey]?.threadReferences).toEqual([mentioned]);
+    expect(reloaded.draftsByThreadKey[threadKey]?.prompt).toBe(`ask ${mentionLink} `);
+
+    // The send record still resolves after the reload, so a reloaded chip does
+    // not send as a bare link.
+    useComposerDraftStore.setState(reloaded);
+    expect(
+      partializeComposerDraftStoreState(useComposerDraftStore.getState()).draftsByThreadKey[
+        threadKey
+      ]?.threadReferences,
+    ).toEqual([mentioned]);
+  });
 });

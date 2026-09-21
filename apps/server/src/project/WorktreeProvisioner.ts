@@ -1,21 +1,23 @@
 import {
   CommandId,
   EventId,
-  type GitCommandError,
   type OrchestrationCommand,
   type ProjectId,
   type ThreadId,
+  type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import type * as PlatformError from "effect/PlatformError";
+import * as Data from "effect/Data";
 
-import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 
 import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
@@ -23,42 +25,33 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
-import { WorkspaceLease } from "../workspace/WorkspaceOccupancyLease.ts";
+import { WorkspaceLease, type WorkspaceHold } from "../workspace/WorkspaceOccupancyLease.ts";
+import { WorktreeSetupTracker } from "./WorktreeSetupTracker.ts";
+import { worktreeSetupActivityCommand } from "./worktreeSetupRecord.loom.ts";
 
 /**
- * WorktreeProvisioner — the single provisioning tail shared by the root
- * bootstrap (`ws.ts`) and the workstream dispatcher's promotion path
- * (worktree-isolation plan §2). It owns: create the worktree, repoint the
- * thread's `branch`/`worktreePath`, refresh git status, and fire the setup
- * script (non-blocking, behind the `t3code-setup-state.json` breadcrumb) with
- * its activity trail. Extracting it keeps the two callers from duplicating the
- * createWorktree → meta.update → setup → activities sequence.
+ * WorktreeProvisioner — the workstream dispatcher's provisioning path
+ * (worktree-isolation plan §2). It owns: create the child's worktree, repoint
+ * the thread's `branch`/`worktreePath`, refresh git status, and fire the setup
+ * script (non-blocking, behind the `t3code-setup-state.json` breadcrumb).
+ *
+ * The whole sequence runs as an interruptible fibre registered with
+ * {@link WorktreeSetupTracker} under the CHILD's thread id, and its running /
+ * terminal state is persisted as the `worktree-setup` activity on the child —
+ * the same contract the root bootstrap in `ws.ts` writes. That is what gives a
+ * dispatcher-spawned child the setup card (live, and after a reload) and a
+ * Cancel button that actually stops the provisioning.
  */
-
-export interface ProvisionWorktreeInput {
-  readonly threadId: ThreadId;
-  readonly projectId?: ProjectId;
-  /** Repo cwd the git operations run against (parent worktree / project root). */
-  readonly projectCwd: string;
-  /** The ref the new worktree branches from. */
-  readonly baseBranch: string;
-  /** The new branch to create for the worktree (omit to attach on `baseBranch`). */
-  readonly branch?: string;
-  /** Resolve the base ref against origin first (root bootstrap fresh-clone). */
-  readonly startFromOrigin?: boolean;
-}
 
 export interface ProvisionWorktreeResult {
   readonly worktreePath: string;
   readonly branch: string;
 }
 
-export interface RunSetupInput {
+/** A human cancelled the provisioning through `worktreeSetup.cancel`. */
+export class WorktreeProvisionCancelled extends Data.TaggedError("WorktreeProvisionCancelled")<{
   readonly threadId: ThreadId;
-  readonly projectId?: ProjectId;
-  readonly projectCwd?: string;
-  readonly worktreePath: string;
-}
+}> {}
 
 export interface ProvisionIsolatedChildInput {
   readonly threadId: ThreadId;
@@ -70,20 +63,9 @@ export interface ProvisionIsolatedChildInput {
   readonly parentBranch: string;
 }
 
-// Provisioning surfaces git + command-dispatch failures to the caller (both
-// callers wrap the call in a catch); setup + activity + status side effects are
-// swallowed internally.
-type ProvisionError = GitCommandError | OrchestrationDispatchError | PlatformError.PlatformError;
-
 export class WorktreeProvisioner extends Context.Service<
   WorktreeProvisioner,
   {
-    readonly provisionWorktree: (
-      input: ProvisionWorktreeInput,
-    ) => Effect.Effect<ProvisionWorktreeResult, ProvisionError>;
-    readonly provisionIsolatedChild: (
-      input: ProvisionIsolatedChildInput,
-    ) => Effect.Effect<ProvisionWorktreeResult, ProvisionError>;
     // Turn-start invariant (item 4): (re)provision an isolated child's worktree
     // before any turn starts against it, parking it (needs_guidance) on failure.
     // Idempotent — an already-provisioned (`ws/…`) or worktree-less child is a
@@ -101,9 +83,6 @@ export class WorktreeProvisioner extends Context.Service<
     // this in-memory marker only drives the promote-loop skip and the
     // provisioning-specific wake copy, and is lost (harmlessly) on restart.
     readonly hasPendingProvisionFailure: (threadId: ThreadId) => boolean;
-    // Fire-and-forget setup for a pre-existing worktree (the bootstrap
-    // setup-only case). Non-blocking; status flows via the breadcrumb + trail.
-    readonly runSetup: (input: RunSetupInput) => Effect.Effect<void, ProvisionError>;
   }
 >()("t3/project/WorktreeProvisioner") {}
 
@@ -168,17 +147,20 @@ const make = Effect.gen(function* () {
   const setupRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const workspaceLease = yield* WorkspaceLease;
+  const setupTracker = yield* WorktreeSetupTracker;
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`server:worktree-provisioner:${tag}:${uuid}`)),
     );
 
-  // Provisioning failures are surfaced once per process (activity +
-  // needs_guidance flag) then remembered so the dispatcher's promote loop does
-  // not re-spin on the same git error. The reactor's turn-start guard retries
-  // regardless (a prompt means "retry provisioning"); on success the marker is
-  // cleared. A restart drops the set and retries once.
+  // Provisioning failures — and cancellations — are surfaced once per process
+  // (activity + needs_guidance flag, or the cancelled setup card) then
+  // remembered so the dispatcher's promote loop does not re-spin straight back
+  // into the same git error or into the provisioning a human just stopped. The
+  // reactor's turn-start guard retries regardless (a prompt means "retry
+  // provisioning"); on success the marker is cleared. A restart drops the set
+  // and retries once.
   const failedProvisions = new Set<ThreadId>();
 
   const appendActivity = (input: {
@@ -214,52 +196,90 @@ const make = Effect.gen(function* () {
       .refreshStatus(cwd)
       .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
-  // Hold the tree we just cut (plan §7.1). The window this closes is the one
-  // that produced the reported failure: provisioning creates the worktree, then
-  // setup and the provider launch follow asynchronously, and in between a
-  // fan-in/reaper pass could decide the fresh tree is removable. The launch
-  // takes its own hold before spawning, so this one only has to bridge the gap
-  // — and it is released on a timer rather than by a handover, because a hold
-  // whose release depends on a launch that may never come is a permanently
-  // immortal worktree. After the window the ordinary predicates apply again (a
-  // just-provisioned child is non-terminal with an unsettled fan-in, so no
-  // remover targets it anyway); this is belt, not the structural guarantee.
-  const holdFreshWorktree = (threadId: ThreadId, worktreePath: string) =>
-    workspaceLease.hold(worktreePath, `worktree-provision:${threadId}`).pipe(
-      Effect.flatMap((held) =>
-        Effect.forkDetach(Effect.andThen(Effect.sleep(FRESH_WORKTREE_HOLD), held.release)),
-      ),
+  // Hold the tree we just cut (plan §7.1). The hold is taken the moment git
+  // registers the directory — before the (possibly long) submodule checkout —
+  // so no fan-in/reaper pass can decide a half-built tree is removable, and it
+  // is released immediately when provisioning is cancelled or fails (nothing
+  // is using the tree then). On success it is released on a timer rather than
+  // by a handover, because a hold whose release depends on a launch that may
+  // never come is a permanently immortal worktree. After the window the
+  // ordinary predicates apply again (a just-provisioned child is non-terminal
+  // with an unsettled fan-in, so no remover targets it anyway); this is belt,
+  // not the structural guarantee.
+  const releaseHoldAfterWindow = (hold: WorkspaceHold) =>
+    Effect.forkDetach(Effect.andThen(Effect.sleep(FRESH_WORKTREE_HOLD), hold.release)).pipe(
       Effect.asVoid,
     );
 
-  // Fire-and-forget setup (plan §2): observe completion in a detached fibre so
-  // the provider turn starts without waiting; the breadcrumb + activities carry
-  // status. Setup failure follows the existing policy — the child sees `failed`
-  // and reports; no new escalation machinery.
-  const runSetup = Effect.fn("WorktreeProvisioner.runSetup")(function* (input: RunSetupInput) {
+  // The durable record of the child's setup, upserted under a fixed id so a
+  // reload, a second client or a restarted server renders the card from the
+  // projection rather than the memory-only tracker. Best effort: a child
+  // deleted mid-provision has no thread left to append to.
+  const recordSetup = (snapshot: WorktreeSetupSnapshot) =>
+    serverCommandId("worktree-setup-activity").pipe(
+      Effect.flatMap((commandId) =>
+        orchestrationEngine.dispatch(worktreeSetupActivityCommand(commandId, snapshot)),
+      ),
+      Effect.ignoreCause({ log: true }),
+    );
+
+  const settleSetup = (
+    threadId: ThreadId,
+    phase: "done" | "failed" | "cancelled",
+    error?: string,
+  ) =>
+    setupTracker
+      .finish(threadId, phase, error ?? null)
+      .pipe(Effect.flatMap((snapshot) => (snapshot ? recordSetup(snapshot) : Effect.void)));
+
+  // Fire-and-forget setup (plan §2): the provider turn starts without waiting
+  // for the script, and the card's `setup-script` stage (plus the
+  // `t3code-setup-state.json` breadcrumb) carries its status. Setup failure
+  // follows the existing policy — the child sees `failed` and reports; no new
+  // escalation machinery. Returns the started script so the caller can settle
+  // the card when it exits, or null when nothing is running.
+  const startSetupScript = Effect.fn("WorktreeProvisioner.startSetupScript")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly projectId?: ProjectId;
+    readonly projectCwd: string;
+    readonly worktreePath: string;
+  }) {
+    const threadId = input.threadId;
     const requestedAt = yield* nowIso;
-    const recordFailure = (detail: string, createdAt: string) =>
-      appendActivity({
-        threadId: input.threadId,
-        kind: "setup-script.failed",
-        summary: "Setup script failed",
-        createdAt,
-        payload: { detail, worktreePath: input.worktreePath },
-        tone: "error",
-      });
-    yield* setupRunner
+    yield* setupTracker.stageStatus(threadId, "setup-script", "running");
+    return yield* setupRunner
       .runForThread({
-        threadId: input.threadId,
+        threadId,
         ...(input.projectId ? { projectId: input.projectId } : {}),
-        ...(input.projectCwd ? { projectCwd: input.projectCwd } : {}),
+        projectCwd: input.projectCwd,
         worktreePath: input.worktreePath,
+        observeCompletion: {
+          onOutputLine: (line) => setupTracker.appendTail(threadId, "setup-script", line),
+        },
       })
       .pipe(
         Effect.matchEffect({
-          onFailure: (error) => recordFailure(describeSetupFailure(error), requestedAt),
+          onFailure: (error) =>
+            appendActivity({
+              threadId,
+              kind: "setup-script.failed",
+              summary: "Setup script failed",
+              createdAt: requestedAt,
+              payload: { detail: describeSetupFailure(error), worktreePath: input.worktreePath },
+              tone: "error",
+            }).pipe(
+              Effect.andThen(
+                setupTracker.stageStatus(threadId, "setup-script", "failed", "failed to start"),
+              ),
+              Effect.as(null),
+            ),
           onSuccess: (result) => {
-            if (result.status !== "started") return Effect.void;
-            const base = {
+            if (result.status !== "started") {
+              return setupTracker
+                .stageStatus(threadId, "setup-script", "skipped", "no setup script")
+                .pipe(Effect.as(null));
+            }
+            const payload = {
               worktreePath: input.worktreePath,
               scriptId: result.scriptId,
               scriptName: result.scriptName,
@@ -267,126 +287,285 @@ const make = Effect.gen(function* () {
             };
             return Effect.gen(function* () {
               yield* appendActivity({
-                threadId: input.threadId,
+                threadId,
                 kind: "setup-script.requested",
                 summary: "Starting setup script",
                 createdAt: requestedAt,
-                payload: base,
+                payload,
                 tone: "info",
               });
               yield* appendActivity({
-                threadId: input.threadId,
+                threadId,
                 kind: "setup-script.started",
                 summary: "Setup script started",
                 createdAt: yield* nowIso,
-                payload: base,
+                payload,
                 tone: "info",
               });
-              yield* result.completion.pipe(
-                Effect.matchEffect({
-                  onFailure: (error) =>
-                    nowIso.pipe(
-                      Effect.flatMap((createdAt) =>
-                        recordFailure(describeSetupFailure(error), createdAt),
-                      ),
-                    ),
-                  onSuccess: () =>
-                    nowIso.pipe(
-                      Effect.flatMap((createdAt) =>
-                        appendActivity({
-                          threadId: input.threadId,
-                          kind: "setup-script.completed",
-                          summary: "Setup script completed",
-                          createdAt,
-                          payload: base,
-                          tone: "info",
-                        }),
-                      ),
-                    ),
-                }),
-                Effect.forkDetach,
-              );
+              yield* setupTracker.update(threadId, (snapshot) => ({
+                ...snapshot,
+                setupScript: {
+                  name: result.scriptName,
+                  command: result.scriptCommand,
+                  terminalId: result.terminalId,
+                },
+              }));
+              return result;
             });
           },
         }),
       );
   });
 
-  const provisionWorktree = Effect.fn("WorktreeProvisioner.provisionWorktree")(function* (
-    input: ProvisionWorktreeInput,
-  ) {
-    let worktreeBaseRef = input.baseBranch;
-    // "Start from origin" is a stored default; repos without an origin remote
-    // fall back to the local base branch instead of failing the whole bootstrap
-    // on `git fetch origin`.
-    const startFromOrigin =
-      input.startFromOrigin === true &&
-      (yield* gitWorkflow.remoteExists({ cwd: input.projectCwd, remoteName: "origin" }));
-    if (startFromOrigin) {
-      yield* gitWorkflow.fetchRemote({ cwd: input.projectCwd, remoteName: "origin" });
-      const resolved = yield* gitWorkflow.resolveRemoteTrackingCommit({
-        cwd: input.projectCwd,
-        refName: input.baseBranch,
-        fallbackRemoteName: "origin",
-      });
-      worktreeBaseRef = resolved.commitSha;
-    }
-    const worktree = yield* gitWorkflow.createWorktree({
-      cwd: input.projectCwd,
-      refName: worktreeBaseRef,
-      ...(input.branch ? { newRefName: input.branch } : {}),
-      baseRefName: input.baseBranch,
-      path: null,
-    });
-    const worktreePath = worktree.worktree.path;
-    yield* holdFreshWorktree(input.threadId, worktreePath);
-    yield* orchestrationEngine.dispatch({
-      type: "thread.meta.update",
-      commandId: yield* serverCommandId("meta-update"),
-      threadId: input.threadId,
-      branch: worktree.worktree.refName,
-      worktreePath,
-    } satisfies OrchestrationCommand);
-    yield* refreshGitStatus(worktreePath);
-    return { worktreePath, branch: worktree.worktree.refName };
-  });
-
   const provisionIsolatedChild = Effect.fn("WorktreeProvisioner.provisionIsolatedChild")(function* (
     input: ProvisionIsolatedChildInput,
   ) {
+    const threadId = input.threadId;
     const branch = workstreamChildBranchName(input.parentBranch, input.role, input.threadId);
-    // Serialise the parent-worktree snapshot commit + worktree creation against
-    // a concurrent fan-in merge on the same worktree (review finding 3). The
-    // snapshot commit is NOT swallowed: a failed base commit means the child
-    // would branch mis-based, so it propagates to the caller (→ needs_guidance).
-    const result = yield* worktreeMutationLock.withLock(
-      input.parentCwd,
-      Effect.gen(function* () {
-        // Base commit (plan §2): the child must see the goal's *current* state,
-        // which may be uncommitted in the parent worktree. Snapshot it onto the
-        // parent branch so the child branches from an exact, committed HEAD and
-        // the fan-in merge-base is clean. The shipper squashes wip at PR time.
-        // Retried: this races the parent agent's own git subprocess, which the
-        // in-process lock above cannot serialise against.
+    // Rollback state a cancel needs: the tree git registered and our hold on it.
+    let claimedPath: string | null = null;
+    let hold: WorkspaceHold | null = null;
+    let checkoutFiles: number | null = null;
+    // The fibre must not outrun its registration: `begin` is what cancel and
+    // every stage update key on, so the program holds here until the tracker
+    // entry and its durable running record exist. Waiting inside the program
+    // (rather than around it) keeps a cancel in that window recordable.
+    const registered = yield* Deferred.make<void>();
+
+    const program = Effect.gen(function* () {
+      yield* Deferred.await(registered);
+      // Serialise the parent-worktree snapshot commit + worktree creation
+      // against a concurrent fan-in merge on the same worktree (review finding
+      // 3). The snapshot commit is NOT swallowed: a failed base commit means
+      // the child would branch mis-based, so it propagates to the caller (→
+      // needs_guidance).
+      const worktree = yield* worktreeMutationLock.withLock(
+        input.parentCwd,
+        Effect.gen(function* () {
+          // Base commit (plan §2): the child must see the goal's *current*
+          // state, which may be uncommitted in the parent worktree. Snapshot it
+          // onto the parent branch so the child branches from an exact,
+          // committed HEAD and the fan-in merge-base is clean. The shipper
+          // squashes wip at PR time. Retried: this races the parent agent's own
+          // git subprocess, which the in-process lock above cannot serialise
+          // against.
+          yield* gitWorkflow
+            .commitAll(input.parentCwd, "wip: workstream snapshot", "")
+            .pipe(Effect.retry(GIT_LOCK_RETRY));
+          yield* setupTracker.stageStatus(threadId, "checkout", "running");
+          return yield* gitWorkflow.createWorktree(
+            {
+              cwd: input.parentCwd,
+              refName: input.parentBranch,
+              newRefName: branch,
+              baseRefName: input.parentBranch,
+              path: null,
+            },
+            {
+              progress: {
+                onWorktreeClaimed: (path) =>
+                  workspaceLease.hold(path, `worktree-provision:${threadId}`).pipe(
+                    Effect.map((held) => {
+                      claimedPath = path;
+                      hold = held;
+                    }),
+                  ),
+                onCheckoutProgress: ({ percent, completed, total }) => {
+                  checkoutFiles = total;
+                  return setupTracker.stage(threadId, "checkout", {
+                    percent,
+                    detail: `${completed.toLocaleString("en-US")} / ${total.toLocaleString("en-US")} files`,
+                  });
+                },
+                onSubmodulesStarted: () =>
+                  setupTracker
+                    .stageStatus(
+                      threadId,
+                      "checkout",
+                      "done",
+                      checkoutFiles === null
+                        ? null
+                        : `${checkoutFiles.toLocaleString("en-US")} files`,
+                    )
+                    .pipe(
+                      Effect.andThen(setupTracker.stageStatus(threadId, "submodules", "running")),
+                    ),
+                onSubmoduleLine: (line) => {
+                  const submodulePath = /Submodule path '([^']+)'/.exec(line)?.[1];
+                  return submodulePath === undefined
+                    ? Effect.void
+                    : setupTracker.stage(threadId, "submodules", { detail: submodulePath });
+                },
+                onSubmodulesFinished: ({ ok, detail }) =>
+                  setupTracker.stageStatus(
+                    threadId,
+                    "submodules",
+                    ok ? "done" : "warning",
+                    ok ? undefined : (detail ?? "submodule checkout failed"),
+                  ),
+              },
+            },
+          );
+        }),
+      );
+      const worktreePath = worktree.worktree.path;
+      const checkoutEndedAt = yield* nowIso;
+      yield* setupTracker.update(threadId, (snapshot) => ({
+        ...snapshot,
+        worktreePath,
+        stages: snapshot.stages.map((stage) =>
+          stage.id === "checkout" && stage.status === "running"
+            ? {
+                ...stage,
+                status: "done",
+                percent: 100,
+                endedAt: checkoutEndedAt,
+                detail:
+                  checkoutFiles === null
+                    ? stage.detail
+                    : `${checkoutFiles.toLocaleString("en-US")} files`,
+              }
+            : stage.id === "submodules" && stage.status === "pending"
+              ? { ...stage, status: "skipped", detail: "none" }
+              : stage,
+        ),
+      }));
+      // Past this point the child owns the tree: the meta repoint below is what
+      // its kickoff turn resolves its cwd from, and the caller starts that turn
+      // the moment this returns. Drop the cancel handle so a late cancel cannot
+      // pull the tree out from under a started agent.
+      yield* setupTracker.stageStatus(threadId, "agent", "running");
+      yield* setupTracker.markUncancellable(threadId);
+      if (hold) yield* releaseHoldAfterWindow(hold);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: yield* serverCommandId("meta-update"),
+        threadId,
+        branch: worktree.worktree.refName,
+        worktreePath,
+      } satisfies OrchestrationCommand);
+      yield* refreshGitStatus(worktreePath);
+
+      const setupScript = yield* startSetupScript({
+        threadId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        projectCwd: input.parentCwd,
+        worktreePath,
+      });
+      // The handoff. Unlike the root bootstrap, the provisioner does not
+      // dispatch the kickoff turn — the dispatcher and the turn-start guard do,
+      // immediately on this return — so `return` IS the handoff seam. Marking
+      // the stage here is what makes `worktreeSetupAgentStarted` true: without
+      // it a child with a slow async setup script reads as "still preparing"
+      // for the whole install (dead Stop on mobile, blocked Send on web), and
+      // the startup reconciler would settle a healthy child as failed.
+      yield* setupTracker.stageStatus(threadId, "agent", "done");
+      // The card outlives the handoff: the kickoff turn starts now and the
+      // snapshot settles when the script exits, so the setup row sits next to
+      // the child's first work instead of vanishing.
+      if (setupScript) {
+        yield* setupScript.completion.pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              setupTracker.stageStatus(
+                threadId,
+                "setup-script",
+                "failed",
+                describeSetupFailure(error),
+              ),
+            onSuccess: (completion) =>
+              setupTracker.stageStatus(
+                threadId,
+                "setup-script",
+                completion.exitCode === 0 ? "done" : "failed",
+                completion.exitCode === 0
+                  ? undefined
+                  : completion.exitCode === null
+                    ? "terminal closed before the script finished"
+                    : `exit ${completion.exitCode}`,
+              ),
+          }),
+          Effect.andThen(settleSetup(threadId, "done")),
+          Effect.forkDetach,
+        );
+      } else {
+        yield* settleSetup(threadId, "done");
+      }
+      return { worktreePath, branch: worktree.worktree.refName } satisfies ProvisionWorktreeResult;
+    });
+
+    // Cancel unwinds git back to the pre-provision state so a retry can cut the
+    // branch again: `git worktree add -b` refuses an existing branch, so
+    // leaving either behind would poison every later attempt.
+    const unwindCancelled = Effect.gen(function* () {
+      if (hold) yield* hold.release;
+      if (claimedPath !== null) {
         yield* gitWorkflow
-          .commitAll(input.parentCwd, "wip: workstream snapshot", "")
-          .pipe(Effect.retry(GIT_LOCK_RETRY));
-        return yield* provisionWorktree({
-          threadId: input.threadId,
-          ...(input.projectId ? { projectId: input.projectId } : {}),
-          projectCwd: input.parentCwd,
-          baseBranch: input.parentBranch,
+          .removeWorktree({ cwd: input.parentCwd, path: claimedPath, force: true })
+          .pipe(
+            Effect.retry({ times: 4, schedule: Schedule.spaced("500 millis") }),
+            Effect.ignoreCause({ log: true }),
+          );
+      }
+      // Unconditional, because an interrupt lands mid-`git worktree add` more
+      // often than after it, and the directory is only reported once that
+      // command returns — so the registration and the ref can outlive a cancel
+      // with nothing naming them. Both are best effort.
+      yield* gitWorkflow
+        .pruneWorktrees({ cwd: input.parentCwd })
+        .pipe(Effect.ignoreCause({ log: true }));
+      yield* gitWorkflow
+        .deleteBranch({ cwd: input.parentCwd, branch, force: true })
+        .pipe(Effect.ignoreCause({ log: true }));
+    });
+
+    const settled = program.pipe(
+      Effect.interruptible,
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          if (Cause.hasInterruptsOnly(cause)) {
+            // A human cancelled through `worktreeSetup.cancel`, which
+            // interrupts this fibre. Unwind, record the terminal card state,
+            // and report the cancellation so the caller skips the kickoff turn.
+            yield* unwindCancelled;
+            yield* settleSetup(threadId, "cancelled");
+            return yield* Effect.fail(new WorktreeProvisionCancelled({ threadId }));
+          }
+          // Nothing will use the abandoned tree, so the hold must not outlive
+          // the failure; the worktree itself is left for the operator to
+          // inspect, as before.
+          const takenHold: WorkspaceHold | null = hold;
+          if (takenHold) yield* takenHold.release;
+          yield* settleSetup(threadId, "failed", Cause.pretty(cause));
+          return yield* Effect.failCause(cause);
+        }),
+      ),
+      // Recording and unwinding must complete after the interrupt lands.
+      Effect.uninterruptible,
+    );
+
+    // Fork and register as one step: a detached fibre keeps running if the
+    // caller is interrupted, so it must never exist without the tracker entry
+    // that cancel and the stage updates key on. The running activity follows
+    // immediately, because that is what tells a reloading client to attach the
+    // live stream.
+    const fiber = yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkDetach(settled);
+        yield* setupTracker.begin({
+          threadId,
           branch,
+          baseRef: input.parentBranch,
+          stages: ["checkout", "submodules", "setup-script", "agent"],
+          fiber,
         });
+        const running = yield* setupTracker.get(threadId);
+        if (running) yield* recordSetup(running);
+        yield* Deferred.succeed(registered, undefined);
+        return fiber;
       }),
     );
-    yield* runSetup({
-      threadId: input.threadId,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      projectCwd: input.parentCwd,
-      worktreePath: result.worktreePath,
-    });
-    return result;
+    return yield* Fiber.join(fiber);
   });
 
   // Park a child whose worktree provisioning failed: remember it (loop-spin
@@ -454,7 +633,16 @@ const make = Effect.gen(function* () {
     }).pipe(
       Effect.matchCauseEffect({
         onFailure: (cause) =>
-          raiseProvisionFailure(input.threadId, Cause.pretty(cause)).pipe(Effect.as(false)),
+          // A human cancelled through `worktreeSetup.cancel`: the cancelled
+          // setup card IS the record, so no needs_guidance flag is raised —
+          // but the child must not be auto-promoted straight back into a fresh
+          // provision, so it is remembered like a failure.
+          Cause.squash(cause) instanceof WorktreeProvisionCancelled
+            ? Effect.sync(() => {
+                failedProvisions.add(input.threadId);
+                return false;
+              })
+            : raiseProvisionFailure(input.threadId, Cause.pretty(cause)).pipe(Effect.as(false)),
         onSuccess: () =>
           Effect.sync(() => {
             failedProvisions.delete(input.threadId);
@@ -470,11 +658,8 @@ const make = Effect.gen(function* () {
   });
 
   return WorktreeProvisioner.of({
-    provisionWorktree,
-    provisionIsolatedChild,
     ensureIsolatedChildProvisioned,
     hasPendingProvisionFailure: (threadId) => failedProvisions.has(threadId),
-    runSetup,
   });
 });
 

@@ -1429,3 +1429,108 @@ thread shell spreads the same block. One edit per future fork field.
   deliberate-looking "kept loom's projector" outcome that needs adjudicating
   (`67922fd8`).
 - `apps/desktop` build needs `libsecret-1-dev` on this host (`a7885190`).
+
+## Unmarked-delta sweep
+
+The By-coder diff scope (`88995da42b`) carried **zero `// loom:` markers**. Pull
+7 therefore took upstream's `DiffPanel.tsx` and restored only the two dropped
+hunks needed to compile; the third — the coder arms of `reviewSectionTitle` and
+`selectedCheckpointRange` — stayed dropped, and "By coder → All turns" rendered
+an empty diff for a month. Nothing in the pull could have caught it: an unmarked
+fork hunk is invisible to the lost-feature audit, to the structural composition
+audit, and to typecheck. The surviving `latestCoderTurnCount`, computed and
+unused, was the only trace.
+
+`docs/upstream-sync/pull7-tools/unmarkedsweep.sh` makes that class visible. It
+joins `git diff --numstat <base>` against a marker count per file, skipping
+files absent at the base (loom-only) and the exemptions in
+`docs/upstream-sync/unmarkedsweep.allow`. The base is read from
+`docs/upstream-sync/UPSTREAM_BASE` — **each cadence pull updates that file to
+the new upstream tip** as part of the merge, the same way the sync note is
+written.
+
+Two scopes, deliberately different:
+
+- **gate** (no flag) — only the files the current branch changes vs
+  `origin/main`. Exits non-zero on any upstream-owned file gaining ≥ 15 changed
+  lines with zero markers. Wired into `scripts/ship.ts` beside `vp check` and
+  `vp run typecheck`, so `pnpm ship` refuses to push an unmarked fork hunk.
+- **audit** (`--report`) — the whole fork delta vs the base; always exits 0.
+
+The gate is branch-scoped **because the accumulated backlog is far too large to
+block on**: the first whole-fork run found **161 files** with a non-trivial
+unmarked delta — 87 non-test (≈8,700 changed lines) and 74 test (≈14,200). A
+repo-wide blocking gate would fail every ship on day one and be switched off
+within a day, which is worse than no gate. Retiring the backlog is its own
+stack item; the gate stops it growing.
+
+First run — the largest non-test hits. The verdict column is a **triage signal,
+not an adjudication**: it counts loom vocabulary (workstream/goal/planLane/
+handoff/coder/…) in the added lines, and it under-detects — `index.css` scores
+zero yet is 933 lines of loom chat-composer styling.
+
+| lines | file                                                                | signal                                             |
+| ----: | ------------------------------------------------------------------- | -------------------------------------------------- |
+|   935 | `apps/web/src/index.css`                                            | (a) loom — composer glass/theming, vocabulary-free |
+|   562 | `apps/server/src/provider/Layers/ClaudeProvider.ts`                 | (b/c) capability probe; likely upstream's          |
+|   457 | `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts` | (a) loom — 43 vocabulary hits                      |
+|   442 | `apps/server/src/workspace/WorkspaceFileSystem.ts`                  | (b/c) review                                       |
+|   415 | `apps/server/src/project/ProjectSetupScriptRunner.ts`               | (b/c) review                                       |
+|   374 | `apps/server/src/orchestration/Layers/CheckpointReactor.ts`         | (b/c) review                                       |
+|   340 | `apps/web/src/reviewCommentContext.ts`                              | (a) loom — plan-comment anchors                    |
+|   304 | `apps/server/src/git/GitManager.ts`                                 | (b/c) review                                       |
+|   257 | `packages/contracts/src/server.ts`                                  | (a) loom — workstream worktrees surface            |
+|   224 | `apps/server/src/persistence/Layers/ProjectionThreads.ts`           | (a) loom — 30 vocabulary hits                      |
+|   200 | `apps/server/src/provider/Layers/OpenCodeAdapter.ts`                | (b/c) review                                       |
+|   154 | `packages/contracts/src/rpc.ts`                                     | (a) loom — 47 vocabulary hits                      |
+
+Two notes for whoever retires the backlog. Test files are the larger half by
+line count and markers read badly in them — decide once whether tests are in
+scope at all rather than file by file. And `apps/server/src/orchestration/`
+has **two** `ProjectionSnapshotQuery.ts` (under `Layers/` and `Services/`);
+only the `Layers/` one is live, which is worth confirming before marking the
+other.
+
+### A related blind spot in `sqlcolsweep.py` — FIXED
+
+`sqlcolsweep.py` reports "0 problems" against the exact tree whose
+`getShellSnapshot()` failed at runtime on real data. `ProjectionThreadDbRowSchema`
+is `ProjectionThread.mapFields(…)`; the tool resolves through `mapFields` to the
+**base** struct, where `titleState` is `Schema.optional`, so it never learns that
+the override made it required. Any query whose Result schema it cannot parse is
+also skipped silently (`if fields is None: continue`) and counted as fine. The
+tool needs to honour `mapFields` overrides and to report unresolved schemas as
+_unchecked_ rather than clean.
+
+**Fixed.** The sweep now resolves `mapFields` chains (`Struct.assign` /
+`omit` / `pick` / `evolve`) against the declaration corpus and applies the
+overrides, expands a nested row struct (`session: row`) into the columns its
+fields name, and prints an `UNPARSED` line with a non-zero exit for any schema
+it cannot read — an unreadable schema is a problem, never a pass. Its SELECT
+parsing was rewritten alongside (scalar subqueries, `--` comments, single-line
+`SELECT col`, a trailing column with no comma), because the stricter rules are
+only usable without those false positives. It takes an optional file argument,
+which is how its own regressions are tested:
+
+| tree          | expected                           | actual                                                                  |
+| ------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| HEAD          | clean                              | `0 problems; 0 unreadable`, exit 0                                      |
+| `2130f1187c^` | flags `listActiveThreadRows`       | `SELECT omits ['linkedPullRequest', 'branchPullRequest', 'titleState']` |
+| `b276cb4c16^` | flags `getThreadRuntimeContextRow` | `SELECT omits ['lastErrorClass']`                                       |
+
+(`activeOrderKey`, the fourth column that commit restored, is `Schema.optional`
+in the row schema and is correctly not flagged.) `aliascheck.py` still reports
+one entry — `Schema.Struct @ 2946: missing ['text']` — which is its documented
+inline-struct collision (it groups inline results by literal text), not a
+finding; `sqlcolsweep.py` now parses inline structs properly and covers that
+class.
+
+### Standing reviewer checklist — addition
+
+Alongside the lost-feature audit, the structural composition audit and the
+migration-lane check, every cadence pull and every stack PR now also runs
+`docs/upstream-sync/pull7-tools/unmarkedsweep.sh` (gate scope; `--report` at
+pulls) and confirms `docs/upstream-sync/UPSTREAM_BASE` was advanced to the new
+upstream tip. A reviewer who sees a loom hunk with no `// loom:` marker treats
+it as a defect in the change under review, not a pre-existing condition:
+unmarked is how features get silently dropped.

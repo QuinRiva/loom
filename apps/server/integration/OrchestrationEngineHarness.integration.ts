@@ -57,7 +57,6 @@ import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/L
 import * as ThreadBackgroundLiveness from "../src/orchestration/ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../src/orchestration/ThreadPlanProgress.ts";
 import { RuntimeReceiptBusTest } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
-import { ReasoningStreamBusLive } from "../src/orchestration/Layers/ReasoningStreamBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { WorktreeProvisioner } from "../src/project/WorktreeProvisioner.ts";
@@ -326,7 +325,6 @@ export const makeOrchestrationIntegrationHarness = (
       providerLayer,
       providerLaunchClaimsLayer,
       RuntimeReceiptBusTest,
-      ReasoningStreamBusLive,
     ).pipe(
       Layer.provideMerge(ThreadBackgroundLiveness.layer),
       Layer.provideMerge(ThreadPlanProgress.layer),
@@ -359,11 +357,8 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(
         Layer.succeed(WorktreeProvisioner, {
-          provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
-          provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
           ensureIsolatedChildProvisioned: () => Effect.succeed(true),
           hasPendingProvisionFailure: () => false,
-          runSetup: () => Effect.void,
         } as never),
       ),
     );

@@ -1,7 +1,4 @@
-import {
-  resolveThreadCurrentPullRequestLink,
-  threadPullRequestSearchTerms,
-} from "@t3tools/shared/threadPullRequests";
+import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -14,11 +11,7 @@ import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contract
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
-import {
-  effectiveSnoozed,
-  type ChangeRequestSettleSource,
-  type ThreadSnoozeShell,
-} from "@t3tools/shared/threadSettled";
+import { effectiveSnoozed, type ThreadSnoozeShell } from "@t3tools/shared/threadSettled";
 import {
   getThreadSortTimestamp,
   resolveSettledThreadTimestamp,
@@ -1101,113 +1094,6 @@ export function shouldNavigateAfterProjectRemoval(input: {
       thread.environmentId === routeTarget.threadRef.environmentId &&
       thread.id === routeTarget.threadRef.threadId,
   );
-}
-
-/**
- * loom: the change-request fact the settle rules read, taken from the thread
- * shell's own pull-request links. Upstream retired the client-side snapshot
- * atom loom used to feed this (its data now rides the shell), so this replaces
- * `changeRequestSnapshotByKey` and its per-row write-back. A worktree thread
- * only accepts a request whose head branch is that worktree's branch.
- */
-export function threadChangeRequest(
-  thread: Pick<SidebarThreadSummary, "pullRequests" | "branch" | "worktreePath">,
-): ChangeRequestSettleSource | null {
-  const snapshot = resolveThreadCurrentPullRequestLink(thread.pullRequests ?? [])?.snapshot ?? null;
-  if (snapshot === null) return null;
-  return thread.worktreePath === null || snapshot.headBranch === thread.branch ? snapshot : null;
-}
-
-export type ActivityTimestampInput = Pick<
-  SidebarThreadSummary,
-  "latestUserMessageAt" | "latestTurn" | "updatedAt"
->;
-
-/** loom: when a thread last MOVED — the same candidates threadLastActivityAt
-    feeds the auto-settle window (user message plus all latestTurn stamps), so
-    a thread whose last activity was a turn completion doesn't read as older
-    than its message time. updatedAt is the final net. Extracted from
-    resolveSettledTimestamp so the active list's label and sort key can be the
-    one value (see sortActiveThreadsByActivityForSidebar). */
-export function resolveActivityTimestamp(thread: ActivityTimestampInput): string | null {
-  let latest: string | null = null;
-  let latestMs = Number.NEGATIVE_INFINITY;
-  for (const candidate of [
-    thread.latestUserMessageAt,
-    thread.latestTurn?.requestedAt,
-    thread.latestTurn?.startedAt,
-    thread.latestTurn?.completedAt,
-  ]) {
-    if (candidate == null) continue;
-    const parsed = Date.parse(candidate);
-    if (!Number.isNaN(parsed) && parsed > latestMs) {
-      latest = candidate;
-      latestMs = parsed;
-    }
-  }
-  return latest ?? firstValidTimestamp(thread.updatedAt);
-}
-
-// loom: the ACTIVE list's order — last activity, most recent first. Upstream's
-// sortThreadsForSidebar above is left intact but unused by loom's sidebar.
-//
-// The defect this fixes: rows LABEL activity age while that sort keys on
-// creation age, so the timestamp column reads as random (a six-day-old thread
-// answered an hour ago sat eleven rows below one labelled 4d). Ordering and the
-// row's own label now come from the one resolver and cannot disagree.
-//
-// PROVISIONAL — deliberately revisitable, not a claim that upstream is wrong.
-// Upstream's no-jump property (a row holds its position from open until
-// settled) is a real virtue and is worth more the shorter the list is. Activity
-// order wins *today* because loom's active block is clogged with stale
-// unsettled threads from before the workstream-settle migration, and with a
-// backlog that noisy "what moved" is the only question the list can answer.
-// Revisit once that migration has landed and the backlog is cleaned up: if the
-// active block is then readable at a glance, prefer upstream's stability.
-// Revert = call sortThreadsForSidebar at the one call site in Sidebar.tsx
-// and point threadTimeLabel at whatever the sort keys on (createdAt), so label
-// and order still agree. Full note: docs/upstream-sync/23-sidebar-v2-rehome.md §I1.
-//
-// Pull 7: upstream made the active block user-arrangeable (`activeOrderKey`,
-// drag placement). A sort that ignored those keys would snap a dragged row
-// back the moment the optimistic hold cleared, so this is now upstream's
-// comparator — arranged rows follow their saved keys, unarranged rows lead —
-// with loom's activity anchor deciding the unarranged ones instead of
-// createdAt. Both behaviours survive: never drag and the block is pure
-// activity order; drag once and that placement sticks.
-export function sortActiveThreadsByActivityForSidebar<
-  T extends ActivityTimestampInput & {
-    readonly id: string;
-    readonly activeOrderKey?: string | null | undefined;
-    readonly environmentId?: string | undefined;
-  },
->(threads: readonly T[]): T[] {
-  if (threads.length < 2) return [...threads];
-  const activityMs = new Map<T, number>();
-  for (const thread of threads) {
-    if (thread.activeOrderKey == null) {
-      activityMs.set(thread, firstValidTimestampMs(resolveActivityTimestamp(thread)));
-    }
-  }
-  return [...threads].toSorted((left, right) => {
-    const leftKey = left.activeOrderKey;
-    const rightKey = right.activeOrderKey;
-    if (leftKey == null && rightKey != null) return -1;
-    if (leftKey != null && rightKey == null) return 1;
-    const order =
-      leftKey != null && rightKey != null
-        ? leftKey < rightKey
-          ? -1
-          : leftKey > rightKey
-            ? 1
-            : 0
-        : activityMs.get(right)! - activityMs.get(left)!;
-    return (
-      order ||
-      left.id.localeCompare(right.id) ||
-      (left.environmentId ?? "").localeCompare(right.environmentId ?? "")
-    );
-  });
 }
 
 // Settled rows are history, so they order by when the work ENDED, not when

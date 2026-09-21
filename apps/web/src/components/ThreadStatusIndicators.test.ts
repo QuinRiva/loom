@@ -1,4 +1,3 @@
-import { effectiveSettled } from "@t3tools/shared/threadSettled";
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
 import {
   ProjectId,

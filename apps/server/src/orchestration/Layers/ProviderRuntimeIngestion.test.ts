@@ -61,7 +61,6 @@ import {
   ProviderRuntimeIngestionLive,
   splitBufferedAssistantText,
 } from "./ProviderRuntimeIngestion.ts";
-import { ReasoningStreamBusLive } from "./ReasoningStreamBus.ts";
 import { AccountUsageRegistryLive } from "../../provider/Services/AccountUsageRegistry.ts";
 import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -345,7 +344,6 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provide(Layer.succeed(Clock.Clock, shiftedClock)),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
-      Layer.provideMerge(ReasoningStreamBusLive),
       Layer.provideMerge(AccountUsageRegistryLive),
       // Single shared liveness instance across ingestion (writer), the
       // engine, and the snapshot query (reader).

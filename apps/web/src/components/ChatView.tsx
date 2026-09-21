@@ -28,7 +28,7 @@ import {
   connectionStatusTitle,
   type EnvironmentConnectionPresentation,
 } from "@t3tools/client-runtime/connection";
-import { effectiveSettled, effectiveSnoozed } from "@t3tools/shared/threadSettled";
+import { effectiveSnoozed } from "@t3tools/shared/threadSettled";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -81,9 +81,11 @@ import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
+// loom: upstream's own derivation owns open questions (plan d10) — it is the
+// only one that reads the `dismissible` passthrough pi sets on its questions.
+import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import {
   derivePendingApprovals,
-  derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
@@ -120,7 +122,6 @@ import {
   type ChatMessage,
   type SessionPhase,
   type Thread,
-  type TurnDiffSummary,
 } from "../types";
 import { usePanelAnimationSettings } from "../panelAnimations";
 import { useSustainedConnectionOutage } from "../hooks/useSustainedConnectionOutage";
@@ -185,7 +186,6 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
-import { useNowMinute } from "../hooks/useNowMinute";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
@@ -1355,12 +1355,6 @@ function ChatViewContent(props: ChatViewProps) {
   const [dismissingUserInputRequestIds, setDismissingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
-  // Requests this client settled by sending a plain message. The server resolves
-  // them `superseded`; until that resolution lands the card says so rather than
-  // silently vanishing.
-  const [supersededUserInputRequestIds, setSupersededUserInputRequestIds] = useState<
-    ApprovalRequestId[]
-  >([]);
   // loom: interim (slice 4) \u2014 upstream's per-request answer + wizard state.
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
@@ -2078,12 +2072,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadEnvironmentIdForActivities, activeThreadIdForActivities, loadThreadActivities],
   );
-  const {
-    mergedActivities: threadActivities,
-    hasMoreOlder: hasMoreOlderActivities,
-    loadingOlder: loadingOlderActivities,
-    loadOlder: loadOlderActivities,
-  } = useOlderThreadActivities({
+  const { mergedActivities: threadActivities } = useOlderThreadActivities({
     threadKey: activeThread ? `${activeThread.environmentId}\u0000${activeThread.id}` : null,
     liveActivities: activeThread?.activities ?? EMPTY_ACTIVITIES,
     hasMoreLiveActivities: activeThread?.hasMoreActivities ?? false,
@@ -2110,7 +2099,8 @@ function ChatViewContent(props: ChatViewProps) {
     [threadActivities],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
+    // loom: approvals keep the fork's derivation (d10 scopes this to questions).
+    () => derivePendingRequests(threadActivities).userInputs,
     [threadActivities],
   );
   // The oldest open request is the one being answered; the card shows the rest as
@@ -2487,48 +2477,10 @@ function ChatViewContent(props: ChatViewProps) {
     attachDraftHeroComposerAnchorRef,
     captureDraftHeroComposerRect,
   ] = useDraftHeroLayoutTransition(isDraftHeroState);
-  const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const byMessageId = new Map<MessageId, TurnDiffSummary>();
-    for (const summary of turnDiffSummaries) {
-      if (!summary.assistantMessageId) continue;
-      byMessageId.set(summary.assistantMessageId, summary);
-    }
-    return byMessageId;
-  }, [turnDiffSummaries]);
-  const revertTurnCountByUserMessageId = useMemo(() => {
-    const byUserMessageId = new Map<MessageId, number>();
-    for (let index = 0; index < timelineEntries.length; index += 1) {
-      const entry = timelineEntries[index];
-      if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
-        continue;
-      }
-
-      for (let nextIndex = index + 1; nextIndex < timelineEntries.length; nextIndex += 1) {
-        const nextEntry = timelineEntries[nextIndex];
-        if (!nextEntry || nextEntry.kind !== "message") {
-          continue;
-        }
-        if (nextEntry.message.role === "user") {
-          break;
-        }
-        const summary = turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
-        if (!summary) {
-          continue;
-        }
-        const turnCount =
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-        if (typeof turnCount !== "number") {
-          break;
-        }
-        byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
-        break;
-      }
-    }
-
-    return byUserMessageId;
-  }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
+  // The per-message revert-count and assistant-summary maps loom derived here are
+  // upstream's own job now: the adopted timeline builds both internally from
+  // `turnDiffSummaries` + `supportsConversationRollback`.
+  const { turnDiffSummaries } = useTurnDiffSummaries(activeThread);
 
   const gitCwd = activeProject
     ? projectScriptCwd({
@@ -3978,19 +3930,15 @@ function ChatViewContent(props: ChatViewProps) {
         : null,
     [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
   );
-  // Settled state of the open thread, resolved exactly like the sidebar
-  // partition (same shell, same capability gate, same PR auto-settle input)
-  // so the banner and the sidebar row never disagree.
+  // Settled state of the open thread: the server owns it, so the banner and
+  // the sidebar row read the same projected field.
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
-  const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
-  const autoSettleOnMerge = useClientSettings((settings) => settings.sidebarAutoSettleOnMerge);
   const activeThreadPr = resolveThreadPr({
     threadBranch: activeThread?.branch ?? null,
     gitStatus: gitStatusQuery.data ?? null,
   });
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
-  const nowMinute = useNowMinute();
   const activeThreadSnoozed =
     activeThreadShell !== null &&
     supportsSnooze &&
@@ -4007,33 +3955,8 @@ function ChatViewContent(props: ChatViewProps) {
     );
     return () => window.clearTimeout(id);
   }, [activeThreadShell?.snoozedUntil, activeThreadSnoozed, snoozeWakeTick]);
-  // Primitive slice of the displayed PR: `resolveThreadPr` returns a fresh
-  // object every render, so memoize on the fields the settle rules read.
-  const activeThreadPrState = activeThreadPr?.state ?? null;
-  const activeThreadPrUpdatedAt = activeThreadPr?.updatedAt ?? null;
-  const activeThreadChangeRequest = useMemo(
-    () =>
-      activeThreadPrState === null
-        ? null
-        : { state: activeThreadPrState, updatedAt: activeThreadPrUpdatedAt },
-    [activeThreadPrState, activeThreadPrUpdatedAt],
-  );
-  const activeThreadSettled = useMemo(() => {
-    if (activeThreadShell === null || !supportsSettlement) return false;
-    return effectiveSettled(activeThreadShell, {
-      now: `${nowMinute}:00.000Z`,
-      autoSettleAfterDays,
-      autoSettleOnMerge,
-      changeRequest: activeThreadChangeRequest,
-    });
-  }, [
-    activeThreadChangeRequest,
-    activeThreadShell,
-    autoSettleAfterDays,
-    autoSettleOnMerge,
-    nowMinute,
-    supportsSettlement,
-  ]);
+  const activeThreadSettled =
+    supportsSettlement && activeThreadShell?.settledOverride === "settled";
   const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -4657,13 +4580,15 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    // A plain send while a question is open is NOT an answer submission: the
-    // server settles the question as `superseded` and delivers the message as the
-    // response. The old early return here hijacked Enter into the question's
-    // submit (S4) — a different action behind the same key, with the user's draft
-    // undelivered. Sending is never blocked or warned about; blocking it would be
-    // the takeover in another guise.
-    const supersedingRequestIds = pendingUserInputs.map((pending) => pending.requestId);
+    // loom: interim (slice 4) — upstream's pending-question branch, copied from
+    // ChatView.tsx at c14f6015bf. The panel's Next / "Submit answers" buttons
+    // submit the composer form, so a send while a question is open is the
+    // answer wizard advancing, never a plain message. (Loom's supersede-on-send
+    // rule belonged to the deleted question card and is gone with it.)
+    if (activePendingProgress) {
+      onAdvanceActivePendingUserInput();
+      return;
+    }
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) return;
     const {
@@ -5065,13 +4990,6 @@ function ChatViewContent(props: ChatViewProps) {
       } else {
         turnStartSucceeded = true;
       }
-    }
-
-    if (turnStartSucceeded && supersedingRequestIds.length > 0) {
-      setSupersededUserInputRequestIds((existing) => [
-        ...existing,
-        ...supersedingRequestIds.filter((requestId) => !existing.includes(requestId)),
-      ]);
     }
 
     if (failure !== null) {
@@ -5862,20 +5780,6 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
-  // Both the Map and the revert handler are read from refs at call-time so
-  // the callback reference is fully stable and never busts context identity.
-  const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
-  revertTurnCountRef.current = revertTurnCountByUserMessageId;
-  const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
-  onRevertToTurnCountRef.current = onRevertToTurnCount;
-  const onRevertUserMessage = useCallback((messageId: MessageId) => {
-    const targetTurnCount = revertTurnCountRef.current.get(messageId);
-    if (typeof targetTurnCount !== "number") {
-      return;
-    }
-    void onRevertToTurnCountRef.current(targetTurnCount);
-  }, []);
-
   // Empty state: no active thread. When the thread is known to exist (its
   // shell is already in the environment snapshot — e.g. a freshly spawned
   // sub-thread opened from the workstream graph) but the per-thread detail
@@ -6057,7 +5961,6 @@ function ChatViewContent(props: ChatViewProps) {
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
-            changeRequest={activeThreadChangeRequest}
             activeProject={activeProject ?? null}
             openInCwd={gitCwd}
             activeProjectScripts={activeProject?.scripts}
@@ -6104,7 +6007,6 @@ function ChatViewContent(props: ChatViewProps) {
               <MessagesTimeline
                 key={activeThread.id}
                 isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
                 listRef={legendListRef}
                 timelineEntries={timelineEntries}
@@ -6114,12 +6016,17 @@ function ChatViewContent(props: ChatViewProps) {
                     ? activeThread.session.activeTurnId
                     : null
                 }
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                // loom: interim (slice 4) owns these in upstream's own shape.
+                turnDiffSummaries={turnDiffSummaries}
                 activeThreadEnvironmentId={activeThread.environmentId}
                 routeThreadKey={routeThreadKey}
                 onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
+                // loom: interim (slice 4) — upstream's ChatView derives both of
+                // these itself; this is the minimum that compiles until then.
+                supportsConversationRollback={
+                  activeProviderStatus?.supportsConversationRollback !== false
+                }
+                onRevertToTurnCount={(targetTurnCount) => void onRevertToTurnCount(targetTurnCount)}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}
@@ -6130,14 +6037,13 @@ function ChatViewContent(props: ChatViewProps) {
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}
-                onTimelineEndStateChange={onTimelineEndStateChange}
+                // loom: interim (slice 4) — upstream reports only `isAtEnd`; the
+                // near-end and scroll-offset halves of loom's handler go with it.
+                onIsAtEndChange={(isAtEnd) => onTimelineEndStateChange(isAtEnd, isAtEnd, 0)}
                 // The scroll-to-end pill is exactly the "not following the live
                 // edge" signal, and unlike the scroll-mode refs it re-renders.
                 liveFollowEnabled={!showScrollToBottom}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                hasMoreOlder={hasMoreOlderActivities}
-                loadingOlder={loadingOlderActivities}
-                onLoadOlder={loadOlderActivities}
                 loadEarlier={loadEarlierTurns}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}

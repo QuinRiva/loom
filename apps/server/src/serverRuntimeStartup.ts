@@ -33,6 +33,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as ServerConfig from "./config.ts";
+import { detectForeignDatabase } from "./workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
@@ -959,6 +960,24 @@ export const make = (options?: StartupOptions) =>
     yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
     const startup = Effect.gen(function* () {
+      // loom: decide home provenance BEFORE any reactor, sweep or provider launch
+      // can act on a path this database recorded (foreignHomeGuard.loom.ts). A
+      // failed read leaves the guard off, which is the pre-existing behaviour.
+      yield* runStartupPhase(
+        "home.provenance",
+        projectionSnapshotQuery.getReferencedWorktreePaths().pipe(
+          Effect.flatMap((recordedWorktreePaths) =>
+            detectForeignDatabase({
+              worktreesDir: serverConfig.worktreesDir,
+              recordedWorktreePaths,
+            }),
+          ),
+          Effect.catch((cause) =>
+            Effect.logWarning("failed to check which home this database came from", { cause }),
+          ),
+        ),
+      );
+
       yield* Effect.logDebug("startup phase: starting keybindings runtime");
       yield* runStartupPhase(
         "keybindings.start",
@@ -998,6 +1017,11 @@ export const make = (options?: StartupOptions) =>
           yield* startLoomSweeps.pipe(Scope.provide(reactorScope)); // loom: fork provider/runtime sweeps
         }),
       );
+
+      // A process exit during a worktree setup leaves its record saying
+      // `running` forever, which every client reads as "still preparing" with
+      // no way out. Settle those before clients can attach.
+      yield* runStartupPhase("worktree-setups.reconcile", reconcileWorktreeSetups);
 
       // loom: reconcile stale session lifecycle state after reactors have started
       // but before command readiness — live provider sessions are visible, and no

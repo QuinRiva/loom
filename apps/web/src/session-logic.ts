@@ -1,7 +1,6 @@
 import {
   requestKindFromRequestType,
   type PendingApproval,
-  type PendingUserInput,
 } from "@t3tools/client-runtime/pending-requests";
 import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
@@ -32,7 +31,6 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
-import { parseUserInputQuestions } from "@t3tools/shared/userInputQuestions";
 
 import {
   isImageAttachment,
@@ -81,27 +79,6 @@ export interface WorkLogEntry {
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   /** Originating orchestration activity kind (e.g. `user-input.requested`) for row chrome. */
   sourceActivityKind?: OrchestrationThreadActivity["kind"];
-  /**
-   * Present only for `workstream_spawn` tool results: the child thread spawned
-   * by this entry. Surfaced from the dynamic tool result `details` so the
-   * timeline can render a grouped, clickable spawn card.
-   */
-  spawnedChild?: { childThreadId: ThreadId; title: string | null };
-  /**
-   * Present only for `consult_thread` tool results: the read-only consult made
-   * by this entry. Surfaced from the dynamic tool result `details` + `rawInput`
-   * so the timeline can render a dedicated, digestible consult card instead of a
-   * raw tool dump. `targetThreadId`/`title`/`answer` are set on a resolved
-   * consult; an ambiguous (unresolved) consult carries only `candidateCount`.
-   */
-  consult?: {
-    targetThreadId: ThreadId | null;
-    title: string | null;
-    question: string | null;
-    answer: string | null;
-    resolved: boolean;
-    candidateCount: number | null;
-  };
   /** Grouping key for subagent lifecycle rows (one row per agent). */
   taskId?: string;
   /** Agent role (subagent_type) for labeled timeline rows. */
@@ -167,13 +144,6 @@ export type TimelineEntry =
       kind: "proposed-plan";
       createdAt: string;
       proposedPlan: ProposedPlan;
-    }
-  // loom: inline per-turn plan chip
-  | {
-      id: string;
-      kind: "turn-plan";
-      createdAt: string;
-      turnPlan: TurnPlanEntry;
     }
   | {
       id: string;
@@ -253,6 +223,7 @@ export function deriveActiveWorkStartedAt(
   return sendStartedAt;
 }
 
+// loom: client-side derivation of pending approvals / questions from activities.
 // Approvals only. The user-input equivalent is deleted: the server now guarantees
 // a `user-input.resolved` always eventually lands, so a question's death is never
 // again inferred from prose — four hand-maintained copies of this list had
@@ -318,55 +289,6 @@ export function derivePendingApprovals(
     ) {
       openByRequestId.delete(requestId);
       continue;
-    }
-  }
-
-  return [...openByRequestId.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
-}
-
-/**
- * Open questions, cleared by `user-input.resolved` and nothing else. Terminal-wins
- * per requestId, matching the server's fold exactly — a resolved request can never
- * be reopened by a late or duplicate `requested` row, so the panel cannot
- * reappear for a question that is over.
- */
-export function derivePendingUserInputs(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): PendingUserInput[] {
-  const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const resolvedRequestIds = new Set<ApprovalRequestId>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-
-  for (const activity of ordered) {
-    const payload =
-      activity.payload && typeof activity.payload === "object"
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    if (payload === null || typeof payload.requestId !== "string") {
-      continue;
-    }
-    const requestId = ApprovalRequestId.make(payload.requestId);
-
-    if (activity.kind === "user-input.resolved") {
-      resolvedRequestIds.add(requestId);
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (activity.kind === "user-input.requested" && !resolvedRequestIds.has(requestId)) {
-      const questions = parseUserInputQuestions(payload);
-      if (!questions) {
-        continue;
-      }
-      openByRequestId.set(requestId, {
-        requestId,
-        createdAt: activity.createdAt,
-        questions,
-        // Async questions can be dismissed without a reply; native callbacks cannot.
-        dismissible: payload.responseMode === "message",
-      });
     }
   }
 
@@ -501,53 +423,6 @@ export function deriveActivePlanState(
     (activity) => planStateFromActivity(activity) === null,
   );
   return addPlanStepDurations(plan, matchingActivities.slice(latestClearIndex + 1));
-}
-
-// loom: inline per-turn plan chips, consumed by loom's MessagesTimeline.
-export interface TurnPlanEntry {
-  /** Stable per-turn row id (plans rewrite constantly; the row must not churn). */
-  id: string;
-  /** Anchor timestamp: the turn's FIRST plan activity, so the chip renders where planning began. */
-  createdAt: string;
-  turnId: TurnId | null;
-  plan: ActivePlanState;
-}
-
-/**
- * One inline plan chip per turn that produced plan/todo steps: the latest
- * snapshot for the turn, anchored at the first snapshot's timestamp. Turn-less
- * plan activities collapse into a single chip keyed by thread order.
- */
-export function deriveTurnPlans(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): TurnPlanEntry[] {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  const byTurn = new Map<string, TurnPlanEntry>();
-  for (const activity of ordered) {
-    if (activity.kind !== "turn.plan.updated") {
-      continue;
-    }
-    const plan = planStateFromActivity(activity);
-    const key = activity.turnId ?? "no-turn";
-    if (!plan) {
-      // A later snapshot with no steps clears the turn's plan; keeping the
-      // stale entry would freeze the chip on a withdrawn plan.
-      byTurn.delete(key);
-      continue;
-    }
-    const existing = byTurn.get(key);
-    if (existing) {
-      existing.plan = plan;
-    } else {
-      byTurn.set(key, {
-        id: `turn-plan:${key}`,
-        createdAt: activity.createdAt,
-        turnId: activity.turnId,
-        plan,
-      });
-    }
-  }
-  return [...byTurn.values()];
 }
 
 export function findLatestProposedPlan(
@@ -844,41 +719,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     if (toolData !== undefined) {
       entry.toolData = toolData;
     }
-  }
-  // `workstream_spawn` is classified as a dynamic tool call (no `mcp` prefix), so
-  // its result `data` is otherwise dropped. Surface the spawned child id + title
-  // from `details` so the timeline can render a clickable spawn card. The
-  // `childThreadId` field uniquely discriminates spawn results from the sibling
-  // workstream tools (status/dependencies return `threadId`).
-  const data = asRecord(payload?.data);
-  const spawnDetails = asRecord(data?.details);
-  const spawnedChildThreadId = asTrimmedString(spawnDetails?.childThreadId);
-  if (spawnedChildThreadId) {
-    entry.spawnedChild = {
-      childThreadId: spawnedChildThreadId as ThreadId,
-      title: asTrimmedString(spawnDetails?.title),
-    };
-  }
-  // `consult_thread` is a dynamic tool call too. Its result `details` carry a
-  // boolean `resolved` plus either an `answer` (resolved: the target's oracle
-  // reply) or a `candidates` list (ambiguous name). That pair uniquely
-  // discriminates it from sibling workstream tools (spawn/status/dependencies),
-  // none of which return an `answer`+`resolved` shape. The question lives on the
-  // tool's `rawInput`, not `details`.
-  const consultResolved = spawnDetails?.resolved;
-  const consultAnswer = typeof spawnDetails?.answer === "string" ? spawnDetails.answer : null;
-  const consultCandidates = Array.isArray(spawnDetails?.candidates)
-    ? spawnDetails.candidates
-    : null;
-  if (typeof consultResolved === "boolean" && (consultAnswer !== null || consultCandidates)) {
-    entry.consult = {
-      targetThreadId: (asTrimmedString(spawnDetails?.threadId) as ThreadId | null) ?? null,
-      title: asTrimmedString(spawnDetails?.title),
-      question: asTrimmedString(asRecord(data?.rawInput)?.question),
-      answer: consultResolved ? consultAnswer : null,
-      resolved: consultResolved,
-      candidateCount: consultCandidates ? consultCandidates.length : null,
-    };
   }
   if (itemType) {
     entry.itemType = itemType;
@@ -1472,6 +1312,7 @@ function isCommandToolDetail(payload: Record<string, unknown> | null, heading: s
   );
 }
 
+// loom: a command derived from `detail` is echoed by the row header already.
 function detailDuplicatesCommand(
   detail: string,
   commandPreview: { command: string | null; rawCommand: string | null },
@@ -1721,10 +1562,8 @@ function timelineEntrySourceOrder(entry: TimelineEntry): number {
       return 0;
     case "proposed-plan":
       return 1;
-    case "turn-plan":
-      return 2;
     case "work":
-      return 3;
+      return 2;
   }
 }
 

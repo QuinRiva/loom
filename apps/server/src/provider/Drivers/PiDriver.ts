@@ -111,6 +111,7 @@ import {
 import { ensurePiSearchGuardExtension } from "./Pi/searchGuardExtension.ts";
 import {
   piSessionIdForThread,
+  planPiSessionRewind,
   resolveResumableSessionFile,
   resolveSessionFilePath,
 } from "../piSessionFiles.ts";
@@ -148,6 +149,14 @@ const SNAPSHOT_REFRESH_INTERVAL = Duration.minutes(2);
 // 2-min-cadence refresh, so we wait out a slow boot (well under the refresh
 // interval, which interrupts the fiber anyway) rather than burn the spawn.
 const PI_ENRICHMENT_REQUEST_TIMEOUT_MS = 90_000;
+
+/**
+ * How long pi's `compact` RPC may take to answer. Compaction runs a
+ * summarisation model over the whole conversation, so it outlives the default
+ * 30s request timeout; matched to ProviderService's own compaction deadline so
+ * the driver never gives up first.
+ */
+const PI_COMPACT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
@@ -211,6 +220,11 @@ interface ActivePiSession {
   launch: () => Promise<PiRpcProcess>;
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   unsubscribe: () => void;
+  // True between a manual `compact` RPC and its `compaction_end`. pi's own
+  // auto-compaction emits the same events, and only the manual one has a
+  // ProviderService request waiting on a terminal event, so an aborted/failed
+  // auto-compaction must not be reported as a runtime error.
+  compactionPending: boolean;
   activeTurnId: TurnId | undefined;
   // Turn id `turn.started` was last emitted for. pi re-emits `agent_start` per
   // auto-retry attempt and per T3-level retry re-prompt within the SAME T3
@@ -413,7 +427,15 @@ export function piCommandsToSnapshot(commands: ReadonlyArray<PiRpcCommandInfo>):
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
 } {
-  const slashCommands: Array<ServerProviderSlashCommand> = [];
+  // loom: pi implements `/compact` natively (RPC `compact`), not as an
+  // extension command, so `get_commands` never lists it. The composer's
+  // context-meter Compact button renders only for a provider whose snapshot
+  // advertises a `compact` slash command, so declare it here alongside the
+  // adapter's `compaction` capability — the two must agree or the button is
+  // either missing or dead.
+  const slashCommands: Array<ServerProviderSlashCommand> = [
+    { name: "compact", description: "Summarise older context to free up the context window" },
+  ];
   const skills: Array<ServerProviderSkill> = [];
   for (const command of commands) {
     const description = command.description?.trim() ? command.description.trim() : undefined;
@@ -834,6 +856,11 @@ export function piToolItemPayload(
   };
 }
 
+/** A token count pi reported, or undefined when it is missing or not a count. */
+function reportedTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 /**
  * Translate pi's per-message `Usage` into the generic context-window snapshot
  * the orchestration layer ingests. `usedTokens` mirrors pi's own
@@ -1205,10 +1232,17 @@ export function makePiAdapter(input: {
   // session start (pi would otherwise silently run the user's global default)
   // and on every turn that carries a selection. Applies tier-2 effective
   // routing so an exhausted intent runs on its fallback from the first dispatch.
+  //
+  // `force` re-sends `set_model` even when the slug already matches what this
+  // adapter last applied: after the process has been replaced against a
+  // REWRITTEN history (see `rollbackThread`), the dedupe memory describes the
+  // dead process, while pi derives the fresh one's model from the retained
+  // branch — so a matching slug is exactly the case that must still be sent.
   const applyModelSelection = (
     session: ActivePiSession,
     selection: ModelSelection,
     resolution?: EffectiveResolution,
+    force = false,
   ): Effect.Effect<void, ProviderAdapterRequestError> =>
     Effect.gen(function* () {
       const resolved =
@@ -1222,7 +1256,7 @@ export function makePiAdapter(input: {
       // until the first turn fails.
       if (resolved.kind !== "exhausted") {
         const model = resolvePiModel(resolved.slug);
-        if (model && resolved.slug !== session.session.model) {
+        if (model && (force || resolved.slug !== session.session.model)) {
           yield* Effect.tryPromise({
             try: () =>
               session.process.request({
@@ -1490,7 +1524,7 @@ export function makePiAdapter(input: {
         slugRoutesToAnthropic(toSlug) &&
         threadSessionHasPoisonedToolIds(session.session.threadId)
       )
-        yield* relaunchWithSanitisedHistory(session);
+        yield* relaunchWithRewrittenHistory(session);
       const d = yield* describeExhaustion(fromSlug);
       session.lastRerouteWindowLabel = d.windowLabel;
       session.lastRerouteResetAt = d.resetsAt;
@@ -1639,6 +1673,76 @@ export function makePiAdapter(input: {
       // acceptance). The T3 turn already started at agent_start.
       case "turn_start":
         return Effect.void;
+      // pi has already begun summarising; there is no runtime event for the
+      // START of a compaction (ProviderService opened its pending compaction
+      // when it issued the command), so this only says "a compaction is in
+      // flight" for the `compaction_end` below.
+      case "compaction_start":
+        return Effect.void;
+      // The terminal ProviderService's native compaction path waits for, and
+      // the timeline's "Compacted context X → Y" activity. Emitted for pi's own
+      // threshold/overflow compactions too, so an auto-compaction is visible
+      // and drops the meter exactly like a manual one.
+      case "compaction_end": {
+        const wasManual = session.compactionPending;
+        session.compactionPending = false;
+        const result = message.result ?? undefined;
+        if (!result) {
+          // Aborted or failed. A manual compaction has a caller waiting on a
+          // terminal event; pi's own auto-compaction does not, and it recovers
+          // (or retries) by itself, so reporting a runtime error there would
+          // fail a turn pi is still running.
+          if (!wasManual) return Effect.void;
+          return emit({
+            ...base(),
+            type: "runtime.error",
+            payload: {
+              message: message.aborted
+                ? "Context compaction was aborted."
+                : (message.errorMessage ?? "Context compaction failed."),
+            },
+          });
+        }
+        const beforeTokens = reportedTokenCount(result.tokensBefore);
+        const afterTokens = reportedTokenCount(result.estimatedTokensAfter);
+        const maxTokens = session.session.model
+          ? input.modelContextWindows.get(session.session.model)
+          : undefined;
+        return emit({
+          ...base(),
+          type: "thread.state.changed",
+          payload: {
+            state: "compacted",
+            ...(beforeTokens !== undefined ? { beforeTokens } : {}),
+            ...(afterTokens !== undefined ? { afterTokens } : {}),
+            detail: {
+              source: "pi-compaction",
+              ...(message.reason ? { reason: message.reason } : {}),
+            },
+          },
+        }).pipe(
+          Effect.andThen(
+            // pi reports no context usage again until the next assistant
+            // response, so without this the meter would keep showing the
+            // pre-compaction fill for the rest of the turn.
+            afterTokens === undefined
+              ? Effect.void
+              : emit({
+                  ...base(),
+                  type: "thread.token-usage.updated",
+                  payload: {
+                    usage: {
+                      usedTokens: afterTokens,
+                      inputTokens: afterTokens,
+                      lastUsedTokens: afterTokens,
+                      lastInputTokens: afterTokens,
+                      ...(maxTokens ? { maxTokens } : {}),
+                    },
+                  },
+                }),
+          ),
+        );
+      }
       case "message_start":
         session.currentAssistantMessageId = `assistant-${NodeCrypto.randomUUID()}`;
         return Effect.void;
@@ -1935,16 +2039,26 @@ export function makePiAdapter(input: {
     });
   };
 
-  // Restart the pi process from a freshly sanitised session file. The codex
-  // poison lives in pi's IN-MEMORY history too (pi owns it, we can't rewrite
+  // Restart the pi process against a rewritten session file, the rewrite
+  // running while no pi process is alive to race it. Disk is the source of
+  // truth for a pi resume, so the replacement comes up on exactly the history
+  // the rewrite left behind. Only safe between turns (no in-flight pi run to
+  // lose).
+  //
+  // Two rewrites use this. The default SANITISES codex-poisoned tool ids: that
+  // poison lives in pi's in-memory history too (pi owns it, we can't rewrite
   // it), so an in-session set_model into an Anthropic-family model would replay
-  // the poison and hit a fatal 400. Stopping the process first means the disk
-  // rewrite never races a live writer; the replacement reads the clean file and
-  // resumes identically (disk is the source of truth for a pi resume). Model +
-  // thinking level are cleared so the caller's set_model/thinking re-applies on
-  // the fresh process. Only safe between turns (no in-flight pi run to lose).
-  const relaunchWithSanitisedHistory = (
+  // the poison and hit a fatal 400. `rollbackThread` passes a branch
+  // truncation instead.
+  //
+  // The thinking-level dedupe is cleared so the caller's set_thinking_level
+  // re-applies on the fresh process. The MODEL dedupe (`session.session.model`)
+  // is deliberately left alone, because it doubles as the session's reported
+  // model: a caller whose rewrite can change the model pi resumes on must
+  // re-assert it (`applyModelSelection(..., force)`), as `rollbackThread` does.
+  const relaunchWithRewrittenHistory = (
     session: ActivePiSession,
+    rewriteHistory: () => void = () => sanitisePiSessionForThread(session.session.threadId),
   ): Effect.Effect<void, ProviderAdapterProcessError> =>
     Effect.gen(function* () {
       const previous = session.process;
@@ -1962,7 +2076,7 @@ export function makePiAdapter(input: {
       yield* cancelPendingUserInputs(session);
       yield* Effect.promise(() => previous.stop());
       session.unsubscribe();
-      yield* Effect.sync(() => sanitisePiSessionForThread(session.session.threadId));
+      yield* Effect.sync(rewriteHistory);
       const next = yield* Effect.tryPromise({
         try: () => session.launch(),
         catch: (cause) =>
@@ -1982,6 +2096,136 @@ export function makePiAdapter(input: {
       wirePiProcess(session, next);
     });
 
+  /**
+   * Manual context compaction (`ProviderCompaction` "native" start): pi's
+   * `compact` RPC summarises the older part of the conversation and rebuilds
+   * the context from that summary. The response only lands once the
+   * summarisation model has answered, hence the long request timeout; the
+   * outcome reaches ProviderService as the `thread.state.changed` `compacted`
+   * event `handleMessage` maps from pi's `compaction_end`.
+   *
+   * `modelSelection` is deliberately ignored: pi compacts with the session's
+   * current model, and switching models purely to summarise would leave the
+   * session on the wrong one.
+   */
+  const compactThread = (
+    threadId: ThreadId,
+  ): Effect.Effect<void, ProviderAdapterRequestError | ProviderAdapterSessionNotFoundError> =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) =>
+        Effect.tryPromise({
+          try: () => {
+            session.compactionPending = true;
+            return session.process.request({ type: "compact" }, PI_COMPACT_REQUEST_TIMEOUT_MS);
+          },
+          catch: (cause) => {
+            session.compactionPending = false;
+            return new ProviderAdapterRequestError({
+              provider: DRIVER_KIND,
+              method: "compact",
+              detail: detailFromCause(cause, "Pi failed to compact the conversation."),
+              cause,
+            });
+          },
+        }),
+      ),
+      Effect.asVoid,
+    );
+
+  /**
+   * Rewind pi's conversation by `numTurns` prompts (upstream's "Edit from
+   * here" / checkpoint revert). pi exposes no rewind RPC — its `fork` command
+   * branches into a NEW session file, which this driver could never resume
+   * again (a thread's session is resolved by a deterministic id) — so the
+   * rewind is applied to the session file the driver already owns: stop pi,
+   * truncate the branch, relaunch onto the rewound history. Stopping first is
+   * what keeps the rewrite off a live writer.
+   */
+  const rollbackThread = (
+    threadId: ThreadId,
+    numTurns: number,
+  ): Effect.Effect<
+    { threadId: ThreadId; turns: ActivePiSession["turns"] },
+    | ProviderAdapterProcessError
+    | ProviderAdapterRequestError
+    | ProviderAdapterSessionNotFoundError
+    | ProviderAdapterValidationError
+  > =>
+    Effect.gen(function* () {
+      const session = yield* requireSession(threadId);
+      if (!Number.isInteger(numTurns) || numTurns < 1) {
+        return yield* new ProviderAdapterValidationError({
+          provider: DRIVER_KIND,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        });
+      }
+      const sessionFile = resolveResumableSessionFile(piSessionIdForThread(threadId));
+      if (sessionFile === undefined) {
+        return yield* new ProviderAdapterRequestError({
+          provider: DRIVER_KIND,
+          method: "thread/rollback",
+          detail: "Pi has no session file for this thread, so its history cannot be rewound.",
+        });
+      }
+      const plan = yield* Effect.try({
+        try: () => planPiSessionRewind(sessionFile, numTurns),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: DRIVER_KIND,
+            method: "thread/rollback",
+            detail: detailFromCause(cause, "Pi session history cannot be rewound."),
+            cause,
+          }),
+      });
+      if (plan.removedUserMessages === 0) {
+        return { threadId, turns: session.turns };
+      }
+      // pi rebuilds a resumed session's model and thinking level from the
+      // RETAINED branch (`getSessionContextSettings`: the last `model_change`,
+      // else the last assistant message), so a rewind across an in-session
+      // switch brings the fresh process up on the pre-switch settings while
+      // this adapter still believes the newer ones are live. Nothing would
+      // correct that — the dedupe in `applyModelSelection` sees a matching slug
+      // and skips — so every later turn would silently run the old model and be
+      // costed as the new one. Re-assert both against the fresh process.
+      const intendedModel = session.session.model;
+      const intendedThinkingLevel = session.thinkingLevel;
+      yield* relaunchWithRewrittenHistory(session, () =>
+        NodeFS.writeFileSync(sessionFile, plan.retainedText),
+      );
+      if (intendedModel !== undefined) {
+        yield* applyModelSelection(
+          session,
+          { instanceId: input.instanceId, model: intendedModel },
+          undefined,
+          true,
+        );
+      }
+      if (intendedThinkingLevel !== undefined) {
+        yield* Effect.tryPromise({
+          try: () =>
+            session.process.request({
+              type: "set_thinking_level",
+              level: intendedThinkingLevel,
+            }),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: DRIVER_KIND,
+              method: "set_thinking_level",
+              detail: detailFromCause(cause, "Failed to restore Pi thinking level after rewind."),
+              cause,
+            }),
+        });
+        session.thinkingLevel = intendedThinkingLevel;
+      }
+      session.turns.splice(Math.max(0, session.turns.length - numTurns));
+      session.activeTurnId = undefined;
+      session.turnStartedFor = undefined;
+      updateSession(session, { status: "ready", activeTurnId: undefined });
+      return { threadId, turns: session.turns };
+    });
+
   return {
     provider: DRIVER_KIND,
     // `stopSession` awaits `process.stop()`, whose child `exit` handler is NOT
@@ -1997,7 +2241,17 @@ export function makePiAdapter(input: {
       sessionModelSwitch: "in-session",
       emitsExitOnStop: true,
       resumeState: "session-file",
+      // pi's session is an append-only entry tree on disk and the driver owns
+      // that file (`resumeState: "session-file"`), so history CAN be rewound —
+      // see `rollbackThread`. Upstream's "Edit from here" is refused only for
+      // adapters that answer false.
+      supportsConversationRollback: true,
     },
+    // Native compaction: pi's own `compact` RPC summarises older messages and
+    // rebuilds the context, then reports the outcome as a `compaction_end`
+    // event which `handleMessage` maps to the `thread.state.changed`
+    // `compacted` event ProviderService waits on.
+    compaction: { type: "native", start: compactThread },
     startSession: (startInput) =>
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;
@@ -2229,6 +2483,7 @@ export function makePiAdapter(input: {
               launch,
               turns: [],
               unsubscribe: () => undefined,
+              compactionPending: false,
               activeTurnId: undefined,
               turnStartedFor: undefined,
               thinkingLevel: undefined,
@@ -2376,7 +2631,7 @@ export function makePiAdapter(input: {
                 !slugRoutesToAnthropic(session.session.model ?? "") &&
                 threadSessionHasPoisonedToolIds(session.session.threadId)
               )
-                yield* relaunchWithSanitisedHistory(session);
+                yield* relaunchWithRewrittenHistory(session);
               yield* applyModelSelection(session, turnInput.modelSelection, resolution);
             }
             // A send while a turn is already running is a steer: pi folds the
@@ -2578,8 +2833,7 @@ export function makePiAdapter(input: {
           turns: session.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
         })),
       ),
-    rollbackThread: (threadId) =>
-      requireSession(threadId).pipe(Effect.map((session) => ({ threadId, turns: session.turns }))),
+    rollbackThread,
     stopAll: () =>
       Effect.forEach(
         [...sessions.values()],

@@ -382,8 +382,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   Crypto.Crypto
 > {
   // loom: fork commands (goal.*, plan-lane/attention, dependencies, work.submit,
-  // consult.record, fanin.set, turn-start.fail, message.reasoning.complete) are
-  // decided by the fork sibling. After this guard `command` narrows to the
+  // consult.record, fanin.set, turn-start.fail) are decided by the fork
+  // sibling. After this guard `command` narrows to the
   // upstream-only subset, so the switch's `default: command satisfies never`
   // still holds.
   if (isLoomOrchestrationCommand(command)) {
@@ -853,14 +853,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // loom: the workstream auto-settle blocker, enforced HERE rather than only
-      // in the sidebar. Upstream's server-side sweep does not know that an idle
-      // orchestrator whose subtree is still working is load-bearing, so without
-      // this a root vanishes from the inbox while its children run. Same rule as
-      // `workstreamAutoSettleBlocked`'s third clause, read off the command read
-      // model's thread graph. An EXPLICIT settle still outranks it, exactly as
-      // on the client.
+      // loom: the workstream auto-settle blockers, enforced HERE rather than on
+      // the client. Upstream's server-side sweep does not know plan state, so
+      // without these an idle orchestrator vanishes from the inbox while its
+      // children run, and a thread parked awaiting a decision ages out of it.
+      // Both describe PLAN state, which only a human clears — so an EXPLICIT
+      // `thread.settle` still outranks them and stays a legal action. A stored
+      // attention flag is deliberately NOT a blocker: it ages out with
+      // inactivity, and the settled row still carries the flag.
       if (command.type === "thread.auto-settle") {
+        // Yielded = quiescent by every runtime signal, yet owed a decision.
+        if (thread.planLane === "yielded") {
+          return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
+        }
         const subtree = collectLiveSubtreeIds(readModel, command.threadId);
         const hasNonTerminalDescendant = readModel.threads.some(
           (descendant) =>
@@ -1283,6 +1288,80 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Old clients only see the derived single link. Unlink that request through
+      // the same command path as modern clients, including stack dismissal, while
+      // retaining other links they cannot see. Historical metadata events still replay unchanged.
+      const legacy = legacyLinkedPullRequestOf(
+        thread.pullRequests,
+        thread.projectId,
+        readModel.projects.find((project) => project.id === thread.projectId)?.repositoryIdentity,
+      );
+      const currentPullRequest =
+        legacy === null
+          ? null
+          : (thread.pullRequests.find(
+              (link) => link.url === legacy.url && link.number === legacy.number,
+            ) ?? null);
+      if (command.linkedPullRequest != null) {
+        const { linkedPullRequest: linked, ...metadata } = command;
+        const project = readModel.projects.find((project) => project.id === thread.projectId);
+        let host = project?.repositoryIdentity?.canonicalKey.split("/")[0] ?? "unknown";
+        try {
+          host = new URL(linked.url).hostname;
+        } catch {
+          // Historical clients can send links without a parseable URL.
+        }
+        const hasMetadata = Object.entries(metadata).some(
+          ([key, value]) => !["type", "commandId", "threadId"].includes(key) && value !== undefined,
+        );
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...(hasMetadata ? [metadata] : []),
+            ...(currentPullRequest?.source === "manual"
+              ? [
+                  {
+                    type: "thread.pull-request.unlink" as const,
+                    commandId: command.commandId,
+                    threadId: command.threadId,
+                    host: currentPullRequest.host,
+                    repository: currentPullRequest.repository,
+                    number: currentPullRequest.number,
+                  },
+                ]
+              : []),
+            {
+              type: "thread.pull-request.link",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              ...legacyThreadPullRequestKey(linked, host),
+              url: linked.url,
+              source: "manual",
+            },
+          ],
+        });
+      }
+
+      if (command.linkedPullRequest === null && currentPullRequest !== null) {
+        const { linkedPullRequest: _linkedPullRequest, ...metadata } = command;
+        const hasMetadata = Object.entries(metadata).some(
+          ([key, value]) => !["type", "commandId", "threadId"].includes(key) && value !== undefined,
+        );
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...(hasMetadata ? [metadata] : []),
+            {
+              type: "thread.pull-request.unlink",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              host: currentPullRequest.host,
+              repository: currentPullRequest.repository,
+              number: currentPullRequest.number,
+            },
+          ],
+        });
+      }
       // loom: goal-in-project validation (fork addition to this upstream case).
       if (command.goalId != null) {
         yield* requireActiveGoalInProject({
@@ -1361,6 +1440,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.linkedPullRequest !== undefined
+            ? { linkedPullRequest: command.linkedPullRequest }
+            : {}),
           // Post-completion engagement (plan §8 item 3): the fan-in tip marker.
           ...(command.finalCommitSha !== undefined
             ? { finalCommitSha: command.finalCommitSha }
@@ -2322,10 +2404,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [unsettledEvent, sessionSetEvent];
     }
 
-    // loom: reasoning is ephemeral (v2) — streaming chunks ride the
-    // ReasoningStreamBus and the single durable `thread.message.reasoning.complete`
-    // lives in decider.loom.ts. Upstream's reasoning delta/complete arms stay dropped.
-    case "thread.message.assistant.delta": {
+    case "thread.message.assistant.delta":
+    case "thread.message.reasoning.delta": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2348,7 +2428,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: "assistant",
+          role: command.type === "thread.message.reasoning.delta" ? "reasoning" : "assistant",
           text: command.delta,
           turnId: command.turnId ?? null,
           streaming: true,
@@ -2358,7 +2438,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.message.assistant.complete": {
+    case "thread.message.assistant.complete":
+    case "thread.message.reasoning.complete": {
       if (isImportedAgentSessionMessageId(command.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -2381,7 +2462,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          role: "assistant",
+          role: command.type === "thread.message.reasoning.complete" ? "reasoning" : "assistant",
           text: "",
           turnId: command.turnId ?? null,
           streaming: false,

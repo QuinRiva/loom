@@ -21,7 +21,13 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
+import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+
+// loom: the reactor now refuses to remove a recorded path that is not under this
+// home's worktrees dir (foreignHomeGuard.loom.ts), so the fixtures' `/wt/...`
+// checkouts have to look like this home's.
+const ServerConfigTestLive = Layer.succeed(ServerConfig, { worktreesDir: "/wt" } as never);
 import { layer as WorktreeMutationLockLive } from "../../git/WorktreeMutationLock.ts";
 import {
   makeWorkspaceLease,
@@ -196,6 +202,7 @@ const runReactor = (scenario: Scenario) =>
       Layer.provide(WorktreeMutationLockLive),
       Layer.provide(Layer.succeed(WorkspaceLease, lease)),
       Layer.provide(checkoutFs(scenario.childCheckoutGone !== true)),
+      Layer.provide(ServerConfigTestLive),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -565,6 +572,7 @@ describe("WorkstreamFanInReactor", () => {
           Layer.provide(WorktreeMutationLockLive),
           Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(checkoutFs(true)),
+          Layer.provide(ServerConfigTestLive),
           Layer.provideMerge(NodeServices.layer),
         );
 
@@ -773,6 +781,7 @@ describe("WorkstreamFanInReactor", () => {
             Layer.provide(WorktreeMutationLockLive),
             Layer.provide(WorkspaceLeaseTestLive),
             Layer.provide(checkoutFs(true)),
+            Layer.provide(ServerConfigTestLive), // loom:
             Layer.provideMerge(NodeServices.layer),
           );
 
@@ -866,6 +875,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(checkoutFs(true)),
+        Layer.provide(ServerConfigTestLive), // loom:
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -957,6 +967,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(checkoutFs(true)),
+        Layer.provide(ServerConfigTestLive), // loom:
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -1032,6 +1043,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(checkoutFs(true)),
+        Layer.provide(ServerConfigTestLive), // loom:
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -1167,6 +1179,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(checkoutFs(true)),
+        Layer.provide(ServerConfigTestLive), // loom:
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -1273,6 +1286,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(checkoutFs(true)),
+        Layer.provide(ServerConfigTestLive), // loom:
         Layer.provideMerge(NodeServices.layer),
       );
 

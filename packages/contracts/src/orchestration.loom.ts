@@ -355,30 +355,6 @@ export const HandoffDestination = Schema.Struct({
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
-// Transient reasoning stream item (the ephemeral channel). These never hit the
-// event store; they drive live "Thinking… ⟷ Thought for Xs" display only. The
-// durable `thread.message-reasoning` event (REPLACE full text) is the source of
-// truth on reload.
-export const ReasoningStreamItem = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("delta"),
-    threadId: ThreadId,
-    messageId: MessageId,
-    turnId: Schema.NullOr(TurnId),
-    text: Schema.String,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("complete"),
-    threadId: ThreadId,
-    messageId: MessageId,
-    reasoningCompletedAt: IsoDateTime,
-    // Accumulated thinking time for this message so far (sum of burst spans).
-    // Server-computed so the live header and the replayed header agree.
-    reasoningMs: Schema.Number,
-  }),
-]);
-export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
-
 // ---------------------------------------------------------------------------
 // Struct field records (shape c). Each is spread — HEAD position — into the
 // upstream struct that owns it. Field position is decode-irrelevant (keys are
@@ -738,17 +714,6 @@ export type ControlPayload = typeof ControlPayload.Type;
 
 // Spread into `OrchestrationMessage`.
 export const LoomMessageFields = {
-  // Model reasoning/thinking trace for this (assistant) message, captured as a
-  // parallel channel to `text` and rendered as a collapsible block above the
-  // answer. Absent for messages without reasoning.
-  reasoningText: Schema.optional(Schema.String),
-  reasoningStreaming: Schema.optional(Schema.Boolean),
-  // Wall-clock thinking time, summed across the message's reasoning bursts.
-  // Absent for messages without reasoning and for reasoning persisted before
-  // this field existed — the header then renders "Thought" with no duration
-  // rather than inventing one from `createdAt`/`updatedAt`, which measure the
-  // message, not the thinking.
-  reasoningMs: Schema.optional(Schema.Number),
   // Provenance of a user-role message (absent ⇒ human). See `MessageOrigin`.
   origin: Schema.optional(MessageOrigin),
   // Structured source-of-truth for a control-plane digest/notice (absent ⇒ this
@@ -1050,22 +1015,6 @@ const ThreadDependenciesSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// v2 (ephemeral reasoning): streaming reasoning chunks are NOT persisted as
-// domain events — they flow over the transient ReasoningStreamBus. The only
-// durable reasoning command is the completion, which carries the full
-// accumulated text and is dispatched once per assistant segment at
-// finalization. The projector REPLACES `reasoningText` with this full text.
-const ThreadMessageReasoningCompleteCommand = Schema.Struct({
-  type: Schema.Literal("thread.message.reasoning.complete"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  messageId: MessageId,
-  reasoningText: Schema.String,
-  reasoningMs: Schema.Number,
-  turnId: Schema.optional(TurnId),
-  createdAt: IsoDateTime,
-});
-
 // consult_thread observability: the server chokepoint records one resolved
 // consult (asker → target). Aggregate = the asker thread; the decider derives
 // the `thread.consult-recorded` event. `answer` is the FULL answer (no
@@ -1218,7 +1167,6 @@ export const LoomClientCommandMembers = [
 // Spliced (HEAD) into `InternalOrchestrationCommand`.
 export const LoomInternalCommandMembers = [
   ThreadFanInSetCommand,
-  ThreadMessageReasoningCompleteCommand,
   ThreadConsultRecordCommand,
   ThreadPeerMessageRecordCommand,
   ThreadPeerMessageMarkDeliveredCommand,
@@ -1452,18 +1400,18 @@ export const ThreadDependenciesSetPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// Legacy, like `ThreadStatusSetPayload`: the fork's retired "ephemeral
+// reasoning v2" wrote these rows. Nothing emits or projects them any more —
+// reasoning is upstream's durable `role: "reasoning"` message rows — but the
+// shape stays decodable so a replay across historical `orchestration_events`
+// cannot fail. Deleted together with the `reasoning_text` column drop; see
+// docs/upstream-sync/26-reasoning-rehome.md.
 export const ThreadMessageReasoningPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.NullOr(TurnId),
-  // Full accumulated reasoning text for the segment. The projector REPLACES the
-  // message's `reasoningText` with this value (not append) — see the v2 plan's
-  // ordering contract. Persisted reasoning is always complete, so
-  // `reasoningStreaming` is always false here.
   reasoningText: Schema.String,
   reasoningStreaming: Schema.Boolean,
-  // Thinking time for the segment, summed across its bursts. Optional because
-  // events written before this field existed carry no value.
   reasoningMs: Schema.optional(Schema.Number),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1758,14 +1706,6 @@ export const LoomShellStreamEventMembers = [
   }),
 ] as const;
 
-// Spliced (HEAD) into `OrchestrationThreadStreamItem` (shape a).
-export const LoomThreadStreamItemMembers = [
-  Schema.Struct({
-    kind: Schema.Literal("reasoning-delta"),
-    payload: ReasoningStreamItem,
-  }),
-] as const;
-
 // ---------------------------------------------------------------------------
 // Narrowing guards (shape e). The listed string arrays are checked against the
 // spliced member tuples in BOTH directions, so an omission AND a typo/extra
@@ -1790,7 +1730,6 @@ export const LOOM_COMMAND_TYPES = [
   "thread.attention.clear",
   "thread.user-input.dismiss",
   "thread.dependencies.set",
-  "thread.message.reasoning.complete",
   "thread.work.submit",
   "thread.consult.record",
   "thread.peer-message.record",

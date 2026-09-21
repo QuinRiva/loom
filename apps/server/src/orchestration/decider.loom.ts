@@ -920,36 +920,6 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
       ];
     }
 
-    // v2: streaming reasoning chunks are transient (ReasoningStreamBus) and
-    // never become domain events. The only durable reasoning event is the
-    // completion, carrying the full accumulated text with REPLACE semantics.
-    case "thread.message.reasoning.complete": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.message-reasoning",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          turnId: command.turnId ?? null,
-          reasoningText: command.reasoningText,
-          reasoningStreaming: false,
-          reasoningMs: command.reasoningMs,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
     // Review gates (design §3/§4): the single terminal call. One transaction
     // emits the report pointer, the structured outcome record, and the events
     // the routing decision implies — lane changes, attention, or a gate
