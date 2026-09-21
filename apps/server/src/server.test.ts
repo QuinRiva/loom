@@ -9250,9 +9250,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
           projectionSnapshotQuery: {
             getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
-            // A *successful* Option.none is the legitimate row-absent signal and
-            // must stay silent (the other half of the lookup-failed/row-absent
-            // taxonomy) — guards against over-correcting the fix into failing here.
+            // A *successful* Option.none is the legitimate row-absent signal: it
+            // resolves to a removal, never a failure (the other half of the
+            // lookup-failed/row-absent taxonomy) — guards against over-correcting
+            // the fail-loud fix into failing here. See threadUpsertOrRemove.
             getThreadShellById: () => Effect.succeed(Option.none()),
           },
         },
@@ -9266,7 +9267,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ).pipe(Effect.map((chunk) => Array.from(chunk))),
       );
 
-      assert.deepEqual(items, []);
+      assert.deepEqual(items, [{ kind: "thread-removed", sequence: 1, threadId }]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

@@ -33,7 +33,10 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as ServerConfig from "./config.ts";
-import { detectForeignDatabase } from "./workspace/foreignHomeGuard.loom.ts"; // loom:
+import {
+  detectForeignDatabase,
+  refuseForeignHomeSideEffect,
+} from "./workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
@@ -884,6 +887,12 @@ export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
     workspaceRoots,
     (cwd) =>
       Effect.gen(function* () {
+        // loom: a pull rewrites a checkout this home may not own — the DB-copy
+        // smoke recipe boots on a database whose workspace roots are the real
+        // ones (docs/dev-site-testing.md).
+        if (yield* refuseForeignHomeSideEffect("autoPullProjects.pullCurrentBranch", cwd)) {
+          return;
+        }
         const status = yield* git.statusDetails(cwd);
         if (
           !status.isRepo ||
@@ -1018,14 +1027,18 @@ export const make = (options?: StartupOptions) =>
         }),
       );
 
+      yield* runStartupPhase("provider-sessions.reconcile", reconcileProviderSessions);
+
       // A process exit during a worktree setup leaves its record saying
       // `running` forever, which every client reads as "still preparing" with
       // no way out. Settle those before clients can attach.
       yield* runStartupPhase("worktree-setups.reconcile", reconcileWorktreeSetups);
 
-      // loom: reconcile stale session lifecycle state after reactors have started
-      // but before command readiness — live provider sessions are visible, and no
-      // queued user command can start a new turn mid-reconcile (logic in loom/startup.ts).
+      yield* Effect.logDebug("startup phase: syncing clean projects");
+      yield* runStartupPhase("projects.auto-pull", syncAutoPullProjects);
+
+      // loom: keep the fork's broader liveness reconciliation after upstream's
+      // three boot repairs, but still before command readiness.
       yield* Effect.logDebug("startup phase: reconciling session lifecycle state");
       yield* runStartupPhase("sessions.reconcile", reconcileStaleSessionsGuarded);
 

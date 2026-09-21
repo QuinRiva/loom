@@ -90,9 +90,9 @@ describe("resolveAutoSettlementAt", () => {
     ).toBe("2026-08-01T00:00:00.000Z");
   });
 
-  it("settles inactive threads and leaves never-used threads active", () => {
+  it("settles inactive threads, including never-run threads from their creation time", () => {
     expect(decide(makeThread())).toBe(true);
-    expect(decide(makeThread({ latestUserMessageAt: null }))).toBe(false);
+    expect(decide(makeThread({ latestUserMessageAt: null }))).toBe(true);
     expect(decide(makeThread(), null, { days: null })).toBe(false);
   });
 

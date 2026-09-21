@@ -104,28 +104,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
       `,
   });
 
-  const listProjectionProjectRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionProjectDbRow,
-    execute: () =>
-      sql`
-        SELECT
-          project_id AS "projectId",
-          title,
-          workspace_root AS "workspaceRoot",
-          default_model_selection_json AS "defaultModelSelection",
-          default_start_from_origin AS "defaultStartFromOrigin",
-          default_thread_env_mode AS "defaultThreadEnvMode",
-          favicon_path AS "faviconPath",
-          scripts_json AS "scripts",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_projects
-        ORDER BY created_at ASC, project_id ASC
-      `,
-  });
-
+  // loom: upstream's list-all-projects query is deliberately absent — never
+  // exposed on the repository shape, and its SELECT omitted `auto_pull` and
+  // `project_icon`, so a first caller would have hit a decode failure.
   const deleteProjectionProjectRow = SqlSchema.void({
     Request: DeleteProjectionProjectInput,
     execute: ({ projectId }) =>

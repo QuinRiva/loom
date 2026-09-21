@@ -97,12 +97,15 @@ export function resolveAutoSettlementAt(input: {
           };
   }
   if (!isAutoSettlementCandidate(thread, input.now)) return null;
-  const activityAt = latestTimestamp([
-    thread.latestUserMessageAt,
-    thread.latestTurn?.requestedAt,
-    thread.latestTurn?.startedAt,
-    thread.latestTurn?.completedAt,
-  ]);
+  // loom: a never-run thread still ages from creation; otherwise it can never
+  // satisfy the inactivity policy and remains permanently unsettleable.
+  const activityAt =
+    latestTimestamp([
+      thread.latestUserMessageAt,
+      thread.latestTurn?.requestedAt,
+      thread.latestTurn?.startedAt,
+      thread.latestTurn?.completedAt,
+    ]) ?? thread.createdAt;
   if (pullRequest !== null) {
     if (pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
       return activityAt ?? thread.createdAt;

@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
-  DEFAULT_MODEL,
   DEFAULT_SERVER_SETTINGS,
   PI_DEFAULT_MODEL,
   ProjectId,
@@ -25,6 +24,86 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import { setForeignDatabaseForTest } from "./workspace/foreignHomeGuard.loom.ts";
+
+it.effect("automatic pull only updates enabled, behind, clean default-branch checkouts", () =>
+  Effect.gen(function* () {
+    const pulled: string[] = [];
+    const git = {
+      statusDetails: (cwd: string) =>
+        Effect.succeed({
+          isRepo: true,
+          isDefaultBranch: cwd !== "/feature",
+          hasUpstream: true,
+          hasWorkingTreeChanges: cwd === "/dirty",
+          aheadCount: cwd === "/ahead" ? 1 : 0,
+          behindCount: cwd === "/current" ? 0 : 1,
+        } as never),
+      pullCurrentBranch: (cwd: string) =>
+        Effect.sync(() => {
+          pulled.push(cwd);
+          return {
+            status: "pulled" as const,
+            refName: "main",
+            upstreamRef: "origin/main",
+          };
+        }),
+    } as unknown as GitVcsDriver.GitVcsDriver["Service"];
+    const project = (workspaceRoot: string) =>
+      ({ id: ProjectId.make(workspaceRoot), workspaceRoot }) as never;
+    const overrides = (entries: Record<string, boolean>) => ({
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: Object.fromEntries(
+        Object.entries(entries).map(([root, defaultAutoPull]) => [
+          ProjectId.make(root),
+          { defaultAutoPull },
+        ]),
+      ),
+    });
+
+    yield* ServerRuntimeStartup.autoPullProjects(
+      [
+        project("/clean"),
+        project("/current"),
+        project("/dirty"),
+        project("/ahead"),
+        project("/feature"),
+        project("/disabled"),
+      ],
+      overrides({
+        "/clean": true,
+        "/current": true,
+        "/dirty": true,
+        "/ahead": true,
+        "/feature": true,
+        "/disabled": false,
+      }),
+    ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
+
+    assert.deepStrictEqual(pulled, ["/clean"]);
+
+    pulled.length = 0;
+    yield* ServerRuntimeStartup.autoPullProjects(
+      [project("/inherited"), project("/opted-out"), project("/dirty")],
+      { ...overrides({ "/opted-out": false }), defaultAutoPull: true },
+    ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
+    assert.deepStrictEqual(pulled, ["/inherited"]);
+
+    // loom: a copied database records another home's workspace roots, so the
+    // boot pull must refuse rather than rewrite a checkout this home does not own.
+    pulled.length = 0;
+    setForeignDatabaseForTest({
+      worktreesDir: "/this-home/worktrees",
+      recordedExample: "/elsewhere",
+    });
+    yield* ServerRuntimeStartup.autoPullProjects(
+      [project("/clean")],
+      overrides({ "/clean": true }),
+    ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
+    setForeignDatabaseForTest(null);
+    assert.deepStrictEqual(pulled, []);
+  }),
+);
 
 // loom: auto-bootstrap default is pi/PI_DEFAULT_MODEL (the source was switched
 // from upstream's codex/DEFAULT_MODEL in the fork-aware architecture campaign;
@@ -441,10 +520,8 @@ it.effect.each([
     assert.deepStrictEqual(
       commands.at(-1)?.modelSelection,
       projectSelection ??
-        machineSelection ?? {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: DEFAULT_MODEL,
-        },
+        machineSelection ??
+        ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
     );
   }),
 );
