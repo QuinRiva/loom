@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -8,10 +9,13 @@ import { TestClock } from "effect/testing";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   GitCommandError,
+  WORKTREE_SETUP_ACTIVITY_KIND,
   type OrchestrationCommand,
   ProjectId,
   ThreadId,
+  type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
+import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 import { WorktreeProvisioner, layer as WorktreeProvisionerLive } from "./WorktreeProvisioner.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
@@ -19,18 +23,43 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
-import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceOccupancyLease.ts";
+import {
+  WorkspaceLease,
+  layer as WorkspaceLeaseLive,
+} from "../workspace/WorkspaceOccupancyLease.ts";
+import { WorktreeSetupTracker, layer as WorktreeSetupTrackerLive } from "./WorktreeSetupTracker.ts";
+
+const CHILD_WORKTREE = "/tmp/child-worktree";
+const CHILD_BRANCH = "ws/main/coder-child-is";
+
+const setupSnapshots = (commands: ReadonlyArray<OrchestrationCommand>) =>
+  commands.flatMap((command) =>
+    command.type === "thread.activity.append" &&
+    command.activity.kind === WORKTREE_SETUP_ACTIVITY_KIND
+      ? [command.activity.payload as WorktreeSetupSnapshot]
+      : [],
+  );
 
 // ensureIsolatedChildProvisioned is the shared turn-start guard (item 4): it
 // (re)provisions an isolated child's worktree and, on failure, parks the child
 // (needs_guidance) so it never fails to the caller — the invariant that keeps a
-// turn from starting against an unprovisioned isolated child.
+// turn from starting against an unprovisioned isolated child. Provisioning runs
+// as a fibre registered with `WorktreeSetupTracker`, so the child gets the
+// setup card, a durable record of it, and a working cancel.
 describe("ensureIsolatedChildProvisioned", () => {
   const threadId = ThreadId.make("child-iso-1");
   const projectId = ProjectId.make("project-1");
 
-  const harness = (opts: { readonly commitFails: boolean }) => {
+  const harness = (opts: {
+    readonly commitFails?: boolean;
+    /** Resolve to release a checkout that is otherwise parked mid-provision. */
+    readonly blockCheckout?: Deferred.Deferred<void>;
+    /** Completed once `createWorktree` has claimed the directory. */
+    readonly checkoutStarted?: Deferred.Deferred<void>;
+  }) => {
     const dispatched: Array<OrchestrationCommand> = [];
+    const removed: Array<string> = [];
+    const deletedBranches: Array<string> = [];
     const engineStub = Layer.succeed(OrchestrationEngineService, {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
@@ -53,9 +82,21 @@ describe("ensureIsolatedChildProvisioned", () => {
               }),
             )
           : Effect.succeed({ committed: true }),
-      createWorktree: () =>
-        Effect.succeed({
-          worktree: { path: "/tmp/child-worktree", refName: "ws/main/coder-child-is" },
+      createWorktree: (_input: unknown, options?: GitVcsDriver.CreateWorktreeOptions) =>
+        Effect.gen(function* () {
+          yield* options?.progress?.onWorktreeClaimed?.(CHILD_WORKTREE) ?? Effect.void;
+          if (opts.checkoutStarted) yield* Deferred.succeed(opts.checkoutStarted, undefined);
+          if (opts.blockCheckout) yield* Deferred.await(opts.blockCheckout);
+          return { worktree: { path: CHILD_WORKTREE, refName: CHILD_BRANCH } };
+        }),
+      removeWorktree: (input: { readonly path: string }) =>
+        Effect.sync(() => {
+          removed.push(input.path);
+        }),
+      pruneWorktrees: () => Effect.void,
+      deleteBranch: (input: { readonly branch: string }) =>
+        Effect.sync(() => {
+          deletedBranches.push(input.branch);
         }),
     } as never);
     const lockStub = Layer.succeed(WorktreeMutationLock, {
@@ -73,10 +114,12 @@ describe("ensureIsolatedChildProvisioned", () => {
       Layer.provide(lockStub),
       Layer.provide(setupStub),
       Layer.provide(vcsStub),
-      Layer.provide(WorkspaceLeaseLive),
+      // Merged rather than provided: the assertions drive the very tracker and
+      // lease the provisioner registers its fibre and its hold with.
+      Layer.provideMerge(Layer.mergeAll(WorkspaceLeaseLive, WorktreeSetupTrackerLive)),
       Layer.provide(NodeServices.layer),
     );
-    return { dispatched, layer };
+    return { dispatched, removed, deletedBranches, layer };
   };
 
   it.effect(
@@ -115,12 +158,17 @@ describe("ensureIsolatedChildProvisioned", () => {
               c.activity.kind === "workstream.provision.failed",
           ),
         ).toBe(true);
+        // The card settles too, so a client watching the child sees why.
+        expect(setupSnapshots(dispatched).map((snapshot) => snapshot.phase)).toEqual([
+          "running",
+          "failed",
+        ]);
       }),
   );
 
   it.effect("provisions and clears the failure marker on success", () =>
     Effect.gen(function* () {
-      const { dispatched, layer } = harness({ commitFails: false });
+      const { dispatched, layer } = harness({});
       const outcome = yield* Effect.gen(function* () {
         const provisioner = yield* WorktreeProvisioner;
         const provisioned = yield* provisioner.ensureIsolatedChildProvisioned({
@@ -137,10 +185,27 @@ describe("ensureIsolatedChildProvisioned", () => {
       expect(outcome.pending).toBe(false);
       // The child was repointed to its own worktree/branch.
       expect(
-        dispatched.some(
-          (c) => c.type === "thread.meta.update" && c.branch === "ws/main/coder-child-is",
-        ),
+        dispatched.some((c) => c.type === "thread.meta.update" && c.branch === CHILD_BRANCH),
       ).toBe(true);
+      // Running then settled, upserted under the one activity id the setup card
+      // reads after a reload.
+      const snapshots = setupSnapshots(dispatched);
+      expect(snapshots.map((snapshot) => snapshot.phase)).toEqual(["running", "done"]);
+      expect(snapshots.at(-1)?.worktreePath).toBe(CHILD_WORKTREE);
+      // `agent: done` is the shared "the agent has taken over" signal
+      // (`worktreeSetupAgentStarted`). Without it a child whose async setup
+      // script is still installing reads as "still preparing" everywhere, and
+      // the startup reconciler would settle a healthy child as failed.
+      expect(snapshots.at(-1)?.stages.find((stage) => stage.id === "agent")?.status).toBe("done");
+      expect(
+        new Set(
+          dispatched.flatMap((c) =>
+            c.type === "thread.activity.append" && c.activity.kind === WORKTREE_SETUP_ACTIVITY_KIND
+              ? [c.activity.id]
+              : [],
+          ),
+        ).size,
+      ).toBe(1);
     }),
   );
 
@@ -154,14 +219,72 @@ describe("ensureIsolatedChildProvisioned", () => {
           role: "coder",
           projectId,
           // Already on its own `ws/…-<first8(threadId)>` branch.
-          branch: "ws/main/coder-child-is",
-          worktreePath: "/tmp/child-worktree",
+          branch: CHILD_BRANCH,
+          worktreePath: CHILD_WORKTREE,
         });
       }).pipe(Effect.provide(layer));
 
       expect(provisioned).toBe(true);
       // No git op ran and no command was dispatched — a pure no-op.
       expect(dispatched).toHaveLength(0);
+    }),
+  );
+
+  // The point of running provisioning through the tracker: a human can stop a
+  // stuck setup from the child's own card, and the abandoned tree is unwound
+  // so the next attempt can cut the branch again.
+  it.effect("cancel mid-provision records the terminal state and releases the hold", () =>
+    Effect.gen(function* () {
+      const checkoutStarted = yield* Deferred.make<void>();
+      const blockCheckout = yield* Deferred.make<void>();
+      const { dispatched, removed, deletedBranches, layer } = harness({
+        checkoutStarted,
+        blockCheckout,
+      });
+
+      const outcome = yield* Effect.gen(function* () {
+        const provisioner = yield* WorktreeProvisioner;
+        const tracker = yield* WorktreeSetupTracker;
+        const lease = yield* WorkspaceLease;
+        const fiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const provisioned = yield* provisioner.ensureIsolatedChildProvisioned({
+              threadId,
+              role: "coder",
+              projectId,
+              branch: "main",
+              worktreePath: "/tmp/parent-worktree",
+            });
+            return { provisioned, pending: provisioner.hasPendingProvisionFailure(threadId) };
+          }),
+        );
+        // The claimed directory is the receipt that provisioning is live and
+        // holding the tree.
+        yield* Deferred.await(checkoutStarted);
+        expect(yield* lease.holdersOf(CHILD_WORKTREE)).toEqual([`worktree-provision:${threadId}`]);
+        // `cancel` waits for the interrupted fibre to unwind, so everything
+        // below observes the settled state.
+        const cancelled = yield* tracker.cancel(threadId);
+        const result = yield* Fiber.join(fiber);
+        return { cancelled, ...result, holders: yield* lease.holdersOf(CHILD_WORKTREE) };
+      }).pipe(Effect.provide(layer), Effect.scoped);
+
+      expect(outcome.cancelled).toBe(true);
+      expect(outcome.provisioned).toBe(false);
+      // Remembered, so the promote loop does not immediately re-provision what
+      // a human just stopped.
+      expect(outcome.pending).toBe(true);
+      expect(outcome.holders).toEqual([]);
+      expect(setupSnapshots(dispatched).map((snapshot) => snapshot.phase)).toEqual([
+        "running",
+        "cancelled",
+      ]);
+      // A cancel is not a defect: no needs_guidance flag, and the child never
+      // gets repointed at the tree that no longer exists.
+      expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(false);
+      expect(dispatched.some((c) => c.type === "thread.meta.update")).toBe(false);
+      expect(removed).toEqual([CHILD_WORKTREE]);
+      expect(deletedBranches).toEqual([CHILD_BRANCH]);
     }),
   );
 });

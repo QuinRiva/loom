@@ -357,11 +357,8 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(
         Layer.succeed(WorktreeProvisioner, {
-          provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
-          provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
           ensureIsolatedChildProvisioned: () => Effect.succeed(true),
           hasPendingProvisionFailure: () => false,
-          runSetup: () => Effect.void,
         } as never),
       ),
     );
