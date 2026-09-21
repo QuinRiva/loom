@@ -43,6 +43,7 @@ function makeThread(
   return {
     environmentId,
     projectId: ProjectId.make("project-1"),
+    // loom: workstream fields on the thread shell (goal, graph, cost, activity).
     goalId: null,
     parentThreadId: null,
     role: null,
@@ -191,7 +192,7 @@ describe("resolveThreadListV2Status", () => {
         runtimeMode: "full-access",
         activeTurnId: null,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
+        queuedMessages: { steering: [], followUp: [] }, // loom: queued steers on the turn shell
         updatedAt: NOW,
       },
     });

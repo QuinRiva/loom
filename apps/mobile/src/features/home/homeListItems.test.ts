@@ -27,7 +27,7 @@ function makeProject(id: string, title: string): EnvironmentProject {
     workspaceRoot: `/workspaces/${id}`,
     repositoryIdentity: null,
     defaultModelSelection: null,
-    defaultStartFromOrigin: null,
+    defaultStartFromOrigin: null, // loom: per-project start-from-origin default
     scripts: [],
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
@@ -39,6 +39,7 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     environmentId,
     id: ThreadId.make(id),
     projectId,
+    // loom: workstream fields on the thread shell (goal, graph, cost, activity).
     goalId: null,
     parentThreadId: null,
     role: null,
