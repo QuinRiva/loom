@@ -21,7 +21,7 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-  type TextGenerationOperation,
+  type TextGenerationOperation, // loom: adds the structured-generation operation
 } from "./TextGenerationUtils.ts";
 import {
   applyCursorAcpModelSelection,
@@ -258,6 +258,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
+  // loom: structured (JSON-schema) text generation.
   const generateStructured: TextGeneration.TextGeneration["Service"]["generateStructured"] = (
     input,
   ) =>

@@ -29,6 +29,7 @@ export function applyShellStreamEvent(
         snapshotSequence: event.sequence,
       };
     case "thread-upserted": {
+      // loom: batched thread-upserted frames.
       // One domain event can carry several shells (see the contract): the thread
       // it happened to, plus any whose graph-DERIVED fields its transition
       // changed. Merge them all under the single sequence.
@@ -47,6 +48,7 @@ export function applyShellStreamEvent(
         threads: Arr.filter(snapshot.threads, (t) => t.id !== event.threadId),
         snapshotSequence: event.sequence,
       };
+    // loom: goals in the shell snapshot.
     case "goal-upserted": {
       const goals = snapshot.goals.some((g) => g.id === event.goal.id)
         ? Arr.map(snapshot.goals, (g) => (g.id === event.goal.id ? event.goal : g))

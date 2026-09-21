@@ -50,6 +50,7 @@ export class GitWorkflowService extends Context.Service<
       input: VcsStatusInput,
       options?: GitManager.GitRemoteStatusOptions,
     ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
+    // loom: batched remote status across a repository's worktrees.
     readonly resolveRemoteStatusRepository: (
       cwd: string,
     ) => Effect.Effect<

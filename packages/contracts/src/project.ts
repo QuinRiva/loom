@@ -10,6 +10,7 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+// loom: out-of-workspace file chips (absolute read, listing, batch stat).
 const PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH = 4096;
 const PROJECT_STAT_PATHS_MAX_COUNT = 200;
 
@@ -204,7 +205,7 @@ export const ProjectReadFileInput = Schema.Struct({
   // workspace. Only workspace-relative paths can be written back.
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   /**
-   * Optional per-request read budget in bytes. Clamped server-side to a plan
+   * loom: optional per-request read budget in bytes. Clamped server-side to a plan
    * ceiling (see `PROJECT_READ_FILE_PLAN_MAX_BYTES`); when absent the default
    * 1 MiB cap applies. Only the `.mdx` plan preview requests the larger budget,
    * so payload exposure stays bounded for every other caller.
@@ -224,9 +225,9 @@ export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 export const ProjectFileFailure = Schema.Literals([
   "workspace_path_outside_root",
   "resolved_path_outside_root",
-  "path_not_absolute",
+  "path_not_absolute", // loom: absolute-path reads
   "path_not_file",
-  "path_not_directory",
+  "path_not_directory", // loom: absolute-path directory listings
   "binary_file",
   "operation_failed",
 ]);
@@ -238,7 +239,7 @@ export const ProjectFileOperation = Schema.Literals([
   "open",
   "stat",
   "read",
-  "readdir",
+  "readdir", // loom: absolute-path directory listings
   "close",
   "make-directory",
   "write-file",
@@ -282,7 +283,7 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 }
 
 /**
- * Read-only preview of a file addressed by absolute path, deliberately NOT
+ * loom: read-only preview of a file addressed by absolute path, deliberately NOT
  * constrained to a workspace root. This exists so chat file chips can open
  * files the control plane embeds outside any workspace (e.g. workstream report
  * paths under the durable state dir). There is intentionally no absolute WRITE
@@ -330,7 +331,7 @@ export class ProjectReadAbsoluteFileError extends Schema.TaggedError<ProjectRead
 }
 
 /**
- * Batch existence check for chat file chips. Given a set of absolute paths,
+ * loom: batch existence check for chat file chips. Given a set of absolute paths,
  * report whether each exists and — when it does — whether it is a file or a
  * directory. This lets the renderer verify a chip's resolved target before
  * turning it into a clickable link (avoiding dead clicks on plausible-looking
@@ -376,7 +377,7 @@ export class ProjectStatPathsError extends Schema.TaggedError<ProjectStatPathsEr
 }
 
 /**
- * Read-only listing of a directory addressed by absolute path, deliberately
+ * loom: read-only listing of a directory addressed by absolute path, deliberately
  * NOT constrained to a workspace root. Sibling of the absolute-file read: it
  * lets chat directory chips open a browsable listing for out-of-workspace
  * output dirs (e.g. data-analysis deliverables under a home directory). Like

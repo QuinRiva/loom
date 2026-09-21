@@ -60,6 +60,8 @@ const drainFibers = Effect.forEach(Array.from({ length: 10 }), () => Effect.yiel
 
 const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
 
+// loom: the reaper honours workstream obligations (lane, live children,
+// dependencies, open questions) and background liveness.
 /**
  * Outstanding obligations per thread, as the sweep's narrow
  * `getThreadObligations` query would report them. Absent ids owe nothing.

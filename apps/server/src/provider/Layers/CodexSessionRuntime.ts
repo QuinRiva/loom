@@ -23,7 +23,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import { renderUserInputOutcomeHandoff } from "@t3tools/shared/userInputOutcome";
 
-// The single key a non-answer outcome's framing is delivered under. Codex's
+// loom: the single key a non-answer outcome's framing is delivered under. Codex's
 // requestUserInput response has no field for "the user did not answer", so the
 // explanation rides the answers map rather than masquerading as a selection.
 const CODEX_NON_ANSWER_OUTCOME_KEY = "t3_outcome";

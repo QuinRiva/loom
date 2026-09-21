@@ -5,6 +5,7 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
+// loom: two-lane migration ledger (upstream + loom 1001+).
 import { runAllMigrations } from "../LoomMigrations.ts";
 import { ServerConfig } from "../../config.ts";
 
@@ -12,7 +13,7 @@ const setup = Layer.effectDiscard(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
-    // Live `t3 goal`/`t3 project` runs route over HTTP and never open this
+    // loom: live `t3 goal`/`t3 project` runs route over HTTP and never open this
     // file; cross-process access remains only for dead-server offline CLI mode
     // (plus the rare, human-initiated `t3 auth`/`t3 connect` residual — see
     // docs/plans/db-lane-reader-writer-split.md). SQLite permits one writer at
@@ -21,7 +22,7 @@ const setup = Layer.effectDiscard(
     // of failing on contention.
     yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
-    // synchronous=NORMAL is durable-enough under WAL (only a crash mid-checkpoint
+    // loom: synchronous=NORMAL is durable-enough under WAL (only a crash mid-checkpoint
     // risks the last commits) and stops an fsync on every commit on the main loop.
     yield* sql`PRAGMA synchronous = NORMAL;`;
     // 128MB page cache (negative = KiB). The DB grew past 2GB; a real cache keeps

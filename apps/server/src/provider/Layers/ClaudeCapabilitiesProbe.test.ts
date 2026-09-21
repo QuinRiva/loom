@@ -24,6 +24,7 @@ import {
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
 
+// loom: the Claude capability probe and its legacy-model classification.
 /**
  * Poll until `pid` is gone. The Agent SDK terminates an aborted subprocess on a
  * timer (SIGTERM after ~2s, SIGKILL after ~5s more), so this cannot be observed

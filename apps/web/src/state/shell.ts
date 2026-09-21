@@ -27,7 +27,7 @@ export const environmentSnapshotAtom = createEnvironmentSnapshotAtom(environment
 
 const EMPTY_GOALS: ReadonlyArray<OrchestrationGoalShell> = Object.freeze([]);
 
-// DB-authoritative goals, flattened across every connected environment (the
+// loom: DB-authoritative goals, flattened across every connected environment (the
 // fork's `selectGoalsAcrossEnvironments`). Goals ride the shell snapshot, so
 // this recomputes whenever any environment's snapshot changes.
 export const goalsAtom = Atom.make((get): ReadonlyArray<OrchestrationGoalShell> => {

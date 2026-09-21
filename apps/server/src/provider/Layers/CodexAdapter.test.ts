@@ -15,7 +15,7 @@ import {
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
-  type UserInputResolvedOutcome,
+  type UserInputResolvedOutcome, // loom: the server settles first, the adapter delivers
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";

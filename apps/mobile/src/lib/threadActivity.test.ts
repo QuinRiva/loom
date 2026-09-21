@@ -14,10 +14,10 @@ import {
 } from "@t3tools/contracts";
 
 import {
-  buildThreadFeed,
-  deriveThreadFeedPresentation,
   agentSpawnSummary,
   buildPendingUserInputAnswers,
+  buildThreadFeed,
+  deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
@@ -268,6 +268,7 @@ function makeThread(
   input: Partial<OrchestrationThread> & Pick<OrchestrationThread, "id" | "projectId" | "title">,
 ): OrchestrationThread {
   return {
+    // loom: workstream fields on the thread shape (goal, graph, cost, notify log).
     goalId: null,
     parentThreadId: null,
     role: null,

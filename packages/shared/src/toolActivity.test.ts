@@ -38,7 +38,7 @@ describe("toolActivity", () => {
     });
   });
 
-  // Pi-provider fixtures: after the PiDriver merges the stashed tool args back
+  // loom: Pi-provider fixtures — after the PiDriver merges the stashed tool args back
   // into the `item.completed` payload under `data.rawInput`, the title is the
   // bare tool name and `detail` is absent. bash, read AND edit must each recover
   // a distinct detail (the read/"other" branch was PR #12's blind spot).

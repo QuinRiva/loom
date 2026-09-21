@@ -168,6 +168,7 @@ describe("ProcessResourceMonitor", () => {
     }),
   );
 
+  // loom: trailing-window subtree activity backs the live-subtree settle blocker.
   describe("recentProcessTreeActivity (trailing-window health for a child subtree)", () => {
     const at = (iso: string) => DateTime.toEpochMillis(DateTime.makeUnsafe(iso));
     const sample = (over: Partial<ProcessResourceMonitor.ProcessResourceSample>) => {

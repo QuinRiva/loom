@@ -43,6 +43,7 @@ describe("VcsDriverRegistry", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  // loom: a non-repository probe must not be cached across `git init`.
   it.effect("does not cache a non-repository result across repository initialisation", () => {
     let repositoryInitialised = false;
     const calls: string[] = [];

@@ -328,6 +328,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
 
     const baseThread = {
       projectId,
+      // loom: workstream fields on the lean shell.
       goalId: null,
       parentThreadId: null,
       role: null,

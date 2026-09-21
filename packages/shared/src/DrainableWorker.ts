@@ -6,7 +6,7 @@
  * has finished processing. This lets tests replace timing-sensitive
  * `Effect.sleep` calls with deterministic `drain()`.
  *
- * Two constructors, sharing one interface:
+ * Two constructors, sharing one interface (the second is loom's):
  * - {@link makeDrainableWorker} — the queueing default: every enqueued item is
  *   processed, in order, exactly once. Use it whenever items carry a payload.
  * - {@link makeCoalescingWorker} — for a payload-free *trigger* that runs one
@@ -77,6 +77,7 @@ export const makeDrainableWorker = <A, E, R>(
     return { enqueue, drain } satisfies DrainableWorker<A>;
   });
 
+// loom: coalescing trigger worker — one idempotent pass, bounded backlog.
 /**
  * Create a **coalescing** trigger worker: one idempotent pass, at most one pass
  * running, at most one pass pending.

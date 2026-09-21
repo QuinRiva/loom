@@ -95,8 +95,9 @@ export interface ProviderServiceShape {
    */
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
 
+  // loom: thread-addressed session lookup (no global listSessions scan).
   /**
-   * loom: thread-addressed session lookup, added because the fork's workstream
+   * Thread-addressed session lookup, added because the fork's workstream
    * runs many concurrent threads through one serial ingestion worker where a
    * global `listSessions` scan per event is a throughput ceiling.
    *

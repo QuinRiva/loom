@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - builds real worktree layouts on disk.
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodeOS from "node:os";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NetService from "@t3tools/shared/Net";
 import {
@@ -153,6 +153,28 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
+    it.effect("forwards the reusable auth token to web dev and removes it for desktop", () =>
+      Effect.gen(function* () {
+        const input = {
+          baseEnv: { T3CODE_DEV_AUTH_TOKEN: "reusable-dev-auth-token-that-is-long-enough" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        } as const;
+        const web = yield* createDevRunnerEnv({ ...input, mode: "dev" });
+        const desktop = yield* createDevRunnerEnv({ ...input, mode: "dev:desktop" });
+
+        assert.equal(web.T3CODE_DEV_AUTH_TOKEN, input.baseEnv.T3CODE_DEV_AUTH_TOKEN);
+        assert.equal(desktop.T3CODE_DEV_AUTH_TOKEN, undefined);
+      }),
+    );
+    // loom: the default dev home is port-scoped, so this case asserts the scoped path.
     it.effect("port-scopes the default home and disables browser auto-open", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -250,7 +272,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
-    it.effect("defaults web HOST to IPv4 loopback in dev mode, respecting an explicit HOST", () =>
+    // loom: IPv4 loopback default for the web dev server.
+    it.effect("defaults web HOST to IPv4 loopback in dev mode", () =>
       Effect.gen(function* () {
         const def = yield* createDevRunnerEnv({
           mode: "dev",
@@ -266,21 +289,6 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
         assert.equal(def.HOST, "127.0.0.1");
-
-        const explicit = yield* createDevRunnerEnv({
-          mode: "dev",
-          baseEnv: { HOST: "0.0.0.0" },
-          serverOffset: 0,
-          webOffset: 0,
-          t3Home: undefined,
-          browser: undefined,
-          autoBootstrapProjectFromCwd: undefined,
-          logWebSocketEvents: undefined,
-          host: undefined,
-          port: undefined,
-          devUrl: undefined,
-        });
-        assert.equal(explicit.HOST, "0.0.0.0");
       }),
     );
 
@@ -377,6 +385,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    // loom: port-scoped dev homes keep concurrent worktree instances isolated.
     it.effect("isolates concurrent web-dev instances by port-scoping T3CODE_HOME", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -579,6 +588,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     // HOST is Vite's bind address and gates the HMR pin in vite.config.ts. An
     // inherited one would survive into browser dev and point HMR at the wrong
     // interface — invisible over a shared origin, since the page still loads.
+    // loom: the inherited value is still dropped; loom then pins Vite to IPv4
+    // loopback, so the assertion is the loom default rather than `undefined`.
     for (const mode of ["dev", "dev:web"] as const) {
       it.effect(`drops an inherited HOST in ${mode} mode`, () =>
         Effect.gen(function* () {
@@ -596,7 +607,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             devUrl: undefined,
           });
 
-          assert.equal(env.HOST, undefined);
+          assert.equal(env.HOST, "127.0.0.1");
         }),
       );
     }
@@ -619,7 +630,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.HOST, undefined);
+        assert.equal(env.HOST, "127.0.0.1"); // loom: IPv4 loopback default, not the inherited HOST
         assert.equal(env.T3CODE_HOST, "0.0.0.0");
       }),
     );
@@ -809,6 +820,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     );
   });
 
+  // loom: a busy requested/ambient port is discarded rather than bound.
   describe("resolveRequestedPort", () => {
     it.effect("honours an explicitly free requested port unchanged", () =>
       Effect.gen(function* () {
@@ -1033,8 +1045,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     // lives in runDevRunnerWithInput; the env builder must not consult the
     // ambient variable on its own, or it would silently outrank the worktree
     // default and land dev state on the user's real database.
+    // loom: the resolved default home is port-scoped, so the assertion is that
+    // the ambient value is not consulted, not that T3CODE_HOME stays unset.
     it.effect("ignores an ambient T3CODE_HOME when no home is resolved", () =>
       Effect.gen(function* () {
+        const path = yield* Path.Path;
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: { T3CODE_HOME: "/home/user/.t3" },
@@ -1049,7 +1064,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, undefined);
+        assert.equal(
+          env.T3CODE_HOME,
+          path.join(path.resolve(NodeOS.homedir(), ".t3"), "dev-instances", "13773"),
+        );
       }),
     );
 
@@ -1362,6 +1380,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     });
 
     describe("t3 home precedence", () => {
+      // loom: every web-dev home is port-scoped (`<base>/dev-instances/<port>`),
+      // so precedence is asserted on the base the scoping is applied to.
+      const devInstance = (base: string) => NodePath.join(base, "dev-instances", "13773");
       const makeWorktree = Effect.acquireRelease(
         Effect.sync(() => {
           const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-devrunner-"));
@@ -1415,7 +1436,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             cwd: root,
             ambientHome: "/home/user/.t3",
           });
-          assert.equal(home, path.resolve("/tmp/explicit-home"));
+          assert.equal(home, devInstance(path.resolve("/tmp/explicit-home")));
         }).pipe(Effect.scoped),
       );
 
@@ -1428,7 +1449,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             cwd: root,
             ambientHome: "/home/user/.t3",
           });
-          assert.equal(home, path.join(path.resolve(root), ".t3"));
+          assert.equal(home, devInstance(path.join(path.resolve(root), ".t3")));
         }).pipe(Effect.scoped),
       );
 
@@ -1441,7 +1462,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             cwd: root,
             ambientHome: "/home/user/.t3",
           });
-          assert.equal(home, path.join(path.resolve(root), ".t3"));
+          assert.equal(home, devInstance(path.join(path.resolve(root), ".t3")));
         }).pipe(Effect.scoped),
       );
 
@@ -1453,18 +1474,19 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             cwd: NodeOS.tmpdir(),
             ambientHome: "/home/user/.t3",
           });
-          assert.equal(home, path.resolve("/home/user/.t3"));
+          assert.equal(home, devInstance(path.resolve("/home/user/.t3")));
         }),
       );
 
-      it.effect("leaves the home implicit with no worktree and no ambient value", () =>
+      it.effect("falls back to the default home with no worktree and no ambient value", () =>
         Effect.gen(function* () {
+          const path = yield* Path.Path;
           const home = yield* spawnedHome({
             t3Home: undefined,
             cwd: NodeOS.tmpdir(),
             ambientHome: undefined,
           });
-          assert.equal(home, undefined);
+          assert.equal(home, devInstance(path.resolve(NodeOS.homedir(), ".t3")));
         }),
       );
     });

@@ -361,12 +361,45 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
+    ...(projectSettingsOverridesPatch !== undefined
+      ? {
+          projectSettingsOverrides: Object.fromEntries(
+            Object.entries(
+              mergeSettingsEntries(current.projectSettingsOverrides, projectSettingsOverridesPatch),
+            ).filter(([, entry]) => Object.keys(entry).length > 0),
+          ),
+        }
+      : {}),
+    ...(patch.defaultModelSelection !== undefined
+      ? { defaultModelSelection: patch.defaultModelSelection }
+      : {}),
+    ...(patch.defaultProjectScripts !== undefined
+      ? { defaultProjectScripts: patch.defaultProjectScripts }
+      : {}),
+    ...(usageLimitSourcesPatch !== undefined
+      ? {
+          usageLimitSources: mergeSettingsEntries(
+            current.usageLimitSources,
+            usageLimitSourcesPatch,
+          ),
+        }
+      : {}),
+    ...(usagePriceOverridesPatch !== undefined
+      ? {
+          usagePriceOverrides: mergeSettingsEntries(
+            current.usagePriceOverrides,
+            usagePriceOverridesPatch,
+          ),
+        }
+      : {}),
+    // loom: workstream model presets/profiles replace wholesale.
     ...(patch.workstreamModelPresets !== undefined
       ? { workstreamModelPresets: patch.workstreamModelPresets }
       : {}),
     ...(patch.workstreamModelProfiles !== undefined
       ? { workstreamModelProfiles: patch.workstreamModelProfiles }
       : {}),
+    // loom: provider failover config.
     // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
     // replace wholesale (records/arrays have no coherent partial merge).
     ...(providerFailover !== undefined

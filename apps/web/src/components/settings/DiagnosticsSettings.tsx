@@ -34,6 +34,8 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+// loom: StatBlock/StatsGrid/formatBytes live in settingsLayout so loom's own
+// settings pages share them.
 import {
   formatBytes,
   SettingsPageContainer,

@@ -11,6 +11,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: ThreadId.make("thread-1"),
     environmentId: localEnvironmentId,
     projectId: ProjectId.make("project-1"),
+    // loom: workstream fields on the thread shape.
     goalId: null,
     parentThreadId: null,
     role: null,

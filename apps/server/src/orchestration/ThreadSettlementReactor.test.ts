@@ -54,7 +54,7 @@ import { TerminalManager } from "../terminal/Manager.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 import { ThreadDeletionReactor } from "./Services/ThreadDeletionReactor.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
-import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts"; // loom: thread-shape defaults
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("settlement-project");

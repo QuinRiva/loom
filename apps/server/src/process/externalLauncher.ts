@@ -121,6 +121,7 @@ const CommandLookupEnvConfig = Config.all({
 const readBrowserLaunchEnv = BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
+// loom: client-launched remote editor (Zed over SSH).
 /**
  * SSH host the CLIENT uses to reach this server, enabling the client-launched
  * "Zed (remote)" editor. Unset on a local install, where the ordinary
@@ -426,6 +427,7 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   const remoteEditorHost = yield* readRemoteEditorSshHost;
 
   for (const editor of EDITORS) {
+    // loom: client-launched editors are available iff a host is configured.
     if ("clientLaunch" in editor) {
       // Launched by the client's URL handler, so server-side PATH probing says
       // nothing about it; it is available exactly when a host is configured.

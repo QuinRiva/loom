@@ -1,4 +1,4 @@
-import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeServices from "@effect/platform-node/NodeServices"; // loom: real FS/clock coverage for setup scripts
 import { describe, expect, it, vi } from "@effect/vitest";
 import {
   type OrchestrationProject,

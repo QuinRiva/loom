@@ -160,6 +160,8 @@ function createProviderServiceHarness(
   };
 }
 
+// loom: start-of-turn baseline refs, queued steers on the turn shell, and the
+// adapter capabilities the fork's PiDriver reports.
 type WaitForThreadSnapshot = {
   latestTurn: { turnId: string } | null;
   checkpoints: ReadonlyArray<{

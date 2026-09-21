@@ -434,6 +434,7 @@ function readEnvPath(env: NodeJS.ProcessEnv): string | undefined {
   return env.PATH ?? env.Path ?? env.path;
 }
 
+// loom: worktree-local node_modules/.bin on a spawned child's PATH.
 /**
  * Prepend `<cwd>/node_modules/.bin` to PATH so a child process spawned in a
  * worktree resolves that worktree's workspace binaries (e.g. `vp`) before

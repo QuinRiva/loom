@@ -195,6 +195,7 @@ describe("collectComposerInlineTokens", () => {
   });
 });
 
+// loom: $skill composer tokens expand to /skill: prompt text.
 describe("expandSkillTokensToPromptText", () => {
   const known = ["review", "pdf-export", "first", "second"];
 

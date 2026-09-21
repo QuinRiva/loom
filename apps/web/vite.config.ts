@@ -19,7 +19,7 @@ import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 
-// The `.mdx` plan compiler runs in a Web Worker (compileWorker.ts). Vite bundles
+// loom: the `.mdx` plan compiler runs in a Web Worker (compileWorker.ts). Vite bundles
 // workers with the `browser` export condition, which for
 // `decode-named-character-reference` (a micromark dep) resolves to a build that
 // touches `document` at module load — crashing in the DOM-less worker. Its

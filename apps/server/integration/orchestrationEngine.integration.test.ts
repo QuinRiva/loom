@@ -402,7 +402,8 @@ it.live("runs multi-turn file edits and persists checkpoint diffs", () =>
             status: "completed",
           },
         ],
-        // Real agents write files well after their turn has started; the
+        // loom: start-of-turn baseline refs — real agents write files well
+        // after their turn has started; the
         // fixture would otherwise race ahead of the reactor's async
         // start-of-turn baseline capture and land its edit inside the baseline.
         mutateWorkspace: ({ cwd }) =>

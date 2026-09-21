@@ -57,6 +57,7 @@ export function mergeEnvironmentThread(
     environmentId: shell.environmentId,
     id: shell.id,
     projectId: shell.projectId,
+    // loom: shell-owned fields the detail stream never refreshes.
     goalId: shell.goalId,
     role: shell.role,
     purpose: shell.purpose,

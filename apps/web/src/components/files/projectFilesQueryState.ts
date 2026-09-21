@@ -52,7 +52,7 @@ export function getProjectFileQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
-  maxBytes?: number,
+  maxBytes?: number, // loom: larger budget for the .mdx plan preview
 ) {
   return projectEnvironment.readFile({
     environmentId,
@@ -60,6 +60,7 @@ export function getProjectFileQueryAtom(
   });
 }
 
+// loom: out-of-workspace file chips (absolute read + directory listing).
 export function getProjectAbsoluteFileQueryAtom(
   environmentId: EnvironmentId,
   absolutePath: string | null,

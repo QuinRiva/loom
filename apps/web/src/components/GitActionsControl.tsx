@@ -1116,7 +1116,7 @@ export default function GitActionsControl({
       return;
     }
 
-    // Only ever "correct" the thread branch from git status that provably comes
+    // loom: only ever "correct" the thread branch from git status that provably comes
     // from the thread's own checkout. The observed status is strictly cwd-keyed,
     // and for a server thread the only checkout that is provably its own is its
     // bound worktree. When worktreePath is null the status describes the shared

@@ -7805,6 +7805,8 @@ describe("ClaudeAdapterLive", () => {
         "Which framework?": "React",
       });
 
+      // loom: settle-first — the server writes the durable resolution before
+      // delivery reaches the adapter.
       // The adapter deliberately emits NO `user-input.resolved`: the server
       // settles the question durably BEFORE dispatching delivery here
       // (settle-first), so a second terminal event would put a contradictory

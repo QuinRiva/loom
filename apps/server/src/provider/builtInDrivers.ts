@@ -20,6 +20,7 @@
  *
  * @module provider/builtInDrivers
  */
+// loom: the fork is Pi-first — the built-in driver registry ships pi only.
 import { PiDriver, type PiDriverEnv } from "./Drivers/PiDriver.ts";
 import type { AnyProviderDriver } from "./ProviderDriver.ts";
 

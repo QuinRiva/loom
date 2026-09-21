@@ -231,6 +231,7 @@ interface CreateManagerOptions {
   maxRetainedInactiveSessions?: number;
   historyByteLimit?: number;
   ptyAdapter?: FakePtyAdapter;
+  // loom: terminal process registration, event subscription and provider-instance env.
   subscribeToEvents?: boolean;
   registerTerminalProcesses?: (input: {
     readonly threadId: string;

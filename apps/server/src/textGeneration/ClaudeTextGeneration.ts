@@ -32,7 +32,7 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-  type TextGenerationOperation,
+  type TextGenerationOperation, // loom: adds the structured-generation operation
 } from "./TextGenerationUtils.ts";
 import {
   getModelSelectionStringOptionValue,
@@ -403,6 +403,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       };
     });
 
+  // loom: structured text generation (JSON operations).
   const generateStructured: TextGeneration.TextGeneration["Service"]["generateStructured"] = (
     input,
   ) =>

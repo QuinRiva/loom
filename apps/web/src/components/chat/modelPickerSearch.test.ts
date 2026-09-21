@@ -68,6 +68,7 @@ describe("scoreModelPickerSearch", () => {
     expect(exactScore!).toBeLessThan(fuzzyScore!);
   });
 
+  // loom: slug search (same-named models across sub-providers).
   it("matches on the slug, the only thing distinguishing same-named models", () => {
     expect(
       scoreModelPickerSearch(

@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
-import { canSnooze } from "@t3tools/shared/threadSettled";
+import { canSnooze } from "@t3tools/shared/threadSettled"; // loom: re-homed to shared
 
 import {
   createAtomCommandScheduler,
@@ -239,6 +239,7 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    // loom: workstream plan/attention/dependency commands.
     setPlanLane: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-plan-lane",
       execute: (input: SetThreadPlanLaneInput) => setThreadPlanLane(input),
@@ -371,6 +372,7 @@ export function createThreadEnvironmentAtoms<R, E>(
   };
 }
 
+// loom: goal command atoms.
 export function createGoalEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
 ) {

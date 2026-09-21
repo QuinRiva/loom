@@ -23,7 +23,7 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-  type TextGenerationOperation,
+  type TextGenerationOperation, // loom: adds the structured-generation operation
 } from "./TextGenerationUtils.ts";
 import {
   applyGrokAcpModelSelection,
@@ -260,6 +260,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
+  // loom: structured (JSON-schema) text generation.
   const generateStructured: TextGeneration.TextGeneration["Service"]["generateStructured"] = (
     input,
   ) =>

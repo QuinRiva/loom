@@ -1788,6 +1788,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    // loom: batched remote status across a repository's worktrees.
     it.effect("batches tracked, untracked, and detached branch remote status", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

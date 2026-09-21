@@ -252,6 +252,7 @@ export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
 }
 
+// loom: session, proposed-plan and sync-error hooks for loom surfaces.
 export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
   return useAtomValue(
     ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),

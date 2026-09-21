@@ -34,7 +34,7 @@ import { ServerActivation } from "../serverActivation.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 import * as ThreadPullRequestReactor from "./ThreadPullRequestReactor.ts";
-import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
+import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts"; // loom: thread-shape defaults
 
 const NOW = "2026-09-01T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("project");

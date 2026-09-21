@@ -448,6 +448,7 @@ describe("rightPanelStore", () => {
     });
   });
 
+  // loom: directory chips (reveal in-workspace, absolute-root surface).
   it("reveals an in-workspace directory in the files surface", () => {
     useRightPanelStore.getState().openFilesAt(refA, "src/lib");
     useRightPanelStore.getState().openFilesAt(refA, "docs");
