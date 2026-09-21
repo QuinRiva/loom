@@ -1094,6 +1094,7 @@ export function runtimeEventToActivities(
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
+            ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
             ...(declaredTimeoutSeconds !== undefined
               ? { timeoutSeconds: declaredTimeoutSeconds }
               : {}),
@@ -2896,7 +2897,7 @@ const make = Effect.gen(function* () {
       // loom: union upstream's task-title enrichment with loom's session.exited
       // interrupted-tool activities and the shouldPersistActivity de-dupe filter.
       const activities = [
-        ...runtimeEventToActivities(event, taskTitle),
+        ...runtimeEventToActivities(activityEvent, taskTitle),
         ...(event.type === "session.exited" ? interruptedActivitiesForThread(thread.id, now) : []),
       ];
       // FIRST-TERMINAL-WINS is enforced by the DECIDER, not here. Several producers

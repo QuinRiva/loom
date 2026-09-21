@@ -3277,7 +3277,9 @@ describe("ProviderRuntimeIngestion", () => {
       },
       createdAt: "2026-01-01T00:00:02.000Z",
     });
-    expect((await harness.readThreadShell()).hasPendingUserInput).toBe(false);
+    // A `respond.failed` row is a delivery diagnostic and clears nothing: only a
+    // resolution closes a request (packages/shared/src/openRequests.ts).
+    expect((await harness.readThreadShell()).hasPendingUserInput).toBe(true);
     await harness.emitAndDrain([
       {
         type: "turn.completed",
@@ -4389,11 +4391,10 @@ describe("ProviderRuntimeIngestion", () => {
         kind: "computer",
       },
       detail: "Bash: vp test run",
-      data: {
-        toolName: "Bash",
-        input: { command: "vp test run" },
-      },
     });
+    // loom: started rows persist only the declared timeout, never the raw tool
+    // input (see the `data` handling in runtimeEventToActivities).
+    expect(payload).not.toHaveProperty("data");
   });
 
   effectIt.effect("settles the turn while repository detection for a diff is blocked", () =>
@@ -4734,14 +4735,20 @@ describe("ProviderRuntimeIngestion", () => {
           itemType: "command_execution",
           status,
           title: "Run command",
+          // Probed through `detail`, not `data`: a non-terminal update persists
+          // the projected payload, which deliberately drops the raw tool `data`.
+          detail: `pid ${pid}`,
           data: { pid },
         },
       });
 
     const checkpointActivity = (thread: ProviderRuntimeTestThread) =>
       thread.activities.find((activity) => activity.id === "tool:tool-checkpoint");
-    const checkpointPid = (thread: ProviderRuntimeTestThread) =>
-      (checkpointActivity(thread)?.payload as { data?: { pid?: number } } | undefined)?.data?.pid;
+    const checkpointPid = (thread: ProviderRuntimeTestThread) => {
+      const detail = (checkpointActivity(thread)?.payload as { detail?: string } | undefined)
+        ?.detail;
+      return detail === undefined ? undefined : Number(detail.replace("pid ", ""));
+    };
 
     emitTool("evt-update-1", "2026-01-01T00:00:00.000Z", "in_progress", 1);
     let thread = await waitForThread(harness.readModel, (entry) => checkpointPid(entry) === 1);
