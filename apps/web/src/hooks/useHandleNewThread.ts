@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
   type GoalId, // loom: goal-keeping
   type ScopedProjectRef,
   type ThreadId,
@@ -28,7 +29,10 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  resolveProjectSettings,
+  type ResolvedProjectSettings,
+} from "@t3tools/shared/projectSettings";
 import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
 import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
@@ -63,6 +67,33 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
     ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
   };
+}
+
+/**
+ * The project's default env mode for a brand-new thread: the shared resolver
+ * owns the priority order (project setting > checked-in t3.json > global
+ * default). The t3.json read is skipped entirely when a higher-priority source
+ * decides, and its query atom caches per project after the first call.
+ */
+// loom: lifted out of the hook body and exported so the Goal panel's "New
+// session" (apps/web/src/loom/useGoalPanelActions.ts) resolves the default the
+// same way instead of reading the environment's raw settings.
+export async function resolveNewThreadDefaultEnvMode(
+  project: { environmentId: EnvironmentId; workspaceRoot: string } | undefined,
+  projectSettings: ResolvedProjectSettings,
+): Promise<DraftThreadEnvMode> {
+  const projectSetting =
+    projectSettings.sources.defaultThreadEnvMode === "project"
+      ? projectSettings.settings.defaultThreadEnvMode
+      : undefined;
+  return resolveDefaultThreadEnvMode({
+    projectSetting,
+    projectFile:
+      project !== undefined && projectSetting == null
+        ? await readT3ProjectFileDefaultThreadEnvMode(project.environmentId, project.workspaceRoot)
+        : null,
+    globalDefault: projectSettings.settings.defaultThreadEnvMode,
+  });
 }
 
 export function useNewThreadHandler() {
@@ -149,10 +180,6 @@ export function useNewThreadHandler() {
       );
       const projectDefaultModelSelection = projectSettings.settings.defaultModelSelection;
       const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
-      const projectThreadEnvMode =
-        projectSettings.sources.defaultThreadEnvMode === "project"
-          ? projectSettings.settings.defaultThreadEnvMode
-          : undefined;
       const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
         resolveNewThreadModelSelectionOverride({
           projectDefaultSelection: projectDefaultModelSelection ?? null,
@@ -161,22 +188,7 @@ export function useNewThreadHandler() {
             currentRouteTarget?.kind === "draft" ? currentRouteTarget.draftId : null,
           destinationDraftId,
         });
-      // The shared resolver owns the priority order. The t3.json read is
-      // skipped entirely when a higher-priority source decides, and its
-      // query atom caches per project after the first call.
-      const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
-        const consultProjectFile = project !== undefined && projectThreadEnvMode == null;
-        return resolveDefaultThreadEnvMode({
-          projectSetting: projectThreadEnvMode,
-          projectFile: consultProjectFile
-            ? await readT3ProjectFileDefaultThreadEnvMode(
-                project.environmentId,
-                project.workspaceRoot,
-              )
-            : null,
-          globalDefault: projectSettings.settings.defaultThreadEnvMode,
-        });
-      };
+      const resolveDefaultEnvMode = () => resolveNewThreadDefaultEnvMode(project, projectSettings);
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
