@@ -1,13 +1,16 @@
 /**
  * ProviderHealthRegistry — ephemeral exhaustion state for subscription accounts.
  *
- * Separate from {@link AccountUsageRegistry} (which stores "what the provider
- * reported") because exhaustion is "what T3 concluded": marks derive from two
- * automatic sources plus a manual pause, expire on a TTL, and are consumed by
- * routing (chunk C), the resume sweep (chunk D), and the UI (chunk F).
+ * Also holds the account-usage telemetry the marks derive from ("what the
+ * provider reported") beside the marks themselves ("what T3 concluded"): the
+ * {@link SubscriptionUsagePoller} feeds it, marks derive from two automatic
+ * sources plus a manual pause, expire on a TTL, and are consumed by routing
+ * (chunk C), the resume sweep (chunk D), and spawn headroom. The telemetry is
+ * server-internal only — the user-facing usage surface is upstream's Limits
+ * page, which the poller feeds separately (see `accountUsage.loom.ts`).
  *
  * Marks are keyed `(accountKey, modelScope)` where `accountKey` is the
- * `AccountUsageRegistry` key (`providerInstanceId ?? providerName`) and
+ * account routing key (`providerInstanceId ?? providerName`) and
  * `modelScope` is `"*"` (account-wide) or a pi modelId. A model is exhausted iff
  * its own model-scoped mark is active OR the account's `"*"` mark is active.
  *
@@ -20,15 +23,13 @@
  *
  * Clearing is automatic: `until` passed ⇒ inert (checked at query time); fresh
  * telemetry <97% for a key ⇒ its telemetry/error marks drop; restart ⇒ clean
- * slate (no persistence — repopulates from the next poll within ~60s).
+ * slate (no persistence — repopulates from the next poll).
+ *
+ * @module ProviderHealthRegistry
  *
  * Soft-pause: accounts in `settings.providerFailover.pausedAccounts` are treated
  * as exhausted account-wide indefinitely (`until = null`, source "manual").
- *
- * @module ProviderHealthRegistry
  */
-import type { AccountUsageSnapshot, AccountUsageWindow } from "@t3tools/contracts";
-import { accountUsageRoutingKey } from "@t3tools/shared/accountUsage";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -39,7 +40,12 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { AccountUsageRegistry } from "./AccountUsageRegistry.ts";
+import {
+  type AccountUsageSnapshot,
+  type AccountUsageWindow,
+  accountUsageRoutingKey,
+  mergeAccountUsage,
+} from "../accountUsage.loom.ts";
 
 /** Percent at/above which a usage window is treated as exhausted (proactive). */
 const EXHAUSTION_THRESHOLD_PERCENT = 99;
@@ -69,6 +75,13 @@ export const windowKindLabel = (kind: "primary" | "secondary"): string =>
   kind === "primary" ? "5-hour" : "weekly";
 
 export interface ProviderHealthRegistryShape {
+  /**
+   * Fold one account-usage reading in (sparse windows merge by kind+scope) and
+   * re-derive the telemetry marks. The poller is the only caller.
+   */
+  readonly applyUsage: (snapshot: AccountUsageSnapshot) => Effect.Effect<void>;
+  /** The current per-account usage readings, for spawn headroom (§4). */
+  readonly usage: Effect.Effect<ReadonlyArray<AccountUsageSnapshot>>;
   /** True iff the model (or its account) has an active exhaustion mark. */
   readonly isExhausted: (
     accountKey: string,
@@ -139,7 +152,6 @@ export const aggregateAccountsBestRemaining = (
       providerName: freshest.providerName,
       providerInstanceId: freshest.providerInstanceId,
       windows: Array.from(bestByWindow.values()),
-      planType: freshest.planType,
       observedAt: freshest.observedAt,
       ...(group.every((s) => s.limitReached === true) ? { limitReached: true } : {}),
     } satisfies AccountUsageSnapshot;
@@ -248,9 +260,9 @@ export const activeMarks = (
 export const ProviderHealthRegistryLive = Layer.effect(
   ProviderHealthRegistry,
   Effect.gen(function* () {
-    const usage = yield* AccountUsageRegistry;
     const settings = yield* ServerSettingsService;
 
+    const usageRef = yield* Ref.make<ReadonlyMap<string, AccountUsageSnapshot>>(new Map());
     const telemetryRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
     const errorRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
     const pausedRef = yield* Ref.make<ReadonlySet<string>>(new Set());
@@ -334,21 +346,20 @@ export const ProviderHealthRegistryLive = Layer.effect(
       return activeMarks(t, e, p, nowMs);
     });
 
-    // Telemetry subscription: rebuild telemetry marks + clear reset error marks.
-    yield* Effect.forkScoped(
-      usage.streamChanges.pipe(
-        Stream.runForEach((snapshots) =>
-          Effect.gen(function* () {
-            const nowMs = yield* Clock.currentTimeMillis;
-            const error = yield* Ref.get(errorRef);
-            const derived = deriveFromTelemetry(snapshots, error, nowMs);
-            yield* Ref.set(telemetryRef, derived.telemetry);
-            yield* Ref.set(errorRef, derived.error);
-            yield* publish;
-          }),
-        ),
-      ),
-    );
+    // Fresh telemetry rebuilds the telemetry marks and clears reset error marks.
+    const applyUsage: ProviderHealthRegistryShape["applyUsage"] = (snapshot) =>
+      Effect.gen(function* () {
+        const snapshots = Array.from(
+          (yield* Ref.updateAndGet(usageRef, (store) =>
+            mergeAccountUsage(store, snapshot),
+          )).values(),
+        );
+        const nowMs = yield* Clock.currentTimeMillis;
+        const derived = deriveFromTelemetry(snapshots, yield* Ref.get(errorRef), nowMs);
+        yield* Ref.set(telemetryRef, derived.telemetry);
+        yield* Ref.set(errorRef, derived.error);
+        yield* publish;
+      });
 
     // Settings subscription: track paused accounts (initial + on change).
     // Unpausing an account drops its error-sourced marks so the manual escape
@@ -375,6 +386,8 @@ export const ProviderHealthRegistryLive = Layer.effect(
     );
 
     return {
+      applyUsage,
+      usage: Ref.get(usageRef).pipe(Effect.map((store) => Array.from(store.values()))),
       isExhausted,
       exhaustedUntil,
       markExhausted,

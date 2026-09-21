@@ -2246,6 +2246,12 @@ export function makePiAdapter(input: {
       // see `rollbackThread`. Upstream's "Edit from here" is refused only for
       // adapters that answer false.
       supportsConversationRollback: true,
+      // Every loom thread may orchestrate its own children, so a pi session's
+      // MCP credential always needs `workstream` — the capability that gates
+      // every workstream/goal/task HTTP handler (mcp/httpScope.ts). Requested
+      // here rather than granted unconditionally by the session registry, so
+      // the invariant lives with the driver that depends on it.
+      mcp: ["workstream"],
     },
     // Native compaction: pi's own `compact` RPC summarises older messages and
     // rebuilds the context, then reports the outcome as a `compaction_end`

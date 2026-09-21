@@ -24,7 +24,6 @@ import {
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
-import { AccountUsageSnapshot, AccountUsageWindowKind } from "./providerRuntime.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import { ServerSettings } from "./settings.ts";
 
@@ -463,7 +462,7 @@ export const ServerSignalProcessResult = Schema.Struct({
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
 
-// Workstream worktrees maintenance surface (phase 3 visibility panel).
+// loom: workstream worktrees maintenance surface (phase 3 visibility panel).
 // The wire vocabulary mirrors the server's `worktreeClassification` truth:
 // one disposition, plus a stale reason when the auto-reaper deliberately
 // declined to remove the worktree. The UI maps these to human labels.
@@ -585,116 +584,6 @@ export const USAGE_METER_PROVIDER_NAMES: Record<string, ReadonlyArray<string>> =
   claudeAgent: ["anthropic"],
   codex: ["openai-codex", "openai"],
 };
-
-// ── /usage dashboard breakdown (docs/usage-dashboard-design.md §3 D3) ─────────
-// Pull RPC: aggregates the usage ledger over the selected provider window into
-// gauges (official %), a stacked burn-chart series, a per-model table, and a
-// per-thread consumers rollup. No push stream — the client refetches on a
-// timer.
-export const ServerUsageBreakdownInput = Schema.Struct({
-  window: AccountUsageWindowKind, // "primary" (5h) | "secondary" (weekly)
-  // Meter scope: a provider meter key (the gauge account key —
-  // `providerInstanceId ?? providerName`) or "all". A meter key both fixes the
-  // window boundaries and filters ledger rows to that meter's driver kinds via
-  // the static meter → provider-name map (§D6). "all" applies no row filter and
-  // uses the default provider's boundaries. Omitted ⇒ first provider with data.
-  scope: Schema.optional(TrimmedNonEmptyString),
-});
-export type ServerUsageBreakdownInput = typeof ServerUsageBreakdownInput.Type;
-
-export const ServerUsageBreakdownGauge = Schema.Struct({
-  providerName: TrimmedNonEmptyString,
-  providerInstanceId: Schema.NullOr(ProviderInstanceId),
-  // Distinguishes pooled accounts within one instance (a router proxy pooling
-  // several subscriptions). Absent ⇒ the instance's sole account. The gauge's
-  // stable identity (React key, pill deep-link scope) is the storage key
-  // `providerInstanceId ?? providerName` plus this label — see
-  // `accountUsageStorageKey`; two pooled accounts therefore never collide.
-  accountLabel: Schema.optional(TrimmedNonEmptyString),
-  planType: Schema.NullOr(TrimmedNonEmptyString),
-  usedPercent: Schema.Number, // official, verbatim from the provider meter
-  resetsAt: Schema.NullOr(IsoDateTime),
-  windowDurationMins: Schema.NullOr(Schema.Number),
-  observedAt: IsoDateTime,
-  // Model display name when this gauge meters a per-model carve-out (e.g. the
-  // Anthropic `weekly_scoped` limit for "Fable"), so the card is labelled
-  // distinctly from the account-wide weekly gauge. Absent ⇒ account-wide.
-  scopeDisplayName: Schema.optional(TrimmedNonEmptyString),
-  // Linear depletion projection from the official-% sample buffer; null when the
-  // guards fail (§D4: <3 samples, <10 min span, non-positive slope, stale
-  // samples, or the projected exhaustion lands after the reset).
-  projectedExhaustionAt: Schema.NullOr(IsoDateTime),
-  // Ledger backend provider ids this gauge's meter covers, declared on the
-  // instance's usage-source config (e.g. ["cliproxy"]). Extends the static
-  // meter → backend map for pooled/router meters. Absent ⇒ static map only.
-  meteredProviderIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
-});
-export type ServerUsageBreakdownGauge = typeof ServerUsageBreakdownGauge.Type;
-
-export const ServerUsageBreakdownSeriesBucket = Schema.Struct({
-  bucketStart: IsoDateTime,
-  byModel: Schema.Record(Schema.String, Schema.Number), // model → cost in bucket (USD)
-});
-export type ServerUsageBreakdownSeriesBucket = typeof ServerUsageBreakdownSeriesBucket.Type;
-
-export const ServerUsageBreakdownModel = Schema.Struct({
-  model: Schema.String, // requested slug; "unknown" when absent
-  // Real backend provider id (e.g. "google-vertex-claude", "openai-codex");
-  // "unknown" for historical rows recorded before backend attribution.
-  providerId: TrimmedNonEmptyString,
-  inputTokens: Schema.Number,
-  cacheReadTokens: Schema.Number,
-  cacheWriteTokens: Schema.Number,
-  outputTokens: Schema.Number,
-  costUsd: Schema.Number,
-  costShare: Schema.Number, // 0–1 of the scoped window cost
-});
-export type ServerUsageBreakdownModel = typeof ServerUsageBreakdownModel.Type;
-
-export const ServerUsageBreakdownConsumer = Schema.Struct({
-  // Flat rows; the client groups by rootThreadId and expands children.
-  threadId: ThreadId,
-  rootThreadId: ThreadId,
-  title: Schema.NullOr(Schema.String),
-  role: Schema.NullOr(Schema.String),
-  totalTokens: Schema.Number,
-  costUsd: Schema.Number,
-  turnCount: Schema.Number, // distinct turn_ids in window
-  lastActivityAt: IsoDateTime,
-});
-export type ServerUsageBreakdownConsumer = typeof ServerUsageBreakdownConsumer.Type;
-
-export class ServerUsageBreakdownError extends Schema.TaggedError<ServerUsageBreakdownError>()(
-  "ServerUsageBreakdownError",
-  {
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {}
-
-export const ServerUsageBreakdownResult = Schema.Struct({
-  window: AccountUsageWindowKind,
-  scope: TrimmedNonEmptyString, // resolved scope key ("all" or a meter key)
-  windowStart: IsoDateTime,
-  windowEnd: IsoDateTime, // reset time, or `now` in trailing mode
-  boundarySource: Schema.Literals(["provider", "trailing"]),
-  generatedAt: IsoDateTime,
-  gauges: Schema.Array(ServerUsageBreakdownGauge),
-  bucketMinutes: Schema.Number, // 5 for primary, 60 for secondary
-  series: Schema.Array(ServerUsageBreakdownSeriesBucket),
-  // Linear cost projection to the window end; null when elapsed < 15 min (§D4).
-  projectedCostAtReset: Schema.NullOr(Schema.Number),
-  models: Schema.Array(ServerUsageBreakdownModel),
-  consumers: Schema.Array(ServerUsageBreakdownConsumer),
-  // Real backend provider ids present in the window, cost-descending, IGNORING
-  // the scope filter — the stable inventory the client unions with gauge-backed
-  // backends to auto-derive the per-backend scope tabs. NULL-provider (historical)
-  // rows are excluded; they surface only under "all".
-  providers: Schema.Array(
-    Schema.Struct({ providerId: TrimmedNonEmptyString, costUsd: Schema.Number }),
-  ),
-});
-export type ServerUsageBreakdownResult = typeof ServerUsageBreakdownResult.Type;
 
 /**
  * A palette the environment's machine publishes for T3 Code to follow, read
@@ -969,29 +858,11 @@ export const ServerConfigStreamUsageLimitSourcesUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamUsageLimitSourcesUpdatedEvent =
   typeof ServerConfigStreamUsageLimitSourcesUpdatedEvent.Type;
 
-// Live, account-scoped subscription usage (5-hour + weekly limits). Ephemeral
-// global server state — repopulated from the next provider event after a
-// restart — so it rides the existing config/lifecycle channel rather than the
-// event-sourced orchestration projection. The payload carries the full current
-// per-instance snapshot list (replace-on-emit; no client-side merge needed).
-export const ServerConfigAccountUsagePayload = Schema.Struct({
-  usage: Schema.Array(AccountUsageSnapshot),
-});
-export type ServerConfigAccountUsagePayload = typeof ServerConfigAccountUsagePayload.Type;
-
-export const ServerConfigStreamAccountUsageEvent = Schema.Struct({
-  version: Schema.Literal(1),
-  type: Schema.Literal("accountUsage"),
-  payload: ServerConfigAccountUsagePayload,
-});
-export type ServerConfigStreamAccountUsageEvent = typeof ServerConfigStreamAccountUsageEvent.Type;
-
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
-  ServerConfigStreamAccountUsageEvent,
   ServerConfigStreamEnvironmentThemesUpdatedEvent,
   ServerConfigStreamUsageLimitSourcesUpdatedEvent,
 ]);

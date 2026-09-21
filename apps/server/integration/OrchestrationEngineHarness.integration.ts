@@ -35,7 +35,6 @@ import { ProjectionPendingApprovalRepository } from "../src/persistence/Services
 import { makeAdapterRegistryMock } from "../src/provider/testUtils/providerAdapterRegistryMock.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { makeProviderRegistryLayer } from "../src/provider/testUtils/providerRegistryMock.ts";
-import { AccountUsageRegistryLive } from "../src/provider/Services/AccountUsageRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { ProviderLaunchClaimsLive } from "../src/provider/Services/ProviderLaunchClaims.ts"; // loom:
 import { ServerSettingsService } from "../src/serverSettings.ts";
@@ -468,7 +467,6 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
       Layer.provideMerge(providerRegistryLayer),
-      Layer.provideMerge(AccountUsageRegistryLive),
       Layer.provideMerge(WorkspaceLeaseLive),
       Layer.provide(persistenceLayer),
       Layer.provideMerge(RepositoryIdentityResolver.layer),

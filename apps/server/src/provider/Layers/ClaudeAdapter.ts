@@ -37,7 +37,6 @@ import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
   ApprovalRequestId,
-  type AccountUsageWindow,
   classifyTaskAgentKind,
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -514,44 +513,6 @@ function isUuid(value: string): boolean {
 
 function isSyntheticClaudeThreadId(value: string): boolean {
   return value.startsWith("claude-thread-");
-}
-
-// Claude's `rate_limit_event` reports a single window per event. Its
-// `rateLimitType` names which rolling window the event describes; `utilization`
-// is a 0-100 percentage (per the sibling system-message `rate_limits` docs) and
-// `resetsAt` is an epoch number. five_hour → primary, the seven_day variants →
-// secondary; overage / unknown types carry no rolling window. Whatever Claude
-// does not supply (window duration, plan type) stays null rather than faked.
-function claudeRateLimitWindow(info: SDKRateLimitInfo): AccountUsageWindow | null {
-  const kind =
-    info.rateLimitType === "five_hour"
-      ? "primary"
-      : info.rateLimitType === "seven_day" ||
-          info.rateLimitType === "seven_day_opus" ||
-          info.rateLimitType === "seven_day_sonnet"
-        ? "secondary"
-        : null;
-  if (kind === null || info.utilization === undefined) {
-    return null;
-  }
-  const displayName =
-    info.rateLimitType === "seven_day_opus"
-      ? "Opus"
-      : info.rateLimitType === "seven_day_sonnet"
-        ? "Sonnet"
-        : undefined;
-  return {
-    kind,
-    usedPercent: Math.max(0, Math.min(100, info.utilization)),
-    resetsAt:
-      info.resetsAt === undefined || !Number.isFinite(info.resetsAt)
-        ? null
-        : DateTime.formatIso(
-            DateTime.makeUnsafe(info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000),
-          ),
-    windowDurationMins: null,
-    ...(displayName ? { scope: { displayName } } : {}),
-  };
 }
 
 function hasDurableClaudeSessionId(message: SDKMessage): boolean {

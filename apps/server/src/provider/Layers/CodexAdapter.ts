@@ -8,7 +8,6 @@
  * @module CodexAdapterLive
  */
 import {
-  type AccountUsageWindow,
   EventId,
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -36,7 +35,6 @@ import {
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
@@ -193,15 +191,6 @@ function readPayload<A>(
 function trimText(value: string | undefined | null): string | undefined {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
-}
-
-// Provider rate-limit timestamps are epoch numbers. Codex uses epoch seconds;
-// guard against millisecond inputs so the conversion is robust either way.
-function epochToIsoDateTime(value: number | null | undefined): string | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return null;
-  }
-  return DateTime.formatIso(DateTime.makeUnsafe(value > 1e12 ? value : value * 1000));
 }
 
 function asUnknownRecord(value: unknown): Record<string, unknown> | undefined {
@@ -458,8 +447,8 @@ function normalizeCodexTokenUsage(
 
   return {
     usedTokens,
-    // The Codex CLI talks to OpenAI — its backend is unambiguous, so attribute
-    // usage to the OpenAI provider identity (lands in the codex/OpenAI scope).
+    // loom: the Codex CLI talks to OpenAI — its backend is unambiguous, so
+    // attribute usage to the OpenAI provider identity (the codex/OpenAI scope).
     providerId: "openai",
     ...(totalProcessedTokens !== undefined && totalProcessedTokens > usedTokens
       ? { totalProcessedTokens }
@@ -2024,47 +2013,19 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    const decoded = readPayload(
+    const payload = readPayload(
       EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
       event.payload,
     );
-    if (!decoded) {
-      return [];
-    }
-    const { primary, secondary, planType } = decoded.rateLimits;
-    const windows: AccountUsageWindow[] = [];
-    for (const [slotKind, window] of [
-      ["primary", primary],
-      ["secondary", secondary],
-    ] as const) {
-      if (window) {
-        // Weekly-limited plans report the 7-day window in the PRIMARY slot
-        // (secondary null), so classify by the window's own duration when
-        // present rather than trusting the slot name.
-        const kind = window.windowDurationMins
-          ? window.windowDurationMins > 24 * 60
-            ? "secondary"
-            : "primary"
-          : slotKind;
-        windows.push({
-          kind,
-          usedPercent: window.usedPercent,
-          resetsAt: epochToIsoDateTime(window.resetsAt),
-          windowDurationMins: window.windowDurationMins ?? null,
-        });
-      }
-    }
-    if (windows.length === 0) {
+    const limits = payload ? codexRateLimitsToUpdate(payload.rateLimits) : undefined;
+    if (!limits) {
       return [];
     }
     return [
       {
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
-        payload: {
-          windows,
-          planType: trimText(planType) ?? null,
-        },
+        payload: { limits },
       },
     ];
   }
@@ -2187,7 +2148,7 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           message,
-          // Classify subscription/quota exhaustion (§9: direct drivers get
+          // loom: classify subscription/quota exhaustion (§9: direct drivers get
           // classification only — the resume sweep restarts them at reset).
           ...(!willRetry
             ? {
@@ -2711,8 +2672,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       ),
     );
 
-  // DELIVERY ONLY: the durable resolution already exists, so nothing here can
-  // leave the question open.
+  // loom: DELIVERY ONLY — the durable resolution already exists, so nothing
+  // here can leave the question open.
   const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
     threadId,
     requestId,

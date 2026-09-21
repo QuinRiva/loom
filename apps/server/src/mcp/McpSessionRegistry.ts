@@ -127,11 +127,6 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
         capabilities: new Set<McpInvocationContext.McpCapability>([
           "pull-requests",
-          // loom: fork invariant — `workstream` gates every workstream/goal/task
-          // HTTP handler (httpScope.ts), so it is issued unconditionally rather
-          // than requested. Resolving this to upstream's side silently 401s the
-          // whole orchestration toolkit (lost once in cadence pull 6).
-          "workstream",
           ...request.capabilities,
         ]),
         issuedAt,

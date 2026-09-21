@@ -4,21 +4,21 @@ import { useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import {
-  type AccountUsageSnapshot,
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
 } from "@t3tools/contracts";
-import { ACCOUNT_USAGE_DESTRUCTIVE_PERCENT } from "@t3tools/client-runtime/accountUsage";
 import {
   DEFAULT_FAILOVER_CHAINS,
   describeFailoverTarget,
   failoverNamespaceLabel,
   failoverNamespaceOf,
 } from "@t3tools/shared/providerFailover";
+import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
-import { primaryServerProvidersAtom, useAccountUsage } from "../../state/server";
+import { primaryServerProvidersAtom } from "../../state/server";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -51,43 +51,50 @@ function accountDisplayName(key: string, providerName: string | undefined): stri
   return PROVIDER_DISPLAY_NAMES[driver] ?? providerName ?? key;
 }
 
+/** A window is throttled at 100% used. */
+const ACCOUNT_EXHAUSTED_PERCENT = 100;
+
 /**
- * Per-subscription-account health for the failover card. Derived from the usage
- * telemetry the client already has (exhaustion tone + explicit `limitReached`)
- * plus the user's soft-pause list — the server health registry stays the routing
- * authority; this is a best-effort settings display. Paused accounts with no
- * live usage still surface so they can be unpaused.
+ * Per-subscription-account health for the failover card, read off the usage
+ * limits the subscription poller publishes on each provider instance (the same
+ * data upstream's Usage → Limits page shows). The poller's window ids carry the
+ * account (`@t3tools/shared/usageWindowId`); rows key by the account's routing
+ * key — exactly what `pausedAccounts` and the server's exhaustion marks use —
+ * so an instance pooling several subscriptions folds them into one row, the
+ * way routing treats them. Windows an adapter emitted natively do not decode
+ * and are skipped. The server health registry stays the routing authority;
+ * this is a best-effort settings display. Paused accounts with no live usage
+ * still surface so they can be unpaused.
  */
 export function deriveFailoverAccounts(
-  usage: ReadonlyArray<AccountUsageSnapshot>,
+  providers: ReadonlyArray<ServerProvider>,
   pausedAccounts: ReadonlyArray<string>,
 ): ReadonlyArray<FailoverAccountRow> {
-  const latest = new Map<string, AccountUsageSnapshot>();
-  for (const snapshot of usage) {
-    const key = snapshot.providerInstanceId ?? snapshot.providerName;
-    const existing = latest.get(key);
-    if (!existing || snapshot.observedAt > existing.observedAt) latest.set(key, snapshot);
-  }
   const paused = new Set(pausedAccounts);
   const rows = new Map<string, FailoverAccountRow>();
-  for (const [key, snapshot] of latest) {
-    const exhaustedWindows = snapshot.windows.filter(
-      (window) => window.usedPercent >= ACCOUNT_USAGE_DESTRUCTIVE_PERCENT,
-    );
-    const exhausted = snapshot.limitReached === true || exhaustedWindows.length > 0;
-    const resetsAt = exhaustedWindows.reduce<string | null>(
-      (soonest, window) =>
-        window.resetsAt !== null && (soonest === null || window.resetsAt < soonest)
-          ? window.resetsAt
-          : soonest,
-      null,
-    );
-    rows.set(key, {
-      key,
-      displayName: accountDisplayName(key, snapshot.providerName),
-      state: paused.has(key) ? "paused" : exhausted ? "exhausted" : "available",
-      resetsAt,
-    });
+  for (const provider of providers) {
+    for (const window of provider.usageLimits?.windows ?? []) {
+      const key = decodeUsageWindowId(window.id)?.accountKey;
+      if (key === undefined) continue;
+      const exhausted = window.usedPercent >= ACCOUNT_EXHAUSTED_PERCENT;
+      const existing = rows.get(key);
+      const resetsAt =
+        exhausted && window.resetsAt !== undefined
+          ? existing?.resetsAt !== null && existing?.resetsAt !== undefined
+            ? ([existing.resetsAt, window.resetsAt].sort()[0] ?? null)
+            : window.resetsAt
+          : (existing?.resetsAt ?? null);
+      rows.set(key, {
+        key,
+        displayName: accountDisplayName(key, provider.driver),
+        state: paused.has(key)
+          ? "paused"
+          : exhausted || existing?.state === "exhausted"
+            ? "exhausted"
+            : "available",
+        resetsAt,
+      });
+    }
   }
   for (const key of paused) {
     if (!rows.has(key)) {
@@ -266,7 +273,6 @@ export function FailoverSettingsPanel() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
-  const usage = useAccountUsage();
   const failover = settings.providerFailover;
   const nowMs = Date.now();
 
@@ -325,8 +331,8 @@ export function FailoverSettingsPanel() {
   );
 
   const accounts = useMemo(
-    () => deriveFailoverAccounts(usage, failover.pausedAccounts),
-    [usage, failover.pausedAccounts],
+    () => deriveFailoverAccounts(serverProviders, failover.pausedAccounts),
+    [serverProviders, failover.pausedAccounts],
   );
 
   // Send a complete providerFailover object (server shallow-merges anyway) so

@@ -72,6 +72,8 @@ const makeFakeProcess = () => {
 };
 
 const healthyRegistry: ProviderHealthRegistryShape = {
+  applyUsage: () => Effect.void,
+  usage: Effect.succeed([]),
   isExhausted: () => Effect.succeed(false),
   exhaustedUntil: () => Effect.succeed(null),
   markExhausted: () => Effect.void,

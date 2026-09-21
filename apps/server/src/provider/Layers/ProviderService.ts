@@ -77,7 +77,10 @@ import {
   ProviderValidationError,
   ProviderWorkspaceMissingError,
 } from "../Errors.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type {
+  ProviderAdapterCapabilities,
+  ProviderAdapterShape,
+} from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
@@ -1165,9 +1168,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     } satisfies Record<string, string>;
   });
 
-  const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
+  const prepareMcpSession = (
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+    // loom: capabilities the driver itself requests (PiDriver asks for
+    // "workstream" — see ProviderAdapterCapabilities.mcp).
+    adapterCapabilities?: ProviderAdapterCapabilities,
+  ) =>
     Effect.gen(function* () {
       const capabilities = yield* agentAccessCapabilities(threadId);
+      for (const capability of adapterCapabilities?.mcp ?? []) capabilities.add(capability); // loom:
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
         const deviceEnvironment = capabilities.has("device")
@@ -1550,7 +1560,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         );
       }
 
-      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
+      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId, adapter.capabilities);
       const resumed = yield* withWorkspaceHold(
         input.binding.threadId,
         persistedCwd ?? undefined,
@@ -1798,7 +1808,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
         yield* clearTurnAnalyticsSession(resolvedInstanceId, threadId);
-        yield* prepareMcpSession(threadId, resolvedInstanceId);
+        yield* prepareMcpSession(threadId, resolvedInstanceId, adapter.capabilities);
         // The pre-spawn hold: from here until the process exits (or this start
         // fails), no remover may delete `effectiveCwd`.
         const session = yield* withWorkspaceHold(

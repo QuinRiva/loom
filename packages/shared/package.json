@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./accountUsage": {
-      "types": "./src/accountUsage.ts",
-      "import": "./src/accountUsage.ts"
-    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
@@ -354,6 +350,10 @@
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
+    },
+    "./usageWindowId": {
+      "types": "./src/usageWindowId.ts",
+      "import": "./src/usageWindowId.ts"
     },
     "./usageLimits": {
       "types": "./src/usageLimits.ts",
