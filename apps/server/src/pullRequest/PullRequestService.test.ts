@@ -69,7 +69,6 @@ function project(input: {
         }
       : {}),
     defaultModelSelection: null,
-    defaultStartFromOrigin: null,
     scripts: [],
     createdAt: "2026-07-01T00:00:00Z",
     updatedAt: "2026-07-01T00:00:00Z",

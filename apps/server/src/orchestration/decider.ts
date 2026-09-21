@@ -17,6 +17,7 @@ import {
   type ThreadId,
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
+  type UserInputAttachments,
   type UserInputResolvedOutcome,
   isLoomOrchestrationCommand, // loom:
 } from "@t3tools/contracts";
@@ -78,6 +79,7 @@ const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+const decodeUserInputRequestedPayload = Schema.decodeUnknownOption(UserInputRequestedPayload);
 const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
 
 // Session adoption takes seconds; a user message still unadopted after this
@@ -239,6 +241,8 @@ export const userInputSettlementEvents = Effect.fn("userInputSettlementEvents")(
   readonly outcome: UserInputResolvedOutcome;
   readonly answers?: ProviderUserInputAnswers;
   readonly message?: string;
+  /** Files attached to the answer; ride both the durable row and the delivery intent. */
+  readonly attachmentsByQuestionId?: UserInputAttachments;
   /** Skip the provider-delivery intent (nothing to hand to a tool call). */
   readonly settleOnly?: boolean;
 }): Effect.fn.Return<
@@ -274,6 +278,9 @@ export const userInputSettlementEvents = Effect.fn("userInputSettlementEvents")(
           outcome: input.outcome,
           ...(input.answers !== undefined ? { answers: input.answers } : {}),
           ...(input.message !== undefined ? { message: input.message } : {}),
+          ...(input.attachmentsByQuestionId !== undefined
+            ? { attachmentsByQuestionId: input.attachmentsByQuestionId }
+            : {}),
         },
         turnId: null,
         createdAt: input.createdAt,
@@ -299,6 +306,9 @@ export const userInputSettlementEvents = Effect.fn("userInputSettlementEvents")(
         answers: input.answers ?? {},
         outcome: input.outcome,
         ...(input.message !== undefined ? { message: input.message } : {}),
+        ...(input.attachmentsByQuestionId !== undefined
+          ? { attachmentsByQuestionId: input.attachmentsByQuestionId }
+          : {}),
         createdAt: input.createdAt,
       },
     },
@@ -428,7 +438,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // automatic seed here, but only a metadata update records an
           // explicit project default.
           defaultModelSelection: null,
-          defaultStartFromOrigin: command.defaultStartFromOrigin ?? null, // loom:
           faviconPath: null,
           projectIcon: null,
           scripts: [],
@@ -489,9 +498,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.workspaceRoot !== undefined ? { workspaceRoot: command.workspaceRoot } : {}),
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
-            : {}),
-          ...(command.defaultStartFromOrigin !== undefined
-            ? { defaultStartFromOrigin: command.defaultStartFromOrigin }
             : {}),
           ...(command.defaultThreadEnvMode !== undefined
             ? { defaultThreadEnvMode: command.defaultThreadEnvMode }
@@ -2298,14 +2304,79 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // moment the command is accepted — provider delivery is best-effort after
       // the fact. The inverted order is why sixteen answer attempts over 22 hours
       // changed nothing: delivery failed, so nothing was ever settled.
+      //
+      // Files attached to the answer are validated against the question as it was
+      // actually asked — read from the durable activity, because a command
+      // snapshot caps or omits activities — and then ride BOTH events: the
+      // durable row is what the timeline renders and what holds the copied bytes
+      // out of the projection's attachment GC, the delivery intent is what
+      // reaches the provider.
+      const attachmentsByQuestionId = command.attachmentsByQuestionId;
+      const requested =
+        userInputActivity?.kind === "user-input.requested"
+          ? decodeUserInputRequestedPayload(userInputActivity.payload)
+          : Option.none();
+      if (Object.values(attachmentsByQuestionId ?? {}).flat().length > 0) {
+        if (Option.isNone(requested)) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail:
+              userInputActivity?.kind === "user-input.resolved"
+                ? "This question has already been answered."
+                : "This question is no longer pending.",
+          });
+        }
+        for (const questionId of Object.keys(attachmentsByQuestionId ?? {})) {
+          const question = requested.value.questions.find(({ id }) => id === questionId);
+          if (!question || question.allowCustomAnswer === false) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "This question does not accept file references.",
+            });
+          }
+        }
+      }
+      // Every question needs an answer before the form is sent. An attachment
+      // stands in for a blank answer, but not for a missing one.
+      //
+      // loom: upstream runs this only inside its message-mode branch, which the
+      // settle-first redesign does not have — and Pi questions carry no
+      // `responseMode` at all, so scoping it that way would leave this fork's
+      // main question surface unguarded. It therefore guards every answered
+      // settlement, ahead of the transaction: settle-first makes the blank
+      // durable and the question over. Dismissal has its own arm and never
+      // reaches here. The blankness test is loom's narrowed answers contract
+      // (`string | string[]`, for multi-select) rather than upstream's
+      // string-only one.
+      if (Option.isSome(requested)) {
+        for (const question of requested.value.questions) {
+          const answer = command.answers[question.id];
+          const blank =
+            typeof answer === "string" ? answer.trim().length === 0 : (answer?.length ?? 0) === 0;
+          if (answer === undefined || (blank && !attachmentsByQuestionId?.[question.id]?.length)) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "Answer each question before sending.",
+            });
+          }
+        }
+      }
       const respondEvents = yield* userInputSettlementEvents({
         threadId: command.threadId,
         commandId: command.commandId,
         createdAt: command.createdAt,
-        openRequestIds: openUserInputRequestIds(respondThread.activities),
+        openRequestIds: new Set([
+          ...openUserInputRequestIds(respondThread.activities),
+          // The durable row outranks the command snapshot, whose activities are
+          // capped while running and omitted at startup: without this, a question
+          // that has scrolled past the cap is rejected as "already settled" and
+          // becomes unanswerable — the wedge settle-first exists to prevent.
+          ...(userInputActivity?.kind === "user-input.requested" ? [command.requestId] : []),
+        ]),
         requestId: command.requestId,
         outcome: "answered",
         answers: command.answers,
+        ...(attachmentsByQuestionId !== undefined ? { attachmentsByQuestionId } : {}),
       });
       if (respondEvents.length === 0) {
         return yield* new OrchestrationCommandInvariantError({

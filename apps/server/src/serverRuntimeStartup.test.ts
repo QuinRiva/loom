@@ -277,7 +277,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
                   workspaceRoot: "/tmp/startup-project",
                   defaultModelSelection:
                     ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
-                  defaultStartFromOrigin: null,
                   scripts: [],
                   createdAt: "2026-01-01T00:00:00.000Z",
                   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -437,7 +436,6 @@ it.effect.each([
                       title: "Startup Project",
                       workspaceRoot: "/tmp/startup-project",
                       defaultModelSelection: null,
-                      defaultStartFromOrigin: null,
                       scripts: [],
                       createdAt: "2026-01-01T00:00:00.000Z",
                       updatedAt: "2026-01-01T00:00:00.000Z",

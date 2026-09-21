@@ -67,7 +67,6 @@ const member = {
   physicalProjectKey: `${server.environmentId}:/repo`,
   environmentLabel: server.label,
   defaultModelSelection: null,
-  defaultStartFromOrigin: null,
   scripts: [],
   createdAt: "2026-09-07T00:00:00.000Z",
   updatedAt: "2026-09-07T00:00:00.000Z",

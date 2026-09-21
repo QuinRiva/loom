@@ -12,16 +12,14 @@ import { useCallback } from "react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { DEFAULT_SERVER_SETTINGS, type EnvironmentId, type GoalId } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
-import {
-  resolveSidebarNewThreadEnvMode,
-  resolveSidebarNewThreadSeedContext,
-} from "../components/Sidebar.logic";
+import { resolveSidebarNewThreadSeedContext } from "../components/Sidebar.logic";
 import { resolveGoalWorktreeSeed } from "../components/Sidebar.logic.loom";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { resolveNewThreadDefaultEnvMode, useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { readLocalApi } from "../localApi";
-import { useServerConfigs, useThreadShells } from "../state/entities";
+import { useProjects, useServerConfigs, useThreadShells } from "../state/entities";
 import type { GoalShell, SidebarThreadSummary } from "../types";
 import { useGoalCrudActions } from "./sidebarGoalActions";
 
@@ -37,17 +35,25 @@ export function useGoalPanelActions(input: {
   const { goal, environmentId, activeThread } = input;
   const handleNewThread = useNewThreadHandler();
   const serverConfigs = useServerConfigs();
+  const projects = useProjects();
   const allShells = useThreadShells();
   const { renameGoal, archiveGoal, deleteGoal } = useGoalCrudActions();
 
   const createGoalSession = useCallback(async () => {
-    const settings = serverConfigs.get(environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
+    const project = projects.find(
+      (candidate) => candidate.id === goal.projectId && candidate.environmentId === environmentId,
+    );
+    // Same resolution as every other new-thread path: project overrides and the
+    // checked-in t3.json outrank the environment's raw settings.
+    const projectSettings = resolveProjectSettings(
+      serverConfigs.get(environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+      goal.projectId,
+      project,
+    );
     const seed = resolveSidebarNewThreadSeedContext({
       projectId: goal.projectId,
-      defaultEnvMode: resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: settings.defaultThreadEnvMode,
-      }),
-      newWorktreesStartFromOrigin: settings.newWorktreesStartFromOrigin,
+      defaultEnvMode: await resolveNewThreadDefaultEnvMode(project, projectSettings),
+      newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
       goalWorktree: resolveGoalWorktreeSeed({ goalId: goal.id, threads: allShells }),
       activeThread,
     });
@@ -55,9 +61,6 @@ export function useGoalPanelActions(input: {
       handleNewThread(scopeProjectRef(environmentId, goal.projectId), {
         ...seed,
         goalId: goal.id as GoalId,
-        // Re-clicking the entry point resumes the goal's draft bucket; the seed
-        // only initialises a fresh one (same contract as the sidebar's button).
-        contextMode: "seed",
       }),
     );
     if (result._tag === "Failure") {
@@ -77,6 +80,7 @@ export function useGoalPanelActions(input: {
     goal.id,
     goal.projectId,
     handleNewThread,
+    projects,
     serverConfigs,
   ]);
 

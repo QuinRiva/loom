@@ -85,16 +85,14 @@ const request = {
     ],
   },
 };
-// loom: the upstream decider now derives pending input from persisted thread activity.
-const readModelWithRequest: OrchestrationReadModel = {
-  ...readModel,
-  threads: [{ ...readModel.threads[0]!, activities: [request] }],
-};
 it.layer(NodeServices.layer)("question attachment answers", (it) => {
+  // loom: settle-first means ONE durable row per request (`user-input.resolved`,
+  // carrying the attachments) instead of upstream's separate
+  // `user-input.answer-submitted` row; the delivery intent is unchanged.
   it.effect("persists the original answer with its attachment and emits a provider response", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
-        readModel: readModelWithRequest,
+        readModel,
         command,
         userInputActivity: request,
       });
@@ -103,13 +101,15 @@ it.layer(NodeServices.layer)("question attachment answers", (it) => {
         "thread.activity-appended",
         "thread.user-input-response-requested",
       ]);
-      // loom: the durable row is now `user-input.resolved`; clients fold it into
-      // an answer-submitted row. The attachments must still ride along, or the
-      // copied files are GC'd and the agent never sees them.
       expect(events[0]?.payload).toMatchObject({
         activity: {
           kind: "user-input.resolved",
-          payload: { answers: { q: "" }, attachmentsByQuestionId: command.attachmentsByQuestionId },
+          payload: {
+            requestId,
+            outcome: "answered",
+            answers: { q: "" },
+            attachmentsByQuestionId: command.attachmentsByQuestionId,
+          },
         },
       });
       expect(events[1]?.payload).toMatchObject({

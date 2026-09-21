@@ -656,7 +656,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             title: event.payload.title,
             workspaceRoot: event.payload.workspaceRoot,
             defaultModelSelection: event.payload.defaultModelSelection,
-            defaultStartFromOrigin: event.payload.defaultStartFromOrigin,
             defaultThreadEnvMode: null,
             autoPull: false,
             faviconPath: event.payload.faviconPath ?? null,
@@ -683,9 +682,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               : {}),
             ...(event.payload.defaultModelSelection !== undefined
               ? { defaultModelSelection: event.payload.defaultModelSelection }
-              : {}),
-            ...(event.payload.defaultStartFromOrigin !== undefined
-              ? { defaultStartFromOrigin: event.payload.defaultStartFromOrigin }
               : {}),
             ...(event.payload.defaultThreadEnvMode !== undefined
               ? { defaultThreadEnvMode: event.payload.defaultThreadEnvMode }
@@ -2751,7 +2747,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: ThreadId.make(threadId),
           });
           for (const activity of activities) {
-            if (activity.kind !== "user-input.answer-submitted") continue;
+            // loom: the durable answer row is `user-input.resolved` (settle-first);
+            // upstream's separate `user-input.answer-submitted` row does not exist here.
+            if (activity.kind !== "user-input.resolved") continue;
             const payload = decodeQuestionAttachmentAnswer(activity.payload);
             if (Option.isNone(payload)) continue;
             for (const attachment of Object.values(payload.value.attachmentsByQuestionId).flat()) {

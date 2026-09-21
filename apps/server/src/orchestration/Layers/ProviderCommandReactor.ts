@@ -2321,7 +2321,10 @@ const make = Effect.gen(function* () {
                     ? { message: event.payload.message }
                     : {}),
                 }),
-                attachments: [],
+                // The answer's files come with it: on this path the provider
+                // never sees the question protocol, so the turn is the only
+                // thing carrying them.
+                attachments: Object.values(event.payload.attachmentsByQuestionId ?? {}).flat(),
               },
               titleSeed: thread.title,
               runtimeMode: thread.runtimeMode,
