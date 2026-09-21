@@ -13,6 +13,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Deferred from "effect/Deferred";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -2478,6 +2479,10 @@ const makeWsRpcLayer = (
                 RetainedLiveItem<ShellLiveInput>,
                 OrchestrationGetSnapshotError
               >();
+              // Fires once the live tail is reached (and the completion marker,
+              // when requested, is queued): the point after which ending the
+              // queue on a finished domain stream can drop nothing.
+              const liveTailAttached = yield* Deferred.make<void>();
               let liveBufferClosed = false;
               const closeLiveBuffer = (error?: OrchestrationGetSnapshotError) =>
                 Effect.gen(function* () {
@@ -2512,6 +2517,15 @@ const makeWsRpcLayer = (
                       Effect.uninterruptible,
                     ),
                   ),
+                  // A domain stream that ends must end the subscription too:
+                  // `end` lets the consumer drain what is already buffered and
+                  // then completes, where the finalizer's `closeLiveBuffer`
+                  // would discard it. Inert against the live PubSub, which
+                  // never ends. Gated on the tail latch because the completion
+                  // marker is offered into this same queue once the tail is
+                  // reached — ending first would swallow it.
+                  Effect.andThen(Deferred.await(liveTailAttached)),
+                  Effect.andThen(Queue.end(liveBuffer)),
                   // Stop the PubSub consumer even if RPC delivery is waiting
                   // for an ACK and never pulls the failed buffer again.
                   Effect.raceFirst(liveBudget.failed),
@@ -2566,13 +2580,18 @@ const makeWsRpcLayer = (
                         liveBudget.retain({ kind: "synchronized" as const }).pipe(
                           Effect.flatMap((item) => Queue.offer(liveBuffer, item)),
                           Effect.uninterruptible,
+                          Effect.andThen(Deferred.succeed(liveTailAttached, undefined)),
                           Effect.andThen(Queue.takeAll(liveBuffer)),
                           Effect.flatMap(coalesceRetainedInputs),
                         ),
                       ).pipe(Stream.flatMap((items) => Stream.fromIterable(items))),
                       bufferedLiveStream,
                     )
-                  : bufferedLiveStream,
+                  : Stream.unwrap(
+                      Deferred.succeed(liveTailAttached, undefined).pipe(
+                        Effect.as(bufferedLiveStream),
+                      ),
+                    ),
               );
 
               // When the client already holds a shell snapshot (cached, or loaded
