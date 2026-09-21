@@ -132,7 +132,6 @@ export function projectLoomEvent(
             projectId: payload.projectId,
             slug: payload.slug,
             title: payload.title,
-            titleProvenance: payload.titleProvenance ?? "curated", // loom: §4
             description: payload.description,
             tasks: [],
             createdAt: payload.createdAt,
@@ -159,9 +158,6 @@ export function projectLoomEvent(
                   ...goal,
                   ...(payload.slug !== undefined ? { slug: payload.slug } : {}),
                   ...(payload.title !== undefined ? { title: payload.title } : {}),
-                  ...(payload.titleProvenance !== undefined
-                    ? { titleProvenance: payload.titleProvenance }
-                    : {}),
                   ...(payload.description !== undefined
                     ? { description: payload.description }
                     : {}),

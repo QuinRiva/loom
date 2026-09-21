@@ -89,16 +89,16 @@ const seedGoalFixture = (sql: SqlClient.SqlClient) =>
 
     yield* sql`
       INSERT INTO projection_goals (
-        goal_id, project_id, slug, title, title_provenance, description,
+        goal_id, project_id, slug, title, description,
         created_at, updated_at, archived_at, deleted_at
       ) VALUES
-        ('goal-1', 'project-1', 'goal-one', 'Goal One', 'curated', 'Objective one.',
+        ('goal-1', 'project-1', 'goal-one', 'Goal One', 'Objective one.',
          '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, NULL),
-        ('goal-archived', 'project-1', 'archived-goal', 'Archived Goal', 'curated', '',
+        ('goal-archived', 'project-1', 'archived-goal', 'Archived Goal', '',
          '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', '2026-04-06T00:00:09.000Z', NULL),
-        ('goal-deleted', 'project-1', 'deleted-goal', 'Deleted Goal', 'curated', '',
+        ('goal-deleted', 'project-1', 'deleted-goal', 'Deleted Goal', '',
          '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, '2026-04-06T00:00:10.000Z'),
-        ('goal-other', 'project-2', 'other-project-goal', 'Other Project Goal', 'curated', '',
+        ('goal-other', 'project-2', 'other-project-goal', 'Other Project Goal', '',
          '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, NULL)
     `;
 
@@ -498,7 +498,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           isolation: "shared" as const,
           fanInState: "none" as const,
           title: "Thread 1",
-          titleProvenance: "curated" as const,
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
@@ -659,7 +658,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           isolation: "shared" as const,
           fanInState: "none" as const,
           title: "Thread 1",
-          titleProvenance: "curated" as const,
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",

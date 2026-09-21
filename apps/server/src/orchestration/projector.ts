@@ -1,5 +1,5 @@
 // loom: fork event delegation guard.
-import { inferLegacyTitleProvenance, isLoomOrchestrationEvent } from "@t3tools/contracts";
+import { isLoomOrchestrationEvent } from "@t3tools/contracts";
 import type {
   OrchestrationEvent,
   OrchestrationProject,
@@ -401,10 +401,13 @@ export function projectEvent(
             graphKey: payload.graphKey ?? null,
             kickoffBriefPath: payload.kickoffBriefPath ?? null,
             title: payload.title,
-            // loom: §4 replay-safe: a historical thread.created lacking
-            // provenance infers it from the title (identical to migration 057
-            // + the pipeline), so a rebuild never disagrees with the DB backfill.
-            titleProvenance: payload.titleProvenance ?? inferLegacyTitleProvenance(payload.title),
+            // loom: a deliberate create-time title (spawn brief, handoff/retro
+            // fork, scaffold node) is born `manual` so upstream's first-turn
+            // generator leaves it alone.
+            titleState:
+              payload.titleSource === "manual" && event.commandId !== null
+                ? { source: "manual" as const, version: event.commandId, needsRefinement: false }
+                : null,
 
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -579,9 +582,6 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
             ...(payload.titleState !== undefined ? { titleState: payload.titleState } : {}),
-            ...(payload.titleProvenance !== undefined
-              ? { titleProvenance: payload.titleProvenance }
-              : {}),
             ...(payload.titleRegeneration !== undefined
               ? { titleRegeneration: payload.titleRegeneration }
               : {}),

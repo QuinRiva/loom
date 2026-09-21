@@ -3,7 +3,6 @@ import {
   isImportedAgentSessionMessageId,
   UserInputAttachmentAnswerPayload,
   type ChatAttachment,
-  inferLegacyTitleProvenance,
   IsoDateTime,
   NonNegativeInt,
   NonNegativeNumber,
@@ -725,9 +724,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               projectId: event.payload.projectId,
               slug: event.payload.slug,
               title: event.payload.title,
-              // loom: §4 title provenance (defensive fallback — the decider always
-              // emits it on goal.created).
-              titleProvenance: event.payload.titleProvenance ?? "curated",
               description: event.payload.description,
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -745,9 +741,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ...existing.value,
               ...(event.payload.slug !== undefined ? { slug: event.payload.slug } : {}),
               ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-              ...(event.payload.titleProvenance !== undefined
-                ? { titleProvenance: event.payload.titleProvenance }
-                : {}),
               ...(event.payload.description !== undefined
                 ? { description: event.payload.description }
                 : {}),
@@ -965,11 +958,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingRework: 0,
             lastOutcome: null,
             title: event.payload.title,
-            // loom: §4 replay-safe: a historical thread.created lacking provenance
-            // infers it from the title (identical to migration 057 + the
-            // in-memory projector), so a durable rebuild agrees with the backfill.
-            titleProvenance:
-              event.payload.titleProvenance ?? inferLegacyTitleProvenance(event.payload.title),
+            // loom: a deliberate create-time title (spawn brief, handoff/retro
+            // fork, scaffold node) is born `manual` so upstream's first-turn
+            // generator leaves it alone.
+            titleState:
+              event.payload.titleSource === "manual" && event.commandId !== null
+                ? { source: "manual" as const, version: event.commandId, needsRefinement: false }
+                : null,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
             interactionMode: event.payload.interactionMode,
@@ -1173,8 +1168,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-            ...(event.payload.titleProvenance !== undefined
-              ? { titleProvenance: event.payload.titleProvenance }
+            ...(event.payload.titleState !== undefined
+              ? { titleState: event.payload.titleState }
               : {}),
             ...(event.payload.titleRegeneration !== undefined
               ? {

@@ -18,10 +18,6 @@ import {
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
   type UserInputResolvedOutcome,
-  DEFAULT_THREAD_TITLE, // loom: §4 title provenance guard
-  type TitleProvenance,
-  canReplaceTitle, // loom: §4 title provenance guard
-  titleProvenanceRank, // loom: §4 title provenance guard
   isLoomOrchestrationCommand, // loom:
 } from "@t3tools/contracts";
 import {
@@ -83,19 +79,6 @@ const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
-
-// loom: §4 provenance a create/meta title write is stamped with when the caller
-// left it unspecified. A bare "New thread" is `default` (freely replaceable by
-// automation); any other explicit title write with no stated provenance is
-// treated as `curated` — the conservative choice that automation may not clobber.
-function resolveTitleProvenance(
-  title: string | undefined,
-  explicit: TitleProvenance | undefined,
-): TitleProvenance | undefined {
-  if (explicit !== undefined) return explicit;
-  if (title === undefined) return undefined;
-  return title.trim() === DEFAULT_THREAD_TITLE ? "default" : "curated";
-}
 
 // Session adoption takes seconds; a user message still unadopted after this
 // window is a failed/stale start, not pending work. Mirrors the client's
@@ -668,8 +651,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { continuesThreadId: command.continuesThreadId }
             : {}),
           title: command.title,
-          // loom: §4 seed the created thread's title provenance.
-          titleProvenance: resolveTitleProvenance(command.title, command.titleProvenance),
+          // loom: a deliberate create-time title (spawn brief, handoff/retro
+          // fork, scaffold node) is stamped manual so upstream's first-turn
+          // generator leaves it alone; a client seed title is left generatable.
+          ...(command.titleSource === "manual" ? { titleSource: "manual" as const } : {}),
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
@@ -1333,19 +1318,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ? thread.branch
           : command.branch;
       const occurredAt = yield* nowIso;
-      // loom: §4 title provenance guard. A title write lands only when the
-      // writer's stamped provenance may replace the thread's current title
-      // provenance (a `curated` title is immutable to automation). When it may
-      // not, the title (and its provenance) are dropped from the emitted event;
-      // every other meta field still applies.
-      const incomingTitleProvenance =
-        command.title !== undefined
-          ? (resolveTitleProvenance(command.title, command.titleProvenance) ?? "curated")
-          : undefined;
-      const applyTitle =
-        command.title !== undefined &&
-        incomingTitleProvenance !== undefined &&
-        canReplaceTitle(thread.titleProvenance, incomingTitleProvenance);
       const metaUpdatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1356,10 +1328,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.meta-updated",
         payload: {
           threadId: command.threadId,
-          // loom: title writes carry their provenance, and `applyTitle` is the
-          // fork's precedence gate (a weaker source never overwrites a stronger
-          // one) — it stands in for upstream's bare `command.title !== undefined`.
-          ...(applyTitle ? { title: command.title, titleProvenance: incomingTitleProvenance } : {}),
+          ...(command.title !== undefined
+            ? {
+                title: command.title,
+                titleState: {
+                  source: "manual" as const,
+                  version: command.commandId,
+                  needsRefinement: false,
+                },
+              }
+            : {}),
           ...(command.regenerateTitle === true
             ? {
                 titleState: {
@@ -1375,7 +1353,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 },
               }
             : {}),
-          ...(applyTitle && thread.titleRegeneration != null ? { titleRegeneration: null } : {}),
+          ...(command.title !== undefined && thread.titleRegeneration != null
+            ? { titleRegeneration: null }
+            : {}),
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
@@ -1424,11 +1404,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // loom: cascade UP to goal.meta-updated (fork addition to this upstream
       // case). Renaming the sole active thread of a goal renames the goal too,
       // so the sidebar never strands a stale goal header. (Mirror of the
-      // last-active-thread archive cascade above.) §4: the rename must actually
-      // have landed on the thread AND the goal's OWN title provenance must permit
-      // replacement — a derived/seed thread rename never clobbers a curated goal.
+      // last-active-thread archive cascade above.) Only a DELIBERATE rename
+      // reaches this case: upstream's generated titles land through
+      // `thread.title.generate.complete`, and the emergent goal names itself.
       const goalId = thread.goalId ?? null;
-      if (applyTitle && goalId !== null && incomingTitleProvenance !== undefined) {
+      if (command.title !== undefined && goalId !== null) {
         const goal = findGoalById(readModel, goalId);
         const goalHasOtherActiveThread = readModel.threads.some(
           (other) =>
@@ -1442,13 +1422,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           goal.deletedAt === null &&
           goal.archivedAt === null &&
           !goalHasOtherActiveThread &&
-          goal.title !== command.title &&
-          // §4 protect a CURATED goal title from automation, but otherwise keep
-          // the container in sync with its sole thread — including a derived
-          // thread rename updating a derived goal title (equal rank), while
-          // never DOWNGRADING (a seed rename must not overwrite a derived goal).
-          goal.titleProvenance !== "curated" &&
-          titleProvenanceRank(incomingTitleProvenance) >= titleProvenanceRank(goal.titleProvenance)
+          goal.title !== command.title
         ) {
           events.push({
             ...(yield* withEventBase({
@@ -1461,7 +1435,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             payload: {
               goalId,
               title: command.title,
-              titleProvenance: incomingTitleProvenance,
               updatedAt: occurredAt,
             },
           });

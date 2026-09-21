@@ -4,9 +4,6 @@ import {
   CommandId,
   EventId,
   GoalId,
-  DEFAULT_THREAD_TITLE, // loom: §4 title provenance guard
-  canReplaceTitle, // loom: §4 title provenance guard
-  titleProvenanceRank, // loom: §4 title provenance guard
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationGoal,
@@ -56,7 +53,8 @@ import {
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
-import { buildThreadInterpretationPrompt } from "../../textGeneration/TextGenerationPrompts.ts";
+import { buildEmergentGoalPrompt } from "../../textGeneration/TextGenerationPrompts.ts"; // loom: emergent goal
+import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import { sanitizeThreadTitle } from "../../textGeneration/TextGenerationUtils.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -1211,42 +1209,60 @@ const make = Effect.gen(function* () {
     };
   });
 
-  // Rename the temporary `t3code/<hash>` worktree branch to a slug derived from
-  // the generated thread title, so branch and title stay consistent. Guards:
-  // temp-branch-only (never touch a user-named branch), collision-safe via
-  // renameBranch, no-ops when the slug already matches, and SHARED-WORKTREE-safe
-  // (never rename a branch this thread only inherited — see below). Internally
-  // failure-isolated so a git failure leaves the temp branch intact and never
-  // aborts the surrounding interpretation (e.g. emergent-goal creation). The
-  // worktree DIRECTORY is intentionally left as the hash dir.
-  const renameWorktreeBranchToTitle = Effect.fn("renameWorktreeBranchToTitle")(function* (input: {
+  // Upstream's first-turn branch namer, restored verbatim except for loom's
+  // shared-worktree guard: a `thread_fork` / `goal_continue` thread INHERITS a
+  // live thread's worktree + branch rather than provisioning its own, and this
+  // rename would move the branch out from under the source thread (and any
+  // children sharing that worktree), stranding their recorded branch.
+  const maybeGenerateAndRenameWorktreeBranchForFirstTurn = Effect.fn(
+    "maybeGenerateAndRenameWorktreeBranchForFirstTurn",
+  )(function* (input: {
     readonly threadId: ThreadId;
     readonly branch: string | null;
     readonly worktreePath: string | null;
-    readonly title: string;
+    readonly messageText: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
-    if (!input.branch || !input.worktreePath || !isTemporaryWorktreeBranch(input.branch)) {
+    if (!input.branch || !input.worktreePath) {
       return;
     }
+    if (!isTemporaryWorktreeBranch(input.branch)) {
+      return;
+    }
+
     const oldBranch = input.branch;
     const cwd = input.worktreePath;
-    // Shared-worktree guard: a thread_fork / goal_continue thread INHERITS a live
-    // thread's worktree + branch rather than provisioning its own. Its title is
-    // still (re)derived, which used to fire this rename and move the branch out
-    // from under the source thread (and any children sharing that worktree),
-    // stranding their recorded branch. Only rename a branch this thread solely
-    // owns: bail if any OTHER live thread shares this worktree path.
-    const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
-    const sharesWorktree = readModel.threads.some(
-      (other) =>
-        other.id !== input.threadId && other.deletedAt === null && other.worktreePath === cwd,
-    );
-    if (sharesWorktree) return;
-    const targetBranch = buildGeneratedWorktreeBranchName(input.title);
-    if (targetBranch === oldBranch) return;
-    // loom: the branch name is derived from the title we already generated — one
-    // model call for both, not upstream's separate generateBranchName round trip.
+    const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
+      // loom: shared-worktree guard (see above) — only rename a branch this
+      // thread solely owns.
+      const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
+      const sharesWorktree = readModel.threads.some(
+        (other) =>
+          other.id !== input.threadId && other.deletedAt === null && other.worktreePath === cwd,
+      );
+      if (sharesWorktree) return;
+
+      const settings = yield* projectSettingsForThread(input.threadId);
+      const modelSelection =
+        settings.sourceControlWriterModelSelection === null
+          ? settings.textGenerationModelSelection
+          : resolveSourceControlWriterModelSelection(
+              settings,
+              yield* providerRegistry.getProviders,
+            );
+
+      const generated = yield* textGeneration.generateBranchName({
+        cwd,
+        message: input.messageText,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        modelSelection,
+      });
+      if (!generated) return;
+
+      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
+      if (targetBranch === oldBranch) return;
+
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
@@ -1258,37 +1274,93 @@ const make = Effect.gen(function* () {
       yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
     }).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to rename worktree branch", {
+        Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {
           threadId: input.threadId,
           cwd,
           oldBranch,
-          targetBranch,
           cause: Cause.pretty(cause),
         }),
       ),
     );
   });
 
-  // Side-channel interpretation of what the thread is trying to achieve, distilled
-  // into a thread title + emergent goal in one cheap model call. Forked and
-  // failure-logged by callers so a text-gen outage degrades to the seed title and
-  // never blocks a turn. The title is applied once (turn 1); the goal is created
-  // when the model is confident (turn 1) or unconditionally on the best guess
-  // (turn 2). Re-resolves the thread after the (slow) call and bails if a goal
-  // appeared meanwhile, so it is safe to retry across turns.
-  const interpretThreadIntent = Effect.fn("interpretThreadIntent")(function* (input: {
+  const maybeGenerateThreadTitleForFirstTurn = Effect.fn("maybeGenerateThreadTitleForFirstTurn")(
+    function* (input: {
+      readonly threadId: ThreadId;
+      readonly cwd: string;
+      readonly messageText: string;
+      readonly attachments?: ReadonlyArray<ChatAttachment>;
+      readonly titleSeed?: string;
+      readonly expectedTitle: string;
+      readonly expectedVersion: CommandId | null;
+    }) {
+      const attachments = input.attachments ?? [];
+      yield* Effect.gen(function* () {
+        const { textGenerationModelSelection: modelSelection } = yield* projectSettingsForThread(
+          input.threadId,
+        );
+
+        const generated = yield* textGeneration
+          .generateThreadTitle({
+            cwd: input.cwd,
+            message: input.messageText,
+            ...(attachments.length > 0 ? { attachments } : {}),
+            modelSelection,
+          })
+          .pipe(
+            Effect.retry({
+              times: 2,
+              schedule: Schedule.exponential("2 seconds"),
+            }),
+          );
+        if (!generated) return;
+
+        const thread = yield* resolveThreadShell(input.threadId);
+        if (!thread) return;
+        if (!canReplaceThreadTitle(thread.title, input.titleSeed)) {
+          return;
+        }
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.title.generate.complete",
+          commandId: yield* serverCommandId("thread-title-rename"),
+          threadId: input.threadId,
+          title: generated.title === DEFAULT_THREAD_TITLE ? input.expectedTitle : generated.title,
+          expectedTitle: input.expectedTitle,
+          expectedVersion: input.expectedVersion,
+          needsRefinement:
+            generated.needsRefinement === true || generated.title === DEFAULT_THREAD_TITLE,
+        });
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider command reactor failed to generate or rename thread title", {
+            threadId: input.threadId,
+            cwd: input.cwd,
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
+    },
+  );
+
+  // loom: "every session has a goal". A fork-only side-channel call that reads
+  // the thread's opening context and creates the emergent GOAL — never the
+  // thread title, which upstream's generator above owns end to end. Forked and
+  // failure-logged by the caller so a text-gen outage never blocks a turn. The
+  // goal is created when the model is confident (turn 1) or unconditionally on
+  // the best guess (turn 2+); the thread is re-resolved after the slow call and
+  // bails if a goal appeared meanwhile, so it is safe to retry across turns.
+  const deriveEmergentGoal = Effect.fn("deriveEmergentGoal")(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
-    readonly titleSeed?: string;
-    readonly applyTitle: boolean;
     readonly forceCreateGoal: boolean;
     readonly createdAt: string;
   }) {
     const attachments = input.attachments ?? [];
     const { textGenerationModelSelection: modelSelection } =
       yield* serverSettingsService.getSettings;
-    const { prompt, outputSchema } = buildThreadInterpretationPrompt({
+    const { prompt, outputSchema } = buildEmergentGoalPrompt({
       message: input.messageText,
       ...(attachments.length > 0 ? { attachments } : {}),
     });
@@ -1299,39 +1371,8 @@ const make = Effect.gen(function* () {
     });
 
     const thread = yield* resolveThreadDetail(input.threadId);
-    // Bail only if the thread vanished during generation. NOTE: unlike the
-    // original guard, we do NOT bail when a goal already exists — a goal-attached
-    // root (new thread under an existing goal) still needs its `derived` title
-    // applied so ambient retitling can reach `derived` and stop (§4 finding 3).
-    // The goal-creation half below is what the goalId guard gates, not titling.
     if (!thread) return;
-
-    if (input.applyTitle) {
-      const title = sanitizeThreadTitle(interpretation.title);
-      // loom: §4 the LLM interpretation is a `derived` write — it may replace a
-      // default/seed title but never a curated one (the decider enforces this
-      // too; checking here also avoids a pointless branch rename).
-      if (title.length > 0 && canReplaceTitle(thread.titleProvenance, "derived")) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.meta.update",
-          commandId: yield* serverCommandId("thread-title-rename"),
-          threadId: input.threadId,
-          title,
-          titleProvenance: "derived",
-        });
-        // Keep the git branch consistent with the generated title: rename the
-        // temporary worktree branch off the same title in one model call.
-        yield* renameWorktreeBranchToTitle({
-          threadId: input.threadId,
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
-          title,
-        });
-      }
-    }
-
-    // Goal creation is gated separately: a thread that already has a goal never
-    // gets a second one (its title was still applied above).
+    // A thread that gained a goal while the call was in flight never gets a second one.
     if (thread.goalId) return;
     if (!input.forceCreateGoal && interpretation.confidence !== "high") {
       return;
@@ -1364,8 +1405,6 @@ const make = Effect.gen(function* () {
       projectId: thread.projectId,
       slug,
       title: goalTitle,
-      // loom: §4 an emergent goal is a `derived` title (LLM interpretation).
-      titleProvenance: "derived",
       ...(goalDescription.length > 0 ? { description: goalDescription } : {}),
       createdAt: input.createdAt,
     });
@@ -1377,24 +1416,22 @@ const make = Effect.gen(function* () {
     });
   });
 
-  // Acquire the per-thread interpretation lock, run interpretation forked +
+  // loom: acquire the per-thread goal-derivation lock, run it forked +
   // failure-logged, and release the lock when the fork settles. Returns without
   // doing anything if a fork for this thread is already outstanding.
-  const startThreadInterpretation = Effect.fnUntraced(function* (input: {
+  const startEmergentGoalDerivation = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
-    readonly titleSeed?: string;
-    readonly applyTitle: boolean;
     readonly forceCreateGoal: boolean;
     readonly createdAt: string;
   }) {
     const key = String(input.threadId);
     if (inFlightInterpretations.has(key)) return;
     inFlightInterpretations.add(key);
-    yield* interpretThreadIntent(input).pipe(
+    yield* deriveEmergentGoal(input).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to interpret thread intent", {
+        Effect.logWarning("provider command reactor failed to derive the thread's emergent goal", {
           threadId: input.threadId,
           cause: Cause.pretty(cause),
         }),
@@ -1741,18 +1778,6 @@ const make = Effect.gen(function* () {
     yield* ensureThreadWorktree(thread);
 
     const isCompactCommand = isCompactCommandMessage(message);
-    // loom: hoisted out of upstream's first-turn branch so loom's interpretation
-    // path below can reuse the same resolved cwd/input. Upstream also spends a
-    // SECOND model call here naming the worktree branch
-    // (`maybeGenerateAndRenameWorktreeBranchForFirstTurn`); loom renames the
-    // branch from the derived title inside `startThreadInterpretation`, so that
-    // call is deliberately not folded in.
-    const generationProject = yield* resolveProject(thread.projectId);
-    const generationCwd =
-      resolveThreadWorkspaceCwd({
-        thread,
-        projects: generationProject ? [generationProject] : [],
-      }) ?? process.cwd();
 
     // Worktree-isolation invariant (item 4): a turn must never start against an
     // isolated child whose worktree was never provisioned. A promote-time
@@ -1835,91 +1860,97 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn = !hasOtherUserMessages;
     const titleSeed = toNonEmptyProviderInput(event.payload.titleSeed);
 
-    // loom: §1 workstream children NEVER interpret intent: they inherit their
-    // goal from the parent (healed by the goal-attach-down cascade if spawned
-    // during a goal-less window) and their curated title from the spawn. Running
-    // the emergent-goal invariant on a child is exactly what created orphan
-    // child-only goals. Only roots interpret.
+    // Upstream's first-turn generation: one model call names the worktree
+    // branch, a second names the thread. Deferred until here (upstream runs it
+    // right after `ensureThreadWorktree`) so a recovered never-started child has
+    // its worktree before the branch rename reads it. A deliberate title (spawn
+    // brief, handoff/retro fork, scaffold node, manual rename) is `manual` in
+    // `titleState` and is never regenerated.
+    if (isFirstUserMessageTurn && !isCompactCommand) {
+      const generationProject = yield* resolveProject(thread.projectId);
+      const generationCwd =
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: generationProject ? [generationProject] : [],
+        }) ?? process.cwd();
+      const generationInput = {
+        messageText: assistantCitationsToPlainText(message.text),
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+        ...(titleSeed !== undefined ? { titleSeed } : {}),
+      };
+
+      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+        threadId: event.payload.threadId,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+        ...generationInput,
+      }).pipe(Effect.forkScoped);
+
+      if (
+        thread.titleState?.source !== "manual" &&
+        canReplaceThreadTitle(thread.title, titleSeed)
+      ) {
+        yield* maybeGenerateThreadTitleForFirstTurn({
+          threadId: event.payload.threadId,
+          cwd: generationCwd,
+          expectedTitle: thread.title,
+          expectedVersion: thread.titleState?.version ?? null,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
+      }
+    }
+
+    // loom: §1 workstream children NEVER derive an emergent goal: they inherit
+    // their goal from the parent (healed by the goal-attach-down cascade if
+    // spawned during a goal-less window). Running the emergent-goal invariant on
+    // a child is exactly what created orphan child-only goals. Only roots do it.
     //
     // loom: `/handoff` fork-drafter (plan D3/D6) — a handoff-drafter root is
-    // ALSO excluded: it is a throwaway fork with a curated title and either the
-    // source's goal or (legitimately) none. Emergent-goal interpretation on a
-    // goal-less drafter would spend a model call AND attach an orphan goal that
-    // survives its own archive (the goal-attach decider requires existence, not
-    // active state), violating “only the staged destination remains”.
+    // ALSO excluded: it is a throwaway fork with either the source's goal or
+    // (legitimately) none. Derivation on a goal-less drafter would spend a model
+    // call AND attach an orphan goal that survives its own archive (the
+    // goal-attach decider requires existence, not active state), violating
+    // “only the staged destination remains”.
     //
-    // loom: `/retro` fork-reviewer — excluded for the same reason: a curated
-    // title and the source's goal (or legitimately none); its transcript is the
-    // SOURCE's conversation, so interpretation would name a goal after the
-    // reviewed work rather than the review.
+    // loom: `/retro` fork-reviewer — excluded for the same reason: the source's
+    // goal (or legitimately none); its transcript is the SOURCE's conversation,
+    // so derivation would name a goal after the reviewed work, not the review.
     if (
       thread.parentThreadId === null &&
       thread.role !== HANDOFF_DRAFTER_ROLE &&
-      thread.role !== RETRO_REVIEWER_ROLE
+      thread.role !== RETRO_REVIEWER_ROLE &&
+      // "Every session has a goal": retry on every turn until one exists.
+      !thread.goalId
     ) {
-      // §4 apply the client's title SEED immediately through the guarded path so
-      // the sidebar shows a real title before the slower LLM interpretation
-      // lands — but only while the title is still the "New thread" default and
-      // the seed itself carries more than the default.
-      if (
-        titleProvenanceRank(thread.titleProvenance) === 0 &&
-        titleSeed !== undefined &&
-        titleSeed !== DEFAULT_THREAD_TITLE
-      ) {
-        yield* orchestrationEngine
-          .dispatch({
-            type: "thread.meta.update",
-            commandId: yield* serverCommandId("thread-title-seed"),
-            threadId: event.payload.threadId,
-            title: titleSeed,
-            titleProvenance: "seed",
-          })
-          .pipe(Effect.ignoreCause({ log: true }));
-      }
-
-      // Emergent goals ("every session has a goal" invariant): interpret intent
-      // while the thread still lacks a goal OR its title is still
-      // automation-malleable (default/seed). Turn 1 is confidence-gated (create
-      // a goal only when confident); turn 2+ force the best-guess goal. The
-      // per-thread in-flight lock dedups overlapping attempts, so this retries
-      // across turns rather than stranding a thread goal-less. Once a goal
-      // exists AND the title has reached `derived`/`curated`, ambient
-      // interpretation stops.
-      const needsGoal = !thread.goalId;
-      const titleMalleable = canReplaceTitle(thread.titleProvenance, "derived");
-      if (needsGoal || titleMalleable) {
-        // §4/Bug B: interpret from the OPENING CONTEXT — what the thread is
-        // ABOUT — not the message that happened to trigger this turn. On turn 1
-        // the triggering message IS the opening message, so it is the input. On
-        // turn 2+ the trigger is a mid-conversation instruction ("Merge coder
-        // changes") that must be EXCLUDED entirely, or it reproduces the bug of
-        // naming the goal after the instruction. We anchor on the first user
-        // message (which predates the trigger) and its attachments.
-        // Read the detail only on this branch: it runs while the thread still
-        // lacks a goal or a derived title, not on every turn.
-        const openingMessage = isFirstUserMessageTurn
-          ? undefined
-          : (yield* resolveThreadDetail(event.payload.threadId))?.messages.find(
-              (entry) => entry.role === "user",
-            );
-        const interpretationText = isFirstUserMessageTurn
+      // §4/Bug B: derive from the OPENING CONTEXT — what the thread is ABOUT —
+      // not the message that happened to trigger this turn. On turn 1 the
+      // triggering message IS the opening message, so it is the input. On turn
+      // 2+ the trigger is a mid-conversation instruction ("Merge coder changes")
+      // that must be EXCLUDED entirely, or it reproduces the bug of naming the
+      // goal after the instruction. We anchor on the first user message (which
+      // predates the trigger) and its attachments. Read the detail only on this
+      // branch: it runs only while the thread still lacks a goal.
+      const openingMessage = isFirstUserMessageTurn
+        ? undefined
+        : (yield* resolveThreadDetail(event.payload.threadId))?.messages.find(
+            (entry) => entry.role === "user",
+          );
+      const interpretationAttachments = isFirstUserMessageTurn
+        ? message.attachments
+        : openingMessage?.attachments;
+      yield* startEmergentGoalDerivation({
+        threadId: event.payload.threadId,
+        // Turn 1 is confidence-gated (create a goal only when confident); turn
+        // 2+ forces the best-guess goal.
+        forceCreateGoal: !isFirstUserMessageTurn,
+        createdAt: event.payload.createdAt,
+        messageText: isFirstUserMessageTurn
           ? effectiveMessageText
-          : (openingMessage?.text ?? effectiveMessageText);
-        const interpretationAttachments = isFirstUserMessageTurn
-          ? message.attachments
-          : openingMessage?.attachments;
-        yield* startThreadInterpretation({
-          threadId: event.payload.threadId,
-          applyTitle: titleMalleable,
-          forceCreateGoal: needsGoal && !isFirstUserMessageTurn,
-          createdAt: event.payload.createdAt,
-          messageText: interpretationText,
-          ...(interpretationAttachments !== undefined
-            ? { attachments: interpretationAttachments }
-            : {}),
-          ...(titleSeed !== undefined ? { titleSeed } : {}),
-        });
-      }
+          : (openingMessage?.text ?? effectiveMessageText),
+        ...(interpretationAttachments !== undefined
+          ? { attachments: interpretationAttachments }
+          : {}),
+      });
     }
 
     let compactionSessionEnsured = false;
