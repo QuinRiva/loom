@@ -95,8 +95,6 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
-  WORKTREE_SETUP_ACTIVITY_KIND,
-  worktreeSetupActivityId,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -176,6 +174,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
+import { worktreeSetupActivityCommand } from "./project/worktreeSetupRecord.loom.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -887,35 +886,12 @@ const makeWsRpcLayer = (
       // progress keeps streaming from the tracker; this is what a reload or
       // another client reads. Best effort: the thread may already be gone
       // after a failed bootstrap.
+      // loom: the command shape moved to `worktreeSetupRecord.loom.ts` so the
+      // workstream child provisioner writes the identical record.
       const recordWorktreeSetup = (snapshot: WorktreeSetupSnapshot) =>
         serverCommandId("worktree-setup-activity").pipe(
           Effect.flatMap((commandId) =>
-            dispatchFromClient({
-              type: "thread.activity.append",
-              commandId,
-              threadId: snapshot.threadId,
-              activity: {
-                id: EventId.make(worktreeSetupActivityId(snapshot.threadId)),
-                tone:
-                  snapshot.phase === "failed" ||
-                  snapshot.stages.some((stage) => stage.status === "failed")
-                    ? "error"
-                    : "info",
-                kind: WORKTREE_SETUP_ACTIVITY_KIND,
-                summary:
-                  snapshot.phase === "running"
-                    ? "Setting up worktree"
-                    : snapshot.phase === "done"
-                      ? "Worktree ready"
-                      : snapshot.phase === "cancelled"
-                        ? "Worktree setup cancelled"
-                        : "Worktree setup failed",
-                payload: snapshot,
-                turnId: null,
-                createdAt: snapshot.startedAt,
-              },
-              createdAt: snapshot.endedAt ?? snapshot.startedAt,
-            }),
+            dispatchFromClient(worktreeSetupActivityCommand(commandId, snapshot)),
           ),
           Effect.ignoreCause({ log: true }),
         );
@@ -1647,10 +1623,17 @@ const makeWsRpcLayer = (
                 },
                 createdAt: command.createdAt,
               });
-              if (tracked) {
-                const running = yield* worktreeSetupTracker.get(threadId);
-                if (running) yield* recordWorktreeSetup(running);
-              }
+            }
+
+            // The durable running record, once the thread is certain to exist:
+            // after the create above, or immediately for a turn started on an
+            // existing thread. loom: upstream only recorded it on the create
+            // branch, which left the staged handoff-root launch (an existing
+            // thread, `prepareWorktree` with no `createThread`) with a live
+            // stream but nothing for a reload or a second client to attach to.
+            if (tracked) {
+              const running = yield* worktreeSetupTracker.get(threadId);
+              if (running) yield* recordWorktreeSetup(running);
             }
 
             if (prepareWorktree && shouldPrepareWorktree && worktreeBaseRef) {
@@ -1770,6 +1753,9 @@ const makeWsRpcLayer = (
                 branch: worktree.worktree.refName,
                 worktreePath: targetWorktreePath,
               });
+              // loom: the git status panel must know about the tree we just cut;
+              // upstream leaves it to the client's next poll.
+              yield* refreshGitStatus(targetWorktreePath);
             }
 
             const pendingSetupScript = yield* runSetupProgram();

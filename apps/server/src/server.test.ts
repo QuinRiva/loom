@@ -10709,11 +10709,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               };
             }),
         );
-        // loom's runner always observes completion, so the mock always carries a
-        // `completion` effect. Gating it keeps the activity assertions below
-        // stable; releasing it at the end covers the completion activity that
-        // loom's WorktreeProvisioner appends (upstream has no such reactor).
-        const setupCompletionGate = yield* Deferred.make<void>();
         const runForThread = vi.fn(
           (
             _: Parameters<
@@ -10727,8 +10722,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               scriptCommand: "npm install",
               terminalId: "setup-setup",
               cwd: "/tmp/bootstrap-worktree",
-              async: true,
-              completion: Deferred.await(setupCompletionGate).pipe(Effect.as({ exitCode: 0 })),
+              async: false,
+              completion: Effect.succeed({ exitCode: 0 }),
             }),
         );
 
@@ -10907,32 +10902,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         if (finalCommand?.type === "thread.turn.start") {
           assert.equal(finalCommand.bootstrap, undefined);
         }
-
-        // Releasing the gate records the completion activity asynchronously.
-        yield* Deferred.succeed(setupCompletionGate, undefined);
-        for (let attempt = 0; attempt < 500; attempt++) {
-          if (
-            dispatchedCommands.some(
-              (command) =>
-                command.type === "thread.activity.append" &&
-                command.activity.kind === "setup-script.completed",
-            )
-          )
-            break;
-          yield* Effect.sleep(10);
-        }
-        assert.deepEqual(
-          dispatchedCommands
-            .filter((command) => command.type === "thread.activity.append")
-            .map((command) => command.activity.kind),
-          [
-            "worktree-setup",
-            "setup-script.requested",
-            "setup-script.started",
-            "worktree-setup",
-            "setup-script.completed",
-          ],
-        );
       }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
@@ -11470,10 +11439,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             scriptCommand: "npm install",
             terminalId: "setup-setup",
             cwd: "/tmp/bootstrap-worktree",
-            async: true,
-            // loom's runner always observes completion. This case never releases
-            // it, so the assertions below see only the launch activities.
-            completion: Effect.never,
+            async: false,
+            completion: Effect.succeed({ exitCode: 0 }),
           }),
       );
       let setupActivityAppendAttempt = 0;
@@ -11770,6 +11737,128 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(settled.phase, "done");
       assert.equal(stageStatus(settled, "setup-script"), "done");
       assert.equal(stageStatus(settled, "agent"), "done");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: the staged handoff root. `goal_handoff` already created the thread,
+  // so its launch send carries `prepareWorktree` with NO `createThread`.
+  // Upstream recorded the setup activity only on the create branch, which left
+  // this path with a live stream and nothing for a reload or a second client to
+  // attach to — no card, and no way to reach Cancel.
+  it.effect("records the worktree setup for a turn started on an existing thread", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const scriptExit = yield* Deferred.make<void>();
+      const runForThread = vi.fn(
+        (
+          _: Parameters<
+            ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"]
+          >[0],
+        ) =>
+          Effect.succeed({
+            status: "started" as const,
+            scriptId: "setup",
+            scriptName: "Setup",
+            scriptCommand: "npm install",
+            terminalId: "setup-setup",
+            cwd: "/tmp/bootstrap-worktree",
+            async: false,
+            completion: Deferred.await(scriptExit).pipe(Effect.as({ exitCode: 0 })),
+          }),
+      );
+
+      yield* buildAppUnderTest({
+        layers: {
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) },
+          gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            createWorktree: () =>
+              Effect.succeed({
+                worktree: {
+                  refName: "t3code/staged-refName",
+                  path: "/tmp/bootstrap-worktree",
+                },
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+          projectSetupScriptRunner: { runForThread },
+        },
+      });
+
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-staged-root");
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const dispatchFiber = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-staged-root-launch"),
+            threadId,
+            message: {
+              messageId: MessageId.make("msg-staged-root"),
+              role: "user",
+              text: "hello",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              prepareWorktree: {
+                projectCwd: "/tmp/project",
+                baseBranch: "main",
+                branch: "t3code/staged-refName",
+              },
+              runSetupScript: true,
+            },
+            createdAt,
+          }),
+        ),
+      ).pipe(Effect.forkChild);
+
+      // The setup script running is the receipt that provisioning is live.
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorktreeSetup]({ threadId }).pipe(
+            Stream.filter(
+              (snapshot): snapshot is WorktreeSetupSnapshot =>
+                snapshot !== null &&
+                snapshot.stages.some(
+                  (stage) => stage.id === "setup-script" && stage.status === "running",
+                ),
+            ),
+            Stream.runHead,
+          ),
+        ),
+      );
+
+      assertTrue(dispatchedCommands.every((command) => command.type !== "thread.create"));
+      const running = dispatchedCommands.find(
+        (command) =>
+          command.type === "thread.activity.append" && command.activity.kind === "worktree-setup",
+      );
+      assertTrue(running?.type === "thread.activity.append");
+      assert.equal(running.threadId, threadId);
+      assert.propertyVal(running.activity.payload, "phase", "running");
+
+      yield* Deferred.succeed(scriptExit, undefined);
+      yield* Fiber.join(dispatchFiber);
+      assertTrue(dispatchedCommands.some((command) => command.type === "thread.turn.start"));
+      const settled = dispatchedCommands.findLast(
+        (command) =>
+          command.type === "thread.activity.append" && command.activity.kind === "worktree-setup",
+      );
+      assertTrue(settled?.type === "thread.activity.append");
+      assert.propertyVal(settled.activity.payload, "phase", "done");
+      // Upserted under one id, so a reload reads the latest state, not a log.
+      assert.equal(running.activity.id, settled.activity.id);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
