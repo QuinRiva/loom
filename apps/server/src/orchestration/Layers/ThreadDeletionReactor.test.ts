@@ -157,6 +157,8 @@ const runReactorOn = (
       Layer.provide(
         Layer.succeed(OrchestrationEngineService, {
           streamDomainEvents: Stream.fromIterable(events),
+          // The reactor seeds its watermark from the engine head on start.
+          latestSequence: Effect.succeed(0),
         } as never),
       ),
       Layer.provide(

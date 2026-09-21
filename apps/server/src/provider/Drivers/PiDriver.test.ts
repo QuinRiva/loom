@@ -232,12 +232,13 @@ describe("piCatalogModels backend disambiguation", () => {
       settings,
     );
     expect(models.map((entry) => [entry.slug, entry.name, entry.subProvider])).toEqual([
-      // Curated shortlist entries sort first (default model, then GPT-5.5).
-      ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
+      // The curated shortlist sorts first; the default model (cliproxy Opus 5)
+      // is not in this catalogue fixture, so GPT-5.5 on Codex leads.
       ["openai-codex/gpt-5.5", "GPT-5.5 (Codex)", "Codex"],
       ["openai/gpt-5.5", "GPT-5.5 (OpenAI)", "OpenAI"],
       // Unique names stay clean (pi already suffixes its Vertex Claude names).
       ["anthropic/claude-opus-4-8", "Claude Opus 4.8", "Anthropic"],
+      ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
     ]);
   });
 
