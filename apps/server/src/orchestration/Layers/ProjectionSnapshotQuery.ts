@@ -1266,11 +1266,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           fan_in_state AS "fanInState",
           title,
           title_provenance AS "titleProvenance",
+          title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          linked_pull_request_json AS "linkedPullRequest",
+          branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -1282,6 +1285,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_at AS "snoozedAt",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
+          active_order_key AS "activeOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -2370,6 +2374,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sessions.runtime_mode AS "runtimeMode",
           sessions.active_turn_id AS "activeTurnId",
           sessions.last_error AS "lastError",
+          -- loom: the fork's session row schema requires this column; omitting
+          -- it fails the decode at runtime, where typecheck cannot see it —
+          -- and this query gates EVERY provider runtime event's ingestion.
+          sessions.last_error_class AS "lastErrorClass",
           sessions.updated_at AS "updatedAt"
         FROM projection_threads AS threads
         LEFT JOIN projection_thread_sessions AS sessions

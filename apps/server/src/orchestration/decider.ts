@@ -1298,6 +1298,80 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Old clients only see the derived single link. Unlink that request through
+      // the same command path as modern clients, including stack dismissal, while
+      // retaining other links they cannot see. Historical metadata events still replay unchanged.
+      const legacy = legacyLinkedPullRequestOf(
+        thread.pullRequests,
+        thread.projectId,
+        readModel.projects.find((project) => project.id === thread.projectId)?.repositoryIdentity,
+      );
+      const currentPullRequest =
+        legacy === null
+          ? null
+          : (thread.pullRequests.find(
+              (link) => link.url === legacy.url && link.number === legacy.number,
+            ) ?? null);
+      if (command.linkedPullRequest != null) {
+        const { linkedPullRequest: linked, ...metadata } = command;
+        const project = readModel.projects.find((project) => project.id === thread.projectId);
+        let host = project?.repositoryIdentity?.canonicalKey.split("/")[0] ?? "unknown";
+        try {
+          host = new URL(linked.url).hostname;
+        } catch {
+          // Historical clients can send links without a parseable URL.
+        }
+        const hasMetadata = Object.entries(metadata).some(
+          ([key, value]) => !["type", "commandId", "threadId"].includes(key) && value !== undefined,
+        );
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...(hasMetadata ? [metadata] : []),
+            ...(currentPullRequest?.source === "manual"
+              ? [
+                  {
+                    type: "thread.pull-request.unlink" as const,
+                    commandId: command.commandId,
+                    threadId: command.threadId,
+                    host: currentPullRequest.host,
+                    repository: currentPullRequest.repository,
+                    number: currentPullRequest.number,
+                  },
+                ]
+              : []),
+            {
+              type: "thread.pull-request.link",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              ...legacyThreadPullRequestKey(linked, host),
+              url: linked.url,
+              source: "manual",
+            },
+          ],
+        });
+      }
+
+      if (command.linkedPullRequest === null && currentPullRequest !== null) {
+        const { linkedPullRequest: _linkedPullRequest, ...metadata } = command;
+        const hasMetadata = Object.entries(metadata).some(
+          ([key, value]) => !["type", "commandId", "threadId"].includes(key) && value !== undefined,
+        );
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...(hasMetadata ? [metadata] : []),
+            {
+              type: "thread.pull-request.unlink",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              host: currentPullRequest.host,
+              repository: currentPullRequest.repository,
+              number: currentPullRequest.number,
+            },
+          ],
+        });
+      }
       // loom: goal-in-project validation (fork addition to this upstream case).
       if (command.goalId != null) {
         yield* requireActiveGoalInProject({
@@ -1381,6 +1455,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.linkedPullRequest !== undefined
+            ? { linkedPullRequest: command.linkedPullRequest }
+            : {}),
           // Post-completion engagement (plan §8 item 3): the fan-in tip marker.
           ...(command.finalCommitSha !== undefined
             ? { finalCommitSha: command.finalCommitSha }
