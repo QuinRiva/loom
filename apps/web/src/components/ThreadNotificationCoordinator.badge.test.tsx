@@ -60,6 +60,8 @@ class TestNotification extends EventTarget {
 const thread = {
   id: "thread",
   title: "Test thread",
+  // loom: sidebar status derives workstream attention before notification state.
+  attention: [] as string[],
   archivedAt: null as string | null,
   hasPendingApprovals: false,
   hasPendingUserInput: false,

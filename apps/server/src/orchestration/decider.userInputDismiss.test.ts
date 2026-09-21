@@ -85,6 +85,7 @@ const command = {
 };
 
 it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
+  // loom: upstream's unified response path sends dismissals back to every provider protocol.
   it.effect("closes an async question without sending a message or starting a turn", () =>
     Effect.gen(function* () {
       const request = makeRequest("message");
@@ -95,13 +96,17 @@ it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
         userInputActivity: request,
       });
       const events = Array.isArray(result) ? result : [result];
-      expect(events.map((event) => event.type)).toEqual(["thread.activity-appended"]);
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.activity-appended",
+        "thread.user-input-response-requested",
+      ]);
       expect(events[0]?.payload).toMatchObject({
         threadId,
         activity: {
           kind: "user-input.resolved",
           summary: "User input dismissed",
-          payload: { requestId, responseMode: "message" },
+          // loom: the outcome, not loom's old responseMode marker, records the settlement.
+          payload: { requestId, outcome: "dismissed" },
         },
       });
       const projected = yield* projectEvent(readModel, { ...events[0]!, sequence: 1 });
@@ -110,18 +115,20 @@ it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
     }),
   );
 
-  it.effect("rejects dismissing a native callback question", () =>
+  it.effect("dismisses a native callback question through the provider response path", () =>
     Effect.gen(function* () {
       const request = makeRequest(undefined);
       const result = yield* decideOrchestrationCommand({
         command,
         readModel: makeReadModel([request]),
         userInputActivity: request,
-      }).pipe(Effect.flip);
-      expect(result).toMatchObject({
-        _tag: "OrchestrationCommandInvariantError",
-        detail: "This question needs an answer. Answer it or stop the turn.",
       });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.activity-appended",
+        "thread.user-input-response-requested",
+      ]);
+      expect(events[1]?.payload).toMatchObject({ requestId, answers: {}, outcome: "dismissed" });
     }),
   );
 
@@ -139,7 +146,8 @@ it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
       }).pipe(Effect.flip);
       expect(result).toMatchObject({
         _tag: "OrchestrationCommandInvariantError",
-        detail: "This question has already been answered.",
+        detail:
+          "User-input request 'question-1' on thread 'thread-1' is not open; it was already settled.",
       });
     }),
   );

@@ -190,7 +190,8 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("routes refresh and provider update commands to the selected environment", async () => {
     atoms.providers = [provider()];
-    const panel = renderPanel();
+    // loom: Pi is the global default; explicitly open the Codex fixture under test.
+    const panel = renderPanel({ targetInstanceId: codexId });
     const refreshButton = visitElements(panel, isRefreshButton);
     expect(refreshButton).not.toBeNull();
     (refreshButton?.props.onClick as (() => void) | undefined)?.();
@@ -231,17 +232,37 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it.each([
     ["onFavoriteModelsChange", { favorites: [{ provider: codexId, model: "chosen" }] }],
+    // Upstream's model preferences now carry the allow-list pair alongside the hide-list.
     [
       "onHiddenModelsChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: ["chosen"], modelOrder: [] } } },
+      {
+        providerModelPreferences: {
+          [codexId]: {
+            hiddenModels: ["chosen"],
+            modelOrder: [],
+            selectedModels: [],
+            showOnlySelectedModels: false,
+          },
+        },
+      },
     ],
     [
       "onModelOrderChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: [], modelOrder: ["chosen"] } } },
+      {
+        providerModelPreferences: {
+          [codexId]: {
+            hiddenModels: [],
+            modelOrder: ["chosen"],
+            selectedModels: [],
+            showOnlySelectedModels: false,
+          },
+        },
+      },
     ],
   ])("saves %s on this device without changing the selected server", (action, expected) => {
     atoms.providers = [provider()];
-    const panel = renderPanel();
+    // loom: Pi is the global default; explicitly open the Codex fixture under test.
+    const panel = renderPanel({ targetInstanceId: codexId });
     const editor = visitElements(
       panel,
       (element) => element.props.instanceId === codexId && element.props.mode === "editor",

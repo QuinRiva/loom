@@ -235,7 +235,8 @@ describe("project query refresh", () => {
 
     try {
       reactHooks.beginRender();
-      const query = useProjectFileQuery(environmentId, "/repo", "preview.png", false);
+      // loom: the fourth argument is the optional MDX byte budget; enabled remains fifth.
+      const query = useProjectFileQuery(environmentId, "/repo", "preview.png", undefined, false);
       useWorkspaceMutationRefresh({
         enabled: false,
         mutationId: "mutation-1",

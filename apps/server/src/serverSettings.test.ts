@@ -673,7 +673,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const settings = yield* serverSettings.getSettings;
 
-      assert.equal(settings.textGenerationModelSelection.instanceId, "claudeAgent");
+      // loom: the Pi-first registry ships pi, so it is the enabled fallback.
+      assert.equal(settings.textGenerationModelSelection.instanceId, "pi");
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
