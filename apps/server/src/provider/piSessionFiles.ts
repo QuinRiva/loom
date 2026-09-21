@@ -25,7 +25,7 @@ export const piSessionIdForThread = (threadId: string): string =>
   threadId.replace(/[^a-zA-Z0-9_-]/g, "-");
 
 /** Default pi sessions root: `~/.pi/agent/sessions`. */
-export const defaultSessionsRoot = (): string =>
+const defaultSessionsRoot = (): string =>
   NodePath.join(NodeOS.homedir(), ".pi", "agent", "sessions");
 
 /**

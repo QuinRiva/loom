@@ -19,7 +19,7 @@ import { SqlReadClient } from "./SqliteRead.ts";
 
 const SqlReadClientAsSqlClient = Layer.effect(SqlClient.SqlClient, SqlReadClient);
 
-export const ProjectionSnapshotQueryOnSqlReadClient = OrchestrationProjectionSnapshotQueryLive.pipe(
+const ProjectionSnapshotQueryOnSqlReadClient = OrchestrationProjectionSnapshotQueryLive.pipe(
   Layer.provide(SqlReadClientAsSqlClient),
 );
 
@@ -50,7 +50,7 @@ const OrchestrationEngineReaderReplayLive = Layer.effect(
   }),
 ).pipe(Layer.provide(OrchestrationEventStoreOnSqlReadClient));
 
-export const routeEngineReplayToSqlReadClient = <E, R>(
+const routeEngineReplayToSqlReadClient = <E, R>(
   engineLayer: Layer.Layer<OrchestrationEngineService, E, R>,
 ) =>
   Layer.effect(OrchestrationEngineService, OrchestrationEngineReaderReplay).pipe(

@@ -401,7 +401,7 @@ const CONTROL_PLANE_MARKER = "[T3 Workstream control plane — automated notice,
  * cancelling/replanning. `resetHint` is a relative phrase from
  * {@link formatResetHint}.
  */
-export const buildQuotaExhaustionWakeReason = (resetHint: string): string =>
+const buildQuotaExhaustionWakeReason = (resetHint: string): string =>
   `Provider subscription limit reached — this turn stalled on a usage cap, not a fault. ` +
   `It will resume automatically ${resetHint}; wait rather than cancelling or replanning.`;
 

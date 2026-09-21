@@ -92,7 +92,3 @@ export function middleTruncateAttachmentName(name: string, maxCharacters = 36): 
   const suffix = suffixLength === 0 ? "" : characters.slice(-suffixLength).join("");
   return `${characters.slice(0, prefixLength).join("")}…${suffix}`;
 }
-
-// The skill label is smaller than the surrounding prompt text; offset its
-// glyphs without moving the pill box or changing the editor's line height.
-export const COMPOSER_INLINE_SKILL_CHIP_LABEL_CLASS_NAME = `${COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME} relative top-[0.15em]`;

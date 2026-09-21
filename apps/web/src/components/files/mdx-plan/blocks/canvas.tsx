@@ -93,7 +93,7 @@ export interface DesignBoardData {
   height?: number;
 }
 
-export const designBoardSchema = z.object({
+const designBoardSchema = z.object({
   title: z.string().max(300).optional(),
   width: z.number().min(0).max(20_000).optional(),
   height: z.number().min(0).max(20_000).optional(),
@@ -180,7 +180,7 @@ export interface SectionData {
   height: number;
 }
 
-export const sectionSchema = z.object({
+const sectionSchema = z.object({
   title: z.string().max(300).optional(),
   x: z.number(),
   y: z.number(),
@@ -188,7 +188,7 @@ export const sectionSchema = z.object({
   height: z.number().min(0).max(20_000),
 }) as unknown as z.ZodType<SectionData>;
 
-export function SectionRead({ data, children }: PlanBlockReadProps<SectionData>) {
+function SectionRead({ data, children }: PlanBlockReadProps<SectionData>) {
   const { boardToPixel, boardScale } = useContext(CanvasTransformContext);
   const origin = boardToPixel({ x: data.x, y: data.y });
   // `display:contents` keeps this element out of layout so the frame box AND the
@@ -251,7 +251,7 @@ export interface ArtboardData {
   fidelity?: ScreenFidelity;
 }
 
-export const artboardSchema = z.object({
+const artboardSchema = z.object({
   x: z.number(),
   y: z.number(),
   surface: z.enum(["browser", "desktop", "mobile", "popover", "panel"]).default("browser"),
@@ -325,7 +325,7 @@ export interface AnnotationData {
   text?: string;
 }
 
-export const annotationSchema = z.object({
+const annotationSchema = z.object({
   targetId: z.string().max(200).optional(),
   placement: z.enum(["left", "right", "top", "bottom"]).optional(),
   x: z.number().optional(),
@@ -335,7 +335,7 @@ export const annotationSchema = z.object({
 
 const ANNOTATION_GAP = 12;
 
-export function AnnotationRead({ data, blockId, children }: PlanBlockReadProps<AnnotationData>) {
+function AnnotationRead({ data, blockId, children }: PlanBlockReadProps<AnnotationData>) {
   const { boardToPixel } = useContext(CanvasTransformContext);
   const selfRef = useRef<HTMLDivElement>(null);
   const freePt =
@@ -422,7 +422,7 @@ export interface ConnectorData {
   label?: string;
 }
 
-export const connectorSchema = z.object({
+const connectorSchema = z.object({
   from: z.string().min(1).max(200),
   to: z.string().min(1).max(200),
   label: z.string().max(200).optional(),
@@ -435,7 +435,7 @@ interface ConnectorLine {
   y2: number;
 }
 
-export function ConnectorRead({ data }: PlanBlockReadProps<ConnectorData>) {
+function ConnectorRead({ data }: PlanBlockReadProps<ConnectorData>) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [line, setLine] = useState<ConnectorLine | null>(null);
 

@@ -60,13 +60,13 @@ const SURFACE_PRESETS: Record<
   panel: { width: 420, minHeight: 200, radius: 16 },
 };
 
-export const screenSchema = z.object({
+const screenSchema = z.object({
   surface: z.enum(["browser", "desktop", "mobile", "popover", "panel"]).default("browser"),
   html: z.string().max(200_000),
   caption: z.string().max(500).optional(),
 }) as unknown as z.ZodType<ScreenData>;
 
-export const screenMdx: BlockMdxConfig<ScreenData> = {
+const screenMdx: BlockMdxConfig<ScreenData> = {
   tag: "Screen",
   toAttrs: (data) => ({ surface: data.surface, html: data.html, caption: data.caption }),
   fromAttrs: (attrs) =>

@@ -223,7 +223,7 @@ const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallComm
     : command;
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;

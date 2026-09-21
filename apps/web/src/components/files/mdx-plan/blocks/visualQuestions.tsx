@@ -19,9 +19,9 @@ import {
  * omits them.
  */
 
-export const visualQuestionsSchema = questionFormSchema as unknown as z.ZodType<QuestionFormData>;
+const visualQuestionsSchema = questionFormSchema as unknown as z.ZodType<QuestionFormData>;
 
-export const visualQuestionsMdx: BlockMdxConfig<QuestionFormData> = {
+const visualQuestionsMdx: BlockMdxConfig<QuestionFormData> = {
   tag: "VisualQuestions",
   toAttrs: (data) => ({
     questions: data.questions,
@@ -34,7 +34,7 @@ export const visualQuestionsMdx: BlockMdxConfig<QuestionFormData> = {
     }) as QuestionFormData,
 };
 
-export function VisualQuestionsRead(props: PlanBlockReadProps<QuestionFormData>) {
+function VisualQuestionsRead(props: PlanBlockReadProps<QuestionFormData>) {
   return <QuestionListRead {...props} blockType="visual-questions" />;
 }
 

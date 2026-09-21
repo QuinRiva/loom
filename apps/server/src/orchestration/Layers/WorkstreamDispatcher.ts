@@ -394,7 +394,7 @@ const boundedExcerpt = (report: string | null | undefined): string | undefined =
  * whose report the text deliberately sends as reference-only (see
  * `renderWakePair`); every other section carries the member's bounded excerpt.
  */
-export const wakeMemberToPayloadItem = (
+const wakeMemberToPayloadItem = (
   member: WakeMember,
   opts: { readonly includeExcerpt?: boolean } = {},
 ): ControlPayloadItem => {
@@ -479,7 +479,7 @@ const digestExtraToPayloadItem = (extra: DigestExtra): ControlPayloadItem => {
  * same excerpt-inclusion). `renderDigestBody` and `buildDigestPayload` are thin
  * projections of this result.
  */
-export const digestBodyParts = (
+const digestBodyParts = (
   members: ReadonlyArray<WakeMember>,
   extras: ReadonlyArray<DigestExtra>,
 ): { readonly text: string; readonly items: ReadonlyArray<ControlPayloadItem> } => {
@@ -1086,8 +1086,8 @@ export interface ChildWakeContext {
  * are often legitimate, and only the parent agent has the judgement to
  * intervene.
  */
-export const SLOW_TOOL_NOTICE_STEPS_MS: ReadonlyArray<number> = [300_000, 900_000, 1_800_000];
-export const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
+const SLOW_TOOL_NOTICE_STEPS_MS: ReadonlyArray<number> = [300_000, 900_000, 1_800_000];
+const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
 
 /**
  * Declared-expectation deferral (slow-tool rail only). An agent that knows a
@@ -1098,12 +1098,12 @@ export const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
  * long, known call is not false-positive spam the parent must repeatedly
  * dismiss. Undeclared calls behave exactly as before.
  */
-export const SLOW_TOOL_DEFERRAL_BUFFER = 1.2;
+const SLOW_TOOL_DEFERRAL_BUFFER = 1.2;
 /**
  * Cap on the honoured estimate so a child cannot self-silence indefinitely: a
  * declared ETA above two hours is clamped here before the buffer is applied.
  */
-export const SLOW_TOOL_ESTIMATE_CAP_MS = 7_200_000;
+const SLOW_TOOL_ESTIMATE_CAP_MS = 7_200_000;
 
 /**
  * Parse an intentional inline ETA marker from a command's text. The marker MUST

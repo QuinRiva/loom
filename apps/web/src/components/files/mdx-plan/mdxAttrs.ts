@@ -20,11 +20,11 @@ import type { BlockAttrReader, MdxAttrValue } from "./blockTypes";
 /* Serialize                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export function jsonExpression(value: unknown): string {
+function jsonExpression(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-export function escapeAttr(value: string): string {
+function escapeAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
@@ -37,7 +37,7 @@ export function escapeAttr(value: string): string {
  * flag for booleans; `={n}` for numbers; a quoted string when short + safe, else
  * a JSON expression. Objects/arrays always serialize as a JSON expression.
  */
-export function prop(name: string, value: unknown): string {
+function prop(name: string, value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "boolean") return value ? ` ${name}` : ` ${name}={false}`;
   if (typeof value === "number") return ` ${name}={${value}}`;

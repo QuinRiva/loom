@@ -352,7 +352,7 @@ export function resolveServerUpdateProgressResult<E>(
 
 // loom: the lifecycle stream emits `welcome` then `ready`; only the welcome
 // payload carries the server descriptor, so keep the latest one.
-export function projectServerWelcome(
+function projectServerWelcome(
   current: Option.Option<ServerLifecycleWelcomePayload>,
   event: {
     readonly type: "welcome" | "ready";
@@ -367,14 +367,6 @@ export function projectServerWelcome(
   }
   const welcome = event.payload as ServerLifecycleWelcomePayload;
   return [Option.some(welcome), [welcome]];
-}
-
-export function projectServerConfig(
-  current: Option.Option<ServerConfigProjection>,
-  event: ServerConfigStreamEvent,
-): readonly [Option.Option<ServerConfigProjection>, ReadonlyArray<ServerConfigProjection>] {
-  const next = applyServerConfigProjection(current, event);
-  return [next, Option.toArray(next)];
 }
 
 const cachedConfigSnapshotEvent = (config: ServerConfig): ServerConfigStreamEvent => ({

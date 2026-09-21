@@ -265,7 +265,7 @@ const KICKOFF_MARKER_PROVIDERS: ReadonlySet<string> = new Set(["pi"]);
  * provider? `providerName` is nullable on the session record; unknown counts as
  * not-trustworthy (fail safe).
  */
-export const kickoffDeliveryEvidenceAvailable = (providerName: string | null): boolean =>
+const kickoffDeliveryEvidenceAvailable = (providerName: string | null): boolean =>
   providerName !== null && KICKOFF_MARKER_PROVIDERS.has(providerName);
 
 /**

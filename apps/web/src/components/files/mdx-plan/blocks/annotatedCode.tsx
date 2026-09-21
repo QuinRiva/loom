@@ -42,7 +42,7 @@ const annotationSchema = z.object({
   note: z.string().trim().min(1).max(4000),
 }) as z.ZodType<CodeAnnotation>;
 
-export const annotatedCodeSchema = z.object({
+const annotatedCodeSchema = z.object({
   code: z.string().max(100_000),
   language: z.string().trim().max(40).optional(),
   filename: z.string().trim().max(400).optional(),
@@ -50,7 +50,7 @@ export const annotatedCodeSchema = z.object({
   wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<AnnotatedCodeData>;
 
-export const annotatedCodeMdx: BlockMdxConfig<AnnotatedCodeData> = {
+const annotatedCodeMdx: BlockMdxConfig<AnnotatedCodeData> = {
   tag: "AnnotatedCode",
   toAttrs: (data) => ({
     filename: data.filename,
@@ -104,7 +104,7 @@ function AnnotatedCodeBody({
   );
 }
 
-export function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeData>) {
+function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeData>) {
   const language = data.language?.trim() || "text";
   const [wrap, setWrap] = useState(data.wrap ?? false);
   const annotations = useMemo(

@@ -26,7 +26,7 @@ function normalizeResolutionTarget(
 }
 
 /** One-line human-readable location for the anchor ("Section: \"quote\""). */
-export function formatPlanCommentAnchorForAgent(anchor: PlanCommentAnchor | null): string {
+function formatPlanCommentAnchorForAgent(anchor: PlanCommentAnchor | null): string {
   if (!anchor) return "";
   const section =
     clean(anchor.sectionTitle) && anchor.sectionTitle !== "Visible plan area"

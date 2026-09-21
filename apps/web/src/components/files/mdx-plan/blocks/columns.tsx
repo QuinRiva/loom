@@ -28,7 +28,7 @@ export interface ColumnData {
   label?: string;
 }
 
-export const columnSchema = z.object({
+const columnSchema = z.object({
   label: z.string().max(200).optional(),
 }) as unknown as z.ZodType<ColumnData>;
 
@@ -56,7 +56,7 @@ export const columnBlock: PlanBlock<ColumnData> = {
 
 export interface ColumnsData {}
 
-export const columnsSchema = z.object({}) as unknown as z.ZodType<ColumnsData>;
+const columnsSchema = z.object({}) as unknown as z.ZodType<ColumnsData>;
 
 export function ColumnsRead({ blockId, children }: PlanBlockReadProps<ColumnsData>) {
   return (

@@ -9,7 +9,6 @@ import {
   mergeEnvironmentThread,
 } from "@t3tools/client-runtime/state/threads";
 import type {
-  OrchestrationProposedPlan,
   OrchestrationSession,
   ScopedProjectRef,
   ScopedThreadRef,
@@ -252,35 +251,13 @@ export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
 }
 
-// loom: session, proposed-plan and sync-error hooks for loom surfaces.
+// loom: session hook for loom surfaces.
 export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
   return useAtomValue(
     ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),
   );
 }
 
-export function useThreadProposedPlans(
-  ref: ScopedThreadRef | null,
-): ReadonlyArray<OrchestrationProposedPlan> {
-  return useAtomValue(
-    ref === null ? EMPTY_PROPOSED_PLANS_ATOM : environmentThreadDetails.proposedPlansAtom(ref),
-  );
-}
-
-/** Last error reported by the thread's detail subscription (null while healthy). */
-export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
-  return useAtomValue(
-    ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
-  );
-}
-
-const EMPTY_PROPOSED_PLANS: ReadonlyArray<OrchestrationProposedPlan> = [];
-const EMPTY_PROPOSED_PLANS_ATOM = Atom.make(EMPTY_PROPOSED_PLANS).pipe(
-  Atom.withLabel("web-thread-proposed-plans:empty"),
-);
 const EMPTY_SESSION_ATOM = Atom.make<OrchestrationSession | null>(null).pipe(
   Atom.withLabel("web-thread-session:empty"),
-);
-const EMPTY_SYNC_ERROR_ATOM = Atom.make<string | null>(null).pipe(
-  Atom.withLabel("web-thread-sync-error:empty"),
 );

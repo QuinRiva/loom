@@ -178,7 +178,7 @@ export const STATUS_STYLES = {
 
 // Attention badge vocabulary (the needs-a-human overlay). Independent of the
 // plan column — a badge can co-exist with any lane.
-export const ATTENTION_LABELS = {
+const ATTENTION_LABELS = {
   error: "Error / stalled",
   awaiting_approval: "Awaiting approval",
   awaiting_input: "Awaiting input",
@@ -535,7 +535,7 @@ export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
 // still folding in) and the reset-to-"none" case stay caller-specific.
 // `failed` shares the conflict palette: both mean "this branch was NOT merged
 // and a human must act", and neither may read as success.
-export const FAN_IN_SETTLEMENT: Record<
+const FAN_IN_SETTLEMENT: Record<
   "completed" | "conflicted" | "failed",
   { readonly label: string; readonly chipTone: FanInChip["tone"]; readonly tone: LifecycleTone }
 > = {

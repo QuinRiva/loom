@@ -35,7 +35,7 @@ export const blockSelector = (id: string): string => `[data-plan-block-id="${esc
  * screens), annotated by node pin rather than text-quote or whole-block. Both
  * render into the live DOM (§1.1 of the Phase-4 scoping), so their pinned nodes
  * carry real client rects — the overlay geometry model is identical to prose. */
-export const WIREFRAME_BLOCK_TYPES = new Set(["wireframe", "design"]);
+const WIREFRAME_BLOCK_TYPES = new Set(["wireframe", "design"]);
 
 /** A pixel-space box relative to the board container that a coordinate anchor
  * resolves to. Distinct from a DOM `Range` (which free-floating canvas notes
@@ -86,7 +86,7 @@ const countOccurrences = (haystack: string, needle: string): number => {
  * swallowing the whole block. Commenting on a block as a whole stays one click
  * away via the per-block hover affordance ({@link anchorForBlockElement}), and
  * a selection that captures no text still degrades to the whole block. */
-export const OPAQUE_BLOCK_TYPES = new Set(["diagram", "mermaid", "prototype", "html"]);
+const OPAQUE_BLOCK_TYPES = new Set(["diagram", "mermaid", "prototype", "html"]);
 
 /** Map a plan block type to the anchor's coarse `targetKind`. */
 function targetKindForBlock(blockType: string | null): PlanCommentTargetKind {

@@ -12,7 +12,7 @@ import type { UserInputQuestion, UserInputResolvedOutcome } from "@t3tools/contr
 
 export type UserInputDeliveryOutcome = UserInputResolvedOutcome | "could_not_present";
 
-export const answerText = (answer: unknown): string =>
+const answerText = (answer: unknown): string =>
   Array.isArray(answer)
     ? answer.map(String).join(", ")
     : typeof answer === "string"

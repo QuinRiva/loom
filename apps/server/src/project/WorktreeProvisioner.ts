@@ -49,7 +49,7 @@ export interface ProvisionWorktreeResult {
 }
 
 /** A human cancelled the provisioning through `worktreeSetup.cancel`. */
-export class WorktreeProvisionCancelled extends Data.TaggedError("WorktreeProvisionCancelled")<{
+class WorktreeProvisionCancelled extends Data.TaggedError("WorktreeProvisionCancelled")<{
   readonly threadId: ThreadId;
 }> {}
 
@@ -90,7 +90,7 @@ export class WorktreeProvisioner extends Context.Service<
 // prefix namespaces workstream-managed branches; the thread-id suffix makes a
 // same-branch-in-two-worktrees collision unreachable. Nested `ws/ws/…` for a
 // grandchild is harmless and still matches the `ws/` prefix test.
-export const workstreamChildBranchName = (
+const workstreamChildBranchName = (
   parentBranch: string,
   role: string,
   threadId: string,
@@ -118,7 +118,7 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
  * expected to have taken its own hold. Generous relative to provision → setup →
  * launch (seconds), and bounded so the hold can never leak.
  */
-export const FRESH_WORKTREE_HOLD = Duration.minutes(5);
+const FRESH_WORKTREE_HOLD = Duration.minutes(5);
 
 // Normalise a setup-runner failure to a human detail, preserving the pre-refactor
 // behaviour: an operation error unwraps its `cause.message` (Error or plain

@@ -525,15 +525,3 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
     (a, b) => (a.line ?? Infinity) - (b.line ?? Infinity) || (a.column ?? 0) - (b.column ?? 0),
   );
 }
-
-/** Render findings as terse `file:line:col severity: message` lines + a summary. */
-export function formatFindings(findings: PlanLintFinding[], file: string): string {
-  const errors = findings.filter((finding) => finding.severity === "error").length;
-  const warnings = findings.length - errors;
-  if (!findings.length) return `${file}: OK — no findings.`;
-  const lines = findings.map(
-    (finding) =>
-      `${file}${finding.line !== undefined ? `:${finding.line}${finding.column !== undefined ? `:${finding.column}` : ""}` : ""} ${finding.severity}: ${finding.message}`,
-  );
-  return [...lines, "", `${errors} error(s), ${warnings} warning(s)`].join("\n");
-}

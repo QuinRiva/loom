@@ -68,7 +68,7 @@ const responseSchema = z.object({
   change: changeSchema.optional(),
 }) as z.ZodType<EndpointResponse>;
 
-export const endpointSchema = z.object({
+const endpointSchema = z.object({
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
   path: z.string().trim().min(1).max(500),
   summary: z.string().trim().max(400).optional(),
@@ -86,7 +86,7 @@ export const endpointSchema = z.object({
   responses: z.array(responseSchema).max(40).optional(),
 }) as unknown as z.ZodType<EndpointData>;
 
-export const endpointMdx: BlockMdxConfig<EndpointData> = {
+const endpointMdx: BlockMdxConfig<EndpointData> = {
   tag: "Endpoint",
   childrenField: "description",
   toAttrs: (data) => ({
@@ -145,7 +145,7 @@ function statusPill(status: string): string {
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
 }
 
-export function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointData>) {
+function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointData>) {
   const [open, setOpen] = useState(true);
   const params = data.params ?? [];
   const responses = data.responses ?? [];

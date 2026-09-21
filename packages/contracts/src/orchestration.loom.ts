@@ -90,7 +90,7 @@ const TitleSource = Schema.Literal("manual");
 // root/pre-isolation threads keep today's behaviour.
 export const ThreadIsolation = Schema.Literals(["isolated", "shared", "attached"]);
 export type ThreadIsolation = typeof ThreadIsolation.Type;
-export const DEFAULT_THREAD_ISOLATION: ThreadIsolation = "shared";
+const DEFAULT_THREAD_ISOLATION: ThreadIsolation = "shared";
 
 // Fan-in settlement of an isolated child's branch back into the parent branch
 // (design §3). `none` = not applicable (shared/attached/root, or an isolated
@@ -104,7 +104,7 @@ export const DEFAULT_THREAD_ISOLATION: ThreadIsolation = "shared";
 // over 6 days in production). Projected from `thread.fanin-set` events.
 export const ThreadFanInState = Schema.Literals(["none", "completed", "conflicted", "failed"]);
 export type ThreadFanInState = typeof ThreadFanInState.Type;
-export const DEFAULT_THREAD_FAN_IN_STATE: ThreadFanInState = "none";
+const DEFAULT_THREAD_FAN_IN_STATE: ThreadFanInState = "none";
 // Axis 1 — plan lane (intent; the kanban board). The only "lifecycle" axis,
 // deliberately small. `in_progress` is control-plane-only (set by the
 // dispatcher at kickoff); agents/humans may set the others. `done` is the only
@@ -124,7 +124,7 @@ export const ThreadPlanLane = Schema.Literals([
 export type ThreadPlanLane = typeof ThreadPlanLane.Type;
 // Schema decode-default for root/manual thread creation. Spawns choose `ready`
 // explicitly (staging is the opt-in `planned`) — see the spawn endpoint.
-export const DEFAULT_THREAD_PLAN_LANE: ThreadPlanLane = "planned";
+const DEFAULT_THREAD_PLAN_LANE: ThreadPlanLane = "planned";
 
 // Axis 3 — attention (needs-a-human; the single notification surface). A set of
 // reason-tagged flags that co-exist with any plan lane and bubble up. Only the
@@ -1716,7 +1716,7 @@ export const LoomShellStreamEventMembers = [
 type AssertNever<T extends never> = T;
 
 // The "listed" side for commands.
-export const LOOM_COMMAND_TYPES = [
+const LOOM_COMMAND_TYPES = [
   "goal.create",
   "goal.meta.update",
   "goal.archive",

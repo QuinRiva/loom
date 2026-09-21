@@ -25,7 +25,7 @@ import { ServerConfig } from "../config.ts";
  * plain `<threadId>.md`. The event-sourced `reportPath` pointer tracks the
  * latest either way.
  */
-export const workstreamReportFileName = (threadId: ThreadId, round?: number | null): string =>
+const workstreamReportFileName = (threadId: ThreadId, round?: number | null): string =>
   `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}${round != null ? `.round-${round}` : ""}.md`;
 
 /**

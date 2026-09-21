@@ -44,7 +44,7 @@ export interface TabsData {
   orientation?: TabsOrientation;
 }
 
-export const tabsSchema = z.object({
+const tabsSchema = z.object({
   orientation: z.enum(["horizontal", "vertical"]).optional(),
 }) as unknown as z.ZodType<TabsData>;
 
@@ -53,7 +53,7 @@ export interface TabData {
   label?: string;
 }
 
-export const tabSchema = z.object({
+const tabSchema = z.object({
   label: z.string().max(200).optional(),
 }) as unknown as z.ZodType<TabData>;
 

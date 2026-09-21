@@ -86,12 +86,12 @@ const relationSchema = z.object({
   label: z.string().trim().max(160).optional(),
 }) as z.ZodType<DataModelRelation>;
 
-export const dataModelSchema = z.object({
+const dataModelSchema = z.object({
   entities: z.array(entitySchema).min(1).max(60),
   relations: z.array(relationSchema).max(200).optional(),
 }) as unknown as z.ZodType<DataModelData>;
 
-export const dataModelMdx: BlockMdxConfig<DataModelData> = {
+const dataModelMdx: BlockMdxConfig<DataModelData> = {
   tag: "DataModel",
   toAttrs: (data) => ({
     entities: data.entities,
@@ -190,7 +190,7 @@ function effectiveRelations(data: DataModelData): DataModelRelation[] {
   return inferred;
 }
 
-export function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
+function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
   const entities = data.entities ?? [];
   const relations = useMemo(() => effectiveRelations(data), [data]);
 

@@ -15,7 +15,7 @@ import { cn } from "~/lib/utils";
 import type { ThreadReferenceDraft } from "./threadReference";
 
 /** A thread's accent is the mention hue: both name something already in the app. */
-export const THREAD_CONTEXT_CHIP_TONE_CLASS_NAME = CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.mention;
+const THREAD_CONTEXT_CHIP_TONE_CLASS_NAME = CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.mention;
 
 export function ThreadContextChip(props: { reference: ThreadReferenceDraft }): ReactElement {
   return (

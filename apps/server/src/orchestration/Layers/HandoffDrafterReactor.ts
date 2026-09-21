@@ -31,7 +31,7 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
  * bulletproofs against a settlement trigger sampled before its projection
  * write landed, and recovers drafters stranded by a crash.
  */
-export const HANDOFF_RECONCILIATION_INTERVAL_MS = 60_000;
+const HANDOFF_RECONCILIATION_INTERVAL_MS = 60_000;
 
 /**
  * Generous grace before a drafter whose kickoff never reached a terminal turn
@@ -48,7 +48,7 @@ export const HANDOFF_HUNG_GRACE_MS = 300_000;
  * The stop keeps being re-attempted every pass regardless; this only makes a
  * permanently stuck stop visible rather than silently retried forever.
  */
-export const HANDOFF_STOP_STUCK_GRACE_MS = 300_000;
+const HANDOFF_STOP_STUCK_GRACE_MS = 300_000;
 
 const isTerminalTurnState = (state: string): boolean =>
   state === "completed" || state === "interrupted" || state === "error";

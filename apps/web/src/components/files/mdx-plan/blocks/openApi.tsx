@@ -25,12 +25,12 @@ export interface OpenApiSpecData {
   title?: string;
 }
 
-export const openApiSpecSchema = z.object({
+const openApiSpecSchema = z.object({
   spec: z.string().max(400_000),
   title: z.string().trim().max(200).optional(),
 }) as unknown as z.ZodType<OpenApiSpecData>;
 
-export const openApiMdx: BlockMdxConfig<OpenApiSpecData> = {
+const openApiMdx: BlockMdxConfig<OpenApiSpecData> = {
   tag: "OpenApi",
   toAttrs: (data) => ({ title: data.title, spec: data.spec }),
   fromAttrs: (attrs) =>
@@ -633,7 +633,7 @@ function TagGroup({ group, defaultOpen }: { group: NormalizedTagGroup; defaultOp
   );
 }
 
-export function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
+function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
   const parsed = useMemo(() => parseSpec(data.spec), [data.spec]);
   return (
     <section
