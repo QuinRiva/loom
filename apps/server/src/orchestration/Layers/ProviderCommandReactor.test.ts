@@ -1853,7 +1853,7 @@ describe("ProviderCommandReactor", () => {
   it("does not interpret intent/goal for a goal-less handoff-drafter root", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.create",
         commandId: CommandId.make("cmd-drafter-create"),
@@ -1872,7 +1872,7 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       }),
     );
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-drafter-turn"),
@@ -4596,7 +4596,7 @@ describe("ProviderCommandReactor", () => {
             createdAt: now,
           }),
         ),
-        Effect.runPromise,
+        harness.runEffect,
       );
 
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
@@ -4618,7 +4618,7 @@ describe("ProviderCommandReactor", () => {
     // With the previous random id this opened a second turn and delivered the
     // human's message twice.
     const events = Array.from(
-      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+      await harness.runEffect(Stream.runCollect(harness.engine.readEvents(0))),
     );
     const settlement = events.find(
       (event) =>
@@ -4746,7 +4746,7 @@ describe("ProviderCommandReactor", () => {
             createdAt: now,
           }),
         ),
-        Effect.runPromise,
+        harness.runEffect,
       );
 
     // Exactly one fallback turn, and it happened only after the release.
@@ -4789,7 +4789,7 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine
         .dispatch({
           type: "thread.activity.append",

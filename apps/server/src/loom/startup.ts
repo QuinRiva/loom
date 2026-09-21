@@ -8,7 +8,7 @@
  *
  * @module loom/startup
  */
-import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -77,44 +77,7 @@ const hasLiveProviderSession = (
 const startupReconcileCommandId = (threadId: ThreadId, marker: string) =>
   CommandId.make(`server:startup-session-reconcile:${threadId}:${marker}`);
 
-// Restart turn-continuation (Option 1, best-effort). The id is keyed on a random
-// per-boot uuid — NOT a deterministic cross-restart receipt id — so a resume
-// attempt lost to a crash is retried on the next boot rather than being
-// permanently receipt-deduped, and it is disjoint from every dispatcher-rail id
-// namespace so a rail can never cross-dedup it.
-const startupContinueCommandId = (threadId: ThreadId, bootId: string) =>
-  CommandId.make(`server:startup-turn-continue:${threadId}:${bootId}`);
-
 const CONTROL_PLANE_MARKER = "[T3 Workstream control plane — automated notice, not from the user]";
-
-// The control-notice injected into a thread whose turn was interrupted by a
-// redeploy. A fresh turn-start resumes the persisted provider session with full
-// prior context, so the agent picks up where it left off.
-//
-// `queuedSteering` is the other half of a real data-loss bug: the reset below
-// wipes the session's queued messages, which for an interrupted thread are
-// HUMAN messages that were queued against a turn that will never resume. They
-// are already in the row being reset, so they are folded into the resume message
-// rather than discarded — "we no longer lose your replies" should not carry an
-// asterisk about restarts.
-const buildRestartContinueMessage = (queuedSteering: ReadonlyArray<string> = []): string =>
-  [
-    CONTROL_PLANE_MARKER,
-    "",
-    "The server was redeployed while your turn was in progress, so the turn was interrupted. This is an automated recovery notice, not a message from the user.",
-    ...(queuedSteering.length > 0
-      ? [
-          "",
-          queuedSteering.length === 1
-            ? "The user sent this message while the turn was in flight; it was never delivered, so it is included here. Treat it as their message to you:"
-            : "The user sent these messages while the turn was in flight; they were never delivered, so they are included here. Treat them as their messages to you:",
-          "",
-          ...queuedSteering.map((message) => `- ${message}`),
-        ]
-      : []),
-    "",
-    "Resume from where you left off and finish the work. If you had already completed it, proceed to your normal completion step (e.g. workstream_submit).",
-  ].join("\n");
 
 export const reconcileStartupStaleSessionState = Effect.gen(function* () {
   const providerService = yield* ProviderService;
@@ -306,16 +269,6 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
     // idle status (`ready`/`stopped`/`error`) is already consistent.
     if (!session || (session.status !== "running" && session.activeTurnId === null)) continue;
 
-    // A genuinely interrupted turn (a provider turn had actually started) vs. a
-    // merely stuck-running session (activeTurnId null — the 914c1e1d4 "deaf
-    // orchestrator" case). Only the former is resumed; both are reset.
-    const wasInterrupted = session.activeTurnId !== null;
-    // Captured before the reset wipes them; folded into the resume message below
-    // rather than discarded.
-    const wipedSteering = session.queuedMessages.steering.filter(
-      (message) => message.trim().length > 0,
-    );
-
     yield* orchestrationEngine.dispatch({
       type: "thread.session.set",
       commandId: startupReconcileCommandId(
@@ -335,61 +288,10 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
     });
     reconciledSessions += 1;
 
-    // Resume the interrupted turn (Option 1). Excluded (reset only, never
-    // resumed):
-    //  - threads parked on a pending approval, or already flagged for attention
-    //    — a turn-start clears that flag (the decider clears stored attention on
-    //    any non-terminal turn-start). A thread parked on a QUESTION is no longer
-    //    excluded: the scan above settled it, so continuation is correct;
-    //  - archived / soft-deleted / cancelled threads — reviving hidden or
-    //    explicitly abandoned work is wrong. `done` IS resumed (interrupted
-    //    follow-up turns are legitimate).
-    // `requireIdle` is the double-start guard: the reset above made the thread
-    // idle, so this lands; if any other startup producer (a child-delta wake,
-    // gate traversal, or liveness nudge) resumed the thread first, this defers
-    // harmlessly. Per-thread error isolation: a deferral/failure is logged and
-    // never aborts reconciliation of the remaining threads. Provider-session
-    // recovery (and its failure fallback) is owned by ProviderCommandReactor.
-    const resumable =
-      wasInterrupted &&
-      isRecoveryResumable({
-        attentionCount: thread.attention.length,
-        parkedOnHuman: parkedThreadIds.has(thread.id),
-        archived: Boolean(thread.archivedAt),
-        deleted: Boolean(thread.deletedAt),
-        cancelled: thread.planLane === "cancelled",
-      });
-    if (resumable) {
-      const messageId = MessageId.make(yield* crypto.randomUUIDv4);
-      const accepted = yield* orchestrationEngine
-        .dispatch({
-          type: "thread.turn.start",
-          commandId: startupContinueCommandId(thread.id, bootId),
-          threadId: thread.id,
-          message: {
-            messageId,
-            role: "user",
-            origin: "control_notice",
-            text: buildRestartContinueMessage(wipedSteering),
-            attachments: [],
-          },
-          titleSeed: thread.title,
-          runtimeMode: thread.runtimeMode,
-          interactionMode: thread.interactionMode,
-          requireIdle: true,
-          createdAt: now,
-        })
-        .pipe(
-          Effect.as(true),
-          Effect.catchCause((cause) =>
-            Effect.logDebug("startup turn-continue deferred or failed", {
-              threadId: thread.id,
-              cause: Cause.pretty(cause),
-            }).pipe(Effect.as(false)),
-          ),
-        );
-      if (accepted) continuationAttempts += 1;
-    }
+    // Resuming the interrupted turn is upstream's concern now: its
+    // `provider-sessions.reconcile` phase (#9167) runs first and continues any
+    // thread whose provider session can be resumed. What is left here is the
+    // reset of sessions upstream declined to continue.
   }
 
   if (
