@@ -1300,15 +1300,14 @@ function createTerminalSpawnEnv(
         key === "CODEX_HOME" || key === "CLAUDE_CONFIG_DIR" ? expandHomePath(value) : value;
     }
   }
-  // loom: strip AppImage runtime env leakage (issue #1699), then resolve the
-  // terminal's own worktree binaries (e.g. `vp`) before anything inherited from
-  // the server's PATH, which may point at a different checkout.
-  return withLocalNodeModulesBin(stripAppImageRuntimeEnv(spawnEnv), cwd, platform);
   // Both PTY backends feed truecolor-capable terminal clients.
   if (spawnEnv.COLORTERM === undefined || spawnEnv.COLORTERM === "") {
     spawnEnv.COLORTERM = "truecolor";
   }
-  return stripAppImageRuntimeEnv(spawnEnv);
+  // loom: strip AppImage runtime env leakage (issue #1699), then resolve the
+  // terminal's own worktree binaries (e.g. `vp`) before anything inherited from
+  // the server's PATH, which may point at a different checkout.
+  return withLocalNodeModulesBin(stripAppImageRuntimeEnv(spawnEnv), cwd, platform);
 }
 
 function normalizedRuntimeEnv(
@@ -2472,8 +2471,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
 
   const hasRunningSessions = readManagerState.pipe(
-    Effect.map((state) =>
-      [...state.sessions.values()].some((session) => session.status === "running"),
+    Effect.map(
+      (state) =>
+        // loom: nobody is watching terminal output, so the per-interval `ps`
+        // sweep is pure cost — gate it on a live listener as well as a running
+        // session. Process registration still happens as soon as one attaches.
+        terminalEventListeners.size > 0 &&
+        [...state.sessions.values()].some((session) => session.status === "running"),
     ),
   );
 

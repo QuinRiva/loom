@@ -592,7 +592,9 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           }),
         ]),
       }).pipe(Effect.flip);
-      expect(questionStillOpen._tag).toBe("OrchestrationCommandInvariantError");
+      // loom: upstream's settle path raises its own typed blocker rather than the
+      // generic invariant error; the guarantee (the settle is refused) is the same.
+      expect(questionStillOpen._tag).toBe("OrchestrationThreadSettleBlockedError");
 
       // …and terminal-wins: a resolution clears it permanently, even when a
       // duplicate `requested` row for the same id follows it.

@@ -146,7 +146,8 @@ it.layer(NodeServices.layer)("user input dismiss decider", (it) => {
       }).pipe(Effect.flip);
       expect(result).toMatchObject({
         _tag: "OrchestrationCommandInvariantError",
-        detail: "User-input request 'question-1' on thread 'thread-1' is not open; it was already settled.",
+        detail:
+          "User-input request 'question-1' on thread 'thread-1' is not open; it was already settled.",
       });
     }),
   );

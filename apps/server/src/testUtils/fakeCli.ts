@@ -65,9 +65,11 @@ export function writeFakeCli(options: FakeCliOptions): string {
   NodeFS.writeFileSync(
     launcherPath,
     // loom: tests deliberately narrow PATH to the fake CLI directory; use the running Node binary.
-    ["#!/bin/sh", `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(stubPath)} "$@"`, ""].join(
-      "\n",
-    ),
+    [
+      "#!/bin/sh",
+      `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(stubPath)} "$@"`,
+      "",
+    ].join("\n"),
     "utf8",
   );
   NodeFS.chmodSync(launcherPath, 0o755);
