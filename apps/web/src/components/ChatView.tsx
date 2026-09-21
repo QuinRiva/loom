@@ -81,9 +81,11 @@ import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
+// loom: upstream's own derivation owns open questions (plan d10) — it is the
+// only one that reads the `dismissible` passthrough pi sets on its questions.
+import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import {
   derivePendingApprovals,
-  derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
@@ -1354,12 +1356,6 @@ function ChatViewContent(props: ChatViewProps) {
   const [dismissingUserInputRequestIds, setDismissingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
-  // Requests this client settled by sending a plain message. The server resolves
-  // them `superseded`; until that resolution lands the card says so rather than
-  // silently vanishing.
-  const [supersededUserInputRequestIds, setSupersededUserInputRequestIds] = useState<
-    ApprovalRequestId[]
-  >([]);
   // loom: interim (slice 4) \u2014 upstream's per-request answer + wizard state.
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
@@ -2109,7 +2105,8 @@ function ChatViewContent(props: ChatViewProps) {
     [threadActivities],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
+    // loom: approvals keep the fork's derivation (d10 scopes this to questions).
+    () => derivePendingRequests(threadActivities).userInputs,
     [threadActivities],
   );
   // The oldest open request is the one being answered; the card shows the rest as
@@ -4627,13 +4624,15 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    // A plain send while a question is open is NOT an answer submission: the
-    // server settles the question as `superseded` and delivers the message as the
-    // response. The old early return here hijacked Enter into the question's
-    // submit (S4) — a different action behind the same key, with the user's draft
-    // undelivered. Sending is never blocked or warned about; blocking it would be
-    // the takeover in another guise.
-    const supersedingRequestIds = pendingUserInputs.map((pending) => pending.requestId);
+    // loom: interim (slice 4) — upstream's pending-question branch, copied from
+    // ChatView.tsx at c14f6015bf. The panel's Next / "Submit answers" buttons
+    // submit the composer form, so a send while a question is open is the
+    // answer wizard advancing, never a plain message. (Loom's supersede-on-send
+    // rule belonged to the deleted question card and is gone with it.)
+    if (activePendingProgress) {
+      onAdvanceActivePendingUserInput();
+      return;
+    }
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) return;
     const {
@@ -5035,13 +5034,6 @@ function ChatViewContent(props: ChatViewProps) {
       } else {
         turnStartSucceeded = true;
       }
-    }
-
-    if (turnStartSucceeded && supersedingRequestIds.length > 0) {
-      setSupersededUserInputRequestIds((existing) => [
-        ...existing,
-        ...supersedingRequestIds.filter((requestId) => !existing.includes(requestId)),
-      ]);
     }
 
     if (failure !== null) {

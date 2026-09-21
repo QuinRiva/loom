@@ -2018,6 +2018,12 @@ function normalizePersistedDraftsByThreadId(
     const previewAnnotations = Array.isArray(draftCandidate.previewAnnotations)
       ? draftCandidate.previewAnnotations.filter(isPreviewAnnotationPayload)
       : [];
+    // loom: `#` mentions are rebuilt here like every other record kind. This
+    // normaliser runs on every rehydrate, so a kind it drops is a kind that
+    // does not survive a reload.
+    const threadReferences = Array.isArray(draftCandidate.threadReferences)
+      ? draftCandidate.threadReferences.filter(isThreadReferenceDraft)
+      : [];
     const legacyElements =
       "elementContexts" in draftValue && Array.isArray(draftValue.elementContexts)
         ? draftValue.elementContexts
@@ -2137,6 +2143,7 @@ function normalizePersistedDraftsByThreadId(
       previewAnnotations.length === 0 &&
       reviewComments.length === 0 &&
       previewAnnotations.length === 0 &&
+      threadReferences.length === 0 && // loom:
       !hasModelData &&
       !runtimeMode &&
       !interactionMode
@@ -2163,6 +2170,7 @@ function normalizePersistedDraftsByThreadId(
       ...(previewAnnotations.length > 0 ? { previewAnnotations } : {}),
       ...(reviewComments.length > 0 ? { reviewComments } : {}),
       ...(previewAnnotations.length > 0 ? { previewAnnotations } : {}),
+      ...(threadReferences.length > 0 ? { threadReferences } : {}), // loom:
       ...(hasModelData
         ? {
             modelSelectionByProvider: compactModelSelectionByProvider(modelSelectionByProvider),
@@ -2185,7 +2193,8 @@ function persistedComposerDraftHasUserContent(draft: PersistedComposerThreadDraf
     (draft.files?.length ?? 0) > 0 ||
     (draft.terminalContexts?.length ?? 0) > 0 ||
     (draft.previewAnnotations?.length ?? 0) > 0 ||
-    (draft.reviewComments?.length ?? 0) > 0
+    (draft.reviewComments?.length ?? 0) > 0 ||
+    (draft.threadReferences?.length ?? 0) > 0 // loom:
   );
 }
 
