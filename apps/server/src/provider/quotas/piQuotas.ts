@@ -33,7 +33,6 @@ const SECONDARY_WINDOW_MINS = 7 * 24 * 60;
 /** Normalised per-provider usage the poller folds into a snapshot. */
 export interface ProviderUsage {
   readonly windows: ReadonlyArray<AccountUsageWindow>;
-  readonly planType: string | null;
   /** Codex's explicit account-wide exhaustion flag; absent when unreported. */
   readonly limitReached?: boolean;
 }
@@ -148,7 +147,6 @@ export const fetchAnthropicUsage = Effect.fn("quotas.anthropic")(function* (
             anthropicWindow(data.five_hour, "primary", PRIMARY_WINDOW_MINS),
             anthropicWindow(data.seven_day, "secondary", SECONDARY_WINDOW_MINS),
           ].filter((window): window is AccountUsageWindow => window !== null),
-    planType: null,
   } satisfies ProviderUsage;
 });
 
@@ -167,7 +165,6 @@ const CodexRateLimit = Schema.Struct({
   secondary_window: Schema.optional(Schema.NullOr(CodexWindow)),
 });
 const CodexUsageResponse = Schema.Struct({
-  plan_type: Schema.optional(Schema.NullOr(Schema.String)),
   rate_limit: Schema.optional(Schema.NullOr(CodexRateLimit)),
 });
 
@@ -222,7 +219,6 @@ export const fetchCodexUsage = Effect.fn("quotas.codex")(function* (
       codexWindow(rateLimit?.primary_window, "primary", PRIMARY_WINDOW_MINS),
       codexWindow(rateLimit?.secondary_window, "secondary", SECONDARY_WINDOW_MINS),
     ].filter((window): window is AccountUsageWindow => window !== null),
-    planType: data.plan_type ?? null,
     ...(rateLimit?.limit_reached === true ? { limitReached: true } : {}),
   } satisfies ProviderUsage;
 });

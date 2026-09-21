@@ -32,7 +32,6 @@ const snapshot = (
   providerName: "claudeAgent",
   providerInstanceId: null,
   windows,
-  planType: null,
   observedAt: "2026-07-06T12:00:00.000Z",
   ...extra,
 });

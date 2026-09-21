@@ -47,12 +47,9 @@ export interface AccountUsageSnapshot {
   /** Distinguishes pooled accounts within a single instance; absent ⇒ sole account. */
   readonly accountLabel?: string;
   readonly windows: ReadonlyArray<AccountUsageWindow>;
-  readonly planType: string | null;
   readonly observedAt: string;
   /** Explicit provider exhaustion flag (Codex `limit_reached`), account-wide. */
   readonly limitReached?: boolean;
-  /** Ledger backend provider ids this account's meter covers (pooled routers). */
-  readonly meteredProviderIds?: ReadonlyArray<string>;
 }
 
 type RoutingIdentity = Pick<AccountUsageSnapshot, "providerInstanceId" | "providerName">;
@@ -72,8 +69,7 @@ const windowMergeKey = (window: AccountUsageWindow): string =>
 /**
  * Merge one incoming snapshot into the per-account store. Provider updates are
  * sparse rolling reports (Codex documents this; Claude reports one window per
- * event), so windows merge by kind+scope and known plan metadata is never
- * cleared by an update that omits it.
+ * event), so windows merge by kind+scope.
  */
 export const mergeAccountUsage = (
   store: ReadonlyMap<string, AccountUsageSnapshot>,
@@ -88,7 +84,6 @@ export const mergeAccountUsage = (
   next.set(accountUsageStorageKey(incoming), {
     ...incoming,
     windows: Array.from(byKey.values()),
-    planType: incoming.planType ?? existing?.planType ?? null,
   });
   return next;
 };

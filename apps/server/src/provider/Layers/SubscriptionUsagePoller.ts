@@ -17,6 +17,8 @@ import {
   type ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 
+import { encodeUsageWindowId } from "@t3tools/shared/usageWindowId";
+
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { AccountUsageWindow } from "../accountUsage.loom.ts";
 import { ProviderHealthRegistry } from "../Services/ProviderHealthRegistry.ts";
@@ -99,16 +101,22 @@ const PiAuthSchema = Schema.Struct({
   ),
 });
 
-/** Upstream's window ids/labels for one account's windows, namespaced by account. */
-const toLimitsWindows = (
-  accountKey: string,
+/**
+ * One account's windows in upstream's shape. Upstream merges an instance's
+ * windows by id and several accounts (global + pooled) feed one pi instance,
+ * so the id carries the account — see `@t3tools/shared/usageWindowId`.
+ */
+export const toLimitsWindows = (
+  account: { readonly accountKey: string; readonly accountLabel?: string },
   accountName: string,
   windows: ReadonlyArray<AccountUsageWindow>,
 ): ReadonlyArray<ServerProviderUsageWindow> =>
   windows.map((window) => ({
-    // Several accounts feed one pi instance, so the id carries the account (and
-    // the model carve-out) to keep upstream's merge-by-id from colliding.
-    id: `${accountKey}:${window.kind}${window.scope ? `:${window.scope.displayName}` : ""}`,
+    id: encodeUsageWindowId({
+      ...account,
+      kind: window.kind,
+      ...(window.scope ? { scope: window.scope.displayName } : {}),
+    }),
     kind: window.kind === "primary" ? ("session" as const) : ("weekly" as const),
     label: `${accountName}${window.scope ? ` ${window.scope.displayName}` : ""} ${
       window.kind === "primary" ? "5-hour" : "weekly"
@@ -173,7 +181,6 @@ const make = Effect.gen(function* () {
       readonly providerName: string;
       readonly providerInstanceId: ProviderInstanceId | null;
       readonly accountLabel?: string;
-      readonly meteredProviderIds?: ReadonlyArray<string>;
     },
     usage: ProviderUsage,
   ) => {
@@ -188,7 +195,6 @@ const make = Effect.gen(function* () {
               yield* health.applyUsage({
                 ...attribution,
                 windows: usage.windows,
-                planType: usage.planType,
                 observedAt,
                 // Explicit provider exhaustion flag (Codex `limit_reached`) so the
                 // health registry can mark account-wide even if the window percent
@@ -200,18 +206,26 @@ const make = Effect.gen(function* () {
               // adapter's event — the poller is pi's feeder for the Limits page.
               const limits = {
                 windows: toLimitsWindows(
-                  accountKey,
+                  {
+                    accountKey,
+                    ...(attribution.accountLabel ? { accountLabel: attribution.accountLabel } : {}),
+                  },
                   attribution.accountLabel ??
                     ACCOUNT_DISPLAY_NAMES[attribution.providerName] ??
                     attribution.providerName,
                   usage.windows,
                 ),
               };
-              for (const instanceId of yield* limitsTargets(attribution.providerInstanceId)) {
+              const targets = yield* limitsTargets(attribution.providerInstanceId);
+              for (const instanceId of targets) {
                 const instance = yield* instanceRegistry.getInstance(instanceId);
                 if (instance)
                   yield* instance.snapshot.applyUsageLimits({ ...limits, checkedAt: observedAt });
               }
+              yield* Effect.logDebug(`subscription-usage poller: ${label} limits published`, {
+                instances: targets,
+                ids: limits.windows.map((w) => w.id),
+              });
             }),
           ),
           Effect.andThen(
@@ -274,7 +288,6 @@ const make = Effect.gen(function* () {
           providerName: driver,
           providerInstanceId: instanceId,
           accountLabel: label,
-          ...(source.providerIds?.length ? { meteredProviderIds: source.providerIds } : {}),
         },
         yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
       );

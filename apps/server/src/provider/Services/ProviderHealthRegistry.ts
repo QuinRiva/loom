@@ -152,7 +152,6 @@ export const aggregateAccountsBestRemaining = (
       providerName: freshest.providerName,
       providerInstanceId: freshest.providerInstanceId,
       windows: Array.from(bestByWindow.values()),
-      planType: freshest.planType,
       observedAt: freshest.observedAt,
       ...(group.every((s) => s.limitReached === true) ? { limitReached: true } : {}),
     } satisfies AccountUsageSnapshot;

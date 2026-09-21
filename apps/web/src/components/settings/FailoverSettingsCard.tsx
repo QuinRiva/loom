@@ -15,6 +15,7 @@ import {
   failoverNamespaceLabel,
   failoverNamespaceOf,
 } from "@t3tools/shared/providerFailover";
+import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { primaryServerProvidersAtom } from "../../state/server";
@@ -56,13 +57,14 @@ const ACCOUNT_EXHAUSTED_PERCENT = 100;
 /**
  * Per-subscription-account health for the failover card, read off the usage
  * limits the subscription poller publishes on each provider instance (the same
- * data upstream's Usage → Limits page shows). The poller namespaces a window's
- * id by its account key — `claudeAgent:primary`, `codex:secondary` — which is
- * exactly the key `pausedAccounts` and the server's exhaustion marks use, so
- * one instance pooling several subscriptions still lists one row per account.
- * The server health registry stays the routing authority; this is a best-effort
- * settings display. Paused accounts with no live usage still surface so they
- * can be unpaused.
+ * data upstream's Usage → Limits page shows). The poller's window ids carry the
+ * account (`@t3tools/shared/usageWindowId`); rows key by the account's routing
+ * key — exactly what `pausedAccounts` and the server's exhaustion marks use —
+ * so an instance pooling several subscriptions folds them into one row, the
+ * way routing treats them. Windows an adapter emitted natively do not decode
+ * and are skipped. The server health registry stays the routing authority;
+ * this is a best-effort settings display. Paused accounts with no live usage
+ * still surface so they can be unpaused.
  */
 export function deriveFailoverAccounts(
   providers: ReadonlyArray<ServerProvider>,
@@ -72,7 +74,8 @@ export function deriveFailoverAccounts(
   const rows = new Map<string, FailoverAccountRow>();
   for (const provider of providers) {
     for (const window of provider.usageLimits?.windows ?? []) {
-      const key = window.id.split(":")[0] ?? provider.instanceId;
+      const key = decodeUsageWindowId(window.id)?.accountKey;
+      if (key === undefined) continue;
       const exhausted = window.usedPercent >= ACCOUNT_EXHAUSTED_PERCENT;
       const existing = rows.get(key);
       const resetsAt =

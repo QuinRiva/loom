@@ -985,7 +985,6 @@ describe("headroomBucketFor", () => {
       providerName: key,
       providerInstanceId: null,
       windows: windows.map((w) => ({ windowDurationMins: null, ...w })),
-      planType: null,
       observedAt,
       ...extra,
     }) as AccountUsageSnapshot;
@@ -1108,7 +1107,6 @@ describe("headroomBucketFor", () => {
             windows: [
               { kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null },
             ],
-            planType: null,
             observedAt: "2026-01-01T00:04:30.000Z",
           },
           {
@@ -1118,7 +1116,6 @@ describe("headroomBucketFor", () => {
             windows: [
               { kind: "primary", usedPercent: 20, resetsAt: null, windowDurationMins: null },
             ],
-            planType: null,
             observedAt: "2026-01-01T00:04:30.000Z",
           },
         ] as unknown as ReadonlyArray<AccountUsageSnapshot>,
@@ -1156,7 +1153,6 @@ describe("headroomBucketFor", () => {
         providerInstanceId: "pooled",
         accountLabel: label,
         windows: [{ kind: "primary", usedPercent: 10, resetsAt: null, windowDurationMins: null }],
-        planType: null,
         observedAt: "2026-01-01T00:04:30.000Z",
         limitReached,
       }) as unknown as AccountUsageSnapshot;
@@ -1329,7 +1325,6 @@ describe("resolveShapeSelection", () => {
             windows: [
               { kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null },
             ],
-            planType: null,
             observedAt: "2026-01-01T00:04:30.000Z",
           },
         ] as unknown as ReadonlyArray<AccountUsageSnapshot>,
@@ -1366,7 +1361,6 @@ describe("resolveShapeSelection", () => {
         providerName: key,
         providerInstanceId: null,
         windows: [{ kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null }],
-        planType: null,
         observedAt: "2026-01-01T00:04:30.000Z",
       }) as AccountUsageSnapshot;
     const result = resolveShapeSelection({
