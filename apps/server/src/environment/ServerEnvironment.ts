@@ -218,9 +218,7 @@ export const make = Effect.gen(function* () {
       repositoryIdentity: true,
       connectionProbe: true,
       attachmentUploads: true,
-      // loom: pi-first fork — attachment bytes sent with a question answer are
-      // dropped before the adapter today, so the clients must not offer it.
-      questionAttachments: false,
+      questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
       pullRequests: true,
       inlineMessageContext: true,
