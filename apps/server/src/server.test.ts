@@ -8865,7 +8865,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         yield* buildAppUnderTest({
           layers: {
             orchestrationEngine: {
-              streamDomainEvents: Stream.fromPubSub(liveEvents),
+              // loom: the thread path attaches EAGERLY via subscribeDomainEvents
+              // (closing its own connect-gap), so stub that rather than the lazy
+              // streamDomainEvents value it no longer reads.
+              subscribeDomainEvents: Effect.map(PubSub.subscribe(liveEvents), (subscription) =>
+                Stream.fromSubscription(subscription),
+              ),
               latestSequence: Effect.succeed(3),
               getThreadReplayStats: () =>
                 Effect.succeed({ eventCount: 2, payloadBytes: 200, hasCreateEvent: false }),
