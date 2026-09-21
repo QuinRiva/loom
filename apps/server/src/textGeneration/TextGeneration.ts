@@ -76,6 +76,9 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+// loom: generic structured-generation input — the fork's one JSON-in/JSON-out
+// text-generation seam (used by the first-turn goal derivation), instead of a
+// bespoke per-operation method on every driver.
 export interface StructuredGenerationInput<S extends Schema.Top> {
   /** Fully-built prompt instructing the model to return JSON for `outputSchema`. */
   readonly prompt: string;
@@ -85,6 +88,7 @@ export interface StructuredGenerationInput<S extends Schema.Top> {
   readonly modelSelection: ModelSelection;
 }
 
+// loom: promise-shaped view of the service, kept for the fork's driver plumbing.
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -127,6 +131,7 @@ export class TextGeneration extends Context.Service<
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
 
+    // loom: generic structured generation (see StructuredGenerationInput).
     /**
      * Generic structured generation: run a caller-built prompt through the
      * driver's JSON runner and decode the response against `outputSchema`.
@@ -139,6 +144,7 @@ export class TextGeneration extends Context.Service<
   }
 >()("t3/textGeneration/TextGeneration") {}
 
+// loom: name the fork's drivers (PiDriver) and tests still import.
 /** @deprecated Use `TextGeneration["Service"]`. */
 export type TextGenerationShape = TextGeneration["Service"];
 
@@ -147,6 +153,7 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
+  // loom: structured-generation op.
   | "generateStructured";
 
 const resolveInstance = (
@@ -200,6 +207,7 @@ export const make = Effect.gen(function* () {
           }),
         ),
       ),
+    // loom: structured-generation passthrough.
     generateStructured: (input) =>
       resolveInstance(registry, "generateStructured", input.modelSelection.instanceId).pipe(
         Effect.flatMap((textGeneration) => textGeneration.generateStructured(input)),
