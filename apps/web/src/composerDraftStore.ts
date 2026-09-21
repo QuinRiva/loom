@@ -544,7 +544,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -564,7 +563,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -604,7 +602,6 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
-      projectDefaultStartFromOrigin?: boolean | null; // loom: // loom:
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
@@ -1611,7 +1608,6 @@ function createDraftThreadState(
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
-    projectDefaultStartFromOrigin?: boolean | null; // loom:
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
     environmentSelection?: "auto" | "manual";
@@ -1641,8 +1637,7 @@ function createDraftThreadState(
   const nextStartFromOrigin =
     options?.startFromOrigin === undefined
       ? projectChanged
-        ? // loom: a fresh project bucket seeds from that project's default.
-          (options?.projectDefaultStartFromOrigin ?? false)
+        ? false
         : (existingThread?.startFromOrigin ?? false)
       : options.startFromOrigin;
   // loom: a fresh project bucket drops the goal.
@@ -2946,11 +2941,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextStartFromOrigin =
               options.startFromOrigin === undefined
                 ? projectChanged
-                  ? // loom: a fresh project bucket seeds from that project's default.
-                    (options.projectDefaultStartFromOrigin ?? false)
+                  ? false
                   : existing.startFromOrigin
                 : options.startFromOrigin;
-            // loom: a fresh project bucket drops the goal.
             // loom: a fresh project bucket drops the goal.
             const nextGoalId =
               options.goalId === undefined

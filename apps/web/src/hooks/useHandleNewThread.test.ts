@@ -127,6 +127,8 @@ vi.mock("../composerDraftStore", () => {
   });
   return {
     composerDraftHasUserContent: () => false,
+    // loom: goal sessions use a separate draft bucket per logical project.
+    goalDraftBucketKey: (logicalProjectKey: string) => `${logicalProjectKey}::goal-draft`,
     markPromotedDraftThreadByRef: vi.fn(),
     useComposerDraftStore,
   };
@@ -258,6 +260,34 @@ describe.each([
       }
     },
   );
+
+  // loom: a goal session lands in the goal's own draft bucket and carries the
+  // goal, whether it mints a fresh draft or reuses the bucket's existing one.
+  it("opens a goal session in the goal's draft bucket carrying the goal", async () => {
+    testState.reset(draft);
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+
+    const opened = await useNewThreadHandler()(projectRef, {
+      goalId: "goal-clicked" as never,
+      envMode: "worktree",
+    });
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project::goal-draft",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({ goalId: "goal-clicked" }),
+    );
+    if (draft) {
+      expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
+        draft.draftId,
+        expect.objectContaining({ goalId: "goal-clicked" }),
+      );
+    }
+  });
 
   it.each([true, false])(
     "preserves an explicit start-from-origin choice of %s",
