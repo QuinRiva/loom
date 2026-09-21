@@ -621,6 +621,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff whitespace changes"]
         : []),
       ...(settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? ["Diff layout"] : []),
+      ...loomAutoOpenChangedLabels(settings), // loom:
       ...(settings.proactivePanelsEnabled !== DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled
         ? ["Proactive panels"]
         : []),
@@ -2939,6 +2940,9 @@ export function GeneralSettingsPanel() {
             </>
           }
         />
+
+        {/* loom: durable one-shot auto-open toggles (plan W1). */}
+        <LoomAutoOpenSettingsRows settings={settings} updateSettings={updateSettings} />
       </SettingsSection>
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">
