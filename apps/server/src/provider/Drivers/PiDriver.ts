@@ -53,11 +53,8 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { workstreamBaseUrlFromMcpEndpoint } from "../../mcp/toolPaths.ts";
-import type {
-  BranchNameGenerationInput,
-  ThreadTitleGenerationInput,
-  TextGenerationShape,
-} from "../../textGeneration/TextGeneration.ts";
+import type { TextGenerationShape } from "../../textGeneration/TextGeneration.ts";
+import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -96,7 +93,6 @@ import {
   type PiRpcStdoutEvent,
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
-import { generatePiStructured } from "../Layers/Pi/OneShotCompletion.ts";
 import {
   sanitisePiSessionForThread,
   slugRoutesToAnthropic,
@@ -273,21 +269,6 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
 function detailFromCause(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message ? cause.message : fallback;
-}
-
-function titleFromText(text: string): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
-  return cleaned.length > 0 ? cleaned.slice(0, 80) : "Untitled session";
-}
-
-function branchFromText(text: string): string {
-  const slug = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-+$/g, "");
-  return slug || "pi-session";
 }
 
 function appendSystemPrompts(...prompts: ReadonlyArray<string | undefined>): string | undefined {
@@ -2906,30 +2887,15 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         adapter.stopAll().pipe(Effect.ignore, Effect.andThen(Queue.shutdown(events))),
       );
       const platform = yield* HostProcessPlatform;
-      const deterministicTitle = (message: string) =>
-        Effect.succeed({ title: titleFromText(message) });
-      // Real one-shot pi completion so the default `pi` text-generation instance
-      // produces genuine structured output (titles/goals). The legacy per-op
-      // stubs stay deterministic; only `generateStructured` is wired for real.
-      const generateStructured: TextGenerationShape["generateStructured"] = (genInput) =>
-        generatePiStructured({
-          binaryPath: effectiveConfig.binaryPath,
-          platform,
-          env: process.env,
-          cwd: serverConfig.cwd,
-          prompt: genInput.prompt,
-          outputSchema: genInput.outputSchema,
-          modelSelection: genInput.modelSelection,
-        });
-      const textGeneration: TextGenerationShape = {
-        generateCommitMessage: () => Effect.succeed({ subject: "Update from pi", body: "" }),
-        generatePrContent: () => Effect.succeed({ title: "Update from pi", body: "" }),
-        generateBranchName: (textInput: BranchNameGenerationInput) =>
-          Effect.succeed({ branch: branchFromText(textInput.message) }),
-        generateThreadTitle: (textInput: ThreadTitleGenerationInput) =>
-          deterministicTitle(textInput.message),
-        generateStructured,
-      };
+      // Every text-generation operation is a real one-shot pi completion (see
+      // PiTextGeneration): upstream's title, commit-message, change-request and
+      // branch-name flows have to reach a model on a pi-only registry.
+      const textGeneration: TextGenerationShape = makePiTextGeneration({
+        binaryPath: effectiveConfig.binaryPath,
+        platform,
+        env: process.env,
+        cwd: serverConfig.cwd,
+      });
       const snapshot = yield* makeManagedServerProvider<PiSettings>({
         resolveMaintenance: () => Effect.succeed(PI_MAINTENANCE_CAPABILITIES),
         getSettings: Effect.succeed(effectiveConfig),
