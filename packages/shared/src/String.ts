@@ -1,3 +1,4 @@
+// loom: slugs for goal/plan identifiers.
 /**
  * Convert arbitrary text into a URL/identifier-safe slug: lowercase, with runs
  * of non-alphanumeric characters collapsed to single hyphens and leading/

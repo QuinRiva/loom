@@ -37,3 +37,7 @@ apps/web/src/lib/contextWindow.ts
 apps/web/src/lib/elementContext.ts
 apps/web/src/lib/terminalContext.ts
 packages/shared/src/composerTrigger.test.ts
+
+# package.json files: JSON has no comment syntax. Their fork delta is the
+# subpath-export map for loom-only modules, which the module names already name.
+packages/shared/package.json
