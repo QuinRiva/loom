@@ -31,7 +31,6 @@ const makeProjectShell = (workspaceRoot: string): OrchestrationProjectShell => (
   scripts: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  defaultStartFromOrigin: null, // loom: per-project start-from-origin default
 });
 
 /** Only `getShellSnapshot` is exercised; `Layer.mock` defects on anything else. */
