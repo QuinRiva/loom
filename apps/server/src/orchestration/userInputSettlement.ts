@@ -30,6 +30,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderUserInputAnswers,
   type ThreadId,
+  type UserInputAttachments,
   type UserInputResolvedOutcome,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -115,6 +116,14 @@ export interface UserInputResolution {
   readonly answers?: ProviderUserInputAnswers;
   /** The plain message that superseded the question, when `outcome` is `superseded`. */
   readonly message?: string;
+  /**
+   * Files the human attached to their answer. Carried on the durable row (not a
+   * second `user-input.answer-submitted` row as upstream emits) because the
+   * settle-first design already writes exactly one terminal row per request, and
+   * the client fold reads the attachments off whichever row in the group has
+   * them. The projection's attachment GC treats this as the retaining reference.
+   */
+  readonly attachmentsByQuestionId?: UserInputAttachments;
 }
 
 /**
@@ -140,6 +149,9 @@ export const userInputResolvedActivity = (input: {
     ...(input.resolution.requestId !== undefined ? { requestId: input.resolution.requestId } : {}),
     answers: input.resolution.answers ?? {},
     outcome: input.resolution.outcome,
+    ...(input.resolution.attachmentsByQuestionId !== undefined
+      ? { attachmentsByQuestionId: input.resolution.attachmentsByQuestionId }
+      : {}),
     ...(input.resolution.message !== undefined ? { message: input.resolution.message } : {}),
   },
   turnId: input.turnId,

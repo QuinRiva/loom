@@ -2220,13 +2220,14 @@ it.layer(
             threadId,
             activity: {
               id: EventId.make(`answer-${id}`),
-              kind: "user-input.answer-submitted",
+              kind: "user-input.resolved",
               tone: "info",
               summary: "Answer with file",
               createdAt: now,
               turnId: TurnId.make(turnId),
               payload: {
                 requestId: ApprovalRequestId.make(id),
+                outcome: "answered",
                 answers: { q: "See file" },
                 attachmentsByQuestionId: {
                   q: [
