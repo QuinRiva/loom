@@ -78,6 +78,20 @@ describe("ClientSettings rich text composer", () => {
   });
 });
 
+// loom: deployctl/systemd writes no continuation marker, so empty settings must resume turns.
+describe("ServerSettings restart continuation", () => {
+  it("defaults restart continuation on for loom deploys", () => {
+    expect(decodeServerSettings({}).continueThreadsAfterServerUpdate).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.continueThreadsAfterServerUpdate).toBe(true);
+  });
+
+  it("preserves an explicit opt-out through patches and persistence", () => {
+    const optOut = { continueThreadsAfterServerUpdate: false };
+    expect(decodeServerSettingsPatch(optOut)).toEqual(optOut);
+    expect(decodeServerSettings(optOut).continueThreadsAfterServerUpdate).toBe(false);
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");
