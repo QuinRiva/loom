@@ -9575,7 +9575,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("replays the thread when the catch-up gap sits within the cap", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("thread-within-cap");
-      const readLimits: number[] = [];
+      const readLimits: Array<number | undefined> = [];
       let snapshotServed = false;
 
       yield* buildAppUnderTest({
