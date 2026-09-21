@@ -104,6 +104,9 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
       `,
   });
 
+  // loom: upstream's list-all-projects query is deliberately absent — never
+  // exposed on the repository shape, and its SELECT omitted `auto_pull` and
+  // `project_icon`, so a first caller would have hit a decode failure.
   const deleteProjectionProjectRow = SqlSchema.void({
     Request: DeleteProjectionProjectInput,
     execute: ({ projectId }) =>

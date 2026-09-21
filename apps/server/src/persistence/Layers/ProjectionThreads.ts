@@ -312,6 +312,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
+  // loom: upstream's list-threads-by-project query is deliberately absent. It
+  // was never exposed on the repository shape and its SELECT had drifted
+  // narrower than its Result schema, so any first caller would have hit a
+  // decode failure rather than rows. Re-add it with a full column list if a
+  // caller ever needs it.
   const deleteProjectionThreadRow = SqlSchema.void({
     Request: DeleteProjectionThreadInput,
     execute: ({ threadId }) =>

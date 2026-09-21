@@ -4948,6 +4948,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery imported sources", (it) => {
       `import:${source.providerInstanceId}:${source.providerSessionId}`,
     );
     const timestamp = "2026-03-02T00:00:00.000Z";
+    // loom: one workspace root per project — migration 1018 makes the active
+    // root unique, so a shared literal silently no-ops this INSERT OR IGNORE
+    // and the project row every one of these queries joins through is missing.
     yield* sql`
       INSERT OR IGNORE INTO projection_projects (
         project_id, title, workspace_root, scripts_json, created_at, updated_at
