@@ -1418,23 +1418,6 @@ export const ThreadDependenciesSetPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-// Legacy, like `ThreadStatusSetPayload`: the fork's retired "ephemeral
-// reasoning v2" wrote these rows. Nothing emits or projects them any more —
-// reasoning is upstream's durable `role: "reasoning"` message rows — but the
-// shape stays decodable so a replay across historical `orchestration_events`
-// cannot fail. Deleted together with the `reasoning_text` column drop; see
-// docs/upstream-sync/26-reasoning-rehome.md.
-export const ThreadMessageReasoningPayload = Schema.Struct({
-  threadId: ThreadId,
-  messageId: MessageId,
-  turnId: Schema.NullOr(TurnId),
-  reasoningText: Schema.String,
-  reasoningStreaming: Schema.Boolean,
-  reasoningMs: Schema.optional(Schema.Number),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
 export const ThreadTurnStartFailedPayload = Schema.Struct({
   threadId: ThreadId,
   detail: Schema.String,
@@ -1615,11 +1598,6 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
-      type: Schema.Literal("thread.message-reasoning"),
-      payload: ThreadMessageReasoningPayload,
-    }),
-    Schema.Struct({
-      ...base,
       type: Schema.Literal("thread.turn-start-failed"),
       payload: ThreadTurnStartFailedPayload,
     }),
@@ -1695,7 +1673,6 @@ export const LOOM_EVENT_TYPES = [
   "thread.attention-cleared",
   "thread.status-set",
   "thread.dependencies-set",
-  "thread.message-reasoning",
   "thread.turn-start-failed",
   "thread.consult-recorded",
   "thread.peer-message-recorded",

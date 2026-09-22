@@ -16,9 +16,9 @@ import * as Effect from "effect/Effect";
  * to (`ORDER BY created_at, message_id`). The id is derived from the assistant
  * id, so `INSERT OR IGNORE` makes a re-run a no-op.
  *
- * `reasoning_text` itself is deliberately left in place for now: the column and
- * its two siblings are dropped once the copy has been verified against real
- * data. See `docs/upstream-sync/26-reasoning-rehome.md`.
+ * `reasoning_text` itself is left in place here; the column and its two
+ * siblings are dropped by migration 1041, once the copy had been verified
+ * against real data. See `docs/upstream-sync/26-reasoning-rehome.md`.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
