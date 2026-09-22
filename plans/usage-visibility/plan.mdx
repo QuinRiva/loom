@@ -1,0 +1,563 @@
+---
+manager_sessions:
+  - id: 6ed75cd4-9d30-48f9-9831-c84df633061c
+    role: plan
+    authored_at: 2026-09-22T12:59:17.206Z
+---
+
+# Usage visibility: an always-on subscription meter, and real Pi numbers on the Usage page
+
+## Objective
+
+Two things are missing from the deployed loom. There is no surface anywhere that tells you where you stand against your subscription windows without navigating to a page — the sidebar quota pill went with PR #210. And upstream's Usage page reports zero cost and zero tokens for every window, because its scanner reads Codex/Claude/Grok CLI transcripts and this fork drives Pi.
+
+This plan delivers:
+
+- **A subscription meter** in the sidebar footer, mirrored into the chat header when the sidebar is closed, fed from the limits data upstream's Limits page already receives — no new server work, no new wire traffic.
+- **A Pi arm for upstream's usage scanner**, so Cost, Tokens, the hourly burn chart and the model breakdown carry real numbers.
+- **A correction to what loom polls**, because the quota it currently reports is not the quota your Claude turns actually consume.
+
+Done means: the meter is visible in the chat view in both sidebar states and matches Usage → Limits; the Cost and Tokens tabs show non-zero totals with a per-model breakdown for a real window; and Limits reports the accounts that actually serve your traffic.
+
+<Screen
+  surface="panel"
+  caption="Sidebar footer with the meter — the plan's headline surface"
+  html={'<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:16px;gap:10px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong>Threads</strong><div style="flex:1"></div><span class="wf-pill">New</span></div><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-height:0"><div class="wf-box" style="padding:8px 10px"><strong>Usage visibility</strong><br /><small>planner · running</small></div><div class="wf-box" style="padding:8px 10px"><small>Bridge deploy-safety</small><br /><small class="wf-muted">done</small></div><div class="wf-box" style="padding:8px 10px"><small>Cadence pull 7</small><br /><small class="wf-muted">done</small></div></div><div style="border-top:1.4px solid var(--wf-line);padding-top:10px;display:flex;flex-direction:column;gap:8px"><div style="display:flex;gap:16px"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>Claude</small><small>62%</small></div><div style="height:4px;border-radius:999px;background:var(--wf-line)"><div style="height:4px;width:62%;border-radius:999px;background:var(--wf-accent)"></div></div></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>Codex</small><small>12%</small></div><div style="height:4px;border-radius:999px;background:var(--wf-line)"><div style="height:4px;width:12%;border-radius:999px;background:var(--wf-accent)"></div></div></div></div><div style="display:flex;align-items:center;gap:10px;white-space:nowrap"><span class="wf-btn">Settings</span><span class="wf-btn">PRs</span><span class="wf-btn">Usage</span><div style="flex:1"></div><span class="wf-pill">v0.0.43</span></div></div></div>'}
+/>
+
+One bar per subscription, used-percent fill, sitting above the utility row that is already there. Hovering a bar opens the per-account breakdown; clicking it opens `/usage`.
+
+## What is actually true today
+
+Three findings from the deployed cockpit's state and the code. They change the shape of the work, so they come before the design.
+
+### The Cost and Tokens tabs are not broken — they have nothing to read
+
+`apps/server/src/usage/UsageService.ts` scans provider CLI transcript directories: `~/.claude/projects`, `~/.codex/sessions`, `~/.grok/sessions`. On the cockpit host, **zero `.jsonl` files under either Claude's or Codex's directory have been modified in the last 40 days**. There is no Pi arm. So every window, on every tab except Limits, is structurally empty — not intermittently, always.
+
+### The numbers that appeared and vanished were the Limits tab
+
+`apps/web/src/components/usage/usagePagePreferences.ts` defaults the page to `metric: "limits"`, `windowDays: 30`, and persists the last choice. Opening `/usage` therefore lands on Limits, which renders real gauges. The screenshot in the report shows Tokens selected and Past 24h — two deliberate moves away from that default. The numbers did not disappear; the tab changed to one that has never had data.
+
+<Callout tone="info">
+  There is no client-side defect to fix here. The only code change that makes those tabs honest is the
+  Pi arm in part B — and it is worth noting that the same page already contains an hourly burn chart
+  and a per-model breakdown table, so feeding it Pi data restores two of the four things the retired
+  dashboard lost, at no extra cost.
+</Callout>
+
+### Loom is polling the wrong Claude quota
+
+This is the finding that matters most, and it is a configuration gap rather than a bug.
+
+`apps/server/src/provider/Layers/SubscriptionUsagePoller.ts` reads `~/.pi/agent/auth.json` and polls exactly the two tokens it finds there: one `anthropic` and one `openai-codex`. Meanwhile `projection_usage_ledger` records `provider_id = "cliproxy"` for every Claude turn — Claude traffic is routed through the CLIProxyAPI hub at `~/cli-proxy`, which has **five** Claude accounts in its `auths/` directory. The hub's quota is the quota being spent; the `anthropic` token in `auth.json` is a different path to the same vendor and need not be the account that served the turn.
+
+Upstream already ships a reader for exactly this hub — `apps/server/src/usage/UsageLimitSources.ts` plus `apps/server/src/usage/cliproxyApi.ts`, driven by the `usageLimitSources` server setting. That setting is **empty** on the deployed instance. Registering the hub is a settings change with no code behind it, and it is what turns "my usage across my subs" from one opaque number into five real accounts with emails, plans, reset times and reset credits.
+
+<Callout tone="risk">
+  Building the meter before registering the hub would ship a confident-looking indicator over the
+  wrong account. Slice 0 is therefore a prerequisite, not an optional extra.
+</Callout>
+
+<Diagram
+  caption="Where limits data comes from, and where it is going"
+  nodes={[
+    { id: "auth", label: "~/.pi/agent/auth.json", x: 8, y: 20 },
+    { id: "hub", label: "CLIProxyAPI · 5 accounts", x: 8, y: 72 },
+    { id: "poller", label: "SubscriptionUsagePoller", x: 34, y: 20 },
+    { id: "sources", label: "UsageLimitSources", x: 34, y: 72 },
+    { id: "config", label: "serverConfig over WS", x: 58, y: 46 },
+    { id: "atom", label: "presentationsAtom", x: 76, y: 46 },
+    { id: "limits", label: "Usage / Limits page", x: 94, y: 20 },
+    { id: "meter", label: "Subscription meter", x: 94, y: 72 }
+  ]}
+  edges={[
+    { from: "auth", to: "poller" },
+    { from: "hub", to: "sources", label: "slice 0" },
+    { from: "poller", to: "config", label: "providers[].usageLimits" },
+    { from: "sources", to: "config", label: "usageLimitSources[]" },
+    { from: "config", to: "atom" },
+    { from: "atom", to: "limits" },
+    { from: "atom", to: "meter", label: "new" }
+  ]}
+/>
+
+## Part A — the subscription meter
+
+### The decision
+
+<Callout tone="decision">
+  Build a new component over upstream's pooled-limits selectors, keeping the retired pill's visual
+  form. Do not restore `SidebarAccountUsagePill.tsx`.
+</Callout>
+
+The retired pill cannot simply be re-pointed. It read `useAccountUsage()`, which fed off the `accountUsage` WS stream and `AccountUsageRegistry` — both deleted in PR #210 along with their contracts and client atoms. Restoring it means restoring roughly 215 lines of server registry plus a stream, which is the duplication the ruling removed.
+
+Upstream's replacement data is strictly better and is already in the client. `collectLimitAccounts` and `collectLimitPools` in `packages/shared/src/usageLimits.ts` turn the presentations map into accounts grouped by driver, each window pooled across accounts with a remaining percentage, a pace verdict against the elapsed clock, and the reset ladder in landing order. The meter reads `environmentPresentations.presentationsAtom`, which every client already subscribes to for provider state, so the indicator adds **no RPC, no subscription and no payload**.
+
+<Columns>
+  <Column label="Restore the retired pill">
+    <Checklist
+      items={[
+        { id: "r1", label: "Familiar, known-good component", checked: true },
+        { id: "r2", label: "Needs AccountUsageRegistry restored (~215 lines)" },
+        { id: "r3", label: "Needs the accountUsage WS stream and contracts restored" },
+        { id: "r4", label: "Re-creates the duplication PR #210 removed" },
+        { id: "r5", label: "Cannot show pooled accounts or the reset ladder" }
+      ]}
+    />
+  </Column>
+  <Column label="New component over upstream data">
+    <Checklist
+      items={[
+        { id: "n1", label: "Same visual form and tone thresholds", checked: true },
+        { id: "n2", label: "Zero server change, zero new wire traffic", checked: true },
+        { id: "n3", label: "Pools accounts; shows pace and reset ladder", checked: true },
+        { id: "n4", label: "About 160 lines, all in apps/web/src/loom/", checked: true },
+        { id: "n5", label: "One shared derive module, unit-testable" }
+      ]}
+    />
+  </Column>
+</Columns>
+
+### What carries over from the retired pill
+
+The behaviour is ported deliberately rather than approximated. From `packages/client-runtime/src/accountUsage.ts` at `57ab3ec07a^`:
+
+<Table
+  columns={["Behaviour", "Retired pill", "Meter"]}
+  rows={[
+    ["Bar fill", "used percent", "used percent — unchanged"],
+    ["Warning tone", "at 80 percent", "at 80 percent — unchanged"],
+    ["Destructive tone", "at 100 percent", "at 100 percent — unchanged"],
+    ["Tone driver", "loudest window, not the headline one", "unchanged"],
+    ["Headline window", "account-wide session window; scoped carve-outs excluded", "unchanged"],
+    ["Countdown", "30-second interval re-render", "unchanged"],
+    ["Click target", "/usage", "unchanged"],
+    ["Grouping", "one bar per account snapshot", "one bar per pooled driver"],
+    ["Popover contents", "window list", "window list plus per-account segments and the reset ladder"]
+  ]}
+/>
+
+The grouping change is forced by the data and is the point of the exercise: with five pooled Claude accounts, one bar per account is five near-identical bars that answer nothing. The bar is the pool; the accounts live in the popover.
+
+### The pooled popover
+
+<Screen
+  surface="popover"
+  caption="Hovering the Claude bar"
+  html={'<div style="display:flex;flex-direction:column;gap:10px;box-sizing:border-box;padding:14px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><strong>Claude · 5 accounts</strong><small class="wf-muted">Max 20x</small></div><div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>5-hour pool</small><small>62% used · on pace</small></div><div style="height:6px;border-radius:999px;background:var(--wf-line)"><div style="height:6px;width:62%;border-radius:999px;background:var(--wf-accent)"></div></div><div style="display:flex;gap:4px"><span class="wf-chip">CU 91%</span><span class="wf-chip">C3 74%</span><span class="wf-chip">C4 58%</span><span class="wf-chip">CA 46%</span><span class="wf-chip">JU 41%</span></div></div><div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>Weekly pool</small><small>38% used</small></div><div style="height:6px;border-radius:999px;background:var(--wf-line)"><div style="height:6px;width:38%;border-radius:999px;background:var(--wf-accent)"></div></div></div><div style="border-top:1.4px solid var(--wf-line);padding-top:8px;display:flex;flex-direction:column;gap:2px"><small class="wf-muted">Next reset carl3 in 1h 12m · restores 18% of pool</small><small class="wf-muted">Then caaarl in 2h 40m · restores 12% of pool</small></div></div>'}
+/>
+
+Two-letter account chips, coloured by a stable hue per address, are upstream's own `AccountChip` treatment in `apps/web/src/components/usage/UsageLimitsPooled.tsx`; the meter reuses it rather than inventing a second way to name an account without printing the email.
+
+### Where it is mounted
+
+The meter goes in `SidebarChromeFooter` in `apps/web/src/components/sidebar/SidebarChrome.tsx`, above the existing utility row — the retired pill's home. The sidebar is `collapsible="offcanvas"` (`apps/web/src/components/AppSidebarLayout.tsx:245`), so closing it takes the footer to zero width and the meter with it. A compact chip therefore mirrors into the chat header's action row in `apps/web/src/components/chat/ChatHeader.tsx`, rendered only while the sidebar is closed, at the existing loom seam beside `ForkThreadButton`.
+
+<Columns>
+  <Column label="Before">
+    <Screen
+      surface="panel"
+      html={'<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:16px;gap:10px"><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-height:0"><div class="wf-box" style="padding:8px 10px"><strong>Usage visibility</strong><br /><small class="wf-muted">planner</small></div><div class="wf-box" style="padding:8px 10px"><small>Bridge deploy-safety</small><br /><small class="wf-muted">done</small></div><div class="wf-box" style="padding:8px 10px"><small>Cadence pull 7</small><br /><small class="wf-muted">done</small></div></div><div style="border-top:1.4px solid var(--wf-line);padding-top:10px;display:flex;align-items:center;gap:10px;white-space:nowrap"><span class="wf-btn">Settings</span><span class="wf-btn">PRs</span><span class="wf-btn">Usage</span><div style="flex:1"></div><span class="wf-pill">v0.0.43</span></div></div>'}
+    />
+  </Column>
+  <Column label="After">
+    <Screen
+      surface="panel"
+      html={'<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:16px;gap:10px"><div style="flex:1;display:flex;flex-direction:column;gap:6px;min-height:0"><div class="wf-box" style="padding:8px 10px"><strong>Usage visibility</strong><br /><small class="wf-muted">planner</small></div><div class="wf-box" style="padding:8px 10px"><small>Bridge deploy-safety</small><br /><small class="wf-muted">done</small></div><div class="wf-box" style="padding:8px 10px"><small>Cadence pull 7</small><br /><small class="wf-muted">done</small></div></div><div style="border-top:1.4px solid var(--wf-line);padding-top:10px;display:flex;flex-direction:column;gap:8px"><div style="display:flex;gap:16px"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>Claude</small><small>62%</small></div><div style="height:4px;border-radius:999px;background:var(--wf-line)"><div style="height:4px;width:62%;border-radius:999px;background:var(--wf-accent)"></div></div></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:baseline;justify-content:space-between;white-space:nowrap"><small>Codex</small><small>12%</small></div><div style="height:4px;border-radius:999px;background:var(--wf-line)"><div style="height:4px;width:12%;border-radius:999px;background:var(--wf-accent)"></div></div></div></div><div style="display:flex;align-items:center;gap:10px;white-space:nowrap"><span class="wf-btn">Settings</span><span class="wf-btn">PRs</span><span class="wf-btn">Usage</span><div style="flex:1"></div><span class="wf-pill">v0.0.43</span></div></div></div>'}
+    />
+  </Column>
+</Columns>
+
+### The one piece of real logic
+
+Loom's own accounts arrive differently from hub accounts, and the meter has to reconcile them. `SubscriptionUsagePoller` folds every account it polls into the **single** `pi` provider instance's `usageLimits.windows`, encoding the account into each window id. `packages/shared/src/usageWindowId.ts` owns that format and already has the decoder.
+
+<AnnotatedCode
+  filename="packages/shared/src/usageWindowId.ts"
+  language="ts"
+  code={"export const decodeUsageWindowId = (id: string): UsageWindowIdentity | null => {\n  const [accountKey, accountLabel, kind, ...scope] = id.split(\":\");\n  if (!accountKey || (kind !== \"primary\" && kind !== \"secondary\")) return null;\n  return {\n    accountKey,\n    ...(accountLabel ? { accountLabel } : {}),\n    kind,\n    ...(scope.length > 0 ? { scope: scope.join(\":\") } : {}),\n  };\n};\n"}
+  annotations={[
+    {
+      lines: "2",
+      label: "the account is in the id",
+      note: "loom runs one pi instance over several subscriptions, so the window id carries the account or pooled accounts overwrite each other"
+    },
+    {
+      lines: "3",
+      note: "a window an adapter emitted natively does not decode, and is not an account row"
+    },
+    {
+      lines: "7",
+      label: "scoped carve-outs",
+      note: "a per-model weekly carve-out; it belongs in the popover, never in the headline number"
+    }
+  ]}
+/>
+
+The new derive module splits the pi instance's flat window list back into one synthetic `LimitAccount` per decoded account, then hands them to upstream's `collectLimitPools` unchanged. All the pooling, pace and reset-ladder maths is reused; loom adds only the split.
+
+<Code
+  filename="apps/web/src/loom/subscriptionMeter.ts"
+  language="ts"
+  code={"/** loom: split the pi instance's account-encoded windows into pooled accounts. */\nexport function meterPools(\n  presentations: LimitPresentations,\n  now: number,\n): readonly LimitPool[] {\n  const accounts = [\n    ...collectLimitAccounts(presentations).flatMap(splitLoomPiAccount),\n  ];\n  return collectLimitPools(accounts, now);\n}\n"}
+/>
+
+<Callout tone="info">
+  The same split would also improve the Limits page, which today renders loom's pi card as a flat run
+  of roughly seventeen window rows rather than pooled accounts. That is a separate, larger change and
+  is offered as an open question rather than folded in here.
+</Callout>
+
+## Part B — a Pi arm for the usage scanner
+
+### The options
+
+Upstream's aggregation takes `UsageRecord` values — provider, timestamp, model, session id, four token buckets, an optional provider-reported cost, and a dedupe key — and folds them into `(day, hour, provider, model)` buckets. Anything that can produce `UsageRecord` values slots in. There are two credible producers.
+
+<Table
+  columns={["", "Read the ledger", "Read pi transcripts"]}
+  rows={[
+    ["Source", "projection_usage_ledger, migrations 1014/1019", "~/.pi/agent/sessions/**/*.jsonl"],
+    ["Coverage", "turns driven through loom only", "every pi run, including terminal sessions"],
+    ["Rows available now", "171,410 rows, 2026-07-03 to today, $32,010 total", "6,822 files"],
+    ["Token buckets", "input, cacheRead, cacheWrite, output", "same, plus reasoning"],
+    ["Cost", "provider-authoritative per message", "provider-authoritative per message"],
+    ["Thread attribution", "yes, thread_id and turn_id", "yes, the thread id is in the filename"],
+    ["Cost of a 30-day window", "one indexed SQL query", "0.48 GB scanned cold, then incremental"],
+    ["Cost of a 90-day window", "one indexed SQL query", "3.34 GB cold, then incremental"],
+    ["Fits upstream's scan cache", "no — the module is file-oriented throughout", "yes, unchanged"],
+    ["New server dependency", "a SQL read lane inside UsageService", "none"],
+    ["Shape of the change", "a new non-transcript source path", "a fourth transcript arm beside Grok"]
+  ]}
+/>
+
+<Callout tone="decision">
+  Read pi transcripts. It is the arm upstream's design is shaped for, it needs no new dependency, and
+  the measured corpus sits inside upstream's own stated performance envelope.
+</Callout>
+
+The performance line is the one that could have gone the other way, so it was measured rather than assumed. Upstream documents a cold 30-day scan of about 1.4 GB landing in two to three seconds. Pi's session corpus is 5.37 GB in total, but the mtime prefilter only opens files inside the window: **0.48 GB for 30 days, 3.34 GB for 90**. The 30-day case is a third of what upstream already considers acceptable, and every subsequent scan re-reads only appended bytes.
+
+Reading the ledger would be defensible, but it buys nothing the transcripts do not already give, misses pi runs outside loom, and pays for it by introducing a database dependency into a module whose every abstraction — the per-file parse cache, the byte-resume position, the device/inode source fingerprint — assumes files. The ledger keeps being written and stays available for the thread-attribution work in part D.
+
+### Where it attaches
+
+Four small edits, each mirroring what the Grok arm already does.
+
+<TabsBlock>
+  <Tab label="Directory">
+    <AnnotatedCode
+      filename="apps/server/src/usage/UsageService.ts"
+      language="ts"
+      code={"for (const driver of [\"claudeAgent\", \"codex\", \"grok\"] as const) {\n  const instances: Array<Pick<ProviderInstanceConfig, \"config\" | \"environment\">> =\n    Object.values(settings.providerInstances).filter((instance) => instance.driver === driver);\n  if (!Object.hasOwn(settings.providerInstances, driver)) {\n    instances.push({ config: settings.providers[driver] });\n  }\n"}
+      annotations={[
+        {
+          lines: "1",
+          label: "the slot-in point",
+          note: "a loom-marked arm after this loop pushes one entry for pi, using the sessions root piSessionFiles.ts already resolves"
+        },
+        {
+          lines: "2-5",
+          note: "pi needs none of this instance plumbing: the sessions root is fixed at ~/.pi/agent/sessions"
+        }
+      ]}
+    />
+  </Tab>
+  <Tab label="Parser">
+    <Code
+      filename="apps/server/src/usage/usageTranscripts.ts"
+      language="ts"
+      code={"/** loom: one line of a pi session transcript. */\nexport function parsePiLine(line: string, sessionId: string): UsageRecord | null {\n  // type: \"message\", message.role: \"assistant\", message.usage present\n  // totals  <- usage.input / cacheRead / cacheWrite / output / reasoning\n  // cost    <- usage.cost.total, provider-authoritative\n  // model   <- message.model, e.g. \"claude-opus-5\"\n  // dedupe  <- entry id, timestamp and total tokens together\n}\n"}
+    />
+  </Tab>
+  <Tab label="Session id">
+    <Code
+      filename="apps/server/src/provider/piSessionFiles.ts"
+      language="ts"
+      code={"/** Default pi sessions root: `~/.pi/agent/sessions`. */\nconst defaultSessionsRoot = (): string =>\n  NodePath.join(NodeOS.homedir(), \".pi\", \"agent\", \"sessions\");\n"}
+    />
+  </Tab>
+</TabsBlock>
+
+Three details decide whether the numbers come out right.
+
+**The session id comes from the filename, not the line.** Pi writes `<timestamp>_<sessionId>.jsonl`, and the session id is the loom thread id with non-id characters replaced. Only the header line carries the id, so deriving it from the basename keeps the parser stateless — which means the byte-resume path needs no reducer state, unlike Codex.
+
+**The dedupe key is composite.** Pi entry ids are eight hex characters. Across 171,000 records a bare id would collide by birthday alone and silently drop real usage. Keying on id, timestamp and total tokens together makes a false match require all three to agree, while a genuine forked-session copy still matches on all three. If pi forks turn out not to copy entry ids at all, the key simply never fires and nothing is lost.
+
+**Pi is its own provider kind.** `UsageProviderKind` gains `"pi"` and `USAGE_CONTRACT_VERSION` goes to 6; `USAGE_MERGE_COMPATIBLE_SINCE` stays at 4, for the reason the version-5 note already gives — older environments' Claude and Codex buckets remain valid. The alternative, mapping pi's own `provider` field onto the existing kinds, would need no contract change but would report a cliproxy-routed Claude turn as "Claude Code" and risk double-counting against a real Claude transcript. Honest attribution is worth the literal.
+
+<DataModel
+  entities={[
+    {
+      id: "kind",
+      name: "UsageProviderKind",
+      change: "modified",
+      fields: [
+        { name: "claude", type: "literal" },
+        { name: "codex", type: "literal" },
+        { name: "grok", type: "literal" },
+        { name: "pi", type: "literal", change: "added", note: "loom-marked" }
+      ]
+    },
+    {
+      id: "record",
+      name: "UsageRecord",
+      fields: [
+        { name: "provider", type: "UsageProviderKind", note: "pi" },
+        { name: "timestampMs", type: "number", note: "entry timestamp" },
+        { name: "model", type: "string", note: "message.model" },
+        { name: "sessionId", type: "string", note: "from the filename" },
+        { name: "totals", type: "UsageTokenTotals" },
+        { name: "reportedCostUsd", type: "number | null", note: "usage.cost.total" },
+        { name: "dedupeKey", type: "string | null", note: "id, timestamp, tokens" }
+      ]
+    }
+  ]}
+  relations={[{ from: "kind", to: "record", kind: "1-n", label: "tags" }]}
+/>
+
+### What the tabs will show, and one honest gap
+
+Cost is provider-reported, so `priceUsage` takes it verbatim and marks the bucket `providerReported` — the rate table is not consulted and cannot be wrong. **Cache savings is the exception**: it needs a rate-table hit on the model name, and pi's names are fork aliases that LiteLLM does not carry, so the figure reads `$0.00` until someone adds an override. The page already ships the surface for that, `UsagePriceOverrides` on the Usage page, so this is a setting rather than a defect. It should be stated in the PR body rather than quietly shipped.
+
+## Part C — the vanished numbers
+
+Diagnosed from code and host state; no defect found. The evidence is in the three findings above: the page defaults to Limits, which works; the Tokens tab has never had a source on this fork; and the transcript directories it does read have been cold for over forty days. A live reproduction is folded into the verification below rather than run now, because the conclusion does not depend on it.
+
+## Part D — the rest of the retired dashboard
+
+<Table
+  columns={["Retired piece", "Status after this plan", "Recommendation"]}
+  rows={[
+    ["5-hour and weekly gauges", "Replaced twice over — Limits page, and now the meter", "Done"],
+    ["Burn chart", "Upstream's hourly and daily chart, populated by part B", "Done, no extra work"],
+    ["Model breakdown table", "Upstream's Breakdown by Model, populated by part B", "Done, no extra work"],
+    ["Top-consuming threads", "No replacement", "Defer"],
+    ["Whole-subtree spend", "No replacement; subtreeCostOf is orphaned", "Out of scope"]
+  ]}
+/>
+
+Two of the four came back for free, which is the argument for doing part B before anything bespoke. Of what remains, **top-consuming threads** is the one worth building later, and it is now cheap from either side: the ledger carries `thread_id` directly, and pi transcripts encode the thread id in the filename. It is deferred here because it needs its own surface decision — a table on the Usage page, or a column in the workstream panel — and this change should not grow one.
+
+**Whole-subtree spend** belongs to the workstream surfaces, not the Usage page; `subtreeCostOf` in `packages/shared/src/workstreamGraph.ts` still exists with no callers, so restoring a roll-up is a small separate change. It is out of scope here.
+
+## Work breakdown
+
+<FileTree
+  title="Slice 1 — the subscription meter (web only)"
+  entries={[
+    {
+      path: "apps/web/src/loom/subscriptionMeter.ts",
+      change: "added",
+      note: "pure derive: split loom's pi windows into accounts, then collectLimitPools"
+    },
+    {
+      path: "apps/web/src/loom/subscriptionMeter.test.ts",
+      change: "added",
+      note: "the split and the tone thresholds; the only part worth a test"
+    },
+    {
+      path: "apps/web/src/loom/SubscriptionMeter.tsx",
+      change: "added",
+      note: "bars plus popover; memoised, 30-second countdown tick"
+    },
+    {
+      path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+      change: "modified",
+      note: "loom: mount above the utility row in SidebarChromeFooter"
+    },
+    {
+      path: "apps/web/src/components/chat/ChatHeader.tsx",
+      change: "modified",
+      note: "loom: compact chip in the action row while the sidebar is closed"
+    }
+  ]}
+/>
+
+<FileTree
+  title="Slice 2 — the Pi usage arm (server, contracts, both clients)"
+  entries={[
+    {
+      path: "packages/contracts/src/usage.ts",
+      change: "modified",
+      note: "loom: add the pi literal, bump USAGE_CONTRACT_VERSION to 6"
+    },
+    {
+      path: "apps/server/src/usage/usageTranscripts.ts",
+      change: "modified",
+      note: "loom: parsePiLine plus its mightCarryUsage gate"
+    },
+    {
+      path: "apps/server/src/usage/usageTranscriptReader.ts",
+      change: "modified",
+      note: "loom: dispatch pi lines, session id from the basename"
+    },
+    {
+      path: "apps/server/src/usage/UsageService.ts",
+      change: "modified",
+      note: "loom: push the pi sessions directory into the scan"
+    },
+    {
+      path: "apps/server/src/provider/piSessionFiles.ts",
+      change: "modified",
+      note: "export the sessions-root resolver instead of keeping it private"
+    },
+    {
+      path: "apps/web/src/components/usage/usageProviders.ts",
+      change: "modified",
+      note: "loom: pi presentation entry, PiAgentIcon; exhaustiveness forces it"
+    },
+    {
+      path: "apps/mobile/src/features/usage/usageProviders.ts",
+      change: "modified",
+      note: "loom: pi label, colour and order entry; same exhaustiveness"
+    }
+  ]}
+/>
+
+Slice 0 precedes both and is not a code change: register the CLIProxyAPI hub in `usageLimitSources` on the deployed instance, with its management key, so Limits reports the five pooled accounts.
+
+Mobile takes the contract entries in slice 2 because `PROVIDER_LABEL` and `useProviderColors` are exhaustive over the union and will not compile otherwise — its Usage route then shows Pi data for free. The meter itself stays web-only for now; mobile has no sidebar footer, and its equivalent surface is a separate design.
+
+## Risks
+
+**Registering the hub may double-report an account.** `collectLimitAccounts` keys native accounts by driver and email; loom's pi instance reports no email, and hub accounts arrive with driver `claudeAgent`. The subscription behind `auth.json` may therefore appear both as a pi window and as a hub account, under different labels. This is visible immediately on the Limits page after slice 0, and is the subject of an open question below.
+
+**The meter re-renders with the presentations atom.** That atom updates on any `serverConfig` change, not just limits. The derive is memoised on the limits slice and the component is wrapped in `memo`, so a provider-status change costs a shallow compare rather than a re-layout. Worth confirming under a profiler while a turn is streaming, since the sidebar is on screen constantly.
+
+**A 90-day cold scan reads 3.34 GB.** One-off, and only if the 90-day window is selected; subsequent scans are incremental. If it proves slow in practice, the retention-window cap is already a constant in `UsageService.ts`.
+
+**Contract version bump.** Environments still on version 5 keep contributing their Claude and Codex buckets through `USAGE_MERGE_COMPATIBLE_SINCE`; they simply report no Pi data. No coordinated upgrade is needed.
+
+## Verification
+
+Gates first: `vp run typecheck` and `vp check` both pass, per this repo's completion rules, and the `pnpm ship` marker sweep is clean for every hunk added to an upstream-owned file.
+
+Then the end-to-end pass, on a dev instance seeded from a copy of the cockpit database — `VACUUM INTO` a snapshot into the worktree's own `.t3/userdata`, never a server against `~/.t3/cockpit/userdata`:
+
+1. Start the dev instance with the dev-verify recipe in `docs/dev-site-testing.md` and open a thread.
+2. **Meter present and correct.** The sidebar footer shows one bar per subscription. Cross-check each percentage against Usage → Limits for the same account: they must agree, because they are the same numbers.
+3. **Meter survives the sidebar.** Collapse the sidebar; the chat-header chip appears with the same figure. Re-open it; the chip goes and the footer meter returns.
+4. **Near-exhaustion state.** Point the dev instance at a hand-edited settings snapshot that reports a window above 80 and another above 100, and confirm the warning and destructive tones, on both the bar and the popover.
+5. **Cost and Tokens carry real numbers.** Open Usage → Tokens, Past 24h. Processed tokens, cached input, uncached input and output are all non-zero; the model breakdown lists the pi models actually used; the hourly chart is populated. Switch to Cost and confirm a plausible total against the ledger for the same window — `select round(sum(cost_usd),2) from projection_usage_ledger where created_at > ...` is an independent second opinion on the same turns.
+6. **The scan stays warm.** Refresh the page and confirm the reported scan duration drops sharply on the second read, proving the parse cache is being hit rather than the corpus re-read.
+7. **The empty case is still honest.** Select a 90-day window on an environment with no pi sessions and confirm the source row reports missing rather than silently reading zero.
+
+<QuestionForm
+  questions={[
+    {
+      id: "hub",
+      title: "Register the CLIProxyAPI hub as a usage-limit source before building the meter?",
+      mode: "single",
+      options: [
+        {
+          id: "yes",
+          label: "Yes — slice 0, settings only, no code",
+          recommended: true,
+          detail:
+            "Without it the meter reports the auth.json Anthropic token, which is not the quota your cliproxy-routed Claude turns consume. Upstream already ships the reader; this is a settings entry and a management key."
+        },
+        {
+          id: "later",
+          label: "Build the meter first, register the hub afterwards",
+          detail: "Ships a confident indicator over the wrong account in the meantime."
+        },
+        {
+          id: "never",
+          label: "Do not register the hub",
+          detail: "Accepts that pooled Claude quota stays invisible to loom."
+        }
+      ]
+    },
+    {
+      id: "double",
+      title: "Once the hub reports your Claude accounts, what should the poller's own Anthropic arm do?",
+      mode: "single",
+      options: [
+        {
+          id: "keep",
+          label: "Keep both and look at the result first",
+          recommended: true,
+          detail:
+            "The overlap may be harmless or may be two genuinely different subscriptions. One look at the Limits page after slice 0 settles it without guessing."
+        },
+        {
+          id: "suppress",
+          label: "Suppress the pi card's Anthropic window when a hub reports the same subscription",
+          detail: "Cleaner, but needs a matching rule loom does not have today."
+        },
+        {
+          id: "stop",
+          label: "Stop polling auth.json for Anthropic entirely",
+          detail: "Simplest, and loses the direct reading if the hub ever goes away."
+        }
+      ]
+    },
+    {
+      id: "source",
+      title: "Which source feeds upstream's Cost and Tokens tabs?",
+      mode: "single",
+      options: [
+        {
+          id: "transcripts",
+          label: "Pi session transcripts",
+          recommended: true,
+          detail:
+            "A fourth transcript arm beside Grok. No new dependency, covers terminal pi runs, carries reasoning tokens, and the measured 30-day corpus is 0.48 GB."
+        },
+        {
+          id: "ledger",
+          label: "The projection_usage_ledger",
+          detail:
+            "One indexed query and exact thread attribution, but a database dependency inside a file-oriented module and blind to pi runs outside loom."
+        },
+        {
+          id: "both",
+          label: "Both, with de-duplication",
+          detail: "Twice the surface for the same numbers; not recommended."
+        }
+      ]
+    },
+    {
+      id: "limitspage",
+      title: "Should the account split also be applied to the Limits page?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Not in this change",
+          recommended: true,
+          detail:
+            "The page works; it is just verbose, showing loom's pi card as roughly seventeen flat window rows. Keep this change to the meter and judge the page once the hub is registered, since that changes what it renders anyway."
+        },
+        {
+          id: "now",
+          label: "Yes, fold it into slice 1",
+          detail: "Makes the page pooled too, at the cost of touching an upstream-owned component."
+        }
+      ]
+    },
+    {
+      id: "threads",
+      title: "Restore the top-consuming-threads view in this change?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Defer to its own change",
+          recommended: true,
+          detail:
+            "Cheap from either source now, but it needs a surface decision — Usage page table or workstream panel column — and this change should not grow one."
+        },
+        {
+          id: "now",
+          label: "Include it as a third slice",
+          detail: "Adds a reader and a table to a change that is otherwise all reuse."
+        }
+      ]
+    }
+  ]}
+/>
