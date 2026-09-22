@@ -380,7 +380,13 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
 const ORPHANED_PROVIDER_SESSION_ERROR =
   "Provider session did not survive a server restart. Send a new message to continue.";
 const SERVER_UPDATE_CONTINUATION_KEY = "continueAfterServerUpdate";
-const SERVER_UPDATE_CONTINUATION_PROMPT = "Continue where you left off.";
+// loom: upstream's terse prompt leaves the resumed agent to infer both the
+// process kill and partial-effect risk. Name them, require a state check, then
+// continue without replaying completed work; fixed copy lets tests pin it.
+const SERVER_UPDATE_CONTINUATION_PROMPT =
+  "The server restarted while your previous turn was running, killing that turn's process mid-execution. Any tool call that was in flight did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.";
+const SERVER_UPDATE_IN_FLIGHT_TOOL_CONTINUATION_PROMPT =
+  "The server restarted while your previous turn was running, killing that turn's process with a tool call in flight. That tool call did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.";
 
 class ProviderSessionContinuationError extends Schema.TaggedError<ProviderSessionContinuationError>()(
   "ProviderSessionContinuationError",
@@ -770,11 +776,28 @@ export const reconcileProviderSessions = Effect.gen(function* () {
               });
             }
             const capabilities = yield* providerService.getCapabilities(providerInstanceId);
+            let prompt = SERVER_UPDATE_CONTINUATION_PROMPT;
+            const interruptedTurnId = session.activeTurnId ?? continuationTurnId;
+            if (capabilities.promptlessTurnContinuation !== true && interruptedTurnId !== null) {
+              const inFlightTool = yield* query
+                .getInFlightToolByThreadId(thread.id, interruptedTurnId)
+                .pipe(
+                  Effect.catch((cause) =>
+                    Effect.logWarning("could not inspect interrupted turn activity", {
+                      threadId: thread.id,
+                      cause,
+                    }).pipe(Effect.as(null)),
+                  ),
+                );
+              if (inFlightTool !== null) {
+                prompt = SERVER_UPDATE_IN_FLIGHT_TOOL_CONTINUATION_PROMPT;
+              }
+            }
             yield* providerService.sendTurn({
               threadId: thread.id,
               ...(capabilities.promptlessTurnContinuation === true
                 ? { continuation: true }
-                : { input: SERVER_UPDATE_CONTINUATION_PROMPT }),
+                : { input: prompt }),
               interactionMode: thread.interactionMode,
             });
           });
