@@ -155,7 +155,7 @@ Everything below is judged against that one property.
       "Bridge deploy fails its own gate",
       "Auto-rollback to the previous bridge release",
       "Same - and if that previous release pre-dates this fix, the next cockpit promote REFUSES at preflight rather than half-repairing the bridge",
-      "ssh; `deployctl deploy bridge master --inline` from the dev checkout",
+      "ssh; `deployctl deploy bridge master --inline` from the dev checkout - never refused by the wiring gate, which is cockpit-only",
     ],
   ]}
 />
@@ -345,10 +345,17 @@ failure on `thread.user-input.respond`, a payload the bridge actually sends.
 
 So the pre-fix release is handled by a **precondition, not a repair**:
 `cmdDeploy`'s existing preflight block (free disk, no in-flight marker) gains one
-more check, and a cockpit promote is **refused before anything is touched** while
-the current bridge release cannot follow `current`. The operator's remedy is one
-command (`deployctl deploy bridge master`), it costs no downtime, and it turns
-what would otherwise be an unenforceable runbook sentence into a mechanical gate.
+more check, and a **cockpit** promote is **refused before anything is touched**
+while the current bridge release cannot follow `current`. The operator's remedy
+is one command (`deployctl deploy bridge master`), it costs no downtime, and it
+turns what would otherwise be an unenforceable runbook sentence into a mechanical
+gate.
+
+The gate carries the **same `cfg.stage2` guard as the rematch**, and for the same
+reason stated the other way round: `cmdDeploy` and `promote()` are both
+target-generic, so an unguarded check would refuse `deploy bridge` — which is
+precisely the remedy, and precisely step 2 of the landing order below. **A bridge
+deploy is never refused by this gate.**
 
 <Callout tone="decision">
   This is deliberately **not** a heal. Healing would mean deployctl running
@@ -368,7 +375,7 @@ there is a harmless no-op that leaves it exactly as it was.
   filename="deploy/deployctl.ts"
   language="ts"
   code={
-    "// loom: a cockpit flip leaves the bridge holding the PREVIOUS release's\n// contracts+effect modules in memory, so it must be restarted. Its links\n// already name the stable `current` path, so nothing needs re-pointing.\nasync function rematchBridge(cfg: DeployConfig): Promise<void> {\n  if (!cfg.stage2) return;\n  const bridgeCfg = loadDeployConfig(\"bridge\");\n  await milestone(`restarting ${bridgeCfg.unit} onto the promoted release`);\n  systemctl(\"restart\", bridgeCfg.unit);\n}\n\n/** Preflight: can the current bridge release follow the cockpit's `current`?\n * A release built before this change resolves contracts from ~/loom and has its\n * own physical effect copy, so it cannot \u2014 and must not be half-repaired. */\nexport function bridgeReleaseFollowsCurrent(bridgeCfg: DeployConfig): boolean {\n  const dir = linkTarget(paths(bridgeCfg).current);\n  if (dir === undefined) return true; // no bridge release yet: nothing to break\n  return (\n    linkTarget(join(dir, \"node_modules\", \"effect\")) !== undefined &&\n    linkTarget(join(dir, \"node_modules\", \"@t3tools\", \"contracts\")) === bridgeCfg.contractsDir\n  );\n}\n"
+    "// loom: a cockpit flip leaves the bridge holding the PREVIOUS release's\n// contracts+effect modules in memory, so it must be restarted. Its links\n// already name the stable `current` path, so nothing needs re-pointing.\nasync function rematchBridge(cfg: DeployConfig): Promise<void> {\n  if (!cfg.stage2) return;\n  const bridgeCfg = loadDeployConfig(\"bridge\");\n  await milestone(`restarting ${bridgeCfg.unit} onto the promoted release`);\n  systemctl(\"restart\", bridgeCfg.unit);\n}\n\n/** Pure, unit-testable: do a bridge release's two links NAME the stable paths\n * derived from the cockpit store? Compared as strings, never realpathed. */\nexport function linksFollowCurrent(\n  contractsLink: string | undefined,\n  effectLink: string | undefined,\n  contractsDir: string,\n): boolean {\n  return contractsLink === contractsDir && effectLink === join(contractsDir, \"node_modules\", \"effect\");\n}\n\n/** Preflight gate. COCKPIT PROMOTES ONLY — the same stage2 rule as\n * rematchBridge. A BRIDGE deploy is never refused: it is the remedy. */\nfunction bridgeWiringOk(cfg: DeployConfig): boolean {\n  if (!cfg.stage2) return true;\n  const bridgeCfg = loadDeployConfig(\"bridge\");\n  const dir = linkTarget(paths(bridgeCfg).current);\n  if (dir === undefined) return true; // no bridge release yet: nothing to break\n  const nm = join(dir, \"node_modules\");\n  return linksFollowCurrent(\n    linkTarget(join(nm, \"@t3tools\", \"contracts\")),\n    linkTarget(join(nm, \"effect\")),\n    bridgeCfg.contractsDir,\n  );\n}\n"
   }
   annotations={[
     {
@@ -381,13 +388,18 @@ there is a harmless no-op that leaves it exactly as it was.
       note: "the restart is the whole rematch; the soak, not stage two, is what proves it keeps decoding",
     },
     {
-      lines: "16",
-      note: "a store with no current bridge release is legitimate (first cutover) and must not block a deploy",
+      lines: "18",
+      label: "string equality, never realpath",
+      note: "the links must NAME the stable current path; resolving them would compare release dirs, which change on every promote, and would wrongly pass a release pinned to one specific release",
     },
     {
-      lines: "18-19",
-      label: "the enforcement point",
-      note: "a real effect directory, or a contracts link that does not name the cockpit current path, means a pre-fix release: refuse rather than half-repair",
+      lines: "23-24",
+      label: "the same guard as rematchBridge",
+      note: "without it the gate refuses `deploy bridge` - including the very command its own refusal message tells the operator to run",
+    },
+    {
+      lines: "27",
+      note: "a store with no current bridge release is legitimate (first cutover) and must not block a deploy",
     },
   ]}
 />
@@ -614,8 +626,13 @@ With that scoping in place the following assertions are possible:
     },
     {
       id: "t5",
-      label: "Pre-fix bridge release (real effect dir): the cockpit promote is REFUSED at preflight, before the unit is stopped",
+      label: "Pre-fix bridge release (links removed): the cockpit promote is REFUSED at preflight, before the unit is stopped",
       note: "and the scratch cockpit's `current` is unchanged afterwards - the whole point of refusing early",
+    },
+    {
+      id: "t9",
+      label: "With that same pre-fix release current, a BRIDGE deploy is NOT refused - it builds and promotes",
+      note: "the step-2 case: the gate must never block its own remedy",
     },
     {
       id: "t6",
@@ -707,14 +724,26 @@ Ordered steps:
 4. **`rematchBridge()`** (restart only) and its two call sites in `promote()` and
    `rollbackTo()`, both immediately after `systemctl("start", cfg.unit)`, with a
    `milestone()` so the Slack deploy thread shows it.
-5. **`bridgeReleaseFollowsCurrent()`** as a pure, unit-testable predicate, called
-   from `cmdDeploy`'s preflight block (so it fails in seconds, before the build)
-   and again at the top of `promote()` as the backstop for `cmdPromote`. The
-   refusal message must name the remedy: `deployctl deploy bridge master`.
+5. **The wiring gate**: a pure `linksFollowCurrent()` helper (string equality
+   against the derived paths — never `realpathSync`, which would compare release
+   dirs that change on every promote) plus a thin `bridgeWiringOk(cfg)` that
+   short-circuits to `true` unless `cfg.stage2`. Call it from `cmdDeploy`'s
+   preflight block (so it fails in seconds, before the build) and again at the
+   top of `promote()` as the backstop for `cmdPromote`. The `stage2` guard is
+   load-bearing, not tidiness: both callers are target-generic, so without it the
+   gate refuses `deploy bridge` — the remedy its own message names. The refusal
+   message must name that remedy: `deployctl deploy bridge master`.
 6. **Self-test re-scoping first, extension second**, then a full local run of
    `scripts/phase3-selftest.sh` (expect `ALL PHASE 3 SELF-TESTS PASSED`). Do not
    add a bridge release to the scratch store until the throwaway unit and healthz
-   names are exported in both places.
+   names are exported in both places. The fake bridge release must then carry
+   **both links, with exactly the target strings the gate compares against**:
+   `node_modules/@t3tools/contracts` → `join(scratchCockpitRoot, "current", "packages", "contracts")`
+   and `node_modules/effect` → that path plus `node_modules/effect`. Otherwise
+   every cockpit-promote assertion is refused at preflight and the suite fails
+   for a reason that has nothing to do with what it is testing. `t5` then makes
+   its pre-fix release by **removing** those links, so the refused case and the
+   happy path differ by exactly one deliberate mutation.
 7. **Runbook section** in `~/loom-releases/RUNBOOK.md`.
 8. **Land it** in the order above, with the human driving steps 2 to 4 from ssh
    (step 2 detached, per the callout).
