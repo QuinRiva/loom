@@ -32,6 +32,13 @@ import { type HandoffReceiptState } from "./handoffReceipts.logic";
  * of the optimistic user bubble a failed normal send leaves behind. It matters
  * most in the failed state, which is also where the non-message grammar must be
  * held most strictly.
+ *
+ * The same row also reports a handoff the thread's own AGENT placed with
+ * `goal_handoff` (`origin: "agent"`, derived from durable shell state in
+ * `agentHandoffRows.ts`). That one is always settled and carries no human
+ * explanation, so it drops the verbatim echo, the copy button and the "not in
+ * context" chip — the agent's tool call WAS in its context — while keeping the
+ * settled grammar and the destination link, which is the whole point of it.
  */
 
 const KICKERS: Record<HandoffReceiptState, string> = {
@@ -62,7 +69,7 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const navigate = useNavigate();
-  const { state, explanation, drafterThreadId, destinations, failureReason } = row.receipt;
+  const { state, origin, explanation, drafterThreadId, destinations, failureReason } = row.receipt;
   const pending = state === "dispatching" || state === "drafting";
   const openThread = (threadId: ThreadId) =>
     void navigate({
@@ -105,11 +112,15 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
               : state === "settled"
                 ? destinations.length > 1
                   ? `Staged as ${destinations.length} goals`
-                  : "Staged as its own goal"
+                  : origin === "agent"
+                    ? "Staged a new goal"
+                    : "Staged as its own goal"
                 : failureReason}
         </span>
         {/* Verbatim and never truncated: this is the recoverable second copy. */}
-        <span className="mt-0.5 block font-medium text-foreground/85">{explanation}</span>
+        {explanation === null ? null : (
+          <span className="mt-0.5 block font-medium text-foreground/85">{explanation}</span>
+        )}
       </span>
 
       {state === "failed" && drafterThreadId !== null ? (
@@ -128,11 +139,13 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
         <span
           className={cn(
             "flex shrink-0 flex-wrap items-start gap-x-3 gap-y-1",
-            // Several links take their own line. The links are `shrink-0` while
-            // the explanation column is flexible, so sharing a line with two of
-            // them collapses the explanation to a few characters per line rather
-            // than wrapping the row — verified live, not theorised.
-            destinations.length > 1 && "basis-full",
+            // The links take their own line whenever anything else on the row
+            // competes for width. They are `shrink-0` while the explanation
+            // column is flexible, so sharing a line collapses the explanation to
+            // a few characters per line rather than wrapping the row — verified
+            // live for two links, and again for ONE link with a long goal title.
+            // An agent row has no explanation, so its single link stays inline.
+            (destinations.length > 1 || explanation !== null) && "basis-full",
           )}
         >
           {destinations.map((destination) => (
@@ -152,23 +165,30 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
         <span className="text-[10.5px] text-muted-foreground/70 tabular-nums">
           {formatShortTimestamp(row.createdAt, ctx.timestampFormat)}
         </span>
-        <MessageCopyButton text={explanation} size="icon-xs" variant="ghost" />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="inline-flex cursor-help items-center gap-1 rounded-sm border border-dashed border-foreground/20 px-1 py-px text-[9.5px] font-semibold uppercase tracking-[0.03em]" />
-            }
-          >
-            <EyeOffIcon className="size-2.5" />
-            Not in context
-          </TooltipTrigger>
-          <TooltipPopup>
-            <p>
-              Presentation only. This is a timeline row, not a message — the handoff never entered
-              this thread's conversation, so the model has not seen it.
-            </p>
-          </TooltipPopup>
-        </Tooltip>
+        {/* The copy affordance and the "not in context" chip belong to the
+            `/handoff` command alone: an agent's own `goal_handoff` call has no
+            human explanation to recover, and the model plainly did see it. */}
+        {explanation === null ? null : (
+          <MessageCopyButton text={explanation} size="icon-xs" variant="ghost" />
+        )}
+        {origin === "agent" ? null : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex cursor-help items-center gap-1 rounded-sm border border-dashed border-foreground/20 px-1 py-px text-[9.5px] font-semibold uppercase tracking-[0.03em]" />
+              }
+            >
+              <EyeOffIcon className="size-2.5" />
+              Not in context
+            </TooltipTrigger>
+            <TooltipPopup>
+              <p>
+                Presentation only. This is a timeline row, not a message — the handoff never entered
+                this thread's conversation, so the model has not seen it.
+              </p>
+            </TooltipPopup>
+          </Tooltip>
+        )}
       </span>
     </div>
   );

@@ -1,5 +1,10 @@
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, HandoffDestination, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  HandoffDestination,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import type { HandoffReceipt } from "./handoffReceiptStore";
 
@@ -50,12 +55,25 @@ export interface HandoffReceiptDestination {
   readonly title: string | null;
 }
 
+/**
+ * What placed the handoff a row reports.
+ *
+ * `command` — the human's `/handoff`: a forked drafter wrote the brief, and none
+ * of it entered this thread's conversation. `agent` — this thread's own agent
+ * calling `goal_handoff` during its turn, which it obviously did see, and which
+ * carries no human explanation. The distinction is what the row renders: the
+ * "not in context" chip and the recoverable verbatim echo belong to `command`
+ * only, and would be a lie on `agent`.
+ */
+export type HandoffReceiptOrigin = "command" | "agent";
+
 export interface HandoffReceiptView {
   readonly id: string;
   readonly sourceThreadKey: string;
+  readonly origin: HandoffReceiptOrigin;
   readonly state: HandoffReceiptState;
-  /** The human's explanation, verbatim and never truncated. */
-  readonly explanation: string;
+  /** The human's explanation, verbatim and never truncated; null on an `agent` handoff. */
+  readonly explanation: string | null;
   readonly createdAt: string;
   /** Present once intake acknowledged; where a FAILED handoff sends the human. */
   readonly drafterThreadId: ThreadId | null;
@@ -132,6 +150,7 @@ const DRAFTER_FAILURE_REASON =
   "The drafter stopped without placing a handoff, so no goal was created.";
 
 const NO_DESTINATIONS: ReadonlyArray<HandoffReceiptDestination> = Object.freeze([]);
+const NO_AGENT_VIEWS: ReadonlyArray<HandoffReceiptView> = Object.freeze([]);
 
 /**
  * Resolve, per receipt, the two things the views need out of live shell state:
@@ -207,6 +226,70 @@ export function resolveHandoffReceiptShells(input: {
   return { drafterShellsByReceiptId, destinationsByReceiptId };
 }
 
+/**
+ * The other half of the same shell state: the handoffs a thread's OWN agent
+ * placed with `goal_handoff`, which want the same settled row.
+ *
+ * `goal_handoff` stamps its marker on whoever called it, so an agent handoff is
+ * durable server state and its row survives a reload with no browser-local
+ * store behind it (unlike a `/handoff` receipt, whose in-flight states only
+ * exist in the submitting session).
+ *
+ * Attribution is what keeps the two surfaces disjoint: a `/handoff` marker on a
+ * source thread names the DRAFTER that placed it and belongs to the receipt row
+ * above, while an agent's marker names the calling thread itself, which is what
+ * this takes — so no destination is ever rendered twice.
+ */
+export function deriveAgentHandoffViews(input: {
+  readonly threadRef: ScopedThreadRef | null;
+  readonly shells: ReadonlyArray<HandoffThreadShell>;
+}): ReadonlyArray<HandoffReceiptView> {
+  const ref = input.threadRef;
+  if (ref === null) {
+    return NO_AGENT_VIEWS;
+  }
+  // Scoped throughout: thread ids are only unique within an environment. The
+  // thread's own shell is found first, so a thread with no handoffs at all —
+  // the overwhelming majority — costs one scan and nothing else.
+  const own = (
+    input.shells.find(
+      (shell) => shell.id === ref.threadId && shell.environmentId === ref.environmentId,
+    )?.handoffDestinations ?? []
+  ).flatMap((marker) =>
+    // Self-attributed, and carrying the timestamp the row is placed by —
+    // markers written before that field existed predate the agent path itself.
+    marker.drafterThreadId === ref.threadId && marker.createdAt !== null
+      ? [{ ...marker, createdAt: marker.createdAt }]
+      : [],
+  );
+  if (own.length === 0) {
+    return NO_AGENT_VIEWS;
+  }
+  const sourceThreadKey = scopedThreadKey(ref);
+  return own.map((marker) => ({
+    id: `agent-handoff:${marker.threadId}`,
+    sourceThreadKey,
+    origin: "agent",
+    state: "settled",
+    explanation: null,
+    createdAt: marker.createdAt,
+    drafterThreadId: null,
+    destinations: [
+      {
+        threadId: marker.threadId,
+        // A staged root is `planned`, not archived, so it is in the snapshot;
+        // null only until its shell arrives, and then the link falls back to a
+        // generic label rather than disappearing.
+        title:
+          input.shells.find(
+            (shell) => shell.id === marker.threadId && shell.environmentId === ref.environmentId,
+          )?.title ?? null,
+      },
+    ],
+    failureReason: null,
+  }));
+}
+
 export function deriveHandoffReceiptViews(input: {
   readonly receipts: ReadonlyArray<HandoffReceipt>;
   /** Keyed by RECEIPT id, not thread id: thread ids are only unique per environment. */
@@ -221,6 +304,7 @@ export function deriveHandoffReceiptViews(input: {
     return {
       id: receipt.id,
       sourceThreadKey: receipt.sourceThreadKey,
+      origin: "command",
       state,
       explanation: receipt.explanation,
       createdAt: receipt.createdAt,
@@ -278,6 +362,14 @@ export function deriveHandoffReceiptToastPushes(input: {
 }): HandoffReceiptToastPush[] {
   const pushes: HandoffReceiptToastPush[] = [];
   for (const view of input.views) {
+    // Toasts are the `/handoff` command's away-from-source backstop. An
+    // agent-placed handoff has no human explanation to carry and no drafter to
+    // chase, and it never reaches the coordinator anyway (that reads the
+    // browser-local receipt store), so it is excluded here rather than threaded
+    // through the toast as an impossible case.
+    if (view.origin !== "command") {
+      continue;
+    }
     const previous = input.previousStates.get(view.id);
     if (previous === view.state) {
       continue;
@@ -287,7 +379,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         receiptId: view.id,
         kind: "failure",
         sourceThreadKey: view.sourceThreadKey,
-        explanation: view.explanation,
+        explanation: view.explanation ?? "",
         drafterThreadId: view.drafterThreadId,
         destinations: view.destinations,
         failureReason: view.failureReason,
@@ -303,7 +395,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         receiptId: view.id,
         kind: "success",
         sourceThreadKey: view.sourceThreadKey,
-        explanation: view.explanation,
+        explanation: view.explanation ?? "",
         drafterThreadId: view.drafterThreadId,
         destinations: view.destinations,
         failureReason: null,

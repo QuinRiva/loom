@@ -1,4 +1,6 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 
@@ -12,6 +14,8 @@ import { useTheme } from "~/hooks/useTheme";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { resolveInlineCodeFileLinkMeta, type MarkdownFileLinkMeta } from "~/markdown-links";
+import { useThreadShell } from "~/state/entities";
+import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { extractMessagePathCandidates } from "./chatPathScan";
 
@@ -202,17 +206,80 @@ export function useScannedPathTargets(input: {
 }
 
 /**
- * Legacy `[Title](thread://<id>)` mentions. This is still the wire form the
- * provider projection emits for a mentioned thread, so transcripts must keep
- * resolving them; it renders as an inert chip, exactly as it did before the
- * re-home.
+ * `[Title](thread://<id>)` mentions — the wire form the provider projection
+ * emits for a mentioned thread, and the form agents write when they name another
+ * thread in prose.
+ *
+ * The chip navigates when the id resolves to a live thread in the message's own
+ * environment (ids are only unique within one, so it is resolved by scoped ref).
+ * It cannot when it does not: the shell snapshot and the thread-detail read both
+ * filter `archived_at IS NULL`, so an archived, deleted or foreign thread has
+ * nothing to open — navigating would bounce the human back to the thread list.
+ * Those stay inert and say so on hover rather than pretending to be a link.
  */
 export const THREAD_LINK_HREF_PREFIX = "thread://";
 
-export function ThreadLinkChip({ label }: { label: string }) {
+const UNRESOLVED_THREAD_CHIP_TITLE =
+  "Not found here — this thread is archived, deleted, or in another environment.";
+
+export function ThreadLinkChip({
+  label,
+  threadId,
+  environmentId,
+}: {
+  label: string;
+  threadId: string;
+  environmentId: EnvironmentId | null;
+}) {
+  const navigate = useNavigate();
+  const ref =
+    environmentId === null || threadId.length === 0
+      ? null
+      : scopeThreadRef(environmentId, threadId as ThreadId);
+  const shell = useThreadShell(ref);
+  if (shell === null) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, "cursor-help opacity-70")}
+              aria-label={`${label} — ${UNRESOLVED_THREAD_CHIP_TITLE}`}
+            />
+          }
+        >
+          <ThreadTagChipContent label={label} />
+        </TooltipTrigger>
+        <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] text-[11px]">
+          {UNRESOLVED_THREAD_CHIP_TITLE}
+        </TooltipPopup>
+      </Tooltip>
+    );
+  }
+  // The tooltip carries the thread's OWN title: the chip's label is whatever the
+  // author wrote, which is often not what the thread is called.
   return (
-    <span className={CHAT_FILE_TAG_CHIP_CLASS_NAME}>
-      <ThreadTagChipContent label={label} />
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Open ${shell.title}`}
+            className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, "cursor-pointer hover:underline")}
+            onClick={() =>
+              void navigate({
+                to: "/$environmentId/$threadId",
+                params: buildThreadRouteParams(scopeThreadRef(shell.environmentId, shell.id)),
+              })
+            }
+          />
+        }
+      >
+        <ThreadTagChipContent label={label} />
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] text-[11px]">
+        {shell.title}
+      </TooltipPopup>
+    </Tooltip>
   );
 }

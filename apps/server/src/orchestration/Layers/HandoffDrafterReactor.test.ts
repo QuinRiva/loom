@@ -86,6 +86,7 @@ const placed = (count: number): ReadonlyArray<HandoffDestination> =>
     goalId: GoalId.make(`goal-${index}`),
     threadId: `dest-${index}` as ThreadId,
     drafterThreadId: "drafter" as ThreadId,
+    createdAt: NOW,
   }));
 
 const makeDrafter = (
@@ -201,6 +202,7 @@ describe("classifyHandoffSettlement", () => {
           goalId: GoalId.make("goal-child"),
           threadId: "dest-child" as ThreadId,
           drafterThreadId: "another-drafter" as ThreadId,
+          createdAt: NOW,
         },
       ],
     });
@@ -218,6 +220,7 @@ describe("classifyHandoffSettlement", () => {
           goalId: GoalId.make("goal-legacy"),
           threadId: "dest-legacy" as ThreadId,
           drafterThreadId: null,
+          createdAt: null,
         },
       ],
     });

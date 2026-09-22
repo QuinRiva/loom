@@ -1,9 +1,11 @@
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { useThreadShells } from "~/state/entities";
 
 import {
+  deriveAgentHandoffViews,
   deriveHandoffReceiptViews,
   handoffReceiptIsPending,
   resolveHandoffReceiptShells,
@@ -59,6 +61,7 @@ export function useHandoffReceipts(
   );
 
   const anyPending = views.some((view) => handoffReceiptIsPending(view.state));
+
   useEffect(() => {
     if (!anyPending) {
       return;
@@ -68,4 +71,17 @@ export function useHandoffReceipts(
   }, [anyPending]);
 
   return views;
+}
+
+/**
+ * loom: the durable companion — rows for handoffs THIS thread's own agent
+ * placed with `goal_handoff`. Entirely shell-derived, so it survives a reload
+ * and needs no receipt store, no grace window and no clock: the marker only
+ * exists once the destination does.
+ */
+export function useAgentHandoffViews(
+  threadRef: ScopedThreadRef | null,
+): ReadonlyArray<HandoffReceiptView> {
+  const shells = useThreadShells();
+  return useMemo(() => deriveAgentHandoffViews({ threadRef, shells }), [shells, threadRef]);
 }

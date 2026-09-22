@@ -1,7 +1,9 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 import type { ThreadId } from "@t3tools/contracts";
 
 import {
+  deriveAgentHandoffViews,
   deriveHandoffReceiptState,
   deriveHandoffReceiptToastPushes,
   deriveHandoffReceiptViews,
@@ -192,6 +194,7 @@ describe("resolveHandoffReceiptShells", () => {
     goalId: "goal-1" as never,
     threadId: threadId as ThreadId,
     drafterThreadId: drafterThreadId as ThreadId | null,
+    createdAt: CREATED_AT,
   });
 
   it("reads the destinations off the SOURCE shell, attributed to this receipt's drafter", () => {
@@ -333,6 +336,7 @@ describe("deriveHandoffReceiptToastPushes", () => {
   const view = (overrides: Partial<HandoffReceiptView> = {}): HandoffReceiptView => ({
     id: "handoff_1",
     sourceThreadKey: "env:thread-1",
+    origin: "command",
     state: "settled",
     explanation: "the retry logic in FooService is broken",
     createdAt: CREATED_AT,
@@ -423,6 +427,99 @@ describe("deriveHandoffReceiptToastPushes", () => {
         previousStates: previous("dispatching"),
         views: [view({ state: "drafting" })],
         activeThreadKey: null,
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("deriveAgentHandoffViews", () => {
+  const ref = scopeThreadRef("env" as HandoffThreadShell["environmentId"], "thread-1" as ThreadId);
+  const shell = (
+    environmentId: string,
+    id: string,
+    overrides: Partial<HandoffThreadShell> = {},
+  ): HandoffThreadShell => ({
+    environmentId: environmentId as HandoffThreadShell["environmentId"],
+    id: id as ThreadId,
+    title: `${environmentId}/${id}`,
+    archivedAt: null,
+    attention: [],
+    handoffDestinations: [],
+    ...overrides,
+  });
+  const marker = (
+    threadId: string,
+    drafterThreadId: string | null,
+    createdAt: string | null = CREATED_AT,
+  ) => ({
+    goalId: "goal-1" as never,
+    threadId: threadId as ThreadId,
+    drafterThreadId: drafterThreadId as ThreadId | null,
+    createdAt,
+  });
+
+  it("reports the handoffs this thread's own agent placed, titled and settled", () => {
+    const views = deriveAgentHandoffViews({
+      threadRef: ref,
+      shells: [
+        shell("env", "thread-1", { handoffDestinations: [marker("dest-1", "thread-1")] }),
+        shell("env", "dest-1", { title: "Fix FooService retries" }),
+      ],
+    });
+
+    expect(views).toEqual([
+      {
+        id: "agent-handoff:dest-1",
+        sourceThreadKey: "env:thread-1",
+        origin: "agent",
+        state: "settled",
+        explanation: null,
+        createdAt: CREATED_AT,
+        drafterThreadId: null,
+        destinations: [{ threadId: "dest-1", title: "Fix FooService retries" }],
+        failureReason: null,
+      },
+    ]);
+  });
+
+  it("never claims a destination the `/handoff` receipt row owns", () => {
+    // The same source shell carries both kinds of marker. A drafter-placed one
+    // is attributed to the drafter, and is the receipt row's; only a
+    // self-attributed marker is this thread's own agent's. Double-rendering
+    // would show the human one handoff twice.
+    const views = deriveAgentHandoffViews({
+      threadRef: ref,
+      shells: [
+        shell("env", "thread-1", {
+          handoffDestinations: [
+            marker("dest-drafter", DRAFTER_ID),
+            marker("dest-agent", "thread-1"),
+          ],
+        }),
+      ],
+    });
+
+    expect(views.map((view) => view.destinations[0]?.threadId)).toEqual(["dest-agent"]);
+  });
+
+  it("ignores markers from another environment, which shares thread ids", () => {
+    expect(
+      deriveAgentHandoffViews({
+        threadRef: ref,
+        shells: [
+          shell("other", "thread-1", { handoffDestinations: [marker("dest-1", "thread-1")] }),
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("skips a pre-timestamp marker, which has no place to sit in the timeline", () => {
+    expect(
+      deriveAgentHandoffViews({
+        threadRef: ref,
+        shells: [
+          shell("env", "thread-1", { handoffDestinations: [marker("dest-1", "thread-1", null)] }),
+        ],
       }),
     ).toEqual([]);
   });

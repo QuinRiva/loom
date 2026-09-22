@@ -20,6 +20,7 @@ const userMessage = {
 const receipt: HandoffReceiptView = {
   id: "handoff_1",
   sourceThreadKey: "env:thread-1",
+  origin: "command" as const,
   state: "drafting" as const,
   explanation: "the retry logic in FooService is broken",
   createdAt: "2026-01-01T00:00:30Z",

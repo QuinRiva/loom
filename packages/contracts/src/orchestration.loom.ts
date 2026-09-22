@@ -356,10 +356,15 @@ export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 // like the `/handoff` receipt row could otherwise never name the thread it
 // created) while still attributing each destination to the handoff that made
 // it. Null only on records written before the field existed.
+//
+// `createdAt` is when the handoff was placed, which is what lets a thread-local
+// surface put the marker back where the call happened in the timeline rather
+// than at the end of it. Null on records written before the field existed.
 export const HandoffDestination = Schema.Struct({
   goalId: GoalId,
   threadId: ThreadId,
   drafterThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  createdAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
