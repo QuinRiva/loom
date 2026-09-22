@@ -35,9 +35,9 @@ Three findings from the deployed cockpit's state and the code. They change the s
 
 `apps/server/src/usage/UsageService.ts` scans provider CLI transcript directories: `~/.claude/projects`, `~/.codex/sessions`, `~/.grok/sessions`. On the cockpit host, **zero `.jsonl` files under either Claude's or Codex's directory have been modified in the last 40 days**. There is no Pi arm. So every window, on every tab except Limits, is structurally empty — not intermittently, always.
 
-### The numbers that appeared and vanished were the Limits tab
+### The page opens on a tab that works, next to tabs that never have
 
-`apps/web/src/components/usage/usagePagePreferences.ts` defaults the page to `metric: "limits"`, `windowDays: 30`, and persists the last choice. Opening `/usage` therefore lands on Limits, which renders real gauges. The screenshot in the report shows Tokens selected and Past 24h — two deliberate moves away from that default. The numbers did not disappear; the tab changed to one that has never had data.
+`apps/web/src/components/usage/usagePagePreferences.ts` defaults the page to `metric: "limits"`, `windowDays: 30`, and persists the last choice. Opening `/usage` therefore lands on Limits, which renders real gauges, while the screenshot in the report shows Tokens and Past 24h — two deliberate moves away from that default. Whether that is the whole story is taken up in part C.
 
 <Callout tone="info">
   There is no client-side defect to fix here. The only code change that makes those tabs honest is the
@@ -196,19 +196,41 @@ Loom's own accounts arrive differently from hub accounts, and the meter has to r
   ]}
 />
 
-The new derive module splits the pi instance's flat window list back into one synthetic `LimitAccount` per decoded account, then hands them to upstream's `collectLimitPools` unchanged. All the pooling, pace and reset-ladder maths is reused; loom adds only the split.
+The new derive module splits the pi instance's flat window list back into one synthetic `LimitAccount` per decoded account, then hands them to upstream's `collectLimitPools`. The split has to do **three** things, and skipping any of them yields a surface that does not match the wireframe above.
+
+**Split after `collectLimitAccounts`, never inside it.** That function merges by driver and email; loom's synthetic accounts have neither, so every one of them would collide on the single pi instance key. The split operates on the array it returns.
+
+**Map the decoded `accountKey` to a real driver.** `collectLimitPools` groups by `account.driver`. Leaving the synthetic accounts as driver `pi` collapses Anthropic and Codex into one pool whose percentage is their mean — one bar labelled *pi*, not the Claude and Codex bars above. The poller writes `providerInstanceId ?? providerName` into `accountKey`, so for the two direct-auth accounts it is literally `claudeAgent` and `codex` (`SubscriptionUsagePoller.ts`, `feed`); map those to the matching driver and leave anything unrecognised as `pi`.
+
+**Rewrite each window id to its account-independent part.** `poolWindows` keys by `` `${kind}:${id}` ``, and loom's ids are already account-unique by construction, so an unmodified split produces one single-member pool per window — exactly the flat run the split exists to remove. Re-keying the id to `kind[:scope]` makes sibling accounts' windows share a key, which is what forms a pooled bar.
 
 <Code
   filename="apps/web/src/loom/subscriptionMeter.ts"
   language="ts"
-  code={"/** loom: split the pi instance's account-encoded windows into pooled accounts. */\nexport function meterPools(\n  presentations: LimitPresentations,\n  now: number,\n): readonly LimitPool[] {\n  const accounts = [\n    ...collectLimitAccounts(presentations).flatMap(splitLoomPiAccount),\n  ];\n  return collectLimitPools(accounts, now);\n}\n"}
+  code={"/** loom: split the pi instance's account-encoded windows into poolable accounts. */\nconst DRIVER_OF: Record<string, ServerProvider[\"driver\"]> = {\n  claudeAgent: \"claudeAgent\",\n  codex: \"codex\",\n};\n\nfunction splitLoomPiAccount(account: LimitAccount): readonly LimitAccount[] {\n  if (account.driver !== \"pi\") return [account]; // hub + native accounts pass through\n  const byAccount = new Map<string, ServerProviderUsageWindow[]>();\n  for (const window of account.limits.windows) {\n    const identity = decodeUsageWindowId(window.id);\n    if (!identity) continue; // a natively emitted window is not an account row\n    const key = `${identity.accountKey}:${identity.accountLabel ?? \"\"}`;\n    // Account-independent id: siblings must share a key to pool.\n    const id = identity.scope ? `${identity.kind}:${identity.scope}` : identity.kind;\n    const windows = byAccount.get(key) ?? [];\n    windows.push({ ...window, id });\n    byAccount.set(key, windows);\n  }\n  return [...byAccount].map(([key, windows]) => ({\n    ...account,\n    key: `pi:${key}`,\n    driver: DRIVER_OF[key.split(\":\")[0]!] ?? account.driver,\n    displayName: key.split(\":\")[1] || null,\n    limits: { ...account.limits, windows },\n  }));\n}\n\nexport function meterPools(presentations: LimitPresentations, now: number): readonly LimitPool[] {\n  return collectLimitPools(collectLimitAccounts(presentations).flatMap(splitLoomPiAccount), now);\n}\n"}
 />
+
+With real drivers and account-independent ids, a direct-auth Anthropic window and a hub account's window of the same kind land in **one** pool and are averaged rather than drawn twice — so the split also resolves the double-reporting risk slice 0 creates, which is why the open question about the poller's Anthropic arm is a product call rather than a correctness one.
+
+One rendering note: `LimitPoolWindow.label` is inherited from whichever member happened to be first, so the meter labels its rows from the window `kind` rather than trusting that string.
 
 <Callout tone="info">
   The same split would also improve the Limits page, which today renders loom's pi card as a flat run
   of roughly seventeen window rows rather than pooled accounts. That is a separate, larger change and
   is offered as an open question rather than folded in here.
 </Callout>
+
+### State tiers
+
+Against `docs/architecture/loom-ui-state-tiers.md`, the meter is **tier 4 throughout** — transient render state. It persists nothing: the pools are derived per render from the presentations atom, and the only mutable state is the 30-second countdown tick, which is component-lifetime `useState`. There is no tier 1 or tier 2 state to migrate, and no `uiStateStore` key to orphan.
+
+The chat-header chip is the one place the doctrine bites. It **reads** the sidebar's open state to decide whether to render, and must never write it — an indicator that nudged the sidebar open or closed would be precisely the automatic override the seed-not-override rule forbids. Rendering is a pure function of `useSidebar().open`; there is no effect, no store write, and no reseeding flag, because the chip has no state of its own to seed.
+
+### Behaviour while limits are unknown
+
+The meter must handle the empty case deliberately, because it is on screen permanently. Provider usage limits are runtime snapshot state, not persisted config: they exist only after `SubscriptionUsagePoller` has published a reading into the instance snapshot, and a server restart or socket reconnect delivers a `serverConfig` with none yet. `collectLimitAccounts` skips a provider whose limits are absent or notice-bearing, so during that gap the derive legitimately returns no pools — and the poller's base cadence is five minutes, backing off to thirty after consecutive failures.
+
+Rendering nothing during that gap makes a permanent surface blink out and return, which is worse on the sidebar than on a page. The meter therefore **holds its last non-empty pools for the lifetime of the mount** and marks them stale — dimmed, with the age in the popover — rather than unmounting. It renders nothing at all only when it has never had a reading. This is still tier 4: the retained value dies with the component, and a reload correctly shows nothing until the first publish.
 
 ## Part B — a Pi arm for the usage scanner
 
@@ -240,6 +262,16 @@ Upstream's aggregation takes `UsageRecord` values — provider, timestamp, model
 
 The performance line is the one that could have gone the other way, so it was measured rather than assumed. Upstream documents a cold 30-day scan of about 1.4 GB landing in two to three seconds. Pi's session corpus is 5.37 GB in total, but the mtime prefilter only opens files inside the window: **0.48 GB for 30 days, 3.34 GB for 90**. The 30-day case is a third of what upstream already considers acceptable, and every subsequent scan re-reads only appended bytes.
 
+That argument rests entirely on the persisted scan cache, which today refuses pi:
+
+<Code
+  filename="apps/server/src/usage/usageScanCache.ts"
+  language="ts"
+  code={"if (entry.p !== \"claude\" && entry.p !== \"codex\" && entry.p !== \"grok\") continue;\n"}
+/>
+
+Pi entries serialise correctly and are then dropped on every reload, so each server start would re-parse the whole window rather than reloading the cache. The fix is that one literal. `USAGE_SCAN_CACHE_VERSION` does **not** need bumping — existing version-3 entries stay valid and an unknown provider was already skipped, so there is nothing to migrate and no shim to write. It is easy to miss because nothing fails: the numbers are right and only the timings are wrong, which is why verification below restarts the server rather than only refreshing the page.
+
 Reading the ledger would be defensible, but it buys nothing the transcripts do not already give, misses pi runs outside loom, and pays for it by introducing a database dependency into a module whose every abstraction — the per-file parse cache, the byte-resume position, the device/inode source fingerprint — assumes files. The ledger keeps being written and stays available for the thread-attribution work in part D.
 
 ### Where it attaches
@@ -266,10 +298,22 @@ Four small edits, each mirroring what the Grok arm already does.
     />
   </Tab>
   <Tab label="Parser">
-    <Code
+    <AnnotatedCode
       filename="apps/server/src/usage/usageTranscripts.ts"
       language="ts"
-      code={"/** loom: one line of a pi session transcript. */\nexport function parsePiLine(line: string, sessionId: string): UsageRecord | null {\n  // type: \"message\", message.role: \"assistant\", message.usage present\n  // totals  <- usage.input / cacheRead / cacheWrite / output / reasoning\n  // cost    <- usage.cost.total, provider-authoritative\n  // model   <- message.model, e.g. \"claude-opus-5\"\n  // dedupe  <- entry id, timestamp and total tokens together\n}\n"}
+      code={"/** loom: one line of a pi session transcript. */\nexport function parsePiLine(line: string, sessionId: string): UsageRecord | null {\n  // type: \"message\", message.role: \"assistant\", message.usage present\n  const totals = {\n    uncachedInputTokens: int(usage.input),\n    cachedInputTokens: int(usage.cacheRead),\n    cacheCreationTokens: int(usage.cacheWrite),\n    outputTokens: int(usage.output),\n    reasoningTokens: Math.min(int(usage.output), int(usage.reasoning)),\n  };\n  // cost  <- usage.cost.total, provider-authoritative\n  // model <- message.model, e.g. \"claude-opus-5\"\n}\n"}
+      annotations={[
+        {
+          lines: "5",
+          label: "no subtraction",
+          note: "pi's usage.input already excludes the cache buckets; the Codex and Grok arms subtract because theirs are inclusive. Copying them clamps uncached input to zero"
+        },
+        {
+          lines: "9",
+          label: "clamp reasoning",
+          note: "the contract requires reasoning to be a subset of output; pi reports it that way, and the clamp keeps a malformed line from breaking the invariant"
+        }
+      ]}
     />
   </Tab>
   <Tab label="Session id">
@@ -285,7 +329,11 @@ Three details decide whether the numbers come out right.
 
 **The session id comes from the filename, not the line.** Pi writes `<timestamp>_<sessionId>.jsonl`, and the session id is the loom thread id with non-id characters replaced. Only the header line carries the id, so deriving it from the basename keeps the parser stateless — which means the byte-resume path needs no reducer state, unlike Codex.
 
-**The dedupe key is composite.** Pi entry ids are eight hex characters. Across 171,000 records a bare id would collide by birthday alone and silently drop real usage. Keying on id, timestamp and total tokens together makes a false match require all three to agree, while a genuine forked-session copy still matches on all three. If pi forks turn out not to copy entry ids at all, the key simply never fires and nothing is lost.
+**The token buckets are copied across, not derived.** Pi's `usage.input` is **exclusive** of the cache buckets — `input + output + cacheRead + cacheWrite` equals its own `totalTokens`, confirmed across sampled records on this host. Both neighbouring arms in the same file do the opposite, computing `uncachedInputTokens` as `inputTokens - cachedInputTokens - cacheCreationTokens`, because Codex and Grok report an inclusive figure. An implementer who copies the adjacent arm clamps pi's uncached input to zero. Because cost is provider-reported, the Cost tab would still look right while the Tokens tab silently under-reported input — and the wrong figure would be baked into the persisted scan cache. There is no subtraction for pi.
+
+**The dedupe key is composite.** Pi entry ids are eight hex characters. Across 171,000 records a bare id collides by birthday with near-certainty and would silently drop real usage. Keying on id, timestamp and total tokens together makes a false match require all three to agree. The key does real work rather than merely guarding a hypothetical: pi's own fork rebuilds the branch as `{ ...entry, parentId }`, preserving `id`, `timestamp` and the message body, so a forked session genuinely duplicates records into a second file.
+
+**Sessions mean threads for pi.** The session id is the loom thread id, so the page's "Sessions" figure — `UsageSource.distinctSessions` — counts threads for pi where it counts CLI sessions for the other providers. Nothing to fix; worth one line in the PR body so nobody reads the two as like for like.
 
 **Pi is its own provider kind.** `UsageProviderKind` gains `"pi"` and `USAGE_CONTRACT_VERSION` goes to 6; `USAGE_MERGE_COMPATIBLE_SINCE` stays at 4, for the reason the version-5 note already gives — older environments' Claude and Codex buckets remain valid. The alternative, mapping pi's own `provider` field onto the existing kinds, would need no contract change but would report a cliproxy-routed Claude turn as "Claude Code" and risk double-counting against a real Claude transcript. Honest attribution is worth the literal.
 
@@ -321,11 +369,38 @@ Three details decide whether the numbers come out right.
 
 ### What the tabs will show, and one honest gap
 
-Cost is provider-reported, so `priceUsage` takes it verbatim and marks the bucket `providerReported` — the rate table is not consulted and cannot be wrong. **Cache savings is the exception**: it needs a rate-table hit on the model name, and pi's names are fork aliases that LiteLLM does not carry, so the figure reads `$0.00` until someone adds an override. The page already ships the surface for that, `UsagePriceOverrides` on the Usage page, so this is a setting rather than a defect. It should be stated in the PR body rather than quietly shipped.
+Cost is provider-reported, so `priceUsage` takes it verbatim and marks the bucket `providerReported` — the rate table is not consulted and cannot be wrong.
+
+**Cache savings is the exception, and it must be left alone.** That figure needs a rate-table hit on the model name, and pi's names are fork aliases LiteLLM does not carry, so it reads `$0.00`. The tempting remedy — a price override on the Usage page — is actively harmful here, because an override does not merely supply savings rates:
+
+<Code
+  filename="apps/server/src/usage/usagePricing.ts"
+  language="ts"
+  code={"const override = overrides?.get(model.trim());\nif (override === undefined && reportedCostUsd !== null && Number.isFinite(reportedCostUsd)) {\n  return { costUsd: reportedCostUsd, costSource: \"providerReported\" };\n}\n"}
+/>
+
+An override wins outright. The moment one is added for a pi model, every bucket for that model flips from `providerReported` to `modelPriced` and the Cost tab stops showing pi's own per-message cost, showing instead an estimate computed from rates the user invented — for a model LiteLLM has no price for. That trades the authoritative number this whole exercise exists to surface for a guess, and the only hint in the UI is the cost-quality share.
+
+So: leave cache savings at `$0.00`, say why in the PR body, and do **not** recommend an override as a workaround. If the savings figure is later judged worth having, the honest change is to let `cacheSavingsUsd` consult a rate table without letting that table capture `costUsd` — a small, separate change to `priceUsage`, not a setting.
 
 ## Part C — the vanished numbers
 
-Diagnosed from code and host state; no defect found. The evidence is in the three findings above: the page defaults to Limits, which works; the Tokens tab has never had a source on this fork; and the transcript directories it does read have been cold for over forty days. A live reproduction is folded into the verification below rather than run now, because the conclusion does not depend on it.
+Two mechanisms can produce what was reported. The query lifecycle rules out a third, and neither survivor is a client defect.
+
+**What the lifecycle rules out.** A fulfilled usage response is not discarded by moving around the page. `usageSummary` is an SWR query with `staleTimeMs: 60_000` (`packages/client-runtime/src/state/server.ts`), keyed per serialised window in `apps/web/src/state/usage.ts`, and `selectMetric` in `UsagePage.tsx` only writes a preference — it triggers no invalidation. So nothing on the Cost or Tokens side can show a number and then take it away; those tabs have never had a number to show on this fork.
+
+**Mechanism 1 — the tab change.** The page opens on Limits, which renders real gauges from the poller. Moving to Tokens replaces them with zeros. From the user's seat that is numbers appearing and then being gone, and it needs no defect; it is also consistent with the screenshot, which is two clicks from the default.
+
+**Mechanism 2 — limits emptying under a reconnect.** Provider usage limits are runtime snapshot state, held in memory by `makeManagedServerProvider` and populated only once `SubscriptionUsagePoller` publishes a reading. A server restart or a socket reconnect delivers a `serverConfig` carrying none, and `collectLimitAccounts` skips any provider whose limits are absent or notice-bearing. Bars drawn from the pre-restart config therefore empty themselves with no user action — and stay empty until the next publish, which is five minutes out at the base cadence and up to thirty after consecutive failures. On a deploy day this is not a hypothetical.
+
+**Which one happened is not determinable from here**, and the plan does not pretend otherwise: the server log line that would date the first publish after restart (`subscription-usage poller: … limits published`) is not readable from this worktree. Both are benign for the Usage page itself.
+
+<Callout tone="risk">
+  Mechanism 2 is not benign for this plan. The meter reads the same atom and would empty the same way
+  — on a surface that is on screen permanently rather than a page the user chose to open. That is why
+  part A specifies holding the last non-empty reading and marking it stale rather than unmounting.
+  The forensic question can stay open; the design requirement it produces cannot.
+</Callout>
 
 ## Part D — the rest of the retired dashboard
 
@@ -401,6 +476,11 @@ Two of the four came back for free, which is the argument for doing part B befor
       note: "loom: push the pi sessions directory into the scan"
     },
     {
+      path: "apps/server/src/usage/usageScanCache.ts",
+      change: "modified",
+      note: "loom: admit pi on decode — without this the whole performance case collapses"
+    },
+    {
       path: "apps/server/src/provider/piSessionFiles.ts",
       change: "modified",
       note: "export the sessions-root resolver instead of keeping it private"
@@ -420,15 +500,15 @@ Two of the four came back for free, which is the argument for doing part B befor
 
 Slice 0 precedes both and is not a code change: register the CLIProxyAPI hub in `usageLimitSources` on the deployed instance, with its management key, so Limits reports the five pooled accounts.
 
-Mobile takes the contract entries in slice 2 because `PROVIDER_LABEL` and `useProviderColors` are exhaustive over the union and will not compile otherwise — its Usage route then shows Pi data for free. The meter itself stays web-only for now; mobile has no sidebar footer, and its equivalent surface is a separate design.
+Mobile takes the contract entries in slice 2 because `PROVIDER_LABEL` and `useProviderColors` are exhaustive over the union and will not compile otherwise — its Usage route then shows Pi data for free. The meter itself stays web-only for now; mobile has no sidebar footer, and its equivalent surface is a separate design. **Desktop needs no work in either slice**: it wraps the web client, so it inherits the meter, the chip and the populated tabs unchanged.
 
 ## Risks
 
-**Registering the hub may double-report an account.** `collectLimitAccounts` keys native accounts by driver and email; loom's pi instance reports no email, and hub accounts arrive with driver `claudeAgent`. The subscription behind `auth.json` may therefore appear both as a pi window and as a hub account, under different labels. This is visible immediately on the Limits page after slice 0, and is the subject of an open question below.
+**Registering the hub may double-report an account on the Limits page.** `collectLimitAccounts` keys native accounts by driver and email; loom's pi instance reports no email, and hub accounts arrive with driver `claudeAgent`. The subscription behind `auth.json` may therefore appear on the page both as a pi window and as a hub account, under different labels. The meter is immune — its split gives the direct-auth account a real driver and an account-independent window id, so the two land in one pool — but the page has no such split, which is why the page-side question below is worth answering after one look at slice 0's result.
 
 **The meter re-renders with the presentations atom.** That atom updates on any `serverConfig` change, not just limits. The derive is memoised on the limits slice and the component is wrapped in `memo`, so a provider-status change costs a shallow compare rather than a re-layout. Worth confirming under a profiler while a turn is streaming, since the sidebar is on screen constantly.
 
-**A 90-day cold scan reads 3.34 GB.** One-off, and only if the 90-day window is selected; subsequent scans are incremental. If it proves slow in practice, the retention-window cap is already a constant in `UsageService.ts`.
+**A 90-day cold scan reads 3.34 GB.** Only if the 90-day window is selected, and only until the cache is warm. It decays slowly rather than vanishing: `pruneScanCache` evicts by file mtime, and a long-lived loom thread's session file keeps a fresh mtime for months, so its whole history stays cached and re-parsable. Treat the figure as a ceiling. If it proves slow in practice, the retention cap is already a constant in `UsageService.ts`.
 
 **Contract version bump.** Environments still on version 5 keep contributing their Claude and Codex buckets through `USAGE_MERGE_COMPATIBLE_SINCE`; they simply report no Pi data. No coordinated upgrade is needed.
 
@@ -441,9 +521,9 @@ Then the end-to-end pass, on a dev instance seeded from a copy of the cockpit da
 1. Start the dev instance with the dev-verify recipe in `docs/dev-site-testing.md` and open a thread.
 2. **Meter present and correct.** The sidebar footer shows one bar per subscription. Cross-check each percentage against Usage → Limits for the same account: they must agree, because they are the same numbers.
 3. **Meter survives the sidebar.** Collapse the sidebar; the chat-header chip appears with the same figure. Re-open it; the chip goes and the footer meter returns.
-4. **Near-exhaustion state.** Point the dev instance at a hand-edited settings snapshot that reports a window above 80 and another above 100, and confirm the warning and destructive tones, on both the bar and the popover.
+4. **Near-exhaustion state.** The pi card's windows are runtime state published by the poller, so there is no settings file to edit for them. Drive the tones from the derive module's own unit fixtures — one window above 80 and one above 100 — and confirm in the browser by pointing the dev instance's `usageLimitSources` at a stub endpoint returning those utilisations, which is the one limits path that is configuration rather than runtime state.
 5. **Cost and Tokens carry real numbers.** Open Usage → Tokens, Past 24h. Processed tokens, cached input, uncached input and output are all non-zero; the model breakdown lists the pi models actually used; the hourly chart is populated. Switch to Cost and confirm a plausible total against the ledger for the same window — `select round(sum(cost_usd),2) from projection_usage_ledger where created_at > ...` is an independent second opinion on the same turns.
-6. **The scan stays warm.** Refresh the page and confirm the reported scan duration drops sharply on the second read, proving the parse cache is being hit rather than the corpus re-read.
+6. **The scan stays warm across a restart.** Refresh the page and confirm the reported scan duration drops sharply on the second read. Then **restart the dev server** and load the page again: the duration must stay low, which is what proves pi entries survive the persisted cache rather than only the in-process map. A cold figure here means the provider gate is still rejecting them.
 7. **The empty case is still honest.** Select a 90-day window on an environment with no pi sessions and confirm the source row reports missing rather than silently reading zero.
 
 <QuestionForm
@@ -482,7 +562,7 @@ Then the end-to-end pass, on a dev instance seeded from a copy of the cockpit da
           label: "Keep both and look at the result first",
           recommended: true,
           detail:
-            "The overlap may be harmless or may be two genuinely different subscriptions. One look at the Limits page after slice 0 settles it without guessing."
+            "The overlap may be harmless or may be two genuinely different subscriptions. One look at the Limits page after slice 0 settles it without guessing — and the meter already pools them correctly either way, so nothing is blocked while you decide."
         },
         {
           id: "suppress",
