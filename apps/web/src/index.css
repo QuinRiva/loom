@@ -1885,8 +1885,10 @@ code {
   text-decoration: none;
 }
 
-.chat-markdown a:not(.chat-markdown-file-link):hover,
-.chat-markdown a:not(.chat-markdown-file-link):focus-visible {
+/* loom: `.chat-scanned-path-link` is excluded — a scanned path carries its own
+   plain underline-on-hover, not the dotted web-link treatment. */
+.chat-markdown a:not(.chat-markdown-file-link, .chat-scanned-path-link):hover,
+.chat-markdown a:not(.chat-markdown-file-link, .chat-scanned-path-link):focus-visible {
   background-image: radial-gradient(circle, currentcolor 0.75px, transparent 1px);
   background-position: left bottom;
   background-repeat: repeat-x;
@@ -2003,15 +2005,16 @@ code {
   background: transparent !important;
 }
 
-/* loom: terminal-style clickable file paths inside code blocks: inherit the
-   token colour, underline on hover only, and never alter the block's text. */
-.chat-markdown .chat-markdown-shiki a.chat-code-path-link {
+/* loom: terminal-style clickable file paths, in prose and inside code blocks
+   alike: the text reads exactly as written (inherit the surrounding colour and
+   the Shiki token colour), underline on hover only. */
+.chat-markdown a.chat-scanned-path-link {
   color: inherit;
   text-decoration: none;
   cursor: pointer;
 }
 
-.chat-markdown .chat-markdown-shiki a.chat-code-path-link:hover {
+.chat-markdown a.chat-scanned-path-link:hover {
   text-decoration: underline;
 }
 

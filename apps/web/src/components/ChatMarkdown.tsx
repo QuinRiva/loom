@@ -113,8 +113,13 @@ import { isArtifactViewerPath } from "./artifact/artifactView";
 import {
   THREAD_LINK_HREF_PREFIX,
   ThreadLinkChip,
+  useScannedPathTargets,
   useVerifiedFileLinkChip,
+  useVerifiedScannedPath,
 } from "~/loom/verifiedFileChips";
+// loom: loose path scanning in plain prose and inside fenced code blocks.
+import { PROSE_FILE_PATH_TAG, rehypeChatFilePaths } from "~/loom/chatPathScan";
+import { decorateCodeBlockPaths, SCANNED_PATH_LINK_CLASS_NAME } from "~/loom/codePathDecorations";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import {
   revealInFileExplorerLabelForKind,
@@ -1037,6 +1042,23 @@ function MarkdownCodeBlock({
   );
 }
 
+/**
+ * loom: decorate the highlighted block's DOM after paint, turning every
+ * existence-verified path substring into a clickable anchor. Text-preserving
+ * (see `decorateCodeBlockPaths`), so the fence's copy payload and Shiki's token
+ * spans are untouched. Re-runs when the rendered content changes and when
+ * verification resolves (`decorateCodeBlock`'s identity), and stays off while
+ * streaming — the block is re-highlighted on every token.
+ */
+function useCodePathDecoration(content: unknown) {
+  const { decorateCodeBlock, isStreaming } = use(ChatMarkdownRendererContext);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current && !isStreaming) decorateCodeBlock(ref.current);
+  }, [content, decorateCodeBlock, isStreaming]);
+  return ref;
+}
+
 interface SuspenseShikiCodeBlockProps {
   className: string | undefined;
   code: string;
@@ -1058,10 +1080,14 @@ function SuspenseShikiCodeBlock({
   // finishes so switching to cached HTML cannot clear an existing selection.
   const cachedHighlightedHtml =
     !isStreaming && !hasStreamed ? highlightedCodeCache.get(cacheKey) : null;
+  // loom: hook order is stable — the branch below returns a decorated div either
+  // way, and the hook is called before it.
+  const decoratedRef = useCodePathDecoration(cachedHighlightedHtml);
 
   if (cachedHighlightedHtml != null) {
     return (
       <div
+        ref={decoratedRef}
         className="chat-markdown-shiki"
         dangerouslySetInnerHTML={{ __html: cachedHighlightedHtml }}
       />
@@ -1133,10 +1159,19 @@ function UncachedShikiCodeBlock({
     }
   }, [cacheKey, code, highlighted, isStreaming]);
 
+  // loom: see useCodePathDecoration. Both arms render into a `dangerouslySet`
+  // subtree (per-block, or per-line inside HighlightedCodeLines), so the
+  // decorator never touches a text node React owns.
+  const decoratedRef = useCodePathDecoration(highlighted);
+
   return typeof highlighted === "string" ? (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlighted }} />
+    <div
+      ref={decoratedRef}
+      className="chat-markdown-shiki"
+      dangerouslySetInnerHTML={{ __html: highlighted }}
+    />
   ) : (
-    <div className="chat-markdown-shiki">
+    <div ref={decoratedRef} className="chat-markdown-shiki">
       <HighlightedCodeLines root={highlighted} />
     </div>
   );
@@ -2697,6 +2732,36 @@ function useChatMarkdownState({
     ],
   );
 
+  // loom: paths agents write as bare prose or dump inside a fenced block are
+  // references too. Both are scanned loosely and only become clickable once the
+  // server confirms the file is there — and neither rewrites the text: the
+  // sentence and the fence read exactly as written, with the path substring
+  // itself the clickable span.
+  const scannedPaths = useScannedPathTargets({
+    environmentId,
+    text,
+    cwd,
+    baseDir: imageBaseDir ?? cwd,
+    isStreaming,
+  });
+  // The chip's own primary action, minus the chip.
+  const openScannedPath = useCallback(
+    (meta: MarkdownFileLinkMeta) =>
+      openFileInPanel(meta.workspaceRelativePath ?? meta.filePath, meta.line),
+    [openFileInPanel],
+  );
+  const decorateCodeBlock = useCallback(
+    (container: HTMLElement) =>
+      decorateCodeBlockPaths(container, {
+        resolveTarget: (rawPath) => {
+          const meta = scannedPaths.resolveVerified(rawPath);
+          return meta ? { meta } : null;
+        },
+        onActivate: ({ meta }) => openScannedPath(meta),
+      }),
+    [openScannedPath, scannedPaths],
+  );
+
   // loom: verify chip targets exist before they are clickable. An existing file
   // renders exactly upstream's chip.
   const verifiedFileLinkChip = useVerifiedFileLinkChip({
@@ -2711,6 +2776,10 @@ function useChatMarkdownState({
   const componentState = useMemo(
     () => ({
       cwd,
+      // loom: the two loose path scanners.
+      decorateCodeBlock,
+      openScannedPath,
+      scannedPaths,
       diffThemeName,
       environmentId,
       expandMedia,
@@ -2740,6 +2809,9 @@ function useChatMarkdownState({
       updateThreadPullRequestLink,
     }),
     [
+      decorateCodeBlock,
+      openScannedPath,
+      scannedPaths,
       cwd,
       diffThemeName,
       environmentId,
@@ -2801,6 +2873,31 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
       />
     );
   };
+}
+
+// loom: a path found in plain prose by `rehypeChatFilePaths`. The sentence keeps
+// the path exactly as written and the path itself is the clickable span — the
+// same treatment the fence decorator gives an in-fence hit, and the reason this
+// is an anchor rather than upstream's basename chip. `data-markdown-copy` keeps
+// a copied selection carrying the raw path instead of a `[text](href)` link.
+function ProseFilePath({ node, children }: ReactMarkdownExtraProps & { children?: ReactNode }) {
+  const { environmentId, scannedPaths, openScannedPath } = use(ChatMarkdownRendererContext);
+  const rawText = plainHastText(node) || nodeToPlainText(children);
+  const meta = useVerifiedScannedPath(environmentId, scannedPaths.resolveMeta(rawText.trim()));
+  if (!meta) return rawText;
+  return (
+    <a
+      className={SCANNED_PATH_LINK_CLASS_NAME}
+      href={meta.targetPath}
+      data-markdown-copy={rawText}
+      onClick={(event) => {
+        event.preventDefault();
+        openScannedPath(meta);
+      }}
+    >
+      {rawText}
+    </a>
+  );
 }
 
 // Keep component types stable when streaming changes the message state.
@@ -3357,6 +3454,13 @@ const CHAT_MARKDOWN_COMPONENTS = {
   },
 } satisfies Components;
 
+// loom: react-markdown's `Components` only admits intrinsic tags, and the prose
+// scanner injects a custom one.
+const CHAT_MARKDOWN_COMPONENTS_WITH_PROSE_PATHS = {
+  ...CHAT_MARKDOWN_COMPONENTS,
+  [PROSE_FILE_PATH_TAG]: ProseFilePath,
+} as Components;
+
 function ChatMarkdown({
   text,
   className,
@@ -3385,6 +3489,17 @@ function ChatMarkdown({
     ],
     [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
+  // loom: prose path scanning runs last, after sanitisation, so its injected
+  // (trusted) nodes survive; it is appended only once streaming completes, so a
+  // growing message is never re-split per token. Path linking is independent of
+  // raw HTML, so it still runs when a caller opts out of `parseRawHtml`.
+  const rehypePlugins = useMemo(
+    () => [
+      ...(parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : []),
+      ...(componentState.isStreaming ? [] : [rehypeChatFilePaths]),
+    ],
+    [componentState.isStreaming, parseRawHtml],
+  );
 
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
   // Keep that behavior explicit because literal mode depends on escaping the
@@ -3403,9 +3518,9 @@ function ChatMarkdown({
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
-          rehypePlugins={parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined}
+          rehypePlugins={rehypePlugins}
           skipHtml={false}
-          components={CHAT_MARKDOWN_COMPONENTS}
+          components={CHAT_MARKDOWN_COMPONENTS_WITH_PROSE_PATHS}
           urlTransform={markdownUrlTransform}
         >
           {text}
