@@ -328,6 +328,39 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(1),
   });
 
+  // A `notify_thread` arrival: an inter-thread push with no structured payload,
+  // so the dev-verify recipe also has the blue-accented card whose summary is
+  // derived from the first line and whose body only renders once expanded.
+  yield* dispatch({
+    type: "thread.turn.start",
+    commandId: nextCommandId("orchestrator-notify"),
+    threadId: ORCHESTRATOR_ID,
+    message: {
+      messageId: MessageId.make("seed-msg-orchestrator-notify"),
+      role: "user",
+      origin: "notify",
+      text: [
+        "[Message from thread `seed-thread-coder-beta` — via notify_thread]",
+        "",
+        "The routing surface is up, but the loader contract we agreed changed under me.",
+        "",
+        "## What I found",
+        "`load()` now returns `{ ready: boolean }`, so every caller that destructured",
+        "the old shape needs a pass. I have listed them below with the call sites.",
+        "",
+        "1. `apps/server/src/http/routes.ts:88`",
+        "2. `apps/server/src/http/health.ts:14`",
+        "3. `apps/server/src/bootstrap.ts:201`",
+        "",
+        "Tell me whether to fix them here or hand them to coder-alpha.",
+      ].join("\n"),
+      attachments: [],
+    },
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    createdAt: iso(2),
+  });
+
   // ---- coder definitions -------------------------------------------------
   const coderSpecs = [
     {
