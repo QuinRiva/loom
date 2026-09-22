@@ -82,16 +82,33 @@ const makeProviderService = (liveThreadIds: ReadonlyArray<ThreadId> = []) =>
     streamEvents: Stream.empty,
   }) satisfies ProviderService.ProviderService["Service"];
 
-const queryWithThreads = (threads: ReadonlyArray<ReturnType<typeof makeThread>>) =>
+const queryWithThreads = (
+  threads: ReadonlyArray<ReturnType<typeof makeThread>>,
+  inFlightTool = false,
+) =>
   ({
     getUserInputActivity: () => Effect.die("unused"),
     getCommandReadModel: () => Effect.succeed({ threads } as never),
+    getInFlightToolByThreadId: () =>
+      Effect.succeed(
+        inFlightTool
+          ? {
+              toolName: "bash",
+              startedAt: updatedAt,
+              activityId: "activity-in-flight",
+              itemType: "command_execution",
+              commandText: "git status",
+              timeoutSeconds: null,
+            }
+          : null,
+      ),
   }) as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"];
 
 const runReconciliation = (input: {
   readonly threads: ReadonlyArray<ReturnType<typeof makeThread>>;
   readonly continueAfterRestart?: boolean;
   readonly liveThreadIds?: ReadonlyArray<ThreadId>;
+  readonly inFlightTool?: boolean;
   readonly providerService?: ProviderService.ProviderService["Service"];
   // Partial: a reconciliation test implements only the directory members it
   // exercises, and Layer.mock turns the rest into unimplemented defects.
@@ -101,7 +118,7 @@ const runReconciliation = (input: {
   ServerRuntimeStartup.reconcileProviderSessions.pipe(
     Effect.provideService(
       ProjectionSnapshotQuery.ProjectionSnapshotQuery,
-      queryWithThreads(input.threads),
+      queryWithThreads(input.threads, input.inFlightTool),
     ),
     Effect.provideService(
       ProviderService.ProviderService,
@@ -320,7 +337,8 @@ it.effect.each(
           { threadId: codex.id, continuation: true, interactionMode: "default" },
           {
             threadId: fallback.id,
-            input: "Continue where you left off.",
+            input:
+              "The server restarted while your previous turn was running, killing that turn's process mid-execution. Any tool call that was in flight did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.",
             interactionMode: "default",
           },
         ],
@@ -1040,6 +1058,7 @@ it.effect("continues a cursor-less session-file thread", () =>
     yield* runReconciliation({
       threads: [thread],
       continueAfterRestart: true,
+      inFlightTool: true,
       providerService: {
         ...makeProviderService(),
         getCapabilities: () =>
@@ -1076,7 +1095,8 @@ it.effect("continues a cursor-less session-file thread", () =>
     assert.deepStrictEqual(sends, [
       {
         threadId: thread.id,
-        input: "Continue where you left off.",
+        input:
+          "The server restarted while your previous turn was running, killing that turn's process with a tool call in flight. That tool call did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.",
         interactionMode: "default",
       },
     ]);
