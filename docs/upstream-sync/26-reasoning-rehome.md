@@ -48,16 +48,6 @@ its `decider.loom.ts` arm, the `thread.message-reasoning` projector arms
 after the reasoning cases were removed, nothing in the thread-detail reducer
 read the caps and no caller ever passed them.
 
-## Deliberately kept
-
-The **event type** `thread.message-reasoning` and `ThreadMessageReasoningPayload`
-stay in `orchestration.loom.ts`, marked legacy — exactly the treatment
-`thread.status-set` already gets. Nothing emits or projects them, but 71.5k such
-rows exist in the cockpit event store and `OrchestrationEventPersistedRowSchema`
-decodes `type` against the event union, so removing the literal would make any
-replay that reaches those rows fail to decode. Same reason the `reasoning_text`
-column survives migration 1038.
-
 ## Migration 1038
 
 `1038_ReasoningTextToReasoningMessages` copies every non-empty `reasoning_text`
@@ -66,12 +56,20 @@ stamped one millisecond before its assistant message so it sorts above the
 answer under `ORDER BY created_at, message_id`. `INSERT OR IGNORE` on the
 derived id makes it idempotent.
 
-## Follow-ups (not done here)
+## Migration 1041
 
-- **Drop `reasoning_text`, `reasoning_streaming`, `reasoning_ms`** from
-  `projection_thread_messages` once the human has verified the copy against real
-  data. The columns are unread from this change onward.
-- **Purge the legacy `thread.message-reasoning` event rows**, and with them the
-  event-type literal and `ThreadMessageReasoningPayload`. Do it in the same
-  change as the column drop: both exist only to keep the historical record
-  readable until the copy is trusted.
+The human verified the copy against real data on the deployed build, which was
+the gate for the two follow-ups this change closes:
+
+- `reasoning_text`, `reasoning_streaming` and `reasoning_ms` are **dropped**
+  from `projection_thread_messages`. No index, trigger or view referenced them,
+  so SQLite drops each in place.
+- The 79,133 legacy `thread.message-reasoning` rows are **deleted** from
+  `orchestration_events`, and with them the event-type literal and
+  `ThreadMessageReasoningPayload` in `orchestration.loom.ts` (plus the
+  `orchestration/Schemas.ts` re-export and the `AgentAwarenessRelay` arm). Those
+  only ever survived the re-home so a replay across the historical event store
+  could still decode; one change has to do both, since neither is safe alone.
+
+Deleting events leaves gaps in `stream_version`, which the event store tolerates
+— it appends at `max(stream_version) + 1` and reads in `sequence` order.

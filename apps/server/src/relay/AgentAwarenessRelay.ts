@@ -79,16 +79,11 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
       // before the real running state arrives. Provider lifecycle events publish
       // the authoritative starting/running state instead.
       return false;
-    // loom: reasoning and the workstream plan/attention/dependency events are
-    // not turn-state changes.
-    case "thread.message-reasoning":
-      // Reasoning is incremental thinking detail, not a turn-state change.
-      return false;
     case "thread.proposed-plan-upserted":
     case "thread.runtime-mode-set":
     case "thread.interaction-mode-set":
-    // Plan lane + attention are intent/notification metadata, not turn-state
-    // changes — same treatment as the legacy status-set they replace.
+    // loom: plan lane + attention are intent/notification metadata, not
+    // turn-state changes — same treatment as the legacy status-set they replace.
     case "thread.plan-lane-set":
     case "thread.attention-raised":
     case "thread.attention-cleared":
