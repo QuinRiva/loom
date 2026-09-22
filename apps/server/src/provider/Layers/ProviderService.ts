@@ -1534,6 +1534,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
+      // loom: recovery bypasses the public startSession gate below. On a copied
+      // database it would otherwise resume the foreign home's real provider
+      // session in its live checkout during startup reconciliation.
+      if (
+        yield* refuseForeignHomeSideEffect(
+          "ProviderService.recoverSessionForThread",
+          persistedCwd ?? input.binding.threadId,
+        )
+      ) {
+        return yield* toValidationError(input.operation, FOREIGN_HOME_REFUSAL_DETAIL);
+      }
+
       // A cursor is not the only shape resume state comes in. A `session-file`
       // driver (pi) owns a deterministic per-thread session on disk and
       // create-or-resumes it on every start, so disk — not a cursor — is the
