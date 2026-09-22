@@ -47,8 +47,8 @@ export type HandoffReceiptState = "dispatching" | "drafting" | "settled" | "fail
  * gone from the snapshot, so its own copy is unreachable exactly when the row
  * wants to link. `title` is the staged thread's, which is in the snapshot
  * because a staged root is `planned` rather than archived; null when it is not
- * (yet) there, and then the affordance falls back to a generic label rather than
- * disappearing.
+ * there — the row then renders an inert "handoff staged" note, because a thread
+ * absent from the snapshot has nothing to open.
  */
 export interface HandoffReceiptDestination {
   readonly threadId: ThreadId;
@@ -278,8 +278,9 @@ export function deriveAgentHandoffViews(input: {
       {
         threadId: marker.threadId,
         // A staged root is `planned`, not archived, so it is in the snapshot;
-        // null only until its shell arrives, and then the link falls back to a
-        // generic label rather than disappearing.
+        // null while its shell has yet to arrive, and once it has, only if the
+        // destination has since been archived or deleted — which the row
+        // reports as an inert note instead of a link that goes nowhere.
         title:
           input.shells.find(
             (shell) => shell.id === marker.threadId && shell.environmentId === ref.environmentId,

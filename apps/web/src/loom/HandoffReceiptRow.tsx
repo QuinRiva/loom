@@ -55,6 +55,9 @@ const STATE_CLASSES: Record<HandoffReceiptState, string> = {
   failed: "border-l-warning bg-warning/8",
 };
 
+const UNAVAILABLE_DESTINATION_TITLE =
+  "Not found here — this goal is archived, deleted, or in another environment.";
+
 const KICKER_CLASSES: Record<HandoffReceiptState, string> = {
   dispatching: "text-info-foreground",
   drafting: "text-info-foreground",
@@ -134,7 +137,10 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
       ) : null}
 
       {/* One link per placed handoff: a drafter may stage several goals in one
-          turn, and the row is where the human learns they exist. */}
+          turn, and the row is where the human learns they exist. A destination
+          with no title has no shell in this environment — archived, deleted, or
+          not yet replayed — so it stays inert and says so, rather than
+          navigating the human onto a fresh draft. Same call as the thread chip. */}
       {state === "settled" && destinations.length > 0 ? (
         <span
           className={cn(
@@ -148,16 +154,31 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
             (destinations.length > 1 || explanation !== null) && "basis-full",
           )}
         >
-          {destinations.map((destination) => (
-            <button
-              key={destination.threadId}
-              type="button"
-              className="max-w-56 shrink-0 cursor-pointer truncate font-semibold text-primary hover:underline"
-              onClick={() => openThread(destination.threadId)}
-            >
-              {destination.title === null ? "Open handoff" : `Open ${destination.title}`}
-            </button>
-          ))}
+          {destinations.map((destination) =>
+            destination.title === null ? (
+              <Tooltip key={destination.threadId}>
+                <TooltipTrigger
+                  render={
+                    <span className="shrink-0 cursor-help font-semibold text-muted-foreground/80" />
+                  }
+                >
+                  Handoff staged
+                </TooltipTrigger>
+                <TooltipPopup>
+                  <p>{UNAVAILABLE_DESTINATION_TITLE}</p>
+                </TooltipPopup>
+              </Tooltip>
+            ) : (
+              <button
+                key={destination.threadId}
+                type="button"
+                className="max-w-56 shrink-0 cursor-pointer truncate font-semibold text-primary hover:underline"
+                onClick={() => openThread(destination.threadId)}
+              >
+                Open {destination.title}
+              </button>
+            ),
+          )}
         </span>
       ) : null}
 

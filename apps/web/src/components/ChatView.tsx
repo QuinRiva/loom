@@ -10259,6 +10259,7 @@ export default function ChatView(props: ChatViewProps) {
                 composerDraftPrompt,
               }) ? (
                 <StagedKickoffCard
+                  environmentId={activeThread.environmentId}
                   brief={activeThread.brief}
                   markdownCwd={gitCwd ?? undefined}
                   launchDisabled={isSendBusy || isConnecting || activeEnvironmentUnavailable}

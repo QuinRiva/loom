@@ -216,11 +216,18 @@ export function useScannedPathTargets(input: {
  * filter `archived_at IS NULL`, so an archived, deleted or foreign thread has
  * nothing to open — navigating would bounce the human back to the thread list.
  * Those stay inert and say so on hover rather than pretending to be a link.
+ *
+ * A markdown surface with no environment at all (a file or composer-context
+ * preview) is a different fact and gets different copy: nothing was looked up,
+ * so claiming the thread is gone would be a lie.
  */
 export const THREAD_LINK_HREF_PREFIX = "thread://";
 
 const UNRESOLVED_THREAD_CHIP_TITLE =
   "Not found here — this thread is archived, deleted, or in another environment.";
+
+const UNSCOPED_THREAD_CHIP_TITLE =
+  "Not linkable here — this view is not tied to an environment, so the thread cannot be opened.";
 
 export function ThreadLinkChip({
   label,
@@ -238,20 +245,21 @@ export function ThreadLinkChip({
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const shell = useThreadShell(ref);
   if (shell === null) {
+    const inertTitle = ref === null ? UNSCOPED_THREAD_CHIP_TITLE : UNRESOLVED_THREAD_CHIP_TITLE;
     return (
       <Tooltip>
         <TooltipTrigger
           render={
             <span
               className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, "cursor-help opacity-70")}
-              aria-label={`${label} — ${UNRESOLVED_THREAD_CHIP_TITLE}`}
+              aria-label={`${label} — ${inertTitle}`}
             />
           }
         >
           <ThreadTagChipContent label={label} />
         </TooltipTrigger>
         <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] text-[11px]">
-          {UNRESOLVED_THREAD_CHIP_TITLE}
+          {inertTitle}
         </TooltipPopup>
       </Tooltip>
     );

@@ -34,6 +34,7 @@ export function shouldShowStagedBriefPreview(input: {
 }
 
 interface StagedBriefPreviewCardProps {
+  /** Reads the brief, and resolves its `thread://` chips. */
   readonly environmentId: EnvironmentId;
   readonly kickoffBriefPath: string;
   readonly markdownCwd?: string | undefined;
@@ -66,7 +67,7 @@ export const StagedBriefPreviewCard = memo(function StagedBriefPreviewCard({
       bottomInset={bottomInset}
     >
       {brief !== null ? (
-        <ChatMarkdown text={brief} cwd={markdownCwd} />
+        <ChatMarkdown text={brief} cwd={markdownCwd} environmentId={environmentId} />
       ) : error !== null ? (
         <p className="text-destructive text-sm">Could not read the brief: {error}</p>
       ) : (

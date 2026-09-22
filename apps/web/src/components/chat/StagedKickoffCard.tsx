@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { PencilIcon, RocketIcon } from "lucide-react";
 
+import type { EnvironmentId } from "@t3tools/contracts";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { StagedCard } from "./StagedCard";
@@ -33,6 +34,8 @@ export function shouldShowStagedKickoff(input: {
 }
 
 interface StagedKickoffCardProps {
+  /** Resolves the brief's `thread://` chips — without it every one reads as archived. */
+  readonly environmentId: EnvironmentId;
   readonly brief: string;
   readonly markdownCwd?: string | undefined;
   readonly launchDisabled?: boolean;
@@ -49,6 +52,7 @@ interface StagedKickoffCardProps {
  * a draft) actions.
  */
 export const StagedKickoffCard = memo(function StagedKickoffCard({
+  environmentId,
   brief,
   markdownCwd,
   launchDisabled,
@@ -74,7 +78,7 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
         </>
       }
     >
-      <ChatMarkdown text={brief} cwd={markdownCwd} />
+      <ChatMarkdown text={brief} cwd={markdownCwd} environmentId={environmentId} />
     </StagedCard>
   );
 });
