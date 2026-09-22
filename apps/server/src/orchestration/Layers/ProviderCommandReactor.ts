@@ -536,7 +536,6 @@ const make = Effect.gen(function* () {
         status: session?.status === "stopped" ? "stopped" : "error",
         activeTurnId: null,
         lastError: input.detail,
-        queuedMessages: { steering: [], followUp: [] },
         updatedAt: input.createdAt,
       },
       createdAt: input.createdAt,
@@ -840,7 +839,6 @@ const make = Effect.gen(function* () {
           runtimeMode: desiredRuntimeMode,
           activeTurnId: null,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
         },
         createdAt,
@@ -1021,7 +1019,6 @@ const make = Effect.gen(function* () {
             ...(session.lastErrorClass !== undefined
               ? { lastErrorClass: session.lastErrorClass }
               : {}),
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: session.updatedAt,
           },
           createdAt,
@@ -1716,7 +1713,6 @@ const make = Effect.gen(function* () {
           runtimeMode: thread.runtimeMode,
           activeTurnId: null,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: event.payload.createdAt,
         },
         createdAt: event.payload.createdAt,
@@ -2441,7 +2437,6 @@ const make = Effect.gen(function* () {
               ...(thread.session?.lastErrorClass !== undefined
                 ? { lastErrorClass: thread.session.lastErrorClass }
                 : {}),
-              queuedMessages: { steering: [], followUp: [] },
               updatedAt: now,
             },
             createdAt: now,

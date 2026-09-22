@@ -51,6 +51,11 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import { reconcileStaleSessionsGuarded, startLoomSweeps } from "./loom/startup.ts"; // loom:
+import {
+  appendPendingSteering,
+  PENDING_STEERING_KEY,
+  readPendingSteering,
+} from "./loom/pendingSteering.ts"; // loom:
 import { isRecoveryResumable } from "./orchestration/stuckLaunchRecovery.ts"; // loom:
 import { openRequestIds } from "@t3tools/shared/openRequests"; // loom:
 import { forkParked } from "./serverActivation.ts";
@@ -491,6 +496,8 @@ export const markRunningProviderSessionsForContinuation = Effect.gen(function* (
 const clearContinuationMarkers = (
   directory: ProviderSessionDirectory.ProviderSessionDirectory["Service"],
   threadIds: ReadonlyArray<ThreadId>,
+  // loom: extra `runtimePayload` keys to clear in the same merge-upsert.
+  additionalPayload: Record<string, unknown> = {},
 ) =>
   Effect.forEach(
     threadIds,
@@ -506,6 +513,7 @@ const clearContinuationMarkers = (
                   ...readRuntimePayload(binding.runtimePayload),
                   [SERVER_UPDATE_CONTINUATION_KEY]: null,
                   continueAfterServerUpdatePrepared: null,
+                  ...additionalPayload, // loom:
                 },
               }),
           }),
@@ -660,6 +668,12 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       binding.value.status === "running" &&
       resumeStateAvailable &&
       forkResumable; // loom:
+    // loom: steers pi was still holding when its process died. Re-delivered with
+    // the continuation below, and cleared whichever way this thread settles.
+    const pendingSteering = Option.isSome(binding)
+      ? readPendingSteering(binding.value.runtimePayload)
+      : [];
+    const clearPendingSteering = pendingSteering.length > 0 ? { [PENDING_STEERING_KEY]: null } : {};
     const settleAsError = (lastError: string) =>
       Effect.gen(function* () {
         yield* Effect.gen(function* () {
@@ -670,6 +684,10 @@ export const reconcileProviderSessions = Effect.gen(function* () {
               runtimePayload: {
                 ...readRuntimePayload(binding.value.runtimePayload),
                 activeTurnId: null,
+                // loom: nothing will re-deliver this thread's queued steers now
+                // that it is settling as an error; a stash left behind would
+                // surface in an unrelated continuation later.
+                ...clearPendingSteering,
                 ...(continuationMarkerPresent || interruptedByRestart
                   ? {
                       [SERVER_UPDATE_CONTINUATION_KEY]: null,
@@ -777,8 +795,13 @@ export const reconcileProviderSessions = Effect.gen(function* () {
             }
             const capabilities = yield* providerService.getCapabilities(providerInstanceId);
             let prompt = SERVER_UPDATE_CONTINUATION_PROMPT;
+            // loom: pending steers ride the continuation prompt, which forces
+            // the prompt path even on a provider that would otherwise continue
+            // promptlessly — a promptless continuation cannot carry them.
+            const sendsPrompt =
+              capabilities.promptlessTurnContinuation !== true || pendingSteering.length > 0;
             const interruptedTurnId = session.activeTurnId ?? continuationTurnId;
-            if (capabilities.promptlessTurnContinuation !== true && interruptedTurnId !== null) {
+            if (sendsPrompt && interruptedTurnId !== null) {
               const inFlightTool = yield* query
                 .getInFlightToolByThreadId(thread.id, interruptedTurnId)
                 .pipe(
@@ -795,16 +818,20 @@ export const reconcileProviderSessions = Effect.gen(function* () {
             }
             yield* providerService.sendTurn({
               threadId: thread.id,
-              ...(capabilities.promptlessTurnContinuation === true
-                ? { continuation: true }
-                : { input: prompt }),
+              ...(sendsPrompt
+                ? { input: appendPendingSteering(prompt, pendingSteering) } // loom:
+                : { continuation: true }),
               interactionMode: thread.interactionMode,
             });
           });
           const continuationExit = yield* Effect.exit(continuation);
           if (Exit.isSuccess(continuationExit) || Cause.hasInterrupts(continuationExit.cause)) {
             if (Exit.isSuccess(continuationExit)) {
-              yield* clearContinuationMarkers(directory, [thread.id]).pipe(
+              yield* clearContinuationMarkers(
+                directory,
+                [thread.id],
+                clearPendingSteering, // loom: delivered with the continuation.
+              ).pipe(
                 Effect.uninterruptible,
                 Effect.catchCause((cause) =>
                   Effect.logWarning("failed to clear completed provider session continuation", {

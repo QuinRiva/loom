@@ -78,7 +78,6 @@ function makeShell(input: {
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: NOW,
           },
     cumulativeCostUsd: 0,
@@ -141,7 +140,6 @@ describe("hasQueuedTurnStart", () => {
         runtimeMode: "full-access" as const,
         activeTurnId: null,
         lastError: "boom",
-        queuedMessages: { steering: [], followUp: [] },
         updatedAt: NOW,
       },
     };

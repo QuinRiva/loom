@@ -133,7 +133,6 @@ it.layer(NodeServices.layer)("active thread ordering", (it) => {
           activeTurnId: null,
           lastError: null,
           updatedAt: NOW,
-          queuedMessages: { steering: [], followUp: [] },
         },
       });
       const decided = yield* decideOrchestrationCommand({ command: reorderCommand, readModel });

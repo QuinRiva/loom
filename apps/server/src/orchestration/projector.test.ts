@@ -1571,7 +1571,6 @@ describe("orchestration projector", () => {
                 runtimeMode: "full-access",
                 activeTurnId: null, // <-- Session idle, would wipe latestTurn in the old bug
                 lastError: null,
-                queuedMessages: { steering: [], followUp: [] },
                 updatedAt: "2026-01-01T00:00:01.000Z",
               },
             },

@@ -106,7 +106,6 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
     runtimeMode: "full-access",
     activeTurnId: null,
     lastError: null,
-    queuedMessages: { steering: [], followUp: [] },
     updatedAt: NOW,
   };
 }

@@ -192,7 +192,6 @@ describe("resolveThreadListV2Status", () => {
         runtimeMode: "full-access",
         activeTurnId: null,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] }, // loom: queued steers on the turn shell
         updatedAt: NOW,
       },
     });

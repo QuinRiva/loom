@@ -171,9 +171,7 @@ function makeReadModel(
       notifySendLog: [],
       latestTurn: null,
       messages: [],
-      session: thread.session
-        ? { ...thread.session, queuedMessages: { steering: [], followUp: [] } }
-        : null,
+      session: thread.session,
       backgroundLiveness: thread.backgroundLiveness ?? null,
       activities: [],
       proposedPlans: [],

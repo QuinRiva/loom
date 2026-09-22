@@ -39,6 +39,11 @@ import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+// loom: durable stash for pi's in-process steer queue — see loom/pendingSteering.ts.
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { ProviderSessionDirectoryLive } from "../../provider/Layers/ProviderSessionDirectory.ts";
+import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
+import { PENDING_STEERING_KEY, readPendingSteering } from "../../loom/pendingSteering.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadHeartbeatRepository } from "../../persistence/Services/ProjectionThreadHeartbeats.ts";
@@ -1126,6 +1131,25 @@ const make = Effect.gen(function* () {
   const heartbeatRepository = yield* ProjectionThreadHeartbeatRepository;
   const usageLedgerRepository = yield* ProjectionUsageLedgerRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
+
+  // loom: the durable copy of pi's in-process steer queue (loom/pendingSteering.ts).
+  // Merge-upsert, so the key rides alongside the binding's other runtime state.
+  const stashPendingSteering = (threadId: ThreadId, steering: ReadonlyArray<string>) =>
+    Effect.gen(function* () {
+      const binding = yield* providerSessionDirectory.getBinding(threadId);
+      if (Option.isNone(binding)) return;
+      const stashed = readPendingSteering(binding.value.runtimePayload);
+      if (stashed.length === steering.length && stashed.every((t, i) => t === steering[i])) return;
+      yield* providerSessionDirectory.upsert({
+        ...binding.value,
+        runtimePayload: { [PENDING_STEERING_KEY]: steering.length > 0 ? [...steering] : null },
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("failed to stash pending steering", { threadId, cause }),
+      ),
+    );
 
   // Liveness heartbeat: advance a per-thread "last runtime activity at" on ANY
   // runtime event (token/reasoning deltas, tool lifecycle, turn boundaries —
@@ -2151,6 +2175,11 @@ const make = Effect.gen(function* () {
                 : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
+          // loom: a settled turn's steers were either delivered or died with it,
+          // so drop the stash rather than replay it into a later restart.
+          if (status !== "running") {
+            yield* stashPendingSteering(thread.id, []);
+          }
           if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
             yield* markSourceProposedPlanImplemented(
               acceptedTurnStartedSourcePlan.sourceThreadId,
@@ -2185,12 +2214,6 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
-              // The queue is live state of the running turn; carry it forward
-              // while still running and drain it to empty once the turn ends.
-              queuedMessages:
-                status === "running"
-                  ? (thread.session?.queuedMessages ?? { steering: [], followUp: [] })
-                  : { steering: [], followUp: [] },
               updatedAt: now,
             },
             createdAt: now,
@@ -2198,31 +2221,12 @@ const make = Effect.gen(function* () {
         }
       }
 
+      // loom: pi's queue lives in its process and dies with it, so stash the
+      // pending steer texts where a restart can find them
+      // (loom/pendingSteering.ts). This replaces a session mirror that was
+      // dropped at the DB boundary and read by nobody.
       if (event.type === "thread.queue.updated" && thread.session) {
-        // Pure queue refresh: preserve the live session state and only swap in
-        // the new pending-message queue from the provider.
-        yield* orchestrationEngine.dispatch({
-          type: "thread.session.set",
-          commandId: yield* providerCommandId(event, "thread-session-queue"),
-          threadId: thread.id,
-          session: {
-            threadId: thread.id,
-            status: thread.session.status,
-            providerName: thread.session.providerName,
-            ...(thread.session.providerInstanceId !== undefined
-              ? { providerInstanceId: thread.session.providerInstanceId }
-              : {}),
-            runtimeMode: thread.session.runtimeMode,
-            activeTurnId: thread.session.activeTurnId,
-            lastError: thread.session.lastError,
-            queuedMessages: {
-              steering: [...event.payload.steering],
-              followUp: [...event.payload.followUp],
-            },
-            updatedAt: now,
-          },
-          createdAt: now,
-        });
+        yield* stashPendingSteering(thread.id, event.payload.steering);
       }
 
       const assistantDelta =
@@ -2721,7 +2725,6 @@ const make = Effect.gen(function* () {
               // Persist the error class (e.g. "quota_exhausted") so the resume
               // sweep can find exhaustion-stalled sessions without re-parsing.
               ...(event.payload.class !== undefined ? { lastErrorClass: event.payload.class } : {}),
-              queuedMessages: { steering: [], followUp: [] },
               updatedAt: now,
             },
             createdAt: now,
@@ -3185,6 +3188,8 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make,
 ).pipe(
+  // loom: the pending-steer stash writes through the session directory.
+  Layer.provide(ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntime.layer))),
   Layer.provide(ProjectionTurnRepositoryLive),
   Layer.provide(ProjectionThreadHeartbeatRepositoryLive),
   Layer.provide(ProjectionUsageLedgerRepositoryLive),

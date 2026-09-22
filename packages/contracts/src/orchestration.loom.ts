@@ -222,12 +222,6 @@ export const LegacyThreadStatus = Schema.Literals([
 ]);
 export type LegacyThreadStatus = typeof LegacyThreadStatus.Type;
 
-export const QueuedMessages = Schema.Struct({
-  steering: Schema.Array(Schema.String),
-  followUp: Schema.Array(Schema.String),
-});
-export type QueuedMessages = typeof QueuedMessages.Type;
-
 export interface OrchestrationGoalTask {
   readonly id: GoalTaskId;
   readonly goalId: GoalId;
@@ -636,12 +630,6 @@ export const LoomSessionFields = {
   // the exhaustion resume sweep can find `quota_exhausted`-stalled sessions
   // across restarts without re-parsing the raw string.
   lastErrorClass: Schema.optional(RuntimeErrorClass),
-  // Ephemeral live queue of pending messages (steer folds into the running
-  // turn, followUp runs after). Optional with an empty default so DB-hydrated
-  // sessions, which never persist it, decode cleanly and start with no queue.
-  queuedMessages: QueuedMessages.pipe(
-    Schema.withDecodingDefault(Effect.succeed({ steering: [], followUp: [] })),
-  ),
 } as const;
 
 // Provenance of a user-role message — who/what composed it. Additive +

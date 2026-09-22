@@ -422,7 +422,6 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: createdAt,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt,
     });
@@ -473,6 +472,32 @@ describe("ProviderRuntimeIngestion", () => {
               sql<Record<string, unknown>>`SELECT * FROM projection_usage_ledger ORDER BY event_id`,
           ),
         ),
+      // loom: the provider session binding row carries the pending-steer stash.
+      seedProviderBinding: () =>
+        activeRuntime.runPromise(
+          Effect.flatMap(
+            Effect.service(SqlClient.SqlClient),
+            (sql) => sql`
+              INSERT INTO provider_session_runtime (
+                thread_id, provider_name, provider_instance_id, adapter_key,
+                runtime_mode, status, last_seen_at, resume_cursor_json, runtime_payload_json
+              ) VALUES ('thread-1', 'codex', 'codex', 'codex', 'approval-required', 'running',
+                '2026-01-01T00:00:00.000Z', NULL, '{}')
+            `,
+          ),
+        ),
+      readProviderRuntimePayload: () =>
+        activeRuntime
+          .runPromise(
+            Effect.flatMap(
+              Effect.service(SqlClient.SqlClient),
+              (sql) =>
+                sql<{
+                  readonly runtimePayload: string | null;
+                }>`SELECT runtime_payload_json AS "runtimePayload" FROM provider_session_runtime WHERE thread_id = 'thread-1'`,
+            ),
+          )
+          .then((rows) => JSON.parse(rows[0]?.runtimePayload ?? "{}") as Record<string, unknown>),
     };
   }
 
@@ -931,6 +956,51 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
+  // loom: pi's steer queue dies with its process, so every queue update stashes
+  // the pending texts on the binding for the restart continuation to re-deliver
+  // (loom/pendingSteering.ts). The stash is dropped once the turn ends.
+  it("stashes pending steers on the binding and clears them when the turn ends", async () => {
+    const harness = await createHarness();
+    await harness.seedProviderBinding();
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    harness.emit({
+      ...base,
+      type: "turn.started",
+      eventId: asEventId("evt-steer-turn-started"),
+      turnId: asTurnId("turn-steer"),
+    });
+    await waitForThread(harness.readModel, (thread) => thread.session?.status === "running");
+
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "thread.queue.updated",
+        eventId: asEventId("evt-steer-queued"),
+        payload: { steering: ["check the lease id first", "and re-run the audit"], followUp: [] },
+      },
+    ]);
+    expect((await harness.readProviderRuntimePayload()).pendingSteering).toEqual([
+      "check the lease id first",
+      "and re-run the audit",
+    ]);
+
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("evt-steer-turn-completed"),
+        turnId: asTurnId("turn-steer"),
+        payload: { state: "completed" },
+      },
+    ]);
+    await waitForThread(harness.readModel, (thread) => thread.session?.status === "ready");
+    expect((await harness.readProviderRuntimePayload()).pendingSteering).toBeNull();
+  });
+
   effectIt.effect(
     "keeps a reconnecting pending turn starting while ready clears stale active state",
     () =>
@@ -964,7 +1034,6 @@ describe("ProviderRuntimeIngestion", () => {
             runtimeMode: "approval-required",
             activeTurnId: staleTurnId,
             lastError: null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: "2026-01-01T00:00:01.000Z",
           },
           createdAt: "2026-01-01T00:00:01.000Z",
@@ -1314,7 +1383,6 @@ describe("ProviderRuntimeIngestion", () => {
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: "2026-01-01T00:00:01.000Z",
         },
         createdAt: "2026-01-01T00:00:01.000Z",
@@ -1330,7 +1398,6 @@ describe("ProviderRuntimeIngestion", () => {
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: stoppedAt,
         },
         createdAt: stoppedAt,
@@ -1434,7 +1501,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "claudeAgent",
           runtimeMode: "approval-required",
           activeTurnId: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: seededAt,
           lastError: null,
         },
@@ -1545,7 +1611,6 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: seededAt,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt: seededAt,
     });
@@ -1585,7 +1650,6 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: seededAt,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt: seededAt,
     });
@@ -2300,7 +2364,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -2336,7 +2399,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -2513,7 +2575,6 @@ describe("ProviderRuntimeIngestion", () => {
             providerName: "codex",
             runtimeMode: "approval-required",
             activeTurnId: null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: createdAt,
             lastError: null,
           },
@@ -2754,7 +2815,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -2790,7 +2850,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -4789,7 +4848,6 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: asTurnId("turn-crashed"),
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },

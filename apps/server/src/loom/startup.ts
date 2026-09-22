@@ -281,7 +281,6 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
         status: "ready",
         activeTurnId: null,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
         updatedAt: now,
       },
       createdAt: now,
