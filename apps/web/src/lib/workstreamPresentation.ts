@@ -738,6 +738,7 @@ export function getNodeFooter(
 
 export type WorkstreamNodeMenuAction =
   | "open"
+  | "dispatch"
   | "history"
   | "report"
   | "release"
@@ -758,6 +759,9 @@ export function buildNodeContextMenuItems(
     { id: "open", label: "Open thread" },
     { id: "history", label: "View history" },
   ];
+  // A root has no dispatching turn to jump to; every child was spawned from one.
+  if (thread.parentThreadId !== null)
+    items.splice(1, 0, { id: "dispatch", label: "Go to where it was dispatched" });
   if (thread.reportPath !== null) items.push({ id: "report", label: "Open report" });
   if (thread.planLane === "planned") items.push({ id: "release", label: "Release" });
   if (attentionReasonsOf(thread).length > 0)
@@ -846,6 +850,13 @@ export interface LifecycleRow {
   readonly detail: string | null;
   readonly tone: LifecycleTone;
   /**
+   * Whether the row maps cleanly to a turn in the thread's chat, so it can jump
+   * there via `requestScrollToDispatch`. Only set where the mapping is
+   * unambiguous (a turn boundary: start/resume/yield, and each submitted
+   * outcome) — control-plane-only rows (route-taken, fan-in) are not linked.
+   */
+  readonly deepLink: boolean;
+  /**
    * Absolute path to the completion report this row's submit wrote, when one
    * exists. Set only on outcome rows: a `thread.report-set` event is emitted in
    * the same transaction immediately before its `thread.outcome-recorded`, so
@@ -903,32 +914,35 @@ function describeLaneTransition(
           label: "Resumed",
           detail: "picked back up by orchestrator",
           tone: "sky",
+          deepLink: true,
         };
       if (isTerminalLane(previousLane))
-        return { label: "Reopened", detail: "re-run for rework", tone: "sky" };
-      return { label: "Started", detail: null, tone: "sky" };
+        return { label: "Reopened", detail: "re-run for rework", tone: "sky", deepLink: true };
+      return { label: "Started", detail: null, tone: "sky", deepLink: true };
     case "yielded":
       return {
         label: "Yielded",
         detail: "handed the turn back to the orchestrator",
         tone: "violet",
+        deepLink: true,
       };
     case "done":
-      return { label: "Done", detail: null, tone: "emerald" };
+      return { label: "Done", detail: null, tone: "emerald", deepLink: false };
     case "cancelled":
-      return { label: "Cancelled", detail: null, tone: "neutral" };
+      return { label: "Cancelled", detail: null, tone: "neutral", deepLink: false };
     case "ready":
       return reopened
         ? {
             label: "Reopened",
             detail: "re-run in a fresh generation",
             tone: "cyan",
+            deepLink: false,
           }
-        : { label: "Released", detail: "ready to run", tone: "cyan" };
+        : { label: "Released", detail: "ready to run", tone: "cyan", deepLink: false };
     case "planned":
       return reopened
-        ? { label: "Reopened · held", detail: null, tone: "neutral" }
-        : { label: "Held", detail: null, tone: "neutral" };
+        ? { label: "Reopened · held", detail: null, tone: "neutral", deepLink: false }
+        : { label: "Held", detail: null, tone: "neutral", deepLink: false };
   }
 }
 
@@ -948,10 +962,10 @@ function describeOutcome(payload: {
       ? `${payload.counts.mustFix} must-fix · ${payload.counts.niceToHave} nice-to-have`
       : roundLabel;
   const verdict = describeOutcomeVerdict(payload);
-  if (verdict) return { label: verdict.chip.label, detail, tone: verdict.tone };
+  if (verdict) return { label: verdict.chip.label, detail, tone: verdict.tone, deepLink: true };
   // Outcomes with no verdict vocabulary (e.g. a terminal/resolve decision on a
-  // non-verdict token) still get a row, labelled from the raw token.
-  return { label: humanizeToken(payload.outcome), detail: roundLabel, tone: "sky" };
+  // non-verdict token): still a submitted turn boundary, so keep it deep-linked.
+  return { label: humanizeToken(payload.outcome), detail: roundLabel, tone: "sky", deepLink: true };
 }
 
 // Reuses the shared `FAN_IN_SETTLEMENT` vocabulary (label + tone) that the card
@@ -963,11 +977,13 @@ const FAN_IN_ROW_DETAIL = {
 } as const;
 
 function describeFanIn(state: ThreadFanInState): LifecycleRowBody {
-  if (state === "none") return { label: "fan-in reset", detail: null, tone: "neutral" };
+  if (state === "none")
+    return { label: "fan-in reset", detail: null, tone: "neutral", deepLink: false };
   return {
     label: FAN_IN_SETTLEMENT[state].label,
     detail: FAN_IN_ROW_DETAIL[state],
     tone: FAN_IN_SETTLEMENT[state].tone,
+    deepLink: false,
   };
 }
 
@@ -1010,6 +1026,7 @@ export function buildThreadLifecycleRows(
           label: "Attention raised",
           detail: ATTENTION_LABELS[event.payload.reason],
           tone: ATTENTION_TONES[event.payload.reason],
+          deepLink: false,
         });
         break;
       case "thread.attention-cleared":
@@ -1019,6 +1036,7 @@ export function buildThreadLifecycleRows(
           label: "Attention cleared",
           detail: event.payload.reason ? ATTENTION_LABELS[event.payload.reason] : "all flags",
           tone: "neutral",
+          deepLink: false,
         });
         break;
       case "thread.outcome-recorded":
@@ -1037,6 +1055,7 @@ export function buildThreadLifecycleRows(
           label: `Rework round ${event.payload.round} opened`,
           detail: null,
           tone: "amber",
+          deepLink: false,
         });
         break;
       case "thread.fanin-set":

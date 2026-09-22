@@ -268,6 +268,8 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
 import { insertHandoffReceiptRows } from "~/loom/handoffReceiptRows";
 import { type HandoffReceiptView } from "~/loom/handoffReceipts.logic";
+// loom: jump-to-dispatch from the Workstream surfaces.
+import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
 import { ThreadContextChip } from "~/loom/threadReferencePresentation";
 import { threadReferenceFromRecord } from "~/loom/threadReference";
 
@@ -970,6 +972,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     onExpandTurn: expandCitedTurn,
     onManualNavigation,
   });
+  // loom: a Workstream click parks an anchor; land the transcript on that turn.
+  useScrollToDispatch({
+    rows,
+    listRef,
+    routeThreadKey,
+    viewport: timelineViewportElement,
+    loadEarlier,
+    onManualNavigation,
+  });
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const alwaysRender = citationAlwaysRender ?? restoringAlwaysRender;
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
@@ -1255,7 +1266,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div
+        className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip"
+        data-timeline-root="true"
+        data-loom-row-id={item.id}
+      >
         <TimelineRowContent row={item} />
       </div>
     ),

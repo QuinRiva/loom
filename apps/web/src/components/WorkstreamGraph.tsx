@@ -115,7 +115,7 @@ export default function WorkstreamGraph({
     thread: SidebarThreadSummary,
     position: { x: number; y: number },
   ) => void;
-  readonly onOpenDispatch: (threadId: ThreadId) => void;
+  readonly onOpenDispatch: (threadId: ThreadId, anchorAtIso: string) => void;
 }) {
   // Layout depends only on structure (lineage + generation + deps + loop routes
   // + order), so memoise on a structural key rather than re-running on every
@@ -645,7 +645,7 @@ function ConsultGraphEdge({
   dimmed,
 }: {
   readonly edge: ConsultEdge;
-  readonly onOpenDispatch: (threadId: ThreadId) => void;
+  readonly onOpenDispatch: (threadId: ThreadId, anchorAtIso: string) => void;
   readonly dimmed: boolean;
 }) {
   const midX = (edge.x1 + edge.x2) / 2;
@@ -653,7 +653,7 @@ function ConsultGraphEdge({
   // Count badge rides the straight routed segment (carried on the edge) for a
   // back-edge, or the endpoint midpoint for a forward spline.
   const badge = edge.badge ?? { x: midX, y: midY };
-  const open = () => onOpenDispatch(edge.askerId);
+  const open = () => onOpenDispatch(edge.askerId, edge.anchorAtIso);
   const d = edge.points
     ? roundedPath(edge.points)
     : `M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`;
@@ -718,10 +718,10 @@ function BridgeNode({
   dimmed,
 }: {
   readonly node: Extract<LaidNode, { kind: "bridge" }>;
-  readonly onOpenDispatch: (orchestratorId: ThreadId) => void;
+  readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
   readonly dimmed: boolean;
 }) {
-  const open = () => onOpenDispatch(node.orchestratorId);
+  const open = () => onOpenDispatch(node.orchestratorId, node.anchorAtIso);
   return (
     <g
       className="ws-graph-node ws-graph-bridge cursor-pointer"
