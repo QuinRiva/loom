@@ -15,8 +15,13 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { Argument, Flag } from "effect/unstable/cli";
 
+import { resolveGitWorktreePath } from "@t3tools/shared/devHome"; // loom:
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
+import {
+  describeBaseDirSelection,
+  selectServerBaseDir,
+} from "../workspace/serverHomeGuard.loom.ts"; // loom:
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
@@ -303,15 +308,30 @@ export const resolveServerConfig = (
     );
     const devAuthToken =
       mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
-    const explicitBaseDir = resolveOptionPrecedence(
-      normalizedFlags.baseDir,
-      Option.fromUndefinedOr(env.t3Home),
-    ).pipe(Option.filter((value) => value.trim().length > 0));
-    const baseDir = yield* resolveBaseDir(
-      Option.getOrUndefined(
-        resolveOptionPrecedence(explicitBaseDir, Option.fromUndefinedOr(bootstrap?.t3Home)),
-      ),
-    );
+    // loom: a checkout this install provisioned under `<home>/worktrees/` runs
+    // on its own `.t3`, outranking the ambient `T3CODE_HOME` it inherited —
+    // see ../workspace/serverHomeGuard.loom.ts for why that containment test
+    // (and not "is a worktree") is the discriminator.
+    const resolveHome = Effect.fn(function* (value: string | undefined) {
+      return value !== undefined && value.trim().length > 0
+        ? yield* resolveBaseDir(value)
+        : undefined;
+    });
+    const baseDirSelection = selectServerBaseDir({
+      flagBaseDir: yield* resolveHome(Option.getOrUndefined(normalizedFlags.baseDir)),
+      envHome: yield* resolveHome(env.t3Home),
+      bootstrapHome: yield* resolveHome(bootstrap?.t3Home),
+      defaultHome: yield* resolveBaseDir(undefined),
+      worktreePath: yield* resolveGitWorktreePath(process.cwd()),
+    });
+    yield* Effect.logInfo(describeBaseDirSelection(baseDirSelection));
+    const baseDir = baseDirSelection.baseDir;
+    // The desktop bootstrap envelope never flipped `dev` to `userdata`; only a
+    // deliberate home does, and the worktree rule is one.
+    const explicitBaseDir =
+      baseDirSelection.rule === "bootstrap" || baseDirSelection.rule === "default"
+        ? Option.none<string>()
+        : Option.some(baseDir);
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
     yield* fs.makeDirectory(cwd, { recursive: true });

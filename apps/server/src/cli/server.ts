@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import { Command, GlobalFlag } from "effect/unstable/cli";
 
 import { ServerConfig, type StartupPresentation } from "../config.ts";
+import { claimServerHome, ensureHomeNotLive } from "../workspace/serverHomeGuard.loom.ts"; // loom:
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
@@ -15,6 +16,11 @@ export const runServerCommand = (
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
+    // loom: two servers on one database corrupt live state. Refuse before the
+    // database is opened, then take the home so the refusal also covers our
+    // own migration window.
+    yield* ensureHomeNotLive(config);
+    yield* claimServerHome(config);
     return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
   });
 
