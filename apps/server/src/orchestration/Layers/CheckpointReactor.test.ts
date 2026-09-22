@@ -104,21 +104,21 @@ function createProviderServiceHarness(
   const unsupported = <A>() =>
     Effect.die(new Error("Unsupported provider call in test")) as Effect.Effect<A, never>;
   const listSessions = () =>
-    hasSession
-      ? Effect.succeed([
-          {
-            provider: providerName,
-            status: "ready",
-            runtimeMode: "full-access",
-            threadId: ThreadId.make("thread-1"),
-            cwd: sessionCwd,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ] satisfies ReadonlyArray<ProviderSession>)
-      : Effect.succeed([] as ReadonlyArray<ProviderSession>);
+    Effect.succeed(hasSession ? [session] : ([] as ReadonlyArray<ProviderSession>));
+  const session: ProviderSession = {
+    provider: providerName,
+    status: "ready",
+    runtimeMode: "full-access",
+    threadId: ThreadId.make("thread-1"),
+    cwd: sessionCwd,
+    createdAt: now,
+    updatedAt: now,
+  };
   const service: ProviderServiceShape = {
-    getSession: () => Effect.succeed(undefined),
+    // The reactor resolves a thread's cwd through getSession, so the single
+    // modelled session has to answer here as well as in listSessions.
+    getSession: (threadId) =>
+      Effect.succeed(hasSession && threadId === session.threadId ? session : undefined),
     startSession: () => unsupported(),
     sendTurn: () => unsupported(),
     compactThread: () => unsupported(),
@@ -596,7 +596,14 @@ describe("CheckpointReactor", () => {
       if (owner === "conversation") expect(failure).toBeUndefined();
       else {
         expect(failure?.payload).toMatchObject({
-          detail: expect.stringContaining("isolated worktree"),
+          // loom: a LIVE sibling on the same resolved cwd is refused by the
+          // fork's occupant guard, which names the threads; the alias/nested/
+          // ancestor/archived owners fall through to upstream's isolation check.
+          detail: expect.stringContaining(
+            owner === "active" || owner === "project-root"
+              ? "share this worktree"
+              : "isolated worktree",
+          ),
         });
         expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
       }
@@ -718,11 +725,12 @@ describe("CheckpointReactor", () => {
             threadId: id,
             turnId,
           });
-          if (index < 2)
-            expect(yield* harness.nextReceipt).toMatchObject({
-              type: "checkpoint.baseline.captured",
-              threadId: id,
-            });
+          // loom: the start-of-turn baseline is re-captured every turn (into
+          // `baseline/<upcoming>`), so every turn start publishes a receipt.
+          expect(yield* harness.nextReceipt).toMatchObject({
+            type: "checkpoint.baseline.captured",
+            threadId: id,
+          });
           const cwd = threadId === "thread-1" ? harness.cwd : secondCwd;
           NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), `snapshot ${index}\n`);
           harness.provider.emit({
@@ -800,9 +808,11 @@ describe("CheckpointReactor", () => {
         threadId: ThreadId.make("thread-1"),
         turnId: asTurnId("turn-1"),
       });
+      // loom: the baseline is captured for the UPCOMING turn, so its count is
+      // the turn count the completion will carry.
       expect(yield* harness.nextReceipt).toMatchObject({
         type: "checkpoint.baseline.captured",
-        checkpointTurnCount: 0,
+        checkpointTurnCount: 1,
       });
 
       NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "v2\n", "utf8");
@@ -1063,6 +1073,11 @@ describe("CheckpointReactor", () => {
           createdAt,
           threadId,
           turnId: followUpTurnId,
+        });
+        // loom: every turn start re-captures the baseline for the upcoming turn.
+        expect(yield* harness.nextReceipt).toMatchObject({
+          type: "checkpoint.baseline.captured",
+          checkpointTurnCount: 2,
         });
         harness.provider.emit({
           type: "turn.completed",
@@ -1608,9 +1623,10 @@ describe("CheckpointReactor", () => {
           runtimeMode: "approval-required",
           createdAt,
         });
+        // loom: the baseline belongs to the UPCOMING turn, so it carries 1 here.
         expect(yield* harness.nextReceipt).toMatchObject({
           type: "checkpoint.baseline.captured",
-          checkpointTurnCount: 0,
+          checkpointTurnCount: 1,
         });
         emit("turn.started", 2);
         yield* Effect.promise(harness.drain);
@@ -1637,6 +1653,11 @@ describe("CheckpointReactor", () => {
       );
 
       emit("turn.started", 3);
+      // loom: a fresh start-of-turn baseline for the upcoming turn.
+      expect(yield* harness.nextReceipt).toMatchObject({
+        type: "checkpoint.baseline.captured",
+        checkpointTurnCount: 2,
+      });
       yield* Effect.promise(harness.drain);
       NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "next turn\n");
       emit("turn.completed", 3);
@@ -1720,6 +1741,48 @@ describe("CheckpointReactor", () => {
     expect(
       gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 0)),
     ).toBe(false);
+  });
+
+  it("defers the baseline for an appended user message until its turn starts", async () => {
+    const harness = await createHarness({
+      hasSession: false,
+      seedFilesystemCheckpoints: false,
+      threadWorktreePath: null,
+    });
+    if (runtime === null) throw new Error("Checkpoint test runtime was not initialized.");
+    const threadId = ThreadId.make("thread-1");
+    const messageId = MessageId.make("deferred-user-message");
+    const baselineRef = checkpointBaselineRefForThreadTurn(threadId, 1);
+
+    await runtime.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.user.append",
+        commandId: CommandId.make("cmd-append-deferred-message"),
+        threadId,
+        message: { messageId, text: "Run this after setup", attachments: [] },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    await harness.drain();
+    expect(gitRefExists(harness.cwd, baselineRef)).toBe(false);
+
+    await runtime.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-start-deferred-message"),
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "Run this after setup",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+    await waitForGitRefExists(harness.cwd, baselineRef);
   });
 
   it("captures turn completion checkpoint from project workspace root when provider session cwd is unavailable", async () => {

@@ -167,6 +167,7 @@ describe("VcsStatusBroadcaster", () => {
         ),
         Layer.provide(
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            resolveRemoteStatusRepository: () => Effect.succeed(null),
             localStatus: () => Effect.succeed(localStatus),
             remoteStatus: () => Effect.succeed(remoteStatus),
             invalidateLocalStatus: () => Effect.void,
@@ -278,6 +279,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () => Effect.succeed(baseLocalStatus),
           remoteStatus: () =>
             Effect.gen(function* () {
@@ -324,6 +326,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () => Effect.succeed(baseLocalStatus),
           remoteStatus: () =>
             Effect.gen(function* () {
@@ -542,6 +545,7 @@ describe("VcsStatusBroadcaster", () => {
         Layer.provide(makeBackgroundPolicyLayer(() => true)),
         Layer.provide(
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            resolveRemoteStatusRepository: () => Effect.succeed(null),
             localStatus: (input) =>
               Effect.sync(() => {
                 seenCwds.push(input.cwd);
@@ -1032,6 +1036,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provide(makeBackgroundPolicyLayer(() => false)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;

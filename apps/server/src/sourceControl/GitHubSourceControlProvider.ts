@@ -325,6 +325,22 @@ export const make = Effect.gen(function* () {
       return readLinkSubject(input, `repos/${match[1]}/${match[2]}/issues/${match[3]}`);
     },
     listChangeRequests,
+    // loom: repository-wide PR listing (no per-branch head filter), consumed by
+    // GitManager's repositoryPrListCache.
+    listRepositoryChangeRequests: (input) =>
+      executeChangeRequestList({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "list",
+          "--state",
+          input.state,
+          "--limit",
+          String(input.limit ?? 1_000),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
+      }),
     getChangeRequest: (input) =>
       github
         .getPullRequest({

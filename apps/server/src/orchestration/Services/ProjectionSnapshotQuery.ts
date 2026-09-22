@@ -288,6 +288,18 @@ export interface ProjectionSnapshotQueryShape {
   }) => Effect.Effect<Option.Option<OrchestrationThreadActivity>, ProjectionRepositoryError>;
 
   /**
+   * loom: read one thread's activities of the given kinds and nothing else.
+   * The settle-open-questions paths (stop, interrupt) need two activity kinds,
+   * and must not pay for \u2014 or fail on \u2014 that thread's message bodies, plans,
+   * pull requests and checkpoints the way a narrowed `getThreadDetailById`
+   * still does.
+   */
+  readonly listThreadActivitiesByKinds: (input: {
+    readonly threadId: ThreadId;
+    readonly activityKinds: ReadonlyArray<string>;
+  }) => Effect.Effect<ReadonlyArray<OrchestrationThreadActivity>, ProjectionRepositoryError>;
+
+  /**
    * Read every activity of one kind across active (not deleted, not archived)
    * threads, without hydrating the threads. Used at startup to find state a
    * crashed process left behind.
