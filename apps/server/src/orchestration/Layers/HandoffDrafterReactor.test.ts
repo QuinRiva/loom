@@ -189,6 +189,44 @@ describe("classifyHandoffSettlement", () => {
     });
   });
 
+  it("ignores destinations another drafter placed through this one as its fork source", () => {
+    // A failed drafter stays visible so the human can rescue it, and `/handoff`
+    // from there forks it — which copies the CHILD's destination marker onto this
+    // drafter. Counting that copy would archive a drafter that placed nothing,
+    // erasing the very surface the human was working from.
+    const drafter = makeDrafter({
+      latestTurn: turn("completed"),
+      handoffDestinations: [
+        {
+          goalId: GoalId.make("goal-child"),
+          threadId: "dest-child" as ThreadId,
+          drafterThreadId: "another-drafter" as ThreadId,
+        },
+      ],
+    });
+    expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({
+      kind: "guidance",
+      reasonKey: "zero:turn-1",
+    });
+  });
+
+  it("still settles a pre-attribution handoff record, which only ever landed on its own drafter", () => {
+    const drafter = makeDrafter({
+      latestTurn: turn("completed"),
+      handoffDestinations: [
+        {
+          goalId: GoalId.make("goal-legacy"),
+          threadId: "dest-legacy" as ThreadId,
+          drafterThreadId: null,
+        },
+      ],
+    });
+    expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({
+      kind: "success",
+      turnId: "turn-1",
+    });
+  });
+
   it("raises needs_guidance immediately on a turn-start failure (no turn, session lastError)", () => {
     const drafter = makeDrafter({ latestTurn: null, session: readySession("fork refused") });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({

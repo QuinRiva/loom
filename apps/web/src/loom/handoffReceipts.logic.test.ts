@@ -6,9 +6,11 @@ import {
   deriveHandoffReceiptToastPushes,
   deriveHandoffReceiptViews,
   HANDOFF_DRAFTER_APPEARANCE_GRACE_MS,
+  resolveHandoffReceiptShells,
   type HandoffDrafterShell,
   type HandoffReceiptState,
   type HandoffReceiptView,
+  type HandoffThreadShell,
 } from "./handoffReceipts.logic";
 import type { HandoffReceipt } from "./handoffReceiptStore";
 
@@ -172,11 +174,100 @@ describe("deriveHandoffReceiptState", () => {
   });
 });
 
+describe("resolveHandoffReceiptShells", () => {
+  const shell = (
+    environmentId: string,
+    id: string,
+    overrides: Partial<HandoffThreadShell> = {},
+  ): HandoffThreadShell => ({
+    environmentId: environmentId as HandoffThreadShell["environmentId"],
+    id: id as ThreadId,
+    title: `${environmentId}/${id}`,
+    archivedAt: null,
+    attention: [],
+    handoffDestinations: [],
+    ...overrides,
+  });
+  const marker = (threadId: string, drafterThreadId: string | null) => ({
+    goalId: "goal-1" as never,
+    threadId: threadId as ThreadId,
+    drafterThreadId: drafterThreadId as ThreadId | null,
+  });
+
+  it("reads the destinations off the SOURCE shell, attributed to this receipt's drafter", () => {
+    // Two handoffs from one source: each receipt must see only its own, and the
+    // drafter that placed them is already archived and out of the snapshot.
+    const other = "drafter-2" as ThreadId;
+    const resolved = resolveHandoffReceiptShells({
+      receipts: [
+        receipt(),
+        receipt({
+          id: "handoff_2",
+          intake: { drafterThreadId: other, acknowledgedAt: CREATED_AT },
+        }),
+      ],
+      shells: [
+        shell("env", "thread-1", {
+          handoffDestinations: [marker("dest-1", DRAFTER_ID), marker("dest-2", other)],
+        }),
+        shell("env", "dest-1", { title: "First staged goal" }),
+      ],
+    });
+
+    expect(resolved.destinationsByReceiptId.get("handoff_1")).toEqual([
+      { threadId: "dest-1", title: "First staged goal" },
+    ]);
+    // Staged but not (yet) in the snapshot: still linkable, just unlabelled.
+    expect(resolved.destinationsByReceiptId.get("handoff_2")).toEqual([
+      { threadId: "dest-2", title: null },
+    ]);
+  });
+
+  it("never resolves across environments, which share thread ids by construction", () => {
+    // `useThreadShells()` spans every connected environment, and two of them
+    // backed by copies of one database legitimately carry the SAME thread ids.
+    // Matching on the bare id would let whichever shell is walked last decide
+    // the drafter's fate, the source's markers, and the destination's title.
+    const resolved = resolveHandoffReceiptShells({
+      receipts: [receipt()],
+      shells: [
+        shell("env", "thread-1", { handoffDestinations: [marker("dest-1", DRAFTER_ID)] }),
+        shell("env", "dest-1", { title: "Right environment" }),
+        shell("env", DRAFTER_ID, { archivedAt: "2026-01-01T00:00:20.000Z" }),
+        // Same ids, different environment, contradicting every field.
+        shell("other", "thread-1", { handoffDestinations: [marker("dest-9", DRAFTER_ID)] }),
+        shell("other", "dest-1", { title: "Wrong environment" }),
+        shell("other", DRAFTER_ID, { attention: ["needs_guidance"] }),
+      ],
+    });
+
+    expect(resolved.destinationsByReceiptId.get("handoff_1")).toEqual([
+      { threadId: "dest-1", title: "Right environment" },
+    ]);
+    expect(resolved.drafterShellsByReceiptId.get("handoff_1")?.attention).toEqual([]);
+    expect(resolved.drafterShellsByReceiptId.get("handoff_1")?.archivedAt).toBe(
+      "2026-01-01T00:00:20.000Z",
+    );
+  });
+
+  it("resolves nothing for a receipt whose intake has not acknowledged yet", () => {
+    const resolved = resolveHandoffReceiptShells({
+      receipts: [receipt({ intake: null })],
+      shells: [shell("env", "thread-1", { handoffDestinations: [marker("dest-1", DRAFTER_ID)] })],
+    });
+
+    expect(resolved.destinationsByReceiptId.size).toBe(0);
+    expect(resolved.drafterShellsByReceiptId.size).toBe(0);
+  });
+});
+
 describe("deriveHandoffReceiptViews", () => {
   it("shows the explanation verbatim and supplies a reason in the failed state", () => {
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt()],
-      drafterShellsById: new Map([[DRAFTER_ID, drafterShell({ attention: ["needs_guidance"] })]]),
+      drafterShellsByReceiptId: new Map([
+        ["handoff_1", drafterShell({ attention: ["needs_guidance"] })],
+      ]),
       destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS + 30_000,
     });
@@ -189,7 +280,7 @@ describe("deriveHandoffReceiptViews", () => {
   it("prefers the dispatch error over the generic drafter reason", () => {
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt({ intake: null, failure: "Source thread is busy." })],
-      drafterShellsById: new Map(),
+      drafterShellsByReceiptId: new Map(),
       destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS,
     });
@@ -200,8 +291,8 @@ describe("deriveHandoffReceiptViews", () => {
   it("carries no failure reason once settled", () => {
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt()],
-      drafterShellsById: new Map([
-        [DRAFTER_ID, drafterShell({ archivedAt: "2026-01-01T00:00:20.000Z" })],
+      drafterShellsByReceiptId: new Map([
+        ["handoff_1", drafterShell({ archivedAt: "2026-01-01T00:00:20.000Z" })],
       ]),
       destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS + 20_000,
@@ -217,7 +308,7 @@ describe("deriveHandoffReceiptViews", () => {
     // settles the drafter that placed them is archived and gone.
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt()],
-      drafterShellsById: new Map(),
+      drafterShellsByReceiptId: new Map(),
       destinationsByReceiptId: new Map([
         [
           "handoff_1",

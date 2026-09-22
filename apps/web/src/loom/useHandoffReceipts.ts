@@ -1,5 +1,3 @@
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { HandoffDestination } from "@t3tools/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -8,8 +6,7 @@ import { useThreadShells } from "~/state/entities";
 import {
   deriveHandoffReceiptViews,
   handoffReceiptIsPending,
-  type HandoffDrafterShell,
-  type HandoffReceiptDestination,
+  resolveHandoffReceiptShells,
   type HandoffReceiptView,
 } from "./handoffReceipts.logic";
 import { useHandoffReceiptStore } from "./handoffReceiptStore";
@@ -43,61 +40,10 @@ export function useHandoffReceipts(
   const shells = useThreadShells();
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // One walk of the shells resolves both halves: the drafter shells settlement
-  // is derived from, and the source markers naming what each receipt staged.
-  const { drafterShellsById, destinationsByReceiptId } = useMemo(() => {
-    const drafterShellsById = new Map<string, HandoffDrafterShell>();
-    const destinationsByReceiptId = new Map<string, ReadonlyArray<HandoffReceiptDestination>>();
-    const acknowledged = receipts.flatMap((receipt) =>
-      receipt.intake === null
-        ? []
-        : [
-            {
-              receiptId: receipt.id,
-              drafterThreadId: receipt.intake.drafterThreadId,
-              sourceThreadId: parseScopedThreadKey(receipt.sourceThreadKey)?.threadId ?? null,
-            },
-          ],
-    );
-    if (acknowledged.length === 0) {
-      return { drafterShellsById, destinationsByReceiptId };
-    }
-
-    const wantedDrafters = new Set(acknowledged.map((entry) => entry.drafterThreadId));
-    const wantedSources = new Set(
-      acknowledged.flatMap((entry) =>
-        entry.sourceThreadId === null ? [] : [entry.sourceThreadId],
-      ),
-    );
-    const markersBySourceId = new Map<string, ReadonlyArray<HandoffDestination>>();
-    for (const shell of shells) {
-      if (wantedDrafters.has(shell.id)) {
-        drafterShellsById.set(shell.id, {
-          id: shell.id,
-          archivedAt: shell.archivedAt,
-          attention: shell.attention,
-        });
-      }
-      if (wantedSources.has(shell.id)) {
-        markersBySourceId.set(shell.id, shell.handoffDestinations);
-      }
-    }
-
-    for (const entry of acknowledged) {
-      const markers =
-        entry.sourceThreadId === null ? [] : (markersBySourceId.get(entry.sourceThreadId) ?? []);
-      const destinations = markers
-        .filter((marker) => marker.drafterThreadId === entry.drafterThreadId)
-        // A receipt has a handful of destinations at most, so scanning for each
-        // title beats indexing every shell in the app on every frame.
-        .map((marker) => ({
-          threadId: marker.threadId,
-          title: shells.find((shell) => shell.id === marker.threadId)?.title ?? null,
-        }));
-      if (destinations.length > 0) destinationsByReceiptId.set(entry.receiptId, destinations);
-    }
-    return { drafterShellsById, destinationsByReceiptId };
-  }, [receipts, shells]);
+  const { drafterShellsByReceiptId, destinationsByReceiptId } = useMemo(
+    () => resolveHandoffReceiptShells({ receipts, shells }),
+    [receipts, shells],
+  );
 
   const views = useMemo(
     () =>
@@ -105,11 +51,11 @@ export function useHandoffReceipts(
         ? NO_RECEIPTS
         : deriveHandoffReceiptViews({
             receipts,
-            drafterShellsById,
+            drafterShellsByReceiptId,
             destinationsByReceiptId,
             nowMs,
           }),
-    [destinationsByReceiptId, drafterShellsById, nowMs, receipts],
+    [destinationsByReceiptId, drafterShellsByReceiptId, nowMs, receipts],
   );
 
   const anyPending = views.some((view) => handoffReceiptIsPending(view.state));

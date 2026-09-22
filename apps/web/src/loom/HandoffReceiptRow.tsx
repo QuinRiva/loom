@@ -124,8 +124,18 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
 
       {/* One link per placed handoff: a drafter may stage several goals in one
           turn, and the row is where the human learns they exist. */}
-      {state === "settled"
-        ? destinations.map((destination) => (
+      {state === "settled" && destinations.length > 0 ? (
+        <span
+          className={cn(
+            "flex shrink-0 flex-wrap items-start gap-x-3 gap-y-1",
+            // Several links take their own line. The links are `shrink-0` while
+            // the explanation column is flexible, so sharing a line with two of
+            // them collapses the explanation to a few characters per line rather
+            // than wrapping the row — verified live, not theorised.
+            destinations.length > 1 && "basis-full",
+          )}
+        >
+          {destinations.map((destination) => (
             <button
               key={destination.threadId}
               type="button"
@@ -134,8 +144,9 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
             >
               {destination.title === null ? "Open handoff" : `Open ${destination.title}`}
             </button>
-          ))
-        : null}
+          ))}
+        </span>
+      ) : null}
 
       <span className="flex shrink-0 items-center gap-1.5">
         <span className="text-[10.5px] text-muted-foreground/70 tabular-nums">

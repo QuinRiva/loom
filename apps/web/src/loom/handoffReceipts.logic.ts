@@ -1,4 +1,5 @@
-import type { ThreadId } from "@t3tools/contracts";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, HandoffDestination, ThreadId } from "@t3tools/contracts";
 
 import type { HandoffReceipt } from "./handoffReceiptStore";
 
@@ -14,6 +15,21 @@ export interface HandoffDrafterShell {
   readonly id: ThreadId;
   readonly archivedAt: string | null;
   readonly attention: ReadonlyArray<string>;
+}
+
+/**
+ * A shell as the resolution below reads it.
+ *
+ * `environmentId` is not decoration: `useThreadShells()` spans every connected
+ * environment, and thread ids are only unique WITHIN one — two environments
+ * backed by copies of the same database legitimately share them. Every lookup
+ * here is therefore by scoped ref, never by bare id, or a handoff in one
+ * environment could resolve against a same-id thread in another.
+ */
+export interface HandoffThreadShell extends HandoffDrafterShell {
+  readonly environmentId: EnvironmentId;
+  readonly title: string;
+  readonly handoffDestinations: ReadonlyArray<HandoffDestination>;
 }
 
 export type HandoffReceiptState = "dispatching" | "drafting" | "settled" | "failed";
@@ -117,17 +133,90 @@ const DRAFTER_FAILURE_REASON =
 
 const NO_DESTINATIONS: ReadonlyArray<HandoffReceiptDestination> = Object.freeze([]);
 
+/**
+ * Resolve, per receipt, the two things the views need out of live shell state:
+ * the drafter whose fate IS the receipt's state, and the goals the handoff
+ * staged.
+ *
+ * The destinations come from the receipt's SOURCE thread, not its drafter:
+ * `goal_handoff` stamps each marker on both, and only the source is still in
+ * the snapshot once the drafter settles and is archived. Markers are filtered
+ * to this receipt's drafter, so a source that has had several handoffs gives
+ * each receipt exactly its own.
+ *
+ * Everything is keyed by scoped ref. A receipt whose `sourceThreadKey` does not
+ * parse resolves to nothing at all rather than falling back to a bare-id match
+ * that could cross environments — the key is always written by
+ * `scopedThreadKey`, so that is unreachable rather than merely unlikely.
+ */
+export function resolveHandoffReceiptShells(input: {
+  readonly receipts: ReadonlyArray<HandoffReceipt>;
+  readonly shells: ReadonlyArray<HandoffThreadShell>;
+}): {
+  readonly drafterShellsByReceiptId: ReadonlyMap<string, HandoffDrafterShell>;
+  readonly destinationsByReceiptId: ReadonlyMap<string, ReadonlyArray<HandoffReceiptDestination>>;
+} {
+  const drafterShellsByReceiptId = new Map<string, HandoffDrafterShell>();
+  const destinationsByReceiptId = new Map<string, ReadonlyArray<HandoffReceiptDestination>>();
+
+  const acknowledged = input.receipts.flatMap((receipt) => {
+    const source = parseScopedThreadKey(receipt.sourceThreadKey);
+    return receipt.intake === null || source === null
+      ? []
+      : [
+          {
+            receiptId: receipt.id,
+            environmentId: source.environmentId,
+            sourceKey: receipt.sourceThreadKey,
+            drafterKey: scopedThreadKey({
+              environmentId: source.environmentId,
+              threadId: receipt.intake.drafterThreadId,
+            }),
+            drafterThreadId: receipt.intake.drafterThreadId,
+          },
+        ];
+  });
+  if (acknowledged.length === 0) {
+    return { drafterShellsByReceiptId, destinationsByReceiptId };
+  }
+
+  const wanted = new Set(acknowledged.flatMap((entry) => [entry.sourceKey, entry.drafterKey]));
+  const shellsByKey = new Map<string, HandoffThreadShell>();
+  for (const shell of input.shells) {
+    const key = scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id });
+    if (wanted.has(key)) shellsByKey.set(key, shell);
+  }
+
+  for (const entry of acknowledged) {
+    const drafterShell = shellsByKey.get(entry.drafterKey);
+    if (drafterShell !== undefined) drafterShellsByReceiptId.set(entry.receiptId, drafterShell);
+
+    const destinations = (shellsByKey.get(entry.sourceKey)?.handoffDestinations ?? [])
+      .filter((marker) => marker.drafterThreadId === entry.drafterThreadId)
+      // A receipt has a handful of destinations at most, so scanning for each
+      // title beats indexing every shell in the app on every frame.
+      .map((marker) => ({
+        threadId: marker.threadId,
+        title:
+          input.shells.find(
+            (shell) => shell.id === marker.threadId && shell.environmentId === entry.environmentId,
+          )?.title ?? null,
+      }));
+    if (destinations.length > 0) destinationsByReceiptId.set(entry.receiptId, destinations);
+  }
+  return { drafterShellsByReceiptId, destinationsByReceiptId };
+}
+
 export function deriveHandoffReceiptViews(input: {
   readonly receipts: ReadonlyArray<HandoffReceipt>;
-  readonly drafterShellsById: ReadonlyMap<string, HandoffDrafterShell>;
-  /** Destinations resolved from each receipt's source shell, keyed by receipt id. */
+  /** Keyed by RECEIPT id, not thread id: thread ids are only unique per environment. */
+  readonly drafterShellsByReceiptId: ReadonlyMap<string, HandoffDrafterShell>;
   readonly destinationsByReceiptId: ReadonlyMap<string, ReadonlyArray<HandoffReceiptDestination>>;
   readonly nowMs: number;
 }): HandoffReceiptView[] {
   return input.receipts.map((receipt) => {
     const drafterThreadId = receipt.intake?.drafterThreadId ?? null;
-    const drafterShell =
-      drafterThreadId === null ? null : (input.drafterShellsById.get(drafterThreadId) ?? null);
+    const drafterShell = input.drafterShellsByReceiptId.get(receipt.id) ?? null;
     const state = deriveHandoffReceiptState({ receipt, drafterShell, nowMs: input.nowMs });
     return {
       id: receipt.id,
