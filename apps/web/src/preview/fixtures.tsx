@@ -128,6 +128,12 @@ The same paths inside a fenced block stay exactly as typed but each path line is
 /Users/julius/project/_findings/findings_register.md
 \`\`\`
 
+A highlighted fence keeps its colours, and the path inside a command is still the clickable span:
+
+\`\`\`bash
+pnpm vitest run src/markdown-links.ts --reporter dot
+\`\`\`
+
 None of these should link: a date like 01/02/2026, the words and/or, a flag value a/b, or a url like https://example.com/docs/guide.md.
 `;
 
@@ -375,28 +381,60 @@ const THREAD_MENTION_MARKDOWN = `Ask [Use the ask_user_question tool](thread://6
 A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
 `;
 
-const FILE_CHIP_STATES_KINDS: Record<string, ProjectPathKind> = {
-  [FILE_CHIP_STATES_PRESENT]: "file",
-  [FILE_CHIP_STATES_MISSING]: "missing",
-};
-
 function FileChipStatesFixture() {
-  // Installed during the first render, before ChatMarkdown's children register
-  // their paths with the store (a mount effect would land after the reset that
-  // swapping the fetcher performs, dropping those registrations).
-  useState(() => {
-    __setStatFetcherForTests((_environmentId, paths) =>
-      Promise.resolve(
-        paths.map((path) => ({ path, kind: FILE_CHIP_STATES_KINDS[path] ?? "missing" })),
-      ),
-    );
-    return null;
-  });
-  useEffect(() => () => __setStatFetcherForTests(null), []);
   return (
     <TimelineLayoutFrame>
       <ChatMarkdown
         text={FILE_CHIP_STATES_MARKDOWN}
+        cwd={FILE_CHIP_STATES_CWD}
+        environmentId={EnvironmentId.make("preview-environment")}
+      />
+    </TimelineLayoutFrame>
+  );
+}
+
+/**
+ * loom: the two *loose* path scanners under verification. Both a prose path and
+ * an in-fence path become clickable in place only for the file the server
+ * confirms is there; the missing twin of each stays inert, and the rendered text
+ * is byte-identical either way (select it and copy to check).
+ */
+const SCANNED_PATH_VERIFIED = `${FILE_CHIP_STATES_CWD}/_findings/verdict.md`;
+const SCANNED_PATH_MISSING = `${FILE_CHIP_STATES_CWD}/_findings/deleted.md`;
+const SCANNED_PATH_VERIFICATION_MARKDOWN = `Prose: the verdict is at ${SCANNED_PATH_VERIFIED} (clickable) while ${SCANNED_PATH_MISSING} was deleted (inert).
+
+A sentence must read exactly as written: see apps/web/src/ChatView.tsx here.
+
+The same two inside a fenced block — only the first line is clickable, and the block's text is unchanged:
+
+\`\`\`text
+${SCANNED_PATH_VERIFIED}
+${SCANNED_PATH_MISSING}
+\`\`\`
+`;
+
+/**
+ * The harness has no backend, so the existence fixtures drive the shared stat
+ * store directly — the same injection point their unit tests use. Installed once
+ * at module load (this module is DEV-only and tree-shaken out of a production
+ * build): installing the stub *resets* the store, so doing it per mount would
+ * race a mounted subject's path registration.
+ */
+const PREVIEW_PATH_KINDS: Record<string, ProjectPathKind> = {
+  [FILE_CHIP_STATES_PRESENT]: "file",
+  [FILE_CHIP_STATES_MISSING]: "missing",
+  [SCANNED_PATH_VERIFIED]: "file",
+  [SCANNED_PATH_MISSING]: "missing",
+};
+__setStatFetcherForTests((_environmentId, paths) =>
+  Promise.resolve(paths.map((path) => ({ path, kind: PREVIEW_PATH_KINDS[path] ?? "missing" }))),
+);
+
+function ScannedPathVerificationFixture() {
+  return (
+    <TimelineLayoutFrame>
+      <ChatMarkdown
+        text={SCANNED_PATH_VERIFICATION_MARKDOWN}
         cwd={FILE_CHIP_STATES_CWD}
         environmentId={EnvironmentId.make("preview-environment")}
       />
@@ -1016,14 +1054,14 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "prose-and-code-path-links",
         "Prose & code-block path links",
         PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
-        "Plain-prose paths become file chips; paths inside a fenced block become terminal-style clickable regions with unchanged text. Non-paths (dates, and/or, urls) stay plain.",
+        "Prose and fenced blocks alike read exactly as written — the path substring itself is the clickable span, never a basename chip, and the fence's text is byte-identical (select and copy to check). Non-paths (dates, and/or, urls) stay plain.",
         "/Users/julius/project",
       ),
       markdownFixture(
         "prose-and-code-path-links-streaming",
         "Prose & code path links (streaming)",
         PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
-        "While streaming, prose linking and code-block decoration are deferred: the SAME content renders as plain text (no chips, no clickable code paths) until the message completes — satisfying the 'no per-token rescans' requirement.",
+        "While streaming, both scanners are deferred: the SAME content renders as inert text until the message completes — satisfying the 'no per-token rescans' requirement.",
         "/Users/julius/project",
         true,
       ),
@@ -1047,6 +1085,13 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         CONSULT_REPORT_CODE_BLOCKS_MARKDOWN,
         "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine must show their body text.",
       ),
+      {
+        id: "scanned-path-verification",
+        title: "Prose & in-fence paths: verified vs missing",
+        description:
+          "loom's loose scanners under verification: a prose path and an in-fence path become clickable IN PLACE — the sentence and the fence read exactly as written — and only once the server confirms the file exists; the missing twin of each stays inert.",
+        render: () => <ScannedPathVerificationFixture />,
+      },
       {
         id: "file-chip-states",
         title: "File chips: present, missing, non-file link",

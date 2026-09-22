@@ -31,12 +31,15 @@ export interface WrappedTerminalLinkLine {
   segments: ReadonlyArray<WrappedTerminalLinkLineSegment>;
 }
 
-const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
-const FILE_PATH_PATTERN =
+// loom: the three below are shared with the chat-markdown prose and
+// fenced-code path scanners (`loom/chatPathScan.ts`) so a path is detected
+// identically in the terminal and in a message.
+export const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
+export const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 
-function trimClosingDelimiters(value: string): string {
+export function trimClosingDelimiters(value: string): string {
   let output = value.replace(TRAILING_PUNCTUATION_PATTERN, "");
   if (output.length === 0) return output;
 

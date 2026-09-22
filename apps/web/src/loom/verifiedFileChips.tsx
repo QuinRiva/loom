@@ -7,11 +7,13 @@ import {
   FileTagChipContent,
   ThreadTagChipContent,
 } from "~/components/chat/FileTagChip";
-import { usePathExistence } from "~/components/chat/usePathExistence";
+import { usePathExistence, type PathExistence } from "~/components/chat/usePathExistence";
 import { useTheme } from "~/hooks/useTheme";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
-import type { MarkdownFileLinkMeta } from "~/markdown-links";
+import { resolveInlineCodeFileLinkMeta, type MarkdownFileLinkMeta } from "~/markdown-links";
+
+import { extractMessagePathCandidates } from "./chatPathScan";
 
 /**
  * Loom's file-chip seam over upstream's `fileLinkChip` renderer (slice 1 of the
@@ -100,6 +102,102 @@ export function useVerifiedFileLinkChip(input: {
       return renderChip(fileLinkMeta, copyMarkdown, className, mediaSource);
     },
     [lookupExistence, renderChip],
+  );
+}
+
+export interface ScannedPaths {
+  /** Syntactic resolution only — says nothing about whether the file is there. */
+  readonly resolveMeta: (rawPath: string) => MarkdownFileLinkMeta | null;
+  /** Resolution plus verification; null unless the server confirms a file. */
+  readonly resolveVerified: (rawPath: string) => MarkdownFileLinkMeta | null;
+}
+
+/**
+ * With no connected environment (the `/preview` harness) nothing can be
+ * verified, so a hit is linkable on the syntactic gate alone. Otherwise only a
+ * confirmed regular file is: a directory is not, because the link opens the file
+ * viewer.
+ */
+function isLinkableTarget(
+  environmentId: EnvironmentId | null,
+  existence: PathExistence | undefined,
+): boolean {
+  return environmentId === null || (existence?.exists === true && !existence.isDirectory);
+}
+
+/**
+ * Per-hit verification for a leaf that rendered one scanned path. It subscribes
+ * to the stat store itself rather than reading a resolver handed down from its
+ * host: a path drawn as plain text has to upgrade to a link the moment
+ * verification lands, and the host has no reason to re-render just then.
+ */
+export function useVerifiedScannedPath(
+  environmentId: EnvironmentId | null,
+  meta: MarkdownFileLinkMeta | null,
+): MarkdownFileLinkMeta | null {
+  const paths = useMemo(() => (meta ? [meta.filePath] : []), [meta]);
+  const lookupExistence = usePathExistence(environmentId, paths);
+  return meta && isLinkableTarget(environmentId, lookupExistence(meta.filePath)) ? meta : null;
+}
+
+/**
+ * Resolver for loom's two *loose* path scanners — plain prose and inside fenced
+ * code blocks. Their opposite polarity to {@link useVerifiedFileLinkChip} is the
+ * whole point: a markdown link is an explicit authored reference, so it stays a
+ * chip until proven missing, whereas a scanned substring is a guess and only
+ * becomes clickable once the server confirms a **file** is there. Directories
+ * stay plain text — upstream's chip is file-shaped (editor, media, file panel).
+ *
+ * Candidate discovery is bounded and block-aware
+ * ({@link extractMessagePathCandidates}) and deferred entirely while streaming,
+ * matching the renderers: re-scanning a growing message on every token would be
+ * pure waste. With no connected environment (the `/preview` harness) nothing can
+ * be verified, so hits render as chips on the syntactic gate alone.
+ */
+export function useScannedPathTargets(input: {
+  environmentId: EnvironmentId | null;
+  text: string;
+  cwd: string | undefined;
+  baseDir: string | undefined;
+  isStreaming: boolean;
+}): ScannedPaths {
+  const { environmentId, cwd, baseDir, isStreaming, text } = input;
+  const resolveMeta = useMemo(() => {
+    const cache = new Map<string, MarkdownFileLinkMeta | null>();
+    return (rawPath: string) => {
+      const cached = cache.get(rawPath);
+      if (cached !== undefined) return cached;
+      const meta = resolveInlineCodeFileLinkMeta(rawPath, cwd, baseDir);
+      cache.set(rawPath, meta);
+      return meta;
+    };
+  }, [baseDir, cwd]);
+  const paths = useMemo(
+    () =>
+      isStreaming
+        ? []
+        : [
+            ...new Set(
+              extractMessagePathCandidates(text).flatMap((candidate) => {
+                const meta = resolveMeta(candidate);
+                return meta ? [meta.filePath] : [];
+              }),
+            ),
+          ],
+    [isStreaming, resolveMeta, text],
+  );
+  const lookupExistence = usePathExistence(environmentId, paths);
+  return useMemo(
+    () => ({
+      resolveMeta,
+      resolveVerified: (rawPath: string) => {
+        const meta = resolveMeta(rawPath);
+        return meta && isLinkableTarget(environmentId, lookupExistence(meta.filePath))
+          ? meta
+          : null;
+      },
+    }),
+    [environmentId, lookupExistence, resolveMeta],
   );
 }
 

@@ -860,3 +860,29 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).not.toContain("chat-markdown-file-link");
   });
 });
+
+// loom: the two loose path scanners — plain prose and inside a fenced block —
+// must leave the text exactly as written, with the path substring itself the
+// clickable span (not replaced by a basename chip).
+describe("loom scanned path links", () => {
+  const withoutTags = (html: string) => html.replaceAll(/<[^>]*>/g, "");
+
+  it("makes a prose path clickable in place without rewriting the sentence", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text="see apps/web/src/ChatView.tsx here" />,
+    );
+
+    expect(withoutTags(html)).toContain("see apps/web/src/ChatView.tsx here");
+    expect(html).toContain('class="chat-scanned-path-link"');
+    expect(html).toContain('data-markdown-copy="apps/web/src/ChatView.tsx"');
+    expect(html).not.toContain("chat-markdown-file-link");
+  });
+
+  it("leaves a quoted path plain — it belongs to a literal the renderer kept", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={'run --out="/tmp/project/report.xlsx" now'} />,
+    );
+
+    expect(html).not.toContain("chat-scanned-path-link");
+  });
+});
