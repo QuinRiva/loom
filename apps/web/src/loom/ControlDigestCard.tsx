@@ -20,10 +20,16 @@ import { CHANNEL_CLASSES, controlSummaryLine, type ControlChannel } from "./cont
  * These messages are how the workstream talks to a thread, and their payloads
  * are large: rendered as ordinary bubbles they bury the actual conversation. The
  * card inverts that. Collapsed (the default) it says only *that* something
- * arrived and from whom — one line per item, no markdown rendered at all, which
- * is the point: the timeline pays nothing for a payload nobody is reading.
- * Expanding reveals the per-item detail, and "show raw payload" reveals the
- * exact bytes the model received.
+ * arrived and from whom — one line per item naming the sender and its verdict,
+ * with no markdown rendered at all, which is the point: the timeline pays
+ * nothing for a payload nobody is reading. Expanding reveals the per-item detail
+ * and the "show raw payload" toggle, which reveals the exact bytes the model
+ * received; both are review affordances, so neither costs a collapsed row.
+ *
+ * One row per item rather than a single aggregate line is deliberate: the
+ * collapsed card is the skimmable index of what the machinery did, and a
+ * "3 items" aggregate would hide precisely the fact — which child delivered —
+ * the card exists to surface.
  *
  * Everything shown comes from the persisted message (payload or `text`), never
  * live thread state, so the card can never surface something the model did not
@@ -34,6 +40,7 @@ export function ControlDigestCardView({
   channel,
   label,
   payload,
+  senderLabels,
   text,
   cwd,
   threadRef,
@@ -43,6 +50,8 @@ export function ControlDigestCardView({
   channel: ControlChannel;
   label: string;
   payload: ControlPayload | null;
+  /** Live thread title per item `threadId`; absent ⇒ the id itself is the label. */
+  senderLabels: ReadonlyMap<ThreadId, string>;
   text: string;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | null;
@@ -91,6 +100,7 @@ export function ControlDigestCardView({
                 key={item.threadId ?? `item-${index}`}
                 item={item}
                 channel={channel}
+                sender={item.threadId ? (senderLabels.get(item.threadId) ?? item.threadId) : null}
                 expanded={expanded}
                 markdown={markdown}
                 onOpen={onOpenThread}
@@ -101,17 +111,19 @@ export function ControlDigestCardView({
           <div className={cn("border-t p-2", classes.divider)}>{markdown(text)}</div>
         ) : null}
 
-        <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
-          <button
-            type="button"
-            className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-[10.5px] tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
-            onClick={() => setShowRaw((value) => !value)}
-            aria-expanded={showRaw}
-          >
-            {showRaw ? "Hide raw payload" : "Show raw payload"}
-          </button>
-        </div>
-        {showRaw ? (
+        {expanded ? (
+          <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
+            <button
+              type="button"
+              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-[10.5px] tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+              onClick={() => setShowRaw((value) => !value)}
+              aria-expanded={showRaw}
+            >
+              {showRaw ? "Hide raw payload" : "Show raw payload"}
+            </button>
+          </div>
+        ) : null}
+        {expanded && showRaw ? (
           <div className={cn("border-t p-2", classes.divider)}>
             {/* The verbatim bytes the model received — never through markdown, which
                 would reformat the headings, lists and fences it is proof of. */}
@@ -128,12 +140,14 @@ export function ControlDigestCardView({
 function ControlDigestItem({
   item,
   channel,
+  sender,
   expanded,
   markdown,
   onOpen,
 }: {
   item: ControlPayloadItem;
   channel: ControlChannel;
+  sender: string | null;
   expanded: boolean;
   markdown: (body: string) => ReactNode;
   onOpen: ((threadId: ThreadId) => void) | null;
@@ -177,8 +191,11 @@ function ControlDigestItem({
               {item.role}
             </span>
           ) : null}
-          <span className="text-foreground/82 min-w-0 flex-1 truncate text-[12px] leading-5">
-            {item.title}
+          <span className="min-w-0 flex-1 truncate text-[12px] leading-5">
+            {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
+            <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
+              {sender ? ` — ${item.title}` : item.title}
+            </span>
           </span>
           {item.status ? (
             <span className="text-muted-foreground/70 shrink-0 text-[10.5px]">{item.status}</span>

@@ -1046,6 +1046,13 @@ const YIELD_PAYLOAD: ControlPayload = {
   ],
 };
 
+/** The live titles `ControlDigestRow` resolves from each item's `threadId`. */
+const PREVIEW_SENDER_LABELS = new Map<ThreadId, string>([
+  [ThreadId.make("preview-coder-alpha"), "Add config loader"],
+  [ThreadId.make("preview-reviewer"), "Review the loader rework"],
+  [ThreadId.make("preview-coder-yield"), "Migrate the session schema"],
+]);
+
 const NOTIFY_TEXT = `**ws-preview-researcher → you** (notify_thread)\n\n${LONG_PROSE_MARKDOWN}`;
 
 const ORCHESTRATOR_TEXT =
@@ -1071,6 +1078,7 @@ function controlCardFixture(
           channel={channel}
           label={label}
           payload={payload}
+          senderLabels={PREVIEW_SENDER_LABELS}
           text={text}
           cwd={undefined}
           threadRef={null}
@@ -1115,6 +1123,7 @@ function ControlChannelPaletteFixture() {
         channel="control-plane"
         label="Control plane"
         payload={DIGEST_PAYLOAD}
+        senderLabels={PREVIEW_SENDER_LABELS}
         text={`FYI digest\n\n${LONG_PROSE_MARKDOWN}`}
         cwd={undefined}
         threadRef={null}

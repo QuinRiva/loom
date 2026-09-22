@@ -19,13 +19,16 @@ const PAYLOAD: ControlPayload = {
     {
       threadId: ThreadId.make("child-1"),
       role: "coder",
-      title: "Config loader landed",
+      // What the dispatcher actually stamps: a generic verdict, never a name.
+      title: "Completed",
       status: "done",
       icon: "☑️",
       timestamp: "2026-09-22 02:15Z",
     },
   ],
 };
+
+const SENDERS = new Map([[ThreadId.make("child-1"), "Add config loader"]]);
 
 const rendered = (tree: ReactTestRenderer) => JSON.stringify(tree.toJSON());
 
@@ -70,6 +73,7 @@ describe("ControlDigestCardView", () => {
           channel="control-plane"
           label="Control plane"
           payload={PAYLOAD}
+          senderLabels={SENDERS}
           text={RAW_TEXT}
           cwd={undefined}
           threadRef={null}
@@ -78,12 +82,16 @@ describe("ControlDigestCardView", () => {
         />,
       );
     });
-    // Collapsed: the heading and the one-line item, and nothing else.
-    expect(rendered(tree)).toContain("Config loader landed");
+    // Collapsed: the heading, and one line per item naming WHICH sub-thread
+    // delivered — the stamped title alone is a generic verdict. No per-item
+    // detail, and no raw-payload control: review affordances cost no row here.
+    expect(rendered(tree)).toContain("Add config loader");
+    expect(rendered(tree)).toContain("Completed");
     expect(rendered(tree)).not.toContain("2026-09-22 02:15Z");
+    expect(rendered(tree)).not.toContain("raw payload");
     expect(rendered(tree)).not.toContain("nobody asked for");
 
-    // Button 0 is the card header (expand), button 1 the raw-payload toggle.
+    // Button 0 is the card header (expand); the raw toggle appears with it.
     clickButton(tree, 0);
     expect(rendered(tree)).toContain("2026-09-22 02:15Z");
 
