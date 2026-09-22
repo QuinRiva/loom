@@ -491,6 +491,8 @@ export function projectLoomEvent(
                 {
                   goalId: payload.destinationGoalId,
                   threadId: payload.destinationThreadId,
+                  // Pre-field events only ever landed on the drafter itself.
+                  drafterThreadId: payload.drafterThreadId ?? payload.threadId,
                 },
               ],
               updatedAt: payload.createdAt,

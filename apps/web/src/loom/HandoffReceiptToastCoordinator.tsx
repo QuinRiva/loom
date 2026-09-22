@@ -51,8 +51,35 @@ export function HandoffReceiptToastCoordinator() {
 
     for (const push of pushes) {
       const drafterThreadId = push.drafterThreadId;
-      // The drafter lives in the same environment as the source thread it forked.
+      // The drafter and its destinations live in the same environment as the
+      // source thread it forked.
       const sourceEnvironmentId = parseScopedThreadKey(push.sourceThreadKey)?.environmentId ?? null;
+      // One action per staged goal, same as the row: a drafter may place
+      // several handoffs in one turn, and away from the source thread this
+      // toast is the only surface offering a way into any of them.
+      const destinationActions =
+        sourceEnvironmentId === null
+          ? []
+          : push.destinations.map((destination) => ({
+              id: destination.threadId,
+              props: {
+                children: destination.title === null ? "Open handoff" : `Open ${destination.title}`,
+                onClick: () => {
+                  void navigate({
+                    to: "/$environmentId/$threadId",
+                    params: buildThreadRouteParams(
+                      scopeThreadRef(sourceEnvironmentId, destination.threadId),
+                    ),
+                  });
+                },
+              },
+            }));
+      // The toast renders `additionalActions` BEFORE its primary action, so the
+      // LAST destination takes the primary slot to keep the buttons reading in
+      // destination order. That slot also dismisses the toast on click, which
+      // suits the last one: the earlier links stay clickable meanwhile.
+      const leadingActions = destinationActions.slice(0, -1);
+      const primaryAction = destinationActions.at(-1);
       toastManager.add(
         stackedThreadToast(
           push.kind === "failure"
@@ -84,7 +111,18 @@ export function HandoffReceiptToastCoordinator() {
             : {
                 type: "success",
                 title: "Handed off",
-                description: `Staged as its own goal — ${push.explanation}`,
+                description:
+                  push.destinations.length > 1
+                    ? `Staged as ${push.destinations.length} goals — ${push.explanation}`
+                    : `Staged as its own goal — ${push.explanation}`,
+                ...(primaryAction === undefined
+                  ? {}
+                  : {
+                      actionProps: primaryAction.props,
+                      ...(leadingActions.length === 0
+                        ? {}
+                        : { data: { additionalActions: leadingActions } }),
+                    }),
               },
         ),
       );

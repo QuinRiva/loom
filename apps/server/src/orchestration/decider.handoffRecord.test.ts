@@ -76,6 +76,7 @@ it.layer(NodeServices.layer)("decider thread.handoff.record", (it) => {
           type: "thread.handoff.record",
           commandId: CommandId.make("server:goal-handoff:record-handoff:abc"),
           threadId: DRAFTER,
+          drafterThreadId: DRAFTER,
           destinationGoalId: DEST_GOAL,
           destinationThreadId: DEST_THREAD,
           createdAt: now,
@@ -85,6 +86,7 @@ it.layer(NodeServices.layer)("decider thread.handoff.record", (it) => {
       expect(events.map((event) => event.type)).toEqual(["thread.handoff-recorded"]);
       expect(events[0]?.payload).toMatchObject({
         threadId: DRAFTER,
+        drafterThreadId: DRAFTER,
         destinationGoalId: DEST_GOAL,
         destinationThreadId: DEST_THREAD,
       });

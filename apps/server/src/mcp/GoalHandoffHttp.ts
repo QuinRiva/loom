@@ -181,10 +181,35 @@ const handleGoalHandoff = Effect.gen(function* () {
       type: "thread.handoff.record",
       commandId: CommandId.make(`server:goal-handoff:record-handoff:${yield* crypto.randomUUIDv4}`),
       threadId: callerThread.id,
+      drafterThreadId: callerThread.id,
       destinationGoalId: goalId,
       destinationThreadId: threadId,
       createdAt: now,
     } satisfies OrchestrationCommand);
+
+    // ...and the SAME marker on the drafter's fork SOURCE, so the thread the
+    // human typed `/handoff` in can name what it created. The drafter is
+    // archived on settlement and drops out of the shell snapshot, taking its
+    // own copy with it; the source never does. Guarded on the source still
+    // being an active thread — a deleted or archived one would fail the
+    // decider's existence check and take the whole handoff down with it.
+    const sourceThreadId = callerThread.forkFromThreadId;
+    if (
+      sourceThreadId !== null &&
+      Option.isSome(yield* projection.getThreadShellById(sourceThreadId))
+    ) {
+      yield* engine.dispatch({
+        type: "thread.handoff.record",
+        commandId: CommandId.make(
+          `server:goal-handoff:record-source-handoff:${yield* crypto.randomUUIDv4}`,
+        ),
+        threadId: sourceThreadId,
+        drafterThreadId: callerThread.id,
+        destinationGoalId: goalId,
+        destinationThreadId: threadId,
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+    }
   }
 
   return HttpServerResponse.jsonUnsafe({

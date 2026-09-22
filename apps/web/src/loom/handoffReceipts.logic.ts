@@ -1,4 +1,5 @@
-import type { ThreadId } from "@t3tools/contracts";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, HandoffDestination, ThreadId } from "@t3tools/contracts";
 
 import type { HandoffReceipt } from "./handoffReceiptStore";
 
@@ -16,7 +17,38 @@ export interface HandoffDrafterShell {
   readonly attention: ReadonlyArray<string>;
 }
 
+/**
+ * A shell as the resolution below reads it.
+ *
+ * `environmentId` is not decoration: `useThreadShells()` spans every connected
+ * environment, and thread ids are only unique WITHIN one — two environments
+ * backed by copies of the same database legitimately share them. Every lookup
+ * here is therefore by scoped ref, never by bare id, or a handoff in one
+ * environment could resolve against a same-id thread in another.
+ */
+export interface HandoffThreadShell extends HandoffDrafterShell {
+  readonly environmentId: EnvironmentId;
+  readonly title: string;
+  readonly handoffDestinations: ReadonlyArray<HandoffDestination>;
+}
+
 export type HandoffReceiptState = "dispatching" | "drafting" | "settled" | "failed";
+
+/**
+ * A goal this handoff staged, as the receipt can offer it: somewhere to go.
+ *
+ * It is read off the SOURCE thread's shell (`handoffDestinations`, filtered to
+ * this receipt's drafter), not the drafter's — a settled drafter is archived and
+ * gone from the snapshot, so its own copy is unreachable exactly when the row
+ * wants to link. `title` is the staged thread's, which is in the snapshot
+ * because a staged root is `planned` rather than archived; null when it is not
+ * (yet) there, and then the affordance falls back to a generic label rather than
+ * disappearing.
+ */
+export interface HandoffReceiptDestination {
+  readonly threadId: ThreadId;
+  readonly title: string | null;
+}
 
 export interface HandoffReceiptView {
   readonly id: string;
@@ -25,8 +57,10 @@ export interface HandoffReceiptView {
   /** The human's explanation, verbatim and never truncated. */
   readonly explanation: string;
   readonly createdAt: string;
-  /** Present once intake acknowledged; the only navigable artefact this increment exposes. */
+  /** Present once intake acknowledged; where a FAILED handoff sends the human. */
   readonly drafterThreadId: ThreadId | null;
+  /** The goals this handoff staged — one per `goal_handoff` the drafter placed. */
+  readonly destinations: ReadonlyArray<HandoffReceiptDestination>;
   /** Why it failed — a dispatch error, or the drafter placing no handoff at all. */
   readonly failureReason: string | null;
 }
@@ -97,15 +131,92 @@ export function deriveHandoffReceiptState(input: {
 const DRAFTER_FAILURE_REASON =
   "The drafter stopped without placing a handoff, so no goal was created.";
 
+const NO_DESTINATIONS: ReadonlyArray<HandoffReceiptDestination> = Object.freeze([]);
+
+/**
+ * Resolve, per receipt, the two things the views need out of live shell state:
+ * the drafter whose fate IS the receipt's state, and the goals the handoff
+ * staged.
+ *
+ * The destinations come from the receipt's SOURCE thread, not its drafter:
+ * `goal_handoff` stamps each marker on both, and only the source is still in
+ * the snapshot once the drafter settles and is archived. Markers are filtered
+ * to this receipt's drafter, so a source that has had several handoffs gives
+ * each receipt exactly its own.
+ *
+ * Everything is keyed by scoped ref. A receipt whose `sourceThreadKey` does not
+ * parse resolves to nothing at all rather than falling back to a bare-id match
+ * that could cross environments — the key is always written by
+ * `scopedThreadKey`, so that is unreachable rather than merely unlikely.
+ */
+export function resolveHandoffReceiptShells(input: {
+  readonly receipts: ReadonlyArray<HandoffReceipt>;
+  readonly shells: ReadonlyArray<HandoffThreadShell>;
+}): {
+  readonly drafterShellsByReceiptId: ReadonlyMap<string, HandoffDrafterShell>;
+  readonly destinationsByReceiptId: ReadonlyMap<string, ReadonlyArray<HandoffReceiptDestination>>;
+} {
+  const drafterShellsByReceiptId = new Map<string, HandoffDrafterShell>();
+  const destinationsByReceiptId = new Map<string, ReadonlyArray<HandoffReceiptDestination>>();
+
+  const acknowledged = input.receipts.flatMap((receipt) => {
+    const source = parseScopedThreadKey(receipt.sourceThreadKey);
+    return receipt.intake === null || source === null
+      ? []
+      : [
+          {
+            receiptId: receipt.id,
+            environmentId: source.environmentId,
+            sourceKey: receipt.sourceThreadKey,
+            drafterKey: scopedThreadKey({
+              environmentId: source.environmentId,
+              threadId: receipt.intake.drafterThreadId,
+            }),
+            drafterThreadId: receipt.intake.drafterThreadId,
+          },
+        ];
+  });
+  if (acknowledged.length === 0) {
+    return { drafterShellsByReceiptId, destinationsByReceiptId };
+  }
+
+  const wanted = new Set(acknowledged.flatMap((entry) => [entry.sourceKey, entry.drafterKey]));
+  const shellsByKey = new Map<string, HandoffThreadShell>();
+  for (const shell of input.shells) {
+    const key = scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id });
+    if (wanted.has(key)) shellsByKey.set(key, shell);
+  }
+
+  for (const entry of acknowledged) {
+    const drafterShell = shellsByKey.get(entry.drafterKey);
+    if (drafterShell !== undefined) drafterShellsByReceiptId.set(entry.receiptId, drafterShell);
+
+    const destinations = (shellsByKey.get(entry.sourceKey)?.handoffDestinations ?? [])
+      .filter((marker) => marker.drafterThreadId === entry.drafterThreadId)
+      // A receipt has a handful of destinations at most, so scanning for each
+      // title beats indexing every shell in the app on every frame.
+      .map((marker) => ({
+        threadId: marker.threadId,
+        title:
+          input.shells.find(
+            (shell) => shell.id === marker.threadId && shell.environmentId === entry.environmentId,
+          )?.title ?? null,
+      }));
+    if (destinations.length > 0) destinationsByReceiptId.set(entry.receiptId, destinations);
+  }
+  return { drafterShellsByReceiptId, destinationsByReceiptId };
+}
+
 export function deriveHandoffReceiptViews(input: {
   readonly receipts: ReadonlyArray<HandoffReceipt>;
-  readonly drafterShellsById: ReadonlyMap<string, HandoffDrafterShell>;
+  /** Keyed by RECEIPT id, not thread id: thread ids are only unique per environment. */
+  readonly drafterShellsByReceiptId: ReadonlyMap<string, HandoffDrafterShell>;
+  readonly destinationsByReceiptId: ReadonlyMap<string, ReadonlyArray<HandoffReceiptDestination>>;
   readonly nowMs: number;
 }): HandoffReceiptView[] {
   return input.receipts.map((receipt) => {
     const drafterThreadId = receipt.intake?.drafterThreadId ?? null;
-    const drafterShell =
-      drafterThreadId === null ? null : (input.drafterShellsById.get(drafterThreadId) ?? null);
+    const drafterShell = input.drafterShellsByReceiptId.get(receipt.id) ?? null;
     const state = deriveHandoffReceiptState({ receipt, drafterShell, nowMs: input.nowMs });
     return {
       id: receipt.id,
@@ -114,6 +225,7 @@ export function deriveHandoffReceiptViews(input: {
       explanation: receipt.explanation,
       createdAt: receipt.createdAt,
       drafterThreadId,
+      destinations: input.destinationsByReceiptId.get(receipt.id) ?? NO_DESTINATIONS,
       failureReason: state === "failed" ? (receipt.failure ?? DRAFTER_FAILURE_REASON) : null,
     };
   });
@@ -131,6 +243,7 @@ export interface HandoffReceiptToastPush {
   readonly sourceThreadKey: string;
   readonly explanation: string;
   readonly drafterThreadId: ThreadId | null;
+  readonly destinations: ReadonlyArray<HandoffReceiptDestination>;
   readonly failureReason: string | null;
 }
 
@@ -176,6 +289,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         sourceThreadKey: view.sourceThreadKey,
         explanation: view.explanation,
         drafterThreadId: view.drafterThreadId,
+        destinations: view.destinations,
         failureReason: view.failureReason,
       });
       continue;
@@ -191,6 +305,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         sourceThreadKey: view.sourceThreadKey,
         explanation: view.explanation,
         drafterThreadId: view.drafterThreadId,
+        destinations: view.destinations,
         failureReason: null,
       });
     }

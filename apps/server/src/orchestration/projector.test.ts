@@ -181,8 +181,10 @@ describe("orchestration projector", () => {
           },
         }),
       );
+      // No `drafterThreadId` in the payload: a pre-field event only ever landed
+      // on the drafter itself, so the aggregate IS the drafter.
       expect(recordOnce.threads[0]?.handoffDestinations).toEqual([
-        { goalId: "goal-1", threadId: "dest-1" },
+        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" },
       ]);
 
       const recordTwice = yield* projectEvent(
@@ -196,6 +198,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-record-2",
           payload: {
             threadId: "drafter-1",
+            drafterThreadId: "drafter-1",
             destinationGoalId: "goal-2",
             destinationThreadId: "dest-2",
             createdAt: now,
@@ -203,9 +206,55 @@ describe("orchestration projector", () => {
         }),
       );
       expect(recordTwice.threads[0]?.handoffDestinations).toEqual([
-        { goalId: "goal-1", threadId: "dest-1" },
-        { goalId: "goal-2", threadId: "dest-2" },
+        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" },
+        { goalId: "goal-2", threadId: "dest-2", drafterThreadId: "drafter-1" },
       ]);
+
+      // The same marker stamped on the drafter's fork SOURCE keeps naming the
+      // drafter, which is how a source with several handoffs tells them apart.
+      const source = yield* projectEvent(
+        recordTwice,
+        makeEvent({
+          sequence: 4,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "source-1",
+          occurredAt: now,
+          commandId: "cmd-create-source",
+          payload: {
+            threadId: "source-1",
+            projectId: "project-1",
+            title: "The session the human typed /handoff in",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      const recordOnSource = yield* projectEvent(
+        source,
+        makeEvent({
+          sequence: 5,
+          type: "thread.handoff-recorded",
+          aggregateKind: "thread",
+          aggregateId: "source-1",
+          occurredAt: now,
+          commandId: "cmd-record-source",
+          payload: {
+            threadId: "source-1",
+            drafterThreadId: "drafter-1",
+            destinationGoalId: "goal-1",
+            destinationThreadId: "dest-1",
+            createdAt: now,
+          },
+        }),
+      );
+      expect(
+        recordOnSource.threads.find((thread) => thread.id === "source-1")?.handoffDestinations,
+      ).toEqual([{ goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" }]);
     }),
   );
 
