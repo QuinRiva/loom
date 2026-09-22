@@ -1,4 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { EyeOffIcon, GitBranchIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { memo, use } from "react";
@@ -61,8 +62,13 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const navigate = useNavigate();
-  const { state, explanation, drafterThreadId, failureReason } = row.receipt;
+  const { state, explanation, drafterThreadId, destinations, failureReason } = row.receipt;
   const pending = state === "dispatching" || state === "drafting";
+  const openThread = (threadId: ThreadId) =>
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(ctx.activeThreadEnvironmentId, threadId)),
+    });
 
   return (
     <div
@@ -97,7 +103,9 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
             : state === "drafting"
               ? "A drafter is composing the brief"
               : state === "settled"
-                ? "Staged as its own goal"
+                ? destinations.length > 1
+                  ? `Staged as ${destinations.length} goals`
+                  : "Staged as its own goal"
                 : failureReason}
         </span>
         {/* Verbatim and never truncated: this is the recoverable second copy. */}
@@ -108,18 +116,26 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
         <button
           type="button"
           className="shrink-0 cursor-pointer font-semibold text-warning-foreground hover:underline"
-          onClick={() =>
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(
-                scopeThreadRef(ctx.activeThreadEnvironmentId, drafterThreadId),
-              ),
-            })
-          }
+          onClick={() => openThread(drafterThreadId)}
         >
           Open drafter
         </button>
       ) : null}
+
+      {/* One link per placed handoff: a drafter may stage several goals in one
+          turn, and the row is where the human learns they exist. */}
+      {state === "settled"
+        ? destinations.map((destination) => (
+            <button
+              key={destination.threadId}
+              type="button"
+              className="max-w-56 shrink-0 cursor-pointer truncate font-semibold text-primary hover:underline"
+              onClick={() => openThread(destination.threadId)}
+            >
+              {destination.title === null ? "Open handoff" : `Open ${destination.title}`}
+            </button>
+          ))
+        : null}
 
       <span className="flex shrink-0 items-center gap-1.5">
         <span className="text-[10.5px] text-muted-foreground/70 tabular-nums">

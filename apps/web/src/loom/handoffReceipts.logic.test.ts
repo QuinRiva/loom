@@ -177,6 +177,7 @@ describe("deriveHandoffReceiptViews", () => {
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt()],
       drafterShellsById: new Map([[DRAFTER_ID, drafterShell({ attention: ["needs_guidance"] })]]),
+      destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS + 30_000,
     });
 
@@ -189,6 +190,7 @@ describe("deriveHandoffReceiptViews", () => {
     const [view] = deriveHandoffReceiptViews({
       receipts: [receipt({ intake: null, failure: "Source thread is busy." })],
       drafterShellsById: new Map(),
+      destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS,
     });
 
@@ -201,11 +203,38 @@ describe("deriveHandoffReceiptViews", () => {
       drafterShellsById: new Map([
         [DRAFTER_ID, drafterShell({ archivedAt: "2026-01-01T00:00:20.000Z" })],
       ]),
+      destinationsByReceiptId: new Map(),
       nowMs: CREATED_AT_MS + 20_000,
     });
 
     expect(view?.state).toBe("settled");
     expect(view?.failureReason).toBeNull();
+  });
+
+  it("carries every destination the drafter staged, titled where the shell has one", () => {
+    // The whole point of resolving destinations off the SOURCE shell: a drafter
+    // may place several handoffs in one turn, and by the time the receipt
+    // settles the drafter that placed them is archived and gone.
+    const [view] = deriveHandoffReceiptViews({
+      receipts: [receipt()],
+      drafterShellsById: new Map(),
+      destinationsByReceiptId: new Map([
+        [
+          "handoff_1",
+          [
+            { threadId: "dest-1" as ThreadId, title: "Fix FooService retries" },
+            { threadId: "dest-2" as ThreadId, title: null },
+          ],
+        ],
+      ]),
+      nowMs: CREATED_AT_MS + 30_000,
+    });
+
+    expect(view?.state).toBe("settled");
+    expect(view?.destinations).toEqual([
+      { threadId: "dest-1", title: "Fix FooService retries" },
+      { threadId: "dest-2", title: null },
+    ]);
   });
 });
 
@@ -217,6 +246,7 @@ describe("deriveHandoffReceiptToastPushes", () => {
     explanation: "the retry logic in FooService is broken",
     createdAt: CREATED_AT,
     drafterThreadId: DRAFTER_ID,
+    destinations: [],
     failureReason: null,
     ...overrides,
   });
@@ -272,13 +302,18 @@ describe("deriveHandoffReceiptToastPushes", () => {
   });
 
   it("pushes success once the human has navigated away from the source", () => {
+    // The destinations ride along: away from the source thread the toast is the
+    // only surface offering a way into what was just staged.
+    const destinations = [{ threadId: "dest-1" as ThreadId, title: "Fix FooService retries" }];
     const pushes = deriveHandoffReceiptToastPushes({
       previousStates: previous("drafting"),
-      views: [view()],
+      views: [view({ destinations })],
       activeThreadKey: "env:thread-2",
     });
 
-    expect(pushes).toEqual([expect.objectContaining({ receiptId: "handoff_1", kind: "success" })]);
+    expect(pushes).toEqual([
+      expect.objectContaining({ receiptId: "handoff_1", kind: "success", destinations }),
+    ]);
   });
 
   it("does not repeat a push while the state is unchanged", () => {

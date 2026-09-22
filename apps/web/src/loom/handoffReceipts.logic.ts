@@ -18,6 +18,22 @@ export interface HandoffDrafterShell {
 
 export type HandoffReceiptState = "dispatching" | "drafting" | "settled" | "failed";
 
+/**
+ * A goal this handoff staged, as the receipt can offer it: somewhere to go.
+ *
+ * It is read off the SOURCE thread's shell (`handoffDestinations`, filtered to
+ * this receipt's drafter), not the drafter's — a settled drafter is archived and
+ * gone from the snapshot, so its own copy is unreachable exactly when the row
+ * wants to link. `title` is the staged thread's, which is in the snapshot
+ * because a staged root is `planned` rather than archived; null when it is not
+ * (yet) there, and then the affordance falls back to a generic label rather than
+ * disappearing.
+ */
+export interface HandoffReceiptDestination {
+  readonly threadId: ThreadId;
+  readonly title: string | null;
+}
+
 export interface HandoffReceiptView {
   readonly id: string;
   readonly sourceThreadKey: string;
@@ -25,8 +41,10 @@ export interface HandoffReceiptView {
   /** The human's explanation, verbatim and never truncated. */
   readonly explanation: string;
   readonly createdAt: string;
-  /** Present once intake acknowledged; the only navigable artefact this increment exposes. */
+  /** Present once intake acknowledged; where a FAILED handoff sends the human. */
   readonly drafterThreadId: ThreadId | null;
+  /** The goals this handoff staged — one per `goal_handoff` the drafter placed. */
+  readonly destinations: ReadonlyArray<HandoffReceiptDestination>;
   /** Why it failed — a dispatch error, or the drafter placing no handoff at all. */
   readonly failureReason: string | null;
 }
@@ -97,9 +115,13 @@ export function deriveHandoffReceiptState(input: {
 const DRAFTER_FAILURE_REASON =
   "The drafter stopped without placing a handoff, so no goal was created.";
 
+const NO_DESTINATIONS: ReadonlyArray<HandoffReceiptDestination> = Object.freeze([]);
+
 export function deriveHandoffReceiptViews(input: {
   readonly receipts: ReadonlyArray<HandoffReceipt>;
   readonly drafterShellsById: ReadonlyMap<string, HandoffDrafterShell>;
+  /** Destinations resolved from each receipt's source shell, keyed by receipt id. */
+  readonly destinationsByReceiptId: ReadonlyMap<string, ReadonlyArray<HandoffReceiptDestination>>;
   readonly nowMs: number;
 }): HandoffReceiptView[] {
   return input.receipts.map((receipt) => {
@@ -114,6 +136,7 @@ export function deriveHandoffReceiptViews(input: {
       explanation: receipt.explanation,
       createdAt: receipt.createdAt,
       drafterThreadId,
+      destinations: input.destinationsByReceiptId.get(receipt.id) ?? NO_DESTINATIONS,
       failureReason: state === "failed" ? (receipt.failure ?? DRAFTER_FAILURE_REASON) : null,
     };
   });
@@ -131,6 +154,7 @@ export interface HandoffReceiptToastPush {
   readonly sourceThreadKey: string;
   readonly explanation: string;
   readonly drafterThreadId: ThreadId | null;
+  readonly destinations: ReadonlyArray<HandoffReceiptDestination>;
   readonly failureReason: string | null;
 }
 
@@ -176,6 +200,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         sourceThreadKey: view.sourceThreadKey,
         explanation: view.explanation,
         drafterThreadId: view.drafterThreadId,
+        destinations: view.destinations,
         failureReason: view.failureReason,
       });
       continue;
@@ -191,6 +216,7 @@ export function deriveHandoffReceiptToastPushes(input: {
         sourceThreadKey: view.sourceThreadKey,
         explanation: view.explanation,
         drafterThreadId: view.drafterThreadId,
+        destinations: view.destinations,
         failureReason: null,
       });
     }

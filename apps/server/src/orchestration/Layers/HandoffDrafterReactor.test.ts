@@ -85,6 +85,7 @@ const placed = (count: number): ReadonlyArray<HandoffDestination> =>
   Array.from({ length: count }, (_, index) => ({
     goalId: GoalId.make(`goal-${index}`),
     threadId: `dest-${index}` as ThreadId,
+    drafterThreadId: "drafter" as ThreadId,
   }));
 
 const makeDrafter = (

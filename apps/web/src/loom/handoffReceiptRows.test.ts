@@ -24,6 +24,7 @@ const receipt: HandoffReceiptView = {
   explanation: "the retry logic in FooService is broken",
   createdAt: "2026-01-01T00:00:30Z",
   drafterThreadId: "drafter-1" as never,
+  destinations: [],
   failureReason: null,
 };
 

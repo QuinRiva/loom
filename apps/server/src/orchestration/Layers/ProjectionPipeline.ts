@@ -1573,6 +1573,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               {
                 goalId: event.payload.destinationGoalId,
                 threadId: event.payload.destinationThreadId,
+                // Pre-field events only ever landed on the drafter itself.
+                drafterThreadId: event.payload.drafterThreadId ?? event.payload.threadId,
               },
             ],
             updatedAt: event.payload.createdAt,

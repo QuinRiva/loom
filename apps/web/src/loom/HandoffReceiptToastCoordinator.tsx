@@ -51,7 +51,9 @@ export function HandoffReceiptToastCoordinator() {
 
     for (const push of pushes) {
       const drafterThreadId = push.drafterThreadId;
-      // The drafter lives in the same environment as the source thread it forked.
+      const firstDestination = push.destinations[0];
+      // The drafter and its destinations live in the same environment as the
+      // source thread it forked.
       const sourceEnvironmentId = parseScopedThreadKey(push.sourceThreadKey)?.environmentId ?? null;
       toastManager.add(
         stackedThreadToast(
@@ -84,7 +86,31 @@ export function HandoffReceiptToastCoordinator() {
             : {
                 type: "success",
                 title: "Handed off",
-                description: `Staged as its own goal — ${push.explanation}`,
+                description:
+                  push.destinations.length > 1
+                    ? `Staged as ${push.destinations.length} goals — ${push.explanation}`
+                    : `Staged as its own goal — ${push.explanation}`,
+                // The toast carries ONE action, so it opens the first staged
+                // goal; a drafter that placed several is rare, and the receipt
+                // row (and the sidebar) list them all.
+                ...(firstDestination !== undefined && sourceEnvironmentId !== null
+                  ? {
+                      actionProps: {
+                        children:
+                          firstDestination.title === null
+                            ? "Open handoff"
+                            : `Open ${firstDestination.title}`,
+                        onClick: () => {
+                          void navigate({
+                            to: "/$environmentId/$threadId",
+                            params: buildThreadRouteParams(
+                              scopeThreadRef(sourceEnvironmentId, firstDestination.threadId),
+                            ),
+                          });
+                        },
+                      },
+                    }
+                  : {}),
               },
         ),
       );

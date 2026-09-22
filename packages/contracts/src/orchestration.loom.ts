@@ -349,9 +349,17 @@ export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 
 // One placed `goal_handoff` destination: the goal + staged root thread the
 // handoff created. Recorded per `thread.handoff-recorded` event.
+//
+// `drafterThreadId` is the drafter that placed it. It is what lets the SOURCE
+// thread carry its drafters' destinations too (the drafter itself is archived
+// on settlement and drops out of the shell snapshot, so a source-local surface
+// like the `/handoff` receipt row could otherwise never name the thread it
+// created) while still attributing each destination to the handoff that made
+// it. Null only on records written before the field existed.
 export const HandoffDestination = Schema.Struct({
   goalId: GoalId,
   threadId: ThreadId,
+  drafterThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
@@ -1084,7 +1092,10 @@ const ThreadPeerMessageExpireCommand = Schema.Struct({
 const ThreadHandoffRecordCommand = Schema.Struct({
   type: Schema.Literal("thread.handoff.record"),
   commandId: CommandId,
+  // The thread the marker lands on: the drafter (whose settlement reactor reads
+  // it) or the drafter's fork source (whose receipt row links to it).
   threadId: ThreadId,
+  drafterThreadId: ThreadId,
   destinationGoalId: GoalId,
   destinationThreadId: ThreadId,
   createdAt: IsoDateTime,
@@ -1492,6 +1503,9 @@ export const ThreadPeerMessageExpiredPayload = Schema.Struct({
 // destination is created (never speculatively).
 export const ThreadHandoffRecordedPayload = Schema.Struct({
   threadId: ThreadId,
+  // Decode-defaulted: events recorded before the source-thread marker existed
+  // carry no drafter id, and for those the aggregate IS the drafter.
+  drafterThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   destinationGoalId: GoalId,
   destinationThreadId: ThreadId,
   createdAt: IsoDateTime,
