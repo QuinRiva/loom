@@ -56,7 +56,6 @@ const runningSession: OrchestrationSession = {
   runtimeMode: "full-access",
   activeTurnId: "turn-1" as TurnId,
   lastError: null,
-  queuedMessages: { steering: [], followUp: [] },
   updatedAt: NOW,
 };
 
@@ -67,7 +66,6 @@ const readySession = (lastError: string | null = null): OrchestrationSession => 
   runtimeMode: "full-access",
   activeTurnId: null,
   lastError,
-  queuedMessages: { steering: [], followUp: [] },
   updatedAt: NOW,
 });
 

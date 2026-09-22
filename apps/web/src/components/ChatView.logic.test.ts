@@ -16,7 +16,6 @@ import {
 } from "@t3tools/contracts";
 
 // loom: the fork's required session field, absent from upstream's fixtures.
-const loomSessionDefaults = { queuedMessages: { steering: [], followUp: [] } } as const;
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -1015,7 +1014,6 @@ const completedTurn = {
 };
 
 const readySession = {
-  ...loomSessionDefaults, // loom:
   threadId,
   status: "ready" as const,
   providerName: "codex",
@@ -2245,7 +2243,6 @@ describe("threadShellHasStarted", () => {
         latestTurn: null,
         latestUserMessageAt: null,
         session: {
-          ...loomSessionDefaults, // loom:
           threadId,
           status: "starting",
           providerName: "codex",

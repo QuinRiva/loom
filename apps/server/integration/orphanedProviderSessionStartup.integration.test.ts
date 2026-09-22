@@ -201,7 +201,6 @@ it.effect(
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
-            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -254,7 +253,6 @@ it.effect(
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
-            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -426,7 +424,6 @@ it.effect.each(["opt-in desktop restart", "marked remote update"] as const)(
             activeTurnId,
             lastError: null,
             updatedAt: createdAt,
-            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         });
@@ -498,4 +495,131 @@ it.effect.each(["opt-in desktop restart", "marked remote update"] as const)(
         ),
       ),
     ),
+);
+
+// loom: steers pi was still holding when its process died are stashed on the
+// binding (ProviderRuntimeIngestion) and re-delivered by the restart
+// continuation. Exercised here against the real directory, because the clear is
+// a merge-upsert on the persisted runtime payload, not an in-memory swap.
+it.effect("re-delivers stashed steers after a restart and clears the stash", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const activeTurnId = TurnId.make("turn-interrupted-with-steers");
+    const sent = yield* Deferred.make<ProviderSendTurnInput>();
+    // The clear runs in the continuation's forked fibre; wait on the write
+    // itself rather than polling the row.
+    const stashCleared = yield* Deferred.make<void>();
+
+    yield* Effect.gen(function* () {
+      const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("create-steer-project"),
+        projectId,
+        title: "Steer continuation",
+        workspaceRoot: "/tmp/startup-orphan-project",
+        defaultModelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-steer-thread"),
+        threadId,
+        projectId,
+        title: "Interrupted turn with queued steers",
+        modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("persist-steer-running-turn"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          providerInstanceId,
+          runtimeMode: "full-access",
+          activeTurnId,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      // Written by ingestion on pi's `queue_update`; seeded directly here.
+      yield* directory.upsert({
+        threadId,
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId,
+        status: "running",
+        resumeCursor,
+        runtimePayload: {
+          activeTurnId,
+          pendingSteering: ["use the staging bucket", "and skip the backfill"],
+        },
+      });
+    }).pipe(Effect.provide(makePersistedRuntimeLayer(config.dbPath)));
+
+    yield* Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const provider = yield* ProviderService.ProviderService;
+      yield* ServerRuntimeStartup.reconcileProviderSessions.pipe(
+        Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, {
+          ...directory,
+          upsert: (binding, options) =>
+            directory
+              .upsert(binding, options)
+              .pipe(
+                Effect.tap(() =>
+                  (binding.runtimePayload as Record<string, unknown>).pendingSteering === null
+                    ? Deferred.succeed(stashCleared, undefined)
+                    : Effect.void,
+                ),
+              ),
+        }),
+        Effect.provideService(ProviderService.ProviderService, {
+          ...provider,
+          getCapabilities: () =>
+            Effect.succeed({
+              sessionModelSwitch: "in-session",
+              emitsExitOnStop: true,
+              // Promptless continuation still takes the prompt path while steers
+              // are pending: a promptless continuation cannot carry them.
+              promptlessTurnContinuation: true,
+            }),
+          sendTurn: (input) =>
+            Deferred.succeed(sent, input).pipe(
+              Effect.as({ threadId, turnId: TurnId.make("continued-turn") }),
+            ),
+        }),
+        Effect.provide(ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true })),
+      );
+      const delivered = yield* Deferred.await(sent);
+      const input = delivered.input ?? "";
+      assert.include(input, "use the staging bucket");
+      assert.include(input, "and skip the backfill");
+      assert.isBelow(input.indexOf("use the staging"), input.indexOf("and skip the backfill"));
+      // The persisted stash must not survive its delivery.
+      yield* Deferred.await(stashCleared);
+      assert.propertyVal(
+        Option.getOrThrow(yield* directory.getBinding(threadId)).runtimePayload,
+        "pendingSteering",
+        null,
+      );
+    }).pipe(
+      Effect.provide(Layer.mergeAll(makePersistedRuntimeLayer(config.dbPath), startupDependencies)),
+    );
+  }).pipe(
+    Effect.provide(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-restart-steer-" }).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
 );

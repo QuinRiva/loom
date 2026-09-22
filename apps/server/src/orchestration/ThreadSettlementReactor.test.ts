@@ -392,7 +392,6 @@ describe("ThreadSettlementReactor", () => {
             runtimeMode: "full-access" as const,
             activeTurnId: null,
             lastError: null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: NOW,
           };
           const threads = [
@@ -542,7 +541,6 @@ describe("ThreadSettlementReactor", () => {
           runtimeMode: "full-access" as const,
           activeTurnId: null,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
           updatedAt: NOW,
         };
 
@@ -1679,7 +1677,6 @@ describe("storage cleanup", () => {
                     runtimeMode: "full-access",
                     activeTurnId: null,
                     lastError: null,
-                    queuedMessages: { steering: [], followUp: [] },
                     updatedAt: NOW,
                   }
                 : null,

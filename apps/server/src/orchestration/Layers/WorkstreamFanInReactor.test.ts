@@ -76,7 +76,6 @@ const shell = (
       runtimeMode: "approval-required",
       activeTurnId: null,
       lastError: null,
-      queuedMessages: { steering: [], followUp: [] },
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
     ...over,
@@ -250,7 +249,6 @@ const parent = shell({
     runtimeMode: "approval-required",
     activeTurnId: null,
     lastError: null,
-    queuedMessages: { steering: [], followUp: [] },
     updatedAt: "2026-01-01T00:00:00.000Z",
   },
 });
@@ -534,7 +532,6 @@ describe("WorkstreamFanInReactor", () => {
             runtimeMode: "approval-required",
             activeTurnId: TurnId.make("turn-cancel-race"),
             lastError: null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: "2026-01-01T00:00:01.000Z",
           },
         });
@@ -605,7 +602,6 @@ describe("WorkstreamFanInReactor", () => {
                 runtimeMode: "approval-required",
                 activeTurnId: null,
                 lastError: null,
-                queuedMessages: { steering: [], followUp: [] },
                 updatedAt: "2026-01-01T00:00:05.000Z",
               },
             }),
@@ -697,7 +693,6 @@ describe("WorkstreamFanInReactor", () => {
               runtimeMode: "approval-required",
               activeTurnId: null,
               lastError: null,
-              queuedMessages: { steering: [], followUp: [] },
               updatedAt: "2026-01-01T00:00:02.000Z",
             },
           }),
@@ -737,7 +732,6 @@ describe("WorkstreamFanInReactor", () => {
               runtimeMode: "approval-required",
               activeTurnId: "turn-parent-wake" as any,
               lastError: null,
-              queuedMessages: { steering: [], followUp: [] },
               updatedAt: "2026-01-01T00:00:00.000Z",
             },
           });
@@ -806,7 +800,6 @@ describe("WorkstreamFanInReactor", () => {
                 runtimeMode: "approval-required",
                 activeTurnId: null,
                 lastError: null,
-                queuedMessages: { steering: [], followUp: [] },
                 updatedAt: "2026-01-01T00:00:03.000Z",
               },
             });

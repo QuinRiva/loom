@@ -47,7 +47,6 @@ function makeShell(input: {
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: input.sessionStatus === "error" ? "boom" : null,
-            queuedMessages: { steering: [], followUp: [] },
             updatedAt: "2026-04-10T11:00:00.000Z",
           },
     latestTurn:
@@ -244,7 +243,6 @@ describe("hasQueuedTurnStart", () => {
         runtimeMode: "full-access",
         activeTurnId: null,
         lastError: "failed",
-        queuedMessages: { steering: [], followUp: [] },
         updatedAt: NOW,
       },
     });

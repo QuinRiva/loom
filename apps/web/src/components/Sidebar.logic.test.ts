@@ -877,7 +877,6 @@ describe("resolveSidebarThreadStatus", () => {
     runtimeMode: DEFAULT_RUNTIME_MODE,
     activeTurnId: "turn-1" as never,
     lastError: null,
-    queuedMessages: { steering: [], followUp: [] },
     updatedAt: "2026-03-09T10:00:00.000Z",
   };
 
@@ -2058,7 +2057,6 @@ describe("resolveWorkingStartedAt", () => {
     runtimeMode: DEFAULT_RUNTIME_MODE,
     activeTurnId: "turn-1" as never,
     lastError: null,
-    queuedMessages: { steering: [], followUp: [] },
     updatedAt: "2026-03-09T10:02:00.000Z",
   };
 
@@ -2134,7 +2132,6 @@ describe("resolveThreadStatusPill", () => {
       runtimeMode: DEFAULT_RUNTIME_MODE,
       activeTurnId: "turn-1" as never,
       lastError: null,
-      queuedMessages: { steering: [], followUp: [] },
       updatedAt: "2026-03-09T10:00:00.000Z",
     },
   };

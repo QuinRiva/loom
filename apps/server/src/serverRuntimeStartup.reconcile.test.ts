@@ -54,10 +54,6 @@ const makeThread = (
     runtimeMode: "full-access" as const,
     activeTurnId,
     lastError: null,
-    queuedMessages: {
-      steering: [] as ReadonlyArray<string>,
-      followUp: [] as ReadonlyArray<string>,
-    },
     updatedAt,
   },
 });
@@ -1205,6 +1201,136 @@ it.effect("does not continue a thread flagged for attention", () =>
     assert.deepStrictEqual(
       dispatched.map((command) => command.type === "thread.session.set" && command.session.status),
       ["error"],
+    );
+  }),
+);
+
+// loom: pi's steer queue dies with its process, so steers it had not folded in
+// when the server was killed are stashed on the binding and re-delivered here.
+// (The no-stash case is "continues a cursor-less session-file thread" above:
+// an empty stash sends the plain continuation prompt.)
+it.effect("re-delivers stashed steers with the continuation and clears the stash", () =>
+  Effect.gen(function* () {
+    const turnId = TurnId.make("turn-steer-persist");
+    const thread = makeThread("thread-steer-persist", "running", turnId);
+    const sent = yield* Deferred.make<void>();
+    const cleared = yield* Deferred.make<void>();
+    const sends: ProviderSendTurnInput[] = [];
+    const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
+    yield* runReconciliation({
+      threads: [thread],
+      continueAfterRestart: true,
+      providerService: {
+        ...makeProviderService(),
+        // Promptless continuation: the pending steers must still force the
+        // prompt path, because a promptless continuation cannot carry them.
+        getCapabilities: () =>
+          Effect.succeed({
+            sessionModelSwitch: "in-session",
+            emitsExitOnStop: true,
+            resumeState: "session-file",
+            promptlessTurnContinuation: true,
+          } as never),
+        sendTurn: (input) =>
+          Effect.gen(function* () {
+            sends.push(input);
+            yield* Deferred.succeed(sent, undefined);
+            return { threadId: input.threadId, turnId: TurnId.make("turn-continued-steer") };
+          }),
+      },
+      directory: {
+        getBinding: () =>
+          Effect.succeed(
+            Option.some({
+              threadId: thread.id,
+              provider: ProviderDriverKind.make("pi"),
+              providerInstanceId,
+              status: "running" as const,
+              runtimePayload: {
+                activeTurnId: turnId,
+                pendingSteering: ["first steer", "second steer"],
+              },
+            }),
+          ),
+        upsert: (binding) =>
+          Effect.sync(() => upserts.push(binding)).pipe(
+            Effect.flatMap(() =>
+              (binding.runtimePayload as Record<string, unknown>).pendingSteering === null
+                ? Deferred.succeed(cleared, undefined)
+                : Effect.void,
+            ),
+          ),
+        recordImportedTranscript: () => Effect.die("unused"),
+        getProvider: () => Effect.die("unused"),
+        listThreadIds: () => Effect.die("unused"),
+        listBindings: () => Effect.succeed([]),
+      },
+      dispatch: () => Effect.succeed({ sequence: 1 }),
+    });
+    yield* Deferred.await(sent);
+    yield* Deferred.await(cleared);
+    const input = sends[0]?.input ?? "";
+    assert.equal(sends.length, 1);
+    assert.isTrue(input.startsWith("The server restarted while your previous turn was running"));
+    assert.isTrue(input.includes("first steer"));
+    assert.isTrue(input.includes("second steer"));
+    assert.isBelow(input.indexOf("first steer"), input.indexOf("second steer"));
+    // Delivered, so the stash must not survive into a later restart.
+    assert.deepStrictEqual(upserts.at(-1)?.runtimePayload, {
+      activeTurnId: turnId,
+      continueAfterServerUpdate: null,
+      continueAfterServerUpdatePrepared: null,
+      pendingSteering: null,
+    });
+  }),
+);
+
+// loom: a thread that settles as an error will never take a continuation, so a
+// stash left on it would surface in some unrelated later restart.
+it.effect("clears the stash when an orphaned thread settles as an error", () =>
+  Effect.gen(function* () {
+    const turnId = TurnId.make("turn-steer-unresumable");
+    const base = makeThread("thread-steer-unresumable", "running", turnId);
+    const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
+    const dispatched: OrchestrationCommand[] = [];
+    yield* runReconciliation({
+      threads: [{ ...base, attention: [{ reason: "needs_guidance" }] }],
+      continueAfterRestart: true,
+      providerService: {
+        ...makeProviderService(),
+        sendTurn: () => Effect.die("must not continue an attention-flagged thread"),
+      },
+      directory: {
+        getBinding: () =>
+          Effect.succeed(
+            Option.some({
+              threadId: base.id,
+              provider: ProviderDriverKind.make("pi"),
+              providerInstanceId,
+              status: "running" as const,
+              resumeCursor: { threadId: base.id },
+              runtimePayload: { activeTurnId: turnId, pendingSteering: ["stranded steer"] },
+            }),
+          ),
+        upsert: (binding) => Effect.sync(() => void upserts.push(binding)),
+        recordImportedTranscript: () => Effect.die("unused"),
+        getProvider: () => Effect.die("unused"),
+        listThreadIds: () => Effect.die("unused"),
+        listBindings: () => Effect.succeed([]),
+      },
+      dispatch: (command) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+    });
+    assert.deepStrictEqual(
+      dispatched.map((command) => command.type === "thread.session.set" && command.session.status),
+      ["error"],
+    );
+    assert.equal(
+      (upserts.at(-1)?.runtimePayload as Record<string, unknown> | undefined)?.pendingSteering,
+      null,
     );
   }),
 );

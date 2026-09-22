@@ -743,7 +743,6 @@ function mapSessionRow(
     ...(row.lastErrorClass !== null ? { lastErrorClass: row.lastErrorClass } : {}),
     // The queue is ephemeral live state and is never persisted, so a
     // DB-hydrated session always starts with an empty queue.
-    queuedMessages: { steering: [], followUp: [] },
     updatedAt: row.updatedAt,
   };
 }
@@ -4110,7 +4109,6 @@ pending_approval_requests AS (
                   activeTurnId: row.activeTurnId,
                   lastError: row.lastError,
                   ...(row.lastErrorClass !== null ? { lastErrorClass: row.lastErrorClass } : {}),
-                  queuedMessages: { steering: [], followUp: [] },
                   updatedAt: row.updatedAt,
                 });
               }

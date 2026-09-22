@@ -356,7 +356,6 @@ describe("ThreadPullRequestReactor", () => {
                   activeTurnId: null,
                   lastError: null,
                   updatedAt: NOW,
-                  queuedMessages: { steering: [], followUp: [] },
                 },
               },
             };

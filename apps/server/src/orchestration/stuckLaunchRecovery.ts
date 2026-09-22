@@ -364,7 +364,6 @@ export const recoverStuckLaunch = Effect.fn("stuckLaunchRecovery.recover")(funct
         status: "ready",
         activeTurnId: null,
         lastError: null,
-        queuedMessages: { steering: [], followUp: [] },
         updatedAt: now,
       },
       ...(input.clearPendingTurnStart ? { clearPendingTurnStart: true } : {}),

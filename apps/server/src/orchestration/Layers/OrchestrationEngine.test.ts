@@ -416,7 +416,6 @@ describe("OrchestrationEngine", () => {
           activeTurnId: null,
           lastError: null,
           updatedAt: createdAt,
-          queuedMessages: { steering: [], followUp: [] },
         },
       });
 
