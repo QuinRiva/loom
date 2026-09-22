@@ -58,6 +58,12 @@ derived id makes it idempotent.
 
 ## Migration 1041
 
+> **Id 1041 is already recorded on the live cockpit ledger** (applied 2026-09-22
+> 13:20Z by a stray dev server booted without `--base-dir`). The migrator skips
+> every id at or below the ledger's high-water mark, so this migration must ship
+> under exactly this id — never renumber it or reuse 1041 — and the next loom
+> migration starts at 1042 regardless of whether this commit is reverted.
+
 The human verified the copy against real data on the deployed build, which was
 the gate for the two follow-ups this change closes:
 
