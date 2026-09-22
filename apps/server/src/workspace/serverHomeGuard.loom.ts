@@ -20,8 +20,13 @@
 //      would flip production off `/home/Carl/.t3/cockpit` onto an empty
 //      database on the next deploy. Provenance — did THIS home provision that
 //      checkout — separates the two cases; it is the same discriminator the
-//      foreign-home guard uses, and it leaves `npx t3` inside a user's own
-//      worktree on their real home.
+//      foreign-home guard uses.
+//
+//      The trade it makes: a worktree a user made by hand keeps the ambient
+//      home, while `t3` run from a T3-provisioned one gets a fresh, empty
+//      home. That second half is the point, not an oversight — those
+//      checkouts are throwaway feature work and must not share the live
+//      database. Guard 2 covers the hand-made case that guard 1 lets through.
 //
 //   2. `ensureHomeNotLive` refuses to boot when another live server already
 //      holds the home, reading the runtime-state file the server already

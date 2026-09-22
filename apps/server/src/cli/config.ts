@@ -20,6 +20,7 @@ import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import {
   describeBaseDirSelection,
+  ensureHomeNotLive,
   selectServerBaseDir,
 } from "../workspace/serverHomeGuard.loom.ts"; // loom:
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
@@ -249,6 +250,8 @@ export const resolveServerConfig = (
   options?: {
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
+    /** loom: set by the commands that actually open the database. */
+    readonly refuseWhenHomeIsLive?: boolean;
   },
 ) =>
   Effect.gen(function* () {
@@ -332,12 +335,23 @@ export const resolveServerConfig = (
       baseDirSelection.rule === "bootstrap" || baseDirSelection.rule === "default"
         ? Option.none<string>()
         : Option.some(baseDir);
-    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
-    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-    yield* fs.makeDirectory(cwd, { recursive: true });
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
     });
+    // loom: refuse before the first side effect of this boot —
+    // `ensureServerDirectories` sweeps stale pending attachments, and a boot
+    // about to be turned away must not touch the live home it is turned away
+    // from. Nothing above this line writes, which is why `deriveServerPaths`
+    // (pure) moved above the cwd block.
+    if (options?.refuseWhenHomeIsLive === true) {
+      yield* ensureHomeNotLive({
+        baseDir,
+        serverRuntimeStatePath: derivedPaths.serverRuntimeStatePath,
+      });
+    }
+    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
+    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    yield* fs.makeDirectory(cwd, { recursive: true });
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
       derivedPaths.settingsPath,

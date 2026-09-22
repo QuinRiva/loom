@@ -1,6 +1,22 @@
-import { describe, expect, it } from "@effect/vitest";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
 
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+
+import * as NetService from "@t3tools/shared/Net";
+import { resolveServerConfig } from "../cli/config.ts";
+import { PersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { classifyRuntimeHolder, selectServerBaseDir } from "./serverHomeGuard.loom.ts";
+
+const encodeRuntimeState = Schema.encodeEffect(Schema.fromJsonString(PersistedServerRuntimeState));
 
 const COCKPIT = "/home/carl/.t3/cockpit";
 const WORKTREE = `${COCKPIT}/worktrees/t3code-ea251a06/ws-guard`;
@@ -96,4 +112,70 @@ describe("classifyRuntimeHolder", () => {
     expect(classifyRuntimeHolder(holder)).toBe("held");
     expect(classifyRuntimeHolder({ ...holder, holderPid: 99 })).toBe("free");
   });
+});
+
+it.layer(NodeServices.layer)("a refused boot touches nothing in the home", (it) => {
+  it.effect("fails before ensureServerDirectories sweeps the live home", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-home-busy-" });
+
+      // A live process whose command line the guard recognises as a server.
+      // `bin.mjs` is what the entrypoint is called in a built release.
+      const fakeServer = path.join(baseDir, "bin.mjs");
+      yield* fs.writeFileString(fakeServer, "setTimeout(() => {}, 60_000);\n");
+      const child = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          NodeChildProcess.spawn(process.execPath, [fakeServer], { stdio: "ignore" }),
+        ),
+        (spawned) => Effect.sync(() => spawned.kill()),
+      );
+
+      const stateDir = path.join(baseDir, "userdata");
+      yield* fs.makeDirectory(stateDir, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(stateDir, "server-runtime.json"),
+        yield* encodeRuntimeState({
+          version: 1,
+          pid: child.pid ?? process.pid,
+          port: 8788,
+          origin: "http://127.0.0.1:8788",
+          startedAt: "2026-09-22T22:42:01.449Z",
+        }),
+      );
+
+      const outcome = yield* resolveServerConfig(
+        {
+          mode: Option.none(),
+          port: Option.some(8789),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+        { refuseWhenHomeIsLive: true },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(outcome._tag).toBe("ServerHomeBusyError");
+      // The sweep lives in ensureServerDirectories, which creates these.
+      expect(yield* fs.exists(path.join(stateDir, "logs"))).toBe(false);
+      expect(yield* fs.exists(path.join(stateDir, "attachments"))).toBe(false);
+    }),
+  );
 });
