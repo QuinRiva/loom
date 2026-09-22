@@ -2021,13 +2021,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         targetThread.planLane === "done" || targetThread.planLane === "cancelled";
       const trailingEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
 
-      // Real activity resets ANY override: it wakes an explicitly settled
-      // thread, and it clears a keep-active pin back to neutral so the
-      // thread can auto-settle again after this burst of work goes stale.
-      // A snooze clears the same way — sending a message to a snoozed
-      // thread is the user re-engaging, so the return ticket is spent.
+      // loom: a real human send to a settled thread is the same durable
+      // keep-active choice as the Un-settle action. Automated/control-plane
+      // turns leave settlement untouched, and later activity must not clear a
+      // user pin — only an explicit Settle does that.
       const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (targetThread.settledOverride !== null) {
+      const userAuthored =
+        command.message.origin === undefined || command.message.origin === "human";
+      if (targetThread.settledOverride === "settled" && userAuthored) {
         lifecycleResetEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -2038,7 +2039,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           type: "thread.unsettled",
           payload: {
             threadId: command.threadId,
-            reason: "activity",
+            reason: "user",
             updatedAt: command.createdAt,
           },
         });
@@ -2454,11 +2455,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.session.set": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      yield* requireThread({ readModel, command, threadId: command.threadId });
       const sessionSetEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -2473,35 +2470,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           session: command.session,
         },
       };
-      // Only a session coming alive is activity worth waking a settled thread
-      // for — status writes like ready/stopped/error arrive after the fact and
-      // must not fight a user's explicit settle. Snooze is deliberately NOT
-      // cleared here: snooze never pauses the agent, so its session starting
-      // or erroring is not the user re-engaging. Blocked/failed work still
-      // surfaces immediately — effectiveSnoozed refuses to classify a thread
-      // with a raised hand (approval / input / failure / fresh completion)
-      // as snoozed, without spending the return ticket.
-      const isSessionActivity =
-        command.session.status === "starting" || command.session.status === "running";
-      // Real activity resets ANY override (settled wakes, active unpins).
-      if (thread.settledOverride === null || !isSessionActivity) {
-        return sessionSetEvent;
-      }
-      const unsettledEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.unsettled",
-        payload: {
-          threadId: command.threadId,
-          reason: "activity",
-          updatedAt: command.createdAt,
-        },
-      };
-      return [unsettledEvent, sessionSetEvent];
+      // loom: turn acceptance owns settlement changes because it still knows
+      // whether the message was human-authored. Session status cannot recover
+      // that provenance, so it must preserve both settled rows reached by
+      // control-plane turns and durable user keep-active pins.
+      return sessionSetEvent;
     }
 
     case "thread.message.assistant.delta":
@@ -2832,12 +2805,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       // An approval or user-input request is blocked-on-you work — it must
-      // never stay hidden inside a settled slim row.
+      // never stay hidden inside a settled slim row. loom: an already-active
+      // user pin is durable, so activity may wake "settled" but never clear
+      // "active"; only explicit Settle clears that choice.
       const wakesSettledThread =
         command.activity.kind === "approval.requested" ||
         command.activity.kind === "user-input.requested";
-      // Real activity resets ANY override (settled wakes, active unpins).
-      if (thread.settledOverride === null || !wakesSettledThread) {
+      if (thread.settledOverride !== "settled" || !wakesSettledThread) {
         return activityAppendedEvent;
       }
       const unsettledEvent: Omit<OrchestrationEvent, "sequence"> = {

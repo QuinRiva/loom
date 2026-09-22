@@ -422,17 +422,19 @@ sweep. Loom settles a **root** whose plan lane has reached `done` or
   targeted lookup per event: cancelling a 30-node subtree emits 30 terminal lane
   events that all concern one root, and turns end constantly. Measured: 30
   cascade events cost 1 snapshot read, not 30.
-- There is no reverse rule: reopening a settled root un-settles through the
-  existing activity path (its turn start), exactly as the sweep's settles do.
+- A **human-authored** turn on a settled root now emits the same durable
+  `thread.unsettled` (`reason: "user"`) as the explicit **Un-settle** action.
+  The projection pins `settledOverride: "active"`, so neither the finished-work
+  trigger nor the 3-day idle sweep can settle it again. The pin remains until an
+  explicit **Settle**, which writes `settledOverride: "settled"`.
+- Automated/control-plane turns do not make that choice for the human. Messages
+  carrying control provenance — including `notify_thread` (`origin: "notify"`)
+  and workstream digests/notices (`origin: "control_notice"`) — leave an already
+  settled row settled through their session start and turn end.
 
-**Consequence, restored deliberately and worth the human's eye.** Messaging a
-`done` root pops the row back to active for the duration of the turn (the
-activity un-settle clears `settledOverride` to `null`) and the trigger
-re-settles it when that turn ends. That is precisely what the deleted client
-rule did (`workstreamSettleTriggered` sat below `effectiveSettled`'s
-running-session blocker), so it is a faithful restoration rather than a new
-behaviour — but if the wanted behaviour is "a user who just messaged a finished
-thread keeps the row active", that is a product change, not a bug fix. The
-explicit **Un-settle** button already pins a row active for good
-(`reason: "user"` → `settledOverride: "active"`), and the trigger never
-overrides it.
+**Consequence, ruled deliberately.** Messaging a `done` or `cancelled` root is
+re-engagement: the plan lane remains terminal, but the row returns to Active and
+stays findable until the human deliberately settles it again. This differs from
+the deleted client rule, which re-settled the row as soon as the turn ended; the
+server-owned flow distinguishes a real user send from automated user-role
+messages at turn acceptance, where message provenance is still available.
