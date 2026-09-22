@@ -9,11 +9,17 @@ import {
   FileTagChipContent,
   ThreadTagChipContent,
 } from "~/components/chat/FileTagChip";
-import { usePathExistence, type PathExistence } from "~/components/chat/usePathExistence";
+import {
+  refreshPathExistence,
+  usePathExistence,
+  type PathExistence,
+} from "~/components/chat/usePathExistence";
 import { useTheme } from "~/hooks/useTheme";
+import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { resolveInlineCodeFileLinkMeta, type MarkdownFileLinkMeta } from "~/markdown-links";
+import { basenameOfPath } from "~/pierre-icons";
 import { useThreadShell } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
@@ -32,6 +38,11 @@ import { extractMessagePathCandidates } from "./chatPathScan";
  *    "missing" chip instead of a dead link. An unverified path (no connected
  *    environment, e.g. the `/preview` harness, or a stat still in flight) keeps
  *    upstream's behaviour, so nothing flickers from live to missing and back.
+ *  - **click-time re-verification** ({@link verifyChipTargetBeforeOpen}): the
+ *    store only revalidates at its TTL, so a chip can be clicked inside the
+ *    window where its file has already moved. The click re-stats the path, and
+ *    a gone file flips the chip and toasts instead of opening nothing "as if it
+ *    were a bug".
  *
  * Artifact-viewer routing lives in upstream's `fileLinkChip` itself (an
  * `onOpenArtifact` primary-action override), so an artifact chip keeps the
@@ -82,30 +93,76 @@ function MissingFileChip(props: {
 }
 
 /**
- * Wraps upstream's chip renderer. `metas` are the file links this message
- * already resolved, which is exactly the set worth keeping verified.
+ * Re-verify a chip target at the moment it is clicked. `false` means do not
+ * open: the store now holds `exists: false`, which re-renders that chip as
+ * {@link MissingFileChip}, and the toast says why. A path that cannot be
+ * verified — no connected environment, or a failed stat — opens as before,
+ * because an unhealthy RPC must not block a working link.
  */
+export async function verifyChipTargetBeforeOpen(
+  environmentId: EnvironmentId | null,
+  filePath: string,
+): Promise<boolean> {
+  if (environmentId === null) return true;
+  const existence = await refreshPathExistence(environmentId, filePath);
+  if (existence?.exists !== false) return true;
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title: `${basenameOfPath(filePath)} has moved or been deleted`,
+      description: `${filePath} is no longer there — it existed when this was written.`,
+    }),
+  );
+  return false;
+}
+
+/**
+ * One chip, subscribed to its own path. The subscription belongs here rather
+ * than to the hosting message for the same reason the scanned-path leaf owns
+ * one: a result that lands — or changes — after the message rendered has to
+ * repaint the chip, and the host has no reason to re-render just then.
+ * Registration is ref-counted and stats are batched per environment, so N chips
+ * still cost one RPC, and only the chips repaint rather than whole messages.
+ */
+function VerifiedFileChip(props: {
+  environmentId: EnvironmentId | null;
+  meta: MarkdownFileLinkMeta;
+  copyMarkdown: string;
+  className?: string | undefined;
+  mediaSource?: string | undefined;
+  renderChip: FileLinkChipRenderer;
+}) {
+  const paths = useMemo(() => [props.meta.filePath], [props.meta.filePath]);
+  const lookupExistence = usePathExistence(props.environmentId, paths);
+  return lookupExistence(props.meta.filePath)?.exists === false ? (
+    <MissingFileChip
+      meta={props.meta}
+      copyMarkdown={props.copyMarkdown}
+      className={props.className}
+    />
+  ) : (
+    props.renderChip(props.meta, props.copyMarkdown, props.className, props.mediaSource)
+  );
+}
+
+/** Wraps upstream's chip renderer so every chip it renders stays verified. */
 export function useVerifiedFileLinkChip(input: {
   environmentId: EnvironmentId | null;
-  metas: Iterable<MarkdownFileLinkMeta>;
   renderChip: FileLinkChipRenderer;
 }): FileLinkChipRenderer {
   const { environmentId, renderChip } = input;
-  const paths = useMemo(
-    () => [...new Set([...input.metas].map((meta) => meta.filePath))],
-    [input.metas],
-  );
-  const lookupExistence = usePathExistence(environmentId, paths);
   return useCallback(
-    (fileLinkMeta, copyMarkdown, className, mediaSource) => {
-      if (lookupExistence(fileLinkMeta.filePath)?.exists === false) {
-        return (
-          <MissingFileChip meta={fileLinkMeta} copyMarkdown={copyMarkdown} className={className} />
-        );
-      }
-      return renderChip(fileLinkMeta, copyMarkdown, className, mediaSource);
-    },
-    [lookupExistence, renderChip],
+    (fileLinkMeta, copyMarkdown, className, mediaSource) => (
+      <VerifiedFileChip
+        environmentId={environmentId}
+        meta={fileLinkMeta}
+        copyMarkdown={copyMarkdown}
+        className={className}
+        mediaSource={mediaSource}
+        renderChip={renderChip}
+      />
+    ),
+    [environmentId, renderChip],
   );
 }
 

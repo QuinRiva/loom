@@ -116,6 +116,7 @@ import {
   useScannedPathTargets,
   useVerifiedFileLinkChip,
   useVerifiedScannedPath,
+  verifyChipTargetBeforeOpen,
 } from "~/loom/verifiedFileChips";
 // loom: loose path scanning in plain prose and inside fenced code blocks.
 import { PROSE_FILE_PATH_TAG, rehypeChatFilePaths } from "~/loom/chatPathScan";
@@ -1200,6 +1201,9 @@ interface MarkdownFileLinkProps {
   // context menu: copy paths, open in editor, reveal), only the click opens the
   // sandboxed artifact viewer instead of the read-only files panel.
   onOpenArtifact?: (() => void) | undefined;
+  // loom: re-stat the target on click and resolve false when it has gone since
+  // render, so a stale chip says so instead of opening nothing.
+  onVerifyBeforeOpen?: ((filePath: string) => Promise<boolean>) | undefined;
   onReveal?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
       reveal item to show. */
@@ -1942,6 +1946,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenInBrowser,
   onOpenMedia,
   onOpenArtifact,
+  onVerifyBeforeOpen,
   onReveal,
   revealLabel,
   className,
@@ -2225,20 +2230,30 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
-                  handleOpenInEditor();
+                const openInEditor =
+                  onOpen !== undefined && shouldOpenMarkdownFileLinkInEditor(event);
+                const open = () => {
+                  if (openInEditor) {
+                    handleOpenInEditor();
+                    return;
+                  }
+                  // loom: artifact viewer wins the plain click; see onOpenArtifact.
+                  if (onOpenArtifact) {
+                    onOpenArtifact();
+                    return;
+                  }
+                  if (useBrowserPrimaryAction) {
+                    handleOpenInBrowser();
+                    return;
+                  }
+                  handleOpenInFilePreview();
+                };
+                // loom: see onVerifyBeforeOpen.
+                if (onVerifyBeforeOpen) {
+                  void onVerifyBeforeOpen(iconPath).then((stillThere) => stillThere && open());
                   return;
                 }
-                // loom: artifact viewer wins the plain click; see onOpenArtifact.
-                if (onOpenArtifact) {
-                  onOpenArtifact();
-                  return;
-                }
-                if (useBrowserPrimaryAction) {
-                  handleOpenInBrowser();
-                  return;
-                }
-                handleOpenInFilePreview();
+                open();
               }}
               onContextMenu={handleContextMenu}
             >
@@ -2298,8 +2313,9 @@ function areMarkdownFileLinkPropsEqual(
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onOpenMedia === next.onOpenMedia &&
-    // loom: artifact-viewer primary action.
+    // loom: artifact-viewer primary action and click-time re-verification.
     previous.onOpenArtifact === next.onOpenArtifact &&
+    previous.onVerifyBeforeOpen === next.onVerifyBeforeOpen &&
     previous.onReveal === next.onReveal &&
     previous.revealLabel === next.revealLabel &&
     previous.className === next.className
@@ -2632,6 +2648,13 @@ function useChatMarkdownState({
     },
     [cwd, findWorkspaceBasenameMatch, revealFileInFileManager],
   );
+  // loom: a chip that was live at render can be stale by the time it is clicked;
+  // re-verify so a moved file is unmistakable. One stable callback for every
+  // chip, so the chip's props comparator keeps working.
+  const verifyChipTarget = useCallback(
+    (filePath: string) => verifyChipTargetBeforeOpen(environmentId, filePath),
+    [environmentId],
+  );
   const fileLinkChip = useCallback(
     (
       fileLinkMeta: MarkdownFileLinkMeta,
@@ -2690,6 +2713,8 @@ function useChatMarkdownState({
               ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)
               : undefined
           }
+          // loom: see verifyChipTarget.
+          onVerifyBeforeOpen={verifyChipTarget}
           // loom: see artifactTarget above.
           onOpenArtifact={
             artifactTarget
@@ -2729,6 +2754,7 @@ function useChatMarkdownState({
       revealInFileManagerLabel,
       revealMarkdownFileInFileManager,
       threadRef,
+      verifyChipTarget,
     ],
   );
 
@@ -2744,11 +2770,16 @@ function useChatMarkdownState({
     baseDir: imageBaseDir ?? cwd,
     isStreaming,
   });
-  // The chip's own primary action, minus the chip.
+  // The chip's own primary action, minus the chip — same click-time
+  // re-verification, since a scanned hit goes stale exactly the same way.
   const openScannedPath = useCallback(
-    (meta: MarkdownFileLinkMeta) =>
-      openFileInPanel(meta.workspaceRelativePath ?? meta.filePath, meta.line),
-    [openFileInPanel],
+    (meta: MarkdownFileLinkMeta) => {
+      void verifyChipTarget(meta.filePath).then(
+        (stillThere) =>
+          stillThere && openFileInPanel(meta.workspaceRelativePath ?? meta.filePath, meta.line),
+      );
+    },
+    [openFileInPanel, verifyChipTarget],
   );
   const decorateCodeBlock = useCallback(
     (container: HTMLElement) =>
@@ -2766,10 +2797,6 @@ function useChatMarkdownState({
   // renders exactly upstream's chip.
   const verifiedFileLinkChip = useVerifiedFileLinkChip({
     environmentId,
-    metas: useMemo(
-      () => [...markdownFileLinkMetaByHref.values(), ...inlineCodeFileLinkMetaByText.values()],
-      [inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref],
-    ),
     renderChip: fileLinkChip,
   });
 
