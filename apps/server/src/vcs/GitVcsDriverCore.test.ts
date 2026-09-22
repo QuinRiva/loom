@@ -614,9 +614,11 @@ it.effect("fails a ref snapshot when for-each-ref exits unsuccessfully", () =>
       assert.deepInclude(error, {
         _tag: "GitCommandError",
         operation: "GitVcsDriver.listRefs.snapshotRefs",
-        detail: "Git ref snapshot enumeration failed.",
         exitCode: 128,
       });
+      // loom: `executeGit` folds git's stderr into `detail` so a persisted
+      // failure is diagnosable from its message alone.
+      assert.include(error.detail, "Git ref snapshot enumeration failed.");
       assert.equal(yield* Ref.get(snapshotAttempts), 1);
     }),
   ).pipe(Effect.provide(ServerConfigLayer.pipe(Layer.provideMerge(NodeServices.layer)))),
@@ -743,7 +745,11 @@ it.effect("backs off and logs failed fetch attempts across linked worktrees", ()
       );
       const warnings: string[] = [];
       const logger = Logger.make<unknown, void>(({ message }) => {
-        warnings.push(String(message));
+        // loom: the detached status fetch logs its ignored cause (an entry with
+        // no message) on every read that hits the cached failure; only the named
+        // warning is under test here.
+        const text = String(message);
+        if (text.length > 0) warnings.push(text);
       });
       const readRemoteStatus = (workingDirectory: string) =>
         driver

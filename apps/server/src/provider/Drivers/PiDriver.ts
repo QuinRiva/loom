@@ -294,8 +294,8 @@ function withInstanceIdentity(input: {
 
 /**
  * Curated "top / recommended" shortlist surfaced first in the model picker —
- * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 4.8 on
- * Vertex) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
+ * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 5 on the
+ * pooled cli-proxy) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
  * the plain `openai` one. The remaining catalogue (fetched live via
  * `get_available_models`, see {@link enrichPiSnapshot}) follows in pi's own order.
  */
@@ -308,7 +308,16 @@ const CURATED_PI_MODELS: ReadonlyArray<{
   // the placeholder and enriched snapshots agree: pi's own names already
   // carry "(Vertex)" for google-vertex-claude, and "GPT-5.5" collides across
   // the openai/openai-codex backends (hence the "(Codex)" suffix).
-  { slug: PI_DEFAULT_MODEL, name: "Claude Opus 4.8 (Vertex)", subProvider: "Vertex" },
+  {
+    slug: PI_DEFAULT_MODEL,
+    name: "Claude Opus 5",
+    // Derived the same way the live catalogue derives it, so the placeholder
+    // and the enriched snapshot agree on the backend badge.
+    subProvider: piBackendLabel(
+      PI_DEFAULT_MODEL.slice(0, PI_DEFAULT_MODEL.indexOf("/")),
+      PI_DEFAULT_MODEL.slice(PI_DEFAULT_MODEL.indexOf("/") + 1),
+    ),
+  },
   { slug: "openai-codex/gpt-5.5", name: "GPT-5.5 (Codex)", subProvider: "Codex" },
   {
     slug: "google-vertex/gemini-3.1-pro-preview",
@@ -352,7 +361,7 @@ function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel
 }
 
 /** Synchronous snapshot shown before the live catalogue arrives. */
-function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
+export function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   return [
     ...CURATED_PI_MODELS.map((model) => ({
       slug: model.slug,

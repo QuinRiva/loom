@@ -2563,6 +2563,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
+  // loom: see `listThreadActivitiesByKinds` on the service shape \u2014 the settle
+  // paths read these two kinds without hydrating the rest of the thread.
+  const listThreadActivitiesByKinds: ProjectionSnapshotQueryShape["listThreadActivitiesByKinds"] = (
+    input,
+  ) =>
+    (input.activityKinds.length === 0
+      ? Effect.succeed([])
+      : listThreadActivityRowsByThreadAndKinds(input)
+    ).pipe(
+      Effect.map((rows) => rows.map(mapThreadActivityRow)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listThreadActivitiesByKinds:query",
+          "ProjectionSnapshotQuery.listThreadActivitiesByKinds:decodeRows",
+        ),
+      ),
+    );
+
   const listActivityRowsByKind = SqlSchema.findAll({
     Request: Schema.Struct({ kind: Schema.String }),
     Result: ProjectionThreadActivityDbRowSchema,
@@ -6156,6 +6174,7 @@ pending_approval_requests AS (
     getReferencedWorktreePaths,
     getCommandReadModel,
     getUserInputActivity,
+    listThreadActivitiesByKinds,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
