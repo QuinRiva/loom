@@ -823,104 +823,165 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
-  it.effect("prepends activity unsets for turn starts and live session updates", () =>
-    Effect.gen(function* () {
-      const turnResult = yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.turn.start",
-          commandId: CommandId.make("cmd-turn-start"),
-          threadId: ThreadId.make("thread-1"),
-          message: {
-            messageId: MessageId.make("message-1"),
-            role: "user",
-            text: "Continue",
-            attachments: [],
+  // loom: a human re-engaging a settled finished root makes the manual
+  // Un-settle choice durably; automated notices never make that choice for them.
+  it.effect(
+    "pins a human-messaged settled root active, but leaves control-plane turns settled",
+    () =>
+      Effect.gen(function* () {
+        const settled = makeReadModel("settled");
+        const settledDone: OrchestrationReadModel = {
+          ...settled,
+          threads: [{ ...settled.threads[0]!, planLane: "done" }],
+        };
+        const startTurn = (
+          commandId: string,
+          messageId: string,
+          readModel: OrchestrationReadModel,
+          origin?: "control_notice" | "notify",
+        ) =>
+          decideOrchestrationCommand({
+            command: {
+              type: "thread.turn.start",
+              commandId: CommandId.make(commandId),
+              threadId: ThreadId.make("thread-1"),
+              message: {
+                messageId: MessageId.make(messageId),
+                role: "user",
+                text: "Continue",
+                attachments: [],
+                ...(origin !== undefined ? { origin } : {}),
+              },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              createdAt: NOW,
+            },
+            readModel,
+          });
+        const projectAll = Effect.fn("projectSettlementEvents")(function* (
+          readModel: OrchestrationReadModel,
+          events: ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+        ) {
+          let projected = readModel;
+          for (const event of events) {
+            projected = yield* projectEvent(projected, {
+              ...event,
+              sequence: projected.snapshotSequence + 1,
+            } as OrchestrationEvent);
+          }
+          return projected;
+        });
+        const setSession = (
+          commandId: string,
+          status: OrchestrationSession["status"],
+          readModel: OrchestrationReadModel,
+        ) =>
+          decideOrchestrationCommand({
+            command: {
+              type: "thread.session.set",
+              commandId: CommandId.make(commandId),
+              threadId: ThreadId.make("thread-1"),
+              session: makeSession(status),
+              createdAt: NOW,
+            },
+            readModel,
+          });
+
+        const humanResult = yield* startTurn("cmd-human-turn", "message-human", settledDone);
+        const humanEvents = Array.isArray(humanResult) ? humanResult : [humanResult];
+        expect(humanEvents.map((event) => event.type)).toEqual([
+          "thread.unsettled",
+          "thread.message-sent",
+          "thread.turn-start-requested",
+        ]);
+        const humanUnsettled = humanEvents[0];
+        expect(humanUnsettled?.type).toBe("thread.unsettled");
+        if (humanUnsettled?.type === "thread.unsettled") {
+          expect(humanUnsettled.payload.reason).toBe("user");
+        }
+
+        let humanModel = yield* projectAll(settledDone, humanEvents);
+        expect(humanModel.threads[0]?.settledOverride).toBe("active");
+        for (const status of ["running", "idle"] as const) {
+          const result = yield* setSession(`cmd-human-${status}`, status, humanModel);
+          const events = Array.isArray(result) ? result : [result];
+          expect(events.map((event) => event.type)).toEqual(["thread.session-set"]);
+          humanModel = yield* projectAll(humanModel, events);
+        }
+        expect(humanModel.threads[0]?.settledOverride).toBe("active");
+
+        const autoSettle = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.auto-settle",
+            commandId: CommandId.make("cmd-finished-root-auto-settle"),
+            threadId: ThreadId.make("thread-1"),
+            snapshotSequence: humanModel.snapshotSequence,
+            settledAt: NOW,
           },
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          createdAt: NOW,
-        },
-        readModel: makeReadModel("settled"),
-      });
-      const turnEvents = Array.isArray(turnResult) ? turnResult : [turnResult];
-      expect(turnEvents.map((event) => event.type)).toEqual([
-        "thread.unsettled",
-        "thread.message-sent",
-        "thread.turn-start-requested",
-      ]);
+          readModel: humanModel,
+        }).pipe(Effect.flip);
+        expect(autoSettle._tag).toBe("OrchestrationCommandInvariantError");
 
-      const sessionResult = yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.session.set",
-          commandId: CommandId.make("cmd-session-set"),
-          threadId: ThreadId.make("thread-1"),
-          session: makeSession("running"),
-          createdAt: NOW,
-        },
-        // A keep-active pin is also an override: real activity clears it
-        // back to neutral so auto-settle can apply again later.
-        readModel: makeReadModel("active"),
-      });
-      const sessionEvents = Array.isArray(sessionResult) ? sessionResult : [sessionResult];
-      expect(sessionEvents.map((event) => event.type)).toEqual([
-        "thread.unsettled",
-        "thread.session-set",
-      ]);
-    }),
-  );
-
-  it.effect("clears a keep-active pin on real activity", () =>
-    Effect.gen(function* () {
-      const turnResult = yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.turn.start",
-          commandId: CommandId.make("cmd-active-turn-start"),
-          threadId: ThreadId.make("thread-1"),
-          message: {
-            messageId: MessageId.make("message-active"),
-            role: "user",
-            text: "Continue",
-            attachments: [],
+        const manualSettle = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.settle",
+            commandId: CommandId.make("cmd-human-manual-settle"),
+            threadId: ThreadId.make("thread-1"),
           },
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          createdAt: NOW,
-        },
-        readModel: makeReadModel("active"),
-      });
-      const turnEvents = Array.isArray(turnResult) ? turnResult : [turnResult];
-      // The pin exists to suppress AUTO-settle, not to survive real work:
-      // activity resets it to neutral, restoring the default lifecycle.
-      expect(turnEvents.map((event) => event.type)).toEqual([
-        "thread.unsettled",
-        "thread.message-sent",
-        "thread.turn-start-requested",
-      ]);
+          readModel: humanModel,
+        });
+        const manuallySettled = yield* projectAll(
+          humanModel,
+          Array.isArray(manualSettle) ? manualSettle : [manualSettle],
+        );
+        expect(manuallySettled.threads[0]?.settledOverride).toBe("settled");
 
-      const activityResult = yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.activity.append",
-          commandId: CommandId.make("cmd-active-approval"),
-          threadId: ThreadId.make("thread-1"),
-          activity: {
-            id: EventId.make("activity-active"),
-            tone: "approval",
-            kind: "approval.requested",
-            summary: "Command approval requested",
-            payload: null,
-            turnId: null,
+        const activityResult = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.activity.append",
+            commandId: CommandId.make("cmd-active-approval"),
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-active"),
+              tone: "approval",
+              kind: "approval.requested",
+              summary: "Command approval requested",
+              payload: null,
+              turnId: null,
+              createdAt: NOW,
+            },
             createdAt: NOW,
           },
-          createdAt: NOW,
-        },
-        readModel: makeReadModel("active"),
-      });
-      const activityEvents = Array.isArray(activityResult) ? activityResult : [activityResult];
-      expect(activityEvents.map((event) => event.type)).toEqual([
-        "thread.unsettled",
-        "thread.activity-appended",
-      ]);
-    }),
+          readModel: humanModel,
+        });
+        expect(
+          (Array.isArray(activityResult) ? activityResult : [activityResult]).map(
+            (event) => event.type,
+          ),
+        ).toEqual(["thread.activity-appended"]);
+
+        for (const origin of ["control_notice", "notify"] as const) {
+          const controlResult = yield* startTurn(
+            `cmd-${origin}-turn`,
+            `message-${origin}`,
+            settledDone,
+            origin,
+          );
+          const controlEvents = Array.isArray(controlResult) ? controlResult : [controlResult];
+          expect(controlEvents.map((event) => event.type)).toEqual([
+            "thread.message-sent",
+            "thread.turn-start-requested",
+          ]);
+          let controlModel = yield* projectAll(settledDone, controlEvents);
+          for (const status of ["running", "idle"] as const) {
+            const result = yield* setSession(`cmd-${origin}-${status}`, status, controlModel);
+            const events = Array.isArray(result) ? result : [result];
+            expect(events.map((event) => event.type)).toEqual(["thread.session-set"]);
+            controlModel = yield* projectAll(controlModel, events);
+          }
+          expect(controlModel.threads[0]?.settledOverride).toBe("settled");
+        }
+      }),
   );
 
   it.effect("does not unsettle for session stop/error status writes", () =>
