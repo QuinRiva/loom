@@ -210,7 +210,20 @@ The new derive module splits the pi instance's flat window list back into one sy
   code={"/** loom: split the pi instance's account-encoded windows into poolable accounts. */\nconst DRIVER_OF: Record<string, ServerProvider[\"driver\"]> = {\n  claudeAgent: \"claudeAgent\",\n  codex: \"codex\",\n};\n\nfunction splitLoomPiAccount(account: LimitAccount): readonly LimitAccount[] {\n  if (account.driver !== \"pi\") return [account]; // hub + native accounts pass through\n  const byAccount = new Map<string, ServerProviderUsageWindow[]>();\n  for (const window of account.limits.windows) {\n    const identity = decodeUsageWindowId(window.id);\n    if (!identity) continue; // a natively emitted window is not an account row\n    const key = `${identity.accountKey}:${identity.accountLabel ?? \"\"}`;\n    // Account-independent id: siblings must share a key to pool.\n    const id = identity.scope ? `${identity.kind}:${identity.scope}` : identity.kind;\n    const windows = byAccount.get(key) ?? [];\n    windows.push({ ...window, id });\n    byAccount.set(key, windows);\n  }\n  return [...byAccount].map(([key, windows]) => ({\n    ...account,\n    key: `pi:${key}`,\n    driver: DRIVER_OF[key.split(\":\")[0]!] ?? account.driver,\n    displayName: key.split(\":\")[1] || null,\n    limits: { ...account.limits, windows },\n  }));\n}\n\nexport function meterPools(presentations: LimitPresentations, now: number): readonly LimitPool[] {\n  return collectLimitPools(collectLimitAccounts(presentations).flatMap(splitLoomPiAccount), now);\n}\n"}
 />
 
-With real drivers and account-independent ids, a direct-auth Anthropic window and a hub account's window of the same kind land in **one** pool and are averaged rather than drawn twice — so the split also resolves the double-reporting risk slice 0 creates, which is why the open question about the poller's Anthropic arm is a product call rather than a correctness one.
+**What the split does not fix.** Pooling needs the window **ids** to match, not just the drivers, and the id vocabularies differ by vendor:
+
+<Table
+  columns={["Source", "Session id", "Weekly id", "Scoped carve-out"]}
+  rows={[
+    ["Loom's split, re-keyed to the decoded kind", "primary", "secondary", "secondary:Fable"],
+    ["Claude, native or via the hub", "five_hour", "seven_day", "seven_day_fable"],
+    ["Codex, native or via the hub", "primary", "secondary", "—"]
+  ]}
+/>
+
+So Codex pools, and **Claude does not**: inside the one `claudeAgent` pool, `session:primary` and `session:five_hour` stay separate, and a subscription reported both directly and through the hub draws two session bars. The duplicate is a configuration artefact rather than a modelling one — after slice 0 the hub reports the Claude accounts properly, with emails, plans and reset credits, which makes the direct-auth Anthropic reading redundant by construction. It is therefore left as an open risk on both surfaces and settled at source by the poller question below, rather than papered over in the client.
+
+The client-side alternative, if the answer there is to keep both readings: re-key loom's windows into the target driver's own vocabulary instead of the decoded kind — `primary → five_hour`, `secondary → seven_day`, scoped → `seven_day_<slug>` under `claudeUsageLimits.ts`'s own rule, leaving Codex as-is. That makes the two pool. It is not the default because it hard-codes a vendor's id strings into a loom module, and if upstream renames a window the pooling stops silently and the duplicate bar returns with nothing failing.
 
 One rendering note: `LimitPoolWindow.label` is inherited from whichever member happened to be first, so the meter labels its rows from the window `kind` rather than trusting that string.
 
@@ -504,7 +517,7 @@ Mobile takes the contract entries in slice 2 because `PROVIDER_LABEL` and `usePr
 
 ## Risks
 
-**Registering the hub may double-report an account on the Limits page.** `collectLimitAccounts` keys native accounts by driver and email; loom's pi instance reports no email, and hub accounts arrive with driver `claudeAgent`. The subscription behind `auth.json` may therefore appear on the page both as a pi window and as a hub account, under different labels. The meter is immune — its split gives the direct-auth account a real driver and an account-independent window id, so the two land in one pool — but the page has no such split, which is why the page-side question below is worth answering after one look at slice 0's result.
+**Registering the hub may double-report a Claude account, on both surfaces.** `collectLimitAccounts` keys native accounts by driver and email; loom's pi instance reports no email, and hub accounts arrive with driver `claudeAgent`. The subscription behind `auth.json` may therefore be counted twice — as a row on the Limits page, and as a second session bar in the meter's Claude pool, since the two sources key their windows differently (`primary` against `five_hour`). Codex is unaffected; its vocabularies already agree. This is visible immediately after slice 0 and is settled by the poller question below, which removes the duplicate at its source rather than reconciling it in the client.
 
 **The meter re-renders with the presentations atom.** That atom updates on any `serverConfig` change, not just limits. The derive is memoised on the limits slice and the component is wrapped in `memo`, so a provider-status change costs a shallow compare rather than a re-layout. Worth confirming under a profiler while a turn is streaming, since the sidebar is on screen constantly.
 
@@ -562,17 +575,19 @@ Then the end-to-end pass, on a dev instance seeded from a copy of the cockpit da
           label: "Keep both and look at the result first",
           recommended: true,
           detail:
-            "The overlap may be harmless or may be two genuinely different subscriptions. One look at the Limits page after slice 0 settles it without guessing — and the meter already pools them correctly either way, so nothing is blocked while you decide."
+            "The overlap may be harmless or may be two genuinely different subscriptions, and one look at the Limits page after slice 0 settles it without guessing. The cost of waiting is real but small: until it is settled, a Claude subscription reported both ways draws two session bars in the meter."
         },
         {
           id: "suppress",
           label: "Suppress the pi card's Anthropic window when a hub reports the same subscription",
-          detail: "Cleaner, but needs a matching rule loom does not have today."
+          detail:
+            "Removes the duplicate at source on both surfaces, but needs a matching rule loom does not have today — the poller knows no email for the direct-auth account."
         },
         {
           id: "stop",
           label: "Stop polling auth.json for Anthropic entirely",
-          detail: "Simplest, and loses the direct reading if the hub ever goes away."
+          detail:
+            "Simplest, and removes the duplicate outright: the hub reports those accounts better anyway. Loses the direct reading if the hub ever goes away."
         }
       ]
     },
