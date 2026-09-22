@@ -27,8 +27,7 @@ import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";
-import { ThreadLineageBreadcrumb } from "~/loom/ThreadLineageBreadcrumb";
-import { GoalChip } from "~/loom/GoalChip"; // loom:
+import { ThreadLineageBreadcrumb } from "~/loom/ThreadLineageBreadcrumb"; // loom:
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
@@ -75,10 +74,6 @@ interface ChatHeaderProps {
   threadLineage: ReadonlyArray<LineageSegment>;
   threadRole: string | null;
   onNavigateToThread: (threadId: ThreadId) => void;
-  // loom: the goal panel's entry point; null goalId renders no chip.
-  threadGoalId: string | null;
-  goalPanelOpen: boolean;
-  onToggleGoalPanel: () => void;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
@@ -151,9 +146,6 @@ export const ChatHeader = memo(function ChatHeader({
   threadLineage,
   threadRole,
   onNavigateToThread,
-  threadGoalId,
-  goalPanelOpen,
-  onToggleGoalPanel,
   gitCwd,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -509,13 +501,6 @@ export const ChatHeader = memo(function ChatHeader({
         lineage={threadLineage}
         role={threadRole}
         onNavigateToThread={onNavigateToThread}
-      />
-      {/* loom: */}
-      <GoalChip
-        goalId={threadGoalId}
-        environmentId={activeThreadEnvironmentId}
-        panelOpen={goalPanelOpen}
-        onToggle={onToggleGoalPanel}
       />
       {!draftId && (
         <ForkedFromBadge

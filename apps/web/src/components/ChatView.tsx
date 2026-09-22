@@ -2029,19 +2029,14 @@ export default function ChatView(props: ChatViewProps) {
   // loom: fork chat extensions (thread lineage + navigation, the Tasks and
   // Workstream right-panel openers, and the auto-open effect that seeds those
   // surfaces without overriding a user's persisted choice).
-  const {
-    threadLineage,
-    navigateToThread,
-    addTasksSurface,
-    toggleTasksSurface,
-    addWorkstreamSurface,
-  } = useLoomThreadExtensions({
-    activeThread,
-    activeThreadRef,
-    activeThreadKey,
-    autoOpenGoalTasksPanel: settings.autoOpenGoalTasksPanel,
-    autoOpenWorkstreamPanel: settings.autoOpenWorkstreamPanel,
-  });
+  const { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface } =
+    useLoomThreadExtensions({
+      activeThread,
+      activeThreadRef,
+      activeThreadKey,
+      autoOpenGoalTasksPanel: settings.autoOpenGoalTasksPanel,
+      autoOpenWorkstreamPanel: settings.autoOpenWorkstreamPanel,
+    });
   // loom: `/handoff` receipts submitted from this thread in this browser
   // session. Keyed on the ACTIVE thread (not the route), so a draft promoted
   // to a server thread keeps its receipts.
@@ -10099,13 +10094,10 @@ export default function ChatView(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
-            // loom: the lineage breadcrumb and the goal chip.
+            // loom: child-thread lineage navigation.
             threadLineage={threadLineage}
             threadRole={activeThread.role}
             onNavigateToThread={navigateToThread}
-            threadGoalId={activeThread.goalId}
-            goalPanelOpen={activeRightPanelSurface?.kind === "tasks"}
-            onToggleGoalPanel={toggleTasksSurface}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
