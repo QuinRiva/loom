@@ -72,6 +72,7 @@ import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
 import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
+import { setForeignDatabaseForTest } from "../../workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -3450,6 +3451,49 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ["claudeAgent"],
       );
     }),
+  );
+
+  // loom: a copy-DB boot must not recover its provider sessions in the original home's checkouts.
+  it.effect("refuses foreign-home recovery without changing native recovery", () =>
+    Effect.gen(function* () {
+      setForeignDatabaseForTest(null);
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-foreign-home-recovery");
+      yield* provider.startSession(threadId, {
+        provider: PI_DRIVER,
+        providerInstanceId: piInstanceId,
+        threadId,
+        cwd: fixtureCwd("project-foreign-home-recovery"),
+        runtimeMode: "full-access",
+      });
+
+      yield* routing.pi.stopAll();
+      routing.pi.startSession.mockClear();
+      routing.pi.sendTurn.mockClear();
+      setForeignDatabaseForTest({
+        worktreesDir: "/this-home/worktrees",
+        recordedExample: "/foreign-home/worktrees/thread-foreign-home-recovery",
+      });
+
+      const refused = yield* provider
+        .sendTurn({ threadId, input: "resume", attachments: [] })
+        .pipe(Effect.flip);
+      assert.instanceOf(refused, ProviderValidationError);
+      assert.include(refused.issue, "foreign-home guard");
+      assert.equal(routing.pi.startSession.mock.calls.length, 0);
+      assert.equal(routing.pi.sendTurn.mock.calls.length, 0);
+
+      setForeignDatabaseForTest(null);
+      yield* provider.sendTurn({ threadId, input: "resume", attachments: [] });
+      assert.equal(routing.pi.startSession.mock.calls.length, 1);
+      assert.equal(routing.pi.sendTurn.mock.calls.length, 1);
+    }).pipe(
+      Effect.ensuring(
+        routing.pi
+          .stopAll()
+          .pipe(Effect.ignore, Effect.andThen(Effect.sync(() => setForeignDatabaseForTest(null)))),
+      ),
+    ),
   );
 
   it.effect("recovers stale sessions for sendTurn using persisted cwd", () =>
