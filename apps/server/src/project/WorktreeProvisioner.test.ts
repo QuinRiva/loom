@@ -7,12 +7,14 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Option from "effect/Option";
 import {
   GitCommandError,
   WORKTREE_SETUP_ACTIVITY_KIND,
   type OrchestrationCommand,
   ProjectId,
   ThreadId,
+  type VcsCreateWorktreeInput,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -21,6 +23,7 @@ import { WorktreeProvisioner, layer as WorktreeProvisionerLive } from "./Worktre
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import {
@@ -58,6 +61,10 @@ describe("ensureIsolatedChildProvisioned", () => {
 
   const harness = (opts: {
     readonly commitFails?: boolean;
+    /** The project record the provisioner falls back to when the parent has no worktree. */
+    readonly projectWorkspaceRoot?: string;
+    /** `localStatus` of the project checkout: absent means "not a repo". */
+    readonly checkoutBranch?: string | null;
     /** Resolve to release a checkout that is otherwise parked mid-provision. */
     readonly blockCheckout?: Deferred.Deferred<void>;
     /** Completed once `createWorktree` has claimed the directory. */
@@ -70,6 +77,8 @@ describe("ensureIsolatedChildProvisioned", () => {
     const dispatched: Array<OrchestrationCommand> = [];
     const removed: Array<string> = [];
     const deletedBranches: Array<string> = [];
+    const worktreeRequests: Array<VcsCreateWorktreeInput> = [];
+    const commitedCwds: Array<string> = [];
     const engineStub = Layer.succeed(OrchestrationEngineService, {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
@@ -89,7 +98,12 @@ describe("ensureIsolatedChildProvisioned", () => {
       subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as never);
     const gitStub = Layer.succeed(GitWorkflowService, {
-      commitAll: () =>
+      localStatus: () =>
+        Effect.succeed({
+          isRepo: opts.checkoutBranch !== undefined,
+          refName: opts.checkoutBranch ?? null,
+        }),
+      commitAll: (cwd: string) =>
         opts.commitFails
           ? Effect.fail(
               new GitCommandError({
@@ -99,9 +113,16 @@ describe("ensureIsolatedChildProvisioned", () => {
                 detail: "index.lock: File exists",
               }),
             )
-          : Effect.succeed({ committed: true }),
-      createWorktree: (_input: unknown, options?: GitVcsDriver.CreateWorktreeOptions) =>
+          : Effect.sync(() => {
+              commitedCwds.push(cwd);
+              return { committed: true };
+            }),
+      createWorktree: (
+        input: VcsCreateWorktreeInput,
+        options?: GitVcsDriver.CreateWorktreeOptions,
+      ) =>
         Effect.gen(function* () {
+          worktreeRequests.push(input);
           yield* options?.progress?.onWorktreeClaimed?.(CHILD_WORKTREE) ?? Effect.void;
           if (opts.checkoutStarted) yield* Deferred.succeed(opts.checkoutStarted, undefined);
           if (opts.blockCheckout) yield* Deferred.await(opts.blockCheckout);
@@ -140,9 +161,18 @@ describe("ensureIsolatedChildProvisioned", () => {
     const vcsStub = Layer.succeed(VcsStatusBroadcaster, {
       refreshStatus: () => Effect.succeed(undefined),
     } as never);
+    const projectionStub = Layer.succeed(ProjectionSnapshotQuery, {
+      getProjectShellById: () =>
+        Effect.succeed(
+          opts.projectWorkspaceRoot === undefined
+            ? Option.none()
+            : Option.some({ id: projectId, workspaceRoot: opts.projectWorkspaceRoot }),
+        ),
+    } as never);
     const layer = WorktreeProvisionerLive.pipe(
       Layer.provide(engineStub),
       Layer.provide(gitStub),
+      Layer.provide(projectionStub),
       Layer.provide(lockStub),
       Layer.provide(setupStub),
       Layer.provide(vcsStub),
@@ -151,7 +181,7 @@ describe("ensureIsolatedChildProvisioned", () => {
       Layer.provideMerge(Layer.mergeAll(WorkspaceLeaseLive, WorktreeSetupTrackerLive)),
       Layer.provide(NodeServices.layer),
     );
-    return { dispatched, removed, deletedBranches, layer };
+    return { dispatched, removed, deletedBranches, worktreeRequests, commitedCwds, layer };
   };
 
   it.effect(
@@ -198,9 +228,79 @@ describe("ensureIsolatedChildProvisioned", () => {
       }),
   );
 
+  // loom: a root on a plain local checkout (project rooted at the repo itself)
+  // carries no worktree meta. Its isolated children used to fall back silently
+  // to sharing the human's checkout; they now get a real worktree cut from the
+  // checkout's CURRENT branch, with the same setup card and fan-in contract.
+  it.effect("provisions a checkout-rooted parent's isolated child off the checkout branch", () =>
+    Effect.gen(function* () {
+      const { dispatched, worktreeRequests, commitedCwds, layer } = harness({
+        projectWorkspaceRoot: "/tmp/plain-checkout",
+        checkoutBranch: "trunk",
+      });
+      const provisioned = yield* Effect.gen(function* () {
+        const provisioner = yield* WorktreeProvisioner;
+        return yield* provisioner.ensureIsolatedChildProvisioned({
+          threadId,
+          role: "coder",
+          projectId,
+          branch: null,
+          worktreePath: null,
+        });
+      }).pipe(Effect.provide(layer));
+
+      expect(provisioned).toBe(true);
+      // Branched from the checkout's live branch, not the thread's (absent) meta.
+      expect(worktreeRequests).toEqual([
+        {
+          cwd: "/tmp/plain-checkout",
+          refName: "trunk",
+          newRefName: `ws/trunk/coder-${threadId.slice(0, 8)}`,
+          baseRefName: "trunk",
+          path: null,
+        },
+      ]);
+      // Same base-commit snapshot as a worktree parent, so the child branches
+      // from an exact HEAD and the fan-in merge-base is clean.
+      expect(commitedCwds).toEqual(["/tmp/plain-checkout"]);
+      expect(
+        dispatched.some((c) => c.type === "thread.meta.update" && c.branch === CHILD_BRANCH),
+      ).toBe(true);
+      // The setup card runs on the identical path (PR #228).
+      expect(setupSnapshots(dispatched).map((snapshot) => snapshot.phase)).toEqual([
+        "running",
+        "done",
+      ]);
+    }),
+  );
+
+  // No branch to cut from and none to fan back into: the shared fallback stands
+  // rather than parking the child.
+  it.effect("leaves the child shared when the project root is not a git checkout", () =>
+    Effect.gen(function* () {
+      const { dispatched, worktreeRequests, layer } = harness({
+        projectWorkspaceRoot: "/tmp/not-a-repo",
+      });
+      const provisioned = yield* Effect.gen(function* () {
+        const provisioner = yield* WorktreeProvisioner;
+        return yield* provisioner.ensureIsolatedChildProvisioned({
+          threadId,
+          role: "coder",
+          projectId,
+          branch: null,
+          worktreePath: null,
+        });
+      }).pipe(Effect.provide(layer));
+
+      expect(provisioned).toBe(true);
+      expect(worktreeRequests).toEqual([]);
+      expect(setupSnapshots(dispatched)).toEqual([]);
+    }),
+  );
+
   it.effect("provisions and clears the failure marker on success", () =>
     Effect.gen(function* () {
-      const { dispatched, layer } = harness({});
+      const { dispatched, worktreeRequests, layer } = harness({});
       const outcome = yield* Effect.gen(function* () {
         const provisioner = yield* WorktreeProvisioner;
         const provisioned = yield* provisioner.ensureIsolatedChildProvisioned({
@@ -215,6 +315,10 @@ describe("ensureIsolatedChildProvisioned", () => {
 
       expect(outcome.provisioned).toBe(true);
       expect(outcome.pending).toBe(false);
+      // A worktree-backed parent still branches off its own meta, not a git read.
+      expect(worktreeRequests.map((request) => [request.cwd, request.refName])).toEqual([
+        ["/tmp/parent-worktree", "main"],
+      ]);
       // The child was repointed to its own worktree/branch.
       expect(
         dispatched.some((c) => c.type === "thread.meta.update" && c.branch === CHILD_BRANCH),
