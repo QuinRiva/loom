@@ -108,15 +108,15 @@ export function ThreadLineageBreadcrumb({
   return (
     // `overflow-clip` is load-bearing, not cosmetic: this is a shrinkable flex
     // item whose chips are all `shrink-0`, so on a narrow header the box shrinks
-    // below its content and the chips paint outside it — over each other and
-    // over the goal chip that follows. Clipping degrades the same way upstream's
-    // own breadcrumb does: the trailing chip is cut at the boundary, and the
-    // parent link (the reason this cluster exists) survives intact.
+    // below its content and the chips paint outside it and over each other.
+    // Clipping degrades the same way upstream's own breadcrumb does: the
+    // trailing chip is cut at the boundary, and the parent link (the reason
+    // this cluster exists) survives intact.
     //
     // The width rule yields to upstream's project/title breadcrumb, which is
     // `flex-1 basis-0` and so only ever gets what this cluster leaves behind:
-    // unbounded, loom's two header chips took the whole header and the title
-    // measured 0px. `calc(50% - 15rem)` reserves the title's share at every
+    // unbounded, the lineage cluster can take the whole header and leave the
+    // title at 0px. `calc(50% - 15rem)` reserves the title's share at every
     // width and goes inert once the header can hold everything (~1100px); below
     // a 42rem header — where the cap would leave an unreadable stub, and where
     // upstream has already collapsed its own toolbar into a menu — the cluster
