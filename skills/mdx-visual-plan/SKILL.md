@@ -141,7 +141,12 @@ Ground the plan in the real codebase, not from memory:
 - **One open-questions block, at the bottom.** Surface unresolved decisions in a
   single `<QuestionForm>` at the end of the document. That is the ONLY place that
   enumerates open questions — never a second questions list or a parallel
-  "decisions" wall earlier in the document.
+  "decisions" wall earlier in the document. Each question is answered by someone
+  who read the objective and skimmed the rest: **never leave a label the plan
+  coined — slice/phase/step N, a codename, a section title used as a noun — in a
+  question title, subtitle, option label or option detail unless the same
+  sentence says what it means in plain words**, and use `subtitle` to carry the
+  one line of context the question depends on.
 - **Verification exercises the real workflow.** When the plan changes UI, files,
   providers, or multi-step flows, include at least one end-to-end smoke that
   matches the user journey, and name the command or manual path when known — not
@@ -187,7 +192,8 @@ next to the prose that needs it); **scope and non-goals**; a **verification**
 step; and a single `<QuestionForm>` at the very bottom for anything still open.
 For a complex plan, do a final pass: every meaningful decision is either settled
 in the plan with rationale or sits in that bottom form with a recommended
-default.
+default — then read that form on its own, as a reviewer who saw only the
+objective would, and rewrite anything unanswerable from its own text.
 
 Before writing the prose body, read
 [`../mdx-doc-core/references/document-quality.md`](../mdx-doc-core/references/document-quality.md),
