@@ -7,6 +7,10 @@ import {
   type KnownComposerContextRecord,
 } from "@t3tools/contracts";
 
+// loom: MDX-plan annotations anchor to a passage, and their anchor detail is
+// part of the payload the agent needs.
+import { planCommentAnchorDetails } from "./planCommentAnchor.loom.ts";
+
 /**
  * Canonical inline reference: `[label](t3-context://v1/<kind>/<contextId>)`, or the image
  * form `![label](...)`. The link carries position and identity only; the payload lives in the
@@ -218,13 +222,21 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
       return lines.join("\n");
     }
     case "review-comment": {
+      // loom: the MDX-plan variant has no line range or diff; its evidence is the
+      // quoted passage plus the resolvable anchor.
+      const mdx = record.mdxAnchor;
       const lines = [
         `file: ${record.filePath}`,
-        `range: ${record.rangeLabel} (${record.startIndex}-${record.endIndex})`,
+        mdx
+          ? `range: ${record.rangeLabel} (mdx anchor)`
+          : `range: ${record.rangeLabel} (${record.startIndex}-${record.endIndex})`,
         `section: ${record.sectionTitle}`,
       ];
       if (record.text.trim()) lines.push("comment:", indent(record.text.trim()));
-      if (record.diff.trim()) {
+      if (mdx) {
+        if (mdx.quotedText.trim()) lines.push("quoted passage:", indent(mdx.quotedText.trim()));
+        lines.push(...planCommentAnchorDetails(mdx.anchor));
+      } else if (record.diff.trim()) {
         lines.push(`${record.fenceLanguage ?? "diff"}:`, indent(record.diff.trimEnd()));
       }
       return lines.join("\n");

@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
+import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 
 import {
   formatInlineContextReference,
@@ -31,6 +32,7 @@ import {
   selectedMessageContextFragment,
   reviewCommentContextLabel,
   reviewCommentContextRecord,
+  reviewCommentContextReference,
   reviewCommentFromRecord,
   terminalContextRecord,
   terminalContextReference,
@@ -712,6 +714,51 @@ describe("producer ids that do not fit the grammar", () => {
         context: { version: 1, records: [record] },
       }).recordsById.has(record.contextId),
     ).toBe(true);
+  });
+});
+
+// loom: the whole point of an MDX-plan annotation is that the agent reads the
+// answer. A merge once left this variant out of the records array, so every
+// answer reached the provider as `unavailable="true"` / the chip alone.
+describe("mdx-anchor review comments", () => {
+  const comment = {
+    kind: "mdx-anchor" as const,
+    id: "mdx-question:plans/faster-deploy/plan.mdx:durability",
+    sectionId: "plan-block-12",
+    sectionTitle: "Open questions",
+    filePath: "plans/faster-deploy/plan.mdx",
+    rangeLabel: "answer: durability",
+    text: 'Q: How durable must the snapshot be? \u2192 chose: "Best effort"',
+    anchor: {
+      anchorKind: "visual" as const,
+      blockType: "question-form",
+      sectionTitle: "Open questions",
+    },
+    quotedText: "How durable must the snapshot be?",
+  };
+
+  it("reaches the provider with the selection, through the wire schema", () => {
+    const context = buildMessageContext({
+      terminalContexts: [],
+      reviewComments: [comment],
+      previewAnnotations: [],
+    });
+    const record = decodeMessageContext(context).records[0]!;
+    const projected = projectComposerContextForProvider({
+      text: formatInlineContextReference(reviewCommentContextReference(comment)),
+      records: [record],
+    });
+
+    expect(projected).not.toContain("unavailable");
+    expect(projected).toContain('chose: "Best effort"');
+    expect(projected).toContain("How durable must the snapshot be?");
+    expect(projected).toContain("Block type: question-form");
+  });
+
+  it("round-trips back into the mdx-anchor draft shape on paste", () => {
+    // The id is a folded producer id, as for the line variant; everything else is lossless.
+    const { id: _id, ...rest } = comment;
+    expect(reviewCommentFromRecord(reviewCommentContextRecord(comment))).toMatchObject(rest);
   });
 });
 
