@@ -4,6 +4,7 @@ import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { rootOf, subtreeCostOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  ArrowUpRightIcon,
   BugIcon,
   GitBranchIcon,
   LayoutDashboardIcon,
@@ -51,6 +52,7 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { useLoomScrollStore } from "../loom/loomScrollStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { readLocalApi } from "../localApi";
@@ -119,6 +121,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(subtree.map((thread) => [thread.id, thread])),
     [subtree],
   );
+  const requestScrollToDispatch = useLoomScrollStore((store) => store.requestScrollToDispatch);
   const spawnThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const setPlanLane = useAtomCommand(threadEnvironment.setPlanLane);
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
@@ -199,15 +202,21 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
 
-  // Clicking an orchestrator (bridge) node routes to the dispatching
-  // orchestrator thread. It no longer scrolls that thread's timeline to the
-  // dispatching turn: upstream's timeline owns scrolling and the fork's
-  // scroll-request bridge retired with the chat-surface re-home.
-  const openDispatch = (threadId: ThreadId) => {
+  // "Show me where this happened": route to the thread that owns the moment and
+  // park a one-shot anchor its timeline consumes on arrival, so a click lands on
+  // the dispatching turn instead of the bottom of a long transcript. Without an
+  // anchor (a lifecycle row with no unambiguous turn) it is a plain open.
+  const openDispatch = (threadId: ThreadId, anchorAtIso?: string) => {
+    if (anchorAtIso) requestScrollToDispatch(threadId, anchorAtIso);
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
     });
+  };
+
+  // A sub-thread's dispatch site: the turn in its PARENT's chat that spawned it.
+  const openSpawnSite = (thread: SidebarThreadSummary) => {
+    if (thread.parentThreadId) openDispatch(thread.parentThreadId, thread.createdAt);
   };
 
   // Open a sub-thread's completion report (an absolute markdown path outside any
@@ -263,6 +272,9 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     switch (action) {
       case "open":
         openThread(thread);
+        break;
+      case "dispatch":
+        openSpawnSite(thread);
         break;
       case "history":
         setInspectedThreadId(thread.id);
@@ -419,6 +431,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               workstreamThreads={subtree}
               childById={childById}
               onOpenThread={openThread}
+              onOpenSpawnSite={openSpawnSite}
               onSetLane={setLane}
               onStop={stopThread}
               onClearAttention={clearAttention}
@@ -540,6 +553,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
 interface CardControls {
   readonly childById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onOpenSpawnSite: (thread: SidebarThreadSummary) => void;
   readonly onSetLane: (threadId: ThreadId, planLane: ThreadPlanLane) => void;
   readonly onStop: (threadId: ThreadId) => void;
   readonly onClearAttention: (threadId: ThreadId) => void;
@@ -551,6 +565,7 @@ function WorkstreamBoard({
   workstreamThreads,
   childById,
   onOpenThread,
+  onOpenSpawnSite,
   onSetLane,
   onStop,
   onClearAttention,
@@ -585,6 +600,7 @@ function WorkstreamBoard({
                   workstreamThreads={workstreamThreads}
                   childById={childById}
                   onOpenThread={onOpenThread}
+                  onOpenSpawnSite={onOpenSpawnSite}
                   onSetLane={onSetLane}
                   onStop={onStop}
                   onClearAttention={onClearAttention}
@@ -604,6 +620,7 @@ function WorkstreamCard({
   workstreamThreads,
   childById,
   onOpenThread,
+  onOpenSpawnSite,
   onSetLane,
   onStop,
   onClearAttention,
@@ -894,6 +911,24 @@ function WorkstreamCard({
             <TooltipPopup>Dismiss the attention flags on this sub-thread</TooltipPopup>
           </Tooltip>
         ) : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Go to where this sub-thread was dispatched"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
+                onClick={() => onOpenSpawnSite(thread)}
+              />
+            }
+          >
+            <ArrowUpRightIcon className="size-3" />
+            Dispatch
+          </TooltipTrigger>
+          <TooltipPopup>
+            Jump to the turn in this conversation that dispatched this sub-thread
+          </TooltipPopup>
+        </Tooltip>
       </div>
 
       <DependencyEditor

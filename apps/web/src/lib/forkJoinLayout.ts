@@ -80,6 +80,8 @@ export type LaidNode =
       readonly orchestratorId: ThreadId;
       readonly label: string;
       readonly waveIndex: number;
+      /** Earliest spawn in the wave — the anchor for a jump into the dispatching turn. */
+      readonly anchorAtIso: string;
       x: number;
       y: number;
       readonly w: number;
@@ -300,6 +302,7 @@ function layoutOrchestrator(
       orchestratorId,
       label: title,
       waveIndex: waveIndex + 1,
+      anchorAtIso: minCreatedAt(members),
       x: 0,
       y: bridgeY,
       w: BRIDGE_W,
@@ -554,6 +557,8 @@ export interface ConsultEdge {
   readonly key: string;
   readonly askerId: ThreadId;
   readonly targetThreadId: ThreadId;
+  /** Latest consult timestamp — the anchor for a click-through into the asker's chat. */
+  readonly anchorAtIso: string;
   readonly count: number;
   readonly preview: string;
   /** Orthogonal waypoints for a BACKWARD consult (target left of / above the
@@ -795,6 +800,7 @@ export function deriveConsultOverlay(
           key: `consult:${asker.id}:${consult.targetThreadId}`,
           askerId: asker.id,
           targetThreadId: consult.targetThreadId,
+          anchorAtIso: consult.lastConsultAt,
           count: consult.count,
           preview: consult.lastQuestionPreview,
         } as const;

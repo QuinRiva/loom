@@ -432,8 +432,14 @@ describe("buildNodeContextMenuItems", () => {
   const ids = (thread: SidebarThreadSummary) =>
     buildNodeContextMenuItems(thread).map((item) => item.id);
   it("always offers open + history as the base set", () => {
+    expect(
+      ids(summary({ planLane: "done", reportPath: null, attention: [], parentThreadId: null })),
+    ).toEqual(["open", "history"]);
+  });
+  it("offers the dispatch jump only for a node with a dispatching parent", () => {
     expect(ids(summary({ planLane: "done", reportPath: null, attention: [] }))).toEqual([
       "open",
+      "dispatch",
       "history",
     ]);
   });
