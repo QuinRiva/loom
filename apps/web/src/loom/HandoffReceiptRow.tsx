@@ -34,8 +34,8 @@ import { type HandoffReceiptState } from "./handoffReceipts.logic";
  * held most strictly.
  *
  * The same row also reports a handoff the thread's own AGENT placed with
- * `goal_handoff` (`origin: "agent"`, derived from durable shell state in
- * `agentHandoffRows.ts`). That one is always settled and carries no human
+ * `goal_handoff` (`origin: "agent"`, derived from durable shell state by
+ * `deriveAgentHandoffViews` in `handoffReceipts.logic.ts`). That one is always settled and carries no human
  * explanation, so it drops the verbatim echo, the copy button and the "not in
  * context" chip — the agent's tool call WAS in its context — while keeping the
  * settled grammar and the destination link, which is the whole point of it.

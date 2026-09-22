@@ -1089,16 +1089,18 @@ const ThreadPeerMessageExpireCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// `/handoff` fork-drafter (plan D5): stamp one durable handoff marker on a
-// drafter thread after `GoalHandoffHttp` has created the staged destination.
-// Internal (server composes it from the goal_handoff chokepoint); a client
-// cannot forge a handoff record. The decider derives `thread.handoff-recorded`;
-// the projector appends the destination to `handoffDestinations`.
+// Stamp one durable handoff marker on the `goal_handoff` CALLER (and, for a
+// `/handoff` fork-drafter, on its fork source too) after `GoalHandoffHttp` has
+// created the staged destination. Internal (server composes it from the
+// goal_handoff chokepoint); a client cannot forge a handoff record. The decider
+// derives `thread.handoff-recorded`; the projector appends the destination to
+// `handoffDestinations`.
 const ThreadHandoffRecordCommand = Schema.Struct({
   type: Schema.Literal("thread.handoff.record"),
   commandId: CommandId,
-  // The thread the marker lands on: the drafter (whose settlement reactor reads
-  // it) or the drafter's fork source (whose receipt row links to it).
+  // The thread the marker lands on: the caller (a drafter, whose settlement
+  // reactor reads it, or any agent thread, whose timeline row links to it) or
+  // the drafter's fork source (whose receipt row links to it).
   threadId: ThreadId,
   drafterThreadId: ThreadId,
   destinationGoalId: GoalId,
