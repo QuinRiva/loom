@@ -1,0 +1,789 @@
+---
+manager_sessions:
+  - id: 33888877-a3a4-4679-9780-ea1e6fdda10d
+    role: plan
+    authored_at: 2026-09-22T03:46:20.112Z
+---
+
+# Deploy safety: keep the Slack bridge matched to the running cockpit
+
+**Objective.** Make the deployed Slack bridge decode WebSocket traffic with the
+**same contracts the running cockpit was built from**, and make every cockpit
+release flip re-match the bridge to the release that is actually running — so a
+deploy can never leave Carl without Slack access to loom.
+
+**Done when** all of the following hold:
+
+- The bridge resolves `@t3tools/contracts` **and** its `effect` instance through
+  the cockpit release store's `current` symlink, not through the `~/loom` dev
+  checkout.
+- `deployctl promote` and `deployctl rollbackTo` restart the bridge as part of
+  the sequence, so the bridge's in-memory modules always come from the release
+  the cockpit is running.
+- Every deploy outcome — success, stage-one failure, soak failure, rollback
+  failure, bridge crash-loop, deployd death mid-promotion, host reboot
+  mid-promotion — ends with either a healthy bridge or a documented, verified,
+  non-Slack recovery path.
+- The new sequence is exercised end-to-end on throwaway systemd units and a
+  scratch release store **before** it is used on a real deploy.
+
+<Callout tone="decision">
+  This is operational tooling whose whole job is protecting the human's access to
+  loom, so the invariant above gets a production bar. Everything else stays
+  minimal: no new daemons, no new config keys beyond what the invariant needs,
+  and no changes at all to the bridge's `src/`.
+</Callout>
+
+## What happened, and what is actually load-bearing today
+
+On 2026-09-22 02:44Z a `deployctl deploy cockpit main` promoted loom
+`576d1e89e8` (the whole post-pull-7 stack). Build, smoke boot, stage-one and
+stage-two all passed; the soak failed ten seconds in with `soak FAILED: bridge
+health dropped`, deployctl auto-rolled back to `5c350f7` and restored the DB
+snapshot, and the rollback was healthy.
+
+The bridge decodes cockpit WS frames with `@t3tools/contracts`, resolved through
+a symlink that `linkContracts()` writes into each bridge release:
+`~/loom-bridge-releases/current/node_modules/@t3tools/contracts` →
+`/home/Carl/loom/packages/contracts`. `~/loom` is a **dev checkout**, currently
+parked on branch `t3code/awaiting-acceptance-hold` at `c06ebec1bf`. Upstream pull
+7 removed the project field `defaultStartFromOrigin`; the bridge's strict Effect
+Schema decoder rejected the first shell snapshot from the new server
+(`SchemaError: Missing key at [0]["snapshot"]["projects"][0]["defaultStartFromOrigin"]`),
+dropped its loom connection, and `/healthz` went to `loom: disconnected`.
+
+Two facts make this more than a one-off:
+
+<Callout tone="risk">
+  **The production bridge already decodes with contracts that do not match the
+  running cockpit.** `~/loom/packages/contracts` resolves `effect@4.0.0-beta.78`;
+  the running release `20260920-151345-5c350f7` resolves
+  `effect@4.0.0-beta.103`. Today's bridge is green only because the shell-snapshot
+  shape happens to be compatible between those two commits. Nothing enforces it,
+  and `REFRESH_CHECKOUTS` is unset in `deployd.env`, so `~/loom` is never
+  fast-forwarded on promote.
+</Callout>
+
+<Callout tone="risk">
+  **Even correct contracts only take effect at the bridge's next restart.**
+  `promote()` and `rollbackTo()` restart the cockpit unit and never touch the
+  bridge, so a running bridge keeps the previous release's modules in memory
+  across a flip.
+</Callout>
+
+<Diagram
+  caption="Dependency topology — today (red path) and after the fix (green path)"
+  nodes={[
+    { id: "bridge", label: "loom-slack-bridge unit", x: 12, y: 20 },
+    { id: "brel", label: "bridge release node_modules", x: 12, y: 55 },
+    { id: "loomco", label: "~/loom dev checkout (branch!)", x: 45, y: 88 },
+    { id: "cur", label: "loom-releases/current", x: 60, y: 30 },
+    { id: "rel", label: "releases/<id>/packages/contracts", x: 88, y: 55 },
+    { id: "cockpit", label: "loom-cockpit unit", x: 88, y: 12 },
+  ]}
+  edges={[
+    { from: "bridge", to: "brel", label: "resolves" },
+    { from: "brel", to: "loomco", label: "today" },
+    { from: "brel", to: "cur", label: "after the fix" },
+    { from: "cur", to: "rel" },
+    { from: "cockpit", to: "cur", label: "WorkingDirectory" },
+  ]}
+/>
+
+## The invariant
+
+> After **every** deploy outcome, the bridge is healthy against whichever cockpit
+> release is actually running — and where that cannot be guaranteed, the human
+> has a documented, already-verified recovery path that does not depend on Slack.
+
+Everything below is judged against that one property.
+
+### Failure-outcome matrix
+
+<Table
+  columns={["Outcome", "Today", "After the fix", "Non-Slack recovery"]}
+  rows={[
+    [
+      "Promote succeeds",
+      "Bridge keeps running whatever `~/loom` resolves to; healthy only by coincidence",
+      "Bridge is restarted onto the promoted release's contracts before stage-one; stage-two proves it",
+      "not needed",
+    ],
+    [
+      "Stage-one fails (cockpit will not boot)",
+      "Auto-rollback; bridge never restarted, so it is still on `~/loom`",
+      "Bridge was restarted onto the candidate at flip time; rollbackTo restarts it again onto the restored release",
+      "not needed",
+    ],
+    [
+      "Stage-two or soak fails",
+      "What happened on 22 Sep: recovery worked only because `~/loom` still matched the restored release",
+      "Rollback restarts the bridge onto the restored release; match is by construction, not luck",
+      "not needed",
+    ],
+    [
+      "Rollback itself unhealthy",
+      "`ROLLBACK UNHEALTHY - SSH required`; Slack is probably dead too",
+      "Same, but the bridge half is a one-liner once `current` is sane",
+      "ssh; fix `current`; `systemctl --user restart loom-cockpit loom-slack-bridge`",
+    ],
+    [
+      "Bridge crash-loops (Restart=always, RestartSec=5)",
+      "Every restart re-resolves `~/loom`, so it crash-loops until a human edits a dev checkout",
+      "Every restart re-resolves `current`, so it recovers as soon as the cockpit is sane",
+      "ssh; `journalctl --user -u loom-slack-bridge`",
+    ],
+    [
+      "deployd dies mid-promotion",
+      "Cockpit may be on the new release with a mismatched bridge; Slack dead until `~/loom` is changed",
+      "Bridge restart re-matches it to whatever `current` now is",
+      "ssh; `systemctl --user restart loom-slack-bridge`; then `deployctl recover cockpit --clear`",
+    ],
+    [
+      "Host reboot mid-promotion",
+      "Units come up against whatever `current` says; bridge still on `~/loom`",
+      "Bridge matches on its first start, because its links follow `current`",
+      "ssh; `deployctl status cockpit`; `deployctl recover cockpit --clear`",
+    ],
+    [
+      "Manual `rollback cockpit <older-id>`",
+      "Bridge untouched; mismatch likely",
+      "rollbackTo restarts the bridge onto the target release",
+      "not needed",
+    ],
+    [
+      "Bridge deploy fails its own gate",
+      "Auto-rollback to the previous bridge release",
+      "Same - but that previous release may pre-date this fix and still point at `~/loom` (see the runbook constraint below)",
+      "ssh; `deployctl deploy bridge master --inline` from the dev checkout",
+    ],
+  ]}
+/>
+
+<Callout tone="info">
+  **The control plane survives all of these.** `deploy/*.ts` imports only other
+  `deploy/*.ts` files and node builtins — deployd and deployctl never import
+  `@t3tools/contracts` or `effect`, and the unit runs plain `node deploy/deployd.ts`
+  under Node 24 type-stripping with no `node_modules` dependency. A bridge whose
+  dependencies are broken can never take the deploy daemon down with it.
+</Callout>
+
+## Fix 1 — the bridge shares the running release's contracts *and* its effect instance
+
+### The decision
+
+The bridge release's `node_modules` gets **two** symlinks, both written by
+deployctl after `npm ci`, both pointing through the cockpit store's stable
+`current` path:
+
+<Code
+  language="text"
+  caption="Links written into each bridge release at build time"
+  code={
+    "<bridge-release>/node_modules/@t3tools/contracts\n  -> /home/Carl/loom-releases/current/packages/contracts\n\n<bridge-release>/node_modules/effect\n  -> /home/Carl/loom-releases/current/packages/contracts/node_modules/effect\n     (itself a relative pnpm link into that release's .pnpm store)\n"
+  }
+/>
+
+The second link is the finding that changes the shape of the fix. Under
+`effect@4.0.0-rc.115`, **two physical copies of effect no longer interoperate**:
+the sibling probe showed that a byte-identical `cp -rL` copy of the same effect
+build fails Schema decoding where a symlink to the same directory passes. Schema
+decoding is module-identity sensitive, so "same version" is not enough — the
+bridge must resolve to the **same directory** the contracts package resolves to.
+Because Node resolves symlinks by default, both links land on the same realpath
+inside the promoted release, and the identity holds.
+
+Two supporting changes ride along:
+
+- `package.json`: `devDependencies.typescript` `~5.7.0` → `7.0.2`. The bridge's
+  build gate (`npm run typecheck && npm test`) typechecks **contracts' own
+  source** through `export * from "./settings.ts"`; TypeScript 5.7.3 widens
+  `Effect.succeed("enter")` to `string` and reports two errors inside the
+  contracts package that loom itself never sees (loom typechecks with 7.0.2).
+- `package.json`: `dependencies.effect` `4.0.0-beta.78` → `4.0.0-rc.115`. The
+  relink overwrites whatever `npm ci` installs, but the manifest and lockfile
+  should not lie about what the code is compiled against.
+
+<Callout tone="warning">
+  `CONTRACTS_DIR` needs **no new env key**. `loadDeployConfig` already computes
+  `cockpitRoot` (it uses it for `spoolRoot`), so the bridge's `contractsDir`
+  default becomes `join(cockpitRoot, "current", "packages", "contracts")`. That
+  keeps the scratch self-test honest for free: a test run with a scratch
+  `DEPLOYCTL_RELEASES_ROOT` gets a scratch contracts dir automatically.
+</Callout>
+
+### Evidence: both compatibility corners are already proven green
+
+Verified in a scratch clone at `/tmp/bridge-probe` (bridge `master` @ `77c4a0c`,
+no `src/` changes, TypeScript 7.0.2, contracts and effect symlinked at a release
+dir). Nothing in the live release stores was modified.
+
+<Table
+  columns={["Contracts + effect source", "effect version", "typecheck", "tests"]}
+  rows={[
+    [
+      "releases/20260920-151345-5c350f7 (running cockpit)",
+      "4.0.0-beta.103",
+      "clean",
+      "435 / 435",
+    ],
+    [
+      "releases/20260922-024445-576d1e8 (the stack, failed dir)",
+      "4.0.0-rc.115",
+      "clean",
+      "435 / 435",
+    ],
+    [
+      "~/loom dev checkout + bridge's own copy (today's production wiring)",
+      "4.0.0-beta.78 both sides",
+      "clean",
+      "435 / 435",
+    ],
+    [
+      "release contracts + bridge's OWN separate effect copy",
+      "skewed",
+      "2 to 4 errors",
+      "434 / 435",
+    ],
+  ]}
+/>
+
+The first row is the one that matters for sequencing: the fixed bridge is green
+against the cockpit release that is running **right now**, so the bridge can be
+landed first, on its own, without touching the cockpit.
+
+### Alternatives considered and rejected
+
+<Table
+  columns={["Alternative", "Why not"]}
+  rows={[
+    [
+      "Pin each bridge release to a specific cockpit release id",
+      "The pin is stale the instant `current` moves - a cockpit rollback would leave the bridge pinned to a release that is no longer running, which is the exact failure we are fixing. Also needs a new config key and a two-sided update per deploy.",
+    ],
+    [
+      "Build the bridge once per cockpit release",
+      "Couples the two release stores and doubles the build, and the bridge still has to be restarted to pick anything up. The bridge's source is version-agnostic (435/435 against both releases), so the rebuild buys nothing the relink does not.",
+    ],
+    [
+      "Make the bridge tolerant of shape drift (ignore unknown or missing keys)",
+      "The bridge ACTS on what it decodes - it spawns threads, posts replies, raises attention flags. A half-decoded frame is worse than a dropped connection, and Effect Schema's strictness is the feature. There is also no lenient mode on the generated RPC client. Version alignment is the only correct answer.",
+    ],
+    [
+      "Move ~/loom to main (as the sole fix)",
+      "It keeps a dev checkout's branch as a hidden production input: any agent that switches branches there, or leaves an edit under packages/contracts, silently changes what the production bridge decodes. Nothing enforces the branch (REFRESH_CHECKOUTS is unset), and one checkout cannot be on two releases at once, so a cockpit rollback still mismatches. It also does not fix effect module identity.",
+    ],
+    [
+      "npm-native fixes: absolute file: spec, --install-links, or copying the package in",
+      "Documented as impossible in linkContracts(): npm rewrites an absolute file: spec into the lockfile relative to the project root (so `npm ci` fails at any other depth), and contracts declares `effect: catalog:`, a pnpm protocol npm cannot install. A physical copy of effect is now also proven to break decoding.",
+    ],
+  ]}
+/>
+
+## Fix 2 — deployctl re-matches and restarts the bridge on every cockpit flip
+
+### The sequence
+
+<Mermaid
+  caption="promote cockpit - the bridge rematch is the one new step"
+  source={
+    "flowchart TD\n  A[stop loom-cockpit] --> B[snapshot state.sqlite]\n  B --> C[flip current and previous]\n  C --> D[start loom-cockpit]\n  D --> E[rematch bridge: re-assert both links, restart loom-slack-bridge]\n  E --> F[stage one: cockpit probe, PID stable]\n  F --> G[stage two: bridge healthz slack and loom]\n  G --> H[soak, auto-rollback armed]\n  H --> I[finalise success, prune, install pi skills]\n  F -->|fail| R[rollbackTo previous]\n  G -->|fail| R\n  H -->|fail| R\n"
+  }
+/>
+
+<Mermaid
+  caption="rollbackTo - the same rematch, so the bridge follows the restored release"
+  source={
+    "flowchart TD\n  A[stop loom-cockpit] --> B[restore DB snapshot if requested]\n  B --> C[flip current to the rollback target]\n  C --> D[start loom-cockpit]\n  D --> E[rematch bridge: re-assert both links, restart loom-slack-bridge]\n  E --> F[stage one]\n  F --> G[stage two]\n  G --> H[rollback OK]\n  F -->|fail| X[ROLLBACK UNHEALTHY - SSH required]\n  G -->|fail| X\n"
+  }
+/>
+
+### Why the rematch sits immediately after `systemctl start`, and not later
+
+<Table
+  columns={["Placement", "Consequence"]}
+  rows={[
+    [
+      "After `start cockpit` (chosen)",
+      "The bridge's new modules are in place while the cockpit is still booting. Its supervised reconnect loop (and systemd's RestartSec=5) covers the race, so the mismatch window collapses to the cockpit's own unavoidable restart downtime.",
+    ],
+    [
+      "After stage-one passes",
+      "Leaves a LIVE mismatched bridge for up to DEPLOYCTL_STAGE1_TIMEOUT, currently 240s - exactly the window in which the 22 Sep decode failure occurred. Rejected.",
+    ],
+    [
+      "Before `start cockpit`",
+      "The bridge's main() awaits loom.connect() and exits(1) if it throws, so it would crash-loop every 5s until the cockpit listens. Harmless and self-healing, but noisier than starting the cockpit first for no gain. Rejected.",
+    ],
+  ]}
+/>
+
+### What the rematch does
+
+Two steps, guarded to the cockpit target only (`cfg.stage2` is already the flag
+that means "this target's health depends on the bridge"):
+
+1. **Re-assert both links** in the bridge's *current release* dir, reusing the
+   same link helpers the build uses. This is what makes the property hold *by
+   construction* rather than by build history: a bridge release built before this
+   change still gets its contracts link corrected. It cannot fully heal such a
+   release — its `node_modules/effect` is a real directory, and the re-assert
+   logs a warning and moves on rather than deleting a directory at deploy time —
+   so the runbook carries an explicit "do not roll the bridge back past
+   `<first fixed release id>`" constraint.
+2. **`systemctl restart loom-slack-bridge`**, then let the existing stage-two
+   gate prove `/healthz` reports `slack` and `loom` connected.
+
+`deployctl restart cockpit` deliberately does **not** rematch: a plain restart
+does not move `current`, so the bridge's links already resolve to the same
+release.
+
+<AnnotatedCode
+  filename="deploy/deployctl.ts"
+  language="ts"
+  code={
+    "// loom: after a cockpit flip the bridge still holds the PREVIOUS release's\n// contracts+effect modules in memory, so it must be re-pointed and restarted.\nasync function rematchBridge(cfg: DeployConfig): Promise<void> {\n  if (!cfg.stage2) return;\n  const bridgeCfg = loadDeployConfig(\"bridge\");\n  const bridgeDir = linkTarget(paths(bridgeCfg).current);\n  if (bridgeDir === undefined) {\n    log(\"rematch: no bridge current release; skipping\");\n    return;\n  }\n  linkContracts(bridgeCfg, bridgeDir);\n  linkEffect(bridgeCfg, bridgeDir);\n  await milestone(`restarting ${bridgeCfg.unit} onto the promoted release`);\n  systemctl(\"restart\", bridgeCfg.unit);\n}\n"
+  }
+  annotations={[
+    {
+      lines: "4",
+      label: "cockpit only",
+      note: "stage2 is true only for the cockpit target, so a bridge promote never recurses into itself",
+    },
+    {
+      lines: "7-10",
+      note: "a store with no current bridge release is a legitimate state (first cutover); warn, never throw",
+    },
+    {
+      lines: "11-12",
+      label: "by construction",
+      note: "both helpers are the build-time ones; re-asserting is idempotent and costs two syscalls",
+    },
+    {
+      lines: "14",
+      note: "stage two then proves the restarted bridge reconnected to Slack AND to the new cockpit",
+    },
+  ]}
+/>
+
+## Second-order hazards, resolved
+
+### (a) Release pruning can never dangle the bridge's links
+
+The links target the stable `current` path, never a release id — the same
+technique `installPiSkills()` already uses for pi skills. Walking every reachable
+state:
+
+<Checklist
+  items={[
+    {
+      id: "prune",
+      label: "`prune()` deletes only status `ready` releases beyond KEEP_RELEASES (3)",
+      checked: true,
+      note: "`current`, `previous` and `failed` records are never in that set, so the release `current` points at can never be pruned",
+    },
+    {
+      id: "halfbuilt",
+      label: "`current` is never pointed at a half-built dir",
+      checked: true,
+      note: "buildRelease() deletes the dir on any failure, and promote() throws unless the built binRel exists",
+    },
+    {
+      id: "atomic",
+      label: "The flip is atomic (symlink to tmp, then rename), so there is no dangling instant",
+      checked: true,
+    },
+    {
+      id: "restart",
+      label: "A crash-looping bridge re-resolves its links on every start",
+      checked: true,
+      note: "so it always lands on a live release dir, never a pruned or renamed one",
+    },
+    {
+      id: "markfailed",
+      label: "`markFailed()` renames a dir to `-failed` only AFTER rollbackTo has flipped `current` away",
+      checked: true,
+      note: "the single exception is a rollback that was impossible (no previous release), where `current` is left dangling - but that is the pre-existing `SSH required` state in which the cockpit unit itself is broken too",
+    },
+  ]}
+/>
+
+### (b) A bridge release built against cockpit N, running against cockpit N+1
+
+**It stays valid**, and the condition is precise. The links are version-agnostic
+paths that follow `current`, so the running bridge always decodes with the
+running cockpit's schemas: decode mismatch is structurally impossible, whatever
+the bridge was built against. The build gate proves something narrower — that the
+bridge's *source* typechecks against the contracts that were current at build
+time.
+
+That stops being sufficient the day a cockpit release changes the **API surface
+the bridge calls**: one of the ten `ORCHESTRATION_WS_METHODS` names, one of the
+five command-builder payload shapes (which bypass the type checker via
+`as unknown as`), or a field the bridge reads. A type-only break is invisible at
+runtime (the bridge runs under `tsx`, which strips types without checking them);
+a *runtime* break shows up as failing RPC calls. Detecting that class **before**
+the flip is the job of the deferred promote preflight described below — it is not
+required by the invariant, because stage-two plus auto-rollback already preserves
+access, but it is the difference between a failed deploy and no deploy at all.
+
+### (c) What the deploy path still needs `~/loom` for
+
+Nothing. After this change no production path reads `~/loom`:
+
+- `deployd` and `deployctl` never import contracts.
+- Bridge releases resolve contracts and effect through `loom-releases/current`.
+- `package.json` keeps the `file:../loom/packages/contracts` specifier only
+  because npm has no way to express an absolute one; `npm ci` in a release dir
+  produces a dangling link that deployctl immediately overwrites.
+
+`~/loom` remains a **dev-only** dependency: `npm ci` in `~/loom-slack-bridge`
+still resolves that relative path. To stop the dev loop from disagreeing with
+production, the same two links get a one-line script
+(`npm run link:contracts`) that points a dev checkout at
+`loom-releases/current` too. Leave `REFRESH_CHECKOUTS` unset — fast-forwarding
+`~/loom` on promote would re-introduce the dev checkout as a production input,
+and its guard would skip it anyway while the checkout sits on
+`t3code/awaiting-acceptance-hold`.
+
+## Landing the fix itself
+
+The order matters, because deployd executes jobs using the deploy code from
+`~/loom-bridge-releases/current` — i.e. the **previous** bridge release. A plain
+`deployctl deploy bridge master` would therefore build the new release with the
+*old* wiring (contracts at `~/loom`, no effect link) while installing the new
+`package.json` pins, which is an untested skew that would most likely fail its
+own build gate.
+
+<Callout tone="decision">
+  Break the circle with the escape hatch that exists for exactly this case:
+  `--inline`, run from the **dev checkout** over ssh. `deploy/deployctl` is a
+  four-line bash launcher around plain `node deployctl.ts`, so it needs no
+  `node_modules` and runs the checkout's own (new) pipeline code.
+</Callout>
+
+<Mermaid
+  caption="Landing order, with the blast radius of each step"
+  source={
+    "flowchart TD\n  S1[1. Merge the bridge PR to master] --> S2[2. ssh: deployctl deploy bridge master --inline from ~/loom-slack-bridge]\n  S2 --> S3[3. systemctl --user restart loom-deployd when the spool is idle]\n  S3 --> S4[4. deployctl deploy cockpit main by the normal path]\n  S2 -.->|gate fails| R2[auto-rollback to bridge 77c4a0c, still matched to cockpit 5c350f7]\n  S4 -.->|soak fails| R4[auto-rollback to 5c350f7 plus DB restore plus bridge rematch]\n"
+  }
+/>
+
+<Table
+  columns={["Step", "What is unavailable", "For how long", "Fallback"]}
+  rows={[
+    [
+      "2 - bridge release, inline over ssh",
+      "Slack only; the cockpit is never stopped",
+      "one bridge restart, ~10-20s, plus a 120s soak during which it is up",
+      "the ssh session itself; auto-rollback restores bridge 77c4a0c, which is compatible with the running 5c350f7",
+    ],
+    [
+      "3 - deployd restart",
+      "nothing (deployd finishes any in-flight job first; TimeoutStopSec=1200)",
+      "seconds, and only when `deployctl jobs` shows the spool idle",
+      "`systemctl --user status loom-deployd`",
+    ],
+    [
+      "4 - cockpit release",
+      "cockpit and Slack",
+      "~2-3 min (the DB snapshot dominates: 02:46:26 to 02:49:13 on 22 Sep), plus the bridge reconnect; a soak failure adds another ~2-3 min for rollback",
+      "ssh; `deployctl rollback cockpit --restore-snapshot`; `systemctl --user restart loom-slack-bridge`",
+    ],
+  ]}
+/>
+
+At no point is the bridge structurally unable to talk to the running cockpit for
+longer than one restart, because **every flip of the cockpit's `current` is
+followed by a bridge restart inside the same sequence**. Step 2 is proven green
+offline against the currently running release, so the riskiest-looking step has
+already been rehearsed.
+
+<Callout tone="warning">
+  Step 3 is easy to forget and silently fatal to the fix: until deployd is
+  restarted it keeps executing the *previous* bridge release's `deploy/*.ts`, so
+  the cockpit promote in step 4 would run without `rematchBridge`. The unit file
+  already documents this caveat; the runbook section should repeat it as a numbered
+  step, not a note.
+</Callout>
+
+## Verification, before any of it touches production
+
+Three layers, in order. Layers 1 and 2 touch nothing outside `/tmp` and
+throwaway systemd units.
+
+**1. Offline compatibility matrix (already run).** In a scratch clone, symlink
+contracts and effect at a release dir and run `npm run typecheck && npm test`.
+Both corners that matter are green — see the evidence table above. Re-run it on
+the actual PR branch before proposing the deploy.
+
+**2. Scratch-store self-test of the new sequence.** Extend
+`scripts/phase3-selftest.sh`, which already stands up a throwaway cockpit unit, a
+throwaway deployd, a mock Slack API and a scratch release store, and asserts
+deployd's PID is unchanged across a cockpit restart. Add a throwaway **bridge**
+unit whose `/healthz` reports `loom: connected` only when a version marker it
+read **at process start** equals the marker in the release `current` points at
+now. That models the in-memory-modules coupling exactly, with no real contracts
+involved, and makes the following assertions possible:
+
+<Checklist
+  items={[
+    {
+      id: "t1",
+      label: "Healthy promote: the fake bridge is restarted after the flip, stage-two passes, soak passes",
+      note: "and asserting the fake bridge's PID changed is what proves the rematch ran",
+    },
+    {
+      id: "t2",
+      label: "Regression proof: with the rematch disabled, the same promote fails the soak",
+      note: "reproduces the 22 Sep failure shape on scratch units",
+    },
+    {
+      id: "t3",
+      label: "Stage-one failure: rollback restarts the bridge onto the restored release and stage-two passes",
+    },
+    {
+      id: "t4",
+      label: "Pruning: after several promotes, both bridge links still resolve to a live release dir",
+    },
+    {
+      id: "t5",
+      label: "Pre-fix bridge release: the effect re-assert warns and continues rather than throwing",
+    },
+  ]}
+/>
+
+**3. Live, on the real stores.** Step 2 of the landing order *is* the live test
+of the bridge half: it exercises a real promote, a real health gate and a real
+soak against production, while the cockpit is never stopped and auto-rollback is
+armed. Only once that is green does the cockpit deploy run.
+
+## Work breakdown
+
+<FileTree
+  title="loom-slack-bridge (branch off master; the human approves the push)"
+  entries={[
+    {
+      path: "deploy/config.ts",
+      change: "modified",
+      note: "bridge contractsDir default -> join(cockpitRoot, 'current', 'packages', 'contracts'); no new env key",
+    },
+    {
+      path: "deploy/deployctl.ts",
+      change: "modified",
+      note: "add linkEffect(); add rematchBridge(); call it in promote() and rollbackTo() after systemctl start; rewrite the linkContracts() doctrine comment",
+    },
+    {
+      path: "package.json",
+      change: "modified",
+      note: "typescript ~5.7.0 -> 7.0.2; effect 4.0.0-beta.78 -> 4.0.0-rc.115; add a link:contracts script for dev checkouts",
+    },
+    {
+      path: "package-lock.json",
+      change: "modified",
+      note: "regenerated by npm install; npm ci in a release dir must stay green",
+    },
+    {
+      path: "scripts/link-contracts.sh",
+      change: "added",
+      note: "dev-checkout convenience: the same two links, pointed at loom-releases/current",
+    },
+    {
+      path: "scripts/phase3-selftest.sh",
+      change: "modified",
+      note: "fake bridge unit with a start-time version marker; the five assertions above",
+    },
+    {
+      path: "README.md",
+      change: "modified",
+      note: "dev setup now runs link:contracts after npm ci",
+    },
+  ]}
+/>
+
+<FileTree
+  title="Host configuration and docs (not a git repo)"
+  entries={[
+    {
+      path: "~/loom-releases/deployd.env",
+      change: "modified",
+      note: "optional: a commented DEPLOYCTL_BRIDGE_CONTRACTS_DIR line documenting the derived default",
+    },
+    {
+      path: "~/loom-releases/RUNBOOK.md",
+      change: "modified",
+      note: "new section: the invariant, the new promote/rollback ordering, the deployd-restart step, the one-liner recovery, the bridge-rollback constraint",
+    },
+  ]}
+/>
+
+Ordered steps:
+
+1. **`linkEffect()` beside `linkContracts()`** in `deploy/deployctl.ts`. It must
+   `rmSync` an existing real directory before symlinking (npm installs a real
+   `node_modules/effect`), and log both links. Rewrite the `linkContracts()`
+   comment: the "a release's contracts stays a live symlink into `~/loom`, so
+   drift surfaces at the next build or restart" paragraph is the doctrine being
+   replaced, and leaving it would mislead the next reader.
+2. **Config default** in `deploy/config.ts`, derived from the already-computed
+   `cockpitRoot`.
+3. **`package.json` pins** plus `npm install` to regenerate the lockfile, then
+   `npm run typecheck && npm test` in a checkout linked at
+   `loom-releases/current` — expect clean and 435/435.
+4. **`rematchBridge()`** and its two call sites in `promote()` and
+   `rollbackTo()`, both immediately after `systemctl("start", cfg.unit)`, with a
+   `milestone()` so the Slack deploy thread shows it.
+5. **Self-test extension** and a full local run of
+   `scripts/phase3-selftest.sh` (expect `ALL PHASE 3 SELF-TESTS PASSED`).
+6. **Runbook section** in `~/loom-releases/RUNBOOK.md`.
+7. **Land it** in the order above, with the human driving steps 2 to 4 from ssh.
+
+## Deferred hardening (a separate change, after the deploy lands)
+
+Neither item is required by the invariant; both convert "fails during the soak
+and auto-rolls back" into "fails before anything is touched". Recommend landing
+them only once the core fix has survived a real deploy.
+
+**A. Bridge contract preflight in the cockpit promote.** Before the flip, copy
+the current bridge release to a scratch dir (`cp -a`, measured at **4.4 s** for
+150 MB; a `cp -al` hardlink copy takes 67 ms but is unsafe, because the release
+carries a `node_modules/.vite` cache a test run could write through), point the
+scratch copy's two links at the **candidate** release, and run
+`npm run typecheck` plus a small contract probe that asserts the ten
+`ORCHESTRATION_WS_METHODS` still exist in the candidate's `WsRpcGroup` and that
+the five command builders still decode against its `ClientOrchestrationCommand`.
+Fail the promote before `systemctl stop`, leaving the live system untouched. This
+needs two escape-hatch flags so the two build gates cannot deadlock when a bridge
+change must accompany a cockpit change: `--skip-bridge-preflight` on
+`deploy|promote cockpit`, and `--contracts-from=<cockpit-release-id>` on
+`deploy bridge`.
+
+**B. Make `/healthz` tell the truth about decoding.** Today `loom` means "the
+WebSocket is open": on 22 Sep stage-two passed at 02:50:13 and the decode failure
+dropped the connection at 02:50:23. Redefining `loom` as "connected **and** at
+least one frame decoded since connect" — the shell snapshot arrives
+automatically, so this is roughly ten lines in `src/main.ts` — makes stage-two a
+real proof, and makes `ROLLBACK OK` mean the bridge is genuinely usable rather
+than merely socketed.
+
+## Scope and non-goals
+
+- **No changes to the bridge's `src/`** in this change. The probe verified the
+  bridge's logic is fully compatible with the post-pull-7 contracts (clean
+  typecheck, 435/435, all command builders and RPC methods present); every break
+  is dependency wiring. Item B above is the only contemplated `src/` change and
+  it is deferred.
+- **No loom-side changes.** Nothing in this plan goes through `pnpm ship`.
+- **The unrelated noise stays out of scope.** The ~34 `OrchestrationGetSnapshotError:
+  Thread ... was not found` lines on every bridge reconnect are stale mappings and
+  pre-date this incident (they appear identically on every reconnect since at
+  least 19 Sep); the Slack `chat.update` rate-limit storm is likewise pre-existing.
+- **No new daemons, no new spool semantics, no change to the at-most-once or
+  recovery-hold protocols.**
+- **The branch `t3code/assistant-delivery-ledger`** (2 commits ahead of master)
+  adds no new contract surface and should inherit this fix unchanged. Plan for
+  `master`; if the human wants it to ride along, merge it into the same branch
+  before step 1 and re-run the offline matrix — no other step changes.
+
+<QuestionForm
+  questions={[
+    {
+      id: "preflight",
+      title: "Land the promote preflight (deferred item A) at all?",
+      mode: "single",
+      options: [
+        {
+          id: "later",
+          label: "Not now - land the core fix, deploy, then decide",
+          recommended: true,
+          detail:
+            "The invariant holds without it: a bridge-incompatible cockpit release fails stage-two and auto-rolls back with the bridge re-matched. The preflight only avoids the downtime of a failed deploy, and it costs two new CLI flags.",
+        },
+        {
+          id: "now",
+          label: "Include it in the same change",
+          detail:
+            "One extra gate step, a scratch copy per promote (4.4s), and the two escape-hatch flags. Turns the 22 Sep class of failure into a pre-flip build failure.",
+        },
+        { id: "never", label: "Never - stage-two plus auto-rollback is enough" },
+      ],
+    },
+    {
+      id: "healthz",
+      title: "Redefine /healthz `loom` as connected-and-decoding (deferred item B)?",
+      mode: "single",
+      options: [
+        {
+          id: "yes-later",
+          label: "Yes, as a follow-up after the deploy",
+          recommended: true,
+          detail:
+            "It is the only thing that makes stage-two and `ROLLBACK OK` mean what they claim, but it is a src/ behaviour change and is best landed on its own.",
+        },
+        { id: "yes-now", label: "Yes, fold it into this change" },
+        { id: "no", label: "No - the socket-open signal is good enough" },
+      ],
+    },
+    {
+      id: "ledger",
+      title: "Should `t3code/assistant-delivery-ledger` ride along with this fix?",
+      mode: "single",
+      options: [
+        {
+          id: "no",
+          label: "No - ship the deploy fix on master alone",
+          recommended: true,
+          detail:
+            "Keeps the change one concern, and makes an auto-rollback of the bridge release a pure revert of the wiring.",
+        },
+        {
+          id: "yes",
+          label: "Yes - merge it in before step 1",
+          detail:
+            "It adds no contract surface, so the only extra work is re-running the offline matrix on the merged branch.",
+        },
+      ],
+    },
+    {
+      id: "devlink",
+      title: "Should the dev checkout `~/loom-slack-bridge` also link at loom-releases/current?",
+      mode: "single",
+      options: [
+        {
+          id: "script",
+          label: "Yes, via an opt-in `npm run link:contracts`",
+          recommended: true,
+          detail:
+            "Without it the dev checkout typechecks against `~/loom` with its own effect copy and will report the skew errors the probe measured. Opt-in rather than a postinstall, so a checkout on a machine with no release store still installs.",
+        },
+        {
+          id: "postinstall",
+          label: "Yes, automatically in a postinstall hook",
+          detail: "Zero-thought correctness, but breaks `npm ci` anywhere the release store is absent.",
+        },
+        { id: "no", label: "No - leave the dev loop pointed at `~/loom`" },
+      ],
+    },
+    {
+      id: "window",
+      title: "Is the step-4 window acceptable, or should the DB snapshot be made faster first?",
+      mode: "single",
+      options: [
+        {
+          id: "accept",
+          label: "Accept it - ~2-3 min of no Slack per cockpit deploy",
+          recommended: true,
+          detail:
+            "It is the existing, already-tolerated cost of every promote; nothing in this plan makes it worse.",
+        },
+        {
+          id: "vacuum",
+          label: "Investigate a faster snapshot (VACUUM INTO or a reflink) as separate work",
+          detail:
+            "The 4 GB copy dominates the outage. Out of scope here, but it is the single biggest lever on the window.",
+        },
+      ],
+      allowOther: true,
+    },
+  ]}
+/>
