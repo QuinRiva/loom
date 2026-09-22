@@ -267,6 +267,13 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 // loom: `/handoff` receipt rows and the `#`-mentioned thread chip.
 import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
 import { insertHandoffReceiptRows } from "~/loom/handoffReceiptRows";
+// loom: control-plane arrivals are cards, not bubbles. See `controlMessages.ts`.
+import { ControlDigestRow } from "~/loom/ControlDigestRow";
+import {
+  CHANNEL_CLASSES,
+  classifyControlMessage,
+  isCardedControlMessage,
+} from "~/loom/controlMessages";
 import { type HandoffReceiptView } from "~/loom/handoffReceipts.logic";
 // loom: jump-to-dispatch from the Workstream surfaces.
 import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
@@ -1728,6 +1735,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      // loom: provenance of a user row, for styling probes and live evidence.
+      data-message-origin={row.kind === "message" ? (row.message.origin ?? "human") : undefined}
     >
       {row.kind === "work" ? (
         <WorkGroupSection
@@ -1742,7 +1751,15 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
+      {row.kind === "message" && row.message.role === "user" ? (
+        // loom: a control-plane arrival collapses to a card so its payload does
+        // not bury the conversation; everything else is upstream's bubble.
+        isCardedControlMessage(row.message) ? (
+          <ControlDigestRow row={row} />
+        ) : (
+          <UserTimelineRow row={row} />
+        )
+      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}
@@ -2001,6 +2018,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     [userImages],
   );
   const revertTurnCount = row.revertTurnCount;
+  // loom: a kickoff brief or an orchestrator steer is another thread talking, not
+  // the human. It stays a full bubble (short, actionable, must read at a glance)
+  // and takes the inter-thread accent on the container only, so ChatMarkdown's
+  // own colours inside the body are untouched.
+  const control = classifyControlMessage(row.message);
   // A file with a chip in the prose needs no standalone row. Media is the exception: the
   // thumbnail is the only way to actually see it, so it shows whether or not it has a chip.
   const chippedAttachmentIds = new Set(
@@ -2120,8 +2142,26 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+      <div
+        className={cn(
+          "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground",
+          // loom: the accent replaces the bubble's surface, never its body text
+          // colours, so ChatMarkdown's own palette inside is untouched.
+          control && CHANNEL_CLASSES[control.channel].bubble,
+        )}
+      >
+        <MessageAuthorHeading>{control?.label ?? "You"}</MessageAuthorHeading>
+        {/* loom: */}
+        {control ? (
+          <div
+            className={cn(
+              "mb-1.5 text-[10px] font-medium tracking-wide uppercase",
+              CHANNEL_CLASSES[control.channel].kicker,
+            )}
+          >
+            {control.label}
+          </div>
+        ) : null}
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (

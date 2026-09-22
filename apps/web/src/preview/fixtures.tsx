@@ -1,6 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
 
-import { EnvironmentId, type ProjectPathKind } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  type ControlPayload,
+  type ProjectPathKind,
+} from "@t3tools/contracts";
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
   togglePendingUserInputOptionSelection,
@@ -16,6 +21,8 @@ import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
+import { ControlDigestCardView } from "../loom/ControlDigestCard";
+import { CHANNEL_CLASSES, type ControlChannel } from "../loom/controlMessages";
 import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
@@ -984,6 +991,149 @@ const mdxWideBlockFixture: PreviewFixture = {
   render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
 };
 
+// ---------------------------------------------------------------------------
+// loom: control-plane arrival cards — the collapsed digest/notification rows and
+// the origin-tinted bubbles they are distinguished from.
+// ---------------------------------------------------------------------------
+
+const DIGEST_PAYLOAD: ControlPayload = {
+  kind: "digest",
+  heading: "FYI digest — 3 items completed and were fully routed since you last heard.",
+  items: [
+    {
+      threadId: ThreadId.make("preview-coder-alpha"),
+      role: "coder",
+      title: "Config loader landed",
+      status: "done",
+      icon: "☑️",
+      reportPath: "reports/preview-coder-alpha.md",
+      excerpt:
+        "# Config loader\n\nImplemented the loader module and wired it into startup. `vp run typecheck` clean across 15 packages.",
+      timestamp: "2026-09-22 02:15Z",
+    },
+    {
+      threadId: ThreadId.make("preview-reviewer"),
+      role: "reviewer",
+      title: "Gate resolved (clean)",
+      status: "clean",
+      icon: "✅",
+      reportPath: "reports/preview-reviewer.md",
+      excerpt: "Verified the rework: every finding addressed, no new issues.",
+      timestamp: "2026-09-22 02:16Z",
+    },
+    {
+      title: "Slow tool on the parallel branch — still executing",
+      status: "running",
+      icon: "⏳",
+    },
+  ],
+};
+
+const YIELD_PAYLOAD: ControlPayload = {
+  kind: "yield",
+  heading: "ws-preview-coder yielded to you — needs_decision.",
+  items: [
+    {
+      threadId: ThreadId.make("preview-coder-yield"),
+      role: "coder",
+      title: "Two viable schemas; the pick changes the migration",
+      status: "needs_decision",
+      icon: "⚠️",
+      reportPath: "reports/preview-coder-yield.md",
+      excerpt: LONG_PROSE_MARKDOWN,
+      timestamp: "2026-09-22 03:02Z",
+    },
+  ],
+};
+
+/** The live titles `ControlDigestRow` resolves from each item's `threadId`. */
+const PREVIEW_SENDER_LABELS = new Map<ThreadId, string>([
+  [ThreadId.make("preview-coder-alpha"), "Add config loader"],
+  [ThreadId.make("preview-reviewer"), "Review the loader rework"],
+  [ThreadId.make("preview-coder-yield"), "Migrate the session schema"],
+]);
+
+const NOTIFY_TEXT = `**ws-preview-researcher → you** (notify_thread)\n\n${LONG_PROSE_MARKDOWN}`;
+
+const ORCHESTRATOR_TEXT =
+  "Park the migration question for now — land the loader first and report back before touching the schema.";
+
+function controlCardFixture(
+  id: string,
+  title: string,
+  description: string,
+  channel: ControlChannel,
+  label: string,
+  payload: ControlPayload | null,
+  text: string,
+): PreviewFixture {
+  return {
+    id,
+    title,
+    description,
+    render: () => (
+      <TimelineLayoutFrame>
+        <ControlDigestCardView
+          key={id}
+          channel={channel}
+          label={label}
+          payload={payload}
+          senderLabels={PREVIEW_SENDER_LABELS}
+          text={text}
+          cwd={undefined}
+          threadRef={null}
+          skills={[]}
+          onOpenThread={null}
+        />
+      </TimelineLayoutFrame>
+    ),
+  };
+}
+
+/** The three accents side by side: human, inter-thread bubble, control-plane card. */
+function ControlChannelPaletteFixture() {
+  const bubble = (channel: ControlChannel, label: string, text: string) => (
+    <div className="group flex flex-col items-end gap-1 pb-4">
+      <div className={cn("relative max-w-[80%] rounded-2xl p-3", CHANNEL_CLASSES[channel].bubble)}>
+        <div
+          className={cn(
+            "mb-1.5 text-[10px] font-medium tracking-wide uppercase",
+            CHANNEL_CLASSES[channel].kicker,
+          )}
+        >
+          {label}
+        </div>
+        <ChatMarkdown text={text} cwd={undefined} />
+      </div>
+    </div>
+  );
+  return (
+    <TimelineLayoutFrame>
+      <div className="flex flex-col items-end gap-1 pb-4">
+        <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+          <ChatMarkdown
+            text="Ship the loader, then tell me what the schema pick costs."
+            cwd={undefined}
+          />
+        </div>
+      </div>
+      {bubble("inter-thread", "Kickoff brief", "Re-home the digest cards onto today's timeline.")}
+      {bubble("inter-thread", "Orchestrator", ORCHESTRATOR_TEXT)}
+      <ControlDigestCardView
+        channel="control-plane"
+        label="Control plane"
+        payload={DIGEST_PAYLOAD}
+        senderLabels={PREVIEW_SENDER_LABELS}
+        text={`FYI digest\n\n${LONG_PROSE_MARKDOWN}`}
+        cwd={undefined}
+        threadRef={null}
+        skills={[]}
+        onOpenThread={null}
+      />
+    </TimelineLayoutFrame>
+  );
+}
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "mdx-annotation",
@@ -1116,6 +1266,46 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
             />
           </TimelineLayoutFrame>
         ),
+      },
+    ],
+  },
+  {
+    id: "control-plane-cards",
+    title: "Control-plane arrivals (loom)",
+    fixtures: [
+      controlCardFixture(
+        "control-digest-card",
+        "Completion digest (collapsed)",
+        "A control-plane FYI digest. Collapsed it is one line per item and renders NO markdown — expanding reveals each item's report path, excerpt and timestamp; 'Show raw payload' reveals the verbatim bytes the model received.",
+        "control-plane",
+        "Control plane",
+        DIGEST_PAYLOAD,
+        `FYI digest — the following items completed.\n\n${LONG_PROSE_MARKDOWN}`,
+      ),
+      controlCardFixture(
+        "control-yield-card",
+        "Yield hand-back (one item, long excerpt)",
+        "A child yielding to its parent. The excerpt is a full report, which is exactly the payload the card keeps out of the timeline until it is asked for.",
+        "control-plane",
+        "Control plane",
+        YIELD_PAYLOAD,
+        `ws-preview-coder yielded to you.\n\n${LONG_PROSE_MARKDOWN}`,
+      ),
+      controlCardFixture(
+        "control-notify-card",
+        "Thread notification (no structured payload)",
+        "An inter-thread `notify_thread` arrival: blue accent, and with no structured items the summary is the first line of the message and expanding renders the whole body.",
+        "inter-thread",
+        "Thread notification",
+        null,
+        NOTIFY_TEXT,
+      ),
+      {
+        id: "control-channel-palette",
+        title: "Three channels side by side",
+        description:
+          "The colour rule: a human message is upstream's untinted bubble, another thread's message takes the blue inter-thread accent, and the control plane's own notices take the emerald accent and collapse to a card.",
+        render: () => <ControlChannelPaletteFixture />,
       },
     ],
   },
