@@ -283,6 +283,24 @@ export function registerPathInterest(
   };
 }
 
+/**
+ * Stat one path right now, bypassing the TTL, and publish the result to every
+ * mounted consumer. A chip rendered while its file existed keeps looking
+ * live after the file moves — background revalidation only catches up at the
+ * TTL — so a click re-verifies through here first. A failed RPC leaves the
+ * last-known value in place and resolves to it, so an unhealthy stat never
+ * blocks an open.
+ */
+export async function refreshPathExistence(
+  environmentId: EnvironmentId,
+  path: string,
+): Promise<PathExistence | undefined> {
+  const entry = ensureState(environmentId, path);
+  entry.inFlight = true; // keeps the scheduler from duplicating this stat
+  await fetchBatch(environmentId, [entry]);
+  return entry.existence;
+}
+
 /** Read the last-known existence for a path, or undefined if unverified. */
 export function readPathExistence(
   environmentId: EnvironmentId | null,

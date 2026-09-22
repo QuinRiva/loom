@@ -6,6 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { __setStatFetcherForTests, readPathExistence } from "~/components/chat/usePathExistence";
 import type { MarkdownFileLinkMeta } from "~/markdown-links";
 
+const toastAdd = vi.fn();
+vi.mock("~/components/ui/toast", () => ({
+  toastManager: { add: (...args: unknown[]) => toastAdd(...args) },
+  stackedThreadToast: (options: unknown) => options,
+}));
 vi.mock("~/hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("~/components/ui/tooltip", async () => {
   const { cloneElement, isValidElement } = await import("react");
@@ -17,7 +22,7 @@ vi.mock("~/components/ui/tooltip", async () => {
   };
 });
 
-import { useVerifiedFileLinkChip } from "./verifiedFileChips";
+import { useVerifiedFileLinkChip, verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
 const ENV = "env-1" as EnvironmentId;
 const CWD = "/w";
@@ -36,7 +41,6 @@ function meta(filePath: string): MarkdownFileLinkMeta {
 function Harness({ metas }: { metas: ReadonlyArray<MarkdownFileLinkMeta> }) {
   const chip = useVerifiedFileLinkChip({
     environmentId: ENV,
-    metas,
     renderChip: (fileLinkMeta) => <b data-upstream-chip>{fileLinkMeta.basename}</b>,
   });
   return (
@@ -78,6 +82,7 @@ async function renderHarness(
 afterEach(() => {
   __setStatFetcherForTests(null);
   vi.unstubAllGlobals();
+  toastAdd.mockClear();
 });
 
 describe("useVerifiedFileLinkChip", () => {
@@ -104,6 +109,36 @@ describe("useVerifiedFileLinkChip", () => {
     expect(renderer.root.findAllByType("b")).toHaveLength(1);
     expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(0);
     await act(async () => renderer.unmount());
+  });
+
+  // The window this closes: the chip was live when the message rendered, and
+  // the file moved before the click. Verification is on the click itself.
+  it("flips a chip that went stale since render and blocks the open", async () => {
+    const filePath = `${CWD}/moved.ts`;
+    // The harness fetcher reads this map per stat, so deleting the entry is the
+    // file moving underneath an already-rendered chip.
+    const kinds: Record<string, ProjectPathKind> = { [filePath]: "file" };
+    const renderer = await renderHarness([meta(filePath)], kinds);
+    expect(renderer.root.findAllByType("b")).toHaveLength(1);
+
+    delete kinds[filePath];
+    let opened: boolean | undefined;
+    await act(async () => {
+      opened = await verifyChipTargetBeforeOpen(ENV, filePath);
+    });
+
+    expect(opened).toBe(false);
+    expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(1);
+    expect(String(toastAdd.mock.calls[0]?.[0]?.title)).toBe("moved.ts has moved or been deleted");
+    await act(async () => renderer.unmount());
+  });
+
+  it("opens when the click-time stat fails, so an unhealthy RPC never blocks a live link", async () => {
+    __setStatFetcherForTests(() => Promise.resolve([]));
+    expect(await verifyChipTargetBeforeOpen(ENV, `${CWD}/unknown.ts`)).toBe(true);
+    // No environment (the /preview harness) cannot verify anything either.
+    expect(await verifyChipTargetBeforeOpen(null, `${CWD}/unknown.ts`)).toBe(true);
+    expect(toastAdd).not.toHaveBeenCalled();
   });
 
   // Artifact routing now lives in upstream's chip (`onOpenArtifact`), so the
