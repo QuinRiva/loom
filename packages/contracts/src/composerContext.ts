@@ -6,9 +6,9 @@ import {
   PositiveInt,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-// loom: the fork's `thread` record lives in its own module; the import is
-// strictly one-way (see that file's constraint note).
-import { makeLoomThreadContextRecord } from "./composerContext.loom.ts";
+// loom: the fork's `thread` record and `mdxAnchor` review payload live in their
+// own module; the import is strictly one-way (see that file's constraint note).
+import { LoomMdxAnchorReviewContext, makeLoomThreadContextRecord } from "./composerContext.loom.ts";
 
 /**
  * Inline context records: the typed payload behind every composer chip.
@@ -202,6 +202,9 @@ export const ReviewCommentContextRecord = Schema.Struct({
   diff: BoundedString(COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS),
   fenceLanguage: Schema.optional(BoundedString(64)),
   pullRequest: Schema.optional(PullRequestContextMetadata),
+  // loom: present only on the MDX-plan annotation variant, which anchors to a
+  // passage instead of a line range.
+  mdxAnchor: Schema.optional(LoomMdxAnchorReviewContext),
 }).check(Schema.makeFilter((record) => record.endIndex >= record.startIndex));
 export type ReviewCommentContextRecord = typeof ReviewCommentContextRecord.Type;
 

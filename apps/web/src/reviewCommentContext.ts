@@ -7,7 +7,7 @@ import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { planCommentAnchorDetails } from "./planCommentAnchor";
+import { planCommentAnchorDetails } from "@t3tools/shared/planCommentAnchor.loom";
 
 // loom: MDX plan-comment anchors alongside line/diff review comments.
 /**

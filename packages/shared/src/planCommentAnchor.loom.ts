@@ -1,17 +1,15 @@
 import type { PlanCommentAnchor, PlanCommentResolutionTarget } from "@t3tools/contracts";
 
 /**
- * Runtime helpers that render a {@link PlanCommentAnchor} into the agent-facing
- * text the model receives in an injected `<review_comment>` turn. Ported (and
+ * Loom (fork) runtime helpers that render a {@link PlanCommentAnchor} into the
+ * agent-facing text the model receives for an MDX-plan annotation. Ported (and
  * trimmed to the text-quote first cut) from BuilderIO's
  * `formatPlanCommentAnchorForAgent` / `planCommentAnchorDetails`
  * (`templates/plan/shared/comment-context.ts`).
  *
- * NOTE (thread coordination): the Phase 1-Fan (server + injection) thread owns
- * the authoritative agent-prompt serialisation of the mdx-anchor review-comment
- * variant. These helpers give a correct, self-contained first cut so the
- * discriminated union is exhaustive and typechecks today; that thread should
- * extend them for the visual/canvas/wireframe tiers as those anchor kinds land.
+ * Lives in `shared` because both consumers need it: the composer-context
+ * provider projection (which is where the payload now reaches the agent) and
+ * apps/web's `<review_comment>` serialisation.
  */
 
 function clean(value: string | null | undefined): string | null {

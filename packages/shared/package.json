@@ -247,6 +247,10 @@
       "types": "./src/composerContextReferences.ts",
       "import": "./src/composerContextReferences.ts"
     },
+    "./planCommentAnchor.loom": {
+      "types": "./src/planCommentAnchor.loom.ts",
+      "import": "./src/planCommentAnchor.loom.ts"
+    },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
       "import": "./src/composerContextLegacy.ts"

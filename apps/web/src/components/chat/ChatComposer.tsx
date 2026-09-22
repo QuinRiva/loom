@@ -2998,8 +2998,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             : // loom:
               existing?.kind === "thread"
               ? threadContextRecord(existing.record)
-              : // loom: `mdx-anchor` review comments carry no record shape.
-                existing?.kind === "review-comment" && existing.record.kind === "line"
+              : existing?.kind === "review-comment"
                 ? reviewCommentContextRecord(existing.record)
                 : existing?.kind === "preview-annotation"
                   ? previewAnnotationContextRecord(existing.record)

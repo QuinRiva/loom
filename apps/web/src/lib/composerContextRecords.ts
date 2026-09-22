@@ -37,7 +37,7 @@ import {
   normalizeTerminalContextText,
   type TerminalContextDraft,
 } from "./terminalContext";
-import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
+import type { ReviewCommentContext } from "~/reviewCommentContext";
 // loom: `#`-mentioned threads.
 import { threadContextRecord, type ThreadReferenceDraft } from "~/loom/threadReference";
 
@@ -181,10 +181,11 @@ export function terminalContextRecord(context: TerminalContextDraft): TerminalCo
   };
 }
 
-// loom: `mdx-anchor` review comments do not participate in the context-record
-// system: the record shape is line-indexed and diff-carrying.
+// loom: both variants get a record. The `mdx-anchor` one anchors to a passage
+// rather than a line range, so it carries `mdxAnchor` and leaves the
+// line/diff fields neutral (as the PR-summary context already does).
 export function reviewCommentContextRecord(
-  comment: LineReviewCommentContext,
+  comment: ReviewCommentContext,
 ): ReviewCommentContextRecord {
   return {
     version: 1,
@@ -194,13 +195,28 @@ export function reviewCommentContextRecord(
     sectionId: comment.sectionId,
     sectionTitle: comment.sectionTitle,
     filePath: comment.filePath,
-    startIndex: comment.startIndex,
-    endIndex: comment.endIndex,
+    startIndex: "startIndex" in comment ? comment.startIndex : 0,
+    endIndex: "endIndex" in comment ? comment.endIndex : 0,
     rangeLabel: comment.rangeLabel,
     text: clampContextText(comment.text, COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS),
-    diff: clampContextText(comment.diff, COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS),
-    ...(comment.fenceLanguage !== undefined ? { fenceLanguage: comment.fenceLanguage } : {}),
-    ...(comment.pullRequest !== undefined ? { pullRequest: comment.pullRequest } : {}),
+    diff: clampContextText(commentDiff(comment), COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS),
+    ...("fenceLanguage" in comment && comment.fenceLanguage !== undefined
+      ? { fenceLanguage: comment.fenceLanguage }
+      : {}),
+    ...(commentPullRequest(comment) !== undefined
+      ? { pullRequest: commentPullRequest(comment) }
+      : {}),
+    ...(comment.kind === "mdx-anchor"
+      ? {
+          mdxAnchor: {
+            anchor: comment.anchor,
+            quotedText: clampContextText(
+              comment.quotedText,
+              COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS,
+            ),
+          },
+        }
+      : {}),
   };
 }
 
@@ -320,10 +336,7 @@ export function buildMessageContext(input: {
   );
   const records: ComposerContextRecord[] = [
     ...input.terminalContexts.map(terminalContextRecord),
-    // loom: only the `line` variant has a record shape.
-    ...input.reviewComments
-      .filter((comment) => comment.kind === "line")
-      .map(reviewCommentContextRecord),
+    ...input.reviewComments.map(reviewCommentContextRecord),
     ...input.previewAnnotations.map((annotation) =>
       previewAnnotationContextRecord(annotation, {
         screenshotContextId: screenshotAttachmentIds.has(annotation.id) ? annotation.id : undefined,
@@ -429,19 +442,24 @@ export function terminalContextDraftFromRecord(
   };
 }
 
-export function reviewCommentFromRecord(
-  record: ReviewCommentContextRecord,
-): LineReviewCommentContext {
-  return {
-    kind: "line", // loom:
+export function reviewCommentFromRecord(record: ReviewCommentContextRecord): ReviewCommentContext {
+  const base = {
     id: producerIdFromComposerContextId("review-comment", record.contextId),
     sectionId: record.sectionId,
     sectionTitle: record.sectionTitle,
     filePath: record.filePath,
-    startIndex: record.startIndex,
-    endIndex: record.endIndex,
     rangeLabel: record.rangeLabel,
     text: record.text,
+  };
+  // loom: `mdxAnchor` is the wire discriminator for the MDX-plan variant.
+  if (record.mdxAnchor) {
+    return { kind: "mdx-anchor", ...base, ...record.mdxAnchor };
+  }
+  return {
+    kind: "line", // loom:
+    ...base,
+    startIndex: record.startIndex,
+    endIndex: record.endIndex,
     diff: record.diff,
     ...(record.fenceLanguage !== undefined ? { fenceLanguage: record.fenceLanguage } : {}),
     ...(record.pullRequest !== undefined ? { pullRequest: record.pullRequest } : {}),
