@@ -17,12 +17,14 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import { WorkspaceLease, type WorkspaceHold } from "../workspace/WorkspaceOccupancyLease.ts";
@@ -68,9 +70,10 @@ export class WorktreeProvisioner extends Context.Service<
   {
     // Turn-start invariant (item 4): (re)provision an isolated child's worktree
     // before any turn starts against it, parking it (needs_guidance) on failure.
-    // Idempotent — an already-provisioned (`ws/…`) or worktree-less child is a
-    // no-op success. Never fails: a provisioning error is absorbed into the park
-    // and reported as `false` so the caller skips the turn.
+    // Idempotent — an already-provisioned (`ws/…`) child is a no-op success, as
+    // is one whose parent resolves to no git checkout at all. Never fails: a
+    // provisioning error is absorbed into the park and reported as `false` so
+    // the caller skips the turn.
     readonly ensureIsolatedChildProvisioned: (input: {
       readonly threadId: ThreadId;
       readonly role: string;
@@ -144,6 +147,7 @@ const make = Effect.gen(function* () {
   const gitWorkflow = yield* GitWorkflowService;
   const worktreeMutationLock = yield* WorktreeMutationLock;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const setupRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const workspaceLease = yield* WorkspaceLease;
@@ -628,6 +632,42 @@ const make = Effect.gen(function* () {
       .pipe(Effect.ignoreCause({ log: true }));
   });
 
+  // loom: the base an isolated child branches from — and later fans back into.
+  //
+  // A worktree-backed parent carries both coordinates in its own meta, and that
+  // path is untouched. A ROOT running on a plain local checkout (its project is
+  // rooted at the repo itself, so nothing ever wrote worktree meta) carries
+  // none — and used to make an isolated child silently fall back to sharing the
+  // human's checkout. It is still a git checkout, so the child is provisioned
+  // exactly as for a worktree parent: a worktree under the managed worktrees
+  // dir, cut from the checkout's CURRENT branch (read from git, never from the
+  // thread's meta, which nothing repoints when the human switches branches).
+  // `null` means there is genuinely no branch to base a worktree on (no project
+  // record, not a repo, or a detached HEAD) — the shared fallback stands.
+  const resolveProvisionBase = Effect.fn("WorktreeProvisioner.resolveProvisionBase")(
+    function* (input: {
+      readonly projectId?: ProjectId;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+    }) {
+      if (input.worktreePath !== null && input.branch !== null) {
+        return { cwd: input.worktreePath, branch: input.branch } as const;
+      }
+      const project =
+        input.projectId === undefined
+          ? undefined
+          : Option.getOrUndefined(
+              yield* projectionSnapshotQuery.getProjectShellById(input.projectId),
+            );
+      const cwd = input.worktreePath ?? project?.workspaceRoot;
+      if (cwd === undefined) return null;
+      const local = yield* gitWorkflow.localStatus({ cwd });
+      return local.isRepo && local.refName !== null
+        ? ({ cwd, branch: local.refName } as const)
+        : null;
+    },
+  );
+
   const ensureIsolatedChildProvisioned = Effect.fn(
     "WorktreeProvisioner.ensureIsolatedChildProvisioned",
   )(function* (input: {
@@ -637,19 +677,22 @@ const make = Effect.gen(function* () {
     readonly branch: string | null;
     readonly worktreePath: string | null;
   }) {
-    // No worktree meta yet (shared-provisional) — nothing to provision.
-    if (input.branch === null || input.worktreePath === null) return true;
     // Already on its own `ws/…` branch — idempotent no-op; clear any stale marker.
     if (isProvisionedChildBranch(input.branch, input.threadId)) {
       failedProvisions.delete(input.threadId);
       return true;
     }
-    return yield* provisionIsolatedChild({
-      threadId: input.threadId,
-      role: input.role,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      parentCwd: input.worktreePath,
-      parentBranch: input.branch,
+    return yield* Effect.gen(function* () {
+      const base = yield* resolveProvisionBase(input);
+      // Nothing to branch from — keep today's shared behaviour.
+      if (base === null) return;
+      yield* provisionIsolatedChild({
+        threadId: input.threadId,
+        role: input.role,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        parentCwd: base.cwd,
+        parentBranch: base.branch,
+      });
     }).pipe(
       Effect.matchCauseEffect({
         onFailure: (cause) =>
