@@ -356,10 +356,15 @@ export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 // like the `/handoff` receipt row could otherwise never name the thread it
 // created) while still attributing each destination to the handoff that made
 // it. Null only on records written before the field existed.
+//
+// `createdAt` is when the handoff was placed, which is what lets a thread-local
+// surface put the marker back where the call happened in the timeline rather
+// than at the end of it. Null on records written before the field existed.
 export const HandoffDestination = Schema.Struct({
   goalId: GoalId,
   threadId: ThreadId,
   drafterThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  createdAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
@@ -1084,16 +1089,18 @@ const ThreadPeerMessageExpireCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// `/handoff` fork-drafter (plan D5): stamp one durable handoff marker on a
-// drafter thread after `GoalHandoffHttp` has created the staged destination.
-// Internal (server composes it from the goal_handoff chokepoint); a client
-// cannot forge a handoff record. The decider derives `thread.handoff-recorded`;
-// the projector appends the destination to `handoffDestinations`.
+// Stamp one durable handoff marker on the `goal_handoff` CALLER (and, for a
+// `/handoff` fork-drafter, on its fork source too) after `GoalHandoffHttp` has
+// created the staged destination. Internal (server composes it from the
+// goal_handoff chokepoint); a client cannot forge a handoff record. The decider
+// derives `thread.handoff-recorded`; the projector appends the destination to
+// `handoffDestinations`.
 const ThreadHandoffRecordCommand = Schema.Struct({
   type: Schema.Literal("thread.handoff.record"),
   commandId: CommandId,
-  // The thread the marker lands on: the drafter (whose settlement reactor reads
-  // it) or the drafter's fork source (whose receipt row links to it).
+  // The thread the marker lands on: the caller (a drafter, whose settlement
+  // reactor reads it, or any agent thread, whose timeline row links to it) or
+  // the drafter's fork source (whose receipt row links to it).
   threadId: ThreadId,
   drafterThreadId: ThreadId,
   destinationGoalId: GoalId,

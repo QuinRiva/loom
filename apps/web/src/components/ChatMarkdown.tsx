@@ -3008,10 +3008,17 @@ const CHAT_MARKDOWN_COMPONENTS = {
       fileLinkChip,
       renderContextReference,
     } = use(ChatMarkdownRendererContext);
-    // loom: a legacy `[Title](thread://<id>)` mention renders as an inert
-    // thread chip rather than a dead external link.
+    // loom: a `[Title](thread://<id>)` mention renders as a thread chip rather
+    // than a dead external link, and opens that thread when it is one this
+    // environment still has.
     if (href?.startsWith(THREAD_LINK_HREF_PREFIX)) {
-      return <ThreadLinkChip label={plainHastText(node) || "thread"} />;
+      return (
+        <ThreadLinkChip
+          label={plainHastText(node) || "thread"}
+          threadId={href.slice(THREAD_LINK_HREF_PREFIX.length)}
+          environmentId={environmentId}
+        />
+      );
     }
     const citation = href ? parseAssistantCitationHref(href) : null;
     if (citation) return <AssistantCitationChip citation={citation} />;

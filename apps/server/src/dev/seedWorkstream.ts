@@ -721,7 +721,10 @@ const seedProgram = Effect.gen(function* () {
     role: "orchestrator",
     purpose: "Continue the scoping work with a fresh context window.",
     title: "Fixture follow-through (continuation)",
-    brief: "Continue from the scoping thread; the checkpoint refs are captured.",
+    // loom: the staged-kickoff brief carries a live `thread://` mention and a
+    // dangling one, so the card's chip resolution is verifiable in the seed.
+    brief:
+      "Continue from [the scoping thread](thread://seed-thread-goal-predecessor); the checkpoint refs are captured. Ignore [the retired thread](thread://seed-thread-not-here).",
     modelSelection: MODEL_SELECTION,
     runtimeMode: "full-access",
     interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -771,6 +774,28 @@ const seedProgram = Effect.gen(function* () {
     threadId: ABANDONED_ROOT_ID,
     reason: "needs_guidance",
     createdAt: iso(265),
+  });
+
+  // loom: two self-attributed `goal_handoff` markers on the orchestrator, so its
+  // timeline carries both agent-handoff rows: one whose destination is still in
+  // the snapshot (a link) and one whose destination is gone (inert).
+  yield* dispatch({
+    type: "thread.handoff.record",
+    commandId: nextCommandId("orchestrator-handoff-live"),
+    threadId: ORCHESTRATOR_ID,
+    drafterThreadId: ORCHESTRATOR_ID,
+    destinationGoalId: GOAL_ID,
+    destinationThreadId: GOAL_SUCCESSOR_ID,
+    createdAt: iso(266),
+  });
+  yield* dispatch({
+    type: "thread.handoff.record",
+    commandId: nextCommandId("orchestrator-handoff-gone"),
+    threadId: ORCHESTRATOR_ID,
+    drafterThreadId: ORCHESTRATOR_ID,
+    destinationGoalId: GOAL_ID,
+    destinationThreadId: ThreadId.make("seed-thread-handoff-gone"),
+    createdAt: iso(267),
   });
 
   yield* Console.log(

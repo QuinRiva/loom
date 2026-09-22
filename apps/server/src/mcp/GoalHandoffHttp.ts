@@ -171,23 +171,30 @@ const handleGoalHandoff = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  // `/handoff` fork-drafter (plan D5): stamp a durable handoff marker on the
-  // drafter AFTER the staged destination exists, carrying the destination
-  // goal/thread ids. This is the settlement reactor's turn-end signal (≥1 ⇒
-  // converge+archive). NO lane change or archive here — a drafter may place
-  // several handoffs in one turn; settlement happens once, at turn end.
-  if (isDrafterCaller) {
-    yield* engine.dispatch({
-      type: "thread.handoff.record",
-      commandId: CommandId.make(`server:goal-handoff:record-handoff:${yield* crypto.randomUUIDv4}`),
-      threadId: callerThread.id,
-      drafterThreadId: callerThread.id,
-      destinationGoalId: goalId,
-      destinationThreadId: threadId,
-      createdAt: now,
-    } satisfies OrchestrationCommand);
+  // Stamp a durable handoff marker on the CALLER, whoever it is, AFTER the
+  // staged destination exists. Two readers, one marker: for a `/handoff`
+  // drafter it is the settlement reactor's turn-end signal (≥1 ⇒ converge+
+  // archive; NO lane change or archive here — a drafter may place several
+  // handoffs in one turn), and for any thread it is the durable trace the
+  // timeline renders, so an agent that calls `goal_handoff` in its own turn
+  // leaves something clickable behind instead of prose that scrolls away.
+  //
+  // Attribution is always the caller itself. That keeps the reactor's gate
+  // exactly as strict as it is: it counts only markers attributed to the
+  // drafter reading them, and a non-drafter's self-attributed marker can never
+  // land on a drafter thread (a drafter caller takes the branch below).
+  yield* engine.dispatch({
+    type: "thread.handoff.record",
+    commandId: CommandId.make(`server:goal-handoff:record-handoff:${yield* crypto.randomUUIDv4}`),
+    threadId: callerThread.id,
+    drafterThreadId: callerThread.id,
+    destinationGoalId: goalId,
+    destinationThreadId: threadId,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
 
-    // ...and the SAME marker on the drafter's fork SOURCE, so the thread the
+  if (isDrafterCaller) {
+    // The SAME marker on the drafter's fork SOURCE, so the thread the
     // human typed `/handoff` in can name what it created. The drafter is
     // archived on settlement and drops out of the shell snapshot, taking its
     // own copy with it; the source never does. Guarded on the source still

@@ -1575,6 +1575,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 threadId: event.payload.destinationThreadId,
                 // Pre-field events only ever landed on the drafter itself.
                 drafterThreadId: event.payload.drafterThreadId ?? event.payload.threadId,
+                createdAt: event.payload.createdAt,
               },
             ],
             updatedAt: event.payload.createdAt,

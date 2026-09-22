@@ -296,7 +296,7 @@ import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 // loom: the fork's chat-view mounts / intercepts — see each marked seam below.
 import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
-import { useHandoffReceipts } from "../loom/useHandoffReceipts";
+import { useAgentHandoffViews, useHandoffReceipts } from "../loom/useHandoffReceipts";
 import {
   recordHandoffDispatch,
   recordHandoffDrafter,
@@ -2040,7 +2040,17 @@ export default function ChatView(props: ChatViewProps) {
   // loom: `/handoff` receipts submitted from this thread in this browser
   // session. Keyed on the ACTIVE thread (not the route), so a draft promoted
   // to a server thread keeps its receipts.
-  const handoffReceipts = useHandoffReceipts(activeThreadKey);
+  const sessionHandoffReceipts = useHandoffReceipts(activeThreadKey);
+  // loom: and the durable trace of handoffs this thread's own agent placed with
+  // `goal_handoff`, which survive a reload because they are shell state.
+  const agentHandoffViews = useAgentHandoffViews(isServerThread ? activeThreadRef : null);
+  const handoffReceipts = useMemo(
+    () =>
+      agentHandoffViews.length === 0
+        ? sessionHandoffReceipts
+        : [...sessionHandoffReceipts, ...agentHandoffViews],
+    [agentHandoffViews, sessionHandoffReceipts],
+  );
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -10249,6 +10259,7 @@ export default function ChatView(props: ChatViewProps) {
                 composerDraftPrompt,
               }) ? (
                 <StagedKickoffCard
+                  environmentId={activeThread.environmentId}
                   brief={activeThread.brief}
                   markdownCwd={gitCwd ?? undefined}
                   launchDisabled={isSendBusy || isConnecting || activeEnvironmentUnavailable}

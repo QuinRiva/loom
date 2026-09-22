@@ -184,7 +184,7 @@ describe("orchestration projector", () => {
       // No `drafterThreadId` in the payload: a pre-field event only ever landed
       // on the drafter itself, so the aggregate IS the drafter.
       expect(recordOnce.threads[0]?.handoffDestinations).toEqual([
-        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" },
+        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1", createdAt: now },
       ]);
 
       const recordTwice = yield* projectEvent(
@@ -206,8 +206,8 @@ describe("orchestration projector", () => {
         }),
       );
       expect(recordTwice.threads[0]?.handoffDestinations).toEqual([
-        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" },
-        { goalId: "goal-2", threadId: "dest-2", drafterThreadId: "drafter-1" },
+        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1", createdAt: now },
+        { goalId: "goal-2", threadId: "dest-2", drafterThreadId: "drafter-1", createdAt: now },
       ]);
 
       // The same marker stamped on the drafter's fork SOURCE keeps naming the
@@ -254,7 +254,9 @@ describe("orchestration projector", () => {
       );
       expect(
         recordOnSource.threads.find((thread) => thread.id === "source-1")?.handoffDestinations,
-      ).toEqual([{ goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1" }]);
+      ).toEqual([
+        { goalId: "goal-1", threadId: "dest-1", drafterThreadId: "drafter-1", createdAt: now },
+      ]);
     }),
   );
 
