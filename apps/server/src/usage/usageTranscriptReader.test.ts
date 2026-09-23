@@ -208,3 +208,46 @@ describe("readTranscriptRecords resume", () => {
     assert.isNull(await readTranscriptRecords(NodePath.join(dir, "missing.jsonl"), "claude"));
   });
 });
+
+// loom: pi's session id lives in the path, not the lines, so the reader
+// supplies it and the parser stays stateless.
+function piLine(): string {
+  return `${JSON.stringify({
+    type: "message",
+    id: "779be1c0",
+    timestamp: "2026-09-23T00:43:30.946Z",
+    message: {
+      role: "assistant",
+      model: "claude-opus-5",
+      usage: { input: 2, output: 295, cacheRead: 10255, cacheWrite: 36770, reasoning: 0 },
+    },
+  })}\n`;
+}
+
+describe("pi transcripts", () => {
+  it("takes the session id from the file name", async () => {
+    const sessionId = "65dcc90c-56d3-4ff5-81c6-11a6c65bf3bd";
+    const file = NodePath.join(dir, `2026-09-23T00-43-23-707Z_${sessionId}.jsonl`);
+    await NodeFSP.writeFile(file, piLine());
+
+    const result = await readTranscriptRecords(file, "pi");
+    assert.deepEqual(
+      result?.records.map((record) => [record.sessionId, record.totals.uncachedInputTokens]),
+      [[sessionId, 2]],
+    );
+  });
+
+  it("attributes a nested run transcript to its own session", async () => {
+    const sessionId = "65dcc90c-56d3-4ff5-81c6-11a6c65bf3bd";
+    const runDir = NodePath.join(dir, `2026-09-23T00-43-23-707Z_${sessionId}`, "1e382c25", "run-0");
+    await NodeFSP.mkdir(runDir, { recursive: true });
+    const file = NodePath.join(runDir, "session.jsonl");
+    await NodeFSP.writeFile(file, piLine());
+
+    const result = await readTranscriptRecords(file, "pi");
+    assert.deepEqual(
+      result?.records.map((record) => record.sessionId),
+      [sessionId],
+    );
+  });
+});

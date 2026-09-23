@@ -24,9 +24,15 @@ import * as NodePath from "node:path";
 export const piSessionIdForThread = (threadId: string): string =>
   threadId.replace(/[^a-zA-Z0-9_-]/g, "-");
 
-/** Default pi sessions root: `~/.pi/agent/sessions`. */
-const defaultSessionsRoot = (): string =>
-  NodePath.join(NodeOS.homedir(), ".pi", "agent", "sessions");
+/**
+ * Default pi sessions root: `~/.pi/agent/sessions`.
+ *
+ * `homeDir` exists for callers holding a provider instance's own environment:
+ * pi resolves its agent directory from `HOME`, so an instance that overrides it
+ * genuinely writes its sessions elsewhere.
+ */
+export const piSessionsRoot = (homeDir: string = NodeOS.homedir()): string =>
+  NodePath.join(homeDir, ".pi", "agent", "sessions");
 
 /**
  * Resolve a deterministic pi session id to its absolute `.jsonl` path by
@@ -39,7 +45,7 @@ const defaultSessionsRoot = (): string =>
  */
 export const resolveSessionFilePath = (
   sessionId: string,
-  root: string = defaultSessionsRoot(),
+  root: string = piSessionsRoot(),
 ): string | undefined => {
   if (!NodeFS.existsSync(root)) return undefined;
   const suffix = `_${sessionId}.jsonl`;
@@ -71,7 +77,7 @@ export const resolveSessionFilePath = (
  * alone, so the encoding has to match pi's byte-for-byte. A RESUME does not go
  * through this directory at all — see `resolveResumableSessionFile`.
  */
-export const piProjectSessionDir = (cwd: string, root: string = defaultSessionsRoot()): string =>
+export const piProjectSessionDir = (cwd: string, root: string = piSessionsRoot()): string =>
   NodePath.join(
     root,
     `--${NodePath.resolve(cwd)
@@ -144,7 +150,7 @@ const readSessionHeaderId = (path: string): string | undefined => {
  */
 export const resolveResumableSessionFile = (
   sessionId: string,
-  root: string = defaultSessionsRoot(),
+  root: string = piSessionsRoot(),
 ): string | undefined => {
   const path = resolveSessionFilePath(sessionId, root);
   if (path === undefined) return undefined;

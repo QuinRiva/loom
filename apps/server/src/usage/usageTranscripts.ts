@@ -69,6 +69,8 @@ export function totalTokens(totals: UsageTokenTotals): number {
  */
 export function mightCarryUsage(line: string, provider: UsageProviderKind): boolean {
   if (provider === "claude") return line.includes('"usage"');
+  // loom: pi hangs its usage object off the assistant message, same as Claude.
+  if (provider === "pi") return line.includes('"usage"');
   if (provider === "grok") return line.includes('"turn_completed"');
   return line.includes('"token_count"');
 }
@@ -483,6 +485,87 @@ export function parseGrokLine(line: string): readonly UsageRecord[] {
     });
   }
   return results;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pi (loom)                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * loom: parses one line of a pi session transcript.
+ *
+ * Pi is the only driver this fork ships, so its transcripts are where loom's
+ * usage actually lives. Usage rides on `type: "message"` entries whose
+ * `message.role` is `assistant`.
+ *
+ * `sessionId` comes from the caller because only pi's header line carries it;
+ * the file name holds it too, which keeps this parser stateless (unlike Codex).
+ *
+ * Two things differ from the neighbouring arms and must not be copied from
+ * them:
+ *
+ * - Pi's `usage.input` is already *exclusive* of the cache buckets
+ *   (`input + output + cacheRead + cacheWrite === usage.totalTokens`, verified
+ *   across every sampled record on this host), so the buckets are copied
+ *   across. Subtracting as Codex and Grok do would clamp uncached input to zero.
+ * - The dedupe key is composite. Pi entry ids are eight hex characters, which
+ *   collide by birthday across a real corpus, and a forked session genuinely
+ *   re-emits its parent's entries — same id, timestamp and body — into a second
+ *   file. Matching on all three makes a false drop require all three to agree.
+ */
+export function parsePiLine(line: string, sessionId: string): UsageRecord | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+
+  const record = parsed as Record<string, unknown>;
+  if (record["type"] !== "message") return null;
+
+  const message = record["message"];
+  if (typeof message !== "object" || message === null) return null;
+  const messageRecord = message as Record<string, unknown>;
+  if (messageRecord["role"] !== "assistant") return null;
+
+  const usage = messageRecord["usage"];
+  if (typeof usage !== "object" || usage === null) return null;
+  const usageRecord = usage as Record<string, unknown>;
+
+  const timestampMs = parseTimestampMs(record["timestamp"]);
+  if (timestampMs === null) return null;
+
+  const model = typeof messageRecord["model"] === "string" ? messageRecord["model"] : "";
+  if (model.length === 0) return null;
+
+  const outputTokens = int(usageRecord["output"]);
+  const totals: UsageTokenTotals = {
+    uncachedInputTokens: int(usageRecord["input"]),
+    cachedInputTokens: int(usageRecord["cacheRead"]),
+    cacheCreationTokens: int(usageRecord["cacheWrite"]),
+    outputTokens,
+    // Reported inside output, like Codex. Clamped so a malformed line cannot
+    // break the contract's subset invariant.
+    reasoningTokens: Math.min(outputTokens, int(usageRecord["reasoning"])),
+  };
+  if (totalTokens(totals) === 0) return null;
+
+  const cost = usageRecord["cost"];
+  const costTotal =
+    typeof cost === "object" && cost !== null ? (cost as Record<string, unknown>)["total"] : null;
+  const id = typeof record["id"] === "string" ? record["id"] : null;
+
+  return {
+    provider: "pi",
+    timestampMs,
+    model,
+    sessionId,
+    totals,
+    reportedCostUsd: typeof costTotal === "number" && Number.isFinite(costTotal) ? costTotal : null,
+    dedupeKey: id === null ? null : `${id}:${timestampMs}:${totalTokens(totals)}`,
+  };
 }
 
 export { EMPTY_TOTALS };

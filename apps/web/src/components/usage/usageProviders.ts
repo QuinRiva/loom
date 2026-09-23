@@ -1,6 +1,6 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
 
-import { ClaudeAI, GrokIcon, type Icon, OpenAI } from "../Icons";
+import { ClaudeAI, GrokIcon, type Icon, OpenAI, PiAgentIcon } from "../Icons";
 
 type UsageProviderPresentation = {
   readonly label: string;
@@ -14,6 +14,13 @@ type UsageProviderPresentation = {
  * only requires its contract support and one entry here.
  */
 export const PROVIDER_PRESENTATION = {
+  // loom: pi drives every turn on this fork, so it leads the reading order and
+  // takes the one saturated colour - the others are deliberate neutrals.
+  pi: {
+    label: "Pi",
+    color: "var(--primary)",
+    mark: PiAgentIcon,
+  },
   codex: {
     label: "Codex",
     color: "var(--contrast-foreground)",
