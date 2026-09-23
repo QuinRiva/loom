@@ -282,24 +282,37 @@ renders only for `mode: "freeform"` or when the question sets
 instead. `submitLabel` is accepted for the wire round-trip but not rendered:
 answers ride the review turn per question, so there is no submit button.
 
+Every question is answered by someone who only skimmed the body: put the one
+line of context it depends on in `subtitle`, and never leave a label the
+document coined (slice N, a codename, a section title) in a `title`, `subtitle`,
+`label` or `detail` unglossed — see `document-quality.md`. `refs`
+(`[{ label, anchor }]`, at most four) chips open the sections a question depends
+on, read in place: `label` is the heading as written, `anchor` its slug
+(`## Delivery order` → `delivery-order`). A ref is a way to go deeper, never a
+substitute for a question that reads on its own; the ref below resolves against
+a `## MDX compile pipeline` heading in the body.
+
 ```mdx
 <QuestionForm
   questions={[
     {
       id: "csp",
       title: "Accept unsafe-eval for the runtime MDX renderer?",
+      refs: [{ label: "MDX compile pipeline", anchor: "mdx-compile-pipeline" }],
+      subtitle:
+        "The renderer compiles MDX in the browser, which needs eval(); the app ships no Content-Security-Policy today.",
       mode: "single",
       options: [
         {
           id: "a",
-          label: "In-browser evaluate() (Option A)",
+          label: "Compile and evaluate the MDX in the browser",
           recommended: true,
           detail: "No CSP today; the guard bounds the eval surface.",
         },
         {
           id: "b",
-          label: "Server compile() + blob: module (Option B)",
-          detail: "Only if a strict CSP becomes a requirement.",
+          label: "Compile on the server, load the result as a blob: module",
+          detail: "Avoids eval entirely; only worth it if a strict CSP becomes a requirement.",
         },
       ],
     },

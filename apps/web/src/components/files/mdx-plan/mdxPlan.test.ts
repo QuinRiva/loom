@@ -309,6 +309,23 @@ describe("mdx-plan security model", () => {
     expect(html).toContain("mintToken"); // code body (SSR fallback <pre>)
   });
 
+  // loom: heading slugs are the anchor a question's `refs[].anchor` names, and
+  // they are produced by the shared compile pipeline, so this asserts the
+  // pipeline assumption (mdast `data.hProperties` reaches the rendered element)
+  // and the de-duplication rule.
+  it("gives headings stable, de-duplicated slug ids", async () => {
+    const Content = await compilePlanMdx(
+      "# Lane-aware release\n\n## Delivery order\n\n### Slice 2 \u2014 backfill\n\n## Delivery order\n",
+    );
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).toContain('<h1 id="lane-aware-release">');
+    expect(html).toContain('<h2 id="delivery-order">');
+    expect(html).toContain('<h3 id="slice-2-backfill">');
+    expect(html).toContain('<h2 id="delivery-order-2">');
+  });
+
   it("renders the Phase 4 document blocks through the registry", async () => {
     const source = [
       '<Callout tone={"risk"}>\n\nUntrusted HTML is a second trust boundary.\n\n</Callout>',

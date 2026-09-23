@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { compilePlanToFunctionBody } from "./mdxCompileOptions";
+import type { PlanSections } from "./headingAnchors";
+import { compilePlanDocument, compilePlanSection } from "./mdxCompileOptions";
 
 /**
  * Web Worker that compiles `.mdx` plan source off the main thread. Only the
@@ -18,17 +19,23 @@ import { compilePlanToFunctionBody } from "./mdxCompileOptions";
 export interface CompileRequest {
   id: number;
   source: string;
+  /** One section slice for a question "peek" rather than a whole document:
+   * heading ids are not stamped and no section bounds come back. */
+  section?: boolean;
 }
 
 export type CompileResponse =
-  | { id: number; ok: true; code: string }
+  | { id: number; ok: true; code: string; sections: PlanSections }
   | { id: number; ok: false; error: string };
 
 self.addEventListener("message", (event: MessageEvent<CompileRequest>) => {
-  const { id, source } = event.data;
-  void compilePlanToFunctionBody(source).then(
-    (code) => {
-      const response: CompileResponse = { id, ok: true, code };
+  const { id, source, section } = event.data;
+  const compiled = section
+    ? compilePlanSection(source).then((code) => ({ code, sections: {} }))
+    : compilePlanDocument(source);
+  void compiled.then(
+    ({ code, sections }) => {
+      const response: CompileResponse = { id, ok: true, code, sections };
       self.postMessage(response);
     },
     (cause: unknown) => {

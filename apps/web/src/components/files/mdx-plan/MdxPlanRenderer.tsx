@@ -1,11 +1,20 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
-import CompileWorker from "./compileWorker?worker";
-import { compilePlanMdx, type PlanMdxComponent, runPlanModule } from "./mdxCompileOptions";
-import type { CompileRequest, CompileResponse } from "./compileWorker";
+import { PlanPeekContext } from "./blocks/questionRefs";
+import type { PlanSections } from "./headingAnchors";
+import type { PlanMdxComponent } from "./mdxCompileOptions";
+import { loadPlanDocument } from "./planCompileClient";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 /**
@@ -36,55 +45,6 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
  */
 
 export { compilePlanMdx } from "./mdxCompileOptions";
-
-/**
- * One shared compile worker for all rendered plans (compile is stateless and
- * request-multiplexed by id). Lazily created on first use and kept for the
- * page's lifetime — plans open one at a time, so a pool is unwarranted. Falls
- * back to `null` in environments without Worker support (SSR/tests), where
- * {@link compileInWorker} degrades to the main-thread `compilePlanMdx`.
- */
-let sharedWorker: Worker | null = null;
-let workerUnavailable = false;
-const pending = new Map<number, (response: CompileResponse) => void>();
-let requestCounter = 0;
-
-function getCompileWorker(): Worker | null {
-  if (workerUnavailable) return null;
-  if (sharedWorker) return sharedWorker;
-  try {
-    const worker = new CompileWorker();
-    worker.addEventListener("message", (event: MessageEvent<CompileResponse>) => {
-      const resolve = pending.get(event.data.id);
-      if (resolve) {
-        pending.delete(event.data.id);
-        resolve(event.data);
-      }
-    });
-    sharedWorker = worker;
-    return worker;
-  } catch {
-    // No Worker support (SSR / some test envs) — caller falls back on-thread.
-    workerUnavailable = true;
-    return null;
-  }
-}
-
-/** Compile off the main thread when a worker is available, else on-thread. */
-async function compileInWorker(source: string): Promise<PlanMdxComponent> {
-  const worker = getCompileWorker();
-  if (!worker) return compilePlanMdx(source);
-  const id = ++requestCounter;
-  const code = await new Promise<string>((resolve, reject) => {
-    pending.set(id, (response) => {
-      if (response.ok) resolve(response.code);
-      else reject(new Error(response.error));
-    });
-    const request: CompileRequest = { id, source };
-    worker.postMessage(request);
-  });
-  return runPlanModule(code);
-}
 
 /**
  * Catches render-time failures (e.g. MDX's `_missingMdxReference` for an unknown
@@ -213,19 +173,26 @@ function PlanErrorNotice({ message }: { message: string }) {
 }
 
 export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
-  const [content, setContent] = useState<{ Component: PlanMdxComponent } | null>(null);
+  const [content, setContent] = useState<{
+    Component: PlanMdxComponent;
+    sections: PlanSections;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
+  const peekDocument = useMemo(
+    () => ({ source, sections: content?.sections ?? {}, components: PLAN_BLOCK_COMPONENTS }),
+    [source, content],
+  );
 
   useEffect(() => {
     let active = true;
     setError(null);
     setCompiling(true);
-    void compileInWorker(source)
-      .then((Component) => {
+    void loadPlanDocument(source)
+      .then((compiled) => {
         if (active) {
-          setContent({ Component });
+          setContent(compiled);
           setCompiling(false);
         }
       })
@@ -262,7 +229,10 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
       className={cn("plan-mdx mx-auto max-w-4xl px-6 py-5", className)}
     >
       <PlanRenderErrorBoundary key={source} onError={(cause) => setError(cause.message)}>
-        <MdxContent components={PLAN_BLOCK_COMPONENTS} />
+        {/* The source + registry a question's "peek" re-renders one section with. */}
+        <PlanPeekContext.Provider value={peekDocument}>
+          <MdxContent components={PLAN_BLOCK_COMPONENTS} />
+        </PlanPeekContext.Provider>
       </PlanRenderErrorBoundary>
     </div>
   );

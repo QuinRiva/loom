@@ -4,6 +4,8 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { z } from "zod";
 
+import type { PlanQuestion } from "./blocks/questionForm";
+import { assignHeadingAnchors } from "./headingAnchors";
 import { attributeValue, type MdxAttrExpression } from "./mdxAttrs";
 import { compilePlanMdx } from "./mdxCompileOptions";
 import { planBlockByTag } from "./registry";
@@ -37,6 +39,7 @@ export interface PlanLintFinding {
 interface Point {
   line: number;
   column: number;
+  offset?: number;
 }
 
 interface MdastNode {
@@ -44,7 +47,7 @@ interface MdastNode {
   name?: string;
   children?: MdastNode[];
   attributes?: JsxAttrNode[];
-  position?: { start: Point };
+  position?: { start: Point; end?: Point };
 }
 
 interface JsxAttrNode {
@@ -169,6 +172,11 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   } catch (cause) {
     return [mdxErrorFinding(cause)]; // nothing else is checkable without a parse
   }
+
+  // The heading slugs a question's `refs[].anchor` may name — derived by the same
+  // function the compile pipeline and the peek use, on the same tree, so "this
+  // anchor is valid" and "this is the section it opens" cannot disagree.
+  const headingSlugs = new Set(Object.keys(assignHeadingAnchors(tree)));
 
   const authoredIds = new Map<string, Point | undefined>();
   const reviewChoiceIds = new Map<string, Point | undefined>();
@@ -368,6 +376,21 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         });
       } else {
         reviewChoiceIds.set(data.itemId, node.position?.start);
+      }
+    }
+    // A question's `refs[].anchor` names a heading slug. An anchor that resolves
+    // to nothing is a dead chip, so it fails the authoring gate: heading text is
+    // the slug, and editing a heading is exactly how a ref silently rots.
+    if (tag === "QuestionForm" || tag === "VisualQuestions") {
+      for (const question of (data.questions as PlanQuestion[] | undefined) ?? []) {
+        for (const ref of question.refs ?? []) {
+          if (headingSlugs.has(ref.anchor)) continue;
+          findings.push({
+            severity: "error",
+            ...at(node),
+            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document — the chip would open an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
+          });
+        }
       }
     }
     const board = boardStack.at(-1);

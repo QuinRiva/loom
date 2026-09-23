@@ -25,7 +25,7 @@ const BLOCK_SNIPPET_MAX = 280;
  * (quotes, brackets, backslashes) can never produce an invalid selector. Uses
  * `CSS.escape` when available (browser), else a quote/backslash fallback (jsdom
  * test env sometimes has no global `CSS`). */
-const escapeId = (id: string): string =>
+export const escapeId = (id: string): string =>
   typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
 
 /** A whole-block anchor selector with the id safely escaped. */

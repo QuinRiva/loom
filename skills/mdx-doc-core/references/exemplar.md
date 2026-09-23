@@ -116,5 +116,11 @@ caption>`) is the only place the state name belongs.
 - **A questions/decisions wall mid-document.** A second open-questions list, or a
   parallel "decisions" section above the bottom `<QuestionForm>`. There is exactly
   one questions block, at the very bottom.
+- **A jargon-gated question.** A bottom `<QuestionForm>` leaning on labels the
+  document coined, so a reviewer who skimmed the body cannot answer it: "Yes,
+  fold it into slice 1". Gloss the dependency in `subtitle` and name the choice
+  in the label: "Yes — build the meter in the same pass as the settings page". A
+  `refs` chip does not rescue it: refs let a reviewer read the section a question
+  turns on, they never carry meaning the question's own text leaves out.
 - **A plan written as a changelog.** "Unlike the previous version…", "as discussed
   above…". Write the current proposal as a standalone document.
