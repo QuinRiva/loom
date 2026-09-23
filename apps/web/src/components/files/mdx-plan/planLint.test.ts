@@ -31,8 +31,8 @@ describe("lintPlanSource", () => {
   });
 
   // loom: question `refs` peek at a plan section by heading slug; an anchor that
-  // names no heading renders a chip whose peek opens empty.
-  it("warns about a question ref whose anchor is not a heading", async () => {
+  // names no heading is a dead chip, so the authoring gate fails on it.
+  it("rejects a question ref whose anchor is not a heading", async () => {
     const source = [
       "# Plan",
       "",
@@ -55,11 +55,11 @@ describe("lintPlanSource", () => {
         },
       ])}} />`,
     ].join("\n");
-    expect(await errors(source)).toEqual([]);
-    const warnings = await warningText(source);
-    expect(warnings).toContain('"rollout-and-flags"');
-    expect(warnings).toContain("delivery-order");
-    expect(warnings).not.toContain('question "ok"');
+    const [finding, ...rest] = await errors(source);
+    expect(rest).toEqual([]);
+    expect(finding?.message).toContain('"rollout-and-flags"');
+    expect(finding?.message).toContain("delivery-order");
+    expect(finding?.message).not.toContain('question "ok"');
   });
 
   it("rejects unknown tags with a suggestion and position", async () => {

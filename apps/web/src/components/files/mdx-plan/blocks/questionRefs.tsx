@@ -1,30 +1,31 @@
 import { IconChevronRight, IconX } from "@tabler/icons-react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "~/lib/utils";
 
 import { escapeId } from "../annotation/anchoring";
-import { PLAN_PEEK_ATTR } from "../headingAnchors";
+import { PLAN_PEEK_ATTR, sectionSource } from "../headingAnchors";
+import type { PlanMdxComponent } from "../mdxCompileOptions";
+import { compileInWorker } from "../planCompileClient";
 
 /**
- * PROTOTYPE — "peek at the section this question depends on".
+ * "Peek at the section this question depends on".
  *
  * A question in the bottom `<QuestionForm>` can carry `refs`, each naming a
  * heading slug from the plan body (see {@link ../headingAnchors}). The refs
- * render as chips under the question; opening one reveals that section — heading
- * to the next heading of the same or higher level — WITHOUT moving the reader
- * out of the form. Two variants are built so the feel can be compared:
- * a floating `popover` and an `inline` expansion, chosen by
- * {@link PlanPeekVariantContext}.
+ * render as chips under the question; opening one shows that section — heading
+ * to the next heading of the same or higher level — in a popover over the form,
+ * so the reader never loses their place mid-answer.
  *
- * The revealed section is a DOM *clone* of the already-rendered section, which
- * is what makes the prototype ~100 lines instead of a second render pass. The
- * clone is inert: nested block interactivity (tabs, details toggles, canvases,
- * sandboxed frames) is dead in the peek, and it carries no plan ids
- * ({@link PLAN_PEEK_ATTR} keeps it out of block-id assignment and annotation
- * anchoring entirely). A promoted feature would render the section through MDX
- * instead — see the thread report.
+ * The peek is a REAL render, not a copy of the rendered DOM: the section's
+ * source slice is compiled through the same worker + closed block registry as
+ * the document, so tabs, disclosures, canvases and sandboxed frames inside a
+ * peeked section behave exactly as they do in the body. Three things keep that
+ * second render invisible to the annotation layer: the popover is portalled to
+ * `<body>` (outside `[data-plan-root]`, which every annotation query and every
+ * block-id lookup is scoped to), and — for belt and braces — `assignBlockIds`
+ * and `flattenDocument` both reject any {@link PLAN_PEEK_ATTR} subtree.
  */
 
 export interface QuestionRef {
@@ -34,16 +35,40 @@ export interface QuestionRef {
   anchor: string;
 }
 
-export type PlanPeekVariant = "popover" | "inline";
+/**
+ * What a peek needs from the document hosting it: the plan source to slice a
+ * section out of, and the block registry to render that slice with. Provided by
+ * {@link ../MdxPlanRenderer}, which owns both — taking the registry through
+ * context rather than importing it keeps this block out of an import cycle with
+ * the registry that lists it.
+ */
+export interface PlanPeekDocument {
+  source: string;
+  components: Record<string, unknown>;
+}
 
-/** Which peek surface the document renders. Prototype-only knob. */
-export const PlanPeekVariantContext = createContext<PlanPeekVariant>("popover");
+export const PlanPeekContext = createContext<PlanPeekDocument | null>(null);
 
 const HEADING_LEVEL = /^H([1-6])$/;
 
-/** `max-h-80` plus its margin — the room a dropped-down popover needs. */
-const PEEK_MAX_PX = 336;
-const PEEK_WIDTH_PX = 520;
+/** Share of the viewport a peek may grow to before it scrolls. */
+const MAX_HEIGHT_RATIO = 0.7;
+const GAP_PX = 6;
+
+/** Compiled section slices, keyed by the slice itself — reopening a chip (the
+ * common motion while answering) must not re-compile or flash an empty box. */
+const compiledSections = new Map<string, Promise<PlanMdxComponent>>();
+
+function compileSection(slice: string): Promise<PlanMdxComponent> {
+  const existing = compiledSections.get(slice);
+  if (existing) return existing;
+  // Editing a plan changes every slice it touches; drop the lot rather than
+  // grow a cache of sections nobody can reach any more.
+  if (compiledSections.size > 32) compiledSections.clear();
+  const compiled = compileInWorker(slice);
+  compiledSections.set(slice, compiled);
+  return compiled;
+}
 
 /** The live heading element for `anchor` in the rendered plan. */
 function findHeading(root: Element | null, anchor: string): HTMLElement | null {
@@ -51,56 +76,52 @@ function findHeading(root: Element | null, anchor: string): HTMLElement | null {
   return heading && HEADING_LEVEL.test(heading.tagName) ? heading : null;
 }
 
-/** The section body: every sibling after the heading, up to the next heading of
- * the same or higher level. */
-function sectionBody(heading: HTMLElement): HTMLElement[] {
-  const level = Number(HEADING_LEVEL.exec(heading.tagName)![1]);
-  const body: HTMLElement[] = [];
-  for (let el = heading.nextElementSibling; el instanceof HTMLElement; el = el.nextElementSibling) {
-    const next = HEADING_LEVEL.exec(el.tagName);
-    if (next && Number(next[1]) <= level) break;
-    body.push(el);
-  }
-  return body;
-}
-
-/** A display-only copy, stripped of every id the renderer/annotation layer keys on. */
-function cloneForPeek(el: HTMLElement): HTMLElement {
-  const clone = el.cloneNode(true) as HTMLElement;
-  for (const node of [
-    clone,
-    ...clone.querySelectorAll<HTMLElement>("[id], [data-plan-block-id]"),
-  ]) {
-    node.removeAttribute("id");
-    node.removeAttribute("data-plan-block-id");
-  }
-  return clone;
-}
-
-/** The revealed section: its heading text, a clone of its body, and the escape
- * hatch that scrolls the real document to it. */
+/** The revealed section: its heading text, a live render of its body, and the
+ * escape hatch that scrolls the real document to it. */
 function PeekSection({
   anchor,
-  planRoot,
+  doc,
+  getPlanRoot,
+  titleId,
   onClose,
 }: {
   anchor: string;
-  planRoot: Element | null;
+  doc: PlanPeekDocument;
+  /** Resolved on demand, never during render — the popover is portalled out of
+   * the document, so only the chip row knows where the plan root is. */
+  getPlanRoot: () => Element | null;
+  titleId: string;
   onClose: () => void;
 }) {
-  const hostRef = useRef<HTMLDivElement>(null);
   const [title, setTitle] = useState<string | null>(null);
+  const [content, setContent] = useState<{ Section: PlanMdxComponent } | { error: string } | null>(
+    null,
+  );
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const heading = findHeading(planRoot, anchor);
-    setTitle(heading?.textContent ?? null);
-    host.replaceChildren(...(heading ? sectionBody(heading).map(cloneForPeek) : []));
-  }, [anchor, planRoot]);
+    let active = true;
+    setContent(null);
+    setTitle(findHeading(getPlanRoot(), anchor)?.textContent ?? null);
+    const slice = sectionSource(doc.source, anchor);
+    if (slice === null) {
+      setContent({ error: `No section in this plan is anchored at "${anchor}".` });
+      return;
+    }
+    void compileSection(slice).then(
+      (Section) => {
+        if (active) setContent({ Section });
+      },
+      (cause: unknown) => {
+        if (active) setContent({ error: cause instanceof Error ? cause.message : String(cause) });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [anchor, doc.source, getPlanRoot]);
 
   const goToSection = () => {
-    const heading = findHeading(planRoot, anchor);
+    const heading = findHeading(getPlanRoot(), anchor);
     onClose();
     if (!heading) return;
     heading.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -111,8 +132,8 @@ function PeekSection({
 
   return (
     <>
-      <div className="flex items-baseline gap-2 border-b border-border/60 px-3 py-1.5">
-        <span className="truncate text-xs font-semibold text-foreground">
+      <div className="flex shrink-0 items-baseline gap-2 border-b border-border/60 px-4 py-1.5">
+        <span id={titleId} className="truncate text-xs font-semibold text-foreground">
           {title ?? `Unknown section "${anchor}"`}
         </span>
         <button
@@ -131,106 +152,154 @@ function PeekSection({
           <IconX className="size-3.5" />
         </button>
       </div>
-      {/* `select-none`: the body is a CLONE, so a selection here would anchor a
-       * comment onto text the annotation layer deliberately cannot see. Comment
-       * on the real section instead. */}
-      <div ref={hostRef} className="plan-mdx select-none px-3 py-1 text-sm" />
+      <div className="plan-mdx min-h-0 overflow-y-auto px-4 py-1 text-sm">
+        {content === null ? null : "error" in content ? (
+          <p className="py-2 text-xs text-muted-foreground">{content.error}</p>
+        ) : (
+          <content.Section components={doc.components} />
+        )}
+      </div>
     </>
   );
 }
 
-/** The ref chips for one question, plus whichever peek surface is open. */
+/** The ref chips for one question, plus the peek popover when one is open. */
 export function QuestionRefChips({ refs }: { refs: QuestionRef[] }) {
-  const variant = useContext(PlanPeekVariantContext);
+  const doc = useContext(PlanPeekContext);
   const [open, setOpen] = useState<string | null>(null);
   // Viewport coordinates for the popover. It is portalled to <body> because the
   // question form (and the file panel above it) clip their overflow — anchored
-  // inside the form, a popover on the last question would be cut in half. Chips
-  // sit at the BOTTOM of a plan, so it opens upward when there is no room below.
-  const [box, setBox] = useState({ left: 0, top: 0, bottom: 0, above: false });
+  // inside the form, a popover on the last question would be cut in half. It
+  // spans the question's own column and hugs its content up to 70% of the
+  // viewport; chips sit near the BOTTOM of a plan, so it flips above the chip
+  // when the room below is worse.
+  const [box, setBox] = useState({
+    left: 0,
+    width: 0,
+    top: 0,
+    bottom: 0,
+    maxHeight: 0,
+    above: false,
+  });
   const rowRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const planRoot = rowRef.current?.closest("[data-plan-root]") ?? null;
+  const chipRefs = useRef(new Map<string, HTMLButtonElement>());
+  const popoverId = useId();
+  const getPlanRoot = useCallback(() => rowRef.current?.closest("[data-plan-root]") ?? null, []);
+
+  const close = useCallback(() => {
+    // Only pull focus back when it is ours to move (Escape, the close button) —
+    // a click elsewhere on the page must keep the focus it just took.
+    if (open !== null && popoverRef.current?.contains(document.activeElement)) {
+      chipRefs.current.get(open)?.focus();
+    }
+    setOpen(null);
+  }, [open]);
 
   useEffect(() => {
-    if (open === null || variant !== "popover") return;
-    const close = (event: Event) => {
-      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
-      const target = event.target as Node;
-      if (
-        event.type === "mousedown" &&
-        (rowRef.current?.contains(target) || popoverRef.current?.contains(target))
-      )
+    if (open === null) return;
+    popoverRef.current?.focus();
+    const dismiss = (event: Event) => {
+      if (event.type === "keydown") {
+        if ((event as KeyboardEvent).key === "Escape") close();
         return;
-      setOpen(null);
+      }
+      const target = event.target instanceof Node ? event.target : null;
+      // Reading the peek must not dismiss it: a scroll or a click INSIDE the
+      // popover is use, not dismissal. A chip click is handled by the chip.
+      if (target && popoverRef.current?.contains(target)) return;
+      if (event.type === "mousedown" && target && rowRef.current?.contains(target)) return;
+      // Fixed coordinates do not follow a scrolling panel or a resize; close
+      // rather than drift away from the chip that opened it.
+      close();
     };
-    document.addEventListener("keydown", close);
-    document.addEventListener("mousedown", close);
-    // Fixed coordinates do not follow a scrolling panel; close instead of drifting.
-    document.addEventListener("scroll", close, true);
+    document.addEventListener("keydown", dismiss);
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
     return () => {
-      document.removeEventListener("keydown", close);
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("keydown", dismiss);
+      document.removeEventListener("mousedown", dismiss);
+      document.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
     };
-  }, [open, variant]);
+  }, [open, close]);
 
-  const surfaceClass = "overflow-hidden rounded-lg border border-border bg-card shadow-sm";
+  if (!doc) return null;
+
+  const toggle = (anchor: string, chip: HTMLButtonElement) => {
+    if (open === anchor) {
+      close();
+      return;
+    }
+    const row = rowRef.current!.getBoundingClientRect();
+    const rect = chip.getBoundingClientRect();
+    const cap = window.innerHeight * MAX_HEIGHT_RATIO;
+    const below = window.innerHeight - rect.bottom - GAP_PX - 8;
+    const above = rect.top - GAP_PX - 8;
+    const flip = below < Math.min(cap, above);
+    setBox({
+      left: row.left,
+      width: row.width,
+      top: rect.bottom + GAP_PX,
+      bottom: window.innerHeight - rect.top + GAP_PX,
+      maxHeight: Math.min(cap, flip ? above : below),
+      above: flip,
+    });
+    setOpen(anchor);
+  };
+
   return (
     <div ref={rowRef} className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7">
       {refs.map((ref) => (
-        <span key={ref.anchor} className="relative inline-block">
-          <button
-            type="button"
-            aria-expanded={open === ref.anchor}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              setBox({
-                left: Math.max(8, Math.min(rect.left, window.innerWidth - PEEK_WIDTH_PX - 8)),
-                top: rect.bottom + 4,
-                bottom: window.innerHeight - rect.top + 4,
-                above: rect.bottom + PEEK_MAX_PX > window.innerHeight && rect.top > PEEK_MAX_PX,
-              });
-              setOpen(open === ref.anchor ? null : ref.anchor);
-            }}
-            className={cn(
-              "inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
-              open === ref.anchor
-                ? "border-primary bg-primary/10 text-foreground"
-                : "border-border bg-muted/40 text-muted-foreground hover:border-primary/60 hover:text-foreground",
-            )}
-          >
-            {ref.label}
-            <IconChevronRight className="size-3" />
-          </button>
-          {variant === "popover" &&
-            open === ref.anchor &&
-            createPortal(
-              <div
-                ref={popoverRef}
-                {...{ [PLAN_PEEK_ATTR]: "popover" }}
-                style={{
-                  left: box.left,
-                  width: PEEK_WIDTH_PX,
-                  ...(box.above ? { bottom: box.bottom } : { top: box.top }),
-                }}
-                className={cn(surfaceClass, "fixed z-50 max-h-80 overflow-y-auto")}
-              >
-                <PeekSection
-                  anchor={ref.anchor}
-                  planRoot={planRoot}
-                  onClose={() => setOpen(null)}
-                />
-              </div>,
-              document.body,
-            )}
-        </span>
+        <button
+          key={ref.anchor}
+          type="button"
+          ref={(chip) => {
+            if (chip) chipRefs.current.set(ref.anchor, chip);
+            else chipRefs.current.delete(ref.anchor);
+          }}
+          aria-expanded={open === ref.anchor}
+          aria-controls={open === ref.anchor ? popoverId : undefined}
+          onClick={(event) => toggle(ref.anchor, event.currentTarget)}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+            open === ref.anchor
+              ? "border-primary bg-primary/10 text-foreground"
+              : "border-border bg-muted/40 text-muted-foreground hover:border-primary/60 hover:text-foreground",
+          )}
+        >
+          {ref.label}
+          <IconChevronRight className="size-3" />
+        </button>
       ))}
-      {variant === "inline" && open !== null && (
-        <div {...{ [PLAN_PEEK_ATTR]: "inline" }} className={cn(surfaceClass, "mt-1 w-full")}>
-          <PeekSection anchor={open} planRoot={planRoot} onClose={() => setOpen(null)} />
-        </div>
-      )}
+      {open !== null &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            id={popoverId}
+            role="dialog"
+            aria-labelledby={`${popoverId}-title`}
+            tabIndex={-1}
+            {...{ [PLAN_PEEK_ATTR]: "" }}
+            style={{
+              left: box.left,
+              width: box.width,
+              maxHeight: box.maxHeight,
+              ...(box.above ? { bottom: box.bottom } : { top: box.top }),
+            }}
+            className="fixed z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg outline-none"
+          >
+            <PeekSection
+              anchor={open}
+              doc={doc}
+              getPlanRoot={getPlanRoot}
+              titleId={`${popoverId}-title`}
+              onClose={close}
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

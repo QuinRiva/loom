@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import {
   EnvironmentId,
@@ -18,10 +18,6 @@ import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
 import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
-import {
-  PlanPeekVariantContext,
-  type PlanPeekVariant,
-} from "../components/files/mdx-plan/blocks/questionRefs";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
@@ -891,7 +887,6 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
 function PlanPanelPreview({ source }: { source: string }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [narrow, setNarrow] = useState(false);
-  const [peek, setPeek] = useState<PlanPeekVariant>("popover");
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   useTimelineAvailableWidthVar(viewport);
 
@@ -905,13 +900,6 @@ function PlanPanelPreview({ source }: { source: string }) {
         </button>
         <button type="button" onClick={() => setNarrow((value) => !value)} className={toggleClass}>
           {narrow ? "Wide panel" : "Narrow panel"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setPeek(peek === "popover" ? "inline" : "popover")}
-          className={toggleClass}
-        >
-          Peek: {peek}
         </button>
       </div>
       {panelOpen ? (
@@ -927,13 +915,11 @@ function PlanPanelPreview({ source }: { source: string }) {
           narrow ? "w-[420px] shrink-0" : "flex-1",
         )}
       >
-        <PlanPeekVariantContext.Provider value={peek}>
-          <MdxPlanAnnotationLayer
-            source={source}
-            filePath="plans/preview/plan.mdx"
-            composerDraftTarget={DraftId.make("preview-scratch")}
-          />
-        </PlanPeekVariantContext.Provider>
+        <MdxPlanAnnotationLayer
+          source={source}
+          filePath="plans/preview/plan.mdx"
+          composerDraftTarget={DraftId.make("preview-scratch")}
+        />
       </div>
     </div>
   );
@@ -1007,7 +993,7 @@ const mdxWideBlockFixture: PreviewFixture = {
 
 /**
  * loom: a realistic plan whose bottom Open Questions carry section `refs` — the
- * "peek" prototype. Several questions are unanswerable without something defined
+ * "peek". Several questions are unanswerable without something defined
  * higher up (the delivery order, the lane vocabulary, the schema table), which is
  * exactly the situation the chips are meant to rescue.
  */
@@ -1137,7 +1123,7 @@ const mdxQuestionRefsFixture: PreviewFixture = {
   id: "mdx-question-refs",
   title: "Open questions with section refs (peek)",
   description:
-    "Scroll to the bottom Open Questions. Each question carries chips naming the plan sections it depends on \u2014 click one to reveal that section without leaving the form. Q1 has two refs (one is a whole delivery order with sub-sections), Q3 points at a section whose body is a <Table>, Q4 at one holding a <Code> block. 'Go to section' scrolls the document and tints the heading. Use the 'Peek: popover/inline' toggle to compare the two surfaces, and select text in the body first to check a highlight still tracks while a peek is open.",
+    "Scroll to the bottom Open Questions. Each question carries chips naming the plan sections it depends on \u2014 click one to reveal that section without leaving the form. Q1 has two refs (one is a whole delivery order with sub-sections), Q3 points at a section whose body is a <Table>, Q4 at one holding a <Code> block. 'Go to section' scrolls the document and tints the heading. The peek spans the question's own column and grows to fit its content, so a wide block lays out at the form's measure; scrolling inside it must not dismiss it. Select text in the body first to check a highlight still tracks while a peek is open.",
   render: () => (
     <PlanPanelPreview key="mdx-question-refs" source={MDX_QUESTION_REFS_FIXTURE_SOURCE} />
   ),

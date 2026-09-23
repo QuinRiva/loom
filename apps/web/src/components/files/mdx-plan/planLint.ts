@@ -376,16 +376,17 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         reviewChoiceIds.set(data.itemId, node.position?.start);
       }
     }
-    // A question's `refs[].anchor` names a heading slug; an anchor that resolves
-    // to nothing renders a chip whose peek opens empty.
+    // A question's `refs[].anchor` names a heading slug. An anchor that resolves
+    // to nothing is a dead chip, so it fails the authoring gate: heading text is
+    // the slug, and editing a heading is exactly how a ref silently rots.
     if (tag === "QuestionForm" || tag === "VisualQuestions") {
       for (const question of (data.questions as PlanQuestion[] | undefined) ?? []) {
         for (const ref of question.refs ?? []) {
           if (headingSlugs.has(ref.anchor)) continue;
           findings.push({
-            severity: "warning",
+            severity: "error",
             ...at(node),
-            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document — the chip opens an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
+            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document — the chip would open an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
           });
         }
       }
