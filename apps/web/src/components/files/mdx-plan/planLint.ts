@@ -4,6 +4,8 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { z } from "zod";
 
+import type { PlanQuestion } from "./blocks/questionForm";
+import { assignHeadingAnchors } from "./headingAnchors";
 import { attributeValue, type MdxAttrExpression } from "./mdxAttrs";
 import { compilePlanMdx } from "./mdxCompileOptions";
 import { planBlockByTag } from "./registry";
@@ -169,6 +171,10 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   } catch (cause) {
     return [mdxErrorFinding(cause)]; // nothing else is checkable without a parse
   }
+
+  // The heading slugs a question's `refs[].anchor` may name — derived by the same
+  // function the compile pipeline uses, so lint and render cannot disagree.
+  const headingSlugs = new Set(assignHeadingAnchors(tree));
 
   const authoredIds = new Map<string, Point | undefined>();
   const reviewChoiceIds = new Map<string, Point | undefined>();
@@ -368,6 +374,20 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         });
       } else {
         reviewChoiceIds.set(data.itemId, node.position?.start);
+      }
+    }
+    // A question's `refs[].anchor` names a heading slug; an anchor that resolves
+    // to nothing renders a chip whose peek opens empty.
+    if (tag === "QuestionForm" || tag === "VisualQuestions") {
+      for (const question of (data.questions as PlanQuestion[] | undefined) ?? []) {
+        for (const ref of question.refs ?? []) {
+          if (headingSlugs.has(ref.anchor)) continue;
+          findings.push({
+            severity: "warning",
+            ...at(node),
+            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document — the chip opens an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
+          });
+        }
       }
     }
     const board = boardStack.at(-1);

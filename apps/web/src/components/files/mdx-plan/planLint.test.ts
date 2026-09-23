@@ -30,6 +30,38 @@ describe("lintPlanSource", () => {
     expect(await lintPlanSource(source)).toEqual([]);
   });
 
+  // loom: question `refs` peek at a plan section by heading slug; an anchor that
+  // names no heading renders a chip whose peek opens empty.
+  it("warns about a question ref whose anchor is not a heading", async () => {
+    const source = [
+      "# Plan",
+      "",
+      "## Delivery order",
+      "",
+      "Three slices.",
+      "",
+      `<QuestionForm questions={${JSON.stringify([
+        {
+          id: "ok",
+          title: "Ship behind a flag?",
+          mode: "single",
+          refs: [{ label: "Delivery order", anchor: "delivery-order" }],
+        },
+        {
+          id: "broken",
+          title: "Backfill?",
+          mode: "single",
+          refs: [{ label: "Rollout", anchor: "rollout-and-flags" }],
+        },
+      ])}} />`,
+    ].join("\n");
+    expect(await errors(source)).toEqual([]);
+    const warnings = await warningText(source);
+    expect(warnings).toContain('"rollout-and-flags"');
+    expect(warnings).toContain("delivery-order");
+    expect(warnings).not.toContain('question "ok"');
+  });
+
   it("rejects unknown tags with a suggestion and position", async () => {
     const [finding] = await errors("# t\n\n<Tabs>x</Tabs>\n");
     expect(finding?.message).toContain("Unknown tag <Tabs>");

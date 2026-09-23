@@ -2,6 +2,7 @@ import { compile, evaluate, run, type CompileOptions, type EvaluateOptions } fro
 import * as runtime from "react/jsx-runtime";
 import remarkGfm from "remark-gfm";
 
+import { remarkHeadingAnchors } from "./headingAnchors";
 import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
 import { PLAN_BLOCK_TAGS } from "./planBlockTags";
 
@@ -102,8 +103,15 @@ function remarkUnknownBlockFallback() {
   };
 }
 
-/** The one guard plugin set both compile paths apply. */
-const PLAN_REMARK_PLUGINS = [remarkGfm, remarkRejectCodeEscapes, remarkUnknownBlockFallback];
+/** The one guard plugin set both compile paths apply. `remarkHeadingAnchors` is
+ * not a guard — it stamps heading slug ids, and lives here so worker, linter and
+ * main-thread render agree on the anchors a question's `refs` can name. */
+const PLAN_REMARK_PLUGINS = [
+  remarkGfm,
+  remarkRejectCodeEscapes,
+  remarkUnknownBlockFallback,
+  remarkHeadingAnchors,
+];
 
 export type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
 

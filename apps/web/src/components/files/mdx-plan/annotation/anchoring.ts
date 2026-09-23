@@ -1,5 +1,7 @@
 import type { PlanCommentAnchor, PlanCommentTargetKind } from "@t3tools/contracts";
 
+import { PLAN_PEEK_ATTR } from "../headingAnchors";
+
 /**
  * Rendered-MDX anchoring engine — serialise a DOM `Range` into a portable
  * {@link PlanCommentAnchor} and re-resolve that anchor back to a live `Range`
@@ -25,7 +27,7 @@ const BLOCK_SNIPPET_MAX = 280;
  * (quotes, brackets, backslashes) can never produce an invalid selector. Uses
  * `CSS.escape` when available (browser), else a quote/backslash fallback (jsdom
  * test env sometimes has no global `CSS`). */
-const escapeId = (id: string): string =>
+export const escapeId = (id: string): string =>
   typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
 
 /** A whole-block anchor selector with the id safely escaped. */
@@ -156,6 +158,16 @@ export function flattenDocument(root: Node): FlattenedDocument {
   const walker = root.ownerDocument!.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+    {
+      // A question "peek" holds a CLONE of a section already in the document —
+      // duplicate text that would otherwise join the flattened string and let a
+      // quote resolve onto the copy. Rejecting the subtree keeps anchoring blind
+      // to it, so opening/closing a peek cannot move an existing highlight.
+      acceptNode: (node) =>
+        node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute(PLAN_PEEK_ATTR)
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
+    },
   );
   let text = "";
   const spans: TextSpan[] = [];

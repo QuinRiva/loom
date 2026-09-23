@@ -11,6 +11,7 @@ import {
   type PlanQuestionAnswer,
   PlanQuestionAnswersContext,
 } from "../questionAnswers";
+import { QuestionRefChips, type QuestionRef } from "./questionRefs";
 
 /**
  * The `<QuestionForm>` block — the single bottom "Open Questions" list. When the
@@ -42,6 +43,9 @@ export interface PlanQuestion {
   allowOther?: boolean;
   placeholder?: string;
   required?: boolean;
+  /** Plan sections this question depends on; each renders as a chip that reveals
+   * that section in place (see {@link ./questionRefs}). */
+  refs?: QuestionRef[];
 }
 
 export interface QuestionFormData {
@@ -65,6 +69,15 @@ const questionSchema = z.object({
   allowOther: z.boolean().optional(),
   placeholder: z.string().trim().max(240).optional(),
   required: z.boolean().optional(),
+  refs: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(60),
+        anchor: z.string().trim().min(1).max(120),
+      }),
+    )
+    .max(4)
+    .optional(),
 }) as z.ZodType<PlanQuestion>;
 
 export const questionFormSchema = z.object({
@@ -184,6 +197,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
       {question.subtitle && (
         <p className="mt-1 pl-7 text-xs text-muted-foreground">{question.subtitle}</p>
       )}
+      {(question.refs?.length ?? 0) > 0 && <QuestionRefChips refs={question.refs!} />}
       {question.mode !== "freeform" && (question.options?.length ?? 0) > 0 && (
         <ul className="mt-2 flex flex-col gap-1.5 pl-7">
           {question.options!.map((option) => {

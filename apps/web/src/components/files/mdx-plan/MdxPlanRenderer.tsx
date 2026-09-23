@@ -4,6 +4,7 @@ import { LoaderCircle } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 import CompileWorker from "./compileWorker?worker";
+import { PLAN_PEEK_ATTR } from "./headingAnchors";
 import { compilePlanMdx, type PlanMdxComponent, runPlanModule } from "./mdxCompileOptions";
 import type { CompileRequest, CompileResponse } from "./compileWorker";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
@@ -125,6 +126,9 @@ export function assignBlockIds(root: HTMLElement): void {
   const descend = (parent: HTMLElement, topLevel: boolean) => {
     for (const child of Array.from(parent.children)) {
       if (!(child instanceof HTMLElement)) continue;
+      // A question "peek" holds a display-only clone of a section already in the
+      // document; stamping it would consume ids and renumber everything after it.
+      if (child.hasAttribute(PLAN_PEEK_ATTR)) continue;
       if (topLevel || child.hasAttribute("data-plan-block-type")) stamp(child);
       descend(child, false);
     }

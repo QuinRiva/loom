@@ -18,6 +18,10 @@ import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
 import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
+import {
+  PlanPeekVariantContext,
+  type PlanPeekVariant,
+} from "../components/files/mdx-plan/blocks/questionRefs";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
@@ -887,6 +891,7 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
 function PlanPanelPreview({ source }: { source: string }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [narrow, setNarrow] = useState(false);
+  const [peek, setPeek] = useState<PlanPeekVariant>("popover");
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   useTimelineAvailableWidthVar(viewport);
 
@@ -900,6 +905,13 @@ function PlanPanelPreview({ source }: { source: string }) {
         </button>
         <button type="button" onClick={() => setNarrow((value) => !value)} className={toggleClass}>
           {narrow ? "Wide panel" : "Narrow panel"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeek(peek === "popover" ? "inline" : "popover")}
+          className={toggleClass}
+        >
+          Peek: {peek}
         </button>
       </div>
       {panelOpen ? (
@@ -915,11 +927,13 @@ function PlanPanelPreview({ source }: { source: string }) {
           narrow ? "w-[420px] shrink-0" : "flex-1",
         )}
       >
-        <MdxPlanAnnotationLayer
-          source={source}
-          filePath="plans/preview/plan.mdx"
-          composerDraftTarget={DraftId.make("preview-scratch")}
-        />
+        <PlanPeekVariantContext.Provider value={peek}>
+          <MdxPlanAnnotationLayer
+            source={source}
+            filePath="plans/preview/plan.mdx"
+            composerDraftTarget={DraftId.make("preview-scratch")}
+          />
+        </PlanPeekVariantContext.Provider>
       </div>
     </div>
   );
@@ -989,6 +1003,144 @@ const mdxWideBlockFixture: PreviewFixture = {
   description:
     "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diffs inside <Columns> and <Details> must stay in their container. Comment on a bled diff — its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
   render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
+};
+
+/**
+ * loom: a realistic plan whose bottom Open Questions carry section `refs` — the
+ * "peek" prototype. Several questions are unanswerable without something defined
+ * higher up (the delivery order, the lane vocabulary, the schema table), which is
+ * exactly the situation the chips are meant to rescue.
+ */
+export const MDX_QUESTION_REFS_FIXTURE_SOURCE = [
+  "# Lane-aware dependency release",
+  "",
+  "Threads today release their dependents the moment their agent stops writing. That is wrong for review gates, where a thread is finished only once a human accepts it. This plan introduces an explicit lane per thread and makes release a function of the lane, not of process liveness.",
+  "",
+  "## Why this change",
+  "",
+  "Two incidents last month came from the same root cause: a reviewer thread was released while its verdict was still pending, and the orchestrator merged on a stale report. Liveness is not completion, and the graph currently conflates them.",
+  "",
+  "## The lane vocabulary",
+  "",
+  "A lane is a plan position, not a runtime state. Only `done` releases dependents; `cancelled` ends the thread without releasing anything.",
+  "",
+  `<Code language="ts" filename="packages/contracts/src/lane.ts" code={${JSON.stringify(
+    [
+      'export type Lane = "planned" | "ready" | "in_progress" | "done" | "cancelled";',
+      "",
+      "/** The only lane that releases dependents. */",
+      'export const RELEASES_DEPENDENTS: Lane = "done";',
+    ].join("\n"),
+  )}} />`,
+  "",
+  "## Data model changes",
+  "",
+  "One new column on `thread`, one on `thread_edge`. No backfill of historical rows is planned — closed threads are already terminal.",
+  "",
+  '<Table columns={["Table", "Column", "Type", "Note"]} rows={[["thread", "plan_lane", "text", "planned | ready | in_progress | done | cancelled"], ["thread", "attention", "text (nullable)", "awaiting_acceptance | needs_guidance; cleared on resume"], ["thread_edge", "released_at", "timestamptz (nullable)", "set when the upstream lane first reaches done"]]} />',
+  "",
+  "## Delivery order",
+  "",
+  "Three slices, each shippable on its own. Slice 0 is the only one that touches the wire contract.",
+  "",
+  "### Slice 0 — lane column and writes",
+  "",
+  "Add the column, write it from the existing transitions, read it nowhere. Purely additive; safe to land mid-week.",
+  "",
+  "### Slice 1 — release keyed on the lane",
+  "",
+  "Dependents wait until the upstream lane is `done`. This is the behaviour change, and the one a flag would protect.",
+  "",
+  "### Slice 2 — backfill",
+  "",
+  "Stamp a lane on threads created before slice 0. A one-shot script, run once per environment, idempotent.",
+  "",
+  "## Rollout and flags",
+  "",
+  "The house style is to ship small changes straight to main and revert if wrong. A flag here costs a branch in the release path and a second code path in the projector, and it would live for about a week.",
+  "",
+  "## Risks we accept",
+  "",
+  "A thread stuck in `in_progress` now blocks its dependents where before they would have run. We accept that: a visible block is better than a silent release on an unfinished thread.",
+  "",
+  "## Open questions",
+  "",
+  `<QuestionForm questions={${JSON.stringify([
+    {
+      id: "flag",
+      title: "Should the behaviour change ship behind a flag, or straight to main?",
+      subtitle:
+        "Only the middle slice changes what users see; the other two are additive and could land either way.",
+      mode: "single",
+      refs: [
+        { label: "Delivery order", anchor: "delivery-order" },
+        { label: "Rollout and flags", anchor: "rollout-and-flags" },
+      ],
+      options: [
+        {
+          id: "straight",
+          label: "Straight to main, revert if it misbehaves",
+          detail: "Matches house style; no second code path in the projector.",
+          recommended: true,
+        },
+        { id: "flag", label: "Behind a flag for one release" },
+      ],
+    },
+    {
+      id: "backfill",
+      title: "Do old threads need a lane stamped on them at all?",
+      subtitle: "They are already closed, so nothing downstream is waiting on them.",
+      mode: "single",
+      refs: [{ label: "Slice 2 \u2014 backfill", anchor: "slice-2-backfill" }],
+      options: [
+        { id: "yes", label: "Yes, stamp every historical thread" },
+        { id: "no", label: "No, leave the column null for closed threads", recommended: true },
+      ],
+    },
+    {
+      id: "nullable",
+      title: "Is a nullable column the right way to say 'no attention needed'?",
+      subtitle: "The alternative is a 'none' value, which makes every query an equality check.",
+      mode: "single",
+      refs: [{ label: "Schema", anchor: "data-model-changes" }],
+      options: [
+        { id: "null", label: "Nullable column", recommended: true },
+        { id: "none", label: "Non-null with a 'none' member" },
+      ],
+    },
+    {
+      id: "cancelled",
+      title: "Should a cancelled thread release the work waiting on it?",
+      subtitle:
+        "Cancelling usually means the work is not happening, so the dependent may be pointless too.",
+      mode: "single",
+      refs: [{ label: "Lane vocabulary", anchor: "the-lane-vocabulary" }],
+      options: [
+        {
+          id: "block",
+          label: "No \u2014 dependents stay blocked and a human decides",
+          recommended: true,
+        },
+        { id: "release", label: "Yes \u2014 treat it like done for release purposes" },
+      ],
+    },
+    {
+      id: "anything-else",
+      title: "Anything about this plan that reads as a bad trade?",
+      mode: "freeform",
+      placeholder: "Write-in\u2026",
+    },
+  ])}} />`,
+].join("\n");
+
+const mdxQuestionRefsFixture: PreviewFixture = {
+  id: "mdx-question-refs",
+  title: "Open questions with section refs (peek)",
+  description:
+    "Scroll to the bottom Open Questions. Each question carries chips naming the plan sections it depends on \u2014 click one to reveal that section without leaving the form. Q1 has two refs (one is a whole delivery order with sub-sections), Q3 points at a section whose body is a <Table>, Q4 at one holding a <Code> block. 'Go to section' scrolls the document and tints the heading. Use the 'Peek: popover/inline' toggle to compare the two surfaces, and select text in the body first to check a highlight still tracks while a peek is open.",
+  render: () => (
+    <PlanPanelPreview key="mdx-question-refs" source={MDX_QUESTION_REFS_FIXTURE_SOURCE} />
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -1138,7 +1290,12 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "mdx-annotation",
     title: "MDX plan document",
-    fixtures: [mdxWideBlockFixture, mdxAnnotationFixture, mdxScrollingTableFixture],
+    fixtures: [
+      mdxQuestionRefsFixture,
+      mdxWideBlockFixture,
+      mdxAnnotationFixture,
+      mdxScrollingTableFixture,
+    ],
   },
   {
     id: "pending-user-input",

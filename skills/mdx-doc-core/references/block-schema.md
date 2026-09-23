@@ -156,6 +156,9 @@ Props:
   - `allowOther` — `boolean` _(optional)_
   - `placeholder` — `string` _(optional)_
   - `required` — `boolean` _(optional)_
+  - `refs` — `object[]` _(optional)_
+    - `label` — `string` **(required)**
+    - `anchor` — `string` **(required)**
 - `submitLabel` — `string` _(optional)_
 
 ## `<Json>` — `json-explorer`
@@ -210,6 +213,9 @@ Props:
   - `allowOther` — `boolean` _(optional)_
   - `placeholder` — `string` _(optional)_
   - `required` — `boolean` _(optional)_
+  - `refs` — `object[]` _(optional)_
+    - `label` — `string` **(required)**
+    - `anchor` — `string` **(required)**
 - `submitLabel` — `string` _(optional)_
 
 ## `<Diff>` — `diff`
