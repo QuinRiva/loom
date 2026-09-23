@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./providerUsageLimits.ts";
+import {
+  applyUsageLimitsUpdate,
+  removeUsageLimitWindows,
+  resolveUsageLimitsAfterProbe,
+} from "./providerUsageLimits.ts";
 
 const checkedAt = "2026-09-03T12:00:00.000Z";
 const session = {
@@ -104,6 +108,31 @@ describe("resolveUsageLimitsAfterProbe", () => {
         probed: undefined,
         probedAuthStatus: "unauthenticated",
       }),
+    ).toBeUndefined();
+  });
+});
+
+// loom: the only path that takes a window off a card — see the stand-down when
+// a cliproxy hub takes over Claude quota.
+describe("removeUsageLimitWindows", () => {
+  const claude = { checkedAt, windows: [{ ...session, id: "claudeAgent::primary" }, weekly] };
+
+  it("drops an account's whole set and leaves the rest of the card alone", () => {
+    expect(
+      removeUsageLimitWindows({
+        previous: claude,
+        accountPrefixes: ["claudeAgent::"],
+        checkedAt,
+      })?.windows,
+    ).toEqual([weekly]);
+  });
+
+  it("returns the published object itself when no account matched, so nothing republishes", () => {
+    expect(
+      removeUsageLimitWindows({ previous: claude, accountPrefixes: ["codex::"], checkedAt }),
+    ).toBe(claude);
+    expect(
+      removeUsageLimitWindows({ previous: undefined, accountPrefixes: ["codex::"], checkedAt }),
     ).toBeUndefined();
   });
 });

@@ -17,7 +17,11 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./providerUsageLimits.ts";
+import {
+  applyUsageLimitsUpdate,
+  removeUsageLimitWindows,
+  resolveUsageLimitsAfterProbe,
+} from "./providerUsageLimits.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
 
 interface ProviderSnapshotState {
@@ -258,16 +262,16 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
    * `usageLimits` on whatever snapshot is published and leave the enrichment
    * generation alone, so an in-flight enrichment still lands.
    */
-  const applyUsageLimits: ServerProviderShape["applyUsageLimits"] = (update) =>
+  // loom: both usage-limit writers share this envelope "fold, republish only if
+  // the fold moved something". The fold functions hand back the same object
+  // when nothing changed, which is the common case for Codex's per-tick
+  // notification and for every retraction after the first.
+  const updateUsageLimits = (
+    fold: (previous: ServerProvider["usageLimits"]) => ServerProvider["usageLimits"],
+  ) =>
     Effect.gen(function* () {
       const snapshotToPublish = yield* Ref.modify(snapshotStateRef, (state) => {
-        const usageLimits = applyUsageLimitsUpdate({
-          previous: state.snapshot.usageLimits,
-          update,
-          checkedAt: update.checkedAt,
-        });
-        // `applyUsageLimitsUpdate` hands back the same object when nothing
-        // moved, which is the common case for Codex's per-tick notification.
+        const usageLimits = fold(state.snapshot.usageLimits);
         if (usageLimits === state.snapshot.usageLimits) {
           return [null, state] as const;
         }
@@ -278,6 +282,16 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         yield* PubSub.publish(changesPubSub, snapshotToPublish);
       }
     });
+
+  const applyUsageLimits: ServerProviderShape["applyUsageLimits"] = (update) =>
+    updateUsageLimits((previous) =>
+      applyUsageLimitsUpdate({ previous, update, checkedAt: update.checkedAt }),
+    );
+
+  // loom: the inverse write — a feeder that stood down takes its accounts'
+  // windows off the card instead of leaving them frozen there.
+  const retractUsageLimits: ServerProviderShape["retractUsageLimits"] = (input) =>
+    updateUsageLimits((previous) => removeUsageLimitWindows({ ...input, previous }));
 
   const refreshSnapshot = Effect.fn("refreshSnapshot")(function* () {
     const nextSettings = yield* input.getSettings;
@@ -362,6 +376,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     getSnapshot: Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot)),
     refresh: refreshSnapshot().pipe(Effect.tapError(Effect.logError), Effect.orDie),
     applyUsageLimits,
+    retractUsageLimits,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);
     },
