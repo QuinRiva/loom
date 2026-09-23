@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 
-import { ChatMarkdownAssetImage } from "~/components/ChatMarkdown";
+import { ChatMarkdownAssetImage, markdownImageCopy } from "~/components/ChatMarkdown";
 import { ExpandedImageDialog } from "~/components/chat/ExpandedImageDialog";
 import type { ExpandedImagePreview } from "~/components/chat/ExpandedImagePreview";
 
@@ -78,10 +78,19 @@ function fileUrl(path: string): string {
  * and lint-check identically; only the wrapper differs (a flow `<figure>` vs an
  * inline `<span>` that is legal inside a paragraph).
  */
-function usePlanImage(src: string, alt: string): { path?: string; picture: ReactNode } {
+function usePlanImage(
+  src: string,
+  alt: string,
+  title?: string,
+): { path?: string; picture: ReactNode } {
   const location = useContext(PlanDocumentContext);
   const [preview, setPreview] = useState<ExpandedImagePreview | null>(null);
   const source = classifyMarkdownImageSource(src, location?.baseDir);
+  // A markdown title (`![alt](src "title")`) is authored content, so it survives
+  // into the copyable markdown — the app's own treatment of it — and stands in
+  // for a missing alt. It is never a native `title` tooltip (repo lint rule).
+  const copyMarkdown = markdownImageCopy(alt, src, title);
+  const label = alt || title || "";
   const dialog = preview ? (
     <ExpandedImageDialog preview={preview} onClose={() => setPreview(null)} />
   ) : null;
@@ -107,7 +116,8 @@ function usePlanImage(src: string, alt: string): { path?: string; picture: React
               threadId: location.threadRef.threadId,
               path: source.path,
             }}
-            alt={alt}
+            alt={label}
+            copyMarkdown={copyMarkdown}
             standalone
             // The project root, not the document's directory: this is what the
             // media actions label and their "open file" path are relative to.
@@ -124,7 +134,8 @@ function usePlanImage(src: string, alt: string): { path?: string; picture: React
     picture: (
       <img
         src={source._tag === "Direct" ? source.uri : fileUrl(source.path)}
-        alt={alt}
+        alt={label}
+        data-markdown-copy={copyMarkdown}
         // The same box the in-app asset image keeps (`maxHeightRem` 30).
         className="max-h-[30rem] max-w-full rounded-lg border border-border"
       />
@@ -165,13 +176,10 @@ export function PlanMarkdownImage({ src, alt, title }: Record<string, unknown>) 
   const { path, picture } = usePlanImage(
     typeof src === "string" ? src : "",
     typeof alt === "string" ? alt : "",
+    typeof title === "string" ? title : undefined,
   );
   return (
-    <span
-      data-plan-image-path={path}
-      title={typeof title === "string" ? title : undefined}
-      className="inline-block max-w-full align-middle"
-    >
+    <span data-plan-image-path={path} className="inline-block max-w-full align-middle">
       {picture}
     </span>
   );
