@@ -1,6 +1,6 @@
 --- a/dist/cli/args.js
 +++ b/dist/cli/args.js
-@@ -88,6 +88,9 @@
+@@ -98,6 +98,9 @@
          else if (arg === "--session-dir" && i + 1 < args.length) {
              result.sessionDir = args[++i];
          }
@@ -10,7 +10,7 @@
          else if (arg === "--models" && i + 1 < args.length) {
              result.models = args[++i].split(",").map((s) => s.trim());
          }
-@@ -279,6 +282,8 @@
+@@ -289,6 +292,8 @@
    --session-id <id>              Use exact project session ID, creating it if missing
    --fork <path|id>               Fork specific session file or partial UUID into a new session
    --session-dir <dir>            Directory for session storage and lookup
@@ -40,7 +40,7 @@
  import { createInterface } from "node:readline";
  import { modelsAreEqual } from "@earendil-works/pi-ai";
  import { setCapabilityOverrides } from "@earendil-works/pi-tui";
-@@ -260,9 +261,39 @@
+@@ -261,9 +262,39 @@
          process.exit(1);
      }
  }
@@ -82,7 +82,7 @@
      }
      catch (error) {
          const message = error instanceof Error ? error.message : String(error);
-@@ -280,7 +311,7 @@
+@@ -281,7 +312,7 @@
          process.exit(1);
      }
  }
@@ -91,7 +91,7 @@
      if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
          return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
      }
-@@ -305,6 +336,12 @@
+@@ -306,6 +337,12 @@
      }
      if (parsed.session) {
          const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
@@ -104,7 +104,7 @@
          switch (resolved.type) {
              case "path":
              case "local":
-@@ -513,6 +550,7 @@
+@@ -514,6 +551,7 @@
      }
      validateForkFlags(parsed);
      validateSessionIdFlags(parsed);
@@ -112,7 +112,7 @@
      // Run migrations (pass cwd for project-local migrations)
      const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
      time("runMigrations");
-@@ -536,7 +574,7 @@
+@@ -537,7 +575,7 @@
      const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
          (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
          startupSettingsManager.getSessionDir();
