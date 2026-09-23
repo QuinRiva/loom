@@ -223,6 +223,47 @@ server at `~/.t3/cockpit/userdata`, and **never `git stash`** in this repo —
 every worktree of this clone shares one `.git`, so the stash stack is global and
 a `pop` can hand you another thread's work.
 
+### Toasts make a copy-DB instance unscreenshottable by default
+
+Every refusal raises a **toast**, and a copied database keeps trying to resume
+its threads, so refusals — and their toasts — keep arriving for as long as the
+instance runs. There is no quiet moment to wait for: they land on top of
+whatever you are capturing, and deleting the toast nodes just loses the race
+with the next batch. Suppress the fixed-position viewports once per page load,
+before capturing (`browser_evaluate`, or the devtools console):
+
+```js
+document.head.insertAdjacentHTML(
+  "beforeend",
+  '<style>[data-slot^="toast-viewport"]{display:none!important}</style>',
+);
+```
+
+The `^=` covers both viewports (`toast-viewport` and `toast-viewport-anchored`
+in `apps/web/src/components/ui/toast.tsx`). Re-apply after any navigation that
+remounts the app.
+
+### Usage and cost numbers move on their own — that is not your instance spending money
+
+A copy-DB instance looks alarmingly like live work, for two reasons that are
+both expected:
+
+- **The usage page scans transcripts from disk, not from the database you
+  pointed at.** `UsageService` walks each provider's sessions root — pi's is
+  machine-global — so a scratch instance reports the **real** cockpit's live pi
+  sessions, and its figures climb while you watch, in an instance that has
+  spent nothing.
+- **A build from before the foreign-home guard really does start providers.**
+  Booting an old release against the snapshot (e.g. to capture a pre-change
+  baseline) spawns provider probes on the copied sessions, which is exactly what
+  the guard exists to refuse in current builds.
+
+An agent once read the moving numbers as its scratch server burning quota, shut
+the instance down mid-capture, and truncated its own baseline evidence — the
+alarm was false. Confirm what you are looking at (guard warnings in the log, the
+processes you actually started) before killing anything; the risk here is to
+your evidence, not to your quota.
+
 ## Running several instances at once
 
 Each `pnpm dev` picks its own free server/web port pair and its own state dir at
