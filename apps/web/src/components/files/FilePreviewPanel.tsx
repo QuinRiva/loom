@@ -101,6 +101,7 @@ import {
 } from "./filePreviewMode";
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
+import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
@@ -911,6 +912,11 @@ function RenderedMarkdownSurface({
     relativePath,
     onPendingChange,
   });
+  // loom: the directory this document's own relative paths resolve against.
+  const documentLocation = useMemo(
+    () => ({ baseDir: documentBaseDir(relativePath, cwd), threadRef }),
+    [relativePath, cwd, threadRef],
+  );
 
   // `.mdx` always goes through the MDX renderer — the plain-markdown surface
   // escapes every JSX block as raw text, so falling back to it silently presents
@@ -922,15 +928,20 @@ function RenderedMarkdownSurface({
     return (
       <ScrollArea className="min-h-0 flex-1">
         <BleedFrame>
-          {readOnly ? (
-            <MdxPlanRenderer source={contents} />
-          ) : (
-            <MdxPlanAnnotationLayer
-              source={contents}
-              filePath={relativePath}
-              composerDraftTarget={composerDraftTarget}
-            />
-          )}
+          {/* loom: `<Image src="shots/x.png">` resolves against the document's own
+              directory and loads through a signed asset URL, exactly as a `.md`
+              preview's `![](x.png)` does (see `FileMarkdownPreview`). */}
+          <PlanDocumentContext.Provider value={documentLocation}>
+            {readOnly ? (
+              <MdxPlanRenderer source={contents} />
+            ) : (
+              <MdxPlanAnnotationLayer
+                source={contents}
+                filePath={relativePath}
+                composerDraftTarget={composerDraftTarget}
+              />
+            )}
+          </PlanDocumentContext.Provider>
         </BleedFrame>
       </ScrollArea>
     );

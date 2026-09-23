@@ -22,6 +22,7 @@ import { diffBlock } from "./blocks/diff";
 import { endpointBlock } from "./blocks/endpoint";
 import { fieldDiffBlock } from "./blocks/fieldDiff";
 import { fileTreeBlock } from "./blocks/fileTree";
+import { imageBlock } from "./blocks/image";
 import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
 import { openApiBlock } from "./blocks/openApi";
@@ -55,6 +56,7 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: dataModelBlock.mdx.tag, type: "data-model", block: dataModelBlock },
   { tag: endpointBlock.mdx.tag, type: "api-endpoint", block: endpointBlock },
   { tag: fileTreeBlock.mdx.tag, type: "file-tree", block: fileTreeBlock },
+  { tag: imageBlock.mdx.tag, type: "image", block: imageBlock },
   { tag: annotatedCodeBlock.mdx.tag, type: "annotated-code", block: annotatedCodeBlock },
   { tag: diagramBlock.mdx.tag, type: "diagram", block: diagramBlock },
   { tag: questionFormBlock.mdx.tag, type: "question-form", block: questionFormBlock },
