@@ -165,6 +165,9 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
+// loom: wide-block bleed — the timeline publishes its true content width, and
+// its rows use the shared prose-measure class the bleed CSS assumes.
+import { publishTimelineAvailableWidth, TIMELINE_ROW_CLASS_NAME } from "./timelineLayout";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
@@ -1143,6 +1146,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
+      // loom: publish the true available content width so wide blocks (markdown
+      // tables) can bleed past the prose measure up to what the viewport offers.
+      publishTimelineAvailableWidth(timelineViewportElement, viewportWidth);
       const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
       setMinimapHasPersistentGutter((current) =>
         current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
@@ -1274,7 +1280,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
       <div
-        className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip"
+        // loom: no overflow-x-clip — a bled table is translated past this row's
+        // prose measure by design, and the scroller above already hides overflow.
+        className={TIMELINE_ROW_CLASS_NAME}
         data-timeline-root="true"
         data-loom-row-id={item.id}
       >
@@ -2144,7 +2152,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     <div className="group flex flex-col items-end gap-1">
       <div
         className={cn(
-          "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground",
+          // loom: chat-user-bubble lets the bubble itself bleed when it holds a
+          // wide table (see the .chat-user-bubble rules in index.css).
+          "chat-user-bubble relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground",
           // loom: the accent replaces the bubble's surface, never its body text
           // colours, so ChatMarkdown's own palette inside is untouched.
           control && CHANNEL_CLASSES[control.channel].bubble,
