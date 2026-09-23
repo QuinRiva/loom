@@ -945,7 +945,7 @@ describe("ServerSettings.workstreamModelProfiles", () => {
     const decoded = decodeServerSettings({
       workstreamModelProfiles: {
         Luna: {
-          selection: { instanceId: "pi", model: "openai-codex/gpt-5.6-luna" },
+          selection: { instanceId: "pi", model: "openai-codex/gpt-6-luna" },
           scores: { horsepower: 5, goalOrientation: 3, thoroughness: 5, endurance: 5 },
           costPerMtok: { input: 1, output: 4 },
           agentic: "bounded",

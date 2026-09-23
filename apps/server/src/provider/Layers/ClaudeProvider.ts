@@ -75,7 +75,8 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
   reportsContextWindow: true,
 } as const;
-const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5"]);
+// loom: Opus 5.5 replaces Opus 5 as the current Opus (Claude Code 2.1.280).
+const CURRENT_CLAUDE_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5"]);
 
 export function isLegacyClaudeModel(model: string): boolean {
   return !CURRENT_CLAUDE_MODELS.has(model);
@@ -144,6 +145,48 @@ const CLAUDE_MODEL_CATALOG: ReadonlyArray<ServerProviderModel> = [
         buildSelectOptionDescriptor({
           id: "contextWindow",
           label: "Context Window",
+          options: [
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
+          ],
+        }),
+      ],
+    }),
+  },
+  // loom: Opus 5.5 — Claude Code 2.1.280 ships it as the default Opus; same
+  // option surface as Opus 5 (1M context, fast mode, xhigh passes through).
+  {
+    slug: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    isCustom: false,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        buildSelectOptionDescriptor({
+          id: "effort",
+          label: "Reasoning",
+          options: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High", isDefault: true },
+            { value: "xhigh", label: "Extra High" },
+            { value: "max", label: "Max" },
+            {
+              value: "ultracode",
+              label: "Ultracode",
+              description: "xhigh effort plus multi-agent workflow orchestration",
+            },
+            { value: "ultrathink", label: "Ultrathink" },
+          ],
+          promptInjectedValues: ["ultrathink"],
+        }),
+        buildBooleanOptionDescriptor({
+          id: "fastMode",
+          label: "Fast Mode",
+        }),
+        buildSelectOptionDescriptor({
+          id: "contextWindow",
+          label: "Context Window",
+          // Claude Code selects the 1M variant explicitly (`claude-opus-5-5[1m]`).
           options: [
             { value: "200k", label: "200k" },
             { value: "1m", label: "1M", isDefault: true },
@@ -430,6 +473,7 @@ export function normalizeClaudeCliEffort(
     effort === "xhigh" &&
     model !== "claude-fable-5-1" &&
     model !== "claude-fable-5" &&
+    model !== "claude-opus-5-5" && // loom: pi's catalogue maps xhigh → xhigh for Opus 5.5
     model !== "claude-opus-5" &&
     model !== "claude-opus-4-8" &&
     model !== "claude-sonnet-5"

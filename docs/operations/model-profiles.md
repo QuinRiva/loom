@@ -54,10 +54,10 @@ _break or invert_ that order somewhere.
 
 | Dimension         | Meaning                                                                                                           | High looks like  | Low looks like                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
-| `horsepower`      | Raw capability: reasoning depth, code quality, prose                                                              | Fable 5, Sol     | Luna, Flash                                                          |
+| `horsepower`      | Raw capability: reasoning depth, code quality, prose                                                              | Opus 5.5, Sol    | Luna, Flash                                                          |
 | `goalOrientation` | Sees the forest: works out what the user is _actually_ trying to achieve; questions the approach when it is wrong | Anthropic family | executes the letter of the brief; accepts the approach at face value |
 | `thoroughness`    | Sees the trees: edge cases, cascading downstream effects, complete impact analysis                                | OpenAI family    | misses edge cases; shallow one-pass answers                          |
-| `endurance`       | Long autonomous tool-use runs without derailing, giving up, or losing state                                       | Sol, Opus, Fable | Gemini (derails), Luna (context cliff)                               |
+| `endurance`       | Long autonomous tool-use runs without derailing, giving up, or losing state                                       | Opus, Sol, Fable | Gemini (derails), Luna (context cliff)                               |
 
 `goalOrientation` vs `thoroughness` is the false-negative vs false-positive
 framing: Anthropic models are FN-prone (miss edge cases, get the goal right),
@@ -71,7 +71,10 @@ Scores are **ordinal within a dimension**, not absolute. The scale is
 calibrated so that **today's best-in-class model scores ≈ 7–8**, deliberately
 leaving headroom (9–10) so a genuinely stronger model can be added later
 without rescaling every existing profile. A 10 is not "excellent" — it is
-"materially beyond anything shipping in July 2026". When in doubt, compress:
+"materially beyond anything shipping in July 2026". Opus 5.5 (September 2026)
+is the first entry to spend that headroom: it leads every published coding and
+agentic benchmark against both prior flagships _and_ undercuts them on price,
+which is the step-change the 9s were reserved for. When in doubt, compress:
 most production-grade models on a given axis sit at 6–8, and the ordering
 between them is what drives routing, not the absolute value.
 
@@ -155,20 +158,23 @@ Operator-adjusted (Grok dropped — not in use). Apply these as
 
 | Model            | horsepower | goalOrientation | thoroughness | endurance | agentic |
 | ---------------- | ---------- | --------------- | ------------ | --------- | ------- |
+| Opus 5.5         | 9          | 8               | 7            | 9         | full    |
 | Fable 5          | 8          | 8               | 6            | 7         | full    |
-| Opus 4.8         | 7          | 7               | 6            | 7         | full    |
-| GPT-5.6 Sol      | 8          | 5               | 8            | 7         | full    |
+| GPT-6 Sol        | 8          | 5               | 8            | 7         | full    |
 | GPT-5.6 Terra    | 7          | 5               | 7            | 6         | full    |
-| GPT-5.6 Luna     | 5          | 3               | 5            | 5         | bounded |
+| GPT-6 Luna       | 5          | 3               | 5            | 5         | bounded |
 | Gemini 3.1 Pro   | 7          | 7               | 3            | 3         | oracle  |
 | Gemini 3.0 Flash | 5          | 5               | 2            | 3         | oracle  |
 
 Given this matrix, the resolver ranks (before headroom):
 
-- **explore** → Fable 5, Opus 4.8, GPT-5.6 Sol, GPT-5.6 Terra
-- **thorough** → GPT-5.6 Sol, GPT-5.6 Terra, Fable 5, Opus 4.8
-- **mechanical** → ordered by cost, then horsepower (Luna/Terra/Sol/Opus/Fable
-  for the representative costs)
+- **explore** → Opus 5.5, Fable 5, GPT-6 Sol, GPT-5.6 Terra
+- **thorough** → GPT-6 Sol, Opus 5.5, GPT-5.6 Terra, Fable 5
+- **mechanical** → ordered by cost, then horsepower (Luna/Sol/Terra/Opus/Fable
+  for the representative costs below)
+
+Representative `costPerMtok` (input/output USD, base tier): Opus 5.5 4/20,
+Fable 5 10/50, GPT-6 Sol 2/10, GPT-5.6 Terra 2/12, GPT-6 Luna 0.1/0.5.
 
 ### Per-model routing notes
 
@@ -178,15 +184,20 @@ the behavioural caveats.
 - **Fable 5** — never route security/crypto/bio-adjacent work (safety
   classifier interrupts/reroutes mid-run); mark it `unsuitableFor:
 ["security-sensitive"]`. No ZDR; premium cost.
-- **Opus 4.8** — dependable default; false-green "done" risk → put hard
-  verification gates on coders.
-- **GPT-5.6 Sol** — maximum-thoroughness reviewer/hardener; gate destructive
+- **Opus 5.5** — the default coder and the strongest all-rounder here: built for
+  long-running agents (best Terminal-Bench of anything in the matrix) and
+  cheaper than both Fable 5 and Opus 5. Still Anthropic-shaped, so the
+  false-green "done" risk stands → keep hard verification gates on coders.
+- **GPT-6 Sol** — maximum-thoroughness reviewer/hardener; gate destructive
   actions; verify claimed results (documented false-completion/eval-gaming);
-  expect some non-meaningful findings.
+  expect some non-meaningful findings. Scores level with GPT-5.6 Sol at half
+  the price, so it supersedes it outright.
 - **GPT-5.6 Terra** — a lighter Sol; same OpenAI thoroughness bias, less
-  horsepower/endurance.
-- **GPT-5.6 Luna** — bounded agentic; watch for a context cliff on long runs.
-  Suits `mechanical` on cost.
+  horsepower/endurance. No GPT-6 counterpart has shipped.
+- **GPT-6 Luna** — bounded agentic; watch for a context cliff on long runs.
+  Suits `mechanical` on cost. Capability is indistinguishable from GPT-5.6 Luna
+  (independent index scores differ by noise) at ~60% less, with some
+  knowledge-work regressions — keep it off knowledge-heavy work.
 - **Gemini 3.1 Pro** — `oracle`: one-shot graph interpretation and
   domain-semantic questions; big-picture-good but low-exploration (can
   confidently reach wrong conclusions); sycophantic under pushback — never in
