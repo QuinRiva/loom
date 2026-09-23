@@ -78,14 +78,19 @@ export const renderOpenGoalTaskTree = (
     })
     .join("");
 
-/** Top-level phases only, each with its `done/total` descendant counts. */
+/**
+ * Top-level phases only, each with its `done/total` descendant counts. The
+ * counts sit after the id, which would make a pasted line read as a brand-new
+ * task (the parser only takes a TRAILING `(id)`), so the bullet is dropped:
+ * these lines never match `TASK_LINE`, and a paste is rejected outright instead
+ * of replacing the goal with phase-title stubs.
+ */
 export const renderGoalTaskOverview = (tasks: ReadonlyArray<OrchestrationGoalTask>): string =>
   tasks
     .map((task) => {
       const counts = descendantCounts(task);
-      return counts.total === 0
-        ? taskLine(task, 0)
-        : `${taskLine(task, 0)} ${counts.done}/${counts.total}`;
+      const line = taskLine(task, 0).replace("- ", "");
+      return counts.total === 0 ? line : `${line} ${counts.done}/${counts.total}`;
     })
     .join("\n");
 

@@ -256,14 +256,14 @@ export const activeGoalContextInstruction = (
     if (anchor !== null) {
       return [
         header,
-        `\n\nYour task, and the branch you own (a spawn snapshot — \`goal_task_list\` reads it live):\n${renderGoalTaskBranch(anchor, goalTaskSpine(goal.tasks, anchor.id))}`,
+        `\n\nWhat follows is a spawn snapshot of the branch you own; \`goal_task_list\` reads it live.\n\n${renderGoalTaskBranch(anchor, goalTaskSpine(goal.tasks, anchor.id))}`,
         `\n\n${renderGoalPulse(goal.tasks, anchor)} — \`goal_task_list\` with scope "tree" reads all of it.`,
         `\n\nTick your own tasks with \`goal_task_update\` as each lands, and reshape your branch in ONE \`goal_tasks_rewrite\` when its shape stops matching the work: submit exactly the branch block above, keeping every retained \`(id)\`; your anchor stays its root line. Tasks outside your branch are read-only — record discovered work with \`goal_task_add\` (it lands in your branch by default; pass a parentTaskId to place it elsewhere, and the echo shows where it landed) and say what needs doing in your report. Anything you write is a short plain-language work item naming the outcome and value, for a reader outside this thread (the server rejects text over 300 characters); details, findings and verdicts go in your report or memo.`,
       ].join("");
     }
     return [
       header,
-      `\n\nParent's plan at a glance (a spawn snapshot — \`goal_task_list\` reads it live, and lists each phase's subtree):\n${renderGoalTaskOverview(goal.tasks)}`,
+      `\n\nParent's plan at a glance, one line per phase with its subtree's done/total (a spawn snapshot; \`goal_task_list\` reads the tree live and in full):\n${renderGoalTaskOverview(goal.tasks)}`,
       `\n\nYou have no task of your own in this tree: your brief is your assignment. Record discovered actionable work with \`goal_task_add\` under the phase it belongs to, as a short plain-language item naming the outcome and value for a reader outside this thread (the server rejects text over 300 characters); findings, verdicts and details go in your report or memo. Restructuring belongs to the tree's owner — \`goal_tasks_rewrite\` is rejected for a child with no branch of its own, so report a bad shape.`,
     ].join("");
   }

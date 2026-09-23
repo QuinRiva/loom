@@ -223,11 +223,16 @@ describe("goal pulse and overview", () => {
   it("shows each phase with its subtree counts and never descends", () => {
     expect(renderGoalTaskOverview(tree)).toBe(
       [
-        "- [x] Audit the usage pipeline (phase-1) 2/2",
-        "- [ ] Surface usage on the thread screen (phase-6) 1/3",
-        "- [ ] Goal-level rollups (phase-7) 0/1",
+        "[x] Audit the usage pipeline (phase-1) 2/2",
+        "[ ] Surface usage on the thread screen (phase-6) 1/3",
+        "[ ] Goal-level rollups (phase-7) 0/1",
       ].join("\n"),
     );
+  });
+
+  it("fails loudly when pasted into a rewrite: the counts trail the id, so no line may look editable", () => {
+    const parsed = parseGoalTaskMarkdown(renderGoalTaskOverview(tree), knownIds);
+    expect("error" in parsed && parsed.error).toContain("Could not parse this line as a task");
   });
 });
 
