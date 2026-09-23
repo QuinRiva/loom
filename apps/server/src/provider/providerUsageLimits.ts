@@ -1,5 +1,6 @@
 import type {
   ProviderUsageLimitsUpdate,
+  ServerProviderAuthStatus,
   ServerProviderUsageLimits,
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
@@ -114,6 +115,14 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
  * established, so the last good snapshot stays; `unsupported` is
  * authoritative and replaces them.
  *
+ * loom: a probe that carries no limits at all (`probed === undefined`) is
+ * equally uninformative and keeps the published reading too. pi never reads
+ * its own quota — the subscription-usage poller is its only feeder — and the
+ * other drivers omit the field on their not-installed and timed-out paths for
+ * the same "we did not look" reason. Signing out is the one silent probe that
+ * is authoritative: those windows belong to an account that is gone, so an
+ * `unauthenticated` probe clears them.
+ *
  * A successful probe replaces the published windows outright, including any
  * runtime update that landed while it was running. That is a deliberate
  * trade-off: the Codex and Claude reads take a few seconds at most, the
@@ -125,9 +134,16 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;
+  // loom: the probe's own auth status, the only thing that tells a silent
+  // probe apart from a signed-out one. Omitted reads as "still signed in".
+  readonly probedAuthStatus?: ServerProviderAuthStatus;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
+    return published;
+  }
+  // loom: see the note above — a silent probe keeps the published reading.
+  if (probed === undefined && published && input.probedAuthStatus !== "unauthenticated") {
     return published;
   }
   return probed;

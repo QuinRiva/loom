@@ -86,4 +86,24 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });
+
+  // loom: pi's probe carries no limits at all — the subscription-usage poller
+  // is its only feeder — so a re-probe must not blank what it published.
+  it("keeps published windows through a probe that reports no limits, unless signed out", () => {
+    expect(resolveUsageLimitsAfterProbe({ published, probed: undefined })).toBe(published);
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published,
+        probed: undefined,
+        probedAuthStatus: "unknown",
+      }),
+    ).toBe(published);
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published,
+        probed: undefined,
+        probedAuthStatus: "unauthenticated",
+      }),
+    ).toBeUndefined();
+  });
 });
