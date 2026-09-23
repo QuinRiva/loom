@@ -1048,6 +1048,13 @@ export function createServerEnvironmentAtoms<R, E>(
       refreshTrigger: ({ environmentId }) => usagePricesAtom(environmentId),
     }),
     configProjection,
+    // loom: top-consuming threads for the Usage page's Cost tab. One grouped
+    // ledger read per window, so it shares the summary's staleness budget.
+    threadSpend: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:thread-spend",
+      tag: WS_METHODS.serverGetThreadSpend,
+      staleTimeMs: 60_000,
+    }),
     // loom: the server lifecycle welcome payload, projected to its latest value.
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",

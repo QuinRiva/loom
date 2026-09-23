@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "./OrchestrationCommandReceipts.ts";
+import { ProjectionUsageLedgerRepositoryLive } from "./ProjectionUsageLedger.ts";
 import { OrchestrationEventStoreLive } from "./OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "../Services/OrchestrationEventStore.ts";
 import { OrchestrationEngineLive } from "../../orchestration/Layers/OrchestrationEngine.ts";
@@ -24,6 +25,15 @@ const ProjectionSnapshotQueryOnSqlReadClient = OrchestrationProjectionSnapshotQu
 );
 
 const OrchestrationEventStoreOnSqlReadClient = OrchestrationEventStoreLive.pipe(
+  Layer.provide(SqlReadClientAsSqlClient),
+);
+
+/**
+ * The usage ledger's read side, for the Usage page's top-spending-threads
+ * section. Ingestion provides its own write-lane instance internally, so this
+ * one only ever serves the grouped window read.
+ */
+export const ProjectionUsageLedgerOnSqlReadClient = ProjectionUsageLedgerRepositoryLive.pipe(
   Layer.provide(SqlReadClientAsSqlClient),
 );
 

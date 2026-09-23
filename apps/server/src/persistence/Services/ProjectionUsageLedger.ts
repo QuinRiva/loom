@@ -9,7 +9,14 @@
  *
  * @module ProjectionUsageLedgerRepository
  */
-import { EventId, IsoDateTime, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  EventId,
+  IsoDateTime,
+  ThreadId,
+  type ThreadSpendInput,
+  type ThreadSpendRow,
+  TurnId,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -40,6 +47,13 @@ export interface ProjectionUsageLedgerRepositoryShape {
   readonly insert: (
     row: ProjectionUsageLedgerRow,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+  /**
+   * Highest-spending threads in a window, descending by cost, joined to the
+   * thread projection for a title. Backs the Usage page's Cost-tab section.
+   */
+  readonly topSpendingThreads: (
+    input: ThreadSpendInput,
+  ) => Effect.Effect<readonly ThreadSpendRow[], ProjectionRepositoryError>;
 }
 
 export class ProjectionUsageLedgerRepository extends Context.Service<
