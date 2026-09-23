@@ -232,6 +232,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         resolveUsageLimitsAfterProbe({
           published: state.snapshot.usageLimits,
           probed: probedSnapshot.usageLimits,
+          // loom: pi's probe reports no limits at all; only a signed-out
+          // probe may clear what the usage poller published.
+          probedAuthStatus: probedSnapshot.auth.status,
         }),
       );
       return [
