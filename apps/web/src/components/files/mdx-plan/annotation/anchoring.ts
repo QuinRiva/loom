@@ -1,7 +1,5 @@
 import type { PlanCommentAnchor, PlanCommentTargetKind } from "@t3tools/contracts";
 
-import { PLAN_PEEK_ATTR } from "../headingAnchors";
-
 /**
  * Rendered-MDX anchoring engine — serialise a DOM `Range` into a portable
  * {@link PlanCommentAnchor} and re-resolve that anchor back to a live `Range`
@@ -158,16 +156,6 @@ export function flattenDocument(root: Node): FlattenedDocument {
   const walker = root.ownerDocument!.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
-    {
-      // A question "peek" holds a CLONE of a section already in the document —
-      // duplicate text that would otherwise join the flattened string and let a
-      // quote resolve onto the copy. Rejecting the subtree keeps anchoring blind
-      // to it, so opening/closing a peek cannot move an existing highlight.
-      acceptNode: (node) =>
-        node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute(PLAN_PEEK_ATTR)
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT,
-    },
   );
   let text = "";
   const spans: TextSpan[] = [];

@@ -2,7 +2,7 @@ import { compile, evaluate, run, type CompileOptions, type EvaluateOptions } fro
 import * as runtime from "react/jsx-runtime";
 import remarkGfm from "remark-gfm";
 
-import { remarkHeadingAnchors } from "./headingAnchors";
+import { type PlanSections, remarkHeadingAnchors } from "./headingAnchors";
 import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
 import { PLAN_BLOCK_TAGS } from "./planBlockTags";
 
@@ -103,15 +103,14 @@ function remarkUnknownBlockFallback() {
   };
 }
 
-/** The one guard plugin set both compile paths apply. `remarkHeadingAnchors` is
- * not a guard — it stamps heading slug ids, and lives here so worker, linter and
- * main-thread render agree on the anchors a question's `refs` can name. */
-const PLAN_REMARK_PLUGINS = [
-  remarkGfm,
-  remarkRejectCodeEscapes,
-  remarkUnknownBlockFallback,
-  remarkHeadingAnchors,
-];
+/** The one guard plugin set every compile path applies. */
+const PLAN_GUARD_PLUGINS = [remarkGfm, remarkRejectCodeEscapes, remarkUnknownBlockFallback];
+
+/** Guards + `remarkHeadingAnchors`, which is not a guard: it stamps heading slug
+ * ids and publishes each section's source bounds. It lives here so the worker,
+ * the linter and the main-thread render agree both on the anchors a question's
+ * `refs` may name and on what "that section" is. */
+const PLAN_REMARK_PLUGINS = [...PLAN_GUARD_PLUGINS, remarkHeadingAnchors];
 
 export type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
 
@@ -136,6 +135,14 @@ const planCompileOptions = {
   development: false,
 } as unknown as CompileOptions;
 
+/** As above for ONE section slice (the peek): guards only, no heading ids — the
+ * slice's headings are already in the document and must not be stamped twice. */
+const sectionCompileOptions = {
+  remarkPlugins: PLAN_GUARD_PLUGINS,
+  outputFormat: "function-body",
+  development: false,
+} as unknown as CompileOptions;
+
 /**
  * Compile + evaluate MDX plan source to a renderable component on the current
  * thread, applying the remark guard. Rejects (throws) on disallowed constructs
@@ -147,14 +154,27 @@ export async function compilePlanMdx(source: string): Promise<PlanMdxComponent> 
   return module.default as unknown as PlanMdxComponent;
 }
 
-/** Compile plan source to a function-body module string (worker side). */
-export async function compilePlanToFunctionBody(source: string): Promise<string> {
-  return String(await compile(source, planCompileOptions));
+/**
+ * Compile a whole plan document to a function-body module string, plus the
+ * source bounds of every heading's section — a by-product of the same parse,
+ * which is what lets a question "peek" slice a section without re-parsing the
+ * document or inventing a second notion of where a section ends.
+ */
+export async function compilePlanDocument(
+  source: string,
+): Promise<{ code: string; sections: PlanSections }> {
+  const file = await compile(source, planCompileOptions);
+  return { code: String(file), sections: (file.data.planSections as PlanSections) ?? {} };
+}
+
+/** Compile ONE section slice to a function-body module string (the peek). */
+export async function compilePlanSection(source: string): Promise<string> {
+  return String(await compile(source, sectionCompileOptions));
 }
 
 /**
  * Instantiate a function-body module string (produced by
- * {@link compilePlanToFunctionBody}) into a renderable component on the main
+ * {@link compilePlanDocument}) into a renderable component on the main
  * thread. Cheap relative to compile — the guards already ran during compile, so
  * nothing outside the closed registry is reachable here. Plans carry no imports
  * (the guard rejects them), so no `baseUrl` is needed.

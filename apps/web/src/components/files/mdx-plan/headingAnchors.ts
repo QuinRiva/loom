@@ -1,22 +1,25 @@
 /**
- * Stable ids for markdown headings in an MDX plan. A question in the bottom
- * `<QuestionForm>` can then name the section it depends on
- * (`refs: [{ label, anchor }]`) and the reader can peek at that section in place
- * instead of losing their spot in the form.
+ * Stable ids for markdown headings in an MDX plan, and the source bounds of the
+ * section each heading opens. A question in the bottom `<QuestionForm>` can name
+ * the section it depends on (`refs: [{ label, anchor }]`); the reader peeks at
+ * that section in place instead of losing their spot in the form.
  *
- * The slugging lives in the shared compile pipeline (see
- * {@link ./mdxCompileOptions}) rather than in a heading component, so the
- * worker, the main-thread `evaluate` path and the linter all derive the SAME
- * slugs from the same source — a `refs[].anchor` that lints clean is the id the
- * renderer emits.
+ * ONE notion of "section", derived from the mdast the compile pipeline already
+ * walks (see {@link ./mdxCompileOptions}): the worker, the main-thread
+ * `evaluate` path and the linter all call this same function on the same tree,
+ * so an anchor that lints clean is both the id the renderer emits AND a slice
+ * the peek can compile. A second, text-level notion (a line scanner) drifted
+ * from this one — phantom headings inside nested fences and template literals,
+ * and slices that cut through JSX — so there is deliberately only one.
  */
 
 type HeadingNode = {
   type: string;
   value?: string;
+  depth?: number;
   children?: HeadingNode[];
   data?: { hProperties?: Record<string, unknown> };
-  position?: { start: { line: number; column: number } };
+  position?: { start: { offset?: number }; end?: { offset?: number } };
 };
 
 const textOf = (node: HeadingNode): string =>
@@ -29,88 +32,48 @@ export const slugifyHeading = (text: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "section";
 
+/** Source offsets of one section's BODY: just past its heading, up to the next
+ * sibling heading of the same or higher level — or the end of whatever contains
+ * it. Bounded by the siblings, so a heading inside `<Columns>`/`<Tab>` slices to
+ * the end of that container's children and the slice stays balanced. */
+export type PlanSections = Record<string, [start: number, end: number]>;
+
 /**
  * Walk an mdast tree, give every heading a document-unique slug id (via
  * `data.hProperties`, which `mdast-util-to-hast` renders as the element's `id`),
- * and return the slugs in document order. Repeats of the same text get `-2`,
+ * and return each slug's section bounds. Repeats of the same text get `-2`,
  * `-3`, … so an anchor always names exactly one heading.
  */
-export function assignHeadingAnchors(tree: HeadingNode): string[] {
+export function assignHeadingAnchors(tree: HeadingNode): PlanSections {
   const seen = new Map<string, number>();
-  const slugs: string[] = [];
+  const sections: PlanSections = {};
   const walk = (node: HeadingNode) => {
-    if (node.type === "heading") {
-      const base = slugifyHeading(textOf(node));
-      const count = (seen.get(base) ?? 0) + 1;
-      seen.set(base, count);
-      const slug = count === 1 ? base : `${base}-${count}`;
-      ((node.data ??= {}).hProperties ??= {}).id = slug;
-      slugs.push(slug);
+    const children = node.children ?? [];
+    for (const [index, child] of children.entries()) {
+      if (child.type === "heading") {
+        const base = slugifyHeading(textOf(child));
+        const count = (seen.get(base) ?? 0) + 1;
+        seen.set(base, count);
+        const slug = count === 1 ? base : `${base}-${count}`;
+        ((child.data ??= {}).hProperties ??= {}).id = slug;
+        const depth = child.depth ?? 6;
+        const next = children
+          .slice(index + 1)
+          .find((sibling) => sibling.type === "heading" && (sibling.depth ?? 6) <= depth);
+        const start = child.position?.end?.offset;
+        const end = next ? next.position?.start.offset : children.at(-1)?.position?.end?.offset;
+        if (start !== undefined && end !== undefined) sections[slug] = [start, end];
+      }
+      walk(child);
     }
-    for (const child of node.children ?? []) walk(child);
   };
   walk(tree);
-  return slugs;
+  return sections;
 }
 
-/**
- * Marks a container holding a question "peek" — a second, live render of a
- * section that is also in the document. It is a reading aid, not document
- * content: `assignBlockIds` skips it so it never consumes block ids, and the
- * annotation layer's `flattenDocument` rejects the subtree so a peek can never
- * shift or duplicate a comment anchor.
- */
-export const PLAN_PEEK_ATTR = "data-plan-peek";
-
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-const ATX_HEADING = /^(#{1,6})[ \t]+(.+?)[ \t]*#*$/;
-
-/**
- * The SOURCE of one section — everything after the heading whose slug is
- * `anchor`, up to the next heading of the same or higher level — so the peek can
- * compile and render that slice for real instead of cloning rendered DOM.
- * Returns `null` when no heading carries the slug.
- *
- * A line scan (fence-aware) rather than a second mdast parse: the slugs come
- * from {@link slugifyHeading} in the same document order the compile pipeline
- * walks headings in, so the two agree on every anchor an author can lint, and
- * peeking costs no extra parse of the whole document. The slice is plain plan
- * source, so a section holding JSX blocks must be top-level for its JSX to be
- * balanced — a heading nested inside `<Columns>`/`<Tabs>` is not peekable.
- */
-export function sectionSource(source: string, anchor: string): string | null {
-  const lines = source.split("\n");
-  const seen = new Map<string, number>();
-  let fence: string | null = null;
-  let start = -1;
-  let level = 0;
-  for (const [index, line] of lines.entries()) {
-    const marker = FENCE.exec(line)?.[1]?.[0];
-    if (marker) {
-      fence = fence === null ? marker : fence === marker ? null : fence;
-      continue;
-    }
-    if (fence !== null) continue;
-    const heading = ATX_HEADING.exec(line);
-    if (!heading) continue;
-    const [, hashes = "", text = ""] = heading;
-    const depth = hashes.length;
-    if (start >= 0) {
-      if (depth <= level) return lines.slice(start, index).join("\n").trim();
-      continue;
-    }
-    const base = slugifyHeading(text);
-    const count = (seen.get(base) ?? 0) + 1;
-    seen.set(base, count);
-    if ((count === 1 ? base : `${base}-${count}`) === anchor) {
-      start = index + 1;
-      level = depth;
-    }
-  }
-  return start >= 0 ? lines.slice(start).join("\n").trim() : null;
-}
-
-/** The remark plugin form, for the plan compile pipeline. */
-export const remarkHeadingAnchors = () => (tree: HeadingNode) => {
-  assignHeadingAnchors(tree);
-};
+/** The remark plugin form: stamps the ids and publishes the section bounds on
+ * the compiled file, so the renderer gets them without a second parse. */
+export const remarkHeadingAnchors =
+  () => (tree: HeadingNode, file: { data: Record<string, unknown> }) => {
+    file.data.planSections = assignHeadingAnchors(tree);
+  };

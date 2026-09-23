@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import { cn } from "~/lib/utils";
 
 import { escapeId } from "../annotation/anchoring";
-import { PLAN_PEEK_ATTR, sectionSource } from "../headingAnchors";
+import type { PlanSections } from "../headingAnchors";
 import type { PlanMdxComponent } from "../mdxCompileOptions";
-import { compileInWorker } from "../planCompileClient";
+import { loadPlanSection } from "../planCompileClient";
 
 /**
  * "Peek at the section this question depends on".
@@ -19,13 +19,19 @@ import { compileInWorker } from "../planCompileClient";
  * so the reader never loses their place mid-answer.
  *
  * The peek is a REAL render, not a copy of the rendered DOM: the section's
- * source slice is compiled through the same worker + closed block registry as
- * the document, so tabs, disclosures, canvases and sandboxed frames inside a
- * peeked section behave exactly as they do in the body. Three things keep that
- * second render invisible to the annotation layer: the popover is portalled to
- * `<body>` (outside `[data-plan-root]`, which every annotation query and every
- * block-id lookup is scoped to), and — for belt and braces — `assignBlockIds`
- * and `flattenDocument` both reject any {@link PLAN_PEEK_ATTR} subtree.
+ * source slice — bounded by the mdast the document's own compile walked, so the
+ * linter, the renderer and this agree on where a section ends — is compiled
+ * through the same worker + closed block registry as the document, so tabs,
+ * disclosures, canvases and sandboxed frames inside a peeked section behave
+ * exactly as they do in the body.
+ *
+ * ONE thing keeps that second render invisible to the annotation layer, and it
+ * is load-bearing: the popover is portalled to `<body>`, outside
+ * `[data-plan-root]` — which every annotation query, every `data-plan-block-id`
+ * lookup, the selection guard and the block-id assignment pass are scoped to. A
+ * peek rendered INSIDE the root would duplicate text in the flattened document
+ * and move existing comment highlights, so an inline variant is not a CSS
+ * change; `questionPeek.test.tsx` holds the invariant.
  */
 
 export interface QuestionRef {
@@ -44,10 +50,16 @@ export interface QuestionRef {
  */
 export interface PlanPeekDocument {
   source: string;
+  /** Heading slug → the source bounds of the section it opens, from the
+   * document's own compile (see {@link ../headingAnchors}). */
+  sections: PlanSections;
   components: Record<string, unknown>;
 }
 
 export const PlanPeekContext = createContext<PlanPeekDocument | null>(null);
+
+/** Marks the peek popover: a handle for tests and devtools, not a guard. */
+const PLAN_PEEK_ATTR = "data-plan-peek";
 
 const HEADING_LEVEL = /^H([1-6])$/;
 
@@ -65,7 +77,7 @@ function compileSection(slice: string): Promise<PlanMdxComponent> {
   // Editing a plan changes every slice it touches; drop the lot rather than
   // grow a cache of sections nobody can reach any more.
   if (compiledSections.size > 32) compiledSections.clear();
-  const compiled = compileInWorker(slice);
+  const compiled = loadPlanSection(slice);
   compiledSections.set(slice, compiled);
   return compiled;
 }
@@ -102,12 +114,12 @@ function PeekSection({
     let active = true;
     setContent(null);
     setTitle(findHeading(getPlanRoot(), anchor)?.textContent ?? null);
-    const slice = sectionSource(doc.source, anchor);
-    if (slice === null) {
+    const bounds = doc.sections[anchor];
+    if (!bounds) {
       setContent({ error: `No section in this plan is anchored at "${anchor}".` });
       return;
     }
-    void compileSection(slice).then(
+    void compileSection(doc.source.slice(...bounds).trim()).then(
       (Section) => {
         if (active) setContent({ Section });
       },
@@ -118,7 +130,7 @@ function PeekSection({
     return () => {
       active = false;
     };
-  }, [anchor, doc.source, getPlanRoot]);
+  }, [anchor, doc.source, doc.sections, getPlanRoot]);
 
   const goToSection = () => {
     const heading = findHeading(getPlanRoot(), anchor);

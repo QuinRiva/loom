@@ -4,7 +4,10 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vite-plus/test";
 
 import { flattenDocument } from "../components/files/mdx-plan/annotation/anchoring";
-import { sectionSource } from "../components/files/mdx-plan/headingAnchors";
+import {
+  compilePlanDocument,
+  compilePlanMdx,
+} from "../components/files/mdx-plan/mdxCompileOptions";
 import { MdxPlanRenderer } from "../components/files/mdx-plan/MdxPlanRenderer";
 import { lintPlanSource } from "../components/files/mdx-plan/planLint";
 import { MDX_QUESTION_REFS_FIXTURE_SOURCE } from "./fixtures";
@@ -96,15 +99,119 @@ const PEEK_SOURCE = [
 ].join("\n");
 
 describe("question ref peek", () => {
-  it("slices a section's source from its heading to the next same-or-higher heading", () => {
-    const slice = sectionSource(MDX_QUESTION_REFS_FIXTURE_SOURCE, "delivery-order") ?? "";
+  it("slices a section from its heading to the next same-or-higher heading", async () => {
+    const { sections } = await compilePlanDocument(MDX_QUESTION_REFS_FIXTURE_SOURCE);
+    const slice = MDX_QUESTION_REFS_FIXTURE_SOURCE.slice(...sections["delivery-order"]!);
     expect(slice).toContain("### Slice 2"); // sub-sections come along
     expect(slice).not.toContain("## Rollout and flags");
-    expect(sectionSource(MDX_QUESTION_REFS_FIXTURE_SOURCE, "no-such-section")).toBeNull();
-    // A `#` inside a fenced code block is not a heading.
-    expect(sectionSource("# Doc\n\n## A\n\n```\n## B\n```\n\n## C\n\nafter\n", "a")).toBe(
-      "```\n## B\n```",
+    expect(sections["no-such-section"]).toBeUndefined();
+  });
+
+  /**
+   * The gate's whole claim is "lint says OK => the chip opens that section". It
+   * holds only because lint, the renderer and the peek read section bounds off
+   * the SAME mdast: a text-level scanner saw phantom headings inside nested
+   * fences and template literals, and cut slices through JSX. Each source below
+   * broke that scanner; every anchor lint accepts must slice to something that
+   * compiles.
+   */
+  const GNARLY: Record<string, string> = {
+    "heading nested in a container": [
+      "# Doc",
+      "",
+      "<Columns>",
+      "",
+      "<Column>",
+      "",
+      "## Nested heading",
+      "",
+      "Body inside a column.",
+      "",
+      "</Column>",
+      "",
+      "</Columns>",
+      "",
+      "## After",
+      "",
+      "Tail.",
+    ].join("\n"),
+    "markdown sample inside a nested fence": [
+      "# Doc",
+      "",
+      "## Alpha",
+      "",
+      "Real alpha body.",
+      "",
+      "````md",
+      "```mdx",
+      "## Phantom heading",
+      "```",
+      "````",
+      "",
+      "End of alpha.",
+      "",
+      "## Beta",
+      "",
+      "Beta body.",
+    ].join("\n"),
+    "hash comment inside a template-literal attribute": [
+      "# Doc",
+      "",
+      "## Install",
+      "",
+      '<Code language="sh" code={`# install first',
+      "npm i`} />",
+      "",
+      "## Next",
+      "",
+      "Next body.",
+    ].join("\n"),
+    "setext heading and a heading containing a link": [
+      "# Doc",
+      "",
+      "Setext title",
+      "============",
+      "",
+      "Body.",
+      "",
+      "## See [the RFC](https://example.com) first",
+      "",
+      "Linked body.",
+    ].join("\n"),
+  };
+
+  it("gives every anchor lint accepts a slice that compiles", async () => {
+    for (const [name, source] of Object.entries(GNARLY)) {
+      const { sections } = await compilePlanDocument(source);
+      expect(Object.keys(sections).length, name).toBeGreaterThan(1);
+      for (const [slug, bounds] of Object.entries(sections)) {
+        await expect(
+          compilePlanMdx(source.slice(...bounds)),
+          `${name} / ${slug}`,
+        ).resolves.toBeTruthy();
+      }
+      expect(await lintPlanSource(source), name).toEqual([]);
+    }
+
+    const nested = await compilePlanDocument(GNARLY["heading nested in a container"]!);
+    // Bounded by its siblings, so the slice never cuts through the container.
+    expect(
+      GNARLY["heading nested in a container"]!.slice(...nested.sections["nested-heading"]!).trim(),
+    ).toBe("Body inside a column.");
+
+    const fenced = await compilePlanDocument(GNARLY["markdown sample inside a nested fence"]!);
+    expect(fenced.sections["phantom-heading"]).toBeUndefined();
+    // Not truncated at the phantom heading: the whole sample and the prose after
+    // it belong to the section.
+    expect(
+      GNARLY["markdown sample inside a nested fence"]!.slice(...fenced.sections["alpha"]!),
+    ).toContain("End of alpha.");
+
+    const linked = await compilePlanDocument(
+      GNARLY["setext heading and a heading containing a link"]!,
     );
+    expect(Object.keys(linked.sections)).toContain("see-the-rfc-first");
+    expect(Object.keys(linked.sections)).toContain("setext-title");
   });
 
   it("lints clean (every ref anchor resolves to a heading)", async () => {
@@ -133,6 +240,10 @@ describe("question ref peek", () => {
     expect(open.contains(planRoot)).toBe(false);
     expect(planRoot.contains(open)).toBe(false);
     expect(open.querySelector("[data-plan-block-id^='plan-block-']")).toBeNull();
+    // A section compiles without heading ids, so a peeked sub-heading cannot
+    // duplicate the id the document already carries.
+    expect(planRoot.querySelectorAll("#slice-2-backfill").length).toBe(1);
+    expect([...open.querySelectorAll("h1,h2,h3,h4,h5,h6")].some((h) => h.id)).toBe(false);
     expect(flattenDocument(planRoot).text).toBe(text);
     expect(blockIds()).toEqual(ids);
 

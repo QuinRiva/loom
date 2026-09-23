@@ -39,6 +39,7 @@ export interface PlanLintFinding {
 interface Point {
   line: number;
   column: number;
+  offset?: number;
 }
 
 interface MdastNode {
@@ -46,7 +47,7 @@ interface MdastNode {
   name?: string;
   children?: MdastNode[];
   attributes?: JsxAttrNode[];
-  position?: { start: Point };
+  position?: { start: Point; end?: Point };
 }
 
 interface JsxAttrNode {
@@ -173,8 +174,9 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   }
 
   // The heading slugs a question's `refs[].anchor` may name — derived by the same
-  // function the compile pipeline uses, so lint and render cannot disagree.
-  const headingSlugs = new Set(assignHeadingAnchors(tree));
+  // function the compile pipeline and the peek use, on the same tree, so "this
+  // anchor is valid" and "this is the section it opens" cannot disagree.
+  const headingSlugs = new Set(Object.keys(assignHeadingAnchors(tree)));
 
   const authoredIds = new Map<string, Point | undefined>();
   const reviewChoiceIds = new Map<string, Point | undefined>();

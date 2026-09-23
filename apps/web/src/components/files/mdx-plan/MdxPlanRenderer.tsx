@@ -12,9 +12,9 @@ import { LoaderCircle } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 import { PlanPeekContext } from "./blocks/questionRefs";
-import { PLAN_PEEK_ATTR } from "./headingAnchors";
+import type { PlanSections } from "./headingAnchors";
 import type { PlanMdxComponent } from "./mdxCompileOptions";
-import { compileInWorker } from "./planCompileClient";
+import { loadPlanDocument } from "./planCompileClient";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 /**
@@ -85,9 +85,6 @@ export function assignBlockIds(root: HTMLElement): void {
   const descend = (parent: HTMLElement, topLevel: boolean) => {
     for (const child of Array.from(parent.children)) {
       if (!(child instanceof HTMLElement)) continue;
-      // A question "peek" holds a second render of a section already in the
-      // document; stamping it would consume ids and renumber everything after it.
-      if (child.hasAttribute(PLAN_PEEK_ATTR)) continue;
       if (topLevel || child.hasAttribute("data-plan-block-type")) stamp(child);
       descend(child, false);
     }
@@ -176,20 +173,26 @@ function PlanErrorNotice({ message }: { message: string }) {
 }
 
 export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
-  const [content, setContent] = useState<{ Component: PlanMdxComponent } | null>(null);
+  const [content, setContent] = useState<{
+    Component: PlanMdxComponent;
+    sections: PlanSections;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-  const peekDocument = useMemo(() => ({ source, components: PLAN_BLOCK_COMPONENTS }), [source]);
+  const peekDocument = useMemo(
+    () => ({ source, sections: content?.sections ?? {}, components: PLAN_BLOCK_COMPONENTS }),
+    [source, content],
+  );
 
   useEffect(() => {
     let active = true;
     setError(null);
     setCompiling(true);
-    void compileInWorker(source)
-      .then((Component) => {
+    void loadPlanDocument(source)
+      .then((compiled) => {
         if (active) {
-          setContent({ Component });
+          setContent(compiled);
           setCompiling(false);
         }
       })
