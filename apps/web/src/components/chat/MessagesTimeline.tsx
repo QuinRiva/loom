@@ -272,6 +272,8 @@ import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
 import { insertHandoffReceiptRows } from "~/loom/handoffReceiptRows";
 // loom: control-plane arrivals are cards, not bubbles. See `controlMessages.ts`.
 import { ControlDigestRow } from "~/loom/ControlDigestRow";
+// loom: a `consult_thread` exchange is a card, not a grouped tool row.
+import { ConsultCardRow } from "~/loom/ConsultCardRow";
 import {
   CHANNEL_CLASSES,
   classifyControlMessage,
@@ -1782,6 +1784,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "queued-message" ? <QueuedMessageTimelineRow row={row} /> : null}
       {/* loom: */}
       {row.kind === "handoff-receipt" ? <HandoffReceiptRow row={row} /> : null}
+      {/* loom: */}
+      {row.kind === "consult" ? <ConsultCardRow row={row} /> : null}
     </div>
   );
 });

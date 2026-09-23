@@ -40,6 +40,8 @@ import {
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 // loom: `/handoff` receipt row (presentation-only, never a message).
 import { type HandoffReceiptView } from "../../loom/handoffReceipts.logic";
+// loom: a `consult_thread` result is a card of its own, not a grouped tool row.
+import { type ConsultActivityFields } from "@t3tools/shared/consultActivity.loom";
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
@@ -323,6 +325,7 @@ function isActivityEntry(entry: TimelineEntry): entry is ActivityEntry {
     ? entry.message.role === "reasoning"
     : entry.kind === "work" &&
         entry.entry.agentSpawn === undefined &&
+        entry.entry.consult === undefined && // loom: consults are cards, not group members
         entry.entry.questionAnswer === undefined &&
         entry.entry.sourceActivityKind !== "context-compaction" &&
         entry.entry.tone !== "error";
@@ -445,7 +448,9 @@ export type MessagesTimelineRow =
   // loom: `/handoff` receipt. Browser-local receipt facts that never enter
   // `deriveTimelineEntries`, spliced onto the derived rows by
   // `~/loom/handoffReceiptRows` — a receipt can never become a turn.
-  | { kind: "handoff-receipt"; id: string; createdAt: string; receipt: HandoffReceiptView };
+  | { kind: "handoff-receipt"; id: string; createdAt: string; receipt: HandoffReceiptView }
+  // loom: a `consult_thread` exchange, rendered by `~/loom/ConsultCardRow`.
+  | { kind: "consult"; id: string; createdAt: string; consult: ConsultActivityFields };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -1025,6 +1030,7 @@ export function deriveMessagesTimelineRows(input: {
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
       entry.entry.questionAnswer !== undefined ||
+      entry.entry.consult !== undefined || // loom:
       entry.entry.sourceActivityKind === "context-compaction" ||
       entry.entry.tone === "error"
     ) {
@@ -1203,6 +1209,17 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
+      // loom: a consult is its own card — the question, the target thread and the
+      // answer, none of which survive upstream's grouped tool row.
+      if (timelineEntry.entry.consult !== undefined) {
+        nextRows.push({
+          kind: "consult",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          consult: timelineEntry.entry.consult,
+        });
+        continue;
+      }
       if (
         timelineEntry.entry.agentSpawn !== undefined ||
         timelineEntry.entry.questionAnswer !== undefined ||
@@ -1231,6 +1248,7 @@ export function deriveMessagesTimelineRows(input: {
           !nextEntry ||
           nextEntry.kind !== "work" ||
           nextEntry.entry.agentSpawn !== undefined ||
+          nextEntry.entry.consult !== undefined || // loom:
           nextEntry.entry.questionAnswer !== undefined ||
           nextEntry.entry.sourceActivityKind === "context-compaction" ||
           nextEntry.entry.tone === "error" ||
@@ -1626,6 +1644,19 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "queued-message": {
       const bq = b as typeof a;
       return a.queuedMessage === bq.queuedMessage && a.isNext === bq.isNext;
+    }
+
+    // loom: the summary is rebuilt per derivation, so compare by value.
+    case "consult": {
+      const bc = b as typeof a;
+      return (
+        a.createdAt === bc.createdAt &&
+        a.consult.status === bc.consult.status &&
+        a.consult.question === bc.consult.question &&
+        a.consult.answer === bc.consult.answer &&
+        a.consult.note === bc.consult.note &&
+        a.consult.targetThreadId === bc.consult.targetThreadId
+      );
     }
 
     // loom: receipt views are rebuilt per derivation, so compare by value.

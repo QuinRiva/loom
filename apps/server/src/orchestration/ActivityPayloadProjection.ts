@@ -1,4 +1,7 @@
 import { projectQuestionToolInput } from "@t3tools/shared/toolActivity";
+// loom: a `consult_thread` result renders as a card, so its question, target
+// and answer must survive this projection. See `consultActivity.loom.ts`.
+import { projectConsultToolFields } from "@t3tools/shared/consultActivity.loom";
 import type {
   OrchestrationEvent,
   OrchestrationThreadActivity,
@@ -452,7 +455,11 @@ export function projectActivityPayload(
     };
   }
 
-  const projectedData: Record<string, unknown> = { ...questionInput };
+  const projectedData: Record<string, unknown> = {
+    ...questionInput,
+    // loom: older rows carry the tool name only as the activity summary.
+    ...projectConsultToolFields(data, asTrimmedString(payload.title) ?? activity.summary),
+  };
   const item = projectCommandData(data);
   if (item) {
     projectedData.item = item;
