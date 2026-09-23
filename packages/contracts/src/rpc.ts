@@ -247,6 +247,8 @@ import {
   ServerProcessResourceHistoryResult,
   ServerSignalProcessInput,
   ServerSignalProcessResult,
+  ThreadSpendInput,
+  ThreadSpendResult,
   WorkstreamWorktreesResult,
   WorkstreamRemoveWorktreeInput,
   WorkstreamRemoveWorktreeResult,
@@ -400,6 +402,8 @@ export const WS_METHODS = {
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
+  // loom: top-consuming threads on the Usage page's Cost tab.
+  serverGetThreadSpend: "server.getThreadSpend",
   // loom: workstream worktree surface.
   serverGetWorkstreamWorktrees: "server.getWorkstreamWorktrees",
   serverRemoveWorkstreamWorktree: "server.removeWorkstreamWorktree",
@@ -694,6 +698,14 @@ const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
+});
+
+// loom: the Usage page's top-consuming-threads section, read from the usage
+// ledger rather than the transcript scanner (which carries no thread identity).
+const WsServerGetThreadSpendRpc = Rpc.make(WS_METHODS.serverGetThreadSpend, {
+  payload: ThreadSpendInput,
+  success: ThreadSpendResult,
+  error: Schema.Union([EnvironmentAuthorizationError, UsageReadError]),
 });
 
 // loom: workstream worktrees, and the /handoff + /retro fork drafters.
@@ -1515,7 +1527,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
   WsServerGetProcessResourceHistoryRpc,
-  // loom: workstream worktrees + the /handoff and /retro fork drafters.
+  // loom: top-consuming threads (Usage → Cost), workstream worktrees, and the
+  // /handoff and /retro fork drafters.
+  WsServerGetThreadSpendRpc,
   WsServerGetWorkstreamWorktreesRpc,
   WsServerRemoveWorkstreamWorktreeRpc,
   WsServerHandoffDraftRpc,

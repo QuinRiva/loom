@@ -174,6 +174,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
   // loom fork RPCs.
+  [WS_METHODS.serverGetThreadSpend]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetWorkstreamWorktrees]: AuthOrchestrationReadScope,
   [WS_METHODS.serverRemoveWorkstreamWorktree]: AuthOrchestrationOperateScope,
   // `/handoff` fork-drafter: minting a drafter + injecting its turn is a write.

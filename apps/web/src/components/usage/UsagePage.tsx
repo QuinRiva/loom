@@ -22,6 +22,7 @@ import {
 } from "@t3tools/shared/usageMerge";
 
 import { isElectron } from "../../env";
+import { TopThreadSpend } from "../../loom/TopThreadSpend"; // loom:
 import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
@@ -628,6 +629,13 @@ export function UsagePage() {
                     </table>
                   )}
                 </section>
+
+                {/* loom: which threads spent the window, from loom's usage
+                    ledger. Cost-tab only — the ledger carries no token split
+                    worth a second Tokens-tab table. */}
+                {metric === "cost" ? (
+                  <TopThreadSpend window={window} selectedEnvironmentIds={selectedEnvironmentIds} />
+                ) : null}
               </>
             )}
           </WorkspacePageContainer>

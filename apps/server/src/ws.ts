@@ -125,6 +125,7 @@ import {
 } from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
+import { ProjectionUsageLedgerRepository } from "./persistence/Services/ProjectionUsageLedger.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -755,6 +756,9 @@ const makeWsRpcLayer = (
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const workstreamWorktreeStatus = yield* WorkstreamWorktreeStatus.WorkstreamWorktreeStatus;
+      // loom: the usage ledger's read-lane repository, behind the Usage page's
+      // top-consuming-threads section.
+      const usageLedger = yield* ProjectionUsageLedgerRepository;
       const hostResources = yield* HostResources.HostResources;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
@@ -2035,8 +2039,9 @@ const makeWsRpcLayer = (
 
       return WsRpcGroup.of({
         // loom: fork ws handlers (heartbeat keepalive, workstream worktree
-        // read/remove) — factory in loom/wsMethods.ts, fed the locals above.
-        ...makeLoomWsHandlers({ observeRpcEffect, workstreamWorktreeStatus }),
+        // read/remove, thread spend) — factory in loom/wsMethods.ts, fed the
+        // locals above.
+        ...makeLoomWsHandlers({ observeRpcEffect, workstreamWorktreeStatus, usageLedger }),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,

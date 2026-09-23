@@ -462,6 +462,35 @@ export const ServerSignalProcessResult = Schema.Struct({
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
 
+// loom: top-consuming threads, the Usage page's Cost-tab section. One grouped
+// read over `projection_usage_ledger` (migrations 1014/1019) joined to the
+// thread projection for a title; the window arrives as explicit UTC instants so
+// the server needs no zone arithmetic.
+export const ThreadSpendInput = Schema.Struct({
+  /** Inclusive UTC instant the window starts at. */
+  sinceTime: TrimmedNonEmptyString,
+  /** Exclusive UTC instant the window ends at. */
+  untilTime: TrimmedNonEmptyString,
+});
+export type ThreadSpendInput = typeof ThreadSpendInput.Type;
+
+export const ThreadSpendRow = Schema.Struct({
+  threadId: ThreadId,
+  /** Null when the thread is gone: the row then renders by id and does not link. */
+  title: Schema.NullOr(Schema.String),
+  costUsd: Schema.Number,
+  totalTokens: NonNegativeInt,
+  /** Distinct turns the spend landed across. */
+  turns: NonNegativeInt,
+});
+export type ThreadSpendRow = typeof ThreadSpendRow.Type;
+
+export const ThreadSpendResult = Schema.Struct({
+  /** Highest-spending threads in the window, descending by cost. */
+  threads: Schema.Array(ThreadSpendRow),
+});
+export type ThreadSpendResult = typeof ThreadSpendResult.Type;
+
 // loom: workstream worktrees maintenance surface (phase 3 visibility panel).
 // The wire vocabulary mirrors the server's `worktreeClassification` truth:
 // one disposition, plus a stale reason when the auto-reaper deliberately
