@@ -1,9 +1,10 @@
+import { UsageLimitSourceId } from "@t3tools/contracts";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { AccountUsageWindow } from "../accountUsage.loom.ts";
 import { applyUsageLimitsUpdate } from "../providerUsageLimits.ts";
-import { toLimitsWindows } from "./SubscriptionUsagePoller.ts";
+import { hubReportsClaudeQuota, toLimitsWindows } from "./SubscriptionUsagePoller.ts";
 
 const windows: ReadonlyArray<AccountUsageWindow> = [
   {
@@ -20,6 +21,23 @@ const windows: ReadonlyArray<AccountUsageWindow> = [
     scope: { displayName: "Opus" },
   },
 ];
+
+describe("hubReportsClaudeQuota", () => {
+  const sources = (enabled: boolean) => ({
+    [UsageLimitSourceId.make("local")]: {
+      kind: "cliproxy" as const,
+      url: "http://127.0.0.1:8317",
+      managementKey: "k",
+      enabled,
+    },
+  });
+
+  it("stands the Anthropic arm down only while an enabled hub is registered", () => {
+    expect(hubReportsClaudeQuota({ usageLimitSources: {} })).toBe(false);
+    expect(hubReportsClaudeQuota({ usageLimitSources: sources(true) })).toBe(true);
+    expect(hubReportsClaudeQuota({ usageLimitSources: sources(false) })).toBe(false);
+  });
+});
 
 describe("toLimitsWindows", () => {
   it("gives every pooled account of one instance its own window ids", () => {

@@ -15,6 +15,7 @@ import {
   ProviderInstanceId,
   type ProviderUsageSource,
   type ServerProviderUsageWindow,
+  type ServerSettings,
 } from "@t3tools/contracts";
 
 import { encodeUsageWindowId } from "@t3tools/shared/usageWindowId";
@@ -128,6 +129,28 @@ export const toLimitsWindows = (
       : {}),
   }));
 
+/**
+ * Is a CLIProxyAPI hub registered as a usage-limit source?
+ *
+ * Every Claude turn loom runs is routed through the hub, and `UsageLimitSources`
+ * reports each pooled account there with its email, plan and reset credits. The
+ * `anthropic` token in `~/.pi/agent/auth.json` is a second path to the same
+ * vendor — very likely the same subscription — and the poller knows no email for
+ * it (the OAuth usage endpoint returns none), so there is no way to match the two
+ * readings up. Polling both would therefore draw a duplicate Claude row on the
+ * Limits page and a duplicate session bar in the subscription meter.
+ *
+ * Configuration is the rule: while any enabled `cliproxy` source is registered,
+ * the hub is the authority on Claude quota and the poller's Anthropic arm stands
+ * down. Removing or disabling the entry brings it back on the next poll.
+ */
+export const hubReportsClaudeQuota = (
+  settings: Pick<ServerSettings, "usageLimitSources">,
+): boolean =>
+  Object.values(settings.usageLimitSources).some(
+    (source) => source.kind === "cliproxy" && source.enabled,
+  );
+
 /** Account display names for the Limits page's window labels. */
 const ACCOUNT_DISPLAY_NAMES: Record<string, string> = {
   claudeAgent: "Claude",
@@ -236,8 +259,26 @@ const make = Effect.gen(function* () {
         );
   };
 
+  // Settings are re-read on every Anthropic cycle rather than at startup, so
+  // registering or removing a hub takes effect on the next poll without a
+  // restart. Logged once per transition — the cycle repeats every
+  // HEALTHY_INTERVAL and a per-cycle line would just be a drumbeat.
+  const anthropicSuppressed = yield* Ref.make(false);
+
   const pollAnthropic = (auth: typeof PiAuthSchema.Type) =>
     Effect.gen(function* () {
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.orElseSucceed((): ServerSettings | null => null),
+      );
+      const suppressed = settings !== null && hubReportsClaudeQuota(settings);
+      if ((yield* Ref.getAndSet(anthropicSuppressed, suppressed)) !== suppressed) {
+        yield* Effect.logInfo(
+          suppressed
+            ? "subscription-usage poller: Anthropic arm suppressed — an enabled cliproxy usage-limit source is registered, so the hub reports Claude quota"
+            : "subscription-usage poller: Anthropic arm resumed — no enabled cliproxy usage-limit source is registered",
+        );
+      }
+      if (suppressed) return;
       const token = auth.anthropic?.access;
       if (!token) {
         yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
