@@ -249,7 +249,7 @@ A copy-DB instance looks alarmingly like live work, for two causes that need
 **opposite** reactions. The guard warnings above tell them apart: present means
 the first; absent on a copy-DB boot means you are unguarded — because the build
 predates the guard, or because the snapshot records no worktree for it to key
-off (below) — which is the second.
+off (above) — which is the second.
 
 - **Guarded build — a false alarm.** The usage page scans transcripts from disk,
   not from the database you pointed at: `UsageService` walks each provider's
