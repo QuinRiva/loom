@@ -10,6 +10,7 @@ import { useMemo } from "react";
 
 import type { GoalShell, GoalTask } from "../types";
 import { goalsAtom } from "../state/shell";
+import { type AnchoredThreadsByTask, TaskThreadChip } from "../loom/TaskThreadChips";
 
 export function useGoals(): ReadonlyArray<GoalShell> {
   return useAtomValue(goalsAtom);
@@ -36,7 +37,18 @@ export function countGoalTasks(tasks: ReadonlyArray<GoalTask>): { done: number; 
   );
 }
 
-export function TaskTree({ tasks }: { tasks: ReadonlyArray<GoalTask> }) {
+/**
+ * `anchors` (loom): threads anchored to a task get a chip on its row — the
+ * panel's task→thread navigation. Omit it and the tree renders exactly as
+ * before.
+ */
+export function TaskTree({
+  tasks,
+  anchors,
+}: {
+  tasks: ReadonlyArray<GoalTask>;
+  anchors?: AnchoredThreadsByTask | undefined;
+}) {
   return (
     <ul className="space-y-1 pl-1 text-sm text-foreground/85">
       {tasks.map((task) => (
@@ -45,13 +57,17 @@ export function TaskTree({ tasks }: { tasks: ReadonlyArray<GoalTask> }) {
             <span className="shrink-0 whitespace-nowrap font-mono text-muted-foreground">
               {task.done ? "[x]" : "[ ]"}
             </span>
+            {/* Chips flow with the text so a long task wraps as one paragraph. */}
             <span className={task.done ? "text-muted-foreground line-through" : undefined}>
               {task.text}
+              {anchors?.get(task.id)?.map((thread) => (
+                <TaskThreadChip key={thread.id} thread={thread} />
+              ))}
             </span>
           </div>
           {task.children.length > 0 ? (
             <div className="ml-5 mt-1 border-l border-border/50 pl-3">
-              <TaskTree tasks={task.children} />
+              <TaskTree tasks={task.children} anchors={anchors} />
             </div>
           ) : null}
         </li>

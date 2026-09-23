@@ -20,6 +20,7 @@ import { MoreHorizontalIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TaskTree, countGoalTasks, useGoalById } from "../goals/goalState";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
+import { useAnchoredThreadsByTask } from "../loom/TaskThreadChips";
 import { useGoalPanelActions } from "../loom/useGoalPanelActions";
 import type { GoalShell, SidebarThreadSummary } from "../types";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -207,6 +208,8 @@ function GoalPanelBody({
     environmentId,
     activeThread,
   });
+  // loom: anchored sub-threads chip their own task row (task→thread navigation).
+  const anchors = useAnchoredThreadsByTask(goal.id, environmentId);
   return (
     <>
       <GoalHeader
@@ -215,7 +218,7 @@ function GoalPanelBody({
         onOpenOverflow={(position) => void openOverflowMenu(position)}
       />
       {goal.tasks.length > 0 ? (
-        <TaskTree tasks={goal.tasks} />
+        <TaskTree tasks={goal.tasks} anchors={anchors} />
       ) : (
         <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
       )}
