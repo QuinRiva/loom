@@ -1,5 +1,8 @@
 import { Button } from "../ui/button";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
+// loom: workstream spend roll-up rendered alongside upstream's context figures.
+import type { ContextCostSummary } from "~/loom/contextCost";
+import { formatCostUsd } from "~/loom/costFormat";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { formatContextWindowCompactionMessage } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
@@ -17,12 +20,23 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
+  // loom: pre-derived workstream spend for this thread (see ~/loom/contextCost).
+  cost?: ContextCostSummary | null;
   modelDisplayName?: string | null;
   onCompact?: (() => void) | undefined;
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
 }) {
-  const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const { usage, cost, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } =
+    props;
+  // loom: headline = the whole subtree's spend when this thread has descendants
+  // (so a root orchestrator shows its entire workstream), else its own spend.
+  const headlineCost = formatCostUsd(
+    cost ? (cost.hasDescendants ? cost.subtreeCostUsd : cost.ownCostUsd) : 0,
+  );
+  const ownCost = formatCostUsd(cost?.ownCostUsd ?? 0);
+  const subtreeCost = formatCostUsd(cost?.subtreeCostUsd ?? 0);
+  const showSpend = Boolean(cost) && (headlineCost !== null || ownCost !== null);
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -135,6 +149,55 @@ export function ContextWindowMeter(props: {
           {usage.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-secondary-label text-[11px] font-medium">
               {formatContextWindowCompactionMessage(modelDisplayName, usage.autoCompactThreshold)}
+            </div>
+          ) : null}
+          {showSpend && cost ? (
+            // loom: spend block — headline, this thread, subtree, per-branch rows.
+            <div className="mt-1 flex flex-col gap-1 border-border/60 border-t pt-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium text-muted-foreground text-xs">Spend</div>
+                <div className="text-secondary-label text-[11px] tabular-nums">
+                  {headlineCost ?? "—"}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+                <span className="text-secondary-label">This thread</span>
+                <span className="font-medium tabular-nums text-secondary-label">
+                  {ownCost ?? "$0.00"}
+                </span>
+              </div>
+              {cost.hasDescendants ? (
+                <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+                  <span className="text-secondary-label">
+                    Subtree ({cost.descendantCount} descendant
+                    {cost.descendantCount === 1 ? "" : "s"})
+                  </span>
+                  <span className="font-medium tabular-nums text-secondary-label">
+                    {subtreeCost ?? "$0.00"}
+                  </span>
+                </div>
+              ) : null}
+              {cost.children.length > 0 ? (
+                // A wide workstream has dozens of branches; scroll them rather
+                // than growing the popup past the viewport (which clips the
+                // footnote and the Compact button out of reach).
+                <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                  {cost.children.map((child) => (
+                    <div
+                      key={child.id}
+                      className="flex items-center justify-between gap-3 text-[11px] leading-4"
+                    >
+                      <span className="truncate text-secondary-label/70">{child.title}</span>
+                      <span className="shrink-0 tabular-nums text-secondary-label/70">
+                        {formatCostUsd(child.costUsd) ?? "<$0.01"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-0.5 text-pretty text-secondary-label/70 text-[11px]">
+                Metered-equivalent; may not reflect subscription plans.
+              </div>
             </div>
           ) : null}
           {onCompact ? (

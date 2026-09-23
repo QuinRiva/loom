@@ -5,10 +5,9 @@
  * figure is the provider's own authoritative number; we never price tokens
  * ourselves.
  *
- * Lived in `lib/contextWindow.ts` while loom's composer meter rendered a spend
- * roll-up. That meter is upstream's now and shows context utilisation only, so
- * the helper moved here with its remaining consumers (the workstream panel,
- * quick facts and the active strip).
+ * Lived in `lib/contextWindow.ts` until the composer meter became upstream's;
+ * it now sits here with all its consumers — the workstream panel, quick facts,
+ * the active strip, and the meter's spend block (`loom/contextCost.ts`).
  */
 export function formatCostUsd(value: number | null | undefined): string | null {
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {

@@ -234,6 +234,8 @@ import {
 // loom: the `#` menu's thread section (plan D-A / D-D).
 import { matchThreadMentionItems } from "~/lib/threadMention";
 import { useThreadShells } from "~/state/entities";
+// loom: workstream spend roll-up for the context meter.
+import { type ContextCostSummary, deriveContextCostSummary } from "~/loom/contextCost";
 import {
   threadContextRecord,
   threadReferenceContextId,
@@ -1166,6 +1168,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  activeContextCost: ContextCostSummary | null; // loom:
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1197,6 +1200,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
+          cost={props.activeContextCost} // loom:
           modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}
@@ -1615,6 +1619,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const composerThreadReferences = composerDraft.threadReferences; // loom:
   const threadShells = useThreadShells(); // loom: the `#` menu's thread section
+  // loom: workstream spend for the context meter's popover. Memoised on the
+  // shells slice so the composer's keystroke renders never walk the graph.
+  const activeContextCost = useMemo(
+    () => deriveContextCostSummary(activeThreadId, threadShells),
+    [activeThreadId, threadShells],
+  );
   const pendingSnapShotAnimations = useSyncExternalStore(
     subscribeToPendingSnapShotAnimations,
     getPendingSnapShotAnimations,
@@ -7160,6 +7170,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    activeContextCost={activeContextCost} // loom:
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
