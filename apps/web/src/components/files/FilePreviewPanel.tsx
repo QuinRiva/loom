@@ -914,7 +914,7 @@ function RenderedMarkdownSurface({
   });
   // loom: the directory this document's own relative paths resolve against.
   const documentLocation = useMemo(
-    () => ({ baseDir: documentBaseDir(relativePath, cwd), threadRef }),
+    () => ({ baseDir: documentBaseDir(relativePath, cwd), cwd, threadRef }),
     [relativePath, cwd, threadRef],
   );
 

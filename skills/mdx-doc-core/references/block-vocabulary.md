@@ -289,17 +289,20 @@ its aspect ratio) are optional.
 ```
 
 The path resolves against the document's own directory and the bytes are served
-from the environment host through a signed asset URL — so commit (or at least
-write) the image next to the `.mdx` and reference it by relative path. Practical
-notes:
+from the environment host through a signed asset URL — so write the image next to
+the `.mdx` and reference it by relative path. Practical notes:
 
+- **Markdown image syntax works too**: `![alt](shots/before.png)` resolves the
+  same way (same signing, same lint checks). Use `<Image>` when you want a
+  caption or a width cap; use the markdown form for a bare inline picture.
 - **PNG for UI screenshots, JPEG for photos**, roughly **1200–1600 px wide**:
   the reading column is ~900 px, so anything wider only pays for retina.
 - A missing file is a **lint error** (`<Image> file not found: …`) — the linter
   resolves every `src` against the document's directory and checks the disk.
-- Do **not** base64 a screenshot into `<Design html>` / `<HtmlBlock html>`: the
-  `html` attribute is capped at **200,000 characters**, a data-URI bloats the
-  source by ~33%, and `<Image>` is the supported path.
+- Do **not** base64 a screenshot into an `html` attribute: `<Screen>`/`<Design>`
+  cap `html` at **200,000 characters** and `<HtmlBlock>`/`<Prototype>` at
+  **500,000**, a data-URI bloats the source by ~33%, and `<Image>` is the
+  supported path for a picture.
 
 ### `<QuestionForm>` — the bottom Open Questions block
 
@@ -500,8 +503,9 @@ for the board-unit spacing numbers that stop artboards overlapping.
 ### `<Screen>` — a low-fidelity wireframe artboard
 
 `surface` is `browser | desktop | mobile | popover | panel` (default `browser`);
-`html` is the self-contained fragment (**capped at 200,000 characters** — it is
-for authored markup, never a base64 image; use `<Image>` for a real picture);
+`html` is the self-contained fragment (**capped at 200,000 characters** here and
+in `<Design>`/`<Artboard>`, against 500,000 for `<HtmlBlock>`/`<Prototype>` — it
+is for authored markup, never a base64 image; use `<Image>` for a real picture);
 `caption` is optional. Author with the neutral `--wf-*` tokens / `.wf-*` classes,
 not branded styling.
 

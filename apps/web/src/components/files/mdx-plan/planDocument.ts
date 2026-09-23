@@ -19,6 +19,9 @@ import { resolvePathLinkTarget } from "~/terminal-links";
 export interface PlanDocumentLocation {
   /** Absolute directory holding the document — the base for a relative `src`. */
   baseDir: string;
+  /** Project root, for media labels and "open file" paths (which are workspace-
+   * relative, not document-relative). Absent in the headless renderer. */
+  cwd?: string | undefined;
   /** Thread the preview belongs to; absent outside the app, where an image
    * falls back to a plain `file://` src that only a local viewer can load. */
   threadRef?: ScopedThreadRef | undefined;

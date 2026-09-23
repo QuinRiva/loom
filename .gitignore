@@ -35,6 +35,9 @@ apps/mobile/.generated/
 /.generated/
 artifacts/app-store/screenshots/
 /.artifacts/
+# loom: `lint-plan.mjs --out <doc-dir>/render.html` — the rendered page an agent
+# writes beside a plan/recap to look at it. Never part of the document.
+render.html
 .github/pr-assets/
 native/**/target/
 node_modules/

@@ -208,16 +208,21 @@ annotating from a mechanically-valid one:
 Render the document to a standalone HTML page and read it:
 
 ```
-node apps/web/scripts/lint-plan.mjs <doc>.mdx --out /tmp/<slug>.html
+node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html
 ```
 
 `--out` keeps the markup the render-health check already produces, with the
-app's stylesheet inlined and `<Image>` sources resolved to the real files, so
-the page you open is what the reviewer sees. That is the supported way to check
-a document visually — **do not boot a dev server for this.** Reserve a live app
-instance for what genuinely needs interaction: annotation, `<Prototype>` flows,
-answering a `<QuestionForm>`, or a layout question that depends on the real
-panel width.
+app's stylesheet inlined and image sources resolved, so the page you open is
+what the reviewer sees. **Write it beside the document** (`render.html` in the
+document's own folder — gitignored): images are then relative to the page, which
+is the only form that loads both when you open the file directly and when a
+human opens it in-app from its file chip. A page written elsewhere still renders,
+but its images resolve as `file://` and stay blank inside the app.
+
+That is the supported way to check a document visually — **do not boot a dev
+server for this.** Reserve a live app instance for what genuinely needs
+interaction: annotation, `<Prototype>` flows, answering a `<QuestionForm>`, or a
+layout question that depends on the real panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
 controls, poor contrast, and unreadable diagrams before asking for approval.

@@ -22,8 +22,11 @@
  * `--out <file.html>` keeps the markup stage 2 already produces, as a standalone
  * page with the app's compiled stylesheet inlined — the cheap way to LOOK at a
  * document (open the file) instead of booting a dev server to click through to
- * it. `<Image>` sources are emitted as `file://` paths, so the real screenshots
- * show up when the page is opened locally.
+ * it. An image under the output file's own directory is rewritten to a relative
+ * src, so the page shows real screenshots both opened directly (`file://`) and
+ * through the app's HTML preview, whose iframe cannot load a `file://`
+ * subresource. Write the page BESIDE the document (`<doc-dir>/render.html`) and
+ * that holds for every image the document references.
  *
  * Outside a browser that graph needs two things, which this script provides:
  * DOM globals (jsdom) and vite-powered module loading (tsx + `~` alias).
@@ -190,6 +193,17 @@ async function renderFindings(mdxSource) {
  * in-app. */
 async function writeStandalonePage(html, target) {
   const css = (await server.transformRequest("/src/index.css?direct"))?.code ?? "";
+  // A `file://` src is unloadable in the app's HTML preview (an iframe on the app
+  // origin), and the server resolves a preview's subresources by joining onto the
+  // page's own directory — no `..` segments. So relative wins wherever the image
+  // sits under the output directory, and `file://` stays for anything above it.
+  const outDir = NodePath.dirname(target);
+  const body = html.replaceAll(/src="file:\/\/([^"]*)"/g, (match, encoded) => {
+    const relative = NodePath.relative(outDir, decodeURI(encoded));
+    return relative.startsWith("..") || NodePath.isAbsolute(relative)
+      ? match
+      : `src="${encodeURI(relative.split(NodePath.sep).join("/"))}"`;
+  });
   const page = `<!doctype html>
 <html lang="en" class="dark">
 <head>
@@ -199,7 +213,7 @@ async function writeStandalonePage(html, target) {
 <style>${css}</style>
 </head>
 <body class="bg-background text-foreground" style="--timeline-available-width: 1180px">
-<div data-plan-root class="plan-mdx mx-auto max-w-4xl px-6 py-5">${html}</div>
+<div data-plan-root class="plan-mdx mx-auto max-w-4xl px-6 py-5">${body}</div>
 </body>
 </html>
 `;

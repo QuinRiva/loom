@@ -1,9 +1,11 @@
-import { useContext } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { z } from "zod";
 
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 
 import { ChatMarkdownAssetImage } from "~/components/ChatMarkdown";
+import { ExpandedImageDialog } from "~/components/chat/ExpandedImageDialog";
+import type { ExpandedImagePreview } from "~/components/chat/ExpandedImagePreview";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { PlanDocumentContext } from "../planDocument";
@@ -21,8 +23,12 @@ import { PlanDocumentContext } from "../planDocument";
  * never handed to the browser as a bare path. `https:`/`data:` sources render
  * directly.
  *
+ * Markdown image syntax renders through {@link PlanMarkdownImage}, registered as
+ * the renderer's `img` component, so `![alt](shot.png)` resolves the same way
+ * instead of emitting a bare `<img>` against the app origin.
+ *
  * Outside the app (the headless renderer in `scripts/lint-plan.mjs`) there is no
- * thread to sign a URL against, so the figure falls back to a `file://` src,
+ * thread to sign a URL against, so the picture falls back to a `file://` src,
  * which is what makes `--out` HTML show the real image when opened locally.
  */
 
@@ -59,57 +65,115 @@ const imageMdx: BlockMdxConfig<ImageData> = {
     }) as ImageData,
 };
 
-/** `file:///abs/path with spaces.png` — the only form a locally-opened static
- * render (lint `--out`) can load, and one no in-app render ever reaches. */
+/** `file:///abs/path%20with%20spaces.png` — the only form a locally-opened static
+ * render can load, and one no in-app render ever reaches. `encodeURI` (not a
+ * per-segment encode) keeps a Windows drive letter's `:` intact. */
 function fileUrl(path: string): string {
-  return `file://${path.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/")}`;
+  return `file://${encodeURI(path.replace(/\\/g, "/"))}`;
+}
+
+/**
+ * The picture itself plus the resolved host path for the caller to stamp. Shared
+ * by the `<Image>` block and the markdown `img` mapping so both resolve, sign,
+ * and lint-check identically; only the wrapper differs (a flow `<figure>` vs an
+ * inline `<span>` that is legal inside a paragraph).
+ */
+function usePlanImage(src: string, alt: string): { path?: string; picture: ReactNode } {
+  const location = useContext(PlanDocumentContext);
+  const [preview, setPreview] = useState<ExpandedImagePreview | null>(null);
+  const source = classifyMarkdownImageSource(src, location?.baseDir);
+  const dialog = preview ? (
+    <ExpandedImageDialog preview={preview} onClose={() => setPreview(null)} />
+  ) : null;
+
+  if (source._tag === "Blocked") {
+    return {
+      picture: (
+        <span className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+          Image “{src}” could not be resolved — write the path relative to this document.
+        </span>
+      ),
+    };
+  }
+  if (source._tag === "WorkspaceFile" && location?.threadRef) {
+    return {
+      path: source.path,
+      picture: (
+        <>
+          <ChatMarkdownAssetImage
+            environmentId={location.threadRef.environmentId}
+            resource={{
+              _tag: "media-file",
+              threadId: location.threadRef.threadId,
+              path: source.path,
+            }}
+            alt={alt}
+            standalone
+            // The project root, not the document's directory: this is what the
+            // media actions label and their "open file" path are relative to.
+            workspaceRoot={location.cwd}
+            onImageExpand={setPreview}
+          />
+          {dialog}
+        </>
+      ),
+    };
+  }
+  return {
+    ...(source._tag === "WorkspaceFile" ? { path: source.path } : {}),
+    picture: (
+      <img
+        src={source._tag === "Direct" ? source.uri : fileUrl(source.path)}
+        alt={alt}
+        // The same box the in-app asset image keeps (`maxHeightRem` 30).
+        className="max-h-[30rem] max-w-full rounded-lg border border-border"
+      />
+    ),
+  };
 }
 
 function ImageRead({ data, blockId }: PlanBlockReadProps<ImageData>) {
-  const location = useContext(PlanDocumentContext);
-  const source = classifyMarkdownImageSource(data.src, location?.baseDir);
-  const alt = data.alt ?? data.caption ?? "";
-  const style = data.width ? { maxWidth: data.width } : undefined;
-
+  const { path, picture } = usePlanImage(data.src, data.alt ?? data.caption ?? "");
   return (
     <figure
       data-plan-block-id={blockId}
       data-plan-block-type="image"
       // The resolved host path, so the headless check can confirm the file is
       // actually there (a typo'd screenshot path renders as a broken image).
-      data-plan-image-path={source._tag === "WorkspaceFile" ? source.path : undefined}
+      data-plan-image-path={path}
       className="my-6 flex flex-col items-center gap-2"
-      style={style}
+      style={data.width ? { maxWidth: data.width } : undefined}
     >
-      {source._tag === "WorkspaceFile" && location?.threadRef ? (
-        <ChatMarkdownAssetImage
-          environmentId={location.threadRef.environmentId}
-          resource={{
-            _tag: "media-file",
-            threadId: location.threadRef.threadId,
-            path: source.path,
-          }}
-          alt={alt}
-          standalone
-          workspaceRoot={location.baseDir}
-        />
-      ) : source._tag === "Blocked" ? (
-        <div className="w-full rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-          Image “{data.src}” could not be resolved — write the path relative to this document.
-        </div>
-      ) : (
-        <img
-          src={source._tag === "Direct" ? source.uri : fileUrl(source.path)}
-          alt={alt}
-          className="max-w-full rounded-lg border border-border"
-        />
-      )}
+      {picture}
       {data.caption ? (
         <figcaption className="text-center text-xs text-muted-foreground">
           {data.caption}
         </figcaption>
       ) : null}
     </figure>
+  );
+}
+
+/**
+ * The renderer's `img` component — markdown image syntax (`![alt](shot.png)`)
+ * and any authored `<img>`. Without it MDX emits a bare `<img>` whose relative
+ * src resolves against the app origin and silently shows broken, which is an
+ * author's most natural first attempt. Inline-level so it stays legal inside the
+ * paragraph markdown wraps it in; `<Image>` is the block form with a caption.
+ */
+export function PlanMarkdownImage({ src, alt, title }: Record<string, unknown>) {
+  const { path, picture } = usePlanImage(
+    typeof src === "string" ? src : "",
+    typeof alt === "string" ? alt : "",
+  );
+  return (
+    <span
+      data-plan-image-path={path}
+      title={typeof title === "string" ? title : undefined}
+      className="inline-block max-w-full align-middle"
+    >
+      {picture}
+    </span>
   );
 }
 
