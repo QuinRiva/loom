@@ -243,26 +243,33 @@ The `^=` covers both viewports (`toast-viewport` and `toast-viewport-anchored`
 in `apps/web/src/components/ui/toast.tsx`). Re-apply after any navigation that
 remounts the app.
 
-### Usage and cost numbers move on their own — that is not your instance spending money
+### Usage and cost numbers move on their own — check which cause before you react
 
-A copy-DB instance looks alarmingly like live work, for two reasons that are
-both expected:
+A copy-DB instance looks alarmingly like live work, for two causes that need
+**opposite** reactions. The guard warnings above tell them apart: present means
+the first; absent on a copy-DB boot means you are unguarded — because the build
+predates the guard, or because the snapshot records no worktree for it to key
+off (below) — which is the second.
 
-- **The usage page scans transcripts from disk, not from the database you
-  pointed at.** `UsageService` walks each provider's sessions root — pi's is
-  machine-global — so a scratch instance reports the **real** cockpit's live pi
-  sessions, and its figures climb while you watch, in an instance that has
-  spent nothing.
-- **A build from before the foreign-home guard really does start providers.**
-  Booting an old release against the snapshot (e.g. to capture a pre-change
-  baseline) spawns provider probes on the copied sessions, which is exactly what
-  the guard exists to refuse in current builds.
+- **Guarded build — a false alarm.** The usage page scans transcripts from disk,
+  not from the database you pointed at: `UsageService` walks each provider's
+  sessions root, and pi's is machine-global, so a scratch instance reports the
+  **real** cockpit's live pi sessions. The figures climb while you watch in an
+  instance that has spent nothing. Leave it running and finish your capture.
+- **Pre-guard build — not an alarm, a fire.** Booting an old release against the
+  snapshot (e.g. to capture a pre-change baseline) runs without the foreign-home
+  guard, and startup reconciliation resumes the sessions the copied database
+  records — which are the cockpit's **real** ones, in their live checkouts
+  (that is precisely what `ProviderService.recoverSessionForThread` refuses in
+  current builds). That spends real tokens and puts a second driver on other
+  threads' sessions. Shut it down.
 
-An agent once read the moving numbers as its scratch server burning quota, shut
-the instance down mid-capture, and truncated its own baseline evidence — the
-alarm was false. Confirm what you are looking at (guard warnings in the log, the
-processes you actually started) before killing anything; the risk here is to
-your evidence, not to your quota.
+Both failure directions have already happened: an agent read the guarded case's
+moving numbers as its scratch server burning quota, shut the instance down
+mid-capture, and truncated its own baseline evidence for nothing. Read the log
+rather than guessing in either direction — killing a guarded instance costs you
+evidence you cannot rerun, and leaving a pre-guard one running costs tokens and
+other threads' session state.
 
 ## Running several instances at once
 
