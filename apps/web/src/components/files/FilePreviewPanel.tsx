@@ -99,6 +99,13 @@ import {
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
+// loom: line virtualization cannot bound a file whose individual lines are huge.
+import {
+  elideLongLines,
+  hasUnboundedLines,
+  LONG_LINE_RENDER_CAP,
+  UNBOUNDED_LINE_LENGTH,
+} from "./longLinePreview.loom";
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
@@ -1119,6 +1126,28 @@ export default function FilePreviewPanel({
   // source throws and shows a content-less error card over the truncation
   // banner. Force the source view until the full-budget read lands.
   const mdxTruncated = isMdx && (file.data?.truncated ?? false);
+  // loom: a file with lines far longer than any hand-written source defeats the
+  // renderer's line virtualization — it paints whole lines, so a handful of them
+  // puts the entire file in the DOM. Such a file renders elided and read-only:
+  // the editable surface saves whatever it holds, so elided text must never
+  // reach it.
+  const contents = file.data?.contents ?? null;
+  const unboundedLines = useMemo(
+    () => (contents === null ? false : hasUnboundedLines(contents)),
+    [contents],
+  );
+  const previewContents = useMemo(
+    () => (contents !== null && unboundedLines ? elideLongLines(contents) : contents),
+    [contents, unboundedLines],
+  );
+  // loom: both reasons the preview shows less than the file holds. The read cap
+  // is per-request (8 MB with an explicit maxBytes); the line cap is this
+  // panel's, and also explains why the surface stopped being editable.
+  const previewNotice = file.data?.truncated
+    ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data.byteLength.toLocaleString()} byte file.`
+    : unboundedLines
+      ? `Lines longer than ${UNBOUNDED_LINE_LENGTH.toLocaleString()} characters are shown to their first ${LONG_LINE_RENDER_CAP.toLocaleString()}, and this file is read-only here. Open it in an editor to see or change it in full.`
+      : null;
   const renderMarkdown = isMarkdown && !mdxTruncated && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1314,11 +1343,9 @@ export default function FilePreviewPanel({
       attachment === undefined &&
       !isMedia &&
       !renderBrowserFile &&
-      file.data?.truncated ? (
+      previewNotice ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
-          {/* loom: the read cap is per-request (8 MB with an explicit maxBytes). */}
-          Preview limited to the first {readMaxBytes ? "8 MB" : "1 MB"} of a{" "}
-          {file.data.byteLength.toLocaleString()} byte file.
+          {previewNotice}
         </div>
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1403,11 +1430,15 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile ? (
+            ) : file.data.truncated || isHostFile || unboundedLines ? (
               <SourceFilePreview
                 name={relativePath}
-                text={file.data.contents}
-                cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
+                text={previewContents ?? file.data.contents}
+                cacheKey={projectFileCacheKey(
+                  cwd,
+                  relativePath,
+                  previewContents ?? file.data.contents,
+                )}
                 onPostRender={onFilePostRender}
               />
             ) : (
