@@ -294,8 +294,8 @@ function withInstanceIdentity(input: {
 
 /**
  * Curated "top / recommended" shortlist surfaced first in the model picker —
- * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 5 on the
- * pooled cli-proxy) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
+ * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 5.5 on
+ * the pooled cli-proxy) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
  * the plain `openai` one. The remaining catalogue (fetched live via
  * `get_available_models`, see {@link enrichPiSnapshot}) follows in pi's own order.
  */
@@ -310,7 +310,7 @@ const CURATED_PI_MODELS: ReadonlyArray<{
   // the openai/openai-codex backends (hence the "(Codex)" suffix).
   {
     slug: PI_DEFAULT_MODEL,
-    name: "Claude Opus 5",
+    name: "Claude Opus 5.5",
     // Derived the same way the live catalogue derives it, so the placeholder
     // and the enriched snapshot agree on the backend badge.
     subProvider: piBackendLabel(

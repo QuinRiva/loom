@@ -218,7 +218,7 @@ describe("piCatalogModels backend disambiguation", () => {
 
   it("names and attributes the default model in the initial snapshot", () => {
     expect(piModels(settings).find((entry) => entry.slug === PI_DEFAULT_MODEL)).toMatchObject({
-      name: "Claude Opus 5",
+      name: "Claude Opus 5.5",
       subProvider: "CLI Proxy",
     });
   });
