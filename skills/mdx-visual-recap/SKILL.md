@@ -59,6 +59,10 @@ them to open, triage, and decide in-app.
 node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx
 ```
 
+Add `--out /tmp/<slug>.html` to also keep the rendered page (stylesheet inlined,
+images resolved) and open that to LOOK at the document — the supported way to
+check it visually, instead of booting a dev server.
+
 This is the render-health gate, in two stages against the real renderer
 modules: **lint** (compile gate, block registry, zod schemas) reporting
 `file:line` findings — including the **duplicate `<ReviewChoice itemId>`** check

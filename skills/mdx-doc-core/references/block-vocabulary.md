@@ -270,6 +270,37 @@ enough.
 />
 ```
 
+### `<Image>` — a screenshot or exported image file
+
+Shows an image **file that lives beside the document on disk** — a screenshot of
+a real screen, an exported chart, a photo of a whiteboard. `src` is the path
+**relative to the document** (`shots/before.png` for
+`recaps/<slug>/shots/before.png`); an absolute host path and an `https:` /
+`data:` URL also work. `alt`, `caption`, and `width` (a px cap; the image keeps
+its aspect ratio) are optional.
+
+```mdx
+<Image
+  src="shots/usage-panel-before.png"
+  alt="The usage panel with the per-model table collapsed"
+  caption="Figure 1 — today's usage panel"
+  width={900}
+/>
+```
+
+The path resolves against the document's own directory and the bytes are served
+from the environment host through a signed asset URL — so commit (or at least
+write) the image next to the `.mdx` and reference it by relative path. Practical
+notes:
+
+- **PNG for UI screenshots, JPEG for photos**, roughly **1200–1600 px wide**:
+  the reading column is ~900 px, so anything wider only pays for retina.
+- A missing file is a **lint error** (`<Image> file not found: …`) — the linter
+  resolves every `src` against the document's directory and checks the disk.
+- Do **not** base64 a screenshot into `<Design html>` / `<HtmlBlock html>`: the
+  `html` attribute is capped at **200,000 characters**, a data-URI bloats the
+  source by ~33%, and `<Image>` is the supported path.
+
 ### `<QuestionForm>` — the bottom Open Questions block
 
 The single place for unresolved decisions. Each question has a `mode` of
@@ -469,8 +500,10 @@ for the board-unit spacing numbers that stop artboards overlapping.
 ### `<Screen>` — a low-fidelity wireframe artboard
 
 `surface` is `browser | desktop | mobile | popover | panel` (default `browser`);
-`html` is the self-contained fragment; `caption` is optional. Author with the
-neutral `--wf-*` tokens / `.wf-*` classes, not branded styling.
+`html` is the self-contained fragment (**capped at 200,000 characters** — it is
+for authored markup, never a base64 image; use `<Image>` for a real picture);
+`caption` is optional. Author with the neutral `--wf-*` tokens / `.wf-*` classes,
+not branded styling.
 
 ```mdx
 <Screen
@@ -612,6 +645,9 @@ most precisely annotatable. Add a visual surface only when it earns its place:
   `<Artboard>`s + `<Connector>`s (a multi-screen flow). Grey-box wireframe
   fidelity; the point is layout and flow, not polish.
 - **Branded / high-fidelity visuals** — `<Design>`, when the actual look matters.
+- **Evidence of something that already exists** — `<Image>`, pointing at a
+  screenshot file beside the document. A wireframe is for UI you are _proposing_;
+  a screenshot is for UI that is _already there_.
 - **An interaction the reviewer must operate** — `<Prototype>`. Reserve it for
   flows where clicking through beats a static picture; a static layout is a
   `<Screen>`, not a prototype.

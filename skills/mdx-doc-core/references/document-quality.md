@@ -203,10 +203,30 @@ annotating from a mechanically-valid one:
   sign-off** — for a decision doc, a top `<Callout tone="decision">` with the
   review protocol and the silence-defaults rule.
 
-## Before handoff, open the plan and check it
+## Before handoff, look at the rendered document
+
+Render the document to a standalone HTML page and read it:
+
+```
+node apps/web/scripts/lint-plan.mjs <doc>.mdx --out /tmp/<slug>.html
+```
+
+`--out` keeps the markup the render-health check already produces, with the
+app's stylesheet inlined and `<Image>` sources resolved to the real files, so
+the page you open is what the reviewer sees. That is the supported way to check
+a document visually — **do not boot a dev server for this.** Reserve a live app
+instance for what genuinely needs interaction: annotation, `<Prototype>` flows,
+answering a `<QuestionForm>`, or a layout question that depends on the real
+panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
 controls, poor contrast, and unreadable diagrams before asking for approval.
-Check the visual surfaces in dark mode especially: a white mockup panel or
-low-contrast muted text is a defect — rewrite the HTML with `--wf-*` tokens and
-semantic helper classes before surfacing the plan.
+Check the visual surfaces in dark mode especially (the `--out` page renders
+dark, as the app does): a white mockup panel or low-contrast muted text is a
+defect — rewrite the HTML with `--wf-*` tokens and semantic helper classes
+before surfacing the plan.
+
+The check also reads the rendered _text_ for defects no static pass can see —
+literal `\uXXXX` escapes and latin-1 mojibake (`â€”`) that a build script or a
+re-encoded file wrote into captions and prose. Both are errors; fix the source
+that produced them rather than the symptom.
