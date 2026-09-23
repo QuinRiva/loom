@@ -124,6 +124,7 @@ function makeReadModel(
       id: thread.id,
       projectId,
       goalId: null,
+      anchorTaskId: null,
       parentThreadId: null,
       role: null,
       purpose: null,

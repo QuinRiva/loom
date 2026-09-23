@@ -49,6 +49,7 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: null,
+    anchorTaskId: null,
     continuesThreadId: null,
     reportPath: null,
     kickoffBriefPath: null,

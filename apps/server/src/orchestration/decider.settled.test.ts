@@ -43,6 +43,7 @@ function makeReadModel(
         id: ThreadId.make("thread-1"),
         projectId: ProjectId.make("project-1"),
         goalId: null,
+        anchorTaskId: null,
         parentThreadId: null,
         role: null,
         purpose: null,

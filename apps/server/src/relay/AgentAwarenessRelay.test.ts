@@ -330,6 +330,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       projectId,
       // loom: workstream fields on the lean shell.
       goalId: null,
+      anchorTaskId: null,
       parentThreadId: null,
       role: null,
       purpose: null,
@@ -502,6 +503,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           id: threadId,
           projectId,
           goalId: null,
+          anchorTaskId: null,
           parentThreadId: null,
           role: null,
           purpose: null,
@@ -723,6 +725,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           id: threadId,
           projectId,
           goalId: null,
+          anchorTaskId: null,
           parentThreadId: null,
           role: null,
           purpose: null,

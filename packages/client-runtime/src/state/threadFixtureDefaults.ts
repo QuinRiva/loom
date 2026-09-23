@@ -9,6 +9,7 @@ import { ProviderInstanceId, type OrchestrationThreadShell } from "@t3tools/cont
  */
 export const THREAD_FIXTURE_DEFAULTS = {
   goalId: null,
+  anchorTaskId: null,
   parentThreadId: null,
   role: null,
   purpose: null,

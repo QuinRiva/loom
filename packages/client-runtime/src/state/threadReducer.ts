@@ -153,6 +153,8 @@ export function applyThreadDetailEvent(
           id: event.payload.threadId,
           projectId: event.payload.projectId,
           goalId: event.payload.goalId ?? null,
+          // loom: task-tree branch scoping — the branch this thread owns.
+          anchorTaskId: event.payload.anchorTaskId ?? null,
           parentThreadId: event.payload.parentThreadId ?? null,
           role: event.payload.role ?? null,
           purpose: event.payload.purpose ?? null,

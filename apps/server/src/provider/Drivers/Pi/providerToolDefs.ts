@@ -163,6 +163,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
           description:
             "Fork this child's session from an existing active direct child (the source) at launch: the child starts from a byte-identical copy of the source's transcript. This is the acknowledge-then-fork fan-out: one reader child reads a large shared corpus and ends with a bare acknowledgement, then each fork carries only its own lens in its brief, so every fork reasons from the same context (comparable verdicts, plus prompt-cache reuse when they launch together on a cache-supporting path). Identity is inherited: do NOT pass role / modelSelection / modelPreset / taskShape / sensitive (each is rejected); purpose and title are still required per fork. forkFrom is auto-added to blockedBy and cannot be combined with gate. Launch the forks together (the cache window is time-limited). Prefer the default shared worktree so the copied transcript's paths stay valid; use isolation:'isolated' only if the forks write code.",
         },
+        anchorTaskId: {
+          type: "string",
+          description:
+            "Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns — the only part of the tree it is shown, the default parent for the tasks it adds, and the only part it may tick or restructure. Pass the id from the trailing '(id)' of a task line in goal_task_list; add the task first with goal_task_add if it does not exist yet (its id comes back in the echo). Explicit only — no node is ever auto-created, and most children should stay UNBOUND: reviewers, researchers working from a brief, and gate threads legitimately have no task of their own, and an unbound child still sees the goal's phases and can record discovered work. When you are yourself anchored you may only pass your own anchor or a task beneath it. A forked child inherits its source's anchor unless you pass one here.",
+        },
         staged: {
           type: "boolean",
           description:
@@ -309,6 +314,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                 type: "string",
                 description:
                   "Fork this node's session from a source at launch, so it starts from a byte-identical copy of the source's transcript. The fork contract is as in workstream_spawn's forkFrom. Scaffold-specific only: the source is a `key` in this scaffold (typically the reader node) or `thread:<id>` for an existing child; this expresses the whole acknowledge-then-fork shape in ONE call (a reader node plus N fork nodes with forkFrom: reader, each carrying only its lens brief); fork-of-fork is allowed and resolves order-independently while a fork-edge cycle is rejected; and staging the reader and forks together lets them launch in one dispatcher pass.",
+              },
+              anchorTaskId: {
+                type: "string",
+                description:
+                  "Bind this node to ONE task of the goal task tree, exactly as in workstream_spawn: that task's subtree is the branch the node owns (what it sees, what its added tasks hang under, and what it may tick or restructure). Explicit only; omit it for the many nodes that legitimately own no task (reviewers, researchers, gate threads), and pass only your own anchor or a task beneath it when you are yourself anchored. A fork node inherits its source's anchor unless it states one.",
               },
               isolation: {
                 type: "string",

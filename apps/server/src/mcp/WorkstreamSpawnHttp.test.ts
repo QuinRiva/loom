@@ -9,6 +9,7 @@ import type { AccountUsageSnapshot } from "../provider/accountUsage.loom.ts";
 import {
   ThreadId,
   type OrchestrationCommand,
+  type OrchestrationGoalTask,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -45,6 +46,7 @@ import {
   scaffoldNodeRejectionMessage,
   type ScaffoldGraphNode,
   resolveShapeSelection,
+  resolveSpawnAnchor,
   resolveSpawnModelSelection,
   validateModelSelection,
   validateSpawnGraph,
@@ -2083,5 +2085,89 @@ describe("resolveScaffoldGraph (two-phase composition boundary, D4)", () => {
     ]);
     expect(result.kind === "error" && result.message).toContain('node "fork":');
     expect(result.kind === "error" && result.message).toContain("not pi-backed");
+  });
+});
+
+// loom: task-tree branch scoping — the anchor binding's edge rules.
+describe("resolveSpawnAnchor (anchor binding, plan §1)", () => {
+  const task = (
+    id: string,
+    text: string,
+    children: ReadonlyArray<OrchestrationGoalTask> = [],
+  ): OrchestrationGoalTask =>
+    ({ id, goalId: "goal-1", parentTaskId: null, text, done: false, children }) as never;
+  // phase-6 ─ chip ─ zero-rows ; phase-7 (a sibling branch)
+  const tasks: ReadonlyArray<OrchestrationGoalTask> = [
+    task("phase-6", "Surface usage on the thread screen", [
+      task("chip", "Add the per-turn cost chip", [task("zero-rows", "Handle zero-usage rows")]),
+    ]),
+    task("phase-7", "Goal-level rollups"),
+  ];
+  const run = (input: Partial<Parameters<typeof resolveSpawnAnchor>[0]>) =>
+    resolveSpawnAnchor({
+      requested: undefined,
+      inherited: null,
+      goalTasks: tasks,
+      spawnerAnchorTaskId: null,
+      nothingClause: "Nothing was spawned.",
+      ...input,
+    });
+
+  it("leaves a child unbound when no anchor is asked for and none is inherited", () => {
+    expect(run({})).toEqual({ kind: "ok", anchorTaskId: undefined });
+  });
+
+  it("inherits the fork source's anchor when the fork states none", () => {
+    expect(run({ inherited: "chip" as never })).toEqual({ kind: "ok", anchorTaskId: "chip" });
+  });
+
+  it("lets an explicit anchor win over fork inheritance", () => {
+    expect(run({ requested: "phase-7", inherited: "chip" as never })).toEqual({
+      kind: "ok",
+      anchorTaskId: "phase-7",
+    });
+  });
+
+  it("accepts any live task of the goal for an unanchored spawner", () => {
+    expect(run({ requested: "zero-rows" })).toEqual({ kind: "ok", anchorTaskId: "zero-rows" });
+  });
+
+  it("rejects a task id that is not live in the goal's tree", () => {
+    const result = run({ requested: "deleted-task" });
+    expect(result.kind).toBe("rejected");
+    expect(result.kind === "rejected" && result.message).toContain("not a live task");
+    expect(result.kind === "rejected" && result.message).toContain("goal_task_list");
+  });
+
+  it("rejects an anchor when the spawning thread has no goal at all", () => {
+    const result = run({ requested: "phase-6", goalTasks: null });
+    expect(result.kind).toBe("rejected");
+    expect(result.kind === "rejected" && result.message).toContain("no active goal");
+  });
+
+  it("lets an anchored spawner delegate its own anchor and any descendant", () => {
+    expect(run({ requested: "phase-6", spawnerAnchorTaskId: "phase-6" as never })).toEqual({
+      kind: "ok",
+      anchorTaskId: "phase-6",
+    });
+    expect(run({ requested: "zero-rows", spawnerAnchorTaskId: "phase-6" as never })).toEqual({
+      kind: "ok",
+      anchorTaskId: "zero-rows",
+    });
+  });
+
+  it("rejects an anchored spawner delegating outside its own branch", () => {
+    const result = run({ requested: "phase-7", spawnerAnchorTaskId: "phase-6" as never });
+    expect(result.kind).toBe("rejected");
+    expect(result.kind === "rejected" && result.message).toContain("outside the branch you own");
+    expect(result.kind === "rejected" && result.message).toContain("phase-6");
+    expect(result.kind === "rejected" && result.message).toContain("goal_task_add");
+  });
+
+  it("treats a spawner whose own anchor was deleted as unbound rather than stuck", () => {
+    expect(run({ requested: "phase-7", spawnerAnchorTaskId: "deleted-anchor" as never })).toEqual({
+      kind: "ok",
+      anchorTaskId: "phase-7",
+    });
   });
 });

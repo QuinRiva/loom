@@ -2,6 +2,7 @@ import {
   AttentionReason,
   CommandId,
   DEFAULT_GATE_MAX_ROUNDS,
+  GoalTaskId,
   MAX_GATE_MAX_ROUNDS,
   MessageId,
   ModelSelection,
@@ -11,6 +12,7 @@ import {
   ThreadPlanLane,
   isProviderAvailable,
   type OrchestrationCommand,
+  type OrchestrationGoalTask,
   type OrchestrationThreadShell,
   type ProfileUnsuitableFor,
   type ServerProvider,
@@ -41,6 +43,13 @@ import {
 } from "@t3tools/shared/workstreamGraph";
 
 import { ServerConfig } from "../config.ts";
+// loom: task-tree branch scoping — anchor resolution against the live tree.
+import {
+  findGoalTask,
+  isWithinGoalTaskBranch,
+  resolveThreadAnchor,
+} from "../orchestration/goalTaskAnchor.loom.ts";
+import { flattenGoalTasks } from "../orchestration/goalTaskTree.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { askWorkstreamThread } from "../orchestration/workstreamAsk.ts";
@@ -109,6 +118,8 @@ interface WorkstreamSpawnRequest {
   readonly isolation?: unknown;
   // loom: forkFrom — source thread whose pi session this child forks at launch.
   readonly forkFrom?: unknown;
+  // loom: task-tree branch scoping — the goal task whose branch this child owns.
+  readonly anchorTaskId?: unknown;
 }
 
 interface WorkstreamScaffoldNodeRequest {
@@ -125,6 +136,8 @@ interface WorkstreamScaffoldNodeRequest {
   readonly isolation?: unknown;
   // loom: forkFrom — key | thread:id of the source node/child to fork from.
   readonly forkFrom?: unknown;
+  // loom: task-tree branch scoping — the goal task whose branch this node owns.
+  readonly anchorTaskId?: unknown;
 }
 
 interface WorkstreamScaffoldRequest {
@@ -1129,6 +1142,60 @@ export const forkIdentityFieldsRejection = (
   return `${offenders.join(", ")} cannot be combined with forkFrom: a fork inherits its source's launch identity (role, applied model + thinking level), so ${isOne ? "that field is" : "those fields are"} rejected rather than silently ignored. Remove ${isOne ? "it" : "them"} — the fork adopts the source's role and model. ${nothingClause}`;
 };
 
+// loom: task-tree branch scoping (plan §1 Binding) — anchor validation lives at
+// this edge because commands carry no thread identity, exactly like the rewrite
+// ownership check in GoalTaskHttp.ts. The decider stays a pure pass-through.
+
+export type AnchorResolution =
+  | { readonly kind: "ok"; readonly anchorTaskId: GoalTaskId | undefined }
+  | { readonly kind: "rejected"; readonly message: string };
+
+/**
+ * Resolve the anchor a spawned/scaffolded child is born with.
+ *
+ * An EXPLICIT `anchorTaskId` must be a live task of the spawner's goal, and —
+ * when the spawner is itself anchored — that anchor or a descendant of it: a
+ * nested orchestrator only delegates within the branch it owns. Omitted ⇒ the
+ * fork source's anchor when this is a fork (`inherited`), else unbound.
+ *
+ * An INHERITED anchor is not re-validated: it was valid when it was set, and an
+ * anchor whose task was since deleted degrades to unbound at read time.
+ */
+export const resolveSpawnAnchor = (input: {
+  readonly requested: string | undefined;
+  readonly inherited: GoalTaskId | null;
+  /** The spawner's goal task tree, or null when the spawner has no live goal. */
+  readonly goalTasks: ReadonlyArray<OrchestrationGoalTask> | null;
+  readonly spawnerAnchorTaskId: GoalTaskId | null;
+  readonly nothingClause: string;
+}): AnchorResolution => {
+  if (input.requested === undefined) {
+    return { kind: "ok", anchorTaskId: input.inherited ?? undefined };
+  }
+  if (input.goalTasks === null) {
+    return {
+      kind: "rejected",
+      message: `anchorTaskId was passed, but this thread has no active goal — there is no task tree to anchor a child into. Omit anchorTaskId; the child is then unbound and works from its brief. ${input.nothingClause}`,
+    };
+  }
+  const requested = GoalTaskId.make(input.requested);
+  const task = findGoalTask(input.goalTasks, requested);
+  if (task === null) {
+    return {
+      kind: "rejected",
+      message: `anchorTaskId ${requested} is not a live task of this thread's goal. Pass the id shown in the trailing "(id)" of a task line from goal_task_list — add the task first with goal_task_add if it does not exist yet, or omit anchorTaskId to leave the child unbound. ${input.nothingClause}`,
+    };
+  }
+  const ownAnchor = resolveThreadAnchor(input.goalTasks, input.spawnerAnchorTaskId);
+  if (ownAnchor !== null && !isWithinGoalTaskBranch(ownAnchor, requested)) {
+    return {
+      kind: "rejected",
+      message: `anchorTaskId ${requested} ("${task.text}") is outside the branch you own. You are anchored to ${ownAnchor.id} ("${ownAnchor.text}"), and a thread may only delegate within its own branch: pass that task or one of its descendants, or omit anchorTaskId to leave the child unbound. Work you discovered elsewhere in the tree is RECORDED with goal_task_add and re-homed by the orchestrator that owns the shape, not delegated from here. ${input.nothingClause}`,
+    };
+  }
+  return { kind: "ok", anchorTaskId: requested };
+};
+
 export const forkFromGateConflictMessage = (nothingClause = "Nothing was spawned."): string =>
   `gate and forkFrom cannot be combined: a forked child is a normal worker that inherits the source's session, not a gated reviewer — v1 does not compose the two (the attached-worktree promotion has no reasoned semantics here). Drop one. ${nothingClause}`;
 
@@ -2053,6 +2120,26 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     }
   }
 
+  // loom: task-tree branch scoping — the branch this child owns. An explicit
+  // anchorTaskId beats fork inheritance (explicit beats implicit everywhere in
+  // this handler); omitted on a fork, the source's anchor carries over.
+  const requestedAnchor = trimString(body.anchorTaskId);
+  const goalTasks =
+    requestedAnchor === undefined || current.goalId === null
+      ? null
+      : (Option.getOrUndefined(yield* projection.getGoalById(current.goalId))?.tasks ?? null);
+  const anchor = resolveSpawnAnchor({
+    requested: requestedAnchor,
+    inherited:
+      forkFromId === undefined
+        ? null
+        : (activeChildren.find((child) => child.id === forkFromId)?.anchorTaskId ?? null),
+    goalTasks,
+    spawnerAnchorTaskId: current.anchorTaskId,
+    nothingClause: "Nothing was spawned.",
+  });
+  if (anchor.kind === "rejected") return jsonError(400, anchor.message);
+
   // Trim before branding: ThreadId.make("") throws a defect that escapes the
   // typed Effect.catch, and untrimmed ids silently become dangling deps.
   const blockedBy = Array.isArray(body.blockedBy)
@@ -2110,6 +2197,8 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     threadId: childThreadId,
     projectId: current.projectId,
     goalId: current.goalId ?? null,
+    // loom: task-tree branch scoping — validated above, carried verbatim.
+    ...(anchor.anchorTaskId !== undefined ? { anchorTaskId: anchor.anchorTaskId } : {}),
     parentThreadId: scope.threadId,
     // loom: forkFrom (D2) — the stored role is the source's role for a fork.
     role: storedRole,
@@ -2203,6 +2292,8 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     readonly isolationOverride: string | undefined;
     // loom: forkFrom — raw reference (key | thread:id), resolved in phase 1.
     readonly forkFromRef: string | undefined;
+    // loom: task-tree branch scoping — explicit anchor, validated below.
+    readonly anchorTaskIdRef: string | undefined;
   }
   const parsed: ParsedNode[] = [];
   const seenKeys = new Set<string>();
@@ -2311,6 +2402,7 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       gateMaxRounds: gate?.maxRounds as number | undefined,
       isolationOverride,
       forkFromRef,
+      anchorTaskIdRef: trimString(node.anchorTaskId),
     });
   }
 
@@ -2412,22 +2504,65 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
   if (graphResult.kind === "error") return jsonError(400, graphResult.message);
   const warnings = [...modelWarnings, ...graphResult.warnings];
 
+  // loom: task-tree branch scoping — validate each node's explicit anchor against
+  // the parent's goal (and the parent's own branch), then let fork nodes without
+  // one inherit their source's anchor along the fork chain (which the graph
+  // resolution has already proven acyclic).
+  const scaffoldGoalTasks =
+    parsed.every((node) => node.anchorTaskIdRef === undefined) || current.goalId === null
+      ? null
+      : (Option.getOrUndefined(yield* projection.getGoalById(current.goalId))?.tasks ?? null);
+  const anchorByThreadId = new Map<ThreadId, GoalTaskId>();
+  for (const node of parsed) {
+    const resolution = resolveSpawnAnchor({
+      requested: node.anchorTaskIdRef,
+      inherited: null,
+      goalTasks: scaffoldGoalTasks,
+      spawnerAnchorTaskId: current.anchorTaskId,
+      nothingClause: "Nothing was created.",
+    });
+    if (resolution.kind === "rejected")
+      return jsonError(400, `node "${node.key}": ${resolution.message}`);
+    if (resolution.anchorTaskId !== undefined)
+      anchorByThreadId.set(node.threadId, resolution.anchorTaskId);
+  }
+  const existingAnchorById = new Map(
+    activeChildren.map((child) => [child.id, child.anchorTaskId] as const),
+  );
+  const graphNodeByThreadId = new Map(
+    graphResult.nodes.map((node) => [node.threadId, node] as const),
+  );
+  const anchorOf = (threadId: ThreadId, seen: Set<ThreadId> = new Set()): GoalTaskId | null => {
+    const explicit = anchorByThreadId.get(threadId);
+    if (explicit !== undefined) return explicit;
+    const node = graphNodeByThreadId.get(threadId);
+    if (node === undefined) return existingAnchorById.get(threadId) ?? null;
+    if (node.forkFromThreadId === undefined || seen.has(threadId)) return null;
+    seen.add(threadId);
+    return anchorOf(node.forkFromThreadId, seen);
+  };
+
   // One spawn generation for the whole batch (the parent's active turn, or a
   // fresh singleton when authored out-of-turn) so the nodes join one wake.
   const spawnGeneration = current.session?.activeTurnId ?? (yield* crypto.randomUUIDv4);
-  const commandNodes = graphResult.nodes.map((node) => ({
-    threadId: node.threadId,
-    graphKey: node.key,
-    role: node.role,
-    title: node.title,
-    purpose: node.purpose,
-    isolation: node.isolation,
-    ...(node.blockedBy !== undefined ? { blockedBy: node.blockedBy } : {}),
-    ...(node.routes !== undefined ? { routes: node.routes } : {}),
-    ...(node.forkFromThreadId !== undefined ? { forkFromThreadId: node.forkFromThreadId } : {}),
-    spawnGeneration,
-    modelSelection: node.modelSelection,
-  }));
+  const commandNodes = graphResult.nodes.map((node) => {
+    // loom: task-tree branch scoping — explicit, else inherited along the fork chain.
+    const anchorTaskId = anchorOf(node.threadId);
+    return {
+      threadId: node.threadId,
+      graphKey: node.key,
+      role: node.role,
+      title: node.title,
+      purpose: node.purpose,
+      isolation: node.isolation,
+      ...(node.blockedBy !== undefined ? { blockedBy: node.blockedBy } : {}),
+      ...(node.routes !== undefined ? { routes: node.routes } : {}),
+      ...(node.forkFromThreadId !== undefined ? { forkFromThreadId: node.forkFromThreadId } : {}),
+      ...(anchorTaskId !== null ? { anchorTaskId } : {}),
+      spawnGeneration,
+      modelSelection: node.modelSelection,
+    };
+  });
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const engine = yield* OrchestrationEngineService;
@@ -3161,13 +3296,35 @@ const handleWorkstreamList = Effect.gen(function* () {
   // error, so discoverability degrades gracefully.
   const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
   const settings = yield* (yield* ServerSettingsService).getSettings;
-  // The caller is implicitly in its own tree; no target arg, no 403 path.
-  const view = {
-    ...graphViewFor(
-      scope.threadId,
-      viewThreads,
-      (id) => resolveSessionFilePath(piSessionIdForThread(id)) ?? null,
+  // loom: task-tree branch scoping — an anchored thread prints the branch it
+  // owns (id + task text), so an orchestrator re-orients without a tree read.
+  // Resolved against the live tree: a deleted anchor renders as such.
+  const projection = yield* ProjectionSnapshotQuery;
+  const anchorTextById = new Map<string, string>();
+  for (const goalId of new Set(
+    threads.flatMap((thread) =>
+      thread.anchorTaskId !== null && thread.goalId !== null ? [thread.goalId] : [],
     ),
+  )) {
+    const goal = yield* projection.getGoalById(goalId);
+    if (Option.isNone(goal)) continue;
+    for (const task of flattenGoalTasks(goal.value.tasks)) anchorTextById.set(task.id, task.text);
+  }
+  // The caller is implicitly in its own tree; no target arg, no 403 path.
+  const graph = graphViewFor(
+    scope.threadId,
+    viewThreads,
+    (id) => resolveSessionFilePath(piSessionIdForThread(id)) ?? null,
+  );
+  const anchorById = new Map(threads.map((thread) => [thread.id, thread.anchorTaskId] as const));
+  const view = {
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const anchorTaskId = anchorById.get(node.id) ?? null;
+      return anchorTaskId === null
+        ? node
+        : { ...node, anchorTaskId, anchorTaskText: anchorTextById.get(anchorTaskId) ?? null };
+    }),
     modelPresets: presetCatalogueOf(
       settings.workstreamModelPresets as Record<string, ModelSelection>,
       catalogue,

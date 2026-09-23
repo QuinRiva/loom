@@ -2,6 +2,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
+  GoalTaskId,
   ProjectId,
   ThreadId,
   type OrchestrationCommand,
@@ -197,6 +198,125 @@ it.layer(NodeServices.layer)("thread.create: fork source propagation", (it) => {
       const forkThread = projected.threads.find((t) => t.id === "fork-thread");
       expect(forkThread?.forkFromThreadId).toBe(sourceThreadId);
       expect(forkThread?.parentThreadId).toBe(null);
+    }),
+  );
+});
+
+// loom: task-tree branch scoping — the decider is a pure pass-through for the
+// anchor (validation lives at the spawn/scaffold HTTP edge), and the projector
+// seeds it onto the thread record every scoped surface reads.
+it.layer(NodeServices.layer)("thread.create: anchor task propagation", (it) => {
+  it.effect("anchorTaskId is carried to thread.created and onto the projected thread", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const projectId = asProjectId("test-project-anchor");
+
+      let readModel = createEmptyReadModel(now);
+      readModel = yield* projectEvent(readModel, {
+        sequence: 1,
+        eventId: asEventId("evt-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        type: "project.created",
+        occurredAt: now,
+        commandId: asCommandId("cmd-project"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Test Project",
+          workspaceRoot: "/tmp/test-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const command: Extract<OrchestrationCommand, { type: "thread.create" }> = {
+        type: "thread.create",
+        commandId: asCommandId("cmd-anchored-child"),
+        threadId: asThreadId("anchored-child"),
+        projectId,
+        parentThreadId: asThreadId("parent-thread"),
+        anchorTaskId: GoalTaskId.make("task-phase-6"),
+        title: "Anchored child",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("test"),
+          model: "test-model",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        role: "coder",
+        branch: "main",
+        worktreePath: "/tmp/repo",
+        createdAt: now,
+      };
+
+      const result = yield* decideOrchestrationCommand({ command, readModel });
+      const event = Array.isArray(result) ? result[0] : result;
+      expect((event as any).payload.anchorTaskId).toBe("task-phase-6");
+
+      const projected = yield* projectEvent(readModel, event as never);
+      expect(projected.threads.find((t) => t.id === "anchored-child")?.anchorTaskId).toBe(
+        "task-phase-6",
+      );
+    }),
+  );
+
+  it.effect("a spawn with no anchor projects as unbound", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const projectId = asProjectId("test-project-unbound");
+
+      let readModel = createEmptyReadModel(now);
+      readModel = yield* projectEvent(readModel, {
+        sequence: 1,
+        eventId: asEventId("evt-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        type: "project.created",
+        occurredAt: now,
+        commandId: asCommandId("cmd-project"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Test Project",
+          workspaceRoot: "/tmp/test-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.create",
+          commandId: asCommandId("cmd-unbound-child"),
+          threadId: asThreadId("unbound-child"),
+          projectId,
+          parentThreadId: asThreadId("parent-thread"),
+          title: "Unbound child",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("test"),
+            model: "test-model",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          role: "reviewer",
+          branch: "main",
+          worktreePath: "/tmp/repo",
+          createdAt: now,
+        },
+        readModel,
+      });
+      const event = Array.isArray(result) ? result[0] : result;
+      const projected = yield* projectEvent(readModel, event as never);
+      expect(projected.threads.find((t) => t.id === "unbound-child")?.anchorTaskId).toBe(null);
     }),
   );
 });

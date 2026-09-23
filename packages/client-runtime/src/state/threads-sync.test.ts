@@ -71,6 +71,7 @@ const BASE_THREAD: OrchestrationThread = {
   blockedBy: [],
   spawnGeneration: null,
   forkFromThreadId: null,
+  anchorTaskId: null,
   continuesThreadId: null,
   reportPath: null,
   graphKey: null,

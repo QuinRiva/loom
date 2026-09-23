@@ -369,6 +369,10 @@ const seedProgram = Effect.gen(function* () {
       title: "Add config loader",
       purpose: "Implement the configuration loader module.",
       role: "coder",
+      // Task-tree branch scoping: one anchored child so the task→thread chip and
+      // every branch-scoped surface have a live fixture; its siblings stay
+      // unbound, which is the ordinary case.
+      anchorTaskId: GoalTaskId.make("00000000-0000-4000-8000-000000000002"),
       isolation: "isolated" as const,
       planLane: "done" as const,
       turns: [
@@ -492,6 +496,9 @@ const seedProgram = Effect.gen(function* () {
       runtimeMode: "full-access",
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       isolation: spec.isolation,
+      ...((spec as { anchorTaskId?: GoalTaskId }).anchorTaskId
+        ? { anchorTaskId: (spec as { anchorTaskId?: GoalTaskId }).anchorTaskId }
+        : {}),
       planLane: "ready",
       ...((spec as { blockedBy?: ReadonlyArray<ThreadId> }).blockedBy
         ? { blockedBy: (spec as { blockedBy?: ReadonlyArray<ThreadId> }).blockedBy }

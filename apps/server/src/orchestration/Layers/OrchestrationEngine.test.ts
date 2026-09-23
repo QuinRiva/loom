@@ -203,6 +203,7 @@ describe("OrchestrationEngine", () => {
           id: ThreadId.make("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
           goalId: null,
+          anchorTaskId: null,
           parentThreadId: null,
           role: null,
           purpose: null,

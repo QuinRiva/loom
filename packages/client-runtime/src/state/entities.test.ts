@@ -99,6 +99,7 @@ const THREAD_SHELL = {
   blockedBy: [],
   spawnGeneration: null,
   forkFromThreadId: null,
+  anchorTaskId: null,
   continuesThreadId: null,
   reportPath: null,
   graphKey: null,
@@ -337,6 +338,7 @@ describe("environment entity projections", () => {
       environmentId: ENVIRONMENT_ID,
       parentThreadId: null,
       forkFromThreadId: null,
+      anchorTaskId: null,
       continuesThreadId: null,
       brief: null,
     };
