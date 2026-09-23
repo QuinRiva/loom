@@ -1,5 +1,6 @@
 import {
   USAGE_CONTRACT_VERSION,
+  USAGE_MERGE_COMPATIBLE_SINCE,
   type EnvironmentId,
   type UsageBucket,
   type UsageDay,
@@ -166,7 +167,12 @@ describe("mergeUsage", () => {
     }
   });
 
-  it("excludes an environment reporting an older contract version", () => {
+  // loom: rewritten when the pi kind took the contract to v6 and the old
+  // `USAGE_CONTRACT_VERSION - 2` fixture landed exactly ON the floor.
+  // Both sides of the compatibility floor, expressed against the floor itself:
+  // a fixture written as `USAGE_CONTRACT_VERSION - n` stops naming exclusion the
+  // moment the contract is bumped, and the guard dies without failing.
+  it("excludes an environment older than the compatibility floor, and merges one at it", () => {
     const merged = mergeUsage(
       [
         environment(
@@ -178,14 +184,22 @@ describe("mergeUsage", () => {
           summary(
             [bucket()],
             [{ provider: "claude", hostId: "linux", homePath: "/b" }],
-            USAGE_CONTRACT_VERSION - 2,
+            USAGE_MERGE_COMPATIBLE_SINCE - 1,
+          ),
+        ),
+        environment(
+          "env-c",
+          summary(
+            [bucket()],
+            [{ provider: "claude", hostId: "windows", homePath: "/c" }],
+            USAGE_MERGE_COMPATIBLE_SINCE,
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
 
-    expect(merged.costUsd).toBe(10);
+    expect(merged.costUsd).toBe(20);
     expect(merged.staleEnvironments).toEqual(["env-b"]);
   });
 

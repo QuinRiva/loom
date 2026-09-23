@@ -6,6 +6,7 @@ import {
   parseClaudeLine,
   parseCodexLine,
   parseGrokLine,
+  parsePiLine,
   totalTokens,
 } from "./usageTranscripts.ts";
 
@@ -562,5 +563,70 @@ describe("parseGrokLine", () => {
 
     const records = parseGrokLine(line);
     expect(records[0]?.timestampMs).toBe(1_786_372_566_000);
+  });
+});
+
+// loom: pi arm fixtures.
+/**
+ * Verbatim from a real pi session record, trimmed to the fields the
+ * parser reads. `input + output + cacheRead + cacheWrite === totalTokens`
+ * holds here exactly as it does across every sampled record on this host,
+ * which is why the arm copies the buckets instead of subtracting.
+ */
+const PI_LINE = JSON.stringify({
+  type: "message",
+  id: "779be1c0",
+  parentId: "b7006f5f",
+  timestamp: "2026-09-23T00:43:30.946Z",
+  message: {
+    role: "assistant",
+    content: [{ type: "text", text: "..." }],
+    provider: "cliproxy",
+    model: "claude-opus-5",
+    usage: {
+      input: 2,
+      output: 295,
+      cacheRead: 10255,
+      cacheWrite: 36770,
+      totalTokens: 47322,
+      cost: { input: 1e-5, output: 0.007375, cacheRead: 0.0051275, total: 0.242325 },
+      reasoning: 120,
+    },
+  },
+});
+
+// loom: the pi arm's own cases.
+describe("parsePiLine", () => {
+  it("copies the token buckets across without subtracting", () => {
+    const record = parsePiLine(PI_LINE, "65dcc90c-56d3-4ff5-81c6-11a6c65bf3bd");
+
+    expect(record).toEqual({
+      provider: "pi",
+      timestampMs: Date.parse("2026-09-23T00:43:30.946Z"),
+      model: "claude-opus-5",
+      sessionId: "65dcc90c-56d3-4ff5-81c6-11a6c65bf3bd",
+      totals: {
+        uncachedInputTokens: 2,
+        cachedInputTokens: 10255,
+        cacheCreationTokens: 36770,
+        outputTokens: 295,
+        reasoningTokens: 120,
+      },
+      reportedCostUsd: 0.242325,
+      dedupeKey: `779be1c0:${Date.parse("2026-09-23T00:43:30.946Z")}:47322`,
+    });
+    expect(totalTokens(record!.totals)).toBe(47322);
+  });
+
+  it("clamps reasoning to output", () => {
+    const line = PI_LINE.replace('"reasoning":120', '"reasoning":9999');
+    expect(parsePiLine(line, "s")?.totals.reasoningTokens).toBe(295);
+  });
+
+  it("ignores non-assistant and usage-free entries", () => {
+    expect(parsePiLine(PI_LINE.replace('"assistant"', '"toolResult"'), "s")).toBeNull();
+    expect(
+      parsePiLine(JSON.stringify({ type: "message", message: { role: "assistant" } }), "s"),
+    ).toBeNull();
   });
 });

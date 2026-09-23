@@ -26,9 +26,39 @@ import {
   parseClaudeLine,
   parseCodexLine,
   parseGrokLine,
+  parsePiLine,
   type CodexScanState,
   type UsageRecord,
 } from "./usageTranscripts.ts";
+
+/** A pi session path segment: `<timestamp>_<sessionId>`. */
+const PI_SESSION_SEGMENT = /^\d{4}-\d{2}-\d{2}T[\d-]+Z_(.+)$/;
+
+/**
+ * loom: the pi session id carried by a transcript's path.
+ *
+ * A top-level session is `<timestamp>_<sessionId>.jsonl`; a nested run is
+ * `<timestamp>_<sessionId>/<hash>/run-N/session.jsonl`, whose own basename
+ * carries no id at all. Both are answered by the nearest path segment shaped
+ * like `<timestamp>_<id>`, so a run transcript is attributed to its session
+ * rather than collapsing every one of them onto the literal `session`.
+ *
+ * Only the file's header line repeats the id, so reading it from the path is
+ * what lets the pi parser stay stateless.
+ */
+export function piSessionIdFromPath(filePath: string): string {
+  const segments = filePath.split(NodePath.sep);
+  const base = NodePath.basename(filePath, ".jsonl");
+  segments[segments.length - 1] = base;
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const id = PI_SESSION_SEGMENT.exec(segments[index]!)?.[1];
+    if (id !== undefined) return id;
+  }
+  // Unrecognised layout: the best remaining guess is whatever follows the
+  // first separator, which is where the id sits in every shape pi has used.
+  const separator = base.indexOf("_");
+  return separator === -1 ? base : base.slice(separator + 1);
+}
 
 export interface TranscriptFile {
   readonly path: string;
@@ -203,6 +233,7 @@ export async function readTranscriptRecords(
   }
 
   try {
+    const piSessionId = provider === "pi" ? piSessionIdFromPath(filePath) : ""; // loom:
     let codexState = initialCodexScanState();
     let resumed = false;
     let start = 0;
@@ -231,6 +262,12 @@ export async function readTranscriptRecords(
         return;
       }
       if (!mightCarryUsage(line, provider)) return;
+      if (provider === "pi") {
+        // loom: session id from the file name, so no reducer state is needed.
+        const record = parsePiLine(line, piSessionId);
+        if (record !== null) out.push(record);
+        return;
+      }
       if (provider === "grok") {
         for (const grokRecord of parseGrokLine(line)) out.push(grokRecord);
         return;
