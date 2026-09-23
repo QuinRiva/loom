@@ -22,11 +22,18 @@ export interface UsageWindowIdentity {
   readonly scope?: string;
 }
 
+/**
+ * The prefix every id this account's windows carry. A feeder that stops
+ * reporting an account (the poller's Anthropic arms once a cliproxy hub owns
+ * Claude quota) retracts its published windows by this prefix.
+ */
+export const usageWindowAccountPrefix = (
+  account: Pick<UsageWindowIdentity, "accountKey" | "accountLabel">,
+): string => `${account.accountKey}:${account.accountLabel ?? ""}:`;
+
 export const encodeUsageWindowId = (identity: UsageWindowIdentity): string =>
   [
-    identity.accountKey,
-    identity.accountLabel ?? "",
-    identity.kind,
+    `${usageWindowAccountPrefix(identity)}${identity.kind}`,
     ...(identity.scope ? [identity.scope] : []),
   ].join(":");
 

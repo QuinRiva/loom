@@ -98,6 +98,36 @@ export function applyUsageLimitsUpdate(input: {
   };
 }
 
+/**
+ * loom: drop the published windows of accounts a feeder has stood down.
+ *
+ * `applyUsageLimitsUpdate` only ever upserts and `resolveUsageLimitsAfterProbe`
+ * holds what it published across probes, so a reading nobody refreshes any more
+ * would otherwise sit frozen on the card until the server restarts. That is
+ * exactly what happens when a cliproxy hub takes over Claude quota and the
+ * poller's Anthropic arms stand down. Matching is by account prefix
+ * (`usageWindowAccountPrefix`), so one account's whole set — 5-hour, weekly and
+ * every per-model carve-out — goes together and the other accounts on the card
+ * (Codex) are untouched. Unchanged input returns `previous` so no republish.
+ */
+export function removeUsageLimitWindows(input: {
+  readonly previous: ServerProviderUsageLimits | undefined;
+  readonly accountPrefixes: ReadonlyArray<string>;
+  readonly checkedAt: string;
+}): ServerProviderUsageLimits | undefined {
+  const { previous } = input;
+  const kept = previous?.windows.filter(
+    (window) => !input.accountPrefixes.some((prefix) => window.id.startsWith(prefix)),
+  );
+  if (previous === undefined || kept === undefined || kept.length === previous.windows.length) {
+    return previous;
+  }
+  return {
+    ...makeUsageLimits({ checkedAt: input.checkedAt, windows: kept }),
+    ...(previous.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
+  };
+}
+
 function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageWindow): boolean {
   return (
     a.id === b.id &&

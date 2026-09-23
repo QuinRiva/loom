@@ -18,7 +18,7 @@ import {
   type ServerSettings,
 } from "@t3tools/contracts";
 
-import { encodeUsageWindowId } from "@t3tools/shared/usageWindowId";
+import { encodeUsageWindowId, usageWindowAccountPrefix } from "@t3tools/shared/usageWindowId";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { AccountUsageWindow } from "../accountUsage.loom.ts";
@@ -141,8 +141,10 @@ export const toLimitsWindows = (
  * Limits page and a duplicate session bar in the subscription meter.
  *
  * Configuration is the rule: while any enabled `cliproxy` source is registered,
- * the hub is the authority on Claude quota and the poller's Anthropic arm stands
- * down. Removing or disabling the entry brings it back on the next poll.
+ * the hub is the authority on Claude quota and *every* Anthropic arm of this
+ * poller stands down — the `auth.json` one above and the instance-scoped
+ * `usageSources`, which read the same pooled accounts the hub pools. Removing or
+ * disabling the entry brings them back on the next poll.
  */
 export const hubReportsClaudeQuota = (
   settings: Pick<ServerSettings, "usageLimitSources">,
@@ -150,6 +152,39 @@ export const hubReportsClaudeQuota = (
   Object.values(settings.usageLimitSources).some(
     (source) => source.kind === "cliproxy" && source.enabled,
   );
+
+/**
+ * Which published windows the Anthropic arms own, per instance, as account
+ * prefixes for `retractUsageLimits`. The direct-auth arm feeds every pi
+ * instance under the `claudeAgent` account key (`limitsTargets(null)`); an
+ * instance's own usage sources feed that instance keyed by its id and the
+ * source's label. Codex — the `codex` account key, and any instance usage
+ * source of a future non-Anthropic kind — is deliberately absent: standing down
+ * for the hub must not take Codex's windows off the card.
+ */
+export const anthropicAccountPrefixes = (
+  settings: Pick<ServerSettings, "providerInstances">,
+  piInstanceIds: ReadonlyArray<ProviderInstanceId>,
+  sourceLabelOf: (source: ProviderUsageSource) => string,
+): ReadonlyMap<ProviderInstanceId, ReadonlyArray<string>> => {
+  const byInstance = new Map<ProviderInstanceId, Array<string>>(
+    piInstanceIds.map((instanceId) => [
+      instanceId,
+      [usageWindowAccountPrefix({ accountKey: "claudeAgent" })],
+    ]),
+  );
+  for (const [id, instance] of Object.entries(settings.providerInstances)) {
+    const instanceId = ProviderInstanceId.make(id);
+    const prefixes = (instance.usageSources ?? [])
+      .filter((source) => source.kind === "anthropic-oauth")
+      .map((source) =>
+        usageWindowAccountPrefix({ accountKey: instanceId, accountLabel: sourceLabelOf(source) }),
+      );
+    if (prefixes.length > 0)
+      byInstance.set(instanceId, [...(byInstance.get(instanceId) ?? []), ...prefixes]);
+  }
+  return byInstance;
+};
 
 /** Account display names for the Limits page's window labels. */
 const ACCOUNT_DISPLAY_NAMES: Record<string, string> = {
@@ -206,6 +241,11 @@ const make = Effect.gen(function* () {
       readonly accountLabel?: string;
     },
     usage: ProviderUsage,
+    // loom: false while the hub owns this account's quota — the reading still
+    // feeds the health registry (failover reads exhaustion and headroom off
+    // it) but never reaches the instance's published limits, where it would
+    // draw a second bar beside the hub's.
+    publishLimits = true,
   ) => {
     const label = attribution.accountLabel ?? attribution.providerName;
     const accountKey = attribution.providerInstanceId ?? attribution.providerName;
@@ -239,16 +279,18 @@ const make = Effect.gen(function* () {
                   usage.windows,
                 ),
               };
-              const targets = yield* limitsTargets(attribution.providerInstanceId);
+              const targets = publishLimits
+                ? yield* limitsTargets(attribution.providerInstanceId)
+                : [];
               for (const instanceId of targets) {
                 const instance = yield* instanceRegistry.getInstance(instanceId);
                 if (instance)
                   yield* instance.snapshot.applyUsageLimits({ ...limits, checkedAt: observedAt });
               }
-              yield* Effect.logDebug(`subscription-usage poller: ${label} limits published`, {
-                instances: targets,
-                ids: limits.windows.map((w) => w.id),
-              });
+              yield* Effect.logDebug(
+                `subscription-usage poller: ${label} ${publishLimits ? "limits published" : "health-only (hub owns Claude quota)"}`,
+                { instances: targets, ids: limits.windows.map((w) => w.id) },
+              );
             }),
           ),
           Effect.andThen(
@@ -259,26 +301,59 @@ const make = Effect.gen(function* () {
         );
   };
 
-  // Settings are re-read on every Anthropic cycle rather than at startup, so
-  // registering or removing a hub takes effect on the next poll without a
-  // restart. Logged once per transition — the cycle repeats every
-  // HEALTHY_INTERVAL and a per-cycle line would just be a drumbeat.
-  const anthropicSuppressed = yield* Ref.make(false);
+  const sourceLabel = (source: ProviderUsageSource): string =>
+    source.label ?? path.basename(source.tokenFile);
+
+  // loom: the hub stand-down, shared by every Anthropic arm (the direct-auth
+  // one and each instance usage source), each of which asks on its own cycle.
+  // Settings are re-read per cycle rather than at startup, so registering or
+  // removing a hub takes effect on the next poll without a restart. The state
+  // is logged once per transition — the cycle repeats every HEALTHY_INTERVAL
+  // and a per-cycle line would just be a drumbeat — and whichever arm sees the
+  // false→true edge first retracts the Anthropic windows every arm published,
+  // because nothing else ever removes a window from an instance's limits.
+  const hubOwnsClaudeQuota = yield* Ref.make(false);
+
+  const retractAnthropicLimits = (settings: ServerSettings) =>
+    Effect.gen(function* () {
+      const checkedAt = DateTime.formatIso(yield* DateTime.now);
+      const byInstance = anthropicAccountPrefixes(
+        settings,
+        yield* limitsTargets(null),
+        sourceLabel,
+      );
+      for (const [instanceId, accountPrefixes] of byInstance) {
+        const instance = yield* instanceRegistry.getInstance(instanceId);
+        if (instance) yield* instance.snapshot.retractUsageLimits({ accountPrefixes, checkedAt });
+      }
+      yield* Effect.logInfo(
+        "subscription-usage poller: retracted the Anthropic windows the hub now reports",
+        { instances: [...byInstance.keys()] },
+      );
+    });
+
+  const standDownForHub = Effect.gen(function* () {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.orElseSucceed((): ServerSettings | null => null),
+    );
+    const standDown = settings !== null && hubReportsClaudeQuota(settings);
+    if ((yield* Ref.getAndSet(hubOwnsClaudeQuota, standDown)) !== standDown) {
+      yield* Effect.logInfo(
+        standDown
+          ? "subscription-usage poller: Anthropic arms suppressed — an enabled cliproxy usage-limit source is registered, so the hub reports Claude quota"
+          : "subscription-usage poller: Anthropic arms resumed — no enabled cliproxy usage-limit source is registered",
+      );
+      if (standDown && settings !== null) yield* retractAnthropicLimits(settings);
+    }
+    return standDown;
+  });
 
   const pollAnthropic = (auth: typeof PiAuthSchema.Type) =>
     Effect.gen(function* () {
-      const settings = yield* serverSettings.getSettings.pipe(
-        Effect.orElseSucceed((): ServerSettings | null => null),
-      );
-      const suppressed = settings !== null && hubReportsClaudeQuota(settings);
-      if ((yield* Ref.getAndSet(anthropicSuppressed, suppressed)) !== suppressed) {
-        yield* Effect.logInfo(
-          suppressed
-            ? "subscription-usage poller: Anthropic arm suppressed — an enabled cliproxy usage-limit source is registered, so the hub reports Claude quota"
-            : "subscription-usage poller: Anthropic arm resumed — no enabled cliproxy usage-limit source is registered",
-        );
-      }
-      if (suppressed) return;
+      // The hub reports this subscription too, and with no email on the OAuth
+      // usage endpoint there is no way to match the two readings up — so the
+      // whole arm, health telemetry included, defers to the hub.
+      if (yield* standDownForHub) return;
       const token = auth.anthropic?.access;
       if (!token) {
         yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
@@ -305,9 +380,6 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const sourceLabel = (source: ProviderUsageSource): string =>
-    source.label ?? path.basename(source.tokenFile);
-
   const pollUsageSource = (
     instanceId: ProviderInstanceId,
     driver: string,
@@ -324,6 +396,9 @@ const make = Effect.gen(function* () {
         ),
       );
       if (!token) return;
+      // loom: these pooled accounts ARE the hub's accounts, so while it is
+      // registered they keep polling for failover telemetry (this is loom's
+      // only per-account exhaustion signal) but stop publishing limits.
       yield* feed(
         {
           providerName: driver,
@@ -331,6 +406,7 @@ const make = Effect.gen(function* () {
           accountLabel: label,
         },
         yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
+        !(yield* standDownForHub),
       );
     });
 
