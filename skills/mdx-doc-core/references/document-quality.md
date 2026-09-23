@@ -121,10 +121,15 @@ question `title`, `subtitle`, option `label` or option `detail` unless the same
 sentence says what it means in plain words.** `subtitle` is the context slot:
 any question that depends on something defined in the body carries one sentence
 saying what that thing is, naming the section that settles it in words if that
-helps (the renderer has no in-document links). An option `label` states the
-choice, not the document's internal name for it — "Yes — register the hub first
-as a settings-only step", never "Yes — slice 0" — because the label is what the
-reviewer commits to by clicking.
+helps. A question that turns on a section which defines or decides something
+also carries `refs: [{ label, anchor }]` — usually one, at most four — chipping
+that section open beside the question: `label` is the heading as written,
+`anchor` its slug (lowercased, runs of non-alphanumerics → `-`, so
+`## Delivery order` → `delivery-order`). Refs name headings, not blocks, and
+supplement the wording — **never lean on a ref to carry meaning the question
+text omits**. An option `label` states the choice, not the document's internal
+name for it — "Yes — register the hub first as a settings-only step", never
+"Yes — slice 0" — because the label is what the reviewer commits to by clicking.
 
 ## Verification exercises the real workflow
 
@@ -191,7 +196,9 @@ annotating from a mechanically-valid one:
   annotations — never a "reply in chat with your verdicts" instruction.
 - **The Open Questions block reads in isolation** — reread it as if only the
   objective paragraph above had been read: every question and every option is
-  answerable from its own text, with no document-coined label left unglossed.
+  answerable from its own text, with no document-coined label left unglossed,
+  and every `refs[].anchor` still resolves (renaming a heading changes its slug;
+  the lint flags a dangling one).
 - **The first viewport states what is being decided and what happens on
   sign-off** — for a decision doc, a top `<Callout tone="decision">` with the
   review protocol and the silence-defaults rule.

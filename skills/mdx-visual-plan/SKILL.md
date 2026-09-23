@@ -146,7 +146,9 @@ Ground the plan in the real codebase, not from memory:
   coined — slice/phase/step N, a codename, a section title used as a noun — in a
   question title, subtitle, option label or option detail unless the same
   sentence says what it means in plain words**, and use `subtitle` to carry the
-  one line of context the question depends on.
+  one line of context the question depends on — plus `refs: [{ label, anchor }]`
+  (`anchor` = the heading's slug) to chip open the section it turns on, which
+  supplements a standalone question and never substitutes for one.
 - **Verification exercises the real workflow.** When the plan changes UI, files,
   providers, or multi-step flows, include at least one end-to-end smoke that
   matches the user journey, and name the command or manual path when known — not

@@ -285,7 +285,12 @@ answers ride the review turn per question, so there is no submit button.
 Every question is answered by someone who only skimmed the body: put the one
 line of context it depends on in `subtitle`, and never leave a label the
 document coined (slice N, a codename, a section title) in a `title`, `subtitle`,
-`label` or `detail` unglossed — see `document-quality.md`.
+`label` or `detail` unglossed — see `document-quality.md`. `refs`
+(`[{ label, anchor }]`, at most four) chips open the sections a question depends
+on, read in place: `label` is the heading as written, `anchor` its slug
+(`## Delivery order` → `delivery-order`). A ref is a way to go deeper, never a
+substitute for a question that reads on its own; the ref below resolves against
+a `## MDX compile pipeline` heading in the body.
 
 ```mdx
 <QuestionForm
@@ -293,6 +298,7 @@ document coined (slice N, a codename, a section title) in a `title`, `subtitle`,
     {
       id: "csp",
       title: "Accept unsafe-eval for the runtime MDX renderer?",
+      refs: [{ label: "MDX compile pipeline", anchor: "mdx-compile-pipeline" }],
       subtitle:
         "The renderer compiles MDX in the browser, which needs eval(); the app ships no Content-Security-Policy today.",
       mode: "single",
