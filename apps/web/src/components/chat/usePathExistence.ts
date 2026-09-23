@@ -242,6 +242,15 @@ async function defaultStatFetcher(
 ): Promise<ReadonlyArray<{ readonly path: string; readonly kind: ProjectPathKind }>> {
   const atom = projectEnvironment.statPaths({ environmentId, input: { paths } });
   const result = await executeAtomQuery(appAtomRegistry, atom, {
+    // The query atom family caches per (environment, path-set) behind an SWR
+    // wrapper that only re-reads when its node recomputes — and re-mounting an
+    // already-computed node neither recomputes it nor lets it expire, because
+    // each mount cancels the idle-TTL disposal. Without this, every
+    // revalidation below re-reads the first answer for that path set and a chip
+    // stats `missing` once and stays missing until the page reloads. Freshness
+    // is this store's job (TTL, coalescing, backoff), so the query cache is
+    // deliberately bypassed.
+    refresh: true,
     reportDefect: false,
     reportFailure: false,
   });
@@ -281,6 +290,22 @@ export function registerPathInterest(
     }
     reschedule();
   };
+}
+
+/**
+ * Mark a known path due for an immediate re-stat, then let the shared scheduler
+ * run it — so a pointer sweep across several chips still costs one batched RPC.
+ * The last-known value stays visible until the answer lands, so nothing
+ * flickers. This is how a chip the server once called missing gets back: the
+ * background revalidation is bounded by the TTL, and a human who doubts a
+ * "missing?" chip hovers it.
+ */
+export function revalidatePathExistence(environmentId: EnvironmentId, path: string): void {
+  const entry = state.get(cacheKey(environmentId, path));
+  if (entry === undefined || entry.inFlight) return;
+  entry.fetchedAt = undefined; // due now
+  entry.nextEligibleAt = 0; // and not held back by an earlier failure's backoff
+  reschedule();
 }
 
 /**

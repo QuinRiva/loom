@@ -11,6 +11,7 @@ import {
 } from "~/components/chat/FileTagChip";
 import {
   refreshPathExistence,
+  revalidatePathExistence,
   usePathExistence,
   type PathExistence,
 } from "~/components/chat/usePathExistence";
@@ -43,6 +44,9 @@ import { extractMessagePathCandidates } from "./chatPathScan";
  *    window where its file has already moved. The click re-stats the path, and
  *    a gone file flips the chip and toasts instead of opening nothing "as if it
  *    were a bug".
+ *  - **hover re-verification of a missing chip**: the reverse direction. A file
+ *    that comes back would otherwise wait out the store's TTL, so hovering the
+ *    chip a human is questioning marks it due immediately.
  *
  * Artifact-viewer routing lives in upstream's `fileLinkChip` itself (an
  * `onOpenArtifact` primary-action override), so an artifact chip keeps the
@@ -60,11 +64,18 @@ const MISSING_CHIP_CLASS_NAME =
 const MISSING_CHIP_TITLE = "Missing — moved or deleted?";
 
 function MissingFileChip(props: {
+  environmentId: EnvironmentId | null;
   meta: MarkdownFileLinkMeta;
   copyMarkdown: string;
   className?: string | undefined;
 }) {
   const { resolvedTheme } = useTheme();
+  const { environmentId, meta } = props;
+  // The way back: a file that returns is otherwise only noticed at the store's
+  // TTL, and hovering is exactly what a human does when they doubt this chip.
+  const recheck = useCallback(() => {
+    if (environmentId !== null) revalidatePathExistence(environmentId, meta.filePath);
+  }, [environmentId, meta.filePath]);
   return (
     <Tooltip>
       <TooltipTrigger
@@ -74,6 +85,7 @@ function MissingFileChip(props: {
             data-markdown-copy={props.copyMarkdown}
             data-file-missing="true"
             aria-label={`${props.meta.basename} — ${MISSING_CHIP_TITLE}`}
+            onPointerEnter={recheck}
           >
             <FileTagChipContent
               path={props.meta.filePath}
@@ -136,6 +148,7 @@ function VerifiedFileChip(props: {
   const lookupExistence = usePathExistence(props.environmentId, paths);
   return lookupExistence(props.meta.filePath)?.exists === false ? (
     <MissingFileChip
+      environmentId={props.environmentId}
       meta={props.meta}
       copyMarkdown={props.copyMarkdown}
       className={props.className}
