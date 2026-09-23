@@ -28,13 +28,18 @@
  * editable surface stays in charge, so even an unwrapped markdown paragraph is
  * never touched.
  *
- * Max line length across this repo's 6,069 tracked source and doc files is
- * sharply bimodal, which is what makes a single cut safe: the median file tops
- * out at 57 characters and p99 at 72; the longest *hand-written* files reach
- * 5,078 (`PiDriver.ts`), 2,330, 1,862, 1,787…; and the generated/minified ones
- * start again at 22,956 and climb past 3 million. Nothing sits between ~5.1k
- * and ~22.9k, so 10,000 splits an empty gap — only 31 files (0.5%) trip it, all
- * of them generated. A tighter cut would start eliding real source for no gain.
+ * Max line length across this repo's tracked files is sharply bimodal, which is
+ * what makes a single cut safe: the median file tops out under 90 characters;
+ * the longest *hand-written* file reaches 5,078 (`PiDriver.ts`); and the
+ * generated/minified ones start again at 20,527 and climb past 3 million. Only
+ * two files sit in the whole ~5.1k–22.9k gap, so 10,000 splits near-empty space
+ * and a tighter cut would start eliding real source for no gain.
+ *
+ * The known cost: `apps/web/src/components/Icons.tsx` (12,251) is hand-
+ * maintained and now opens elided and read-only. Accepted — one file, and its
+ * long line is an SVG path blob nobody edits inline. If that ever bites, the
+ * refinement is to trigger on the *aggregate* over-long text in a file rather
+ * than on any single line, since one long line among normal ones is cheap.
  */
 export const UNBOUNDED_LINE_LENGTH = 10_000;
 
