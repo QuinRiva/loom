@@ -28,6 +28,7 @@ import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";
 import { ThreadLineageBreadcrumb } from "~/loom/ThreadLineageBreadcrumb"; // loom:
+import { SubscriptionMeterChip } from "~/loom/SubscriptionMeter"; // loom:
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
@@ -520,6 +521,9 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {/* loom: the sidebar footer meter, mirrored here while the sidebar is
+            closed; it renders nothing when the sidebar is on screen. */}
+        <SubscriptionMeterChip />
         {/* loom: sits outside upstream's collapsing action portal — it is an
             icon-only affordance with no menu presentation. */}
         {!draftId && (

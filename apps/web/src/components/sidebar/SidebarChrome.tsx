@@ -29,6 +29,7 @@ import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPr
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { SubscriptionMeter } from "~/loom/SubscriptionMeter"; // loom:
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -223,6 +224,8 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
+      {/* loom: subscription meter, above the utility row. */}
+      <SubscriptionMeter />
       <SidebarUtilityMenu />
     </SidebarFooter>
   );
