@@ -145,8 +145,10 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   `zeroByte`/`unparseable`/`emptyObject` count must be 0. Point its import at
   the resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
   rather than the global install. Stock pi is dramatically dirty for
-  calibration: on 0.87.1 the same harness reported ~1.85 M zero-byte and ~285
-  unparseable reads per 4 s reader, and the final read failed to parse at all;
+  calibration: on 0.87.1 the same harness reports ~4–9 k zero-byte and ~600–800
+  unparseable reads per 4 s reader, alongside ~5–6 k good ones. A stock run
+  reporting _millions_ of zero-byte reads is a stalled writer leaving the file
+  truncated, not a wider window — rerun it rather than record it;
 - `pnpm install` is idempotent (lockfile unchanged on a second run), and
   `vp check` / `vp run typecheck` pass.
 
@@ -223,10 +225,10 @@ returns `{}` with no error, so that window is indistinguishable from a real
 "no credentials" store for every reader that does not hold the lock — and pi has
 several (`readStoredCredential`, `ReadOnlyAuthStorage`, plus any reader whose
 lock acquisition loses to an in-flight OAuth refresh). Measured on stock 0.87.1:
-~1.85 M zero-byte and ~285 unparseable observations per 4 s reader, ×3 readers,
-against ~700 good reads — the file is empty far more often than it is whole.
-(The same harness on 0.86.0 reported ~8,000 / ~730; the absolute counts track
-machine speed, the ratio is the point.)
+~4–9 k zero-byte and ~600–800 unparseable observations per 4 s reader, ×3
+readers, against ~5–6 k good reads — roughly one observation in two catches the
+file mid-write. (The same harness on 0.86.0 reported ~8,000 / ~730; the absolute
+counts track machine speed, the ratio is the point.)
 
 **Fix.** `writeFileAtomic()` writes a sibling `auth.json.tmp-<pid>-<ts>` and
 `renameSync()`s it over the target; `rename()` is atomic on POSIX, so a reader
