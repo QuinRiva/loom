@@ -64,36 +64,93 @@ bundled dependency is what Loom runs. Keep it only for patching a global pi you
 use for _interactive_ `pi --session … --cwd …` at the terminal; it is not part
 of Loom's build or runtime.
 
-Authored against pi **0.82.1**; both diffs were re-derived against **0.86.0**
+Authored against pi **0.82.1**; both diffs were re-derived against **0.87.1**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
 ## Re-deriving after a pi version bump
 
-Because the pnpm patch key is exact-version-scoped, bumping the bundled pi
-requires regenerating the pnpm patch:
+### 0. Check first whether the patch can be retired
+
+Not optional, and it has paid off twice. Against the new pristine tarball
+(`npm pack @earendil-works/pi-coding-agent@<newVersion>`):
+
+- **0002** — if `dist/core/auth-storage.js` writes via `renameSync` (or any
+  atomic replace) on _both_ the `withLock` and `withLockAsync` paths, drop the
+  patch. `grep -n "writeFileSync\|renameSync" dist/core/auth-storage.js`.
+- **0001** — if pi has a native `--cwd` on the headless `--session` path
+  (`grep -n '"--cwd"' dist/cli/args.js`), drop the patch **only** if
+  `PiCwdOverride.contract.test.ts` passes against stock. Retiring a patch that
+  was still needed is silent amnesia (a resumed session creates a new empty
+  session with the same id), so the bar is proof, not plausibility.
+
+Record the outcome here either way.
+
+### 1. Move the version pins
+
+Three places, and all of them matter:
+
+- `apps/server/package.json` — the exact pin (no caret).
+- `pnpm-workspace.yaml` → `minimumReleaseAgeExclude` — **all six**
+  `@earendil-works/*` entries (chord, pi-agent-core, pi-ai, pi-coding-agent,
+  pi-telemetry, pi-tui) move together; pnpm 11 defaults to a 24 h minimum
+  release age and a same-day pi release is refused without them.
+- `pnpm-workspace.yaml` → `patchedDependencies` — the version-scoped patch key.
+  Remove the old entry; never leave both versions registered.
+
+### 2. Regenerate the pnpm patch
+
+`pnpm patch <pkg>@<newVersion>` refuses unless that version is **already
+installed**, and `pnpm install` refuses while `patchedDependencies` names a
+patch file that does not exist yet. So the new version has to land unpatched
+first:
 
 ```bash
-pnpm patch @earendil-works/pi-coding-agent@<newVersion>
-# 1. readable dist/ — both diffs, into the printed editable dir:
-for p in infra/pi-patches/000*.patch; do patch -p1 -d <editable-dir> < "$p"; done
+# patchedDependencies entry temporarily commented out:
+pnpm install                       # resolves the new version, unpatched
+# put the entry back, then:
+rm -rf /tmp/pi-patch-<newVersion>  # never reuse a stale editable dir
+pnpm patch @earendil-works/pi-coding-agent@<newVersion> --edit-dir /tmp/pi-patch-<newVersion>
+diff -r --brief <pristine-tarball-dir> /tmp/pi-patch-<newVersion>   # must be empty
+# 1. readable dist/ — both diffs:
+for p in infra/pi-patches/000*.patch; do patch -p1 -d /tmp/pi-patch-<newVersion> < "$p"; done
 # 2. the bundle that bin.pi actually runs:
-node infra/pi-patches/patch-bundle.mjs <editable-dir>
-pnpm patch-commit <editable-dir>   # writes patches/… and registers it
-pnpm install                        # confirm both land in the resolved copy
+node infra/pi-patches/patch-bundle.mjs /tmp/pi-patch-<newVersion>
+find /tmp/pi-patch-<newVersion> -name '*.orig' -delete  # `patch` backs a file up when a hunk lands at an offset
+pnpm patch-commit /tmp/pi-patch-<newVersion>      # writes patches/… and registers it
+pnpm install                                      # confirm both land in the resolved copy
 ```
 
-Then re-derive the stored diffs from the patched copy (`diff -u` against the
-pristine tarball) so `infra/pi-patches/` stays applicable to the new dist, and
-verify:
+`pnpm patch-commit` rewrites the `patchedDependencies` entry with single quotes
+and drops it above the `# loom:` comment — put the comment back on top and
+requote, then `vp check --fix` the YAML.
 
+### 3. Re-derive the stored diffs and verify
+
+Re-derive `0001`/`0002` from the patched copy (`diff -u` against the pristine
+tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
+
+- the stored diffs plus `patch-bundle.mjs`, applied to a fresh pristine tarball,
+  reproduce the `patch-commit` tree byte for byte (`diff -r`), and re-running
+  `patch-commit` on it leaves `patches/…patch` unchanged;
+- `node --check` every patched file, the minified chunk included;
 - `PiCwdOverride.contract.test.ts` runs (not skips) and passes — it drives the
   resolved `bin.pi`, so it covers the bundle, not the readable tree;
+- `--cwd` still resolves via pi's `resolvePath` in the bundle. Cheap proof
+  against the resolved `dist/bundle/cli.js`: `--session x --cwd '~/nope'` and
+  `--cwd 'file:///nope'` must report the _expanded_ path in the error;
 - the auth write is atomic in the copy Loom resolves. The decisive check is
   `atomic-window.mjs` from `/home/Carl/pi-craft/local-patches/authlock-repro/`
   (separate-process readers; in-process readers falsely report clean): every
-  `zeroByte`/`unparseable` count must be 0. On stock 0.86.0 the same harness
-  reports ~8,000 zero-byte and ~730 unparseable reads per 4 s reader.
+  `zeroByte`/`unparseable`/`emptyObject` count must be 0. Point its import at
+  the resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
+  rather than the global install. Stock pi is dramatically dirty for
+  calibration: on 0.87.1 the same harness reports ~4–9 k zero-byte and ~600–800
+  unparseable reads per 4 s reader, alongside ~5–6 k good ones. A stock run
+  reporting _millions_ of zero-byte reads is a stalled writer leaving the file
+  truncated, not a wider window — rerun it rather than record it;
+- `pnpm install` is idempotent (lockfile unchanged on a second run), and
+  `vp check` / `vp run typecheck` pass.
 
 ## 0001 — `--cwd <dir>` for headless session resume
 
@@ -144,7 +201,11 @@ needed by any daemon embedding pi, and interactive mode's prompt shows the
 semantics are already accepted.
 
 0.86.0 drift: unchanged except that `createSessionManager` is now `export`ed, so
-the signature hunk had to be re-derived. The only cosmetic difference in the
+the signature hunk had to be re-derived. 0.87.1 drift: none in this patch's
+territory — all nine bundle anchors matched first try and the readable hunks
+applied at a pure line offset (0.87.1 only reworked `--mode` validation and
+`prepareInitialMessage` nearby). Still **not** retired: 0.87.1 has no `--cwd` on
+the headless path. The only cosmetic difference in the
 bundle is that the two usage errors are plain text rather than chalk-red, since
 chalk's binding there is mangled by esbuild; path resolution and every accepted
 `--cwd` form are identical, because both forms call pi's `resolvePath`.
@@ -163,8 +224,11 @@ observably empty or partial for most of each write. `parseStorageData("")`
 returns `{}` with no error, so that window is indistinguishable from a real
 "no credentials" store for every reader that does not hold the lock — and pi has
 several (`readStoredCredential`, `ReadOnlyAuthStorage`, plus any reader whose
-lock acquisition loses to an in-flight OAuth refresh). Measured on stock 0.86.0:
-~8,000 zero-byte and ~730 unparseable observations per 4 s reader.
+lock acquisition loses to an in-flight OAuth refresh). Measured on stock 0.87.1:
+~4–9 k zero-byte and ~600–800 unparseable observations per 4 s reader, ×3
+readers, against ~5–6 k good reads — roughly one observation in two catches the
+file mid-write. (The same harness on 0.86.0 reported ~8,000 / ~730; the absolute
+counts track machine speed, the ratio is the point.)
 
 **Fix.** `writeFileAtomic()` writes a sibling `auth.json.tmp-<pid>-<ts>` and
 `renameSync()`s it over the target; `rename()` is atomic on POSIX, so a reader
@@ -191,9 +255,10 @@ retries for up to 30 s, and a failed read caches no revision so the next read
 retries. The stickiness is gone upstream, so only the atomic write was ported.
 
 File: `dist/core/auth-storage.js` (plus the bundle). Not yet filed upstream;
-confirmed still present in 0.86.0.
+confirmed still present in 0.87.1 — that file is byte-identical to 0.86.0, so
+the patch applied unchanged and retirement was never on the table.
 
 > Note: `pnpm patch` byte-compares the whole package, so
-> `patches/@earendil-works__pi-coding-agent@0.86.0.patch` is ~465 KB — the two
+> `patches/@earendil-works__pi-coding-agent@0.87.1.patch` is ~465 KB — the two
 > edited minified chunk lines dominate it. The readable diffs in this directory
 > are the reviewable form of the same change.

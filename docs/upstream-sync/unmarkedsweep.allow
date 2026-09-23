@@ -13,6 +13,12 @@ third-party-licenses.config.json
 # Sync bookkeeping about the fork itself; markers would be noise.
 docs/upstream-sync/
 
+# Provider model catalogue: JSON has no comment syntax. The fork delta is the
+# model-generation rollovers loom applies ahead of upstream (Opus 5.5, GPT-6
+# Sol/Luna); it is refreshed from upstream's copy at runtime anyway, so the
+# delta is only the offline bundle.
+apps/server/src/provider/model-manifest.json
+
 # package.json files: JSON has no comment syntax. Their fork delta is the
 # subpath-export map for loom-only modules, which the module names already name.
 packages/shared/package.json

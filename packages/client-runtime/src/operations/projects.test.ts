@@ -274,7 +274,7 @@ describe("add project shared logic", () => {
       createWorkspaceRootIfMissing: true,
       defaultModelSelection: {
         instanceId: "pi",
-        model: "cliproxy/claude-opus-5",
+        model: "cliproxy/claude-opus-5-5",
       },
     });
   });

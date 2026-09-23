@@ -45,15 +45,15 @@ async function awaitProcessExit(pid: number, attempts = 300): Promise<boolean> {
 }
 it("keeps only the current Claude family out of legacy models", () => {
   assert.deepStrictEqual(
-    ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-fable-5"].map((model) => [
+    ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-opus-5"].map((model) => [
       model,
       isLegacyClaudeModel(model),
     ]),
     [
       ["claude-fable-5-1", false],
-      ["claude-opus-5", false],
+      ["claude-opus-5-5", false],
       ["claude-sonnet-5", false],
-      ["claude-fable-5", true],
+      ["claude-opus-5", true],
     ],
   );
 });

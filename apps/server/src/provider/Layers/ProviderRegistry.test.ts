@@ -2578,6 +2578,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           );
           const opus5 = status.models.find((model) => model.slug === "claude-opus-5");
           assert.strictEqual(opus5?.name, "Claude Opus 5");
+          // loom: 5.5 postdates Opus 5, so a CLI that only just serves Opus 5
+          // must not advertise its successor.
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "claude-opus-5-5"),
+            false,
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -2702,6 +2708,33 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.257\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      // loom: the bundled manifest is authoritative for Opus 5.5's minimum CLI
+      // version \u2014 Claude Code 2.1.280 is the release that added the model.
+      it.effect("includes Claude Opus 5.5 on supported Claude Code versions", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities(),
+          );
+          const opus55 = status.models.find((model) => model.slug === "claude-opus-5-5");
+          assert.strictEqual(opus55?.name, "Claude Opus 5.5");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "2.1.280\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
                   stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',

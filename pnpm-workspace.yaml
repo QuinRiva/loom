@@ -80,12 +80,12 @@ minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.79
   - effect@4.0.0-rc.115
   - "@legendapp/list@3.3.5"
-  - "@earendil-works/chord@0.86.0"
-  - "@earendil-works/pi-agent-core@0.86.0"
-  - "@earendil-works/pi-ai@0.86.0"
-  - "@earendil-works/pi-coding-agent@0.86.0"
-  - "@earendil-works/pi-telemetry@0.86.0"
-  - "@earendil-works/pi-tui@0.86.0"
+  - "@earendil-works/chord@0.87.1"
+  - "@earendil-works/pi-agent-core@0.87.1"
+  - "@earendil-works/pi-ai@0.87.1"
+  - "@earendil-works/pi-coding-agent@0.87.1"
+  - "@earendil-works/pi-telemetry@0.87.1"
+  - "@earendil-works/pi-tui@0.87.1"
   - "@expo/cli@57.0.20"
   - "@expo/env@2.4.3"
   - "@expo/fingerprint@0.20.11"
@@ -211,7 +211,7 @@ packageExtensions:
 patchedDependencies:
   "@clerk/expo@4.6.8": patches/@clerk__expo@4.6.8.patch
   # loom: pi-coding-agent patch (fork-only dependency)
-  "@earendil-works/pi-coding-agent@0.86.0": patches/@earendil-works__pi-coding-agent@0.86.0.patch
+  "@earendil-works/pi-coding-agent@0.87.1": patches/@earendil-works__pi-coding-agent@0.87.1.patch
   "@effect/vitest@4.0.0-rc.115": patches/@effect__vitest@4.0.0-rc.115.patch
   "@expo/metro-config@57.0.12": patches/@expo__metro-config@57.0.12.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch

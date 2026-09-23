@@ -158,13 +158,13 @@ export const DEFAULT_MODEL = "gpt-6-astra";
  * default; when none are available, Codex's own `isDefault` flag wins.
  */
 export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
-  "gpt-6-astra",
   DEFAULT_MODEL,
+  "gpt-6-sol", // loom: GPT-6 Sol outranks its 5.6 predecessor, which stays as a fallback
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ];
 // loom: pi is the default provider; keep loom's pi model default + thinking levels.
-export const PI_DEFAULT_MODEL = "cliproxy/claude-opus-5";
+export const PI_DEFAULT_MODEL = "cliproxy/claude-opus-5-5";
 export const PI_THINKING_LEVEL_OPTIONS = [
   "off",
   "minimal",
@@ -174,7 +174,8 @@ export const PI_THINKING_LEVEL_OPTIONS = [
   "xhigh",
 ] as const;
 export type PiThinkingLevel = (typeof PI_THINKING_LEVEL_OPTIONS)[number];
-export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
+// loom: rolled from gpt-5.6-luna with the GPT-6 generation.
+export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-6-luna";
 /** Keep the official Antigravity session's current model. Never send this ID to ACP. */
 export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
 export const DEFAULT_TEXT_GENERATION_REASONING_EFFORT = "low";
