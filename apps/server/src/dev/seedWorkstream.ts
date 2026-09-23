@@ -191,29 +191,36 @@ const seedProgram = Effect.gen(function* () {
   });
 
   // Goal tasks: the panel's task tree needs a live fixture, and the progress
-  // pill is meaningless without a mix of done/outstanding.
-  for (const [index, task] of [
-    { text: "Seed a realistic workstream fixture", done: true },
-    { text: "Capture real turn checkpoints for the diff scope", done: true },
-    { text: "Verify the goal panel's handoff ordering", done: false },
-  ].entries()) {
-    // Uuid-shaped so the seeded tree looks like a real one (live ids are
-    // uuids minted at the edge); `goal_tasks_rewrite` matches ids against the
-    // goal's known-id set, so the shape is cosmetic rather than load-bearing.
-    const taskId = GoalTaskId.make(`00000000-0000-4000-8000-00000000000${index}`);
+  // pill is meaningless without a mix of done/outstanding. NESTED, with a
+  // fully-done phase and an anchored branch (task 2, coder-alpha's anchor), so
+  // every branch-scoped surface — spine, branch, elided open plan, overview
+  // counts, pulse — has something real to render.
+  // Ids are uuid-shaped so the seeded tree looks like a real one (live ids are
+  // uuids minted at the edge); parents are created before their children, which
+  // is why the declaration order is not the id order.
+  const seedTaskId = (index: number) =>
+    GoalTaskId.make(`00000000-0000-4000-8000-00000000000${index}`);
+  for (const task of [
+    { id: 0, text: "Seed a realistic workstream fixture", done: true, parent: null },
+    { id: 1, text: "Capture real turn checkpoints for the diff scope", done: true, parent: 0 },
+    { id: 3, text: "Verify the seeded surfaces", done: false, parent: null },
+    { id: 2, text: "Verify the goal panel's handoff ordering", done: false, parent: 3 },
+    { id: 4, text: "Confirm the task-to-thread chip on anchored rows", done: false, parent: 2 },
+  ]) {
+    const taskId = seedTaskId(task.id);
     yield* dispatch({
       type: "goal.task.create",
-      commandId: nextCommandId(`goal-task-${index}`),
+      commandId: nextCommandId(`goal-task-${task.id}`),
       goalId: GOAL_ID,
       taskId,
-      parentTaskId: null,
+      parentTaskId: task.parent === null ? null : seedTaskId(task.parent),
       text: task.text,
       createdAt: iso(0),
     });
     if (task.done) {
       yield* dispatch({
         type: "goal.task.update",
-        commandId: nextCommandId(`goal-task-done-${index}`),
+        commandId: nextCommandId(`goal-task-done-${task.id}`),
         goalId: GOAL_ID,
         taskId,
         done: true,

@@ -4,6 +4,7 @@ import {
   CommandId,
   EventId,
   GoalId,
+  type GoalTaskId,
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationGoal,
@@ -60,7 +61,15 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 // loom: in-flight launch claims — the stuck-launch recovery guard.
 import { ProviderLaunchClaims } from "../../provider/Services/ProviderLaunchClaims.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
-import { renderGoalTaskTree } from "../goalTaskRender.ts";
+// loom: task-tree branch scoping — the injected tree is scoped to what the
+// thread owns (branch / overview / open plan), never the whole ticked history.
+import { goalTaskSpine, resolveThreadAnchor } from "../goalTaskAnchor.loom.ts";
+import {
+  renderGoalPulse,
+  renderGoalTaskBranch,
+  renderGoalTaskOverview,
+  renderOpenGoalTaskTree,
+} from "../goalTaskRender.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { shouldRefuseForkLaunch } from "../threadIdle.ts";
@@ -220,27 +229,55 @@ export const shouldReprovisionIsolatedChild = (input: {
   input.isolation === "isolated" &&
   !isProvisionedChildBranch(input.branch, input.threadId);
 
-const activeGoalContextInstruction = (
+// loom: task-tree branch scoping (plans/task-tree-branch-scoping/plan.mdx §2) —
+// three variants of the once-per-session goal context. A BOUND child gets its
+// branch (plus the spine it hangs off and a one-line goal pulse) and guidance
+// framed around that branch; an UNBOUND child gets the top-level overview and
+// the "your brief is your assignment" sentence; the root gets the open plan and
+// keeps the full shaping guidance, since it owns the tree's structure. Every
+// variant keeps the pointer that this is a snapshot and `goal_task_list` reads
+// the tree live.
+export const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
-  opts?: { readonly asChildBackground?: boolean },
+  opts?: {
+    readonly asChildBackground?: boolean;
+    readonly anchorTaskId?: GoalTaskId | null;
+  },
 ) => {
-  const tasks =
-    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(goal.tasks).trimEnd();
+  const anchor = resolveThreadAnchor(goal.tasks, opts?.anchorTaskId ?? null);
   if (opts?.asChildBackground) {
-    return [
+    const header = [
       `Background context — your parent orchestrator is working toward this overall goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
       goal.description.trim().length > 0
         ? `\nParent's objective (background only, NOT your task): ${goal.description.trim()}`
         : "",
-      `\n\nParent's current task tree (a snapshot, never refreshed — \`goal_task_list\` reads it live):\n${tasks}`,
-      `\n\nYour writes to this shared tree are the two safe mid-flight changes: mark your OWN task done with \`goal_task_update\`, and record discovered actionable work with \`goal_task_add\` under the task it belongs to. Write anything you add for a reader outside your thread: a short imperative plain-language item naming the outcome and value, not the mechanism (the server rejects text over 300 characters). The tree records that work exists and its status, never the details: coordinates, findings and verdicts go in your thread/report/memo, and draft or deliverable content goes in its artefact; at most one short ticket or artefact pointer belongs in a task.\n  Not: "AIT-101 — re-key the Lease Extraction tab off names: tenant_id-FIRST with NAME FALLBACK (002336 bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…); MUST land before 450112/450117 re-trigger"\n  But: "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"\nFinishing means ticking the task, not rewriting it into a result record. Restructuring belongs to the tree's owner: \`goal_tasks_rewrite\` is rejected for a thread with a parent, so report a bad shape.`,
+    ].join("");
+    if (goal.tasks.length === 0) return header;
+    if (anchor !== null) {
+      return [
+        header,
+        `\n\nYour task, and the branch you own (a spawn snapshot — \`goal_task_list\` reads it live):\n${renderGoalTaskBranch(anchor, goalTaskSpine(goal.tasks, anchor.id))}`,
+        `\n\n${renderGoalPulse(goal.tasks, anchor)} — \`goal_task_list\` with scope "tree" reads all of it.`,
+        `\n\nTick your own tasks with \`goal_task_update\` as each lands, and reshape your branch in ONE \`goal_tasks_rewrite\` when its shape stops matching the work: submit exactly the branch block above, keeping every retained \`(id)\`; your anchor stays its root line. Tasks outside your branch are read-only — record discovered work with \`goal_task_add\` (it lands in your branch by default; pass a parentTaskId to place it elsewhere, and the echo shows where it landed) and say what needs doing in your report. Anything you write is a short plain-language work item naming the outcome and value, for a reader outside this thread (the server rejects text over 300 characters); details, findings and verdicts go in your report or memo.`,
+      ].join("");
+    }
+    return [
+      header,
+      `\n\nParent's plan at a glance (a spawn snapshot — \`goal_task_list\` reads it live, and lists each phase's subtree):\n${renderGoalTaskOverview(goal.tasks)}`,
+      `\n\nYou have no task of your own in this tree: your brief is your assignment. Record discovered actionable work with \`goal_task_add\` under the phase it belongs to, as a short plain-language item naming the outcome and value for a reader outside this thread (the server rejects text over 300 characters); findings, verdicts and details go in your report or memo. Restructuring belongs to the tree's owner — \`goal_tasks_rewrite\` is rejected for a child with no branch of its own, so report a bad shape.`,
+    ].join("");
+  }
+  if (goal.tasks.length === 0) {
+    return [
+      `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
+      goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
     ].join("");
   }
   return [
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
-    `\n\nCurrent tasks:\n${tasks}`,
-    `\n\nThis tree is the human's at-a-glance view of the plan, so keep it shaped — not merely appended to:\n- Write for a reader who has NOT lived this thread: short imperative plain-language tasks (about a dozen words) naming the outcome and value, not the mechanism. The server rejects text over 300 characters.\n- The tree records THAT work exists and whether it is done, never its details: coordinates live in the task's thread; findings, verdicts and decisions in reports or memos; draft content in its artefact. At most one short ticket or artefact pointer belongs in a task. Keep the goal description a short objective, not a journal.\n  Not: "AIT-101 — re-key the Lease Extraction tab off names: tenant_id-FIRST with NAME FALLBACK (002336 bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…); MUST land before 450112/450117 re-trigger"\n  But: "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"\n- Finish by ticking a task, never by rewriting it into a result record; outcomes go in a report or memo.\n- Nest. Top-level items are phases or themes (aim for 7 or fewer); concrete work hangs under them. A flat list past ~8 items needs restructuring.\n- Update at the seams: when you plan or re-plan, when delegated work lands, when scope changes.\n- The snapshot above is never refreshed — \`goal_task_list\` reads the live tree, and every mutation echoes it. \`goal_task_add\` appends one item; \`goal_task_update\` renames or marks done; \`goal_update\` edits the goal. When the shape stops matching the plan, fix it in ONE \`goal_tasks_rewrite\` call: submit the whole edited markdown, retaining each kept task's \`(id)\`.`,
+    `\n\nCurrent tasks (finished subtrees are elided as "… N done tasks elided"):\n${renderOpenGoalTaskTree(goal.tasks).trimEnd()}`,
+    `\n\nThis tree is the human's at-a-glance view of the plan, so keep it shaped — not merely appended to:\n- Write for a reader who has NOT lived this thread: short imperative plain-language tasks (about a dozen words) naming the outcome and value, not the mechanism. The server rejects text over 300 characters.\n- The tree records THAT work exists and whether it is done, never its details: coordinates live in the task's thread; findings, verdicts and decisions in reports or memos; draft content in its artefact. At most one short ticket or artefact pointer belongs in a task. Keep the goal description a short objective, not a journal.\n  Not: "AIT-101 — re-key the Lease Extraction tab off names: tenant_id-FIRST with NAME FALLBACK (002336 bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…); MUST land before 450112/450117 re-trigger"\n  But: "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"\n- Finish by ticking a task, never by rewriting it into a result record; outcomes go in a report or memo.\n- Nest. Top-level items are phases or themes (aim for 7 or fewer); concrete work hangs under them. A flat list past ~8 items needs restructuring.\n- Update at the seams: when you plan or re-plan, when delegated work lands, when scope changes.\n- The snapshot above is never refreshed, and its elision markers make it unusable as rewrite input on purpose — \`goal_task_list\` reads the live tree in full, and every mutation echoes what you changed. \`goal_task_add\` appends one item; \`goal_task_update\` renames or marks done; \`goal_update\` edits the goal. When the shape stops matching the plan, fix it in ONE \`goal_tasks_rewrite\` call: submit the whole edited markdown from a fresh \`goal_task_list\`, retaining each kept task's \`(id)\`.`,
   ].join("");
 };
 const MAX_REGENERATION_ATTACHMENTS = 4;
@@ -690,6 +727,8 @@ const make = Effect.gen(function* () {
     readonly projectId: ProjectId;
     readonly goalId: string | null;
     readonly parentThreadId: ThreadId | null;
+    // loom: task-tree branch scoping — the anchor picks the injection variant.
+    readonly anchorTaskId?: GoalTaskId | null;
   }) {
     if (!thread.goalId) return undefined;
     const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
@@ -697,7 +736,10 @@ const make = Effect.gen(function* () {
       (entry) => entry.id === thread.goalId && entry.deletedAt === null,
     );
     return goal
-      ? activeGoalContextInstruction(goal, { asChildBackground: thread.parentThreadId !== null })
+      ? activeGoalContextInstruction(goal, {
+          asChildBackground: thread.parentThreadId !== null,
+          anchorTaskId: thread.anchorTaskId ?? null,
+        })
       : undefined;
   });
 

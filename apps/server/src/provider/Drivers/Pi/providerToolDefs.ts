@@ -773,14 +773,26 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_list",
     label: "List Goal Tasks",
     description:
-      "Read the current task tree of THIS thread's active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. It is also the text you edit and hand to goal_tasks_rewrite. This is a read — it mutates nothing. Errors cleanly if this thread has no active goal.",
+      'Read the task tree of THIS thread\'s active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. If you are anchored to a branch, this returns THAT branch in full (plus the read-only spine it hangs off) — the exact text a branch rewrite takes; pass scope "tree" for the complete goal, which is what an unanchored thread always gets and the only complete source for a whole-tree rewrite. This is a read — it mutates nothing. Errors cleanly if this thread has no active goal.',
     promptSnippet:
-      "read this thread's active goal's current task tree (the shared tree) for orientation/reconciliation; mutates nothing.",
+      "read this thread's active goal's task tree — your own branch by default, scope \"tree\" for the whole goal; mutates nothing.",
     promptGuidelines: [
       "You never pass a goalId — this always reads this thread's own active goal.",
-      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed. Every mutation echoes the resulting tree, so you only need this read when you have not just written.",
+      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed. Every mutation echoes the scope you own, so you only need this read when you have not just written.",
+      'Default scope is your own branch when you are anchored (the whole tree otherwise). Use scope "tree" deliberately: to place discovered work under the right phase, or — as the tree\'s owner — to get the complete rewrite source.',
     ],
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["branch", "tree"],
+          description:
+            '"branch" (default when you are anchored): your anchor\'s subtree in full, preceded by the read-only spine showing where it sits. "tree": the complete goal task tree.',
+        },
+      },
+      additionalProperties: false,
+    },
     errorMode: "soft",
     fallbackText: "(no tasks yet)",
   },
@@ -788,11 +800,11 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_add",
     label: "Add Goal Task",
     description:
-      "Append ONE task to the task tree of THIS thread's active goal — a targeted, concurrency-safe write that touches only the task it creates, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use it to record a single discovered actionable item (e.g. 'evaluate whether to fix pre-existing bug X') as a short imperative work item, nested under the task or theme it belongs to. To add several items at once, or to reshape the tree, edit the whole tree with goal_tasks_rewrite instead. Returns the resulting tree. Errors cleanly if this thread has no active goal.",
+      "Append ONE task to the task tree of THIS thread's active goal — a targeted, concurrency-safe write that touches only the task it creates, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use it to record a single discovered actionable item (e.g. 'evaluate whether to fix pre-existing bug X') as a short imperative work item, nested under the task or theme it belongs to. It lands in your own branch by default when you are anchored; any task of the goal is a legal explicit parent, so work you discover elsewhere enters the shared tree the moment you find it — the echo shows where it landed, with its ancestors. To add several items at once, or to reshape your branch, use goal_tasks_rewrite instead. Errors cleanly if this thread has no active goal.",
     promptSnippet: "add one task to this thread's goal task tree (nested under a parent task).",
     promptGuidelines: [
       "You never pass a goalId — the task is always added to this thread's own active goal.",
-      "Pass parentTaskId (a task id from this goal) to nest the new task under the theme it belongs to; a top-level append is for a genuinely new phase of the goal, not the default.",
+      "Omit parentTaskId to add inside your own branch (under your anchor). Pass a parentTaskId to nest the task under the phase it really belongs to — that is how out-of-branch discoveries reach the orchestrator live; it re-homes them if your placement was wrong. A top-level append is for a genuinely new phase of the goal, not the default.",
       `Write a short plain-language work item naming the outcome and its value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
     ],
     parameters: {
@@ -805,7 +817,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         parentTaskId: {
           type: "string",
           description:
-            "Id of an existing task in this goal to nest the new task under. Omit only for a new top-level phase/theme.",
+            "Id of an existing task in this goal to nest the new task under. Omit to add under your own anchor (or, unanchored, as a new top-level phase/theme).",
         },
       },
       required: ["text"],
@@ -818,11 +830,11 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_update",
     label: "Update Goal Task",
     description:
-      "Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it. This is how a child marks its OWN assigned task done the moment it finishes the work. Re-nesting, reordering and removing a task are not here: they are edits of the whole tree via goal_tasks_rewrite. Returns the resulting tree.",
+      "Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it, and when you are anchored it must be in your own branch — ticking another thread's task is refused. This is how a thread marks its OWN task done the moment it finishes the work. Re-nesting, reordering and removing a task are not here: they are edits via goal_tasks_rewrite.",
     promptSnippet:
       "update one task in this thread's goal: rename (text) or mark done/reopen (done).",
     promptGuidelines: [
-      "taskId must be a task in this thread's own active goal.",
+      "taskId must be a task in this thread's own active goal, and inside your own branch when you are anchored. Work that needs doing on someone else's task goes in your report (or ask its thread with consult_thread) — record new work with goal_task_add.",
       "Pass only the fields you are changing; provide at least one of text or done. Mark your own task done as soon as the work lands, not at the end of the session — never rewrite it into a result record.",
       `Renamed text must be a short plain-language work item naming the outcome and its value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
     ],
@@ -849,21 +861,22 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_tasks_rewrite",
     label: "Rewrite Goal Tasks",
     description:
-      "Replace the WHOLE task tree of THIS thread's active goal with the markdown you submit — the primary structural mutation. Restructure, re-nest, reorder, merge, rename, mark done, and prune in ONE call: submit the revised tree in the same `- [x] text (id)` checklist form goal_task_list returns. Lines keeping an existing task's `(id)` ARE that task (its text, done-state, parent, and order become what you submitted; its creation time is preserved); lines without an id are new tasks; existing tasks you omit are deleted. Indentation (two spaces per level) is the nesting, so a cycle is unrepresentable. Rewrite from a fresh goal_task_list read — this is a whole-tree replace, so anything added since your last read and left out is lost. Rejected for threads that have a parent: the tree's owner does the restructuring.",
+      "Replace what you own in THIS thread's goal task tree with the markdown you submit — the primary structural mutation. Restructure, re-nest, reorder, merge, rename, mark done, and prune in ONE call: submit the revised tree in the same `- [x] text (id)` checklist form goal_task_list returns. Lines keeping an existing task's `(id)` ARE that task (its text, done-state, parent, and order become what you submitted; its creation time is preserved); lines without an id are new tasks; tasks you omit are deleted. Indentation (two spaces per level) is the nesting, so a cycle is unrepresentable. Scope follows ownership: the thread that owns the goal submits the WHOLE tree; an anchored thread submits exactly its BRANCH — one top-level line carrying its anchor's id plus everything beneath it, leaving the rest of the goal untouched. Rewrite from a fresh goal_task_list read at that scope, since anything added since your last read and left out is lost. Rejected for a child with no anchor: the tree's owner does the restructuring.",
     promptSnippet:
-      "replace this thread's goal task tree wholesale with an edited markdown checklist (the goal_task_list form) — one call restructures, re-nests, renames, done-marks and prunes.",
+      "replace the tree you own — the whole goal, or your own branch when you are anchored — with an edited markdown checklist (the goal_task_list form); one call restructures, re-nests, renames, done-marks and prunes.",
     promptGuidelines: [
       "Read the live tree (goal_task_list, or a mutation's echoed tree) and edit THAT text — keep the `(id)` marker on every task you retain, or it comes back as a brand-new task.",
-      "The submission is the whole tree: a task you leave out is deleted, and indentation alone decides nesting. An empty submission, an unparseable line, or an `(id)` that is not in this goal is rejected and nothing is applied.",
+      "The submission IS the resulting tree at your scope: a task you leave out is deleted, and indentation alone decides nesting. An empty submission, an unparseable line (the elision markers in an echoed open plan are deliberately unparseable — rewrite from a fresh read instead), or an `(id)` that is not in this goal is rejected and nothing is applied.",
+      "Anchored: submit exactly your branch — its root line is your anchor, keeping its `(id)`. Your anchor can be renamed or ticked but never deleted, replaced or moved, and no line may carry the id of a task outside your branch.",
       `This is the tool that fixes shape and register: hang the concrete work under a handful of phase/theme parents, and rewrite journal-entry tasks into short plain-language items naming the outcome and value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters). The cap binds only text you add or change; retained verbatim text is grandfathered. Details, findings and verdicts go in reports or memos.`,
-      "Only a thread with no parent may rewrite; as a child, append with goal_task_add and mark your own task done with goal_task_update.",
+      "A child with no anchor cannot rewrite at all: append with goal_task_add, mark your own task done with goal_task_update, and report a bad shape to the tree's owner.",
     ],
     parameters: {
       type: "object",
       properties: {
         markdown: {
           type: "string",
-          description: `The complete revised tree as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level of nesting; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text must be a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
+          description: `The complete revised tree at your scope (the whole goal, or your own branch rooted at your anchor) as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level of nesting; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text must be a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
         },
       },
       required: ["markdown"],

@@ -11,14 +11,15 @@ import type {
   GoalTaskId,
   OrchestrationCommand,
   OrchestrationGoal,
-  OrchestrationGoalTask,
   OrchestrationReadModel,
   ProjectId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
-import { flattenGoalTasks } from "./goalTaskTree.ts";
+// One traversal primitive for "is this task live in the goal?" across the
+// invariants, the anchor binding and the branch guards.
+import { findGoalTask } from "./goalTaskAnchor.loom.ts";
 
 function invariantError(commandType: string, detail: string): OrchestrationCommandInvariantError {
   return new OrchestrationCommandInvariantError({
@@ -162,21 +163,12 @@ export function requireUniqueGoalSlug(input: {
   );
 }
 
-function findGoalTask(
-  goal: OrchestrationGoal,
-  taskId: GoalTaskId,
-): OrchestrationGoalTask | undefined {
-  return flattenGoalTasks(goal.tasks).find((task) => task.id === taskId) as
-    | OrchestrationGoalTask
-    | undefined;
-}
-
 export function requireGoalTask(input: {
   readonly command: OrchestrationCommand;
   readonly goal: OrchestrationGoal;
   readonly taskId: GoalTaskId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (findGoalTask(input.goal, input.taskId)) {
+  if (findGoalTask(input.goal.tasks, input.taskId) !== null) {
     return Effect.void;
   }
   return Effect.fail(
@@ -192,7 +184,7 @@ export function requireGoalTaskAbsent(input: {
   readonly goal: OrchestrationGoal;
   readonly taskId: GoalTaskId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!findGoalTask(input.goal, input.taskId)) {
+  if (findGoalTask(input.goal.tasks, input.taskId) === null) {
     return Effect.void;
   }
   return Effect.fail(
@@ -208,7 +200,7 @@ export function requireGoalParentTask(input: {
   readonly goal: OrchestrationGoal;
   readonly parentTaskId: GoalTaskId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (findGoalTask(input.goal, input.parentTaskId)) {
+  if (findGoalTask(input.goal.tasks, input.parentTaskId) !== null) {
     return Effect.void;
   }
   return Effect.fail(
