@@ -2,7 +2,11 @@
 
 This directory is the human-readable **source of truth** for _why_ Loom patches
 pi (`@earendil-works/pi-coding-agent`) and how to re-derive each patch. pi ships
-as compiled JS, so the patches target `dist/`.
+as compiled JS, so the patches target `dist/`. The surrounding procedure — which
+pi version to pick, every other place the pi version and model ids live, and
+the order to touch them in — is
+[`docs/operations/platform-update.md`](../../docs/operations/platform-update.md);
+this file covers only the patches.
 
 ## How the patch is actually applied (primary path)
 
@@ -49,20 +53,29 @@ pays on every spawned thread.
 This replaces the old machine-state coupling where the patch lived only in a
 global `npm i -g` install and any `pi update` silently reverted it.
 
-## `apply.sh` is legacy / dev-only
+## `apply.sh` — the global install
 
 ```bash
-infra/pi-patches/apply.sh          # apply (idempotent)
-infra/pi-patches/apply.sh --check  # check: are they applied?
-infra/pi-patches/apply.sh --revert # back out
+npm install -g @earendil-works/pi-coding-agent@<version>   # the bundled pin; not `pi update`
+infra/pi-patches/apply.sh          # apply (idempotent): readable dist/, then the bundle
+infra/pi-patches/apply.sh --check  # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
+infra/pi-patches/apply.sh --revert # back out the readable tree only — reinstall to undo the bundle
 ```
 
-`apply.sh` patches a **globally installed** pi in place (readable `dist/` first,
-then the bundle via `patch-bundle.mjs`; `--revert` only backs out the readable
-tree — reinstall the package to undo the bundle). Loom no longer needs it — the
-bundled dependency is what Loom runs. Keep it only for patching a global pi you
-use for _interactive_ `pi --session … --cwd …` at the terminal; it is not part
-of Loom's build or runtime.
+`apply.sh` patches the **globally installed** pi (`which pi`) in place. Loom's
+runtime does not use that copy, but the global pi is still a required part of
+every bump: `~/.pi/agent/auth.json` is shared by every pi process on the
+machine, so an unpatched terminal pi writing it non-atomically can hand a
+bundled cockpit thread an empty credential store — 0002 only works if _every_
+writer has it. Install the exact bundled version with `npm install -g` (so the
+re-derived diffs below apply at zero offset; `pi update` installs latest and
+`--all` also reinstalls extensions, wiping their patches), then run `apply.sh`.
+
+On this path `apply.sh` deliberately leaves a `*.orig` beside each patched file
+for emergency restore — keep them (the bundled path is different, see step 2).
+The atomic-write harness in step 3 imports the global install by default, so
+for this copy it runs unmodified. Running pi processes keep the old code;
+nothing needs killing.
 
 Authored against pi **0.82.1**; both diffs were re-derived against **0.87.1**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
@@ -107,13 +120,14 @@ first:
 
 ```bash
 # patchedDependencies entry temporarily commented out:
-pnpm install                       # resolves the new version, unpatched
+pnpm install                       # resolves the new version, unpatched — the moment to run the
+                                   # step-0 retirement proofs against stock (contract test, harness)
 # put the entry back, then:
 rm -rf /tmp/pi-patch-<newVersion>  # never reuse a stale editable dir
 pnpm patch @earendil-works/pi-coding-agent@<newVersion> --edit-dir /tmp/pi-patch-<newVersion>
 diff -r --brief <pristine-tarball-dir> /tmp/pi-patch-<newVersion>   # must be empty
-# 1. readable dist/ — both diffs:
-for p in infra/pi-patches/000*.patch; do patch -p1 -d /tmp/pi-patch-<newVersion> < "$p"; done
+# 1. readable dist/ — both diffs, at zero fuzz so an upstream drift fails here rather than in step 3:
+for p in infra/pi-patches/000*.patch; do patch -p1 -F 0 -d /tmp/pi-patch-<newVersion> < "$p"; done
 # 2. the bundle that bin.pi actually runs:
 node infra/pi-patches/patch-bundle.mjs /tmp/pi-patch-<newVersion>
 find /tmp/pi-patch-<newVersion> -name '*.orig' -delete  # `patch` backs a file up when a hunk lands at an offset
@@ -142,15 +156,25 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
 - the auth write is atomic in the copy Loom resolves. The decisive check is
   `atomic-window.mjs` from `/home/Carl/pi-craft/local-patches/authlock-repro/`
   (separate-process readers; in-process readers falsely report clean): every
-  `zeroByte`/`unparseable`/`emptyObject` count must be 0. Point its import at
-  the resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
-  rather than the global install. Stock pi is dramatically dirty for
+  `zeroByte`/`unparseable`/`emptyObject` count must be 0. Its import is
+  hard-coded to the global install; for the bundled copy point it at the
+  resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
+  instead. That exercises the readable tree — the bundle's write path is proven
+  by `grep -c __loomWriteAuthAtomic` on the chunk (expect 2) with no raw
+  `this.authPath,next,AUTH_FILE_WRITE_OPTIONS` write left. Stock pi is dramatically dirty for
   calibration: on 0.87.1 the same harness reports ~4–9 k zero-byte and ~600–800
   unparseable reads per 4 s reader, alongside ~5–6 k good ones. A stock run
   reporting _millions_ of zero-byte reads is a stalled writer leaving the file
   truncated, not a wider window — rerun it rather than record it;
 - `pnpm install` is idempotent (lockfile unchanged on a second run), and
   `vp check` / `vp run typecheck` pass.
+
+All of the above must run in a worktree that has itself run `pnpm install`
+since the bump: a sibling worktree that merely merged the commit still resolves
+the **old** pi, and the model probes pass on it anyway (builtin models come from
+`~/.pi/agent/models-store.json`, custom ones from the extensions). Assert
+`grep '"version"' "$(readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`
+before trusting any result.
 
 ## 0001 — `--cwd <dir>` for headless session resume
 
