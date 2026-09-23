@@ -251,6 +251,10 @@
       "types": "./src/planCommentAnchor.loom.ts",
       "import": "./src/planCommentAnchor.loom.ts"
     },
+    "./consultActivity.loom": {
+      "types": "./src/consultActivity.loom.ts",
+      "import": "./src/consultActivity.loom.ts"
+    },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
       "import": "./src/composerContextLegacy.ts"

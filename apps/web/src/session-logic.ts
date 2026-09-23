@@ -32,6 +32,12 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 
+// loom: a `consult_thread` result renders as a card, not a tool dump.
+import {
+  readConsultActivityFields,
+  type ConsultActivityFields,
+} from "@t3tools/shared/consultActivity.loom";
+
 import {
   isImageAttachment,
   type ChatAttachment,
@@ -93,6 +99,11 @@ export interface WorkLogEntry {
     workflowId: string | null;
     agentTaskIds: ReadonlyArray<string>;
   };
+  /**
+   * loom: present only on a `consult_thread` result — the cross-thread exchange
+   * this entry is, which the timeline renders as a card instead of a tool row.
+   */
+  consult?: ConsultActivityFields;
 }
 
 const workLogCollapseKey = Symbol();
@@ -656,6 +667,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (toolPresentation.toolSource) {
     entry.toolSource = toolPresentation.toolSource;
+  }
+  // loom: the question, the target and the answer a consult carries, which the
+  // generic tool row drops entirely. See `~/loom/ConsultCardRow`.
+  const consult = readConsultActivityFields(asRecord(payload?.data));
+  if (consult) {
+    entry.consult = consult;
   }
   if (itemType === "mcp_tool_call") {
     const data = asRecord(payload?.data);
