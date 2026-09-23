@@ -113,8 +113,14 @@ deploy. Sequence so that nothing points at a model that nothing can serve:
    it with a real completion (§7). If rejected, the proxy needs a rebuild onto
    an upstream tag whose cloak pin ≥ the floor named in the error _and_ whose
    registry carries the model — two independent conditions; tags exist that
-   satisfy one and not the other. Procedure and restart approval are in
-   `/home/Carl/cli-proxy/AGENTS.md`. Nothing downstream may point a default or
+   satisfy one and not the other. **The deployed image is never stock**: it is
+   the upstream tag plus a local fix branch (the model-scoped 429 failover that
+   stops a loom session wedging on an exhausted account), so "upgrade" means
+   _rebase that branch onto the new tag_, never _pull the tag_ — pulling
+   silently reverts a live fix. Whether the patch can finally be dropped is
+   decided by the absorption test, not by reading the changelog. Procedure,
+   absorption test and restart approval are in `/home/Carl/cli-proxy/AGENTS.md`
+   ("Hard rule", "Upgrading to a new upstream version"). Nothing downstream may point a default or
    preset at `cliproxy/<new model>` until this completion succeeds. Note the
    coupling: rolling the proxy image back later re-breaks every thread on the
    new model, so a proxy rollback and a preset rollback are one action.
