@@ -3,7 +3,11 @@
 An audit of workstream thread `0f89eaa5` ("Usage UI: baseline, evaluation, way forward"), which spent **$35.02 across 180 turns in 48 minutes** to produce a ~25 KB evaluation document. You asked whether the agent struggled, and if so what the root cause was.
 
 <Callout tone="decision">
-  **How to review this.** Nine changes are proposed below, each with a measured or modelled saving and a named owner. Each carries an Accept / Reject / Discuss control; **silence defaults to the stated recommendation**, so you only need to touch the ones you disagree with. The two genuinely balanced calls are in the question form at the bottom. Nothing here has been implemented — this document is the decision gate.
+  **How to review this.** Nine changes are proposed below, each with a measured or modelled saving
+  and a named owner. Each carries an Accept / Reject / Discuss control; **silence defaults to the
+  stated recommendation**, so you only need to touch the ones you disagree with. The two genuinely
+  balanced calls are in the question form at the bottom. Nothing here has been implemented — this
+  document is the decision gate.
 </Callout>
 
 ## The verdict on your hypothesis
@@ -12,7 +16,7 @@ Your guess was **half right, and the wrong half is the more useful one**.
 
 It did not struggle with its objective. It understood what it owed from its first turn, never revised the deliverable's shape, never discovered late that it had built the wrong thing, and produced the entire analytical argument once — in a single block of thinking at turn 105 — which survives essentially unchanged into the shipped document. There is no objective confusion and no meaningful scope drift.
 
-What it struggled with was **producing and then looking at the artefact**. Two gaps in our own tooling, both invisible from its brief: the MDX recap format has no way to embed a screenshot, and there is no way to view a rendered MDX document short of booting the whole app and driving a browser through a file tree. The work that *looks* expensive — booting two instances and capturing ten UI surfaces — was 28% of the spend and largely honest. The single most expensive phase was **looking at a document it had already written and already lint-verified: $11.04, 31.5%**.
+What it struggled with was **producing and then looking at the artefact**. Two gaps in our own tooling, both invisible from its brief: the MDX recap format has no way to embed a screenshot, and there is no way to view a rendered MDX document short of booting the whole app and driving a browser through a file tree. The work that _looks_ expensive — booting two instances and capturing ten UI surfaces — was 28% of the spend and largely honest. The single most expensive phase was **looking at a document it had already written and already lint-verified: $11.04, 31.5%**.
 
 And the cost driver is not what any of us assumed. I opened this investigation telling you screenshots were 84% of the transcript bytes and implying they were the problem. **They were 7.3% of the money.** Anthropic bills images by pixel area after downscaling, not by payload size — a 2.6 MB screenshot and an 894 KB screenshot both cost about 2,900 tokens. The money went somewhere else entirely.
 
@@ -23,14 +27,44 @@ Attribution is measured, not estimated: context is strictly monotonic across all
 <Table
   columns={["Cause", "$", "% of bill", "What it is"]}
   rows={[
-    ["Accessibility-tree dumps attached to browser interactions", "13.12", "37.5%", "21 clicks, 10 waits, 1 hover — 60% of the final context"],
-    ["— of which ONE click that opened a file", "5.16", "14.7%", "a single tool result of 299,180 tokens"],
-    ["The model's own messages (writing them, then re-reading them)", "6.15", "17.6%", "83,474 output tokens"],
-    ["Fixed prompt floor, 49,790 tokens re-read 180 times", "4.99", "14.3%", "system prompt + tool defs + memory + brief"],
+    [
+      "Accessibility-tree dumps attached to browser interactions",
+      "13.12",
+      "37.5%",
+      "21 clicks, 10 waits, 1 hover — 60% of the final context",
+    ],
+    [
+      "— of which ONE click that opened a file",
+      "5.16",
+      "14.7%",
+      "a single tool result of 299,180 tokens",
+    ],
+    [
+      "The model's own messages (writing them, then re-reading them)",
+      "6.15",
+      "17.6%",
+      "83,474 output tokens",
+    ],
+    [
+      "Fixed prompt floor, 49,790 tokens re-read 180 times",
+      "4.99",
+      "14.3%",
+      "system prompt + tool defs + memory + brief",
+    ],
     ["File reads (source, skill docs)", "3.87", "11.1%", "12 calls, 63k tokens"],
     ["Bash results", "2.99", "8.5%", "70 calls"],
-    ["Images (18 screenshots + 2 attachments)", "2.55", "7.3%", "12 MB of base64 → only 39k tokens"],
-    ["Browser tool definitions + cache invalidation + misc", "1.35", "3.9%", "enable_toolset mid-session"],
+    [
+      "Images (18 screenshots + 2 attachments)",
+      "2.55",
+      "7.3%",
+      "12 MB of base64 → only 39k tokens",
+    ],
+    [
+      "Browser tool definitions + cache invalidation + misc",
+      "1.35",
+      "3.9%",
+      "enable_toolset mid-session",
+    ],
   ]}
 />
 
@@ -67,11 +101,12 @@ The part that makes this a tooling failure rather than a judgement failure is th
 <Details summary="The agent's own words, from the transcript">
   Turn 25, after an 18 KB hover result: *"I should avoid full snapshots going forward since they're too large, sticking with screenshots and evaluate calls instead."*
 
-  Turn 36: *"These snapshots are too large, so I'll skip that approach and instead wait briefly"* — it then called `browser_wait_for`, a **sleep**, which returned 24,352 characters of page dump anyway.
+Turn 36: _"These snapshots are too large, so I'll skip that approach and instead wait briefly"_ — it then called `browser_wait_for`, a **sleep**, which returned 24,352 characters of page dump anyway.
 
-  Every browser action tool attaches a full accessibility tree unconditionally, and the injected browser rules tell the agent *"Action tools already include a snapshot in their response — do not call `browser_snapshot` again afterwards."* Correct advice for the current behaviour; exactly backwards for cost.
+Every browser action tool attaches a full accessibility tree unconditionally, and the injected browser rules tell the agent _"Action tools already include a snapshot in their response — do not call `browser_snapshot` again afterwards."_ Correct advice for the current behaviour; exactly backwards for cost.
 
-  Its successful workaround is the proof a terse default is viable: it switched to `browser_evaluate` returning the inner text of the element it cared about — **604 characters average across 19 calls, $0.34 total**. It captured the entire meter popover, the key evidence of the whole deliverable, in one 604-character call. That is one-thirtieth the cost of the snapshot carrying the same information.
+Its successful workaround is the proof a terse default is viable: it switched to `browser_evaluate` returning the inner text of the element it cared about — **604 characters average across 19 calls, $0.34 total**. It captured the entire meter popover, the key evidence of the whole deliverable, in one 604-character call. That is one-thirtieth the cost of the snapshot carrying the same information.
+
 </Details>
 
 ## What a well-run version would have cost
@@ -102,15 +137,69 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
   filterable
   columns={["#", "Change", "Owner", "Est. saving", "Recommendation"]}
   rows={[
-    ["1", "Terse-by-default browser interaction results", "pi-browser extension", "$11.04 (32%)", "Accept"],
-    ["2", "Clamp any single accessibility text node", "pi-browser extension", "$5.16 (15%)", "Accept"],
-    ["3", "Give the MDX renderer an image block", "loom / apps/web", "~$1.5 + removes a whole workaround class", "Accept"],
-    ["4", "Cheap render check: lint-plan --out + mojibake assertion", "loom / apps/web", "enables #6; ~20 lines", "Accept"],
-    ["5", "Virtualise the file viewer", "loom / apps/web", "perf defect in its own right", "Accept"],
-    ["6", "Browser-evidence work runs in a disposable child", "briefing doctrine", "$5–9 per thread, no code", "Accept"],
-    ["7", "Browser tool ergonomics: hover, fullPage, jpeg", "pi-browser + skill", "~$1–2, recurring", "Accept"],
-    ["8", "Document the copied-DB and old-release hazards", "docs/dev-site-testing.md", "~$1.3, recurring", "Accept"],
-    ["9", "Stop injecting the full stale parent task tree", "loom / prompt assembly", "$0.60 here, platform-wide", "Discuss"],
+    [
+      "1",
+      "Terse-by-default browser interaction results",
+      "pi-browser extension",
+      "$11.04 (32%)",
+      "Accept",
+    ],
+    [
+      "2",
+      "Clamp any single accessibility text node",
+      "pi-browser extension",
+      "$5.16 (15%)",
+      "Accept",
+    ],
+    [
+      "3",
+      "Give the MDX renderer an image block",
+      "loom / apps/web",
+      "~$1.5 + removes a whole workaround class",
+      "Accept",
+    ],
+    [
+      "4",
+      "Cheap render check: lint-plan --out + mojibake assertion",
+      "loom / apps/web",
+      "enables #6; ~20 lines",
+      "Accept",
+    ],
+    [
+      "5",
+      "Virtualise the file viewer",
+      "loom / apps/web",
+      "perf defect in its own right",
+      "Accept",
+    ],
+    [
+      "6",
+      "Browser-evidence work runs in a disposable child",
+      "briefing doctrine",
+      "$5–9 per thread, no code",
+      "Accept",
+    ],
+    [
+      "7",
+      "Browser tool ergonomics: hover, fullPage, jpeg",
+      "pi-browser + skill",
+      "~$1–2, recurring",
+      "Accept",
+    ],
+    [
+      "8",
+      "Document the copied-DB and old-release hazards",
+      "docs/dev-site-testing.md",
+      "~$1.3, recurring",
+      "Accept",
+    ],
+    [
+      "9",
+      "Stop injecting the full stale parent task tree",
+      "loom / prompt assembly",
+      "$0.60 here, platform-wide",
+      "Discuss",
+    ],
   ]}
 />
 
@@ -123,13 +212,18 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   Every browser action — click, wait, hover, navigate — returns the full accessibility tree of the page. A `browser_wait_for(time: 8)`, which is literally a sleep, returns an 8,700-token page dump. On the usage page that tree includes the entire sidebar thread list, every table row and every button label, none of which the caller asked for.
 
-  Return URL, title, and a *diff* of the accessibility tree against the last snapshot; keep the full tree available through the existing `browser_snapshot` for when it is actually wanted. This inverts the current injected rule telling agents not to call `browser_snapshot` after an action.
+Return URL, title, and a _diff_ of the accessibility tree against the last snapshot; keep the full tree available through the existing `browser_snapshot` for when it is actually wanted. This inverts the current injected rule telling agents not to call `browser_snapshot` after an action.
 
-  The capability cost is real but small and bounded: the agent loses the free "what does the page look like now" after every click, so expect a handful of explicit snapshot calls back — around five full snapshots here, about $1.50, making the net saving ≈$9.50. The evidence it survives is that this agent already routed around snapshots using `browser_evaluate` at 604 characters per call and lost nothing.
+The capability cost is real but small and bounded: the agent loses the free "what does the page look like now" after every click, so expect a handful of explicit snapshot calls back — around five full snapshots here, about $1.50, making the net saving ≈$9.50. The evidence it survives is that this agent already routed around snapshots using `browser_evaluate` at 604 characters per call and lost nothing.
 
-  <Details summary="Where the code is — this is ours, not a vendor's">
-    I checked, because it determines whether this is actionable at all. The browser tools are not in loom and not in the pi npm package; they are a **local extension we own** at `/home/Carl/.pi/agent/extensions/pi-browser/`, 2,465 lines of TypeScript. Better still, snapshot attachment runs through a single choke point — `setIncludeSnapshot()` on the `BrowserToolResult` builder in `src/response.ts`. This is a small, targeted change, not a fork of somebody else's tool.
-  </Details>
+<Details summary="Where the code is — this is ours, not a vendor's">
+  I checked, because it determines whether this is actionable at all. The browser tools are not in
+  loom and not in the pi npm package; they are a **local extension we own** at
+  `/home/Carl/.pi/agent/extensions/pi-browser/`, 2,465 lines of TypeScript. Better still, snapshot
+  attachment runs through a single choke point — `setIncludeSnapshot()` on the `BrowserToolResult`
+  builder in `src/response.ts`. This is a small, targeted change, not a fork of somebody else's
+  tool.
+</Details>
 
   <ReviewChoice itemId="c1" label="Terse browser results" placeholder="Why, if rejecting…" />
 </Card>
@@ -143,7 +237,7 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   The runaway click was one enormous text node: a 663 KB file rendered into a single DOM element. A per-node character clamp — say 2 KB, replaced with a marker naming how many characters were elided — would have caught it with **no capability loss whatsoever**. No agent can use 300,000 tokens of base64.
 
-  Worth taking even if change #1 is accepted, and worth taking *especially* if it is rejected: it is the cheap safety net against the unbounded tail, where change #1 addresses the routine bulk.
+Worth taking even if change #1 is accepted, and worth taking _especially_ if it is rejected: it is the cheap safety net against the unbounded tail, where change #1 addresses the routine bulk.
 
   <ReviewChoice itemId="c2" label="Per-node clamp" placeholder="Why, if rejecting…" />
 </Card>
@@ -157,9 +251,9 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   There is no `<Image>` block, and relative paths resolve against the app origin rather than the worktree — so a document cannot reference a screenshot on disk. The agent spent nine turns reading renderer source to establish this, because no document states it, and **its brief asserted the opposite**: *"a static PNG mock in the recap's asset dir is fine too."* That is false for this renderer.
 
-  Everything downstream flowed from the workaround: base64 data-URIs inside `<Design>` frames, a bespoke 203-line build script written twice, a two-file deliverable, a PIL re-encoding pipeline, an undocumented 200,000-character cap discovered only by lint failure, and the caption-escaping bug that drove part of the $11 verification phase. It also produced the 663 KB document behind the $5.16 click.
+Everything downstream flowed from the workaround: base64 data-URIs inside `<Design>` frames, a bespoke 203-line build script written twice, a two-file deliverable, a PIL re-encoding pipeline, an undocumented 200,000-character cap discovered only by lint failure, and the caption-escaping bug that drove part of the $11 verification phase. It also produced the 663 KB document behind the $5.16 click.
 
-  An `<Image src caption>` block resolving worktree-relative paths deletes that entire workaround class from every future screenshot-led recap. Failing that, at minimum document the data-URI pattern and its cap in the block vocabulary, and correct the brief template's false claim.
+An `<Image src caption>` block resolving worktree-relative paths deletes that entire workaround class from every future screenshot-led recap. Failing that, at minimum document the data-URI pattern and its cap in the block vocabulary, and correct the brief template's false claim.
 
   <ReviewChoice itemId="c3" label="MDX image block" placeholder="Why, if rejecting…" />
 </Card>
@@ -173,9 +267,9 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   This is the one that cost $11.04. The agent had linted clean, then tried to *look* at its document — which the quality bar it was given explicitly requires. It first hunted for the cheap path and **found that it already exists and is thrown away**: `lint-plan.mjs` renders the document to 707,465 bytes of HTML on every run and prints only a byte count, and its entire CLI is `const file = process.argv[2];`. It wanted exactly an `--out` flag, found the code, and was stopped by its brief's instruction not to modify product code. So it booted a third dev server and clicked through a file tree instead.
 
-  Two changes: add `--out <file.html>` writing the rendered markup with the stylesheet linked, and add an assertion for literal `\uXXXX` escapes and similar mojibake in rendered text — which is precisely the defect the $11 browser pass caught. Then amend the skill's "open the document and check it" instruction to name that command as the supported way to do it.
+Two changes: add `--out <file.html>` writing the rendered markup with the stylesheet linked, and add an assertion for literal `\uXXXX` escapes and similar mojibake in rendered text — which is precisely the defect the $11 browser pass caught. Then amend the skill's "open the document and check it" instruction to name that command as the supported way to do it.
 
-  This does not replace a human-eye check for layout, which is exactly why that check belongs in a cheap disposable child (change #6).
+This does not replace a human-eye check for layout, which is exactly why that check belongs in a cheap disposable child (change #6).
 
   <ReviewChoice itemId="c4" label="lint-plan --out" placeholder="Why, if rejecting…" />
 </Card>
@@ -189,7 +283,7 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   The file viewer painted 663 KB of base64 into the DOM unvirtualised. That is a T3 Code performance defect on its own terms — it is what any user opening a large file hits, agent or not, and it sits squarely against the performance commitment in AGENTS.md. It happens to also be the third link in the chain that produced the $5.16 click, so it is worth fixing on both counts.
 
-  Listed separately from #1 and #2 because it is independently valuable and independently schedulable; if you only want the agent-cost fixes, this one can wait.
+Listed separately from #1 and #2 because it is independently valuable and independently schedulable; if you only want the agent-cost fixes, this one can wait.
 
   <ReviewChoice itemId="c5" label="Virtualise file viewer" placeholder="Why, if rejecting…" />
 </Card>
@@ -203,9 +297,9 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   The clearest structural finding, and it needs nothing built. Turns 135–169 cost **$11.04 in situ** at a mean context of 560k tokens. The identical 35 turns, run from a fresh child's 49,790-token floor, cost **$5.94** uncapped — and **$1.88** with change #1. The same logic applies to the two capture phases at $3.20 and $4.36.
 
-  The doctrine: context-heavy browser evidence-gathering goes in a child whose context dies with it, handing back the artefacts on disk and a short report. The overhead is roughly $0.30–0.60 per child in brief and report, and the parent no longer sees the screenshots directly — which this thread demonstrably did not need, since every image that reached the deliverable came from the files on disk, not from the copies in context.
+The doctrine: context-heavy browser evidence-gathering goes in a child whose context dies with it, handing back the artefacts on disk and a short report. The overhead is roughly $0.30–0.60 per child in brief and report, and the parent no longer sees the screenshots directly — which this thread demonstrably did not need, since every image that reached the deliverable came from the files on disk, not from the copies in context.
 
-  Bundled with this: **activate the browser toolset at spawn, not mid-session**. Calling `enable_toolset` at turn 17 mutated the system prompt and invalidated the entire prompt cache — 111,143 tokens re-written at $6.25/M instead of read at $0.50/M, wasting $0.59 for nothing.
+Bundled with this: **activate the browser toolset at spawn, not mid-session**. Calling `enable_toolset` at turn 17 mutated the system prompt and invalidated the entire prompt cache — 111,143 tokens re-written at $6.25/M instead of read at $0.50/M, wasting $0.59 for nothing.
 
   <ReviewChoice itemId="c6" label="Disposable evidence children" placeholder="Why, if rejecting…" />
 </Card>
@@ -219,17 +313,29 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   Individually small, but each one will recur on every screenshot brief we ever run, and two of them the agent hit **twice** in this single thread.
 
-  <Table
-    density="compact"
-    columns={["Problem", "What it cost", "Fix"]}
-    rows={[
-      ["browser_hover does not open hover-intent popovers; Playwright's hover() does not satisfy a pointer-move-plus-delay. Only browser_mouse_move_xy works.", "~5 turns, discovered at turn 24 and re-discovered at turn 57", "Dispatch a real pointer move with a settle delay, or one line of guidance"],
-      ["fullPage combined with a selector silently clips at viewport height", "~4 turns, forced a viewport resize and re-capture", "Honour the selector, or reject the combination with an error naming the workaround"],
-      ["Screenshots default to PNG; the jpeg parameter exists and was never passed", "3% of the bill, but 87% of the 13.8 MB session file", "Default to jpeg, capture the smallest element carrying the evidence"],
-    ]}
-  />
+<Table
+  density="compact"
+  columns={["Problem", "What it cost", "Fix"]}
+  rows={[
+    [
+      "browser_hover does not open hover-intent popovers; Playwright's hover() does not satisfy a pointer-move-plus-delay. Only browser_mouse_move_xy works.",
+      "~5 turns, discovered at turn 24 and re-discovered at turn 57",
+      "Dispatch a real pointer move with a settle delay, or one line of guidance",
+    ],
+    [
+      "fullPage combined with a selector silently clips at viewport height",
+      "~4 turns, forced a viewport resize and re-capture",
+      "Honour the selector, or reject the combination with an error naming the workaround",
+    ],
+    [
+      "Screenshots default to PNG; the jpeg parameter exists and was never passed",
+      "3% of the bill, but 87% of the 13.8 MB session file",
+      "Default to jpeg, capture the smallest element carrying the evidence",
+    ],
+  ]}
+/>
 
-  I want to be honest about the last one rather than oversell it: **as a cost lever it is worth about 3%**. Its real payoff is the session file — 87% of that 13.8 MB is image base64, which inflates the database, the websocket replay, and every downstream consumer.
+I want to be honest about the last one rather than oversell it: **as a cost lever it is worth about 3%**. Its real payoff is the session file — 87% of that 13.8 MB is image base64, which inflates the database, the websocket replay, and every downstream consumer.
 
   <ReviewChoice itemId="c7" label="Browser ergonomics" placeholder="Why, if rejecting…" />
 </Card>
@@ -243,9 +349,9 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   Two environment behaviours the agent had to discover live, both cheap to write down.
 
-  **Foreign-home-guard toasts make a copied database unscreenshottable.** Every refused side effect raises a toast, and the copied DB keeps trying to resume threads, so toasts reappear over the capture area. The agent made four escalating attempts and wrote the same screenshot file four times. The doc covers the guard's warning line but not this consequence, nor the one-line CSS suppression that fixes it.
+**Foreign-home-guard toasts make a copied database unscreenshottable.** Every refused side effect raises a toast, and the copied DB keeps trying to resume threads, so toasts reappear over the capture area. The agent made four escalating attempts and wrote the same screenshot file four times. The doc covers the guard's warning line but not this consequence, nor the one-line CSS suppression that fixes it.
 
-  **Booting an old release against a real snapshot looks exactly like live work.** The pre-guard build spawned provider probes, and the transcript scanner reads live pi session files from disk rather than the database — so usage figures moved. The agent concluded its scratch server was burning quota, **shut it down and truncated its own baseline capture**, then worked out afterwards that the alarm was false. That is a quality risk, not just a cost one.
+**Booting an old release against a real snapshot looks exactly like live work.** The pre-guard build spawned provider probes, and the transcript scanner reads live pi session files from disk rather than the database — so usage figures moved. The agent concluded its scratch server was burning quota, **shut it down and truncated its own baseline capture**, then worked out afterwards that the alarm was false. That is a quality risk, not just a cost one.
 
   <ReviewChoice itemId="c8" label="Document hazards" placeholder="Why, if rejecting…" />
 </Card>
@@ -259,9 +365,9 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 >
   Every thread's system prompt carries a snapshot of the parent's entire task tree — here 16,652 characters, about 6,400 tokens, describing 90 tasks of which exactly one was this agent's, re-read 180 times. The prompt itself declares the snapshot stale on arrival and tells the agent to call `goal_task_list` instead, which it duly did.
 
-  I am flagging this **Discuss** rather than Accept because the saving here is small ($0.60) and it is the one item where I am trading a capability I cannot fully price: an agent loses ambient awareness of sibling work. It scales across every thread on the platform, which is why it is on the list at all. Injecting just the agent's own task plus its immediate parent is the obvious middle path.
+I am flagging this **Discuss** rather than Accept because the saving here is small ($0.60) and it is the one item where I am trading a capability I cannot fully price: an agent loses ambient awareness of sibling work. It scales across every thread on the platform, which is why it is on the list at all. Injecting just the agent's own task plus its immediate parent is the obvious middle path.
 
-  Related but separate: about 12,600 tokens of the 49,790-token prompt floor look plausibly inert for this kind of work — roughly 3.3% of the bill. I am **arguing against** a general campaign to shrink the system prompt: the whole floor is $4.99 and the defensibly-inert quarter is $1.15, while a single browser default is worth ten times that.
+Related but separate: about 12,600 tokens of the 49,790-token prompt floor look plausibly inert for this kind of work — roughly 3.3% of the bill. I am **arguing against** a general campaign to shrink the system prompt: the whole floor is $4.99 and the defensibly-inert quarter is $1.15, while a single browser default is worth ten times that.
 
   <ReviewChoice itemId="c9" label="Task tree injection" placeholder="Why, if rejecting…" />
 </Card>
@@ -271,17 +377,19 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
 <Details summary="Four rejected levers, and why the evidence does not support them">
   **Evicting stale images from context.** The ceiling is $2.55 and realistically about $1.50, for real machinery and a real loss — the agent legitimately compares old against new screenshots across turns. Fix the payload at source instead.
 
-  **Using the cheap /preview component harness instead of the full dev-verify path.** It could not have produced this evidence: the brief required a *booted retired release* and *live poller quota against real accounts*, and fixtures supply neither. Change #4 is the cheap substitute for the part that was substitutable.
+**Using the cheap /preview component harness instead of the full dev-verify path.** It could not have produced this evidence: the brief required a _booted retired release_ and _live poller quota against real accounts_, and fixtures supply neither. Change #4 is the cheap substitute for the part that was substitutable.
 
-  **"The agent used too many turns."** 180 turns at the thread's *early* cost rate would have been $17.60, not $35. Turn count is a second-order multiplier on the first-order problem, which is tokens resident per turn.
+**"The agent used too many turns."** 180 turns at the thread's _early_ cost rate would have been $17.60, not $35. Turn count is a second-order multiplier on the first-order problem, which is tokens resident per turn.
 
-  **The agent's own small tool misuse.** Three sequential `sed -n` reads instead of one file read, an unbounded process listing returning 92,026 lines, four Playwright selector collisions. All cheap, and all already covered by existing standing rules. Adding guidance for these would cost more prompt than it saves — which is the same trap as the system-prompt campaign above.
+**The agent's own small tool misuse.** Three sequential `sed -n` reads instead of one file read, an unbounded process listing returning 92,026 lines, four Playwright selector collisions. All cheap, and all already covered by existing standing rules. Adding guidance for these would cost more prompt than it saves — which is the same trap as the system-prompt campaign above.
+
 </Details>
 
 <Details summary="And one thing the thread did that was not in its brief and was worth every turn">
   While cleaning up, it noticed the disk was nearly full and traced it to `/tmp/pi-am.log` at **259 GB and growing**, on a disk with 23 GB free, written by the `@blackbelt-technology/pi-anthropic-messages` extension. That is the only scope expansion in the thread, about five turns.
 
-  I have verified the current state: the log is now a symlink to `/dev/null` and there is 281 GB free. Already dealt with — noted here only so the audit is complete.
+I have verified the current state: the log is now a symlink to `/dev/null` and there is 281 GB free. Already dealt with — noted here only so the audit is complete.
+
 </Details>
 
 <QuestionForm
@@ -295,17 +403,20 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
           id: "levers",
           label: "The two browser fixes only (#1, #2)",
           recommended: true,
-          detail: "About 47% of the overspend, both in one small extension we own, both low-risk. Everything else can wait for evidence that it recurs.",
+          detail:
+            "About 47% of the overspend, both in one small extension we own, both low-risk. Everything else can wait for evidence that it recurs.",
         },
         {
           id: "full",
           label: "Everything accepted above",
-          detail: "Also touches the MDX renderer, the lint script, the file viewer and the docs — more surface, more review, spread across two repos plus the extension.",
+          detail:
+            "Also touches the MDX renderer, the lint script, the file viewer and the docs — more surface, more review, spread across two repos plus the extension.",
         },
         {
           id: "docs",
           label: "Docs and briefing doctrine only (#6, #8)",
-          detail: "Zero code risk and immediately reusable, but leaves the 37% snapshot leak in place for every future browser thread.",
+          detail:
+            "Zero code risk and immediately reusable, but leaves the 37% snapshot leak in place for every future browser thread.",
         },
       ],
     },
@@ -318,12 +429,14 @@ One tempting conclusion to resist: **the expensive verification phase was not wa
           id: "prototype",
           label: "Prototype — smallest change at the choke point",
           recommended: true,
-          detail: "A flag and a clamp in response.ts, verified by running a real browser session. Fast, and easy to tune once we see it in use.",
+          detail:
+            "A flag and a clamp in response.ts, verified by running a real browser session. Fast, and easy to tune once we see it in use.",
         },
         {
           id: "considered",
           label: "Considered — design the terse-result format properly",
-          detail: "Tree-diffing against the previous snapshot is a genuine design question; doing it well now avoids a second pass, but costs more up front for a tool only agents consume.",
+          detail:
+            "Tree-diffing against the previous snapshot is a genuine design question; doing it well now avoids a second pass, but costs more up front for a tool only agents consume.",
         },
       ],
     },
