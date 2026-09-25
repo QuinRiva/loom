@@ -1,3 +1,4 @@
+import type { LimitPresentations } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
 import { derivePools, meterAccounts, type MeterPool } from "./subscriptionMeter";
@@ -99,9 +100,62 @@ describe("empty marker", () => {
       ),
       "carl@",
     ).bar!;
-    expect(ring.get("claudeAgent:carl@:five_hour")).toHaveLength(1);
+    expect(ring.get("claudeAgent:carl@:session")).toHaveLength(1);
     expect(bar.burn).toBeNull();
     expect(bar.emptyAt).toBeNull();
+  });
+});
+
+describe("reading ring on the token-file path", () => {
+  // The pi instance's `checkedAt` moves whenever any of its accounts publishes,
+  // so each 5-minute cycle restamps every account several times within
+  // seconds — the first restamps still carrying the account's previous value.
+  const restamp = (presentations: LimitPresentations, at: number): LimitPresentations =>
+    new Map(
+      [...presentations].map(([id, presentation]) => [
+        id,
+        {
+          ...presentation,
+          serverConfig: {
+            ...presentation.serverConfig,
+            providers: presentation.serverConfig!.providers!.map((provider) => ({
+              ...provider,
+              usageLimits: {
+                ...provider.usageLimits!,
+                checkedAt: new Date(at).toISOString(),
+              },
+            })),
+          },
+        },
+      ]),
+    );
+
+  it("counts one reading per poll, so sibling restamps still yield the ring's rate", () => {
+    const danger = state("danger");
+    const ring = new Map();
+    let pools: readonly MeterPool[] = [];
+    for (const ago of [25, 20, 15, 10, 5, 0]) {
+      const cycle = midnight("danger") + (danger.now - ago) * MINUTE;
+      for (const [offset, valuesAgo] of [
+        [0, ago + 5],
+        [1, ago + 5],
+        [2, ago],
+        [3, ago],
+        [4, ago],
+        [5, ago],
+      ] as const) {
+        const at = cycle + offset * 1000;
+        pools = derivePools(
+          meterAccounts(restamp(meterFixturePresentations(danger, "tokenFiles", valuesAgo), at)),
+          at,
+          ring,
+        );
+      }
+    }
+    expect(ring.get("claudeAgent:carl@:session")).toHaveLength(6);
+    const burn = row(claude(pools), "carl@").bar!.burn!;
+    expect(burn.coarse).toBe(false);
+    expect(burn.rate).toBeCloseTo(34, 0);
   });
 });
 

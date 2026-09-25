@@ -128,20 +128,37 @@ const RATE_MIN_READINGS = 3;
 const RATE_MIN_SPAN = 10 * MINUTE;
 /** A new window moves its reset by hours; readings jitter it by seconds. */
 const RESET_MOVED = 5 * MINUTE;
+/**
+ * Publishes closer together than this are one poll. The poller reads every 5
+ * minutes, but a pi instance's `checkedAt` moves whenever *any* of its accounts
+ * publishes — seven near-simultaneous publishes per cycle — so a token-file
+ * account sees its instance restamped several times a cycle, mostly with its
+ * own value unchanged. Counting those as readings would fill the ring within
+ * seconds and never span the ten minutes a rate needs.
+ */
+const POLL_GAP = 4 * MINUTE;
 
 /** The one ring every meter reads; tests and fixtures pass their own. */
 const RING: ReadingRing = new Map();
 
-/** Append a reading when it is new; a moved reset or a falling fill starts a new window. */
+/**
+ * Record a reading. Within a poll it overwrites the poll's slot (the account's
+ * own publish may land seconds after a sibling's restamp); a moved reset or a
+ * falling fill starts a new window.
+ */
 function observe(ring: ReadingRing, key: string, reading: Reading): readonly Reading[] {
   const list = ring.get(key) ?? [];
   const last = list.at(-1);
-  if (last?.at === reading.at) return list;
   const newWindow =
     last !== undefined &&
     (reading.used < last.used ||
       Math.abs((reading.resetsAt ?? 0) - (last.resetsAt ?? 0)) > RESET_MOVED);
-  const next = [...(newWindow ? [] : list), reading].slice(-RING_SIZE);
+  const samePoll = !newWindow && last !== undefined && reading.at - last.at < POLL_GAP;
+  const next = newWindow
+    ? [reading]
+    : samePoll
+      ? [...list.slice(0, -1), { ...reading, at: last.at }]
+      : [...list, reading].slice(-RING_SIZE);
   ring.set(key, next);
   return next;
 }
@@ -314,7 +331,8 @@ function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow 
     key,
     label,
     email: account.email,
-    bar: session ? sessionBar(account, session, `${key}:${session.id}`, now, ring) : null,
+    // Keyed by role, so the ring survives the hub and the token files swapping in.
+    bar: session ? sessionBar(account, session, `${key}:session`, now, ring) : null,
     weeklies,
     mark: marks.has("risk") ? "risk" : marks.has("opp") ? "opp" : null,
     exhausted: weeklies.some((weekly) => weekly.used >= 100),

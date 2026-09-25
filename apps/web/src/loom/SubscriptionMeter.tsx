@@ -192,15 +192,26 @@ const PaceBar = ({
   />
 );
 
-/** `empty ~2h 30m · ↻ 3h 0m`, or just the reset when the burn does not empty it first. */
-function ResetText({ bar, now }: { readonly bar: MeterBar; readonly now: number }) {
+/**
+ * `empty ~2h 30m · ↻ 2h 58m`, or just the reset when the burn does not empty
+ * the window first. The chip drops the reset beside a projection, as drawn.
+ */
+function ResetText({
+  bar,
+  now,
+  withReset = true,
+}: {
+  readonly bar: MeterBar;
+  readonly now: number;
+  readonly withReset?: boolean;
+}) {
   const reset = bar.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle";
   return bar.emptyAt === null ? (
     <span className="text-muted-foreground/75">{reset}</span>
   ) : (
     <span className="text-muted-foreground/75">
       <span className="font-medium text-warning">empty ~{formatCountdown(bar.emptyAt - now)}</span>
-      {` · ${reset}`}
+      {withReset ? ` · ${reset}` : null}
     </span>
   );
 }
@@ -472,8 +483,12 @@ function PoolBlock({
   );
 }
 
-/** The whole meter, from a derived view: the sidebar footer and the chip's popover. */
-export function SubscriptionMeterView({
+/**
+ * The whole meter, from a derived view: the sidebar footer and the chip's
+ * popover. Memoised: `readMeter` hands back the same view until a reading
+ * lands or the tick moves, so unrelated presentation updates skip the rows.
+ */
+export const SubscriptionMeterView = memo(function SubscriptionMeterView({
   view,
   now,
 }: {
@@ -490,7 +505,7 @@ export function SubscriptionMeterView({
       ))}
     </div>
   );
-}
+});
 
 /** The meter for the sidebar footer. */
 export const SubscriptionMeter = memo(function SubscriptionMeter() {
@@ -536,7 +551,7 @@ export function SubscriptionMeterChipView({
         <span className="h-3 w-14">
           <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
         </span>
-        <ResetText bar={bar} now={now} />
+        <ResetText bar={bar} now={now} withReset={false} />
         {pool.carveOut ? (
           <>
             <span className="h-3 w-px bg-border/60" />
