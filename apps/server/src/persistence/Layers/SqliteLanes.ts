@@ -30,12 +30,16 @@ const OrchestrationEventStoreOnSqlReadClient = OrchestrationEventStoreLive.pipe(
 
 /**
  * The usage ledger's read side, for the Usage page's top-spending-threads
- * section. Ingestion provides its own write-lane instance internally, so this
- * one only ever serves the grouped window read.
+ * section. Ingestion `Layer.provide`s `ProjectionUsageLedgerRepositoryLive` for
+ * its writes; `Layer.fresh` keeps that a separate write-lane instance.
  */
-export const ProjectionUsageLedgerOnSqlReadClient = ProjectionUsageLedgerRepositoryLive.pipe(
-  Layer.provide(SqlReadClientAsSqlClient),
-);
+// loom: Effect memoises layers by object identity across the whole server build,
+// so without `Layer.fresh` whichever copy builds first is shared by both. This
+// read-lane copy built first, and ingestion's ledger inserts silently failed on
+// the `query_only` connection (swallowed into a warning) from 2026-09-23.
+export const ProjectionUsageLedgerOnSqlReadClient = Layer.fresh(
+  ProjectionUsageLedgerRepositoryLive,
+).pipe(Layer.provide(SqlReadClientAsSqlClient));
 
 class OrchestrationEngineReaderReplay extends Context.Service<
   OrchestrationEngineReaderReplay,
