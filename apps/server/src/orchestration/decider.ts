@@ -631,6 +631,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           projectId: command.projectId,
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
+          // loom: task-tree branch scoping — the child's anchor task, already
+          // validated at the spawn/scaffold HTTP edge (this decider stays pure).
+          ...(command.anchorTaskId !== undefined ? { anchorTaskId: command.anchorTaskId } : {}),
           ...(command.parentThreadId !== undefined
             ? { parentThreadId: command.parentThreadId }
             : {}),

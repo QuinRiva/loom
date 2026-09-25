@@ -448,6 +448,8 @@ export function projectEvent(
             projectId: payload.projectId,
             // loom: fork thread fields seeded from the created payload.
             goalId: payload.goalId ?? null,
+            // loom: task-tree branch scoping — the branch this thread owns.
+            anchorTaskId: payload.anchorTaskId ?? null,
             parentThreadId: payload.parentThreadId ?? null,
             role: payload.role ?? null,
             purpose: payload.purpose ?? null,

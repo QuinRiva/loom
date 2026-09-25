@@ -23,6 +23,7 @@ function makeShell(input: {
     id: threadId,
     projectId: ProjectId.make("project-1"),
     goalId: null,
+    anchorTaskId: null,
     parentThreadId: null,
     role: null,
     purpose: null,

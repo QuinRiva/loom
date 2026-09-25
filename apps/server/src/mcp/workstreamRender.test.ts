@@ -100,6 +100,60 @@ describe("renderWorkstreamList", () => {
     );
   });
 
+  // Task-tree branch scoping: an anchored child prints the branch it owns, so an
+  // orchestrator re-orients from the graph without a tree read; an anchor whose
+  // task is gone from the live tree says so rather than printing a bare uuid.
+  it("renders each anchored thread's branch, and flags a deleted anchor", () => {
+    const view: WorkstreamListView = {
+      callerId: "root",
+      nodes: [
+        {
+          id: "root",
+          parentThreadId: null,
+          role: "orchestrator",
+          title: "Root",
+          planLane: "in_progress",
+        },
+        {
+          id: "chipper",
+          parentThreadId: "root",
+          role: "coder",
+          title: "Cost chip",
+          planLane: "ready",
+          anchorTaskId: "task-chip",
+          anchorTaskText: "Add the per-turn cost chip to the timeline",
+        },
+        {
+          id: "stale",
+          parentThreadId: "root",
+          role: "coder",
+          title: "Orphaned branch",
+          planLane: "ready",
+          anchorTaskId: "task-gone",
+          anchorTaskText: null,
+        },
+        {
+          id: "reviewer",
+          parentThreadId: "root",
+          role: "reviewer",
+          title: "Review",
+          planLane: "planned",
+        },
+      ],
+    };
+    expect(renderWorkstreamList(view)).toBe(
+      [
+        "Workstream: 4 thread(s). Indentation shows lineage (parent above its children).",
+        '- root (you) [orchestrator] "Root" lane=in_progress',
+        '  - chipper [coder] "Cost chip" lane=ready',
+        '      anchor: task-chip "Add the per-turn cost chip to the timeline"',
+        '  - stale [coder] "Orphaned branch" lane=ready',
+        "      anchor: task-gone (task no longer in the tree)",
+        '  - reviewer [reviewer] "Review" lane=planned',
+      ].join("\n"),
+    );
+  });
+
   it("renders the presets block with the INVALID marker and no raw model catalogue", () => {
     const view: WorkstreamListView = {
       callerId: "root",

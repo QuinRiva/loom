@@ -53,6 +53,7 @@ const readModel: OrchestrationReadModel = {
       projectId: ProjectId.make("project-a"),
       // loom: workstream fields on the thread shape.
       goalId: null,
+      anchorTaskId: null,
       parentThreadId: null,
       role: null,
       purpose: null,
@@ -107,6 +108,7 @@ const readModel: OrchestrationReadModel = {
       id: ThreadId.make("thread-2"),
       projectId: ProjectId.make("project-b"),
       goalId: null,
+      anchorTaskId: null,
       parentThreadId: null,
       role: null,
       purpose: null,

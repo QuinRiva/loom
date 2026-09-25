@@ -1,4 +1,5 @@
 import {
+  GoalTaskId,
   ProjectId,
   ThreadId,
   TurnId,
@@ -343,6 +344,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         projectId: ProjectId.make("project-null-options"),
         // loom: workstream columns on the projected thread row.
         goalId: null,
+        anchorTaskId: null,
         parentThreadId: null,
         role: null,
         purpose: null,
@@ -433,7 +435,9 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
   // through SQL so the decider's uniqueness check survives a restart (the
   // command read model is hydrated from these columns), and kickoffBriefPath
   // must round-trip so the dispatcher's brief gate reads a durable pointer.
-  it.effect("round-trips graphKey and kickoffBriefPath columns", () =>
+  // The anchor rides the same row: task-tree branch scoping resolves a thread's
+  // branch from this column on every scoped surface, so it must survive SQL.
+  it.effect("round-trips graphKey, kickoffBriefPath and anchorTaskId columns", () =>
     Effect.gen(function* () {
       const threads = yield* ProjectionThreadRepository;
       const sql = yield* SqlClient.SqlClient;
@@ -443,6 +447,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         threadId: ThreadId.make("thread-scaffold-fields"),
         projectId: ProjectId.make("project-1"),
         goalId: null,
+        anchorTaskId: GoalTaskId.make("task-phase-6"),
         parentThreadId: ThreadId.make("parent-scaffold"),
         role: "coder",
         purpose: null,
@@ -501,17 +506,21 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const rows = yield* sql<{
         readonly graphKey: string | null;
         readonly kickoffBriefPath: string | null;
+        readonly anchorTaskId: string | null;
       }>`
-        SELECT graph_key AS "graphKey", kickoff_brief_path AS "kickoffBriefPath"
+        SELECT graph_key AS "graphKey", kickoff_brief_path AS "kickoffBriefPath",
+               anchor_task_id AS "anchorTaskId"
         FROM projection_threads
         WHERE thread_id = ${threadId}
       `;
       assert.strictEqual(rows[0]?.graphKey, "api");
       assert.strictEqual(rows[0]?.kickoffBriefPath, "/tmp/briefs/api.md");
+      assert.strictEqual(rows[0]?.anchorTaskId, "task-phase-6");
 
       const persisted = yield* threads.getById({ threadId });
       assert.strictEqual(Option.getOrNull(persisted)?.graphKey, "api");
       assert.strictEqual(Option.getOrNull(persisted)?.kickoffBriefPath, "/tmp/briefs/api.md");
+      assert.strictEqual(Option.getOrNull(persisted)?.anchorTaskId, "task-phase-6");
     }),
   );
 
@@ -523,6 +532,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         threadId: ThreadId.make("thread-settled"),
         projectId: ProjectId.make("project-1"),
         goalId: null,
+        anchorTaskId: null,
         parentThreadId: null,
         role: "coder",
         purpose: null,
@@ -632,6 +642,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       yield* threads.upsert({
         goalId: null,
+        anchorTaskId: null,
         parentThreadId: null,
         role: null,
         purpose: null,

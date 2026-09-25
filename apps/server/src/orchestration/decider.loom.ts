@@ -1595,6 +1595,11 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
             ...(node.forkFromThreadId !== undefined && node.forkFromThreadId !== null
               ? { forkFromThreadId: node.forkFromThreadId }
               : {}),
+            // Task-tree branch scoping: the node's anchor (validated / fork-
+            // inherited at the HTTP edge) is carried through verbatim.
+            ...(node.anchorTaskId !== undefined && node.anchorTaskId !== null
+              ? { anchorTaskId: node.anchorTaskId }
+              : {}),
             title: node.title,
             // The scaffold title is a deliberate label (mirrors workstream_spawn).
             titleSource: "manual",

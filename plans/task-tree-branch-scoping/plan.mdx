@@ -1,0 +1,305 @@
+---
+manager_sessions:
+  - id: 12197819-5761-43bc-a9cc-9c5b2586db73
+    role: plan
+    authored_at: 2026-09-23T14:48:10.352Z
+---
+
+# Binding sub-threads to a branch of the goal task tree — options
+
+The goal task tree is the human's glanceable record of a goal: what is done, what is outstanding, where each thread is up to. It is also, today, an undifferentiated broadcast: every child thread receives the **whole** tree as a spawn-time prompt snapshot, and every task mutation echoes the **whole** tree back into the conversation. On a mature goal that is mostly ticked history, both channels ship almost nothing the child needs. This document lays out four genuinely distinct designs for scoping what a sub-thread sees and touches — from a pure rendering change to a real thread↔branch binding — costs each one on both token channels against a realistic ~90-item tree, and recommends one.
+
+**Done means:** Carl picks an option (or the recommended composition) and resolves the decision points in the bottom form; the choice then becomes an implementation plan. This document changes no code.
+
+<Callout tone="decision">
+Two constraints are treated as fixed throughout, plus one this document adds. (1) **The human's tree must not get worse** — every design is judged first on the glanceable shared artefact. (2) **Round-trip identity holds per scope**: any view that can legally feed `goal_tasks_rewrite` must reproduce, verbatim, a tree the rewrite parser accepts as a no-op (`apps/server/src/orchestration/goalTaskMarkdown.ts`, header contract). From these two follows the **rewrite-source invariant** this document adds: a scoped or elided rendering must either be complete within its declared scope, or be mechanically unusable as a rewrite submission — never a plausible-looking partial tree whose resubmission silently deletes what was elided.
+</Callout>
+
+## The cost, measured
+
+All figures are from the cost retrospective on researcher thread `0f89eaa5` (180 turns, $35 total), not re-derived here.
+
+<Table
+  columns={["Measure", "Value", "Reading"]}
+  rows={[
+    ["Injected tree at spawn", "~96 items, 9 top-level, depth 3", "~82 done / ~14 open — ≈85% ticked history"],
+    ["Rendered size", "16.6 KB ≈ 6.4k tokens", "~13% of a ~50k-token fixed prompt floor"],
+    ["Items in the child's neighbourhood", "~10", "and the child had NO task of its own in the tree at all"],
+    ["Prefix-channel cost (tree alone)", "≈$0.60 over the thread", "cacheRead × every remaining turn; re-paid on any prefix invalidation (e.g. enable_toolset)"],
+    ["Echo per goal_task_* call", "~7.7k tokens", "each copy then rides cacheRead for every remaining turn"],
+    ["Three echoes at turn 20", "≈$2.00", "the echo is the compounding channel"],
+  ]}
+/>
+
+The two channels obey the same rule of thumb — **≈$0.09 per 1k tokens made resident in a long (~180-turn) thread** — so the design question is the same for both: how many of those tokens carry information *this* thread acts on. But the channels are not symmetric in purpose. The prefix snapshot is orientation, injected whether or not the thread ever touches the tree. The echo exists **because agents were managing a tree blind**: before the whole-tree echo shipped, mutations returned only `"Added task <id>"` and agents accreted 50-item flat messes without ever seeing them (`plans/goal-task-tree-redesign/plan.mdx`, evidence section). Carl's framing for this document: the axis is **awareness versus bloat**, not "echo or not" — every option below must say what keeps the agent genuinely aware of the tree state it is responsible for, and what that costs per call. Regressing to a blind confirmation line is off the table.
+
+## What exists today (verified in code)
+
+- **No thread↔task link exists anywhere.** `OrchestrationGoalTask` (`packages/contracts/src/orchestration.loom.ts:225-269`) carries id, goalId, parentTaskId, text, done, position, timestamps, children — nothing else. The thread record (`LoomThreadFields`, same file, ~line 375ff) carries `goalId` but no task id; the spawn/scaffold request shapes (`apps/server/src/mcp/WorkstreamSpawnHttp.ts:97-129`) have no task parameter (`taskShape` there is a model-selection hint, unrelated). A child inherits its parent's `goalId` wholesale at spawn (`apps/server/src/orchestration/decider.loom.ts:1583`). A child identifies "its own task" only through brief prose — the orchestrator pastes the id into the brief, or nothing. The retro's recommendation R7 ("inject the agent's own task plus its immediate parent") therefore **presupposes a link that does not exist**; it is not implementable as stated.
+- **Injection is once, at session spawn.** `buildGoalSystemPrompt` (`apps/server/src/orchestration/Layers/ProviderCommandReactor.ts` ~line 688) appends `activeGoalContextInstruction` (same file, line 223) to the pi system prompt: goal header, objective, the full tree via `renderGoalTaskTree`, then a static write-discipline paragraph (~1.5 KB in the child variant) carrying the register rules and the AIT-101 worked example — the same example that also ships in the 300-character cap error (`goalTaskMarkdown.ts`). The child variant frames the tree as "background, NOT your task" and points at `goal_task_list` for the live tree. A `forkFrom` child replays its **source's** captured launch identity, so a fork's injected snapshot is the source's; only live tool calls see current state.
+- **One rendering, three surfaces.** `renderGoalTaskTree` (`apps/server/src/orchestration/goalTaskRender.ts`) is the single home of the `- [x] text (id)` shape, shared by the injection, `goal_task_list`, and the `t3 goal show` CLI. Full 36-character uuids account for roughly a fifth of the rendered bytes.
+- **Every mutation echoes the whole tree** via `echoTree` (`apps/server/src/mcp/GoalTaskHttp.ts:74-80`) — a deliberate design ("the agent sees the shape it is accreting at the moment it mutates").
+- **Structure is already ownership-gated.** `goal_tasks_rewrite` is rejected for any thread with a `parentThreadId` (`GoalTaskHttp.ts`, rewrite handler), with the check living at the HTTP edge because commands carry no thread identity — the precedent for where any branch-scoping check must live. Children keep `goal_task_add` and `goal_task_update` (855 of 1,029 historic updates were children marking tasks done).
+- **The rewrite parser is strict about ids.** A trailing `(token)` is an id only if it names a task of this goal; an unknown uuid-shaped token is a 400 (stale read); a non-id token is task text; an unparseable line fails the whole submission (`goalTaskMarkdown.ts:70-150`). This strictness is what makes elision markers in scoped renderings mechanically self-defending (used below).
+- **Prior art sets the frame.** The tree redesign explicitly deferred "thread↔task assignment links" ("defer until the rewrite loop proves out" — it has now run for weeks); the content contract owns register and the 300-char cap (grandfathered on retained text); the child-prompt-dedup plan left the tree snapshot untrimmed as a named loose end and made all four goal-task tools leaf-core (`apps/server/src/mcp/toolPaths.ts:67-77`).
+- **Human surfaces:** `GoalTasksPanel.tsx` renders the tree read-only; `GoalThreadsSection` lists the goal's threads, but nothing connects a task to the thread working it. `t3 goal show` renders the same markdown.
+
+### The reference tree
+
+All rendered examples below are against this fabricated but shape-realistic goal (96 tasks, 9 phases, 82 done — the retro's dimensions). Ids are abbreviated on the page; real renderings carry full uuids.
+
+<Details summary="Baseline: what every child is injected today (excerpt of 96 lines)">
+<Code language="markdown" code={"- [x] Phase 1: Audit the existing usage pipeline (3f2c81a4-…)\n  - [x] Measure per-provider token accounting drift (88ab02c1-…)\n  - [x] Trace the double-counted cacheRead rows (91d33e0f-…)\n  ... 10 more done items ...\n- [x] Phase 2: Fix the projection layer (7be09d12-…)\n  ... 14 done items ...\n- [x] Phase 3: Backfill historic usage rows (d1c0aa38-…)\n  ... 9 done items ...\n- [x] Phase 4: Per-model price table (22e8f7b9-…)\n  ... 8 done items ...\n- [x] Phase 5: Server aggregation endpoints (a90cc4e1-…)\n  ... 11 done items ...\n- [ ] Phase 6: Surface usage on the thread screen (9c41f2aa-…)\n  - [x] Decide the usage projection shape (6d2a91b0-…)\n  - [ ] Add the per-turn cost chip to the timeline (55ab8c22-…)\n  - [ ] Wire the usage panel to the projection (77cd10e4-…)\n  - [ ] Verify against a seeded workstream (e01f6b3a-…)\n- [ ] Phase 7: Goal-level rollups (415d99c7-…)\n  ... 3 open, 5 done items ...\n- [x] Phase 8: Alerting on runaway threads (c7f01d55-…)\n  ... 7 done items ...\n- [ ] Phase 9: Docs and retro (5b8e33da-…)\n  ... 2 open items ...\n\n(96 lines — 16.6 KB, ≈6.4k tokens, 82 ticked)"} />
+</Details>
+
+## Option A — Prune the views (state-scoped rendering, no binding)
+
+No data-model change; the tree is re-rendered by *state* for token-sensitive surfaces. A fully-done subtree collapses to its root line plus a count marker; open tasks and their ancestors render in full.
+
+**1. Binding.** None. "Own task" remains brief prose; a child with no node is simply a child whose brief has no task id — exactly today.
+
+**2. Injection.** Both child and root variants use the pruned rendering. Against the reference tree:
+
+<Code language="markdown" caption="Option A injection — the same 96-item tree, open-scoped (≈31 lines, ≈2.1k tokens vs 6.4k)" code={"- [x] Phase 1: Audit the existing usage pipeline (3f2c81a4-…) — 12 done tasks elided\n- [x] Phase 2: Fix the projection layer (7be09d12-…) — 14 done tasks elided\n- [x] Phase 3: Backfill historic usage rows (d1c0aa38-…) — 9 done tasks elided\n- [x] Phase 4: Per-model price table (22e8f7b9-…) — 8 done tasks elided\n- [x] Phase 5: Server aggregation endpoints (a90cc4e1-…) — 11 done tasks elided\n- [ ] Phase 6: Surface usage on the thread screen (9c41f2aa-…)\n  - [x] Decide the usage projection shape (6d2a91b0-…)\n  - [ ] Add the per-turn cost chip to the timeline (55ab8c22-…)\n  - [ ] Wire the usage panel to the projection (77cd10e4-…)\n  - [ ] Verify against a seeded workstream (e01f6b3a-…)\n- [ ] Phase 7: Goal-level rollups (415d99c7-…)\n  - [ ] Design the rollup query (03aa48ce-…)\n  - [ ] Aggregate per-goal spend across threads (98bb17d0-…)\n  - [ ] Render the goal cost header (44ce09a1-…)\n  - 5 done tasks elided\n- [x] Phase 8: Alerting on runaway threads (c7f01d55-…) — 7 done tasks elided\n- [ ] Phase 9: Docs and retro (5b8e33da-…)\n  - [ ] Write the usage-accounting internals note (1f7e55c2-…)\n  - [ ] Run the goal retro (be0433f7-…)"} />
+
+The static guidance is unchanged apart from one added sentence: *"Done work is elided above ('N done tasks elided'); `goal_task_list` reads the complete live tree."* Every snapshot keeps the refresh pointer, per Carl's rule that a snapshot is only justified alongside the instruction to re-read live.
+
+**3. Tool semantics and echo.** Tools behave exactly as today; only renderings change. `goal_task_list` stays **complete** — it is the sole rewrite source (rewrite-source invariant). All three mutation echoes switch to the pruned rendering, for every thread. **Awareness:** the agent sees the entire open plan — every phase, every unticked item, correct nesting — on every mutation; what it loses is re-reading finished history, which is precisely the ~5.6k tokens per call that carry no decisions. **Cost per call: ≈2.1k tokens (from 7.7k)** on the reference tree. The elision markers are the safety mechanism: `— 12 done tasks elided` makes the marker part of the task text if resubmitted (and the line would rename the task), while a wholesale paste of the pruned echo into `goal_tasks_rewrite` deletes elided tasks only if the agent also strips the markers — the existing "rewrite from a fresh `goal_task_list` read" guideline plus a one-line note in the echo footer covers the residual risk. Weakness: pruning scales with the done ratio — a young goal (mostly open) barely shrinks, and an old goal's 14 open items still include every phase unrelated to this child.
+
+**4. Out-of-branch discovered work.** Unchanged: `goal_task_add` anywhere, nested under the phase it belongs to; the pruned echo still shows the placement in context.
+
+**5. Human surfaces.** Untouched — the panel and CLI keep the full tree.
+
+**6. Contracts/migration.** None. A render helper (`renderOpenGoalTaskTree`) beside `renderGoalTaskTree`, plus call-site switches in `ProviderCommandReactor.ts` and `GoalTaskHttp.ts`.
+
+**7. Token model.** Prefix 6.4k → ≈2.1k (≈$0.40 saved per long thread); echo 7.7k → ≈2.1k (≈$0.50 saved per call made early). Capability lost: ambient sense of completed momentum (partially preserved by the counts).
+
+**8. Size.** ~0.5–1 coder-day.
+
+## Option B — Anchor tasks (a real thread↔branch binding)
+
+A thread may be **anchored** to one task of its goal at spawn. The anchor's subtree is "its branch": the branch is what gets injected, what tools read and echo by default, and what the thread may restructure. Everything else in the goal shrinks to a one-line pulse.
+
+**1. Binding.** `workstream_spawn` and each `workstream_scaffold` node gain an optional `anchorTaskId`. Validated at the HTTP edge (the established home for thread-identity checks): it must be a live task of the parent's goal, and — when the spawning thread is itself anchored — a descendant of (or equal to) the spawner's own anchor, so a nested orchestrator can only delegate within the branch it owns. Stored as a decode-defaulted nullable field on the `thread.created` payload and `LoomThreadFields`/shell (the standard additive pattern — historic events replay untouched). Omitted ⇒ **unbound**, which stays a first-class state: reviewers, researchers-against-a-brief, and gate threads mostly should not have nodes. A `forkFrom` child inherits its source's anchor (the fork diverges on the same work; tools resolve the anchor live from the thread record, so scoping is correct even though the fork's replayed prompt shows the source's snapshot). If the anchor task is later deleted (a root rewrite omits it), the thread degrades to unbound at read time — no event, no dangling failure. Auto-creating a node from the child's title/purpose is **rejected**: the tree's shape should follow the plan, not the org chart, and half of all children legitimately have no node. The orchestrator that wants a node adds it (`goal_task_add`, id in the echo) and passes the id — two calls, no new surface.
+
+**2. Injection.** The bound-child variant becomes spine + branch + pulse, and the static guidance shrinks to a branch-framed third of today's (register clause kept as one line; the worked example drops from the child variant — the 300-char cap error already re-teaches it at the moment of violation; the root variant keeps it):
+
+<Code language="markdown" caption="Option B injection, bound child (anchor = Phase 6) — ≈13 lines, ≈0.5k tokens vs 6.4k" code={"Background context — your parent orchestrator is working toward goal `0b5d…` (usage-visibility): Accurate per-thread usage accounting\nParent's objective (background only): …\n\nYour task, and the branch you own (a spawn snapshot — `goal_task_list` reads it live):\n- [ ] Phase 6: Surface usage on the thread screen (9c41f2aa-…)   ← your anchor\n  - [x] Decide the usage projection shape (6d2a91b0-…)\n  - [ ] Add the per-turn cost chip to the timeline (55ab8c22-…)\n  - [ ] Wire the usage panel to the projection (77cd10e4-…)\n  - [ ] Verify against a seeded workstream (e01f6b3a-…)\n\nElsewhere in this goal: 8 other top-level phases, 82/96 tasks done, 11 open — `goal_task_list` with scope \"tree\" reads all of it.\n\nMark your own tasks done with `goal_task_update` as each lands. Record discovered work with `goal_task_add` — it lands under your anchor by default; pass a parentTaskId from the whole tree to place it elsewhere. Keep anything you add a short plain-language work item for a reader outside this thread (the server rejects text over 300 characters)."} />
+
+An **unbound** child gets the top-level overview — every phase line with open/done counts, no descent — plus the "you have no task of your own in this tree; your brief is your assignment" sentence the retro showed was needed:
+
+<Code language="markdown" caption="Option B injection, unbound child — ≈12 lines, ≈0.7k tokens" code={"Parent's plan at a glance (live tree via `goal_task_list`):\n- [x] Phase 1: Audit the existing usage pipeline (3f2c81a4-…) 12/12\n- [x] Phase 2: Fix the projection layer (7be09d12-…) 14/14\n- [x] Phase 3: Backfill historic usage rows (d1c0aa38-…) 9/9\n- [x] Phase 4: Per-model price table (22e8f7b9-…) 8/8\n- [x] Phase 5: Server aggregation endpoints (a90cc4e1-…) 11/11\n- [ ] Phase 6: Surface usage on the thread screen (9c41f2aa-…) 1/4\n- [ ] Phase 7: Goal-level rollups (415d99c7-…) 5/8\n- [x] Phase 8: Alerting on runaway threads (c7f01d55-…) 7/7\n- [ ] Phase 9: Docs and retro (5b8e33da-…) 0/2\n\nYou have no task of your own in this tree: your brief is your assignment. Record discovered work with `goal_task_add` under the phase it belongs to (subtree ids via `goal_task_list`); keep it a short plain-language item (≤300 characters)."} />
+
+**3. Tool semantics and echo.** For a bound thread:
+
+<Table
+  columns={["Tool", "Default for a bound thread", "Echo"]}
+  rows={[
+    ["goal_task_list", "scope \"branch\": ancestor spine as labelled read-only context, then the anchor subtree as editable markdown. scope \"tree\" returns the complete tree (always available).", "n/a (it is the read)"],
+    ["goal_task_add", "parentTaskId defaults to the anchor; any task of the goal is a legal explicit target (see out-of-branch below)", "branch + pulse; an out-of-branch add prepends the added line with its ancestor spine"],
+    ["goal_task_update", "restricted to the branch (anchor or descendant) — ticking a sibling thread's task is the misfire this prevents; the error points at the report/consult path", "branch + pulse"],
+    ["goal_tasks_rewrite", "sub-decision: branch rewrite — the submission must be exactly one top-level line carrying the anchor's id, plus its subtree; the anchor may be renamed/ticked but not deleted or moved. Unbound children stay fully rejected as today.", "branch + pulse"],
+  ]}
+/>
+
+The named echo shape is **branch + pulse**: everything the thread owns, in full, plus one line of goal-level numbers so the wider world stays visible. Against the reference tree, ≈9 lines ≈ **0.7k tokens per call (from 7.7k)**:
+
+<Code language="markdown" caption="Option B mutation echo, bound child (after adding one task) — the awareness contract: complete within scope + a pulse" code={"Added task 8a2d40ff-…: Handle the zero-usage provider rows in the chip\n\nYour branch:\n- [ ] Phase 6: Surface usage on the thread screen (9c41f2aa-…)\n  - [x] Decide the usage projection shape (6d2a91b0-…)\n  - [ ] Add the per-turn cost chip to the timeline (55ab8c22-…)\n    - [ ] Handle the zero-usage provider rows in the chip (8a2d40ff-…)\n  - [ ] Wire the usage panel to the projection (77cd10e4-…)\n  - [ ] Verify against a seeded workstream (e01f6b3a-…)\n\nGoal pulse: 82/97 done · 12 open · 3 open outside your branch"} />
+
+**Awareness:** a bound child is *never* blind about anything it can write to — its whole branch arrives on every mutation, and round-trip identity holds within the scope (the branch view resubmitted to branch rewrite is a no-op). What it gives up is line-level sight of sibling branches, which it cannot write to anyway (update is branch-restricted) and can read in one deliberate `scope "tree"` call. Branch scoping is thus itself the echo lever: the echo shrinks not by hiding state but because the thread's writable world is genuinely smaller. Unbound children (no branch to scope to) get Option A's pruned open-tree echo (~2.1k) — they can add anywhere, so they see the open plan everywhere.
+
+**4. Out-of-branch discovered work (the AIT-ticket case).** Four candidates weighed:
+
+<Table
+  columns={["Candidate", "Verdict"]}
+  rows={[
+    ["goal_task_add allowed anywhere; echo = added line + its spine + branch + pulse", "PICKED. The discovery enters the shared tree at the moment it is found (the human and the orchestrator see it live in the panel), placement is confirmed cheaply, and no new state is invented. Re-homing stays with the shape owner."],
+    ["Propose-to-parent: the item lands under the child's anchor carrying a needs-re-homing flag", "Rejected: a new task field + a flag lifecycle the orchestrator must learn, to defer a placement the child can usually make correctly (it has the phase lines in its pulse/overview)."],
+    ["Report-only: discoveries ride workstream_submit exclusively", "Rejected as the general path: a long-running child's discovery stays invisible for hours and dies with a cancelled thread. (It remains true that the report should ALSO mention the add.)"],
+    ["A parent-owned inbox node per goal", "Rejected: a permanent magic node in the human's tree, and everything in it needs re-homing later anyway."],
+  ]}
+/>
+
+**5. Human surfaces.** This is where the binding pays the human back: thread shells carry `anchorTaskId`, so `GoalTasksPanel` can chip anchored task rows with the working thread (role glyph + title, click to open) — task→thread navigation, the affordance the panel has never had. `workstream_list` prints each child's anchor line, so an orchestrator re-orients without a tree read. One trap to respect: the CLI's `t3 goal show` output is legal rewrite *input*, and the parser treats the last `(token)` on a line as the id — so ownership annotations must never be appended inline after the id in that rendering; the chip lives in the panel (and optionally a `t3 goal show --threads` variant clearly marked as not rewrite input).
+
+**6. Contracts/migration.** Additive, decode-defaulted `anchorTaskId` on the spawn/scaffold commands, `thread.created` payload, and thread/shell schemas; edge validation in `WorkstreamSpawnHttp.ts`; scope resolution + branch guards in `GoalTaskHttp.ts`; `renderGoalTaskBranch`/overview helpers beside `renderGoalTaskTree`; injection variants; tool-def prose; panel chip. No event migration; historic snapshots decode to `null` (unbound), which is exactly their truth.
+
+**7. Token model.** Bound child: prefix ≈0.5k (from ≈6.8k with guidance), echo ≈0.7k (from 7.7k) — on the retro thread's profile, roughly $0.55 saved on the prefix and ≈$0.60 per early echo. Unbound child: prefix ≈0.7k, echo ≈2.1k. Capability lost: ambient line-level awareness of sibling branches (pulse + one call away).
+
+**8. Size.** ~2–3 coder-days (the largest single item is branch-scoped rewrite; without it, ~2).
+
+## Option C — Pull, don't push (no injected tree)
+
+Delete the tree from the prompt entirely; the tools are the only tree surface.
+
+**1. Binding.** None. The **brief contract** gains a line: a brief that assigns a tree task must name its id (today this is folk practice; here it becomes the only mechanism).
+
+**2. Injection.** Goal header + objective + ~4 lines of guidance (~0.15k tokens): the tree exists, read it with `goal_task_list` when you orient and before you write, mark your task done, record discovered work under the phase it belongs to.
+
+**3. Tool semantics and echo.** Tools unchanged. Because there is no ambient snapshot, the echo becomes the *sole* awareness channel and must not be gutted: mutations echo Option A's pruned open-tree (~2.1k), and `goal_task_list` stays complete. **Awareness:** entirely behavioural — and this is the option's honest weakness. Carl's own observation is that `goal_task_list` "wasn't being called very often": the retro child went 180 turns without one. An agent that never orients writes its adds against a guessed shape, and a child whose brief omits the task id cannot even mark it done. C converts a guaranteed cheap signal into a bet the measured behaviour already contradicts.
+
+**4. Out-of-branch.** Unchanged mechanically; every placement now costs a prior list call (or lands top-level, the degradation the redesign fought).
+
+**5. Human surfaces.** Untouched. **6. Contracts.** None — deletion plus prose. **7. Token model.** Prefix ≈0.15k; echo ≈2.1k; cheapest prefix of all options, echo cost equal to A. **8. Size.** ~0.5 day.
+
+## Option D — Staged sub-trees (fold into the shared tree on submit)
+
+Presupposes B's anchor. The child's branch becomes a **staging area**: its writes exist in the goal store flagged `staged`, invisible (or dimmed) in the shared panel and in other threads' views, and fold into the live tree when the child submits.
+
+**1. Binding.** As Option B. **2. Injection.** Spine + anchor + pulse (the branch typically starts empty; ≈0.3k). **3. Tools/echo.** All child writes are staged; echo = own staged branch + pulse (≈0.3–1k) — awareness of its own work is complete by construction, awareness of the shared tree is the pulse. `workstream_submit`'s reactor flips the staged subtree live (cancel discards it). **4. Out-of-branch.** Everything stages under the anchor with the discovery phrased in the text; the orchestrator re-homes at fold-in — the most literal reading of the AIT framing ("that task is the orchestrator's"), at the price of the discovery being invisible until submit. **5. Human surfaces.** The panel needs a staged rendering (dimmed subtree per working thread) — and this is where D fails the first constraint: the human's glanceable "where is this thread up to" goes *dark* for exactly the long-running children who most need glancing at. Live progress visibility is the tree's point. **6. Contracts.** A `staged` flag on tasks, a fold event, submit/cancel reactor changes, panel rendering — real surface. **7. Token model.** Cheapest echoes of any option; prefix like B. **8. Size.** ~3–5 days.
+
+## Comparison
+
+<Table
+  density="compact"
+  columns={["", "A · Prune views", "B · Anchor binding", "C · Pull only", "D · Staged sub-trees"]}
+  rows={[
+    ["Prefix tokens (bound / typical child)", "≈2.1k", "≈0.5k (unbound ≈0.7k)", "≈0.15k", "≈0.3k"],
+    ["Echo tokens per mutation", "≈2.1k", "≈0.7k (unbound ≈2.1k)", "≈2.1k", "≈0.3–1k"],
+    ["Awareness mechanism", "full open plan every call", "full own branch every call + goal pulse", "behavioural (agent must list)", "own staged branch + pulse"],
+    ["Own-task identification", "brief prose", "mechanical (anchor)", "brief prose (mandated)", "mechanical (anchor)"],
+    ["Schema/contract change", "none", "one nullable field + edge checks", "none", "field + staged flag + fold event"],
+    ["Child restructures own branch", "no", "yes (sub-decision)", "no", "yes (staged)"],
+    ["Out-of-branch discovered work", "add anywhere, visible live", "add anywhere, placement echo, visible live", "add anywhere (after a list)", "staged until submit"],
+    ["Human tree", "unchanged", "improved (task→thread chips)", "unchanged", "worse (in-flight work hidden)"],
+    ["Fits the retro child (no task of its own)", "partly (still all phases)", "yes (overview variant)", "yes (but blind)", "n/a (needs an anchor)"],
+    ["Size", "~0.5–1 d", "~2–3 d", "~0.5 d", "~3–5 d"],
+  ]}
+/>
+
+## Recommendation: Option B, composed with A's rendering for the unscoped cases
+
+<Callout tone="decision">
+Adopt the **anchor binding** (B), using A's **open-tree rendering** wherever no branch scope exists — unbound children's echoes, and the root's injection — and C's near-empty injection *only* for the degenerate case of a goal with no tasks. Specifically: optional `anchorTaskId` at spawn/scaffold (explicit only, no auto-created nodes); bound-child injection = spine + branch + pulse; unbound-child injection = top-level overview + counts; bound-child echo = **branch + pulse** (rendered above); unbound-child echo = open-tree; root injection = open-tree, root echo and `goal_task_list` complete; branch-scoped rewrite for bound children; `goal_task_add` legal anywhere with a placement echo; `goal_task_update` branch-restricted for bound threads; the child guidance paragraph shrinks to the branch-framed third, dropping the worked example (the cap error keeps it).
+</Callout>
+
+Reasoning. B is the only option that makes "the agent knows what it owns" **mechanical** rather than prose — which is simultaneously the token fix (the writable world is smaller, so both channels shrink to it honestly, not by hiding shared state), the awareness fix (complete-within-scope on every mutation, satisfying the redesign's never-blind requirement at a tenth of the cost), the answer to the retro's two concrete findings (the no-task child gets a purpose-built overview; "own task" stops depending on brief discipline), and the only option that *improves* the human's tree, via task→thread navigation. It is also the smallest model that makes the behaviour unsurprising: one nullable field, scope resolution at the same edge that already owns thread-identity checks, orchestration and the decider untouched in their pure form. A alone leaves every child carrying all nine phases forever; C bets against measured behaviour; D hides in-flight work from the human. The redesign's rationale for deferring the binding — "until the rewrite loop proves out" — has been met.
+
+On the two sub-decisions inside B: **branch rewrite for bound children** should be allowed. The blanket child block existed to protect the shared shape from any child; anchoring is a *principled narrowing* of the same rule — the root owns the tree's shape, a bound thread owns its branch's interior. Without it, a bound child-orchestrator decomposing its branch is back to the 79-event rebuild dance the redesign was built to kill. And **out-of-branch adds stay open** (with the placement echo) because live shared visibility of discovered work is the tree's job; the orchestrator re-homes at the next seam, exactly as it re-shapes anything else.
+
+### Worked example: the AIT-ticket flow under the recommendation
+
+The scenario Carl posed: a sub-thread discovers unrelated broken behaviour; a ticket should be written, likely by a fresh thread — but *creating that thread* is the orchestrator's task, not the discoverer's.
+
+1. **Discovery.** The Phase-6-anchored coder above hits a pre-existing projection bug unrelated to its branch. It calls `goal_task_add` with text `"File an AIT ticket for the stale usage-projection rows (found during the thread-screen work)"` and, having the phase lines from its pulse-side `scope "tree"` read (or defaulting under its own anchor when unsure), targets Phase 7. The echo costs it ≈0.8k tokens: the added line with its spine, its own branch, the pulse.
+2. **Shared visibility, immediately.** The task is live in `GoalTasksPanel` and in the root's next echo/list — the human and the orchestrator see the discovery hours before the child submits. Nothing about the child says the work is *its own*: it has no anchor there, `goal_task_update` on that task would be refused to it, and its guidance says discovered work is recorded, not adopted.
+3. **Report.** The child's `workstream_submit` report names the finding and the task id — the report explains, the tree records.
+4. **Ownership transfer is a binding, not prose.** The orchestrator, at the next seam, re-homes the task if the child's placement was wrong (one `goal_tasks_rewrite`) and spawns the ticket-writer with `anchorTaskId` = that task. The panel chip on the task row flips to the new thread. The ticket thread is injected with exactly that one-line branch plus the pulse (≈0.3k), writes the ticket, ticks its anchor, submits.
+
+Every hand-off in the walkthrough is visible in the shared tree at the moment it happens, and at no point does any thread carry the 82 ticked tasks of Phases 1–5.
+
+### Change map (recommended composition)
+
+<FileTree
+  title="Recommended option — files touched"
+  entries={[
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "anchorTaskId (nullable, decode-defaulted) on spawn/scaffold commands, thread.created payload, LoomThreadFields + shell" },
+    { path: "apps/server/src/orchestration/decider.loom.ts", change: "modified", note: "pass-through of anchorTaskId into thread.created (validation stays at the edge)" },
+    { path: "apps/server/src/mcp/WorkstreamSpawnHttp.ts", change: "modified", note: "anchor validation: live task of the parent's goal; within spawner's branch when spawner is bound; forkFrom inherits" },
+    { path: "apps/server/src/orchestration/goalTaskRender.ts", change: "modified", note: "+renderGoalTaskBranch (spine + subtree), +renderOpenGoalTaskTree (done-subtree collapse + markers), +overview/pulse helpers" },
+    { path: "apps/server/src/mcp/GoalTaskHttp.ts", change: "modified", note: "scope resolution (thread → anchor); list scope param; add default parent + placement echo; update branch guard; branch-scoped rewrite; per-audience echo shapes" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "activeGoalContextInstruction → three variants (root open-tree / bound branch / unbound overview); guidance trims" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "goal_task_* descriptions: scope defaults, branch ownership, placement-echo semantics; spawn/scaffold anchorTaskId param" },
+    { path: "apps/web/src/components/GoalTasksPanel.tsx", change: "modified", note: "task→thread chip on anchored rows (data via thread shells by goal)" },
+    { path: "apps/server/src/mcp/workstreamRender.ts", change: "modified", note: "workstream_list prints each child's anchor" },
+    { path: "roles/*.md", change: "modified", note: "tree bullets rephrased to branch framing (sync ~/pi-fathom/loom/roles after merge)" },
+  ]}
+/>
+
+Verification would follow the established pattern: round-trip identity per scope as the unit test that matters (branch list output → branch rewrite is a no-op), the update/add guards at the edge, and one live dev-verify pass (seeded workstream, spawn one bound and one unbound child, read their prompt sidecars and echo sizes).
+
+## Risks
+
+- **Anchor drift.** A root rewrite can delete or move a thread's anchor mid-flight. Degrade-to-unbound at read time is the chosen behaviour; the thread's next echo switches shape (branch → open-tree), which is noticeable but not harmful. Accepted for a prototype.
+- **Pruned-echo misuse as rewrite input** (root only, since children's rewrite is branch-scoped). The elision markers make a verbatim paste fail loudly; an agent that strips them can still delete elided tasks. Mitigated by the existing "rewrite from a fresh read" guideline plus an echo footer line; residual risk accepted. If it bites, the fallback is making the root's echo complete again — a one-line revert.
+- **Behavioural bet on the pulse.** The claim that a one-line pulse preserves enough ambient awareness is untested. The fallback is graduated: swap the pulse for the top-level overview lines (≈+0.4k per echo) without touching the model.
+- **Concurrent branch rewrites.** A branch rewrite is applied as a whole-tree rewrite composed from the tree read at the top of the same request, so two anchored siblings rewriting at the same moment are last-write-wins across each other's branches. The window is one request and the failure mode is a lost sibling edit (a sibling of the existing root-rewrite-vs-child-add race), but it is new — children could not rewrite before. Accepted for a prototype; the fix, if it bites, is composing the rewrite against a re-read inside the dispatch.
+- **Two children on one branch.** Nothing prevents anchoring two threads to the same task (forks do it by design). The panel chip shows both; the branch guard means they can race on done-marks exactly as siblings race today. Accepted.
+
+## Resolved decisions (2026-09-23, Carl: "Proceed")
+
+All seven questions below are resolved to the recommended option; these resolutions are binding on implementation:
+
+1. **Design:** Option B composed with A — anchor binding, open-tree rendering for unscoped cases.
+2. **Binding:** explicit optional `anchorTaskId` only; no create-and-bind, no auto-created nodes.
+3. **Unbound-child injection:** top-level overview with counts (~0.7k tokens).
+4. **Branch rewrite:** allowed for bound children, rooted at the anchor (anchor undeletable/unmovable); the blanket child block is superseded by this scope rule.
+5. **Out-of-branch work:** `goal_task_add` legal anywhere with the placement echo; orchestrator re-homes.
+6. **Root surfaces:** open-tree injection and open-tree echo; `goal_task_list` stays complete.
+7. **Short ids:** deferred.
+
+## Decision points (answered above; form retained for the record)
+
+<QuestionForm
+  questions={[
+    {
+      id: "option",
+      title: "Which design?",
+      mode: "single",
+      options: [
+        { id: "b-composed", label: "B composed (anchor binding + A's rendering for unscoped cases)", recommended: true, detail: "Mechanical ownership, ~10× cut on both channels for bound children, human tree improves. One nullable field of new schema; ~2–3 days." },
+        { id: "a-only", label: "A only (prune the views, no binding)", detail: "Cheapest to build (~1 day) and no schema, but every child keeps carrying every phase, and 'own task' stays brief prose. Reasonable as a stopgap that B can land on top of." },
+        { id: "c", label: "C (no injected tree, pull only)", detail: "Cheapest prefix, but bets on agents calling goal_task_list — the measured behaviour this document exists because of." },
+        { id: "d", label: "D (staged sub-trees)", detail: "Cheapest echoes, but hides in-flight work from the human's glanceable tree and costs the most machinery." },
+      ],
+    },
+    {
+      id: "binding-establishment",
+      title: "How is the anchor established? (under B)",
+      mode: "single",
+      options: [
+        { id: "explicit", label: "Explicit optional anchorTaskId only", recommended: true, detail: "Tree shape follows the plan, not the org chart; orchestrator adds the task first (id is in its echo), then spawns. No extra surface." },
+        { id: "create-and-bind", label: "Also a create-and-bind convenience (spawn takes task text, creates the node under the spawner's anchor)", detail: "Saves one call per spawn at the cost of a second creation path and a tree that mirrors spawning by default." },
+        { id: "auto", label: "Auto-create a node from the child's title when no anchorTaskId is given", detail: "Every child gets a node — including reviewers and researchers who should not have one; the tree becomes an org chart." },
+      ],
+    },
+    {
+      id: "unbound-injection",
+      title: "What does an unbound child get injected?",
+      mode: "single",
+      options: [
+        { id: "overview", label: "Top-level overview with counts (~0.7k tokens)", recommended: true, detail: "Enough to place discovered work and understand the goal's phases; the retro child needed roughly this and no more." },
+        { id: "open-tree", label: "A's full open-tree (~2.1k)", detail: "Line-level awareness of all open work, at 3× the cost — most of it phases the child will never touch." },
+        { id: "none", label: "Goal header only (~0.15k)", detail: "Cheapest, but the child must list before its first add and cannot sanity-check its brief against the plan." },
+      ],
+    },
+    {
+      id: "branch-rewrite",
+      title: "May a bound child restructure its own branch (branch-scoped goal_tasks_rewrite)?",
+      mode: "single",
+      options: [
+        { id: "allow", label: "Yes — rooted at the anchor, anchor undeletable/unmovable", recommended: true, detail: "Nested orchestrators can decompose their branch in one call; ownership of structure becomes 'root owns the tree, a thread owns its branch interior'. Supersedes the blanket child block with a principled scope." },
+        { id: "keep-block", label: "No — keep the blanket rejection for any thread with a parent", detail: "Smaller change and preserves the earlier decision verbatim, but a bound child-orchestrator is back to add/update micro-ops to shape its branch." },
+      ],
+    },
+    {
+      id: "out-of-branch",
+      title: "Out-of-branch discovered work (the AIT-ticket case)",
+      mode: "single",
+      options: [
+        { id: "add-anywhere", label: "goal_task_add legal anywhere; placement echo (added line + spine); orchestrator re-homes", recommended: true, detail: "Discovery is live in the shared tree immediately; no new state. The child records THAT the work exists; the orchestrator owns where it lives and who actions it." },
+        { id: "propose", label: "Propose-to-parent: lands under the child's anchor with a re-homing flag", detail: "Explicit hand-off semantics, at the cost of a new task flag and an orchestrator workflow around it." },
+        { id: "report-only", label: "Report-only: discoveries ride workstream_submit", detail: "Purest ownership story, but a long-running child's discovery is invisible until it finishes and dies with a cancelled thread." },
+      ],
+    },
+    {
+      id: "root-surfaces",
+      title: "The root/orchestrator's own surfaces",
+      mode: "single",
+      options: [
+        { id: "pruned", label: "Open-tree injection AND open-tree echo (list stays complete)", recommended: true, detail: "The root re-reads finished history least of anyone; markers + the fresh-read guideline guard the rewrite path. ~2.1k per surface instead of 6.4k/7.7k." },
+        { id: "echo-full", label: "Open-tree injection, but keep the root's echo complete", detail: "Zero rewrite-misuse risk (echo remains a legal rewrite source), at ~5.6k extra tokens per root mutation." },
+        { id: "all-full", label: "Keep the root fully unscoped (today's behaviour)", detail: "Roots are long-lived and their prefix cost compounds most; only worth it if the rewrite-misuse risk is judged unacceptable." },
+      ],
+    },
+    {
+      id: "short-ids",
+      title: "Orthogonal: render 8-character id prefixes in agent-facing views (edge resolves unique prefixes)?",
+      mode: "single",
+      options: [
+        { id: "defer", label: "Defer", recommended: true, detail: "Saves a further ~16% of every tree payload, but touches the parser's id-matching authority on every surface; not worth coupling to this change." },
+        { id: "include", label: "Include in the same wave", detail: "One coder-day more; every option's numbers above improve by roughly a sixth." },
+      ],
+    },
+  ]}
+/>

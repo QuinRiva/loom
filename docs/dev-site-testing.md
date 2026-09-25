@@ -52,6 +52,14 @@ read-only. Optionally prove the read model and a per-turn diff without the UI:
 T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/verifySeed.ts
 ```
 
+The seeded goal's task tree is nested and has one anchored child
+(`seed-thread-coder-alpha`), so every branch-scoped agent-facing tree surface can
+be rendered with its size without a browser:
+
+```sh
+T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/verifyBranchScoping.ts
+```
+
 ## 2. Start the dev stack (backgrounded, logged)
 
 ```sh

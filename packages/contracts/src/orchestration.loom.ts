@@ -379,6 +379,16 @@ export const LoomThreadFields = {
   // historical rows — and upstream's own decode tests, which construct thread
   // literals with no knowledge of fork fields.
   goalId: Schema.NullOr(GoalId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Task-tree branch scoping (plans/task-tree-branch-scoping/plan.mdx §1): the
+  // ONE task of this thread's goal whose subtree is the branch this thread owns
+  // — what it is injected with, what its goal_task_* calls default to, and what
+  // it may restructure. Set explicitly at spawn/scaffold (never auto-created);
+  // null = UNBOUND, a first-class state (reviewers, researchers, gate threads
+  // mostly have no node). Resolved against the live tree at read time, so a
+  // thread whose anchor is later deleted simply degrades to unbound — no event,
+  // no dangling failure. Additive + decode-defaulted so every pre-anchor
+  // snapshot loads as unbound, which is exactly its truth.
+  anchorTaskId: Schema.NullOr(GoalTaskId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -584,6 +594,7 @@ export const LoomThreadShellFields = {
  */
 export const loomThreadDefaults = {
   goalId: null,
+  anchorTaskId: null,
   parentThreadId: null,
   role: null,
   purpose: null,
@@ -736,6 +747,10 @@ export const LoomShellSnapshotFields = {
 // Spread into `ThreadCreateCommand`.
 export const LoomThreadCreateCommandFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  // Task-tree branch scoping: the branch this child owns. Validated at the HTTP
+  // edge (live task of the spawner's goal, within the spawner's own branch when
+  // it is itself anchored) — the decider stays a pure pass-through.
+  anchorTaskId: Schema.optional(Schema.NullOr(GoalTaskId)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -828,6 +843,8 @@ export const LoomBootstrapCreateThreadFields = {
 // Spread into `ThreadCreatedPayload`.
 export const LoomThreadCreatedPayloadFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  // Task-tree branch scoping: the anchor seeded onto the created thread.
+  anchorTaskId: Schema.optional(Schema.NullOr(GoalTaskId)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1226,6 +1243,9 @@ export const makeLoomScaffoldCommandMembers = <
     routes: Schema.optional(Schema.Array(WorkstreamRoute)),
     spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+    // Task-tree branch scoping: the branch this node owns (already validated /
+    // fork-inherited at the HTTP edge).
+    anchorTaskId: Schema.optional(Schema.NullOr(GoalTaskId)),
     modelSelection: deps.ModelSelection,
   });
   // Stuck-launch recovery: the COMPARE-AND-SWAP repair of a session wedged in

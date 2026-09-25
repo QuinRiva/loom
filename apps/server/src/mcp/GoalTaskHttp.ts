@@ -25,7 +25,18 @@ import {
   validateGoalTaskRewriteText,
   validateGoalTaskText,
 } from "../orchestration/goalTaskMarkdown.ts";
-import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
+import {
+  composeBranchRewrite,
+  goalTaskSpine,
+  isWithinGoalTaskBranch,
+  resolveThreadAnchor,
+} from "../orchestration/goalTaskAnchor.loom.ts";
+import {
+  renderGoalTaskBranch,
+  renderGoalTaskEcho,
+  renderGoalTaskTree,
+  toGoalTaskNodes,
+} from "../orchestration/goalTaskRender.ts";
 import { flattenGoalTasks } from "../orchestration/goalTaskTree.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -35,6 +46,10 @@ import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 interface GoalTaskAddRequest {
   readonly text?: unknown;
   readonly parentTaskId?: unknown;
+}
+
+interface GoalTaskListRequest {
+  readonly scope?: unknown;
 }
 
 interface GoalTasksRewriteRequest {
@@ -68,23 +83,21 @@ const renderTasks = (tasks: ReadonlyArray<OrchestrationGoalTask>): string =>
  * the agent sees the shape it is accreting at the moment it mutates, and gets
  * the ids a follow-up rewrite needs without a read round-trip. Dispatch commits
  * the sqlite projection inside its own transaction, so this re-read is the
- * post-command tree.
+ * post-command tree; `renderGoalTaskEcho` scopes it to what the caller owns.
  */
-const echoTree = Effect.fn("GoalTaskHttp.echoTree")(function* (goalId: GoalId, summary: string) {
-  const goal = yield* (yield* ProjectionSnapshotQuery).getGoalById(goalId);
-  return `${summary}\n\n${renderTasks(Option.isNone(goal) ? [] : goal.value.tasks)}`;
+const echoTree = Effect.fn("GoalTaskHttp.echoTree")(function* (input: {
+  readonly goalId: GoalId;
+  readonly summary: string;
+  readonly anchorTaskId: GoalTaskId | null;
+  readonly isChild: boolean;
+  readonly placedTaskId?: GoalTaskId;
+}) {
+  const goal = yield* (yield* ProjectionSnapshotQuery).getGoalById(input.goalId);
+  return renderGoalTaskEcho({ ...input, tasks: Option.isNone(goal) ? [] : goal.value.tasks });
 });
 
-const allTaskIds = (tasks: ReadonlyArray<OrchestrationGoalTask>): Set<string> => {
-  const ids = new Set<string>();
-  const stack: OrchestrationGoalTask[] = [...tasks];
-  while (stack.length > 0) {
-    const task = stack.pop()!;
-    ids.add(task.id);
-    stack.push(...task.children);
-  }
-  return ids;
-};
+const allTaskIds = (tasks: ReadonlyArray<OrchestrationGoalTask>): Set<string> =>
+  new Set(flattenGoalTasks(tasks).map((task) => task.id as string));
 
 /**
  * Resolve the caller thread → its active goal (with the full task tree, so
@@ -115,15 +128,32 @@ const resolveActiveGoal = Effect.fn("GoalTaskHttp.resolveActiveGoal")(function* 
   return { goal: goal.value, thread: thread.value };
 });
 
+/**
+ * A bound thread reads its BRANCH by default (spine as read-only context, then
+ * the branch as the complete rewrite source); `scope: "tree"` returns the whole
+ * goal, which is what an unbound thread and the root always get — and the sole
+ * complete rewrite source for the root.
+ */
 const handleGoalTaskList = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
   const resolved = yield* resolveActiveGoal();
   if ("error" in resolved) return resolved.error;
   const goal: OrchestrationGoal = resolved.goal;
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): GoalTaskListRequest => ({})),
+  )) as GoalTaskListRequest;
+  const anchor =
+    trimString(body.scope) === "tree"
+      ? null
+      : resolveThreadAnchor(goal.tasks, resolved.thread.anchorTaskId);
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     title: goal.title,
-    rendered: renderTasks(goal.tasks),
-    tasks: toGoalTaskNodes(goal.tasks),
+    rendered:
+      anchor === null
+        ? renderTasks(goal.tasks)
+        : renderGoalTaskBranch(anchor, goalTaskSpine(goal.tasks, anchor.id)),
+    tasks: toGoalTaskNodes(anchor === null ? goal.tasks : [anchor]),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -147,7 +177,11 @@ const handleGoalTaskAdd = Effect.gen(function* () {
   const textError = validateGoalTaskText(text);
   if (textError) return jsonError(400, textError);
 
-  let parentTaskId: GoalTaskId | null = null;
+  // A bound thread's adds land in its own branch unless it says otherwise; any
+  // task of the goal stays a legal explicit target, so discovered work can be
+  // recorded where it belongs (the echo then shows where it landed).
+  const anchor = resolveThreadAnchor(goal.tasks, resolved.thread.anchorTaskId);
+  let parentTaskId: GoalTaskId | null = anchor?.id ?? null;
   const parent = trimString(body.parentTaskId);
   if (parent) {
     if (!allTaskIds(goal.tasks).has(parent)) {
@@ -173,7 +207,13 @@ const handleGoalTaskAdd = Effect.gen(function* () {
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     taskId,
-    rendered: yield* echoTree(goal.id, `Added task ${taskId}: ${text}`),
+    rendered: yield* echoTree({
+      goalId: goal.id,
+      summary: `Added task ${taskId}: ${text}`,
+      anchorTaskId: resolved.thread.anchorTaskId,
+      isChild: resolved.thread.parentThreadId !== null,
+      placedTaskId: taskId,
+    }),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -196,6 +236,14 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   if (!taskId) return jsonError(400, "taskId is required.");
   if (!allTaskIds(goal.tasks).has(taskId)) {
     return jsonError(400, `taskId "${taskId}" is not a task in this goal.`);
+  }
+  // Ticking a sibling thread's task is the misfire branch scoping prevents.
+  const anchor = resolveThreadAnchor(goal.tasks, resolved.thread.anchorTaskId);
+  if (anchor !== null && !isWithinGoalTaskBranch(anchor, GoalTaskId.make(taskId))) {
+    return jsonError(
+      403,
+      `Task ${taskId} is outside the branch you own, rooted at your anchor "${anchor.text}" (${anchor.id}) — only the thread that owns a task ticks or renames it. Record discovered work with goal_task_add instead (it lands in your branch by default; pass a parentTaskId to place it elsewhere), and say what needs doing to that task in your report, or ask its thread with consult_thread.`,
+    );
   }
   const text = body.text === undefined ? undefined : trimString(body.text);
   if (body.text !== undefined && text === undefined) {
@@ -225,7 +273,12 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     taskId,
-    rendered: yield* echoTree(goal.id, `Updated task ${taskId}.`),
+    rendered: yield* echoTree({
+      goalId: goal.id,
+      summary: `Updated task ${taskId}.`,
+      anchorTaskId: resolved.thread.anchorTaskId,
+      isChild: resolved.thread.parentThreadId !== null,
+    }),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -236,12 +289,13 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
 );
 
 /**
- * Declarative whole-tree replace: the submitted markdown IS the resulting tree.
- * All-or-nothing — the whole submission is parsed and resolved before a single
- * command is dispatched. Structure belongs to the tree's owner, so a thread with
- * a parent is refused here (the two targeted, concurrency-safe ops stay open to
- * it); that ownership check can only live at this edge, since the command itself
- * carries no thread identity.
+ * Declarative replace: the submitted markdown IS the resulting tree — the whole
+ * tree for the root, and for a BOUND thread its own branch, spliced in place
+ * (plans/task-tree-branch-scoping). All-or-nothing: the whole submission is
+ * parsed, scoped and resolved before a single command is dispatched. Ownership
+ * of shape is "the root owns the tree, a bound thread owns its branch's
+ * interior", so an unbound child is still refused outright; the check can only
+ * live at this edge, since the command carries no thread identity.
  */
 const handleGoalTasksRewrite = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -249,10 +303,11 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
   if ("error" in resolved) return resolved.error;
   const goal: OrchestrationGoal = resolved.goal;
 
-  if (resolved.thread.parentThreadId !== null) {
+  const anchor = resolveThreadAnchor(goal.tasks, resolved.thread.anchorTaskId);
+  if (resolved.thread.parentThreadId !== null && anchor === null) {
     return jsonError(
       403,
-      "Whole-tree rewrites belong to the thread that owns the goal, and this thread has a parent. Use goal_task_add to record discovered work (nested under the relevant parent task) and goal_task_update to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.",
+      "Rewrites are scoped to what a thread owns: the whole tree belongs to the thread that owns the goal, and a child may rewrite only the branch it is anchored to — this thread has a parent and no anchor. Use goal_task_add to record discovered work (nested under the relevant parent task) and goal_task_update to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.",
     );
   }
 
@@ -264,18 +319,25 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
   const parsed = parseGoalTaskMarkdown(body.markdown, allTaskIds(goal.tasks));
   if ("error" in parsed) return jsonError(400, parsed.error);
   const current = flattenGoalTasks(goal.tasks);
+  // Line numbers in this error name the SUBMITTED lines, so validate before a
+  // branch submission is spliced into the rest of the tree.
   const textError = validateGoalTaskRewriteText(parsed.lines, current);
   if (textError) return jsonError(400, textError);
+  const scoped =
+    anchor === null
+      ? { lines: parsed.lines }
+      : composeBranchRewrite({ submitted: parsed.lines, tasks: goal.tasks, anchor });
+  if ("error" in scoped) return jsonError(400, scoped.error);
 
   const crypto = yield* Crypto.Crypto;
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   // One id per line that carries none; the rest keep their identity.
   const minted = (yield* Effect.forEach(
-    parsed.lines.filter((line) => line.taskId === null),
+    scoped.lines.filter((line) => line.taskId === null),
     () => crypto.randomUUIDv4,
   ))[Symbol.iterator]();
   const { tasks, summary, changed } = resolveGoalTaskRewrite({
-    lines: parsed.lines,
+    lines: scoped.lines,
     current,
     mintTaskId: () => GoalTaskId.make(minted.next().value!),
     now,
@@ -296,7 +358,12 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
   }
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
-    rendered: yield* echoTree(goal.id, summary),
+    rendered: yield* echoTree({
+      goalId: goal.id,
+      summary,
+      anchorTaskId: resolved.thread.anchorTaskId,
+      isChild: resolved.thread.parentThreadId !== null,
+    }),
   });
 }).pipe(
   Effect.catch((error: unknown) =>

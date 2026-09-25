@@ -8,6 +8,7 @@
  */
 import {
   GoalId,
+  GoalTaskId,
   HandoffDestination,
   CommandId,
   IsoDateTime,
@@ -40,6 +41,9 @@ export const ProjectionThread = Schema.Struct({
   projectId: ProjectId,
   // loom: workstream columns on the projected thread row.
   goalId: Schema.NullOr(GoalId),
+  // Task-tree branch scoping: the goal task whose subtree this thread owns
+  // (null = unbound). Resolved against the live tree at read time.
+  anchorTaskId: Schema.NullOr(GoalTaskId),
   parentThreadId: Schema.NullOr(ThreadId),
   role: Schema.NullOr(Schema.String),
   purpose: Schema.NullOr(Schema.String),

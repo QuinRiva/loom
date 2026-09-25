@@ -68,6 +68,7 @@ function threadDetailToShell(
     blockedBy: thread.blockedBy,
     spawnGeneration: thread.spawnGeneration,
     forkFromThreadId: thread.forkFromThreadId,
+    anchorTaskId: thread.anchorTaskId,
     continuesThreadId: thread.continuesThreadId,
     reportPath: thread.reportPath,
     kickoffBriefPath: thread.kickoffBriefPath,

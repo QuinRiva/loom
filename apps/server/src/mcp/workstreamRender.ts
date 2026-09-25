@@ -42,6 +42,10 @@ export interface WorkstreamListNode {
   readonly lastActivitySummary?: string | null;
   readonly reportPath?: string | null;
   readonly sessionPath?: string | null;
+  /** Task-tree branch scoping: the goal task whose branch this thread owns, null when unbound. */
+  readonly anchorTaskId?: string | null;
+  /** Text of that task, when it is still live in the goal's tree. */
+  readonly anchorTaskText?: string | null;
 }
 
 export interface WorkstreamListView {
@@ -103,6 +107,17 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         attention,
     );
     if (node.purpose) lines.push(pad + "    purpose: " + node.purpose);
+    // The branch this thread owns: what it is injected with, what its
+    // goal_task_* calls default to. Absent line = unbound (works from its brief).
+    if (node.anchorTaskId)
+      lines.push(
+        pad +
+          "    anchor: " +
+          node.anchorTaskId +
+          (node.anchorTaskText
+            ? ' "' + node.anchorTaskText + '"'
+            : " (task no longer in the tree)"),
+      );
     if (node.lastActivityAt)
       lines.push(
         pad +
