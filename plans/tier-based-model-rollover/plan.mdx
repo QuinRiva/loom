@@ -1,0 +1,354 @@
+---
+manager_sessions:
+  - id: 10c71f22-6674-491f-b2e6-eefd2980aa66
+    name: Tier-based model rollover plan
+    role: plan
+    authored_at: 2026-09-25T06:00:02.388Z
+---
+
+# Tier-based model rollover
+
+**Objective.** Make the monthly "run the platform update" a one-command run: bump pi, let the catalogue say which tiers changed, and have every default, preset and failover target follow — with one stop for a genuinely new model *family* and one for the cli-proxy restart window. Model identity stops being a literal slug copied into ~15 places; it becomes a **tier reference** resolved against pi's live catalogue in exactly one place.
+
+**Done means:** after the loom changes deploy and the live `settings.json` is converted, a pi bump that ships (say) Opus 6 and GPT-6.5 Sol changes what every coder, reviewer, planner, manual thread and failover chain runs on **without any loom source edit and without any settings edit** — the skill's report shows the before → after per tier and per surface, and each tier has passed a real completion.
+
+## What Carl sees at the end of a run
+
+The `platform-update` skill finishes with this report (illustrative values for a hypothetical Opus 6 + GPT-6.5 month):
+
+<Table
+  columns={["Tier", "Family", "Before", "After", "Surfaces that follow"]}
+  rows={[
+    ["anthropic / high", "fable", "cliproxy/claude-fable-5-1", "cliproxy/claude-fable-5-1", "planner, global pi default"],
+    ["anthropic / medium", "opus", "cliproxy/claude-opus-5-5", "cliproxy/claude-opus-6", "coder, researcher, manual-thread default, loom project override, Codex-exhausted failover"],
+    ["anthropic / low", "sonnet", "cliproxy/claude-sonnet-5", "cliproxy/claude-sonnet-5", "text generation, Luna-exhausted failover"],
+    ["openai / medium", "sol", "openai-codex/gpt-6-sol", "openai-codex/gpt-6.5-sol", "coder-direct, reviewer"],
+    ["openai / cheap", "luna", "openai-codex/gpt-6-luna", "openai-codex/gpt-6-luna", "shipper, memory consolidation"],
+  ]}
+/>
+
+followed by a per-surface table (surface · before · after · effect: live / deploy pending / restart pending), a per-tier verification line (`pi -p … "Reply with exactly: OK"` → OK), the list of catalogue families that are neither mapped nor known noise, and the two things still on Carl: the deploy (per `~/loom-releases/RUNBOOK.md`) and — if it was asked for — the cli-proxy restart he approved mid-run.
+
+The regularity this encodes is Carl's: **releases are version bumps within stable families; the tier map only changes when a new family appears.**
+
+<Code
+  language="json"
+  filename="settings.json → modelTiers (the whole tier map)"
+  code={"{\n  \"modelTiers\": {\n    \"anthropic\": { \"high\": \"fable\", \"medium\": \"opus\", \"low\": \"sonnet\", \"cheap\": \"haiku\" },\n    \"openai\":    { \"high\": \"astra\", \"medium\": \"sol\", \"cheap\": \"luna\" }\n  }\n}\n"}
+/>
+
+## Feasibility answers (verified, not assumed)
+
+<Table
+  columns={["Question from the brief", "Answer", "Evidence"]}
+  rows={[
+    ["Can a pi extension read pi's builtin catalogue at load time?", "Yes. Extensions import `@earendil-works/pi-ai` and get its compat surface; `getModels(\"anthropic\")` returns the 15 inlined Anthropic models with cost, contextWindow, maxTokens, thinkingLevelMap and compat. `pi.registerProvider` accepts them directly.", "Throwaway extension `/tmp/tierprobe/ext3.ts` registered a provider from `getModels(\"anthropic\")` and completed `pi -p --model tierprobe/claude-opus-5-5 \"Reply with exactly: OK\"` through cli-proxy → `OK`, with and without `--thinking high`. The metadata for opus-5-5 matched the hand-copied entry in `cliproxy.ts` exactly (cost 4/20/0.2/5, 1M/128K, thinking map without off/minimal)."],
+    ["Does `getModels` include the pi.dev overlay (`models-store.json`)?", "No — it is the catalogue inlined at publish time. The overlay is merged by pi-coding-agent's `withRemoteCatalog` (only when the remote `lastModified` is newer than the inlined `generatedAt`).", "`dist/core/remote-catalog-provider.js`. Today's `models-store.json` anthropic entry lacks opus-5-5 while the inlined 0.87.1 catalogue has it, i.e. the overlay is *older* and currently contributes nothing for Anthropic."],
+    ["Where does loom already have the live catalogue?", "`PiDriver.enrichPiSnapshot` runs a throwaway `pi --mode rpc` and asks `get_available_models` at boot and every 2 minutes (`SNAPSHOT_REFRESH_INTERVAL`). That list includes extension providers (cliproxy, anthropic-carl…), so it is the truth for \"what pi can route to\".", "`apps/server/src/provider/Drivers/PiDriver.ts` lines 139, 468–545; the slug→contextWindow map it fills is already what failover routing uses as its catalogue (line 1080)."],
+    ["Is there a single settings read path to hang resolution on?", "Yes. `ServerSettingsService.getSettings` and its change streams already materialise on read (`materializeProviderEnvironmentSecrets` → `resolveTextGenerationProvider`) while the on-disk file keeps the redacted form. Tier refs fit the same seam: file keeps refs, every consumer — server and web client — sees concrete slugs.", "`apps/server/src/serverSettings.ts` lines 1044–1058 (`getSettings`, `streamChanges`, `subscribeChanges`), 725–742 (`materializeChanges`)."],
+    ["Do the four settings consumers really need one path?", "They are more than four and two are in the browser: `defaultModelSelection` and `projectSettingsOverrides[*].defaultModelSelection` are applied by the web client when a thread is created (`useHandleNewThread.ts`, `DraftHeroHeadline.tsx`), not by the server. Only resolution *before the settings leave the server* covers them.", "`apps/web/src/hooks/useHandleNewThread.ts:176–181`, `apps/web/src/components/chat/DraftHeroHeadline.tsx:179–184`, `packages/shared/src/projectSettings.ts:60`."],
+    ["Is there a fifth settings-like surface?", "Yes, and it is dead: loom seeds `defaultModelSelection: pi/PI_DEFAULT_MODEL` on every `project.create` command (client-runtime and CommandPalette). After the one-time fold (`projectSettingsFolded: true` on the live cockpit) `resolveProjectSettings` ignores the project aggregate's value entirely.", "`packages/client-runtime/src/operations/projects.ts:322`, `apps/web/src/components/CommandPalette.tsx:2239`, `packages/shared/src/projectSettings.ts:67–79`, migration 044."],
+    ["Can cli-proxy derive anything?", "No. Its model registry and Claude Code cloak version are compiled into the Go binary; the deployed image is a rebased local fix branch, never stock. It stays a procedure; the skill automates rebase/test/build/probe and asks for the restart.", "`/home/Carl/cli-proxy/AGENTS.md` \"Hard rule\" and \"Upgrading to a new upstream version\" steps 1–10."],
+  ]}
+/>
+
+<Callout tone="warning">
+  Side finding during verification: `cliproxy/*` completions fail with Anthropic's `Third-party apps now draw from extra usage` 400 when pi runs with `--no-extensions`, even with the real `cliproxy.ts` loaded via `-e`. Some other discovered extension is load-bearing for the Claude Code identity gate. Every probe in the skill must run with the normal extension set — never `-ne`. Not in scope to fix here; recorded so the skill's verification step does not chase a phantom proxy failure.
+</Callout>
+
+## Tier map and resolution rule
+
+### The reference grammar
+
+A tier reference sits wherever a pi model slug sits today and keeps the slug's `provider/modelId` shape, with the model id replaced by `@tier`:
+
+<Table
+  columns={["Form", "Example", "Meaning"]}
+  rows={[
+    ["provider/@tier", "cliproxy/@medium", "the newest opus-family model that the `cliproxy` provider lists in pi's live catalogue"],
+    ["provider/@tier", "openai-codex/@cheap", "the newest luna-family model on `openai-codex`"],
+    ["provider/modelId (unchanged)", "cliproxy/claude-opus-5", "a pin — exactly this slug, never rolled"],
+    ["bare provider (unchanged, failover chains only)", "cliproxy", "\"same model on this pool\" — existing chain semantics, untouched"],
+  ]}
+/>
+
+The provider is explicit because it is the *route* (pooled proxy vs direct account vs Codex), and the route is a deliberate choice that must never be inferred. The vendor is **not** in the reference: it is a property of the model ids the provider lists (`claude-…` is Anthropic, `gpt-…` is OpenAI), so `cliproxy/@medium` and `anthropic-carl/@medium` both mean opus without a provider→vendor table to maintain. Model selection `options` (thinking level, reasoning effort) stay on the selection exactly as today; only `model` carries the ref.
+
+Why `@`: no pi model id starts with `@`, `namespaceOf`/`modelIdOf` in `failoverChains.ts` split on the first `/` and keep working unchanged, and the existing `ModelSelection` schema (`model: TrimmedNonEmptyString`) accepts it with no contract change.
+
+### The tier map
+
+`modelTiers` is a new loom field on `ServerSettings` (`packages/contracts/src/settings.loom.ts`, spread into `LoomServerSettingsFields` and `LoomServerSettingsPatchFields` like `workstreamModelPresets`): `Record<vendor, Record<tier, family>>`. No code default — if the map is absent, no reference resolves, visibly. It lives in loom's `settings.json` rather than a separate file because the server already reads, validates, hot-reloads and broadcasts that file, and the skill already edits it (runbook row 13). Vendors and tiers are free strings; today's map is the one shown above.
+
+### The resolution rule
+
+`resolveTierSlug(ref, catalogueSlugs, modelTiers)` — pure, in `packages/shared/src/modelTiers.ts`:
+
+1. Take every catalogue slug whose provider equals the reference's provider.
+2. Parse each model id with the two vendor grammars below; ids that do not parse are **ignored, never guessed**.
+3. Keep the ids whose `(vendor, family)` equals `(vendor, modelTiers[vendor][tier])`. If the survivors span more than one vendor, the reference is unresolved (no provider does this today; the rule exists so it can never silently pick).
+4. Choose the highest `(major, minor)`; on a tie prefer the **undated** id over a dated duplicate; if only dated ids tie, the greater date; if still tied, the lexicographically greater id.
+5. If nothing survives, the reference is **unresolved**: the materialised value keeps the literal `provider/@tier` string. Nothing falls back to another tier, provider or vendor.
+
+<Table
+  columns={["Vendor", "Grammar (anchored regex)", "Parses", "Ignored (with why)"]}
+  rows={[
+    ["anthropic", "^claude-([a-z]+)-(\\d+)(?:-(\\d+))?(?:-(\\d{8}))?$ → family, major, minor=0, date?", "claude-opus-5-5 → opus (5,5); claude-opus-5 → opus (5,0); claude-haiku-4-5-20251001 → haiku (4,5) dated; claude-fable-5-1 → fable (5,1)", "anthropic.claude-opus-5-5 / au.anthropic.… (bedrock prefixes — no `^claude-`); claude-opus-4-1@20250805 (vertex `@` suffix); anything with `[1m]`, `-thinking`, `-v1:0` — a trailing segment the grammar does not name"],
+    ["openai", "^gpt-(\\d+)(?:\\.(\\d+))?-([a-z]+)$ → major, minor=0, family", "gpt-6-sol → sol (6,0); gpt-5.6-luna → luna (5,6); gpt-6-astra → astra (6,0)", "gpt-5.5 (no family word); gpt-5.3-codex-spark (two words — a variant, not a family member); gpt-5.6-terra parses as family `terra` but no tier maps it → step 3 drops it; gpt-5-chat-latest, o3, gpt-realtime-2.1"],
+  ]}
+/>
+
+Version comparison is numeric on `(major, minor)`: 4.8 < 5 < 5.5 < 6. The parser is deliberately strict: an id that gains a suffix Anthropic has not used before (`claude-opus-6-fast`) is ignored rather than treated as Opus 6 — the safe direction is "the tier stays where it was and the skill's report lists the unparsed id", never "a wrong default appears".
+
+### Edge-case semantics
+
+<Table
+  columns={["Situation", "Behaviour", "How it surfaces"]}
+  rows={[
+    ["Tier has no model on that provider (e.g. `openai-codex/@low` — no `low` in the openai map, or a family with zero parseable ids)", "Unresolved. The literal `provider/@tier` string is what consumers receive.", "`workstream_list` shows the preset with the existing `[INVALID …]` marker; `workstream_spawn` returns the existing 400 naming the source and the model string; a manual thread on it fails at pi with `Model … not found`; one `logWarning` per reference per settings/catalogue change. Never a silent substitution."],
+    ["A role Carl wants pinned despite the tier", "Write a concrete slug (`cliproxy/claude-opus-5`). Pins and refs coexist in the same maps; a pin is simply not a ref.", "Unchanged from today. The skill's report lists pins separately so a stale pin is visible, but never rewrites one."],
+    ["A new family arrives (e.g. `gpt-6-nova`)", "The skill diffs the previous pi-ai catalogue (the version currently pinned in `apps/server/package.json`) against the new one. A parseable family present in the new catalogue and absent from the old is *new* → the skill stops and asks: `New family \"nova\" on openai-codex (gpt-6-nova). Map it to a tier (high/medium/low/cheap — replaces the current family for that tier), add a new tier name, or ignore?`", "If Carl answers, the skill edits `modelTiers`. If he says nothing, the default is **ignore for this run, no state written**: the family appears in the report's \"unmapped families\" list every subsequent run until it is mapped, and it will not stop the run again because it is no longer new relative to the previous catalogue. Nothing is guessed."],
+    ["Provider's newest model is in the catalogue but the proxy cannot serve it (Opus 5.5 before the cli-proxy rebuild)", "`cliproxy/*` presence is gated: the derived `cliproxy` extension registers only ids listed in `/home/Carl/cli-proxy/servable-models.json`, which the skill appends to **only after a real completion through the proxy succeeds** (AGENTS.md step 9). The tier therefore resolves to the newest *servable* opus, and flips within ≤2 minutes of the allowlist write (next catalogue refresh) — no restart, no deploy.", "Between the pi bump and the proxy step, `cliproxy/@medium` stays on Opus 5.5 by construction. Direct `anthropic-<account>/*` providers are ungated: they go straight to Anthropic under pi's own cloak pin, which moves with the pi bump; the skill's per-tier probe is the check."],
+    ["Catalogue empty at boot", "`PiCatalogue` seeds from the last persisted enrichment (`<stateDir>/pi-catalogue.json`, written on every non-empty refresh) so refs resolve on the first settings read. First-ever boot has no seed: refs are unresolved until the first enrichment (seconds), after which the settings service re-emits.", "Same visibility as the no-model case, for seconds, once."],
+    ["Extension fails to load (cliproxy provider absent from the catalogue)", "Every `cliproxy/@tier` is unresolved.", "Same as today when a slug points at a provider pi does not list — but now it is a *ref* that is invalid, which the log line names."],
+    ["Settings UI writes a materialised value back (FailoverSettingsCard spreads `chains` into every patch; the project-defaults picker saves a concrete slug)", "`preserveModelTierRefs(rawCurrent, materialisedCurrent, patch)` runs before `applyServerSettingsPatch`: any ref-bearing field whose incoming value deep-equals the *materialised* current value is replaced by the *raw* current value. A value that differs is a genuine edit and lands as sent — choosing a model in the UI is a pin, which is the correct meaning of that gesture.", "Toggling a paused account in Settings no longer flattens `openai-codex/*: [cliproxy/@medium]` to a slug. Verified by the acceptance test in the verification section."],
+  ]}
+/>
+
+## Where resolution sits
+
+<Mermaid
+  caption="One resolution path: refs live in the file, slugs leave the service"
+  source={"flowchart LR\n  file[settings.json\\nrefs + pins] --> cache[ServerSettingsService cache\\nraw]\n  cache --> mat[materialise: secrets → tier refs → text-gen provider]\n  cat[PiCatalogue\\nSubscriptionRef of slugs] --> mat\n  disk[(stateDir/pi-catalogue.json)] -. seed at boot .-> cat\n  pi[PiDriver.enrichPiSnapshot\\nevery 2 min] --> cat\n  mat --> server[spawn resolution · failover routing · text-gen · auto-bootstrap]\n  mat --> ws[WS settings snapshot + changes] --> web[web client: new-thread default, project overrides, settings UI]\n  web -. patch .-> guard[preserveModelTierRefs] --> cache\n"}
+/>
+
+The seam is `apps/server/src/serverSettings.ts` — upstream-owned, so the three touch points are one-line `// loom:` hunks and everything else lives in `apps/server/src/modelTiers.loom.ts`:
+
+- `getSettings`, `materializeChanges`, and `updateSettings`'s return value gain `Effect.map(resolveModelTierRefs(catalogue))` after `materializeProviderEnvironmentSecrets`.
+- `updateSettings` applies `preserveModelTierRefs` before `applyServerSettingsPatch`.
+- The `changes` stream is merged with `PiCatalogue.changes` mapped to the current cached settings, so a catalogue change (new model servable) re-emits materialised settings to every subscriber and web client without a file write.
+
+`resolveModelTierRefs` walks every model-slug-bearing field of `ServerSettings` in one pass: `defaultModelSelection`, `projectSettingsOverrides[*].defaultModelSelection`, `textGenerationModelSelection`, `sourceControlWriterModelSelection`, `workstreamModelPresets[*]`, `workstreamModelProfiles[*].selection`, and `providerFailover.chains` (keys **and** targets). It only rewrites `model` strings whose model-id part starts with `@`; everything else is returned by reference.
+
+**Performance.** The pass is pure string work over ≤ ~15 refs × ≤ ~50 slugs per provider; it runs per `getSettings` call (per dispatch/spawn, not per message). It is memoised on the identity pair `(raw settings object, catalogue snapshot)`, so between a settings-file change and a catalogue refresh it costs a `WeakMap` lookup. No new catalogue scan is added anywhere on the turn path — routing already uses the same in-memory slug set.
+
+`PiCatalogue` (`apps/server/src/provider/PiCatalogue.loom.ts`) is a `SubscriptionRef<ReadonlyArray<string>>` provided *below* both `ServerSettingsService` and the provider registry in `apps/server/src/loom/serverLayers.ts`, which is what breaks the settings→providers→settings dependency loop: PiDriver pushes into it from `enrichPiSnapshot` (the same place that fills `modelContextWindows`), and persists the slug list to `<stateDir>/pi-catalogue.json` on every non-empty refresh.
+
+## Surface disposition
+
+Every row of `docs/operations/platform-update.md` §2, plus the settings consumers. **Delete** = the surface stops existing; **derive** = computed from the catalogue at run time; **tier-ref** = the value becomes a reference resolved by the one path above; **stays manual** = remains a skill step, with why; **leave alone** = upstream's, irrelevant to the pi-first fork, and no longer edited at rollover.
+
+<Table
+  columns={["#", "Surface", "Disposition", "Why / what changes"]}
+  rows={[
+    ["1", "Bundled pi pin + pnpm patch (`apps/server/package.json`, `pnpm-workspace.yaml`, `patches/…`)", "stays manual (skill-automated)", "Irreducible: a version bump on a feature branch, procedure in `infra/pi-patches/README.md`. The skill runs it and opens the PR; the deploy remains Carl's."],
+    ["2", "Global pi install", "stays manual (skill-automated)", "`npm install -g` + `apply.sh` + `--check`, exactly as §5. Unchanged."],
+    ["3", "`~/.pi/agent/models-store.json`", "leave alone", "pi.dev overlay, refreshed by pi itself every 4 h. The skill reads it only to *report* whether the overlay is newer than the inlined catalogue."],
+    ["4", "Custom-provider catalogues (`cliproxy.ts`, `anthropic-subs.ts`)", "derive → delete the hand-copied lists", "Both extensions register `getModels(\"anthropic\")` from `@earendil-works/pi-ai` at load, renamed `<name> (pooled)` / `<name> (<tag>)`; `cliproxy` filters by the servable allowlist. They move into pi-craft (`plugins/pi-craft/extensions/`) and are registered via `package.json` `pi.extensions` like `read-full.ts`; the two unversioned files under `~/.pi/agent/extensions/` are removed. A new Claude model exists on `anthropic-<tag>/` the moment the pi bump lands and on `cliproxy/` the moment the proxy is proven to serve it."],
+    ["5", "Global pi defaults (`~/.pi/agent/settings.json` defaultProvider/defaultModel, `memory.consolidationModel`)", "stays manual (skill-written, materialised)", "pi has no tier concept, so these hold slugs. The skill writes them from the resolved tier table using a fixed policy in its SKILL.md: `defaultModel` = anthropic/high via cliproxy, `consolidationModel` = openai/cheap via openai-codex. Reported as surfaces like any other."],
+    ["6", "cli-proxy image, registry, cloak pin", "stays manual (skill-automated up to the restart)", "Compiled into the Go binary. See the skill procedure: rebase the fix branch, test, build, edit compose → **stop for restart approval** → probe → append to `servable-models.json`."],
+    ["7", "`PI_DEFAULT_MODEL` in `packages/contracts/src/model.ts`", "tier-ref", "Becomes `\"cliproxy/@medium\"`. Its live consumers all pass through the resolver: the `textGenerationModelSelection` schema default is materialised by the settings service; `getAutoBootstrapDefaultModelSelection` (fresh-home only) resolves through the same function against `PiCatalogue`. The web-side fallbacks in `providerInstances.ts` / `providerModels.ts` / `composerDraftStore.ts` are reached only when the pi instance advertises zero models, where a literal ref is no worse than today's stale slug. `DEFAULT_TEXT_GENERATION_MODEL`, `DEFAULT_MODEL`, `PREFERRED_DEFAULT_CODEX_MODELS`: leave alone — they feed the Codex driver, which the registry does not ship (`builtInDrivers.ts`); the rollover stops editing them and the `// loom:` value edits are reverted to upstream's."],
+    ["7b", "`project.create` seeding `defaultModelSelection: pi/PI_DEFAULT_MODEL` (client-runtime `projects.ts`, `CommandPalette.tsx`)", "delete", "Dead after the settings fold (see feasibility table). Restore upstream's `null`; the environment `defaultModelSelection` ref covers new projects."],
+    ["8", "`CURATED_PI_MODELS` in `PiDriver.ts`", "derive → delete the list", "The literal display name was the surface missed twice. Replace with *fleet-first* ordering: `piCatalogModels` ranks first the distinct concrete slugs that the materialised settings reference (presets, default, text-gen — read from `ServerSettingsService`, which PiDriver already holds), then pi's own order. Names come from pi. The pre-catalogue placeholder shrinks to custom models only (the live list arrives within seconds)."],
+    ["9", "`model-manifest.json`, `ClaudeProvider.ts` `CURRENT_CLAUDE_MODELS` / `minVersion`, `CodexProvider.ts`", "leave alone", "Gate the Claude Code CLI and Codex drivers, neither of which the fork's registry ships; the manifest is re-fetched from upstream after boot. Stop editing at rollover; they change at upstream sync only. The runbook row is removed."],
+    ["9b", "Mobile `modelOptions`, `usagePricing.ts`", "leave alone", "No per-model tables (runbook already says so)."],
+    ["10", "`roles/*.md` prose", "rewrite to families", "Only `orchestrator.md:52` names versions. Rule: roles name **families and tiers**, never versions — \"the coder preset runs Opus (anthropic/medium); `coder-direct` runs Sol (openai/medium)\". Family character (Opus keeps the big picture, Sol codes well but wanders) is exactly what the tier map keeps stable, so the guidance stays true across bumps."],
+    ["11", "`docs/operations/model-profiles.md` + `workstreamModelProfiles`", "tier-ref (optional), doc stays manual", "Profiles are unset today. Their `selection` field is in the resolver's walk, so a configured profile may use a ref; the scores are judgement and stay a documented manual re-score when profiles are actually in use. Not a rollover step until then."],
+    ["12", "Tests asserting a default (`ProviderRegistry.test.ts`, `ClaudeCapabilitiesProbe.test.ts`, `PiDriver.test.ts`, `projects.test.ts`, `settings.test.ts`)", "one-time update, then never again", "They assert the ref string and the resolver's behaviour, not a slug. New focused tests for the parser/resolver (the one place tests earn their keep — a wrong parse is a silent wrong default)."],
+    ["13", "Live cockpit `settings.json`: `workstreamModelPresets.*`, `defaultModelSelection`, `projectSettingsOverrides[*].defaultModelSelection`, `providerFailover.chains` (keys + targets), `textGenerationModelSelection`", "tier-ref", "One-time conversion after the loom deploy: planner → `cliproxy/@high`; coder, researcher, default, the loom project override, and the `openai-codex/*` chain target → `cliproxy/@medium`; coder-direct, reviewer → `openai-codex/@medium`; shipper → `openai-codex/@cheap`; text-gen and the Luna-exhausted chain target → `cliproxy/@low`; the chain key `openai-codex/gpt-6-luna` → `openai-codex/@cheap`; `cliproxy/claude-fable-5-1: []` key → `cliproxy/@high`. Options (thinking/effort) unchanged. After that there is nothing in this file to sweep."],
+    ["14", "Other patched pi extensions (`@samfp/pi-memory` local patch)", "stays manual (skill-checked)", "`grep -c \"LOCAL PATCH (Carl)\"` → 4 after any `pi update`. Unchanged."],
+    ["15", "Deploy", "stays manual (Carl)", "Only the pi bump itself still needs a deploy; every model change is live. The report names it as pending."],
+  ]}
+/>
+
+## The `platform-update` skill
+
+Lives in pi-craft (`plugins/pi-craft/skills/platform-update/SKILL.md`) because it touches the machine and three repos; loom's `docs/operations/platform-update.md` shrinks to the mechanics it still owns (pi bump, patches, verification commands) and the skill sequences them. Trigger: "run the platform update". Two stop points, nothing else asks.
+
+1. **Preflight.** `npm view @earendil-works/pi-coding-agent version time` → candidate version (prefer ≥ 24 h old, per the pnpm release-age rule). `npm pack` the old (currently pinned) and new `pi-ai` tarballs; read `providers/data/anthropic.json` and `openai-codex.json`. Read `modelTiers` from the live cockpit settings. Compute both tier tables with `pnpm model-tiers` (loom `scripts/model-tiers.ts`, the same parser as the server): *catalogue* resolution (what pi will list) and *live* resolution (what the running cockpit resolves now, via `pi --list-models` with extensions). Report the pi-ai `anthropic-messages.js` cloak version and cli-proxy's deployed image tag.
+2. **Stop 1 — new family.** Any parseable family in the new catalogue absent from the old → ask (question text in the edge-case table). Silence = ignore this run.
+3. **cli-proxy, only if an anthropic tier's *catalogue* resolution differs from its *live* resolution.** Probe the new model through the proxy (`/v1/messages`, unique body). If rejected (`Claude Code <old> does not support this model` or missing from the registry): follow `/home/Carl/cli-proxy/AGENTS.md` steps 1–7 — fetch tags, find the lowest tag whose registry has the model *and* whose cloak pin ≥ the floor in the error, rebase `fix/fable-only-fast-429-*` onto it, run the absorption test, `go test` in Docker, build, back up and edit `docker-compose.yml`. **Stop 2 — restart window:** "cli-proxy rebuilt as `<tag>-fable-fix`; `docker compose up -d` interrupts live threads for ~6 s — go?" After the restart: `./account status` (5 auths), the real completion, then append the id to `/home/Carl/cli-proxy/servable-models.json` and the dated record in `docs/cliproxyapi-failover-code-analysis.md` §8. If the probe already passes, append to the allowlist and continue.
+4. **pi bump** on a loom feature branch per `infra/pi-patches/README.md` (retirement check against the pristine tarball, pins, regenerate the pnpm patch, contract test). `vp check`, `vp run typecheck`, unmarked-hunk sweep, open the PR via the ship procedure. No model slugs change in loom source.
+5. **Global pi** (§5 of the runbook) + patch marker checks (row 14). Write the global pi defaults (row 5) from the tier table.
+6. **Verify every tier** with `pi -p --model <resolved slug> "Reply with exactly: OK"` for each `(provider, tier)` in use, plus the negative control (`cliproxy/claude-opus-9-9`), reading failures per the runbook's guide (catalogue miss vs quota vs cloak pin). Then check the live cockpit's view: `workstream_list`'s preset block shows no `[INVALID]` after the next catalogue refresh (≤ 2 min; the skill waits for it rather than restarting anything).
+7. **Report** in the format shown at the top: tiers (before/after/surfaces), surfaces (before/after/effect), verification lines, unmapped families, unparsed ids, pins in force, and the pending human acts (deploy; restart if declined).
+
+What the skill must never do: guess a family, write to `settings.json` model fields (they are refs now — the only settings write is `modelTiers` when Carl maps a new family), restart cli-proxy or deploy the cockpit, or run probes with `--no-extensions`.
+
+## Work breakdown
+
+<FileTree
+  title="Change map (three repos)"
+  entries={[
+    { path: "loom/packages/shared/src/modelTiers.ts", change: "added", note: "parser, resolveTierSlug, resolveModelTierRefs, preserveModelTierRefs (pure; subpath export)" },
+    { path: "loom/packages/shared/src/modelTiers.test.ts", change: "added", note: "grammar + ordering + unresolved cases; the one test file that earns its keep" },
+    { path: "loom/packages/contracts/src/settings.loom.ts", change: "modified", note: "modelTiers field + patch field" },
+    { path: "loom/apps/server/src/provider/PiCatalogue.loom.ts", change: "added", note: "SubscriptionRef of slugs; disk seed + persist" },
+    { path: "loom/apps/server/src/modelTiers.loom.ts", change: "added", note: "memoised materialiser bound to PiCatalogue; warning log for unresolved refs" },
+    { path: "loom/apps/server/src/serverSettings.ts", change: "modified", note: "three // loom: hunks: materialise, patch guard, re-emit on catalogue change" },
+    { path: "loom/apps/server/src/provider/Drivers/PiDriver.ts", change: "modified", note: "enrichPiSnapshot → PiCatalogue.set; CURATED_PI_MODELS deleted; fleet-first ranking" },
+    { path: "loom/apps/server/src/loom/serverLayers.ts", change: "modified", note: "provide PiCatalogue below settings + providers" },
+    { path: "loom/packages/contracts/src/model.ts", change: "modified", note: "PI_DEFAULT_MODEL = cliproxy/@medium; Codex constants back to upstream" },
+    { path: "loom/apps/server/src/serverRuntimeStartup.ts", change: "modified", note: "auto-bootstrap fallback resolves via the same function" },
+    { path: "loom/packages/client-runtime/src/operations/projects.ts", change: "modified", note: "project.create defaultModelSelection → null (upstream)" },
+    { path: "loom/apps/web/src/components/CommandPalette.tsx", change: "modified", note: "same" },
+    { path: "loom/scripts/model-tiers.ts", change: "added", note: "CLI the skill calls: tier table from a pi-ai tarball and/or `pi --list-models`" },
+    { path: "loom/roles/orchestrator.md", change: "modified", note: "families and tiers, no versions" },
+    { path: "loom/docs/operations/platform-update.md", change: "modified", note: "§2 shrinks to rows 1, 2, 5, 6, 14, 15; §3 defers sequencing to the skill" },
+    { path: "pi-craft/plugins/pi-craft/extensions/cliproxy.ts", change: "added", note: "derived from getModels('anthropic') ∩ servable allowlist; headers/comments carried over" },
+    { path: "pi-craft/plugins/pi-craft/extensions/anthropic-subs.ts", change: "added", note: "derived, per-account providers" },
+    { path: "pi-craft/package.json", change: "modified", note: "pi.extensions += the two files" },
+    { path: "pi-craft/plugins/pi-craft/skills/platform-update/SKILL.md", change: "added", note: "the procedure above, with the report template" },
+    { path: "cli-proxy/servable-models.json", change: "added", note: "allowlist of ids proven by completion; seeded with today's nine" },
+    { path: "cli-proxy/AGENTS.md", change: "modified", note: "step 9 appends to the allowlist; the file's meaning" },
+    { path: "~/.pi/agent/extensions/cliproxy.ts + anthropic-subs.ts", change: "removed", note: "unversioned copies removed once pi-craft registers the derived ones" },
+    { path: "~/.t3/cockpit/userdata/settings.json", change: "modified", note: "one-time conversion to refs + modelTiers, after the loom deploy" },
+  ]}
+/>
+
+Chunks, in dispatch order. Each is a separate goal in its repo; sizes are rough (S ≈ half a day of a coder thread, M ≈ a day).
+
+<Table
+  columns={["#", "Repo", "Chunk", "Size", "Depends on"]}
+  rows={[
+    ["C1", "cli-proxy", "Add `servable-models.json` (seeded with the nine ids the current extension lists — all verified this month) and the AGENTS.md step-9 sentence.", "XS", "—"],
+    ["P1", "pi-craft", "Derived `cliproxy.ts` (∩ allowlist) and `anthropic-subs.ts`; register in `package.json`; remove the two unversioned files; verify with `pi -p` per provider and by reading `workstream_list`'s preset block on the live cockpit (no `[INVALID]`, negative control still flagged).", "S", "C1"],
+    ["L1", "loom", "`packages/shared/src/modelTiers.ts` + tests; `modelTiers` settings field; `scripts/model-tiers.ts`.", "S–M", "—"],
+    ["L2", "loom", "`PiCatalogue` service with disk seed; PiDriver push; settings-service materialisation, patch guard, re-emit on catalogue change; layer wiring.", "M", "L1"],
+    ["L3", "loom", "`PI_DEFAULT_MODEL` → ref; auto-bootstrap through the resolver; delete `project.create` seeds; delete `CURATED_PI_MODELS`, fleet-first ranking; revert Codex constants to upstream; row-12 tests.", "S", "L2"],
+    ["L4", "loom", "Roles prose; runbook rewrite; `docs/internals` note on the seam (why refs resolve in the settings service and why the patch guard exists — the one trap a maintainer would fall into).", "S", "L3"],
+    ["D", "machine", "Deploy loom (Carl), then convert the live `settings.json` per row 13 and add `modelTiers`; confirm via `workstream_list` and one spawn.", "XS", "L1–L4 deployed"],
+    ["P2", "pi-craft", "`platform-update` skill. Can be written in parallel with L1–L4; its first real run is the next model month.", "M", "P1, D (for a real run)"],
+  ]}
+/>
+
+L1–L4 ship as two PRs: L1+L2 (the resolver and its seam — reviewable on its own, changes no behaviour until a ref appears in settings) and L3+L4 (defaults, picker, prose, docs). The conversion (D) must follow the deploy: a ref in `settings.json` before the resolver is deployed is a literal, invalid model.
+
+## Scope and non-goals
+
+- No UI for tiers. The settings UI keeps showing resolved slugs; choosing a model there is a pin. A "via cliproxy/@medium" badge is a later nicety, not part of this.
+- No change to `ModelSelection`'s wire shape, to the spawn precedence ladder, to failover chain grammar beyond accepting refs, or to how threads store their selection (threads keep concrete slugs — a running thread never silently changes model mid-life; new spawns pick up the new resolution).
+- No automatic proxy restart, no automatic deploy, no automatic family mapping.
+- No attempt to derive cli-proxy's registry or cloak pin; no attempt to make direct `anthropic-<account>` providers gate on servability.
+- Backward compatibility: none kept. The hand-copied catalogues, the curated shortlist, the `project.create` seed and the per-rollover edits to Codex/Claude adapter constants are deleted, not shimmed.
+
+## Risks
+
+<Table
+  columns={["Risk", "Mitigation"]}
+  rows={[
+    ["The parser accepts an id it should not (a future `claude-opus-6-preview` style suffix) and a tier silently moves", "Anchored grammars; anything with an unnamed trailing segment is ignored; the skill reports every unparsed id on the tiered providers each run; tests pin the documented examples."],
+    ["A materialised value is written back and a ref is lost", "`preserveModelTierRefs` in `updateSettings`; acceptance test toggles a paused account in the Failover card and asserts the on-disk chains still hold `@` refs."],
+    ["Boot window with an empty catalogue", "Disk-seeded `PiCatalogue`; settings re-emit on the first enrichment."],
+    ["Derived extension metadata differs from the hand copy", "It differs in the safe direction: pi's entries carry `supportsMidConvo*` compat flags the copies lacked; cost/limits/thinking maps were verified byte-equal for opus-5-5. The `anthropic-beta` header block and its rationale move over verbatim."],
+    ["A new Claude model lands in pi but the proxy step is skipped or declined", "The allowlist gate keeps `cliproxy/@medium` on the last proven model; the report says so explicitly."],
+    ["`anthropic-<account>/@tier` resolves to a model pi's own cloak pin cannot serve", "Not gated (direct providers are not used by any preset today); the per-tier probe in step 6 catches it and the report names it."],
+    ["Upstream sync drops the seam", "All server logic in `*.loom.ts`; the three `serverSettings.ts` and PiDriver hunks carry `// loom:`; the ship gate's unmarked-hunk sweep enforces it."],
+    ["Two pi catalogue truths (inlined vs pi.dev overlay) disagree", "Loom resolves against what pi *lists* (RPC), which already applies pi's merge rule; the extension derives from the inlined data plus the allowlist. The only divergence is an overlay-only model, which the skill reports; it cannot make a tier resolve to something pi cannot route."],
+  ]}
+/>
+
+## Verification
+
+- **Unit:** `vp test run packages/shared/src/modelTiers.test.ts` — the grammar table above as fixtures (dated duplicate loses to undated, `gpt-5.3-codex-spark` and `gpt-5.6-terra` ignored, `[1m]`/bedrock/vertex ids ignored, unresolved ref returned literally, mixed-vendor provider unresolved).
+- **Seam:** a `serverSettings` test writes a settings file holding `cliproxy/@medium` in all five field kinds, provides a `PiCatalogue` with `[cliproxy/claude-opus-5, cliproxy/claude-opus-5-5, cliproxy/claude-opus-4-5-20251101]`, and asserts `getSettings` returns `cliproxy/claude-opus-5-5` everywhere while the file is unchanged; then applies the patch `FailoverSettingsCard` sends (materialised `chains` + a changed `pausedAccounts`) and asserts the file still holds the refs.
+- **End-to-end on a dev instance** (dev-verify recipe, `docs/dev-site-testing.md`): seed settings with refs; start; create a thread from the composer with no explicit model → the thread's selection is the resolved slug; `workstream_list` from a seeded thread shows presets without `[INVALID]` and a deliberately bad `cliproxy/@nonesuch` preset *with* it; append a fake newer id to the dev instance's catalogue source and observe the preset flip after the next refresh with no restart.
+- **Extension:** `pi -p --model cliproxy/claude-opus-5-5 "Reply with exactly: OK"` and the same for one `anthropic-<tag>/` model, with the normal extension set; `pi --list-models` shows exactly the allowlisted ids under `cliproxy`.
+- **Live (after deploy + conversion):** the runbook's zero-cost check — the preset block in `workstream_list` with the negative control — then one real spawn of a coder and a shipper.
+- **Gates:** `vp check`, `vp run typecheck`, `docs/upstream-sync/pull7-tools/unmarkedsweep.sh` clean.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "syntax",
+      title: "Tier reference syntax: provider-first (`cliproxy/@medium`) or vendor-first (`@anthropic/medium` with a provider route map)?",
+      refs: [{ label: "The reference grammar", anchor: "the-reference-grammar" }],
+      subtitle: "A tier reference replaces a model slug in settings. Provider-first keeps the slug shape and infers the vendor from the model ids; vendor-first matches the mental model 'anthropic/medium' but needs a second map saying which provider serves each vendor.",
+      mode: "single",
+      options: [
+        { id: "a", label: "Provider-first: cliproxy/@medium", recommended: true, detail: "No route map, no contract change, existing slug helpers keep working; the route stays an explicit choice per surface." },
+        { id: "b", label: "Vendor-first: @anthropic/medium plus a vendor→provider route map", detail: "Reads like the sketch; adds a map to maintain and a second inference step." },
+      ],
+    },
+    {
+      id: "map-home",
+      title: "Where should the tier map (vendor → tier → family) live?",
+      refs: [{ label: "The tier map", anchor: "the-tier-map" }],
+      subtitle: "It is read by the loom server on every resolution and by the update skill; it changes only when a new family appears.",
+      mode: "single",
+      options: [
+        { id: "a", label: "A `modelTiers` field in loom's settings.json, no code default", recommended: true, detail: "Already read, validated, hot-reloaded and broadcast; the skill already edits this file. Absent map ⇒ refs visibly unresolved." },
+        { id: "b", label: "A code constant in loom, editable only by a deploy", detail: "Simplest possible, but a new family costs a PR and a deploy." },
+        { id: "c", label: "A separate `~/.pi/agent/model-tiers.json`", detail: "Machine-wide, but needs a second watcher in loom and is one more unversioned file." },
+      ],
+    },
+    {
+      id: "servable",
+      title: "How should 'the proxy can actually serve it' gate the pooled `cliproxy/*` models?",
+      refs: [{ label: "Edge-case semantics", anchor: "edge-case-semantics" }],
+      subtitle: "cli-proxy's model registry and Claude Code version pin are compiled in; pi's catalogue can list a Claude model days before the proxy serves it. Only a real completion proves servability.",
+      mode: "single",
+      options: [
+        { id: "a", label: "Allowlist file in the cli-proxy directory, appended by the skill after a successful completion; the derived extension registers only listed ids", recommended: true, detail: "Safe default (new model absent until proven); one line per model, written by the step that already runs the probe." },
+        { id: "b", label: "No gate — register every builtin Claude model on cliproxy and accept that a tier can point at an unservable model until the proxy is rebuilt", detail: "Zero maintenance, but every coder breaks on the day pi ships a model before the proxy does." },
+        { id: "c", label: "Deny-list of known-unservable ids", detail: "Inverted default: breaks first, then gets fixed." },
+      ],
+    },
+    {
+      id: "direct-gate",
+      title: "Should the direct per-account providers (`anthropic-carl/*` etc.) use the same servability allowlist as the pooled proxy?",
+      subtitle: "Direct providers bypass cli-proxy and are gated only by pi's own Claude Code version pin, which moves with the pi bump. No preset uses them today.",
+      mode: "single",
+      options: [
+        { id: "a", label: "No — derive the full builtin Claude list; the per-tier probe is the check", recommended: true, detail: "Keeps the direct providers a faithful mirror of pi; a mismatch is visible in the skill's verification step." },
+        { id: "b", label: "Yes — same allowlist for both", detail: "Consistent, but couples direct providers to a proxy fact that does not apply to them." },
+      ],
+    },
+    {
+      id: "picker",
+      title: "What replaces the hard-coded picker shortlist at the top of the pi model list?",
+      refs: [{ label: "Surface disposition", anchor: "surface-disposition" }],
+      subtitle: "Today three literal entries (Opus 5.5, GPT-5.5, Gemini 3.1 Pro) lead the picker; the display names are hand-written and were missed by two rollovers.",
+      mode: "single",
+      options: [
+        { id: "a", label: "Fleet-first: the models the current settings actually reference (presets, default, text-gen) lead, names from pi", recommended: true, detail: "Derived, meaningful, and it is the set Carl actually picks from." },
+        { id: "b", label: "Nothing — pi's own order, rely on the picker's allow-list mode", detail: "Smallest change; the default model no longer sits at the top." },
+      ],
+    },
+    {
+      id: "new-family-default",
+      title: "When a new model family appears and you do not answer, what should the run do?",
+      refs: [{ label: "Edge-case semantics", anchor: "edge-case-semantics" }],
+      subtitle: "The skill stops once for a family that is in the new pi catalogue and was not in the previous one.",
+      mode: "single",
+      options: [
+        { id: "a", label: "Ignore it this run, write nothing, list it under 'unmapped families' in every report until mapped", recommended: true, detail: "Nothing guessed, nothing buried, no extra state file." },
+        { id: "b", label: "Ignore it and record it in an ignore list so it never appears again", detail: "Quieter reports; a real new tier could be buried by one missed prompt." },
+      ],
+    },
+    {
+      id: "global-pi",
+      title: "Confirm the tiers for the global pi defaults the skill will write into `~/.pi/agent/settings.json`.",
+      subtitle: "pi's own settings hold plain slugs; the skill materialises them from the tier table. Today: defaultModel is Fable 5.1 on cliproxy, memory consolidation is GPT-6 Luna on openai-codex.",
+      mode: "single",
+      options: [
+        { id: "a", label: "defaultModel = anthropic/high via cliproxy; memory.consolidationModel = openai/cheap via openai-codex", recommended: true },
+        { id: "b", label: "Something else (write it in)" },
+      ],
+      allowOther: true,
+    },
+    {
+      id: "prs",
+      title: "Ship the loom work as two PRs (resolver + seam first, then defaults/picker/prose/docs) or one?",
+      refs: [{ label: "Work breakdown", anchor: "work-breakdown" }],
+      subtitle: "The first PR changes no behaviour until a reference appears in settings; the second deletes the curated shortlist and the project-create seed and rewrites the runbook.",
+      mode: "single",
+      options: [
+        { id: "a", label: "Two PRs", recommended: true, detail: "The seam is reviewable on its own and can be deployed early." },
+        { id: "b", label: "One PR", detail: "One review, one deploy." },
+      ],
+    },
+  ]}
+/>
