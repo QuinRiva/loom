@@ -29,6 +29,7 @@ import type { Connection } from "effect/unstable/sql/SqlConnection";
 import { SqlError, ConnectionError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
+import { timeIngestionWait } from "../diagnostics/ProviderRuntimeIngestionTelemetry.ts";
 import type { SqliteClientConfig } from "./NodeSqliteClient.ts";
 import {
   checkNodeSqliteCompat,
@@ -183,7 +184,10 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   // (the transaction scope already holds the permit, so plain statements
   // queue behind the open transaction exactly as before).
   const semaphore = yield* Semaphore.make(1);
-  const withPermit = semaphore.withPermits(1);
+  // Lane wait + round trip is charged to a provider-runtime ingestion item when
+  // one is running on this fibre (a no-op for everything else).
+  const withPermit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    timeIngestionWait("sqlReadMs", semaphore.withPermits(1)(effect));
   const lockedConnection: Connection = {
     execute: (sql, params, rowTransform) =>
       withPermit(connection.execute(sql, params, rowTransform)),

@@ -6,6 +6,8 @@ import * as NodeV8 from "node:v8";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { piStdoutBackpressure } from "../provider/Layers/Pi/RpcProcess.ts";
+
 const SAMPLE_INTERVAL_MS = 60_000;
 const EVENT_LOOP_DELAY_RESOLUTION_MS = 20;
 const toMillis = (nanoseconds: number): number =>
@@ -32,8 +34,17 @@ const make = Effect.acquireRelease(
           process.execArgv.find((arg) => /^--max[-_]old[-_]space[-_]size=/.test(arg)) ?? null,
       });
 
+      // pi stdout backpressure is reported per interval, plus the streams
+      // paused at the moment of sampling.
+      let piStdoutAtLastSample = { ...piStdoutBackpressure };
       const sample = Effect.sync(() => {
         const heap = NodeV8.getHeapStatistics();
+        const piStdout = {
+          piStdoutPauses: piStdoutBackpressure.pauses - piStdoutAtLastSample.pauses,
+          piStdoutPausedMs: piStdoutBackpressure.pausedMsTotal - piStdoutAtLastSample.pausedMsTotal,
+          piStdoutPausedNow: piStdoutBackpressure.pausedNow,
+        };
+        piStdoutAtLastSample = { ...piStdoutBackpressure };
         const eventLoop = {
           eventLoopDelayP50Ms: toMillis(eventLoopDelay.percentile(50)),
           eventLoopDelayP95Ms: toMillis(eventLoopDelay.percentile(95)),
@@ -56,6 +67,7 @@ const make = Effect.acquireRelease(
           nativeContextCount: heap.number_of_native_contexts,
           detachedContextCount: heap.number_of_detached_contexts,
           ...eventLoop,
+          ...piStdout,
         };
       }).pipe(Effect.flatMap((metrics) => Effect.logInfo("runtime performance interval", metrics)));
 

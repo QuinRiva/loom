@@ -67,6 +67,11 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
+// loom: ingestion interval log + liveness watchdog (plans/ingestion-backpressure §3.5).
+import {
+  makeIngestionTelemetry,
+  timeIngestionWait,
+} from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   dispatchUserInputResolutions,
@@ -1117,7 +1122,14 @@ const make = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const crypto = yield* Crypto.Crypto;
-  const orchestrationEngine = yield* OrchestrationEngineService;
+  // loom: dispatch is the only engine method ingestion uses; timing it splits
+  // engine wait out of the ingestion interval's processing time.
+  const engine = yield* OrchestrationEngineService;
+  const orchestrationEngine = {
+    dispatch: (...args: Parameters<typeof engine.dispatch>) =>
+      timeIngestionWait("engineDispatchMs", engine.dispatch(...args)),
+  };
+  const telemetry = yield* makeIngestionTelemetry; // loom:
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -3078,12 +3090,16 @@ const make = Effect.gen(function* () {
         }),
       );
 
-  const worker = yield* makeDrainableWorker(
-    (input: RuntimeIngestionInput) =>
-      processInput(input).pipe(logIngestionFailure(input.source, input.event)),
-    // loom: bounded intake so a slow worker backpressures ProviderService's
-    // PubSub (and from there the pi children) instead of queueing on the heap.
-    { capacity: RUNTIME_INGESTION_CAPACITY },
+  // loom: instrumented for the ingestion interval log and liveness watchdog.
+  const worker = telemetry.instrumentWorker(
+    yield* makeDrainableWorker(
+      telemetry.instrumentProcess((input: RuntimeIngestionInput) =>
+        processInput(input).pipe(logIngestionFailure(input.source, input.event)),
+      ),
+      // loom: bounded intake so a slow worker backpressures ProviderService's
+      // PubSub (and from there the pi children) instead of queueing on the heap.
+      { capacity: RUNTIME_INGESTION_CAPACITY },
+    ),
   );
 
   // Repository detection for a diff goes through VCS subprocesses, which can
@@ -3153,6 +3169,7 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      yield* forkParked(telemetry.watchLiveness); // loom: see ProviderRuntimeIngestionTelemetry
       yield* forkParked(
         Stream.runForEach(providerService.streamEvents, (event) =>
           event.type === "turn.diff.updated"

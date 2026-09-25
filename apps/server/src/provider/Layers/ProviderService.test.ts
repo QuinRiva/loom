@@ -84,6 +84,7 @@ import {
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
+import { runtimeEventPublishBackpressure } from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts"; // loom:
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
@@ -1901,6 +1902,59 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
     const publishedEvent = Option.getOrThrow(published);
     assert.equal(publishedEvent.eventId, "evt-canonical-thread-segment");
     assert.equal("raw" in publishedEvent, false);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// loom: bounded runtime-event PubSub (plans/ingestion-backpressure §3.1, §3.5).
+it.effect("ProviderServiceLive suspends publish behind a stalled subscriber and records it", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter });
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(
+      Layer.provide(ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory))),
+    );
+    const providerLayer = makeProviderServiceLive({ runtimeEventCapacity: 2 }).pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provide(directoryLayer),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(WorkspaceLeaseTestLive),
+      Layer.provide(serverConfigTestLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const stalled = yield* provider.streamEvents.pipe(
+        Stream.runForEach(() => Effect.never),
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      const suspendedMsBefore = runtimeEventPublishBackpressure.suspendedMsTotal;
+      for (const index of [1, 2, 3, 4, 5, 6]) {
+        codex.emit({
+          eventId: asEventId(`evt-backpressure-${index}`),
+          provider: CODEX_DRIVER,
+          threadId: asThreadId("thread-backpressure"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          type: "turn.completed",
+          payload: { state: "completed" },
+        });
+      }
+      yield* advanceTestClock(0);
+      assert.equal(runtimeEventPublishBackpressure.inFlight, 1);
+
+      yield* advanceTestClock(1_000);
+      yield* Fiber.interrupt(stalled);
+      yield* advanceTestClock(0);
+      assert.equal(runtimeEventPublishBackpressure.inFlight, 0);
+      assert.isAtLeast(runtimeEventPublishBackpressure.suspendedMsTotal - suspendedMsBefore, 1_000);
+    }).pipe(Effect.provide(providerLayer));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

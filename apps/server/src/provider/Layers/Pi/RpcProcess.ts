@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
+// @effect-diagnostics globalDate:off
 import * as NodeCrypto from "node:crypto";
 import * as NodeChildProcess from "node:child_process";
 import type * as NodeStream from "node:stream";
@@ -275,6 +276,13 @@ const STDERR_TAIL_MAX_CHARS = 4_096;
 const STDOUT_PAUSE_AT_IN_FLIGHT = 16;
 const STDOUT_RESUME_AT_IN_FLIGHT = 4;
 
+/**
+ * Process-wide stdout backpressure counters, read by the runtime performance
+ * monitor: pauses begun, milliseconds spent paused (added on resume), and
+ * streams paused right now.
+ */
+export const piStdoutBackpressure = { pauses: 0, pausedMsTotal: 0, pausedNow: 0 };
+
 export interface StdoutLineReader {
   /** Paused for backpressure right now. */
   readonly isPaused: () => boolean;
@@ -311,10 +319,13 @@ export function attachStdoutLineReader(
   let paused = false;
   let released = false;
   let pauses = 0;
+  let pausedAtMs = 0;
 
   const resume = () => {
     if (!paused) return;
     paused = false;
+    piStdoutBackpressure.pausedNow -= 1;
+    piStdoutBackpressure.pausedMsTotal += Date.now() - pausedAtMs;
     stream.resume();
   };
   const settle = () => {
@@ -331,6 +342,9 @@ export function attachStdoutLineReader(
     if (inFlight >= pauseAt && !paused && !released) {
       paused = true;
       pauses += 1;
+      pausedAtMs = Date.now();
+      piStdoutBackpressure.pauses += 1;
+      piStdoutBackpressure.pausedNow += 1;
       stream.pause();
     }
   };

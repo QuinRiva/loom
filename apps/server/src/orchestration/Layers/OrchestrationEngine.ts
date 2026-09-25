@@ -52,6 +52,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { registerEngineEventPubSubSize } from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts"; // loom:
 const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
   OrchestrationCommandPreviouslyRejectedError,
 );
@@ -189,6 +190,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+  // loom: sampled by the provider runtime ingestion interval (unbounded fan-out to watch).
+  registerEngineEventPubSubSize(PubSub.size(eventPubSub));
   let commandQueueInterval = makeCommandQueueInterval(yield* Clock.currentTimeMillis);
 
   const recordCommandQueueTelemetry = (input: {

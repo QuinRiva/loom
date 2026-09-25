@@ -97,6 +97,7 @@ import {
 import * as ServerSettings from "../../serverSettings.ts";
 import type { ServerSettings as ServerSettingsValue } from "@t3tools/contracts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { trackRuntimeEventPublish } from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts"; // loom:
 const isModelSelection = Schema.is(ModelSelection);
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -1222,7 +1223,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // multi-MB tool results) held by every queued event. The logger already
       // summarises events over 64 KB, so large `raw`s were never kept anyway.
       Effect.flatMap(({ raw: _raw, ...published }) =>
-        PubSub.publish(runtimeEventPubSub, published),
+        // loom: time spent suspended in publish feeds the ingestion interval.
+        trackRuntimeEventPublish(PubSub.publish(runtimeEventPubSub, published)),
       ),
       Effect.asVoid,
     );
