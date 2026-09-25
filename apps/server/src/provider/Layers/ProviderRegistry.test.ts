@@ -2267,7 +2267,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
       // enrichment spawns via raw `NodeChildProcess.spawn`, NOT the Effect
       // `ChildProcessSpawner`), so we assert the rebuild through an observable
       // config-derived field: `customModels` flows into the snapshot's `models`
-      // (`piModels` → `piCustomModels`). Seeing the new custom model appear
+      // (`makePiProvider` → `piCustomModels`). Seeing the new custom model appear
       // proves the instance was rebuilt from the changed settings.
       it.effect(
         "rebuilds the pi instance when settings change so the new config takes effect",

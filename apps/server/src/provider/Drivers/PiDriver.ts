@@ -8,7 +8,6 @@ import * as NodeCrypto from "node:crypto";
 
 import {
   EventId,
-  PI_DEFAULT_MODEL,
   PI_THINKING_LEVEL_OPTIONS,
   PiSettings,
   ProviderDriverKind,
@@ -294,44 +293,6 @@ function withInstanceIdentity(input: {
   });
 }
 
-/**
- * Curated "top / recommended" shortlist surfaced first in the model picker —
- * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 5.5 on
- * the pooled cli-proxy) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
- * the plain `openai` one. The remaining catalogue (fetched live via
- * `get_available_models`, see {@link enrichPiSnapshot}) follows in pi's own order.
- */
-const CURATED_PI_MODELS: ReadonlyArray<{
-  readonly slug: string;
-  readonly name: string;
-  readonly subProvider: string;
-}> = [
-  // Names mirror what `piCatalogModels` derives from the live catalogue so
-  // the placeholder and enriched snapshots agree: pi's own names already
-  // carry "(Vertex)" for google-vertex-claude, and "GPT-5.5" collides across
-  // the openai/openai-codex backends (hence the "(Codex)" suffix).
-  {
-    slug: PI_DEFAULT_MODEL,
-    name: "Claude Opus 5.5",
-    // Derived the same way the live catalogue derives it, so the placeholder
-    // and the enriched snapshot agree on the backend badge.
-    subProvider: piBackendLabel(
-      PI_DEFAULT_MODEL.slice(0, PI_DEFAULT_MODEL.indexOf("/")),
-      PI_DEFAULT_MODEL.slice(PI_DEFAULT_MODEL.indexOf("/") + 1),
-    ),
-  },
-  { slug: "openai-codex/gpt-5.5", name: "GPT-5.5 (Codex)", subProvider: "Codex" },
-  {
-    slug: "google-vertex/gemini-3.1-pro-preview",
-    name: "Gemini 3.1 Pro Preview",
-    subProvider: "Vertex",
-  },
-];
-const curatedRank = (slug: string): number => {
-  const index = CURATED_PI_MODELS.findIndex((model) => model.slug === slug);
-  return index === -1 ? CURATED_PI_MODELS.length : index;
-};
-
 interface PiAvailableModel {
   readonly id: string;
   readonly name: string;
@@ -362,26 +323,12 @@ function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel
   }));
 }
 
-/** Synchronous snapshot shown before the live catalogue arrives. */
-export function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
-  return [
-    ...CURATED_PI_MODELS.map((model) => ({
-      slug: model.slug,
-      name: model.name,
-      subProvider: model.subProvider,
-      isCustom: false,
-      capabilities: PI_CAPABILITIES,
-    })),
-    ...piCustomModels(settings),
-  ];
-}
-
 /**
- * Full pi catalogue, curated shortlist first, then pi's own order, then
- * custom. Every model carries its backend label as `subProvider` (shown as
- * secondary text in the picker), and models whose display names collide
- * across backends (e.g. "GPT-5.5" on both openai and openai-codex) get the
- * label appended to the name so identical rows stay distinguishable.
+ * Full pi catalogue in pi's own order, then custom. Every model carries its
+ * backend label as `subProvider` (shown as secondary text in the picker), and
+ * models whose display names collide across backends (e.g. "GPT-5.5" on both
+ * openai and openai-codex) get the label appended to the name so identical
+ * rows stay distinguishable.
  */
 export function piCatalogModels(
   available: ReadonlyArray<PiAvailableModel>,
@@ -391,8 +338,8 @@ export function piCatalogModels(
   for (const model of available) {
     nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1);
   }
-  const builtIn = available
-    .map((model) => {
+  return [
+    ...available.map((model) => {
       const label = piBackendLabel(model.provider, model.id);
       return {
         slug: `${model.provider}/${model.id}`,
@@ -401,9 +348,9 @@ export function piCatalogModels(
         isCustom: false as const,
         capabilities: PI_CAPABILITIES,
       };
-    })
-    .sort((a, b) => curatedRank(a.slug) - curatedRank(b.slug));
-  return [...builtIn, ...piCustomModels(settings)];
+    }),
+    ...piCustomModels(settings),
+  ];
 }
 
 const PI_SKILL_NAME_PREFIX = "skill:";
@@ -464,8 +411,8 @@ export function piCommandsToSnapshot(commands: ReadonlyArray<PiRpcCommandInfo>):
  * populate its slash-command/skill palette by running a throwaway
  * `pi --mode rpc` process and asking `get_available_models` + `get_commands`
  * within the same acquire/use/release. Failures (pi not installed, not authed,
- * RPC error) are logged and ignored so the picker falls back to the curated
- * shortlist and the previously published palette stands.
+ * RPC error) are logged and ignored so the picker keeps the placeholder
+ * snapshot (custom models only) and the previously published palette stands.
  */
 function enrichPiSnapshot(input: {
   readonly settings: PiSettings;
@@ -556,7 +503,10 @@ function makePiProvider(settings: PiSettings, checkedAt: string): ServerProvider
     presentation: { displayName: "Pi", showInteractionModeToggle: true },
     enabled: settings.enabled,
     checkedAt,
-    models: piModels(settings),
+    // Placeholder until `enrichPiSnapshot` publishes the live catalogue: only
+    // the custom models. With no built-in entry, default-model lookups fall
+    // back to `DEFAULT_MODEL_BY_PROVIDER` (`PI_DEFAULT_MODEL`).
+    models: piCustomModels(settings),
     probe: {
       installed: true,
       version: null,
@@ -2958,8 +2908,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             publishSnapshot,
             modelContextWindows,
           }),
-        // `makePiProvider` knows none of these: its models are a curated
-        // placeholder shortlist and it carries no commands at all. Only
+        // `makePiProvider` knows none of these: its models are a
+        // custom-models-only placeholder and it carries no commands at all. Only
         // `enrichPiSnapshot`'s RPC probe observes the real values, so the base
         // check must never overwrite them.
         enrichmentOwnedFields: ["models", "slashCommands", "skills"],
