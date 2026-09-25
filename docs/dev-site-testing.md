@@ -225,7 +225,7 @@ a `pop` can hand you another thread's work.
 
 ### Toasts make a copy-DB instance unscreenshottable by default
 
-Every refusal raises a **toast**, and a copied database keeps trying to resume
+Every guard refusal raises a **toast**, and a copied database keeps trying to resume
 its threads, so refusals — and their toasts — keep arriving for as long as the
 instance runs. There is no quiet moment to wait for: they land on top of
 whatever you are capturing, and deleting the toast nodes just loses the race
@@ -243,33 +243,29 @@ The `^=` covers both viewports (`toast-viewport` and `toast-viewport-anchored`
 in `apps/web/src/components/ui/toast.tsx`). Re-apply after any navigation that
 remounts the app.
 
-### Usage and cost numbers move on their own — check which cause before you react
+### Usage and cost figures climb on their own — check the guard line before you react
 
-A copy-DB instance looks alarmingly like live work, for two causes that need
-**opposite** reactions. The guard warnings above tell them apart: present means
-the first; absent on a copy-DB boot means you are unguarded — because the build
-predates the guard, or because the snapshot records no worktree for it to key
-off (above) — which is the second.
+The usage page's figures move in a copy-DB instance that has spent nothing, for
+one of two causes with **opposite** correct responses. The boot log's
+`WARN foreign-home guard` line (above) tells you which:
 
-- **Guarded build — a false alarm.** The usage page scans transcripts from disk,
-  not from the database you pointed at: `UsageService` walks each provider's
-  sessions root, and pi's is machine-global, so a scratch instance reports the
-  **real** cockpit's live pi sessions. The figures climb while you watch in an
-  instance that has spent nothing. Leave it running and finish your capture.
-- **Pre-guard build — not an alarm, a fire.** Booting an old release against the
-  snapshot (e.g. to capture a pre-change baseline) runs without the foreign-home
-  guard, and startup reconciliation resumes the sessions the copied database
-  records — which are the cockpit's **real** ones, in their live checkouts
-  (that is precisely what `ProviderService.recoverSessionForThread` refuses in
-  current builds). That spends real tokens and puts a second driver on other
-  threads' sessions. Shut it down.
+- **Guard line present — false alarm; leave it running.** The usage page scans
+  transcripts from disk, not the database you pointed at: `UsageService` walks
+  each provider's sessions root, and pi's is machine-global, so a scratch
+  instance reports the **real** cockpit's live pi sessions. Finish your capture.
+- **Guard line absent — a fire; shut it down.** You are unguarded, because the
+  build predates the guard (an old release booted to capture a pre-change
+  baseline) or because the snapshot records no worktree for the guard to key off
+  (above). Startup reconciliation then resumes the sessions the copied database
+  records — the cockpit's **real** ones, in their live checkouts, exactly what
+  `ProviderService.recoverSessionForThread` refuses in guarded builds. That
+  spends real tokens and puts a second driver on other threads' sessions.
 
-Both failure directions have already happened: an agent read the guarded case's
-moving numbers as its scratch server burning quota, shut the instance down
-mid-capture, and truncated its own baseline evidence for nothing. Read the log
-rather than guessing in either direction — killing a guarded instance costs you
-evidence you cannot rerun, and leaving a pre-guard one running costs tokens and
-other threads' session state.
+Read the log rather than guessing in either direction: an agent has already
+read the guarded case's moving numbers as its scratch server burning quota,
+killed the instance mid-capture, and lost baseline evidence it could not rerun
+— while leaving an unguarded one running costs tokens and other threads' session
+state.
 
 ## Running several instances at once
 
