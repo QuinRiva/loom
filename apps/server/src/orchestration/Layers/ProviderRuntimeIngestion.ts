@@ -4,7 +4,6 @@ import {
   EventId,
   IsoDateTime,
   MessageId,
-  type OrchestrationEvent,
   OrchestrationProposedPlanId,
   CheckpointRef,
   classifyTaskAgentKind,
@@ -148,21 +147,12 @@ const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFEC
 // is ~7 s of lag; more depth adds only lag, not throughput.
 const RUNTIME_INGESTION_CAPACITY = 256;
 
-type TurnStartRequestedDomainEvent = Extract<
-  OrchestrationEvent,
-  { type: "thread.turn-start-requested" }
->;
-
 type ProviderDiffEvent = Extract<ProviderRuntimeEvent, { type: "turn.diff.updated" }>;
 
 type RuntimeIngestionInput =
   | {
       source: "runtime";
       event: ProviderRuntimeEvent;
-    }
-  | {
-      source: "domain";
-      event: TurnStartRequestedDomainEvent;
     }
   | {
       /** A diff whose workspace the diff worker confirmed is a Git repository. */
@@ -2963,8 +2953,6 @@ const make = Effect.gen(function* () {
       }
     });
 
-  const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
-
   // Records a mid-turn placeholder checkpoint for a provider diff. Runs on the
   // lifecycle worker, after repository detection, so the running-turn check
   // and the dispatch are ordered with the turn's terminal events: a diff that
@@ -3006,8 +2994,6 @@ const make = Effect.gen(function* () {
     switch (input.source) {
       case "runtime":
         return processRuntimeEvent(input.event);
-      case "domain":
-        return processDomainEvent(input.event);
       case "diff":
         return recordProviderDiff(input.event);
     }
@@ -3173,14 +3159,6 @@ const make = Effect.gen(function* () {
             ? diffWorker.enqueue(event)
             : worker.enqueue({ source: "runtime", event }),
         ),
-      );
-      yield* forkParked(
-        Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-          if (event.type !== "thread.turn-start-requested") {
-            return Effect.void;
-          }
-          return worker.enqueue({ source: "domain", event });
-        }),
       );
     });
 
