@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { PI_DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PiSettings } from "@t3tools/contracts";
@@ -240,6 +240,18 @@ describe("piCatalogModels backend disambiguation", () => {
       ["anthropic/claude-opus-4-8", "Claude Opus 4.8", "Anthropic"],
       ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
     ]);
+  });
+
+  it("marks PI_DEFAULT_MODEL as the catalogue default", () => {
+    const [provider, ...rest] = PI_DEFAULT_MODEL.split("/");
+    const models = piCatalogModels(
+      [
+        model("anthropic", "claude-fable-5", "Claude Fable 5"),
+        model(provider!, rest.join("/"), "Default"),
+      ],
+      settings,
+    );
+    expect(models.map((entry) => entry.isDefault)).toEqual([undefined, true]);
   });
 
   it("derives regional Bedrock labels and falls back to raw provider ids", () => {

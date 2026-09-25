@@ -8,6 +8,7 @@ import * as NodeCrypto from "node:crypto";
 
 import {
   EventId,
+  PI_DEFAULT_MODEL,
   PI_THINKING_LEVEL_OPTIONS,
   PiSettings,
   ProviderDriverKind,
@@ -328,7 +329,8 @@ function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel
  * backend label as `subProvider` (shown as secondary text in the picker), and
  * models whose display names collide across backends (e.g. "GPT-5.5" on both
  * openai and openai-codex) get the label appended to the name so identical
- * rows stay distinguishable.
+ * rows stay distinguishable. `PI_DEFAULT_MODEL` carries `isDefault` so the
+ * client's default-model lookups land on it rather than pi's first entry.
  */
 export function piCatalogModels(
   available: ReadonlyArray<PiAvailableModel>,
@@ -341,12 +343,14 @@ export function piCatalogModels(
   return [
     ...available.map((model) => {
       const label = piBackendLabel(model.provider, model.id);
+      const slug = `${model.provider}/${model.id}`;
       return {
-        slug: `${model.provider}/${model.id}`,
+        slug,
         name: (nameCounts.get(model.name) ?? 0) > 1 ? `${model.name} (${label})` : model.name,
         subProvider: label,
         isCustom: false as const,
         capabilities: PI_CAPABILITIES,
+        ...(slug === PI_DEFAULT_MODEL ? { isDefault: true } : {}),
       };
     }),
     ...piCustomModels(settings),
