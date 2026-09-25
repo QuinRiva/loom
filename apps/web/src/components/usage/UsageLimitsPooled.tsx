@@ -37,7 +37,8 @@ function accountInitials(email: string): string {
 }
 
 /** A stable hue per email, so the same account gets the same chip on every visit. */
-function accountHue(email: string): number {
+// loom: exported so the sidebar subscription meter colours a sub as Limits does.
+export function accountHue(email: string): number {
   let hash = 0;
   for (let index = 0; index < email.length; index += 1) {
     hash = (hash * 31 + email.charCodeAt(index)) | 0;
@@ -93,11 +94,8 @@ function AccountAvatar({
  * Who an account is, without printing the email: the instance name when there
  * is one, else a two-letter chip. The address itself is revealed on demand in
  * the segment's popover.
- *
- * loom: exported for the sidebar subscription meter, which names pooled
- * accounts the same way rather than inventing a second treatment.
  */
-export function AccountName({
+function AccountName({
   account,
   className,
 }: {

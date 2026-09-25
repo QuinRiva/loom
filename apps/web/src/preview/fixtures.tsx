@@ -24,6 +24,12 @@ import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout"
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
 import { CHANNEL_CLASSES, type ControlChannel } from "../loom/controlMessages";
 import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
+import { SubscriptionMeterChipView, SubscriptionMeterView } from "../loom/SubscriptionMeter";
+import {
+  METER_FIXTURE_STATES,
+  meterFixtureView,
+  type MeterFixtureSource,
+} from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
 /**
@@ -1272,6 +1278,37 @@ function ControlChannelPaletteFixture() {
   );
 }
 
+/**
+ * The usage meter in the sidebar footer's real slot: a 16rem sidebar with the
+ * footer's inset, so the axis column is the width the app gives it.
+ */
+function subscriptionMeterFixture(
+  state: (typeof METER_FIXTURE_STATES)[number],
+  source: MeterFixtureSource,
+): PreviewFixture {
+  return {
+    id: `subscription-meter-${state.id}-${source}`,
+    title: `${state.title}${source === "tokenFiles" ? " (token files, no hub)" : ""}`,
+    description:
+      "Timeline meter, plans/usage-meter-redesign/plan.mdx. The footer must measure 128 px in every state.",
+    render: () => {
+      const { view, now } = meterFixtureView(state, source);
+      return (
+        <div className="flex gap-10 p-6">
+          <div className="w-64 border border-border bg-sidebar px-[var(--sidebar-content-inset)] py-1">
+            <div data-testid="subscription-meter-footer">
+              <SubscriptionMeterView view={view} now={now} />
+            </div>
+          </div>
+          <div className="flex h-fit items-center gap-2 border border-border bg-background p-2">
+            <SubscriptionMeterChipView view={view} now={now} />
+          </div>
+        </div>
+      );
+    },
+  };
+}
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "mdx-annotation",
@@ -1480,6 +1517,14 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         MIXED_DOCUMENT_MARKDOWN,
         "Prose stays at the readable measure while the wide table bleeds to use whitespace.",
       ),
+    ],
+  },
+  {
+    id: "subscription-meter",
+    title: "Subscription meter",
+    fixtures: [
+      ...METER_FIXTURE_STATES.map((state) => subscriptionMeterFixture(state, "hub")),
+      subscriptionMeterFixture(METER_FIXTURE_STATES[1]!, "tokenFiles"),
     ],
   },
 ];
