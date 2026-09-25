@@ -38,10 +38,12 @@ Both live in the skill: `pi-craft/plugins/pi-craft/skills/platform-update/` — 
 <Code
   language="yaml"
   filename="pi-craft/plugins/pi-craft/skills/platform-update/targets.yaml"
-  code={"families:\n  anthropic: { high: fable, medium: opus, low: sonnet, cheap: haiku }\n  openai:    { high: astra, medium: sol, cheap: luna }\n\n# Every place a slug lives. `tier` = vendor/tier; `via` = the pi provider whose\n# slug form is written (\"cliproxy\" -> cliproxy/<id>, \"bare\" -> <id> only).\n# `effect` = when a write is visible: live | deploy | restart.\ntargets:\n  - file: ~/.t3/cockpit/userdata/settings.json\n    effect: live\n    entries:\n      - { path: workstreamModelPresets.planner.model,       tier: anthropic/high,   via: cliproxy }\n      - { path: workstreamModelPresets.coder.model,         tier: anthropic/medium, via: cliproxy }\n      - { path: workstreamModelPresets.researcher.model,    tier: anthropic/medium, via: cliproxy }\n      - { path: workstreamModelPresets.coder-direct.model,  tier: openai/medium,    via: openai-codex }\n      - { path: workstreamModelPresets.reviewer.model,      tier: openai/medium,    via: openai-codex }\n      - { path: workstreamModelPresets.shipper.model,       tier: openai/cheap,     via: openai-codex }\n      - { path: defaultModelSelection.model,                tier: anthropic/medium, via: cliproxy }\n      - { path: projectSettingsOverrides.8180bd73-d2fa-453a-8b51-5ad655135eb2.defaultModelSelection.model, tier: anthropic/medium, via: cliproxy }\n      - { path: textGenerationModelSelection.model,         tier: anthropic/low,    via: cliproxy }\n      - { path: providerFailover.chains.openai-codex/*[0],  tier: anthropic/medium, via: cliproxy }\n      - { path: providerFailover.chains.openai-codex/gpt-6-luna[0], tier: anthropic/low, via: cliproxy }\n      - { key:  providerFailover.chains.openai-codex/gpt-6-luna,    tier: openai/cheap,     via: openai-codex }\n      - { key:  providerFailover.chains.cliproxy/claude-fable-5-1,   tier: anthropic/high,   via: cliproxy }\n  - file: ~/.pi/agent/settings.json\n    effect: live\n    entries:\n      - { path: defaultModel,                tier: anthropic/high, via: bare }   # defaultProvider stays cliproxy\n      - { path: memory.consolidationModel,   tier: openai/cheap,   via: openai-codex }\n  - file: <loom>/packages/contracts/src/model.ts\n    effect: deploy\n    entries:\n      - { const: PI_DEFAULT_MODEL,           tier: anthropic/medium, via: cliproxy }\n\npins:   # reported every run, never written\n  - { file: /home/Carl/cli-proxy/keepalive.py, const: MODEL }\n  - { file: ~/pi-craft/plugins/pi-craft/agents/*.md, frontmatter: model }\n"}
+  code={"families:\n  anthropic: { high: fable, medium: opus, low: sonnet, cheap: haiku }\n  openai:    { high: astra, medium: sol, cheap: luna }\n\n# Every place a slug lives. `tier` = vendor/tier; `via` = the pi provider whose\n# slug form is written (\"cliproxy\" -> cliproxy/<id>, \"bare\" -> <id> only).\n# `effect` = when a write is visible: live | deploy | restart.\ntargets:\n  - file: ~/.t3/cockpit/userdata/settings.json\n    effect: live\n    entries:\n      - { path: workstreamModelPresets.planner.model,       tier: anthropic/high,   via: cliproxy }\n      - { path: workstreamModelPresets.coder.model,         tier: anthropic/medium, via: cliproxy }\n      - { path: workstreamModelPresets.researcher.model,    tier: anthropic/medium, via: cliproxy }\n      - { path: workstreamModelPresets.coder-direct.model,  tier: openai/medium,    via: openai-codex }\n      - { path: workstreamModelPresets.reviewer.model,      tier: openai/medium,    via: openai-codex }\n      - { path: workstreamModelPresets.shipper.model,       tier: openai/cheap,     via: openai-codex }\n      - { path: defaultModelSelection.model,                tier: anthropic/medium, via: cliproxy }\n      - { path: projectSettingsOverrides.8180bd73-d2fa-453a-8b51-5ad655135eb2.defaultModelSelection.model, tier: anthropic/medium, via: cliproxy }\n      - { path: textGenerationModelSelection.model,         tier: anthropic/low,    via: cliproxy }\n      - { path: providerFailover.chains.openai-codex/*[0],  tier: anthropic/medium, via: cliproxy }\n      # chain keys are located by tier, never by their current slug (the key itself is what a rollover renames)\n      - { chainKey: { tier: openai/cheap,   via: openai-codex }, target: 0, tier: anthropic/low, via: cliproxy }\n      - { chainKey: { tier: openai/cheap,   via: openai-codex } }   # the key itself: openai-codex/<newest luna>\n      - { chainKey: { tier: anthropic/high, via: cliproxy } }       # the key itself: cliproxy/<newest fable>\n  - file: ~/.pi/agent/settings.json\n    effect: live\n    entries:\n      - { path: defaultModel,                tier: anthropic/high, via: bare }   # defaultProvider stays cliproxy\n      - { path: memory.consolidationModel,   tier: openai/cheap,   via: openai-codex }\n  - file: <loom>/packages/contracts/src/model.ts\n    effect: deploy\n    entries:\n      - { const: PI_DEFAULT_MODEL,           tier: anthropic/medium, via: cliproxy }\n\npins:   # reported every run, never written\n  - { file: /home/Carl/cli-proxy/keepalive.py, const: MODEL }\n  - { file: ~/pi-craft/plugins/pi-craft/agents/*.md, frontmatter: model }\n"}
 />
 
-A **pin** is any slug-bearing location listed under `pins`, or a target Carl has removed from `targets`: the skill reports it (and flags it if the id has left the catalogue) but never writes it. To pin a preset to a specific model, delete its entry.
+Locators must not contain a slug: a preset is found by name, a chain key by the tier its current key parses to (`chainKey: { tier, via }` — the key `openai-codex/gpt-6-luna` is the one whose id is the `luna` family; after a rollover it is `openai-codex/gpt-6.5-luna` and still matches). Otherwise the target list itself goes stale on the second rollover.
+
+A **pin** is any slug-bearing location listed under `pins`: the skill reports it (and flags it if the id has left the catalogue) but never writes it. To pin a preset to a specific model, **move** its entry from `targets` to `pins` — the end-of-run grep treats anything under `pins` as intentional.
 
 ## Resolving a tier to a slug
 
@@ -66,7 +68,7 @@ Every row of `docs/operations/platform-update.md` §2. *target* = the skill writ
   rows={[
     ["1", "Bundled pi pin + pnpm patch", "manual", "Version bump on a feature branch per `infra/pi-patches/README.md`; the skill does it and the PR carries it together with row 7."],
     ["2", "Global pi install", "manual", "`npm install -g` + `apply.sh` + `--check` (runbook §5). Unchanged."],
-    ["3", "`~/.pi/agent/models-store.json`", "leave alone", "pi.dev overlay pi refreshes itself. The skill reads it only to report a builtin model that is in the overlay but not the tarball."],
+    ["3", "`~/.pi/agent/models-store.json`", "leave alone", "pi.dev overlay pi refreshes itself."],
     ["4", "Custom-provider catalogues (`cliproxy.ts`, `anthropic-subs.ts`)", "derive → delete the hand-copied lists", "Both extensions register `getBuiltinModels(\"anthropic\")` from `@earendil-works/pi-ai/providers/all` (pi maps it to the loading pi's bundled catalogue — verified with a real completion through cli-proxy, metadata byte-equal to the hand copy). They move into pi-craft `plugins/pi-craft/extensions/` and are registered in `package.json` `pi.extensions`; the two unversioned files under `~/.pi/agent/extensions/` are removed. A new Claude model then exists on both providers the moment the pi that loads them is bumped."],
     ["5", "Global pi defaults (`~/.pi/agent/settings.json`)", "target", "`defaultModel` = anthropic/high (bare id, `defaultProvider` stays `cliproxy`); `memory.consolidationModel` = openai/cheap via openai-codex."],
     ["6", "cli-proxy image, registry, cloak pin", "manual (up to the restart)", "Compiled into the Go binary; the deployed image is a rebased local fix branch, never stock (`/home/Carl/cli-proxy/AGENTS.md`). Rebase, test, build, edit compose → **ask for the restart** → real completion."],
@@ -74,10 +76,10 @@ Every row of `docs/operations/platform-update.md` §2. *target* = the skill writ
     ["7", "`PI_DEFAULT_MODEL` in `packages/contracts/src/model.ts`", "target (deploy)", "anthropic/medium via cliproxy. `DEFAULT_MODEL`, `DEFAULT_TEXT_GENERATION_MODEL`, `PREFERRED_DEFAULT_CODEX_MODELS`: leave alone — they feed the Codex driver the registry does not ship (`builtInDrivers.ts`); the rollover stops editing them."],
     ["7a", "`DEFAULT_FAILOVER_CHAINS` in `packages/shared/src/providerFailover.ts`", "leave alone", "Seeds fresh homes only; the live cockpit overrides every key. A stale seed misroutes nothing Carl runs."],
     ["7b", "`project.create` seeding `defaultModelSelection: pi/PI_DEFAULT_MODEL` (client-runtime `projects.ts`, `CommandPalette.tsx`)", "delete (optional cleanup)", "Dead once `projectSettingsFolded` is set (the live cockpit has it): `resolveProjectSettings` ignores the aggregate value. Restore upstream's `null`."],
-    ["8", "`CURATED_PI_MODELS` in `PiDriver.ts`", "delete (optional cleanup)", "The literal display name missed by two rollovers. Plain pi order, names from pi; the picker's allow-list mode gives Carl a shortlist."],
+    ["8", "`CURATED_PI_MODELS` in `PiDriver.ts`", "delete (chunk L)", "The literal display name missed by two rollovers. Plain pi order, names from pi; the picker's allow-list mode gives Carl a shortlist."],
     ["9", "`model-manifest.json`, `ClaudeProvider.ts` model sets / `minVersion`, `CodexProvider.ts`", "leave alone", "Gate drivers the fork does not ship; the manifest is re-fetched from upstream after boot. Change at upstream sync only. Runbook row removed."],
     ["9b", "Mobile `modelOptions`, `usagePricing.ts`", "leave alone", "No per-model tables."],
-    ["10", "`roles/*.md` prose", "rewrite once to families", "Only `orchestrator.md:52` names versions. Roles name families and tiers — \"the coder preset runs Opus (anthropic/medium); `coder-direct` runs Sol (openai/medium)\" — so the guidance stays true across bumps."],
+    ["10", "`roles/*.md` prose", "rewrite once to families (chunk L)", "Only `orchestrator.md:52` names versions. Roles name families and tiers — \"the coder preset runs Opus (anthropic/medium); `coder-direct` runs Sol (openai/medium)\" — so the guidance stays true across bumps."],
     ["10a", "pi-craft agent frontmatter (`evidence-reader.md` → stale `google-vertex-claude/claude-opus-4-8`; `bench-runner.md`, `gpt55-worker.md` → `openai-codex/GPT-5.5`)", "pin (reported)", "Deliberate per-agent choices; the report flags a slug that has left the catalogue and Carl decides."],
     ["10b", "Example slug in `skills/t3code-dev-instance/SKILL.md:125`", "leave alone", "Illustrative shape; cannot misroute."],
     ["11", "`docs/operations/model-profiles.md` + `workstreamModelProfiles`", "leave alone", "Profiles are unset; the doc's re-score routine applies if they ever are."],
@@ -97,7 +99,7 @@ Trigger: "run the platform update". Everything below is the skill; the runbook k
 3. **pi bump** on a loom feature branch per `infra/pi-patches/README.md` (retirement check on the pristine tarball, pins, regenerate the pnpm patch, contract test), plus the row 7 constant and its test fixtures. `vp check`, `vp run typecheck`, unmarked-hunk sweep, PR via `pnpm ship`.
 4. **Global pi** (runbook §5) + the row 14 marker check.
 5. **Write the live targets**: rows 5 and 13, atomically. Live in seconds.
-6. **Verify each changed tier**: `pi -p --model <via>/<slug> "Reply with exactly: OK"` with the normal extension set (never `--no-extensions` — see risks), plus the negative control `cliproxy/claude-opus-9-9`; read failures per runbook §7 (catalogue miss vs quota vs cloak pin). Then the zero-cost cockpit check: `workstream_list`'s preset block shows the new slugs with no `[INVALID]`. A failed probe on a tier already written is reverted to the old slug and reported.
+6. **Verify each changed tier**: `pi -p --model <via>/<slug> "Reply with exactly: OK"` with the normal extension set (never `--no-extensions` — see risks), plus the negative control `cliproxy/claude-opus-9-9`; read failures per runbook §7 (catalogue miss vs quota vs cloak pin). A failed probe on a tier already written is reverted to the old slug and reported. The cockpit-side check (`workstream_list` preset block clean) is the **post-deploy** check of row 15, not a step here: the deployed cockpit cannot list `cliproxy/<new Claude model>` until Carl deploys.
 7. **Report** in the format at the top.
 
 The skill never: guesses a family, writes a pin, restarts cli-proxy, deploys the cockpit, or probes with `--no-extensions`.
@@ -109,17 +111,17 @@ The skill never: guesses a family, writes a pin, restarts cli-proxy, deploys the
   rows={[
     ["P1", "pi-craft", "Derived `cliproxy.ts` and `anthropic-subs.ts` (headers and their rationale carried over verbatim); register in `package.json`; remove the two unversioned files; verify with `pi -p` per provider and `pi --list-models` showing the same ids under `cliproxy` as under `anthropic`. Safe today: every slug in use is in the builtin list.", "S"],
     ["P2", "pi-craft", "`skills/platform-update/`: `SKILL.md` (the run above + report template), `targets.yaml` (seeded from the table above and today's live values), the parser/resolver script with the grammar table as its test fixtures. Includes the one-sentence `cli-proxy/AGENTS.md` step-9 edit (machine file, not a repo). Dry-run mode (`--plan`) prints the before/after tables without writing.", "M"],
-    ["L", "loom", "Optional cleanup, off the critical path: delete `CURATED_PI_MODELS` (row 8) and the `project.create` seed (7b); rewrite `orchestrator.md:52` to families (row 10); shrink `docs/operations/platform-update.md` §2–3 to the mechanics the skill links to. One PR.", "S"],
+    ["L", "loom", "Required, after P1, off the skill's critical path: delete `CURATED_PI_MODELS` (row 8 — the label literal missed twice); rewrite `orchestrator.md:52` to families (row 10 — prose the slug grep cannot catch); shrink `docs/operations/platform-update.md` §2–3 to the mechanics the skill links to (its row 4 and §3 step 2 become wrong once P1 lands). Optionally also the dead `project.create` seed (7b). One PR.", "S"],
   ]}
 />
 
-P1 and P2 are independent; P2's first real run is the next model month. No loom change is required for the skill to work.
+P1 and P2 are independent; L follows P1 and should land before the next model month, when P2 first runs for real. No loom change is required for the skill to *work* — L removes the three surfaces the skill cannot cover (a display-name literal, prose, and a runbook that would contradict it).
 
 ## Scope and non-goals
 
 - No tier concept in loom, the settings file, the extensions or cli-proxy. Nothing resolves at runtime.
 - No automatic proxy restart, deploy, or family mapping.
-- Not attempted: deriving cli-proxy's registry or cloak pin; a servability gate for direct `anthropic-<account>/*` providers (no target uses them; the probe is the check).
+- Not attempted: deriving cli-proxy's registry or cloak pin.
 - Backward compatibility: none. The hand-copied catalogues and the curated shortlist are deleted, not shimmed.
 
 ## Risks
@@ -141,7 +143,7 @@ P1 and P2 are independent; P2's first real run is the next model month. No loom 
 
 - **Skill dry run** on today's state: `--plan` must print every target with before = after and no moves, and list `terra` under unmapped families.
 - **Parser fixtures**: the grammar table (dated duplicate loses to undated; major-only dated id → minor 0; `codex-spark`, `[1m]`, bedrock, vertex ids ignored; empty family → tier unchanged).
-- **Extensions (P1)**: `pi -p --model cliproxy/claude-opus-5-5 "Reply with exactly: OK"` and one `anthropic-<tag>/` model, normal extension set; `workstream_list` preset block clean with the negative control still flagged.
+- **Extensions (P1)**: `pi -p --model cliproxy/claude-opus-5-5 "Reply with exactly: OK"` and one `anthropic-<tag>/` model, normal extension set; `workstream_list` preset block clean with the negative control (`cliproxy/claude-opus-9-9`) still flagged.
 - **First real run**: the report's per-target table matches `rg -n "<old slug>"` finding nothing outside pins and history; one coder and one shipper spawn on the new presets.
 
 ## Open questions
@@ -157,17 +159,6 @@ P1 and P2 are independent; P2's first real run is the next model month. No loom 
       options: [
         { id: "a", label: "A small YAML data file beside SKILL.md, read by the skill's script", recommended: true, detail: "Machine-readable, diffable, and the report is generated from it so nothing can be silently skipped." },
         { id: "b", label: "Prose table in SKILL.md; the agent edits each file by hand following it", detail: "No script to maintain; relies on the agent reading the table completely every run." },
-      ],
-    },
-    {
-      id: "deploy-window",
-      title: "When a new Claude model moves an anthropic tier, should the live cockpit presets be written before or after your deploy of the pi-bump PR?",
-      refs: [{ label: "Risks", anchor: "risks" }],
-      subtitle: "The deployed cockpit only lists `cliproxy/<new model>` once it runs the new bundled pi. Written before, the presets read `[INVALID]` until you deploy; written after, the skill needs a second short invocation.",
-      mode: "single",
-      options: [
-        { id: "a", label: "Before — write everything in one run and deploy in the same sitting", recommended: true, detail: "One run, one report; the window is the minutes between the skill finishing and you running deployctl." },
-        { id: "b", label: "After — the skill stops before step 5 and you say 'continue' once deployed", detail: "No invalid window, one more human moment." },
       ],
     },
   ]}
