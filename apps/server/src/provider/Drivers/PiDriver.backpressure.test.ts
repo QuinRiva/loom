@@ -98,6 +98,8 @@ const textDelta = (delta: string) => ({
   assistantMessageEvent: { type: "text_delta", delta },
 });
 
+const nextMacrotask = Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+
 describe("PiDriver stdout backpressure", () => {
   effectIt.effect("holds an in-flight promise only while handling is suspended", () =>
     withAdapter(1, ({ events, deliver }) =>
@@ -114,13 +116,29 @@ describe("PiDriver stdout backpressure", () => {
         void pending!.then(() => {
           settled = true;
         });
-        yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+        yield* nextMacrotask;
         expect(settled).toBe(false);
         // Freeing a slot lets the suspended offer land, which settles the promise.
         expect((yield* Queue.take(events)).type).toBe("content.delta");
         yield* Effect.promise(() => pending!);
         const delivered = yield* Queue.take(events);
         expect(delivered.type === "content.delta" && delivered.payload.delta).toBe("b");
+      }),
+    ),
+  );
+
+  // A released reader keeps delivering the tail after `exit`; those lines must
+  // reach `events` before the teardown's `session.exited`, which waits for `close`.
+  effectIt.effect("delivers lines that arrive between exit and close before session.exited", () =>
+    withAdapter(8, ({ events, child, deliver }) =>
+      Effect.gen(function* () {
+        deliver({ type: "message_start" });
+        child.emit("exit", 1, null);
+        yield* nextMacrotask;
+        deliver(textDelta("tail"));
+        child.emit("close", 1, null);
+        expect((yield* Queue.take(events)).type).toBe("content.delta");
+        expect((yield* Queue.take(events)).type).toBe("session.exited");
       }),
     ),
   );
