@@ -92,7 +92,7 @@ chains, the global pi defaults, `PI_DEFAULT_MODEL` — are not listed here. They
 are the targets in the skill's `targets.yaml`, the single list; the skill
 writes them and prints each one's before/after. Row numbers are kept from the
 earlier map so the skill and its plan can cite them; the gaps are those
-targets.
+targets (5, 7, 13) and surfaces a rollover no longer edits (8, 9, 11).
 
 Every surface here and every skill target is a **default** — a model chosen
 with no explicit human pick or orchestrator opt-in — except the named presets
