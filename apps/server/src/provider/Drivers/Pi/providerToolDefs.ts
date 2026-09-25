@@ -166,7 +166,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         anchorTaskId: {
           type: "string",
           description:
-            "Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns — the only part of the tree it is shown, the default parent for the tasks it adds, and the only part it may tick or restructure. Pass the id from the trailing '(id)' of a task line in goal_task_list; add the task first with goal_task_add if it does not exist yet (its id comes back in the echo). Explicit only — no node is ever auto-created, and most children should stay UNBOUND: reviewers, researchers working from a brief, and gate threads legitimately have no task of their own, and an unbound child still sees the goal's phases and can record discovered work. When you are yourself anchored you may only pass your own anchor or a task beneath it. A forked child inherits its source's anchor unless you pass one here.",
+            "Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns — what it is shown by default (plus a one-line goal pulse), the default parent for the tasks it adds, and the only part it may tick or restructure. The rule: anchor a child whose work IS a task in the tree (a coder, a planner, a nested orchestrator owning a phase); leave unbound a child that has no task of its own (a reviewer, a gate thread, a researcher answering a brief) — it still sees the goal's phases and can record discovered work. Pass the id from the trailing '(id)' of a task line in goal_task_list; if the task does not exist yet, add it first with goal_task_add (its id comes back in the echo). Explicit only — no node is ever auto-created. When you are yourself anchored you may only pass your own anchor or a task beneath it. A forked child inherits its source's anchor unless you pass one here.",
         },
         staged: {
           type: "boolean",
@@ -318,7 +318,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               anchorTaskId: {
                 type: "string",
                 description:
-                  "Bind this node to ONE task of the goal task tree, exactly as in workstream_spawn: that task's subtree is the branch the node owns (what it sees, what its added tasks hang under, and what it may tick or restructure). Explicit only; omit it for the many nodes that legitimately own no task (reviewers, researchers, gate threads), and pass only your own anchor or a task beneath it when you are yourself anchored. A fork node inherits its source's anchor unless it states one.",
+                  "Bind this node to ONE task of the goal task tree, exactly as in workstream_spawn: that task's subtree is the branch the node owns (what it is shown by default, what its added tasks hang under, and what it may tick or restructure). Anchor a node whose work IS a task in the tree (coders, planners, nested orchestrators); omit it for a node with no task of its own (reviewers, gate threads, researchers answering a brief). Explicit only; when you are yourself anchored, pass only your own anchor or a task beneath it. A fork node inherits its source's anchor unless it states one.",
               },
               isolation: {
                 type: "string",
@@ -778,7 +778,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "read this thread's active goal's task tree — your own branch by default, scope \"tree\" for the whole goal; mutates nothing.",
     promptGuidelines: [
       "You never pass a goalId — this always reads this thread's own active goal.",
-      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed. Every mutation echoes the scope you own, so you only need this read when you have not just written.",
+      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed. Every mutation echoes the tree at your scope, so you only need this read when you have not just written.",
       'Default scope is your own branch when you are anchored (the whole tree otherwise). Use scope "tree" deliberately: to place discovered work under the right phase, or — as the tree\'s owner — to get the complete rewrite source.',
     ],
     parameters: {
@@ -830,7 +830,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_update",
     label: "Update Goal Task",
     description:
-      "Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it, and when you are anchored it must be in your own branch — ticking another thread's task is refused. This is how a thread marks its OWN task done the moment it finishes the work. Re-nesting, reordering and removing a task are not here: they are edits via goal_tasks_rewrite.",
+      "Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it, and when you are anchored it must be in your own branch — a task outside it is refused. This is how a thread marks its OWN task done the moment it finishes the work. Re-nesting, reordering and removing a task are not here: they are edits via goal_tasks_rewrite.",
     promptSnippet:
       "update one task in this thread's goal: rename (text) or mark done/reopen (done).",
     promptGuidelines: [
