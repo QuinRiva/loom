@@ -203,8 +203,9 @@ export function reviewCommentContextRecord(
     ...("fenceLanguage" in comment && comment.fenceLanguage !== undefined
       ? { fenceLanguage: comment.fenceLanguage }
       : {}),
-    ...(commentPullRequest(comment) !== undefined
-      ? { pullRequest: commentPullRequest(comment) }
+    // loom: narrowed inline so the exact-optional `pullRequest` key is omitted, never `undefined`.
+    ...("pullRequest" in comment && comment.pullRequest !== undefined
+      ? { pullRequest: comment.pullRequest }
       : {}),
     ...(comment.kind === "mdx-anchor"
       ? {
