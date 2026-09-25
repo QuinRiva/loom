@@ -17,7 +17,7 @@ export type PlanCommentResolutionTarget = typeof PlanCommentResolutionTarget.Typ
 export const PlanCommentMention = Schema.Struct({
   email: Schema.String,
   label: Schema.String,
-  role: Schema.optional(Schema.String),
+  role: Schema.optionalKey(Schema.String),
 });
 export type PlanCommentMention = typeof PlanCommentMention.Type;
 
@@ -56,35 +56,40 @@ export type PlanCommentTargetKind = typeof PlanCommentTargetKind.Type;
  * Range-precise resolver re-binds to an exact DOM `Range`; the visual/canvas
  * fields are reserved for later tiers. Whole-block fallback anchoring keys on
  * `blockType` + `targetSelector` / the rendered `data-plan-block-id`.
+ *
+ * Keys are exact-optional (`optionalKey`): the anchor rides the message wire
+ * inside a review-comment context record, whose JSON encoding rejects an
+ * explicit `undefined`, so producers must omit an absent field rather than set
+ * it to `undefined` — the type now enforces that.
  */
 export const PlanCommentAnchor = Schema.Struct({
-  anchorKind: Schema.optional(PlanCommentAnchorKind),
+  anchorKind: Schema.optionalKey(PlanCommentAnchorKind),
   // --- text-quote (first cut) ---
-  textQuote: Schema.optional(Schema.String),
-  snippet: Schema.optional(Schema.String),
-  contextBefore: Schema.optional(Schema.String),
-  contextAfter: Schema.optional(Schema.String),
-  sectionId: Schema.optional(Schema.String),
-  sectionTitle: Schema.optional(Schema.String),
-  blockType: Schema.optional(Schema.String),
-  ambiguous: Schema.optional(Schema.Boolean),
-  targetSelector: Schema.optional(Schema.String),
-  tagName: Schema.optional(Schema.String),
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
+  textQuote: Schema.optionalKey(Schema.String),
+  snippet: Schema.optionalKey(Schema.String),
+  contextBefore: Schema.optionalKey(Schema.String),
+  contextAfter: Schema.optionalKey(Schema.String),
+  sectionId: Schema.optionalKey(Schema.String),
+  sectionTitle: Schema.optionalKey(Schema.String),
+  blockType: Schema.optionalKey(Schema.String),
+  ambiguous: Schema.optionalKey(Schema.Boolean),
+  targetSelector: Schema.optionalKey(Schema.String),
+  tagName: Schema.optionalKey(Schema.String),
+  x: Schema.optionalKey(Schema.Number),
+  y: Schema.optionalKey(Schema.Number),
   // --- routing + mentions ---
-  resolutionTarget: Schema.optional(PlanCommentResolutionTarget),
-  mentions: Schema.optional(Schema.Array(PlanCommentMention)),
+  resolutionTarget: Schema.optionalKey(PlanCommentResolutionTarget),
+  mentions: Schema.optionalKey(Schema.Array(PlanCommentMention)),
   // --- deferred tiers (wireframe node / canvas / visual) ---
-  targetKind: Schema.optional(PlanCommentTargetKind),
-  targetNodeId: Schema.optional(Schema.String),
-  targetNodePath: Schema.optional(Schema.String),
-  targetX: Schema.optional(Schema.Number),
-  targetY: Schema.optional(Schema.Number),
-  canvasX: Schema.optional(Schema.Number),
-  canvasY: Schema.optional(Schema.Number),
-  canvasWidth: Schema.optional(Schema.Number),
-  canvasHeight: Schema.optional(Schema.Number),
+  targetKind: Schema.optionalKey(PlanCommentTargetKind),
+  targetNodeId: Schema.optionalKey(Schema.String),
+  targetNodePath: Schema.optionalKey(Schema.String),
+  targetX: Schema.optionalKey(Schema.Number),
+  targetY: Schema.optionalKey(Schema.Number),
+  canvasX: Schema.optionalKey(Schema.Number),
+  canvasY: Schema.optionalKey(Schema.Number),
+  canvasWidth: Schema.optionalKey(Schema.Number),
+  canvasHeight: Schema.optionalKey(Schema.Number),
 });
 export type PlanCommentAnchor = typeof PlanCommentAnchor.Type;
 

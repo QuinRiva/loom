@@ -165,15 +165,19 @@ export const PreviewAnnotationContextRecord = Schema.Struct({
   comment: BoundedString(COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS),
   targetSummary: ShortString,
   styleChanges: Schema.Array(ShortString).check(Schema.isMaxLength(200)),
+  // loom: optional record fields are exact-optional (`optionalKey`) throughout
+  // this file. Records encode into `Schema.Unknown`, whose JSON check rejects an
+  // explicit `undefined` and fails the whole send, so producers must omit an
+  // absent key; the type now enforces that.
   /** Picked elements inside the annotation, with the detail the agent needs to find them. */
-  elements: Schema.optional(Schema.Array(ElementContextDetails).check(Schema.isMaxLength(50))),
+  elements: Schema.optionalKey(Schema.Array(ElementContextDetails).check(Schema.isMaxLength(50))),
   /** Original target ids and edits allow pasted annotations to retain exact style changes. */
-  elementIds: Schema.optional(Schema.Array(ShortString).check(Schema.isMaxLength(50))),
+  elementIds: Schema.optionalKey(Schema.Array(ShortString).check(Schema.isMaxLength(50))),
   /** Region and stroke geometry is lossy on purpose, but their counts feed the target summary,
       so a pasted annotation still says what it marked. */
-  regionCount: Schema.optional(NonNegativeInt),
-  strokeCount: Schema.optional(NonNegativeInt),
-  styleChangeDetails: Schema.optional(
+  regionCount: Schema.optionalKey(NonNegativeInt),
+  strokeCount: Schema.optionalKey(NonNegativeInt),
+  styleChangeDetails: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
         targetId: ShortString,
@@ -185,7 +189,7 @@ export const PreviewAnnotationContextRecord = Schema.Struct({
     ).check(Schema.isMaxLength(200)),
   ),
   /** The screenshot travels as its own image record; this links the two. */
-  screenshotContextId: Schema.optional(ComposerContextId),
+  screenshotContextId: Schema.optionalKey(ComposerContextId), // loom: optionalKey
 });
 export type PreviewAnnotationContextRecord = typeof PreviewAnnotationContextRecord.Type;
 
@@ -200,11 +204,12 @@ export const ReviewCommentContextRecord = Schema.Struct({
   rangeLabel: ShortString,
   text: BoundedString(COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS),
   diff: BoundedString(COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS),
-  fenceLanguage: Schema.optional(BoundedString(64)),
-  pullRequest: Schema.optional(PullRequestContextMetadata),
+  // loom: optionalKey, see PreviewAnnotationContextRecord.
+  fenceLanguage: Schema.optionalKey(BoundedString(64)),
+  pullRequest: Schema.optionalKey(PullRequestContextMetadata),
   // loom: present only on the MDX-plan annotation variant, which anchors to a
   // passage instead of a line range.
-  mdxAnchor: Schema.optional(LoomMdxAnchorReviewContext),
+  mdxAnchor: Schema.optionalKey(LoomMdxAnchorReviewContext),
 }).check(Schema.makeFilter((record) => record.endIndex >= record.startIndex));
 export type ReviewCommentContextRecord = typeof ReviewCommentContextRecord.Type;
 

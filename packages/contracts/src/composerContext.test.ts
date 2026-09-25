@@ -6,11 +6,13 @@ import {
   COMPOSER_CONTEXT_KINDS,
   ComposerContextRecord,
   OrchestrationMessageContext,
+  type ReviewCommentContextRecord,
 } from "./composerContext.ts";
 import { OrchestrationMessage, ThreadTurnStartCommand } from "./orchestration.ts";
 
 const decodeRecord = Schema.decodeUnknownOption(ComposerContextRecord);
 const decodeContext = Schema.decodeUnknownSync(OrchestrationMessageContext);
+const encodeContextJson = Schema.encodeUnknownSync(Schema.toCodecJson(OrchestrationMessageContext));
 const decodeMessage = Schema.decodeUnknownSync(OrchestrationMessage);
 const decodeTurnStart = Schema.decodeUnknownSync(ThreadTurnStartCommand);
 
@@ -221,6 +223,34 @@ describe("OrchestrationMessageContext", () => {
         records: [knownRecords.skill, { ...knownRecords.terminal, contextId: " ctx_1 " }],
       }),
     ).toThrow();
+  });
+
+  // loom: records encode into `Schema.Unknown`, whose JSON check rejects any
+  // `undefined`, so optional record fields are exact-optional and producers omit
+  // them. Every kind must still encode with those fields absent.
+  it("encodes every record kind to JSON with its optional fields absent", () => {
+    const {
+      elements: _elements,
+      screenshotContextId: _screenshot,
+      ...annotation
+    } = knownRecords["preview-annotation"];
+    const {
+      fenceLanguage: _fence,
+      pullRequest: _pullRequest,
+      ...review
+    } = knownRecords["review-comment"];
+    const bare = { ...knownRecords, "preview-annotation": annotation, "review-comment": review };
+    const records = [
+      ...COMPOSER_CONTEXT_KINDS.map((kind) => bare[kind]),
+      { ...review, mdxAnchor: { anchor: {}, quotedText: "" } },
+    ].map((record, index) => ({ ...record, contextId: `ctx_${index}` }));
+    const context = decodeContext({ version: 1, records });
+    expect(context.records).toHaveLength(records.length);
+    expect(encodeContextJson(context)).toEqual({ version: 1, records });
+    // @ts-expect-error an absent optional field is omitted, never set to `undefined`
+    const _explicitUndefined: Pick<ReviewCommentContextRecord, "fenceLanguage"> = {
+      fenceLanguage: undefined,
+    };
   });
 
   it("is optional on messages and turn-start commands", () => {

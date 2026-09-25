@@ -521,7 +521,8 @@ describe("composerContextRecords", () => {
     expect(
       isSameComposerContextPayload(base, {
         ...base,
-        elements: base.elements?.map((element) => ({
+        // loom: `elements` is exact-optional, so the spread may not set it to undefined.
+        elements: (base.elements ?? []).map((element) => ({
           ...element,
           htmlPreview: '<button id="pay">Changed</button>',
         })),
@@ -530,7 +531,8 @@ describe("composerContextRecords", () => {
     expect(
       isSameComposerContextPayload(base, {
         ...base,
-        elements: base.elements?.map((element) => ({
+        // loom: `elements` is exact-optional, so the spread may not set it to undefined.
+        elements: (base.elements ?? []).map((element) => ({
           ...element,
           source: {
             functionName: "Checkout",
