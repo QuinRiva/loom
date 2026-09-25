@@ -143,7 +143,7 @@ Version comparison is numeric on `(major, minor)`: 4.8 < 5 < 5.5 < 6. The parser
 
 <Mermaid
   caption="One resolution path: refs live in the file, slugs leave the service"
-  source={"flowchart LR\n  file[settings.json\\nrefs + pins] --> cache[ServerSettingsService cache\\nraw]\n  cache --> mat[materialise: secrets → tier refs → text-gen provider]\n  cat[PiCatalogue\\nSubscriptionRef of slugs] --> mat\n  disk[(stateDir/pi-catalogue.json)] -. seed at boot .-> cat\n  pi[PiDriver.enrichPiSnapshot\\nevery 2 min] --> cat\n  mat --> server[spawn resolution · failover routing · text-gen · auto-bootstrap]\n  mat --> ws[WS settings snapshot + changes] --> web[web client: new-thread default, project overrides, settings UI]\n  web -. patch .-> guard[preserveModelTierRefs] --> cache\n"}
+  source={"flowchart LR\n  file[settings.json\\nrefs + pins] --> cache[ServerSettingsService cache\\nraw]\n  cache --> mat[materialise: secrets → text-gen provider → tier refs (last)]\n  cat[PiCatalogue\\nSubscriptionRef of slugs] --> mat\n  disk[(stateDir/pi-catalogue.json)] -. seed at boot .-> cat\n  pi[PiDriver.enrichPiSnapshot\\nevery 2 min] --> cat\n  mat --> server[spawn resolution · failover routing · text-gen · auto-bootstrap]\n  mat --> ws[WS settings snapshot + changes] --> web[web client: new-thread default, project overrides, settings UI]\n  web -. patch .-> guard[preserveModelTierRefs] --> cache\n"}
 />
 
 The seam is `apps/server/src/serverSettings.ts` — upstream-owned, so the three touch points are one-line `// loom:` hunks and everything else lives in `apps/server/src/modelTiers.loom.ts`:
