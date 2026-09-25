@@ -68,9 +68,12 @@ const PROCESSING_BUCKETS_MS = [
 /**
  * Written by `ProviderService` around each runtime-event `publish`, which
  * suspends while the bounded PubSub is full. `sinceMs` is when the current run
- * of in-flight publishes began.
+ * of in-flight publishes began; `inFlightMsTotal` is wall time with at least
+ * one in flight. That is suspended time in practice (a publish that does not
+ * suspend completes within one synchronous fibre run), but it is measured as
+ * in-flight, hence the name.
  */
-export const runtimeEventPublishBackpressure = { inFlight: 0, sinceMs: 0, suspendedMsTotal: 0 };
+export const runtimeEventPublishBackpressure = { inFlight: 0, sinceMs: 0, inFlightMsTotal: 0 };
 
 export const trackRuntimeEventPublish = <A>(publish: Effect.Effect<A>): Effect.Effect<A> =>
   Clock.currentTimeMillis.pipe(
@@ -86,7 +89,7 @@ export const trackRuntimeEventPublish = <A>(publish: Effect.Effect<A>): Effect.E
       Clock.currentTimeMillis.pipe(
         Effect.map((nowMs) => {
           if (--runtimeEventPublishBackpressure.inFlight === 0) {
-            runtimeEventPublishBackpressure.suspendedMsTotal +=
+            runtimeEventPublishBackpressure.inFlightMsTotal +=
               nowMs - runtimeEventPublishBackpressure.sinceMs;
           }
         }),
@@ -204,7 +207,7 @@ const makeInterval = (startedAtMs: number) => ({
   processing: makeHistogram(PROCESSING_BUCKETS_MS),
   sqlReadWaitMs: 0,
   engineDispatchWaitMs: 0,
-  publishSuspendedMsAtStart: runtimeEventPublishBackpressure.suspendedMsTotal,
+  publishInFlightMsAtStart: runtimeEventPublishBackpressure.inFlightMsTotal,
 });
 
 /**
@@ -226,7 +229,7 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
     engineEventPubSubSize.pipe(
       Effect.map((enginePubSubSize) => {
         const { lag, processing } = interval;
-        const publishSuspendedForMs =
+        const publishInFlightForMs =
           runtimeEventPublishBackpressure.inFlight > 0
             ? nowMs - runtimeEventPublishBackpressure.sinceMs
             : 0;
@@ -250,9 +253,9 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
           remainderMs: Math.round(
             processing.totalMs - interval.sqlReadWaitMs - interval.engineDispatchWaitMs,
           ),
-          publishSuspendedMs:
-            runtimeEventPublishBackpressure.suspendedMsTotal - interval.publishSuspendedMsAtStart,
-          publishSuspendedForMs,
+          publishInFlightMs:
+            runtimeEventPublishBackpressure.inFlightMsTotal - interval.publishInFlightMsAtStart,
+          publishInFlightForMs,
           lastProgressAgoMs: nowMs - lastProgressAtMs,
           enginePubSubSize,
         };

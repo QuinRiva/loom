@@ -1935,7 +1935,7 @@ it.effect("ProviderServiceLive suspends publish behind a stalled subscriber and 
         Effect.forkChild,
       );
       yield* Effect.yieldNow;
-      const suspendedMsBefore = runtimeEventPublishBackpressure.suspendedMsTotal;
+      const inFlightMsBefore = runtimeEventPublishBackpressure.inFlightMsTotal;
       for (const index of [1, 2, 3, 4, 5, 6]) {
         codex.emit({
           eventId: asEventId(`evt-backpressure-${index}`),
@@ -1953,7 +1953,7 @@ it.effect("ProviderServiceLive suspends publish behind a stalled subscriber and 
       yield* Fiber.interrupt(stalled);
       yield* advanceTestClock(0);
       assert.equal(runtimeEventPublishBackpressure.inFlight, 0);
-      assert.isAtLeast(runtimeEventPublishBackpressure.suspendedMsTotal - suspendedMsBefore, 1_000);
+      assert.isAtLeast(runtimeEventPublishBackpressure.inFlightMsTotal - inFlightMsBefore, 1_000);
     }).pipe(Effect.provide(providerLayer));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
