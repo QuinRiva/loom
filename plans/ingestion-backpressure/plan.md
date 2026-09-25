@@ -65,7 +65,7 @@ projection lag stays in seconds.
 4. `vp check`, `vp run typecheck` and the server test suite pass; the new unit tests
    (§5) pass.
 
-## 3. Design — four changes now, one staged; smallest model that makes the behaviour unsurprising
+## 3. Design — five changes now, one staged; smallest model that makes the behaviour unsurprising
 
 ### 3.1 End-to-end backpressure to the pi child's stdout (the root-cause fix)
 
@@ -171,6 +171,33 @@ as two fields inside `diagnostics/RuntimePerformanceMonitor.ts`'s existing `samp
 (that monitor logs a fixed object of V8/event-loop fields; it does not read Effect
 `Metric`s, and the OTLP metrics never reach the logs — so no `Metric` step).
 
+### 3.7 Stop loading the whole projection at boot (the ~2.3 GB baseline)
+
+Finding from loom thread `dc3604a6`'s read-only heap research (`docs/oom-thread-notes.md`):
+the main isolate sits at 2.1–2.3 GB live 30 s after boot with **zero agents**, and that
+baseline scales with activity + message volume (0.4 GB on a copy trimmed to 1/20). The
+allocation is `ProviderRuntimeIngestion.reconcileInterruptedToolActivitiesOnStartup`
+calling `projectionSnapshotQuery.getSnapshot()` — every thread's activities (458 k rows,
+970 MB of `payload_json`), messages (210 k) and checkpoints — to find in-progress tool
+activities on the few threads that have `session.activeTurnId` set and no live runtime
+session. The rows are then pinned by Effect rc.115 `Cache` entries that keep their
+lookup fiber (and its `cache.stackFrame`/`cache.span`) after exit; we cannot fix the
+library, so do not allocate the rows.
+
+Change: rewrite the reconcile to (1) list only sessions with an active turn — add a
+small `listWithActiveTurn` query to the thread-sessions repository
+(`WHERE active_turn_id IS NOT NULL`), (2) skip those with a live runtime session, and
+(3) for each remaining thread call `ProjectionThreadActivityRepository.listByThreadId`
+and apply the existing stuck-activity logic unchanged. Same behaviour, no full snapshot,
+no boot-time 1 GB JSON decode. Delete the `getSnapshot` import if it becomes unused.
+Existing tests for the startup reconcile must pass unchanged in intent.
+
+Related but out of scope (report to Carl): the sqlite **worker** isolate went from
+15 MB (effect beta.103, pre-pull-7) to 2.3–2.4 GB (rc.115) because `SqliteWorker`'s
+`prepareCache` entries retain their lookup fiber → span → `exit.args` holding the first
+result-row array of each cached statement. It adds to RSS (and to fork cost) but is not
+the OOM isolate.
+
 ### 3.6 Out of scope (deliberately)
 
 - The spawn storm (23 % of main thread in `fork`) — owned by
@@ -178,7 +205,6 @@ as two fields inside `diagnostics/RuntimePerformanceMonitor.ts`'s existing `samp
   indirectly by keeping RSS small.
 - Reducing engine command volume for reasoning (pull-7 behaviour change) — a UX
   decision for Carl, not needed once the pipeline is bounded.
-- The ~2.1 GB boot baseline (projection rehydration).
 - The usage-ledger `attempt to write a readonly database` bug — separate, loom thread
   `a0f8eb9a` is writing it up.
 - pi-side output buffering limits (see the accepted trade in §3.1).
@@ -238,7 +264,7 @@ is still installed) and report.
 1. Plan review (Fable 5.1 reviewer) → amend.
 2. Implement (Opus 5.5 coder) §3.1, 3.3, 3.4, 3.5 + the `domain`-path deletion + §5
    tests in this worktree; commit in logical pieces (`splitter+reader`, `backpressure`,
-   `raw`, `instrumentation`, `dead domain path`).
+   `raw`, `instrumentation`, `dead domain path`), then §3.7 (`startup reconcile`).
 3. Implementation review (Fable 5.1 reviewer): correctness of the backpressure chain,
    the bounded-PubSub hazard audit, ordering guarantees, test adequacy.
 4. Gate → `pnpm ship -m "…"` (loom's merge authority is `agent`) → `deployctl deploy main`.
@@ -253,3 +279,5 @@ is still installed) and report.
   (16/4 in-flight per child, driver 32 per instance, PubSub 256, worker 256); keyed
   worker staged to a follow-up; `close`-based driver teardown; `raw` destructured;
   dead `domain` path deleted; engine `eventPubSub` size logged.
+- v3: §3.7 added from the loom thread's heap research (boot-time `getSnapshot()` is the
+  2.3 GB baseline); sqlite-worker retention noted as out of scope.
