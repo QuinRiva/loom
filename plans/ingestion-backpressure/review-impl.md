@@ -254,3 +254,91 @@ suspensions inside `handleMessage` — `rerouteAndReprompt`'s RPC + 2 s sleep,
   the engine `eventPubSub` (logged as `enginePubSubSize`). pi-side buffering is the
   accepted trade. No new machinery beyond the plan except the watchdog ticker fibre,
   which is justified (a wedged worker cannot flush its own check).
+
+## Re-review of the fix pass
+
+Reviewed `git diff 26af30b44b..0a1583de2f -- . ':!plans' ':!docs'` (8 commits). Line
+numbers from the fix-pass tree. The new test file was run, then run again with the
+listener reverted to `runPromise(...).catch(...)` (fails: `expected Promise{…} to be
+undefined`); tree restored.
+
+**Verdict: APPROVE.**
+
+### 1. In-flight = handling that suspended — correct
+
+- `PiDriver.ts:2011-2016`: `Effect.runFork` → `pollUnsafe() === undefined` ? promise from
+  `addObserver` : `undefined`.
+- rc.115 `internal/effect.js:2426-2429`: `runForkWith` constructs the fibre and calls
+  `fiber.evaluate(effect)` inline; `evaluate` (`:430-448`) runs `runLoop` and sets
+  `this._exit = exit` synchronously unless the loop returned `Yield`. `pollUnsafe`
+  (`:427-429`) returns `_exit`. So a `Queue.offer` that lands synchronously
+  (`Queue.js:369-382`: append + `exitTrue` when not full) yields a non-undefined
+  `pollUnsafe()` at the call site; a full-queue offer goes through
+  `offerRemainingSingle` (`:382`), which suspends → `Yield` → `_exit` undefined.
+- `addObserver` on a not-yet-exited fibre queues the callback (`:393-397`) and `evaluate`
+  runs observers on exit (`:454-459`); the sync-callback branch (`:389-392`) is only
+  reachable if the fibre exited between `pollUnsafe` and `addObserver`, which cannot
+  happen on one thread. No `unhandled`/orphan reporter exists in `internal/effect.js`
+  (grep), so a failure exit is still swallowed exactly as before — the observer ignores
+  the exit and nothing else reads it.
+- Only distortion: a cooperative yield. `Scheduler.js:121-122` yields when
+  `currentOpCount >= MaxOpsBeforeYield` (2048, `:206-209`), per fibre (reset per
+  `runLoop`, `effect.js:466`). A `handleMessage` run over 2048 ops would return a
+  promise that settles on the next `setImmediate`. A delta handler is tens of ops; not a
+  concern.
+- Test `PiDriver.backpressure.test.ts:101-125` with `Queue.bounded(1)`: `turn_start`,
+  `message_start`, first delta → `undefined`; second delta → Promise, still pending a
+  macrotask later; resolves after `Queue.take`. Fails on the old listener at the first
+  assertion (confirmed).
+- `RpcProcess.ts:520-526`: plain loop, returns the single promise (non-blocking 7 done).
+
+### 2. `blockedSinceMs` — correct, no false-positive path found
+
+- `ProviderRuntimeIngestionTelemetry.ts:327-336`: `min(inFlight > 0 ? sinceMs : Infinity,
+  min(...pausedSince.values()))`. `Math.min()` of an empty spread is `Infinity`, and
+  `decideIngestionLiveness` (`:159-165`) treats pending as
+  `queueDepth > 0 || blockedSinceMs <= previousCheckAtMs`; `Infinity` never satisfies it.
+- Progress overrides: `stalledChecks` only increments when
+  `lastProgressAtMs <= previousCheckAtMs` (`:161-162`), so a long-paused stream with
+  ingestion progressing resets to 0 — covered by the new test case
+  (`…Telemetry.test.ts:66-74`).
+- Map hygiene (`RpcProcess.ts`): `pause` sets `pausedSince.set(stream, pausedAtMs)`
+  (`:356`) only when `!paused && !released` (`:351`); `resume` deletes (`:336`) and is
+  the single path out of `paused`; `release()` (`:374-377`) sets `released` then calls
+  `resume()`, so an entry cannot outlive the pause; `release` runs on the child's `exit`
+  (`:549`), registered at creation — before the driver's own `exit` listener. A child that
+  never spawns never emits `data`, so never pauses. One reader per stream, so keying by
+  `stream` (rather than the suggested fresh object) is equivalent.
+- After fix 1, a pause means ≥16 suspended handling fibres on one child; the only
+  non-queue suspensions inside `handleMessage` hold one slot each (prior review, Q2a),
+  so "paused across two checks with no ingestion progress" is a wedge downstream of the
+  reader. `pausedSince` uses `Date.now()` while the check uses `Clock.currentTimeMillis`
+  — identical under the live clock, and `watchLiveness` is real-clock only.
+- `piStdoutPausedNow`/`piStdoutPausedForMs` on the warn/escalate line (`:339-345`) make
+  an upstream-of-publish wedge legible in the log, as intended.
+
+### 3. Re-arm cap, exit + 5 s fallback, rename — no regression, no double run
+
+- `RpcProcess.ts:399-411`: `rearms++ < maxRearms && (isPaused || pauseCount changed)`
+  re-arms; the 11th fire falls through to `onTimeout`. Cancel still clears the current
+  timer. Test `RpcProcess.test.ts:206-214` (cap 3, permanently paused: fires at 4×).
+- `PiDriver.ts:2017-2058`: single `teardown` guarded by `tornDown`; `close` (`:2055`)
+  and the `exit`-armed 5 s timer (`:2056-2058`) both call it; `teardown` clears the
+  timer first (`:2020`). Orders: close→timer (timer cleared), timer→close (`tornDown`),
+  close-before-exit (`tornDown`, timer no-ops). The `replacedProcesses` early return
+  (`:2021`) precedes `tornDown = true`, but both paths return without side effects, and
+  `replacedProcesses.add(previous)` (`:2084`) happens before `previous.stop()`, so a
+  relaunched child's fallback timer is inert. The `sessions.get(...) === active` guard
+  (`:2026-2027`) is kept. Fallback teardown while a dead child's tail is still draining
+  can emit a few events after `session.exited` — identical to pre-change `exit`
+  behaviour and only on the grandchild-holds-fd path.
+- Exit→close ordering test `PiDriver.backpressure.test.ts:129-143` asserts
+  `content.delta` then `session.exited`.
+- Rename: no stale `suspendedMsTotal`/`publishSuspended*`/`pausedNow` references in
+  `apps/` or `packages/` (rg). `plan.md` still says `publishSuspendedMs`; the notes flag
+  it for the §6 reader. Fine.
+
+Tests: `PiDriver.backpressure.test.ts`, `RpcProcess.test.ts`,
+`ProviderRuntimeIngestionTelemetry.test.ts` → 21 passed. Coder's gate run at
+`06281d82e5` (check, typecheck, server+shared suites, unmarkedsweep) accepted as
+reported.
