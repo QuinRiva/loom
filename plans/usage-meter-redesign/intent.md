@@ -3,6 +3,10 @@ manager_sessions:
   - id: b2be7361-1db1-4eea-a48d-95f90d280f04
     role: intent
     authored_at: 2026-09-25T13:17:51.152Z
+  - id: 92f09b61-1704-4220-a043-94cacddcf2f5
+    name: Usage meter intent — rulings on mockup v2 folded in (planner 92f09b61)
+    role: intent
+    authored_at: 2026-09-25T13:56:09.121Z
 ---
 
 # Usage meter — intent brief
@@ -17,14 +21,14 @@ The human runs many concurrent agent threads through a cli-proxy hub that round-
 
 **Tier 1 — pool-level, always visible, read several times a day**
 
-1. **Will I have to stop?** — 5-hour budget across the pool: remaining, and *time-to-empty at the current burn* against the reset time and the remaining working day. "70% left at 4:30 pm, well over pace" is fine; "50% left at 10 am, slightly over pace" is not. Percentage alone cannot express this; time can.
+1. **Will I have to stop?** — 5-hour budget across the pool: remaining, and *time-to-empty at the current burn* against the reset time. "70% left at 4:30 pm, well over pace" is usually fine; "50% left at 10 am, slightly over pace" is not. Percentage alone cannot express this; time can. The meter must **not** assume when the working day ends: that is dynamic (extra work when subs are expiring unused, an early finish for a meeting or the gym), so it shows *when* the burn empties the window and leaves *whether* that matters to the human.
 2. **Can I afford a discretionary task now, or should it wait for spare budget?** — the same quantity one step on: budget beyond what planned work will consume before reset.
 3. **Fable or Opus for this new orchestrator?** — pooled Fable-weekly pace (fill vs elapsed share). Under pace → Fable; over pace → compromise to Opus. Read at every orchestrator start, so this is routine, not exceptional, and it is genuinely about *pace*.
 
 **Tier 2 — per-sub, always present but compact; exists to show divergence, not to repeat the pool five times**
 
 4. **Each sub's 5-hour position and reset.** Round-robin is only roughly even: the five 5-hour clocks reset up to ~90 min apart, one orchestrator thread can draw ~$200 while siblings draw ~$20, so subs diverge over short periods. The 5-hour window is the most important per-sub figure.
-5. **Weekly and Fable-weekly as two-sided exception marks per sub.** *Risk*: near max or projected to hit max before its reset ("this sub stops and won't return for N days"). *Opportunity*: plenty left and resetting soon ("this expires unused — spend it here"). Silent otherwise; detail on hover. Never a permanent column.
+5. **Weekly and Fable-weekly as two-sided exception marks per sub.** *Risk*: near max (≥85%) or far enough over pace (≥20 pts) to hit max before its reset ("this sub stops and won't return for N days"). *Opportunity*: ≥20% still left and the weekly resets within 24 h — the Friday-afternoon question "I'm at 75%, resets Monday night: can I run weekend work on this sub without drawing it down and being unusable on Monday?" — so the hover shows the remaining % and the reset's weekday and time. Silent otherwise; detail on hover. Never a permanent column.
 6. **The week has two reading modes.** Early in the week the human reads at pool level; in the last ~36 hours, when some subs reset in hours and others in 1.5 days (weeklies reset up to ~36 h apart), attention moves to individual subs. The per-sub rows should therefore gain visual weight as their resets approach and as they diverge from the pool, rather than being equally loud all week.
 
 **Tier 3 — occasional**
@@ -41,6 +45,7 @@ The human runs many concurrent agent threads through a cli-proxy hub that round-
 
 ## Key constraints
 
+- **No dependency on cli-proxy.** A pool is every account sharing a vendor/driver, from whatever source publishes it — a cli-proxy hub snapshot, the pi instance's per-account token-file windows, a direct provider, or a future multi-account source for Anthropic, Grok, Gemini or OpenAI. The meter groups by driver and renders every pool (Codex included) through one path; only "last served by" is source-specific, and optional.
 - **Vertical space is precious.** All three rejected options (150–200 px) were "too much vertical space, too cluttered". The footer slot is ~248 px wide in a 16 rem sidebar.
 - Pace must be *visual* (tick/marker), never words (ruling B).
 - `% used` convention everywhere (ruling Q1). Codex red-at-zero is accepted as design: an exhausted weekly may colour a row.

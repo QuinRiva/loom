@@ -1,13 +1,16 @@
 # Usage meter — designed from the hierarchy
 
-<Callout tone="decision">
-  **What you are deciding.** The shape of the sidebar usage meter, before any code. The
-  argument is the table below: each decision the meter serves, the smallest signal that
-  answers it, and where that signal lands. Three approaches then differ in *how* they
-  communicate the same signals — not in which windows they show. Each has a `ReviewChoice`;
-  the three calls the intent brief leaves open are in the `QuestionForm` at the bottom.
-  **Silence defaults to the recommendation (Timeline).** A standalone real-size mockup of it
-  is at `.artifacts/usage-meter-mockup-v2-20260926/index.html`.
+<Callout tone="success">
+  **Accepted: Approach A — Timeline**, with four rulings folded in. (1) The meter carries
+  **no end-of-working-day**: the day is dynamic, so the ▼ empty marker is pure geometry and
+  the human reads it against plans only they know. (2) **Opportunity ▽ = ≥20% left and the
+  weekly resets within 24 h** — "can I spend the remainder before Monday night without
+  stranding myself"; risk ▲ as drawn. (3) **Codex is always a row** under the pool; the
+  footer is a fixed 128 px. (4) The data model is **provider-agnostic**: a pool is every
+  account sharing a driver, from whatever source publishes it — cli-proxy is one source,
+  never a requirement. The argument is the table below; the artboards are real size; the
+  standalone mockup is at `.artifacts/usage-meter-mockup-v2-20260926/index.html`.
+  Implementation may start from this document.
 </Callout>
 
 ## The hierarchy
@@ -20,21 +23,21 @@ does not belong in the footer at all.
   density="compact"
   columns={["Decision (tier)", "Minimum signal that answers it", "Where it lands"]}
   rows={[
-    ["1 · Will I have to stop? (T1)", "Pool 5-hour: the projected time-to-empty at the current burn, compared with the reset and the end of the working day. A percentage cannot say this; a time can.", "Footer line 1 (text) and the pool bar's ▼ marker; the header chip"],
+    ["1 · Will I have to stop? (T1)", "Pool 5-hour: the projected time-to-empty at the current burn, placed against the reset. A percentage cannot say this; a time can. Whether the stop matters is the human's to judge — the meter assumes nothing about when the day ends.", "Footer line 1 (text) and the pool bar's ▼ marker; the header chip"],
     ["2 · Discretionary task now, or wait? (T1)", "Headroom against pace: how far the pool fill sits behind the now-line.", "The same pool bar — no extra element"],
     ["3 · Fable or Opus for this orchestrator? (T1)", "Pooled Fable-weekly fill against the week's elapsed share: a tick on a bar, never words.", "Footer line 3; the header chip"],
     ["4 · Each sub's 5-hour position and reset (T2)", "Five bars whose ends are their resets and whose fill is their spend, plus a countdown.", "Five 11 px rows"],
-    ["5 · Weekly / Fable exceptions per sub (T2)", "One two-sided mark — ▲ risk (near max, or ≥20 pts over pace) or ▽ opportunity (≤50% used, resets within 12 h) — silent otherwise; the reason on hover.", "A glyph before the row's countdown; the popover"],
+    ["5 · Weekly / Fable exceptions per sub (T2)", "One two-sided mark — ▲ risk (≥85% used, or ≥20 pts over pace) or ▽ opportunity (≥20% left and the weekly resets within 24 h: spend the remainder before then without stranding the sub) — silent otherwise; the remaining % and the reset's weekday + time on hover.", "A glyph before the row's countdown; the popover"],
     ["6 · Two reading modes across the week (T2)", "Marked rows take colour and weight; unmarked rows stay muted. Nothing moves and nothing grows.", "The same rows"],
     ["7 · Which sub a thread is drawing from (T3)", "\u201cLast served by carl3@ · 4 m ago\u201d, an observation, never a binding. A live-thread count per sub.", "The thread header; a line in the sub popover — slice 2, task c61fa90a"],
     ["8 · Overall weekly (T3)", "Covered by the ▲ rule; no permanent column.", "Glyph and hover only"],
     ["9 · Override (T3)", "The model picker's direct anthropic-<tag> provider; loom cannot move a thread inside the pool.", "A link in the popover footer"],
+    ["Other pools (Codex today; any driver that reports)", "The same row path: a one-account pool is one row on its own axis, name red when a window is exhausted.", "A row under the Claude pool, always"],
   ]}
 />
 
 Deliberately **not** in the footer: any weekly percentage, any weekly reset, the Fable
-carve-out per sub, pace as a word, Codex (unless its weekly is ≥80% — it is 100% today, so
-it shows as one red exception line), and any account not in the pool.
+carve-out per sub, pace as a word, and any account no source reports.
 
 @@IN_PLACE@@
 
@@ -44,26 +47,30 @@ One wall-clock axis for everything in the 5-hour tier: the pool's window and eac
 The bar *is* the window — its right end is the reset, its fill the spend. A single
 vertical now-line runs through all six bars: **fill past the line is over pace**, and the
 gap between the line and a bar's end is its time to reset, so the staggered 5-hour clocks
-read as geometry rather than as five countdowns. A ▼ marks where the current burn empties
-a window when that lands before its reset — **amber** if it also lands before the end of
-the working day, **hollow grey** if the day ends first. The dashed line is the end of the
-working day when it falls inside the axis. The Fable line is a plain pace bar on the week.
+read as geometry rather than as five countdowns. An amber ▼ marks where the current burn
+empties a window when that lands before its reset: its distance from the now-line is the
+time to empty, its distance from the bar end the gap that would be sat out. The Fable line
+is a plain pace bar on the week. Codex, a one-account pool, is the last row through the
+same path, on its own axis.
 
-Heights are fixed: **111 px in every state, 128 px while Codex's weekly is in
-exception**. Nothing reflows as thresholds cross.
+Height is fixed: **128 px in every state**. Nothing reflows as thresholds cross.
 
 @@A_STATES@@
 
-The pair the brief asks the meter to distinguish. Same used percentage on the left as at
-10 am in the danger state above; the geometry says why one is a stop and the other is not.
+The pair the brief asks the meter to distinguish. Both carry a ▼ before the reset; what
+differs is *where*: 2.5 h from now against a 3 h reset at 10:00, 3 h from now at 16:30
+(empty at 19:25). The meter says **when** the burn empties the window, never **whether**
+that matters — that depends on the evening, the meeting or the gym only the human knows.
 
 @@A_PAIR@@
 
 Weekly exceptions in the last 36 hours: jacob@ (91%, resets in 4 h) and carl4@ (88%,
-resets in 1.5 days) carry ▲; caaarl@ (35%, resets in 9 h) carries ▽ — spend there. In the
-real mid-week reading only carl4@'s Fable clock (77% at 47% of the week) earns a mark.
+resets in 1.5 days) carry ▲; carl@ (66%, resets Sat 05:30) and caaarl@ (35%, resets in
+9 h) carry ▽ — each has ≥20% to spend before a reset inside 24 h. In the real mid-week
+reading only carl4@'s Fable clock (77% at 47% of the week) and Codex's exhausted weekly
+earn a mark.
 
-<ReviewChoice itemId="approach-a" label="Approach A — Timeline (recommended)" placeholder="Reject → name B or C, or say what the axis fails to tell you" />
+<ReviewChoice itemId="approach-a" label="Approach A — Timeline (accepted)" placeholder="Accepted; annotate only if a ruling above was folded in wrongly" />
 
 ### Hover and the header chip
 
@@ -79,9 +86,8 @@ real mid-week reading only carl4@'s Fable clock (77% at 47% of the week) earns a
 The headline is a **figure**, not a bar: hours of work left in the pool at the current
 burn, beside the reset. Bars shrink to 28 px pace glyphs, and the five subs become a strip
 of columns with their marks above — shape only; their resets and projections live on
-hover. **~83 px.** The cheapest in height and the most numeric; it loses the per-sub reset
-stagger and the end-of-day comparison, and after a reset or a reload the figure reads "—"
-for ten minutes.
+hover. **~100 px.** The cheapest in height and the most numeric; it loses the per-sub
+reset stagger, and after a reset or a reload the figure reads "—" for ten minutes.
 
 @@B_STATES@@
 
@@ -93,7 +99,7 @@ Normalised 0–100 bars with the pace tick, the convention the Limits page alrea
 rows that earn their height: a **quiet** sub is a 6 px line, a sub that diverges ≥15 pts
 from the pool, resets within 30 min or will empty before its reset is **raised** to a
 12 px row with its numbers, and a sub with a weekly mark is **loud** at 21 px with the
-weekly reason under it. **97–133 px depending on the state.** The most attention-shaped
+weekly reason under it. **114–165 px depending on the state.** The most attention-shaped
 of the three; the cost is a footer that changes height as thresholds cross, and five bars
 that cannot be compared for reset order without reading five countdowns.
 
@@ -103,19 +109,43 @@ that cannot be compared for reset order without reading five countdowns.
 
 ## Recommendation
 
-Timeline. It is the only approach where the tier 1 question is answered by *position*
-(where the ▼ lands relative to the bar end and the dashed line) rather than by reading
+Timeline, accepted. It is the only approach where the tier 1 question is answered by
+*position* (where the ▼ lands relative to now and to the bar end) rather than by reading
 two numbers, and the only one where the five 5-hour clocks are comparable at a glance
-without five countdowns — while staying fixed-height at 111 px against the rejected 150–200 px. What would change it: if the 4 px bars are unreadable at real size on your
-display, or the ▼ and dashed markers do not register without the legend, Weighted rows is
-the fallback (same data derivation; only the bar geometry differs).
+without five countdowns — while staying fixed-height at 128 px against the rejected
+150–200 px. Weighted rows remains the fallback if the 4 px bars prove unreadable at real
+size (same data derivation; only the bar geometry differs).
 
 ## Data
 
+**Pools are provider-agnostic.** A pool is every account sharing a `driver`, from whatever
+source publishes it; the meter never asks which. `meterPools()` in
+`apps/web/src/loom/subscriptionMeter.ts` already does this:
+`collectLimitAccounts(presentations)` (`packages/shared/src/usageLimits.ts`) merges native
+provider instances with every hub snapshot on `driver:email`; `splitLoomPiAccount` then
+unfolds the pi instance's account-encoded windows (`accountKey:label:kind[:scope]`,
+`packages/shared/src/usageWindowId.ts`) into one synthetic account per label; and
+`collectLimitPools` groups the lot by driver. What the rebuild adds on top:
+
+- **One identity per account across sources.** A hub row is keyed by email; a pi
+  token-file row only by its label (`carl3`). Within a driver, rows merge on the display
+  label — the email's local part, or the pi label — and the fresher `checkedAt` wins,
+  the rule `collectLimitAccounts` already applies to two reports of one email. Today the
+  poller's Claude arms stand down while a hub is registered (PR #268), so the merge is
+  a safety rule, not a daily path; it is what lets a direct `anthropic-<tag>` provider, a
+  second hub kind, or a Gemini/Grok/OpenAI multi-account source land in the same rows.
+- **Window roles by `kind`, not by id.** The 5-hour tier is the pool's `session` window
+  (`five_hour` from a hub, `primary` from pi, Codex's `primary` alike); the weekly is
+  `weekly`; a `weekly` window carrying a model scope (`seven_day_<model>` / pi
+  `secondary:<model>`) is the per-model carve-out — the Fable line when the pool reports
+  one, absent otherwise. A one-account pool (Codex today) is one row on its own axis; its
+  weekly shows through the mark rule and the hover, as every other row's does.
+- **Nothing here depends on cli-proxy.** Remove the hub and the same rows render from
+  whatever else reports.
+
 **Time-to-empty needs a burn rate the wire does not carry.** Each account window arrives
 as `usedPercent`, `resetsAt`, `windowDurationMins` every 5 minutes via
-`subscribeServerConfig` (`UsageLimitSourceSnapshot`, `apps/server/src/usage/UsageLimitSources.ts`).
-The rate is derived **client-side** in `apps/web/src/loom/subscriptionMeter.ts`:
+`subscribeServerConfig`. The rate is derived **client-side** in `subscriptionMeter.ts`:
 
 - A module-level ring keyed `${account.key}:${window.id}` keeps the last **6 readings**
   (30 min) of `(checkedAt, usedPercent)`, appending only when `checkedAt` changes; it is
@@ -136,20 +166,20 @@ blind spot after reloads proves annoying, or mobile wants the meter, the same ri
 into a `usageBurn.loom.ts` beside the poller and publishes one `// loom:` field — about
 40 lines relocated.
 
-**End of working day** is a constant, 18:00 local, in `subscriptionMeter.ts` (question 1).
-
 **Slice 2 — last served by, live-thread counts** (task c61fa90a, researcher report
-`322ce596`): the hub names the account on every response in `X-Cpa-Trace-Id`; a
-loom-injected pi extension forwards it and the server maps index → email. That gives the
-thread header a "carl3@ · 4 m ago" chip and the sub popover a "3 live threads" line, both
-drawn greyed in the popover above. Nothing in the footer waits on it.
+`322ce596`) is the one **source-specific** piece: a cli-proxy hub names the account on
+every response in `X-Cpa-Trace-Id`; a loom-injected pi extension forwards it and the
+server maps index → email. That gives the thread header a "carl3@ · 4 m ago" chip and the
+sub popover a "3 live threads" line, both drawn greyed in the popover above. It is optional
+per source — a source that cannot name the serving account simply has no line — and
+nothing in the footer waits on it.
 
 <FileTree
   title="Implementation sketch (after acceptance) — ~200 lines web, no server or contract change"
   entries={[
-    { path: "apps/web/src/loom/subscriptionMeter.ts", change: "modified", note: "derive the shared axis, per-sub rows, projections (ring + fallback), weekly marks, pool means; the reading ring" },
+    { path: "apps/web/src/loom/subscriptionMeter.ts", change: "modified", note: "derive the shared axis, per-account rows, projections (ring + fallback), weekly marks, pool means, cross-source identity merge, window roles by kind; the reading ring" },
     { path: "apps/web/src/loom/SubscriptionMeter.tsx", change: "modified", note: "SVG timebar/pacebar; rows replace the per-driver bars; popover per sub; chip carries tier 1 only" },
-    { path: "apps/web/src/loom/subscriptionMeter.test.ts", change: "modified", note: "projection, marker rule (reset vs end of day), mark thresholds, ring reset on the three fixture states" },
+    { path: "apps/web/src/loom/subscriptionMeter.test.ts", change: "modified", note: "projection, marker rule, mark thresholds, ring reset, hub/pi identity merge and a hub-less pool on the three fixture states" },
     { path: "apps/web/src/components/usage/UsageLimitsPooled.tsx", change: "modified", note: "export accountHue so meter and Limits colour a sub identically" },
     { path: "apps/web/src/preview/fixtures.tsx", change: "modified", note: "the three states as preview-harness fixtures for the /preview route" },
   ]}
@@ -159,51 +189,22 @@ drawn greyed in the popover above. Nothing in the footer waits on it.
 
 Preview harness (`docs/web-component-preview.md`) with the three fixture states: the
 now-line is one continuous vertical across pool and rows, the ▼ sits before the bar end
-only in the danger state and is hollow at 16:30, the Fable tick sits right of the fill in
-the last-36-hours state, and the footer measures ≤ 128 px in every state. Then the
-dev-verify recipe on a `VACUUM INTO` copy of the cockpit DB with the hub registered (its
-management key is wrong today and must be fixed first): five rows match Usage → Limits for
-the same accounts; collapse the sidebar and the chip shows the 5-hour bar and Fable tick;
-hover a row and the popover lists 5-hour, weekly and Fable with resets. `vp check` and
-`vp run typecheck` green.
+in the danger and late-afternoon states and nowhere else, the Fable tick sits right of the
+fill in the last-36-hours state, Codex is the last row, and the footer measures 128 px in
+every state. Then the dev-verify recipe on a `VACUUM INTO` copy of the cockpit DB twice:
+with the hub registered (its management key is wrong today and must be fixed first), five
+rows match Usage → Limits for the same accounts; with the hub source disabled in
+`settings.json`, the same rows come from the pi instance's token-file windows and nothing
+in the footer is missing. Collapse the sidebar and the chip shows the 5-hour bar and Fable
+tick; hover a row and the popover lists 5-hour, weekly and Fable with weekday resets.
+`vp check` and `vp run typecheck` green.
 
-<QuestionForm
-  questions={[
-    {
-      id: "eod",
-      title: "Where does the end of the working day come from?",
-      subtitle: "The dashed line and the amber-versus-hollow rule for the empty marker both depend on it.",
-      refs: [{ label: "Approach A — Timeline (recommended)", anchor: "approach-a-timeline-recommended" }],
-      mode: "single",
-      options: [
-        { id: "const", label: "A fixed 18:00 local, as a constant in the meter code", recommended: true, detail: "One line; change it in code if the day moves." },
-        { id: "setting", label: "A setting in settings.json (usageMeter.workingDayEnd)", detail: "Editable without a deploy; costs a settings key and a schema line." },
-        { id: "none", label: "No end-of-day at all", detail: "Every projected empty before a reset is amber; 16:30 reads the same as 10:00." },
-      ],
-    },
-    {
-      id: "marks",
-      title: "Thresholds for the ▲ risk and ▽ opportunity marks",
-      subtitle: "Risk fires when a weekly or Fable-weekly clock is near max or far enough over pace to hit max before it resets; opportunity when plenty is left and the reset is close.",
-      refs: [{ label: "The hierarchy", anchor: "the-hierarchy" }],
-      mode: "single",
-      options: [
-        { id: "drawn", label: "As drawn: risk at ≥85% used or ≥20 pts over pace; opportunity at ≤50% used and resets within 12 h", recommended: true, detail: "One mark in the real mid-week reading (carl4@ Fable), three in the last-36-hours state." },
-        { id: "max-only", label: "Risk only at ≥85% used; no pace test", detail: "Quieter mid-week; a sub racing towards its weekly max is not flagged until it is nearly there." },
-        { id: "wider", label: "Opportunity within 24 h rather than 12 h", detail: "More ▽ marks on the last full day; the mark becomes routine, not exceptional." },
-      ],
-      allowOther: true,
-    },
-    {
-      id: "codex",
-      title: "Does Codex share the footer?",
-      subtitle: "Codex is one Plus account read from the pi instance, not the hub; its weekly is 100% today and resets in 2 days.",
-      mode: "single",
-      options: [
-        { id: "exception", label: "One line only while its weekly is ≥80% (as drawn, red at 100%)", recommended: true, detail: "Silent the rest of the time; the Limits page keeps the full picture." },
-        { id: "always", label: "Always a line under the pool", detail: "+12 px in every state." },
-        { id: "never", label: "Never in the footer", detail: "Limits page only; the header chip stays Claude-only too." },
-      ],
-    },
-  ]}
-/>
+## Decided
+
+- **End of working day** — none. Rejected on its premise: the day is dynamic (extra work
+  when subs are expiring unused, an early finish for a meeting or the gym), so any fixed
+  time would mislead. The ▼ is pure geometry; time-to-empty appears as a clock time on
+  hover.
+- **Mark thresholds** — risk ▲ at ≥85% used or ≥20 pts over pace; opportunity ▽ at
+  ≥20% left and the weekly resets within 24 h.
+- **Codex** — always a row under the pool, through the same path as every account.
