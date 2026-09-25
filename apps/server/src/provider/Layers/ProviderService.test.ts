@@ -1873,9 +1873,11 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
       ),
     );
 
-    yield* Effect.gen(function* () {
-      yield* ProviderService.ProviderService;
+    const published = yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
       yield* advanceTestClock(10);
+      const firstPublished = yield* Stream.runHead(provider.streamEvents).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
       codex.emit({
         eventId: asEventId("evt-canonical-thread-segment"),
         provider: ProviderDriverKind.make("codex"),
@@ -1885,13 +1887,20 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
         payload: {
           state: "completed",
         },
+        raw: { source: "codex.app-server.notification", payload: { big: "payload" } },
       });
       yield* advanceTestClock(20);
+      return yield* Fiber.join(firstPublished);
     }).pipe(Effect.provide(providerLayer));
 
     assert.equal(canonicalEvents.length, 1);
     assert.equal(canonicalEvents[0]?.threadId, "thread-canonical-thread-segment");
     assert.deepEqual(canonicalThreadIds, ["thread-canonical-thread-segment"]);
+    // loom: `raw` is written to the canonical log but never published.
+    assert.deepEqual(canonicalEvents[0]?.raw?.payload, { big: "payload" });
+    const publishedEvent = Option.getOrThrow(published);
+    assert.equal(publishedEvent.eventId, "evt-canonical-thread-segment");
+    assert.equal("raw" in publishedEvent, false);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

@@ -1217,7 +1217,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ? canonicalEventLogger.write(canonicalEvent, canonicalEvent.threadId)
           : Effect.void,
       ),
-      Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
+      // loom: `raw` stops at the canonical log. Nothing downstream reads it, and
+      // for pi it is a second reference to the parsed stdout message (up to
+      // multi-MB tool results) held by every queued event. The logger already
+      // summarises events over 64 KB, so large `raw`s were never kept anyway.
+      Effect.flatMap(({ raw: _raw, ...published }) =>
+        PubSub.publish(runtimeEventPubSub, published),
+      ),
       Effect.asVoid,
     );
 
