@@ -1647,6 +1647,17 @@ how a stale entry survives. Three are now void:
   `mdx-visual-recap` skills, the review blocks) are a different product surface,
   unrelated to and unaffected by that deletion. There is nothing to restore.
 
+One entry added since:
+
+- **Runtime-ingestion `domain` input** — dropped (ingestion backpressure).
+  Upstream's `ProviderRuntimeIngestion.ts` still carries `processDomainEvent`,
+  the `domain` member of the worker's input union and the `streamDomainEvents`
+  subscription (`thread.turn-start-requested`) that feeds it. The handler is
+  `Effect.void`, so the path cost a second engine subscription and worker slots
+  for no-ops in front of the now-bounded ingestion worker; loom deletes it. A
+  merge that brings any of the three back is a resolution error; if upstream
+  edits inside them the conflict is visible — keep the deletion.
+
 **The v1 sidebar.** `apps/web/src/components/LegacySidebar.tsx` is byte-identical
 to upstream and carries no `// loom:` hunk; the only fork code near it
 (`useThreadTabKeyboard` in `routes/_chat.tsx`) is tab-strip keyboard wiring, not
