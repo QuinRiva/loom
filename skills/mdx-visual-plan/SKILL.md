@@ -73,13 +73,8 @@ silently. **Always run the render-health check on your `.mdx` file and fix every
 finding BEFORE telling the user the plan is ready:**
 
 ```
-node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx
+node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx --out plans/<slug>/render.html
 ```
-
-Add `--out <doc-dir>/render.html` to also keep the rendered page (stylesheet
-inlined, images resolved) and open that to LOOK at the document — the supported
-way to check it visually, instead of booting a dev server. Write it beside the
-document, or its images will not load in-app.
 
 It runs two stages against the real renderer modules: **lint** (compile gate,
 block registry, zod schemas, mermaid parser, wireframe sanitiser) reporting
@@ -93,6 +88,11 @@ Fix all `error` findings; read each `warning` and fix it unless the degradation
 is genuinely intended. Exit code 0 is the gate: it means the document compiles
 AND renders, so it will display in-app. Lint findings alone are not sufficient
 evidence — do not hand a plan to the user on an unrun or non-zero check.
+
+`--out` also writes the rendered page beside the plan so you can look at it
+before handing off; how, and why it must sit beside the document, is in
+[`document-quality.md`](../mdx-doc-core/references/document-quality.md) under
+"Before handoff, look at the rendered document".
 
 If a document passes this check but a human reports it looking broken (JSX shown
 as literal escaped text), the document is healthy — that signature is the plain

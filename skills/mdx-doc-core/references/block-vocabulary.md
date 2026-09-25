@@ -275,9 +275,9 @@ enough.
 Shows an image **file that lives beside the document on disk** — a screenshot of
 a real screen, an exported chart, a photo of a whiteboard. `src` is the path
 **relative to the document** (`shots/before.png` for
-`recaps/<slug>/shots/before.png`); an absolute host path and an `https:` /
-`data:` URL also work. `alt`, `caption`, and `width` (a px cap; the image keeps
-its aspect ratio) are optional.
+`recaps/<slug>/shots/before.png`); an absolute host path or an `https:` URL
+also works. `alt`, `caption`, and `width` (a px cap; the image keeps its aspect
+ratio) are optional.
 
 ```mdx
 <Image
@@ -288,9 +288,8 @@ its aspect ratio) are optional.
 />
 ```
 
-The path resolves against the document's own directory and the bytes are served
-from the environment host through a signed asset URL — so write the image next to
-the `.mdx` and reference it by relative path. Practical notes:
+Write the image next to the `.mdx` and reference it by relative path. Practical
+notes:
 
 - **Markdown image syntax works too**: `![alt](shots/before.png)` resolves the
   same way (same signing, same lint checks). Use `<Image>` when you want a
@@ -299,10 +298,10 @@ the `.mdx` and reference it by relative path. Practical notes:
   the reading column is ~900 px, so anything wider only pays for retina.
 - A missing file is a **lint error** (`<Image> file not found: …`) — the linter
   resolves every `src` against the document's directory and checks the disk.
-- Do **not** base64 a screenshot into an `html` attribute: `<Screen>`/`<Design>`
-  cap `html` at **200,000 characters** and `<HtmlBlock>`/`<Prototype>` at
-  **500,000**, a data-URI bloats the source by ~33%, and `<Image>` is the
-  supported path for a picture.
+- Do **not** base64 a screenshot into an `html` attribute or a `data:` `src`:
+  `<Screen>`/`<Design>`/`<Artboard>` cap `html` at **200,000 characters**,
+  `<HtmlBlock>`/`<Prototype>` at **500,000**, and `src` at 2,000 — a real
+  screenshot does not fit, and `<Image>` pointing at a file is the supported path.
 
 ### `<QuestionForm>` — the bottom Open Questions block
 

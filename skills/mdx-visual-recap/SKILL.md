@@ -56,13 +56,8 @@ them to open, triage, and decide in-app.
 ## Validate before presenting (mandatory)
 
 ```
-node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx
+node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx --out recaps/<slug>/render.html
 ```
-
-Add `--out <doc-dir>/render.html` to also keep the rendered page (stylesheet
-inlined, images resolved) and open that to LOOK at the document — the supported
-way to check it visually, instead of booting a dev server. Write it beside the
-document, or its images will not load in-app.
 
 This is the render-health gate, in two stages against the real renderer
 modules: **lint** (compile gate, block registry, zod schemas) reporting
@@ -77,6 +72,11 @@ Fix all `error` findings and read each `warning` before handing the document
 back. Exit code 0 is the gate — it means the recap compiles AND renders, so it
 will display in-app; lint findings alone are not sufficient evidence, so never
 hand a recap back on an unrun or non-zero check.
+
+`--out` also writes the rendered page beside the recap so you can look at it
+before handing off; how, and why it must sit beside the document, is in
+[`document-quality.md`](../mdx-doc-core/references/document-quality.md) under
+"Before handoff, look at the rendered document".
 
 If a reviewer reports the recap looking broken (JSX shown as literal escaped
 text) after a passing check, the document is healthy — that signature is the
