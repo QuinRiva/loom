@@ -505,11 +505,13 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
         }
       }
     }
-    const inFlight = [...listeners].flatMap((listener) => {
+    let inFlight: Promise<unknown> | undefined;
+    for (const listener of listeners) {
       const handled = listener(message);
-      return handled instanceof Promise ? [handled] : [];
-    });
-    return inFlight.length === 0 ? undefined : Promise.all(inFlight);
+      if (handled instanceof Promise)
+        inFlight = inFlight ? Promise.all([inFlight, handled]) : handled;
+    }
+    return inFlight;
   };
 
   const stdout = attachStdoutLineReader(child.stdout, (line) => {

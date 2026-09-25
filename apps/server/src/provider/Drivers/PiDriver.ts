@@ -1993,15 +1993,21 @@ export function makePiAdapter(input: {
   // Attach this adapter's stream subscription + crash handler to a pi process.
   // Shared by session start and relaunch so both wire identical semantics.
   //
-  // The listener returns the handling promise: it stays pending while the
-  // bounded `events` queue is full, which is what lets the stdout reader pause
-  // the child (RpcProcess `attachStdoutLineReader`). Teardown runs on `close`,
+  // The listener returns a promise only when handling suspended (a full
+  // bounded `events` queue, a pi RPC round trip): that is what lets the stdout
+  // reader pause the child (RpcProcess `attachStdoutLineReader`). A fibre that
+  // finished synchronously must not hold an in-flight slot, or every ≥16-line
+  // chunk would pause the child. Failures stay swallowed (the fibre's exit is
+  // never read). Teardown runs on `close`,
   // not `exit`, so a tail still buffered behind a pause is delivered before the
   // session is deleted and `session.exited` is emitted.
   const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
-    active.unsubscribe = process.subscribe((message) =>
-      Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
-    );
+    active.unsubscribe = process.subscribe((message) => {
+      const fiber = Effect.runFork(handleMessage(active, message));
+      return fiber.pollUnsafe() === undefined
+        ? new Promise<void>((resolve) => fiber.addObserver(() => resolve()))
+        : undefined;
+    });
     process.child.once("close", () => {
       if (replacedProcesses.has(process)) return;
       const graceful = stoppedProcesses.has(process);
