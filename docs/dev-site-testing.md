@@ -223,6 +223,50 @@ server at `~/.t3/cockpit/userdata`, and **never `git stash`** in this repo —
 every worktree of this clone shares one `.git`, so the stash stack is global and
 a `pop` can hand you another thread's work.
 
+### Toasts make a copy-DB instance unscreenshottable by default
+
+Every guard refusal raises a **toast**, and a copied database keeps trying to resume
+its threads, so refusals — and their toasts — keep arriving for as long as the
+instance runs. There is no quiet moment to wait for: they land on top of
+whatever you are capturing, and deleting the toast nodes just loses the race
+with the next batch. Suppress the fixed-position viewports once per page load,
+before capturing (`browser_evaluate`, or the devtools console):
+
+```js
+document.head.insertAdjacentHTML(
+  "beforeend",
+  '<style>[data-slot^="toast-viewport"]{display:none!important}</style>',
+);
+```
+
+The `^=` covers both viewports (`toast-viewport` and `toast-viewport-anchored`
+in `apps/web/src/components/ui/toast.tsx`). Re-apply after any navigation that
+remounts the app.
+
+### Usage and cost figures climb on their own — check the guard line before you react
+
+The usage page's figures move in a copy-DB instance that has spent nothing, for
+one of two causes with **opposite** correct responses. The boot log's
+`WARN foreign-home guard` line (above) tells you which:
+
+- **Guard line present — false alarm; leave it running.** The usage page scans
+  transcripts from disk, not the database you pointed at: `UsageService` walks
+  each provider's sessions root, and pi's is machine-global, so a scratch
+  instance reports the **real** cockpit's live pi sessions. Finish your capture.
+- **Guard line absent — a fire; shut it down.** You are unguarded, because the
+  build predates the guard (an old release booted to capture a pre-change
+  baseline) or because the snapshot records no worktree for the guard to key off
+  (above). Startup reconciliation then resumes the sessions the copied database
+  records — the cockpit's **real** ones, in their live checkouts, exactly what
+  `ProviderService.recoverSessionForThread` refuses in guarded builds. That
+  spends real tokens and puts a second driver on other threads' sessions.
+
+Read the log rather than guessing in either direction: an agent has already
+read the guarded case's moving numbers as its scratch server burning quota,
+killed the instance mid-capture, and lost baseline evidence it could not rerun
+— while leaving an unguarded one running costs tokens and other threads' session
+state.
+
 ## Running several instances at once
 
 Each `pnpm dev` picks its own free server/web port pair and its own state dir at

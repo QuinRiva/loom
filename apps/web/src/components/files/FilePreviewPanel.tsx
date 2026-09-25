@@ -99,8 +99,16 @@ import {
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
+// loom: line virtualization cannot bound a file whose individual lines are huge.
+import {
+  elideLongLines,
+  hasUnboundedLines,
+  LONG_LINE_RENDER_CAP,
+  UNBOUNDED_LINE_LENGTH,
+} from "./longLinePreview.loom";
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
+import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
@@ -911,6 +919,11 @@ function RenderedMarkdownSurface({
     relativePath,
     onPendingChange,
   });
+  // loom: the directory this document's own relative paths resolve against.
+  const documentLocation = useMemo(
+    () => ({ baseDir: documentBaseDir(relativePath, cwd), cwd, threadRef }),
+    [relativePath, cwd, threadRef],
+  );
 
   // `.mdx` always goes through the MDX renderer — the plain-markdown surface
   // escapes every JSX block as raw text, so falling back to it silently presents
@@ -922,15 +935,20 @@ function RenderedMarkdownSurface({
     return (
       <ScrollArea className="min-h-0 flex-1">
         <BleedFrame>
-          {readOnly ? (
-            <MdxPlanRenderer source={contents} />
-          ) : (
-            <MdxPlanAnnotationLayer
-              source={contents}
-              filePath={relativePath}
-              composerDraftTarget={composerDraftTarget}
-            />
-          )}
+          {/* loom: `<Image src="shots/x.png">` resolves against the document's own
+              directory and loads through a signed asset URL, exactly as a `.md`
+              preview's `![](x.png)` does (see `FileMarkdownPreview`). */}
+          <PlanDocumentContext.Provider value={documentLocation}>
+            {readOnly ? (
+              <MdxPlanRenderer source={contents} />
+            ) : (
+              <MdxPlanAnnotationLayer
+                source={contents}
+                filePath={relativePath}
+                composerDraftTarget={composerDraftTarget}
+              />
+            )}
+          </PlanDocumentContext.Provider>
         </BleedFrame>
       </ScrollArea>
     );
@@ -1108,6 +1126,21 @@ export default function FilePreviewPanel({
   // source throws and shows a content-less error card over the truncation
   // banner. Force the source view until the full-budget read lands.
   const mdxTruncated = isMdx && (file.data?.truncated ?? false);
+  // loom: a file with lines far longer than any hand-written source defeats the
+  // renderer's line virtualization — it paints whole lines, so a handful of them
+  // puts the entire file in the DOM. Such a file renders elided and read-only:
+  // the editable surface saves whatever it holds, so elided text must never
+  // reach it.
+  const contents = file.data?.contents ?? null;
+  const unboundedLines = useMemo(
+    () => (contents === null ? false : hasUnboundedLines(contents)),
+    [contents],
+  );
+  /** The elided stand-in, or null when the file renders as it is. */
+  const elidedContents = useMemo(
+    () => (contents !== null && unboundedLines ? elideLongLines(contents) : null),
+    [contents, unboundedLines],
+  );
   const renderMarkdown = isMarkdown && !mdxTruncated && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1129,6 +1162,21 @@ export default function FilePreviewPanel({
     !(isMarkdown && renderMarkdown) &&
     !(tableDelimiter && renderTable) &&
     !renderBrowserFile;
+  // loom: the two independent reasons the preview can show less than the file
+  // holds, so a file that is both truncated and long-lined explains both rather
+  // than only whichever matched first. The read cap is per-request (8 MB with an
+  // explicit maxBytes) and applies to every surface, because the server truncates
+  // the contents themselves. The line cap is this panel's and reaches only the raw
+  // text surface, so a rendered markdown, MDX or table view of the same file must
+  // not claim to be elided or read-only — it is neither.
+  const previewNotices = [
+    file.data?.truncated
+      ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data.byteLength.toLocaleString()} byte file.`
+      : null,
+    unboundedLines && showsRawText
+      ? `Lines longer than ${UNBOUNDED_LINE_LENGTH.toLocaleString()} characters are shown to their first ${LONG_LINE_RENDER_CAP.toLocaleString()}, and this file is read-only here. Open it in an editor to see or change it in full.`
+      : null,
+  ].filter((notice) => notice !== null);
   const rendered = isMarkdown ? renderMarkdown : tableDelimiter ? renderTable : renderBrowserFile;
   const setRenderedPreferred = isMarkdown
     ? setRenderMarkdownPreferred
@@ -1303,11 +1351,9 @@ export default function FilePreviewPanel({
       attachment === undefined &&
       !isMedia &&
       !renderBrowserFile &&
-      file.data?.truncated ? (
+      previewNotices.length > 0 ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
-          {/* loom: the read cap is per-request (8 MB with an explicit maxBytes). */}
-          Preview limited to the first {readMaxBytes ? "8 MB" : "1 MB"} of a{" "}
-          {file.data.byteLength.toLocaleString()} byte file.
+          {previewNotices.join(" ")}
         </div>
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1392,11 +1438,15 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile ? (
+            ) : file.data.truncated || isHostFile || unboundedLines ? (
               <SourceFilePreview
                 name={relativePath}
-                text={file.data.contents}
-                cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
+                text={elidedContents ?? file.data.contents}
+                cacheKey={projectFileCacheKey(
+                  cwd,
+                  relativePath,
+                  elidedContents ?? file.data.contents,
+                )}
                 onPostRender={onFilePostRender}
               />
             ) : (

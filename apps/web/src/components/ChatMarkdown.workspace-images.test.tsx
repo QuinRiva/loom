@@ -49,6 +49,8 @@ vi.mock("~/lib/openPullRequestLink", () => ({
 
 import ChatMarkdown, { ChatMarkdownAssetImage } from "./ChatMarkdown";
 import { FileMarkdownPreview } from "./files/FileMarkdownPreview";
+import { imageBlock, PlanMarkdownImage } from "./files/mdx-plan/blocks/image";
+import { PlanDocumentContext } from "./files/mdx-plan/planDocument";
 
 const threadRef = {
   environmentId: EnvironmentId.make("env-windows"),
@@ -394,6 +396,41 @@ describe("ChatMarkdown workspace images", () => {
     expect(testState.resources).toEqual([]);
     expect(html).toContain("Image unavailable");
     expect(html).not.toContain("content://");
+  });
+
+  // loom: the MDX `<Image>` block rides this same signed-asset path as a `.md`
+  // preview's `![](shot.png)` — the wiring no static check can see, since the
+  // block resolves its src against the document's directory from context.
+  // Both authored forms resolve identically: the block carries a caption, the
+  // markdown form is what an author reaches for first (and used to emit a bare
+  // <img> against the app origin - broken in-app, silent in lint).
+  it.each([
+    [
+      "<Image> block",
+      <imageBlock.Read
+        data={{ src: "shots/before.png", caption: "Figure 1" }}
+        blockId="figure-1"
+      />,
+    ],
+    ["markdown image", <PlanMarkdownImage src="shots/before.png" alt="Figure 1" />],
+  ])("resolves an MDX %s src against the document directory", (_label, element) => {
+    const html = renderToStaticMarkup(
+      <PlanDocumentContext.Provider
+        value={{ baseDir: "/workspace/project/recaps/audit", cwd: "/workspace/project", threadRef }}
+      >
+        {element}
+      </PlanDocumentContext.Provider>,
+    );
+
+    expect(testState.resources).toEqual([
+      {
+        _tag: "media-file",
+        threadId: threadRef.threadId,
+        path: "/workspace/project/recaps/audit/shots/before.png",
+      },
+    ]);
+    expect(html).toContain("https://signed.test/workspace-image.svg");
+    expect(html).toContain("Figure 1");
   });
 
   it("keeps remote images directly loadable", () => {

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { compilePlanMdx } from "./MdxPlanRenderer";
-import { lintPlanSource, planSizeFinding } from "./planLint";
+import { lintPlanSource, planSizeFinding, renderedTextFindings } from "./planLint";
 
 /**
  * Contract test for the plan validator — authoring agents rely on it to gate
@@ -162,6 +162,22 @@ describe("lintPlanSource", () => {
     );
     expect(stripped).toContain("style attribute removed");
     expect(stripped).toContain("onclick");
+  });
+});
+
+// loom: the one defect class no static pass can see — a caption that renders as
+// `\u2014` or `â€”` is structurally perfect and visibly broken. `lint-plan.mjs`
+// runs this over the markup it already renders.
+describe("renderedTextFindings", () => {
+  it("fires on literal escapes and latin-1 mojibake in rendered text, not in code samples", () => {
+    expect(renderedTextFindings("<figcaption>Figure 1 \\u2014 before</figcaption>")).toHaveLength(
+      1,
+    );
+    expect(renderedTextFindings("<p>the panel \u00e2\u20ac\u201d broken</p>")).toHaveLength(1);
+    expect(renderedTextFindings("<p>A real em dash \u2014 like this \u2014 is fine.</p>")).toEqual(
+      [],
+    );
+    expect(renderedTextFindings('<pre><code>const dash = "\\u2014";</code></pre>')).toEqual([]);
   });
 });
 

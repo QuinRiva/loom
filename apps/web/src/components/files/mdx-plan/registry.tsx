@@ -22,6 +22,7 @@ import { diffBlock } from "./blocks/diff";
 import { endpointBlock } from "./blocks/endpoint";
 import { fieldDiffBlock } from "./blocks/fieldDiff";
 import { fileTreeBlock } from "./blocks/fileTree";
+import { imageBlock, PlanMarkdownImage } from "./blocks/image";
 import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
 import { openApiBlock } from "./blocks/openApi";
@@ -55,6 +56,7 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: dataModelBlock.mdx.tag, type: "data-model", block: dataModelBlock },
   { tag: endpointBlock.mdx.tag, type: "api-endpoint", block: endpointBlock },
   { tag: fileTreeBlock.mdx.tag, type: "file-tree", block: fileTreeBlock },
+  { tag: imageBlock.mdx.tag, type: "image", block: imageBlock },
   { tag: annotatedCodeBlock.mdx.tag, type: "annotated-code", block: annotatedCodeBlock },
   { tag: diagramBlock.mdx.tag, type: "diagram", block: diagramBlock },
   { tag: questionFormBlock.mdx.tag, type: "question-form", block: questionFormBlock },
@@ -149,6 +151,10 @@ function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>>
  * (registry blocks + the internal unknown-tag error card). */
 export const PLAN_BLOCK_COMPONENTS: Record<string, FC<Record<string, unknown>>> = {
   ...Object.fromEntries(PLAN_BLOCKS.map((entry) => [entry.tag, makeBlockComponent(entry)])),
+  // The one intrinsic element we override: markdown image syntax would otherwise
+  // emit a bare `<img>` whose relative src resolves against the app origin and
+  // silently shows broken. Same resolution/signing as `<Image>`.
+  img: PlanMarkdownImage,
   UnknownPlanBlock,
 };
 

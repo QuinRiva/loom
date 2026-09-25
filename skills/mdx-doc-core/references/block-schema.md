@@ -105,6 +105,15 @@ Props:
   - `snippet` — `string` _(optional)_
   - `language` — `string` _(optional)_
 
+## `<Image>` — `image`
+
+Props:
+
+- `src` — `string` **(required)**
+- `alt` — `string` _(optional)_
+- `caption` — `string` _(optional)_
+- `width` — `integer` _(optional)_
+
 ## `<AnnotatedCode>` — `annotated-code`
 
 Props:

@@ -29,6 +29,7 @@ export const PLAN_BLOCK_TAGS: ReadonlySet<string> = new Set([
   "FieldDiff",
   "FileTree",
   "HtmlBlock",
+  "Image",
   "Json",
   "Mermaid",
   "OpenApi",

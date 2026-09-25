@@ -70,7 +70,8 @@ export const LOCAL_PROVIDER_TOOL_DEFS: ReadonlyArray<LocalProviderToolDef> = [
       "workstream graph-authoring and child-management tools (spawn, scaffold, " +
       "brief, gates, release, stop, prompt, lanes, dependencies, plus " +
       "notify_thread, thread_fork and the goal handoff/continue/update tools) " +
-      "for when your work genuinely splits into delegated sub-work; " +
+      "for handing work to a child — independent pieces your work splits " +
+      "into, or a bounded, context-heavy sub-phase of your own brief; " +
       "'human-input' — ask_user_question, for a fork that is genuinely " +
       "irreversible, destructive, or purely the user's preference, where a " +
       "structured question beats a needs_guidance attention flag; 'browser' — " +

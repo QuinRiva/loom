@@ -84,6 +84,59 @@ export function planSizeFinding(source: string): PlanLintFinding | null {
   };
 }
 
+/* ------------------- rendered-text defects (post-render) ------------------ */
+
+/** Literal escape sequences (`\u2014`) and UTF-8-read-as-latin-1 mojibake
+ * (`â€”`, `Â `, `\uFFFD`) that reached the page as *visible text*. */
+const RENDERED_TEXT_DEFECTS: Array<[RegExp, string]> = [
+  [/\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}/g, "a literal escape sequence"],
+  [
+    /\uFFFD|[\u00C2\u00C3\u00E2][\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018-\u201E\u2020-\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]/g,
+    "mojibake (UTF-8 bytes decoded as latin-1)",
+  ],
+];
+
+const HTML_ENTITIES: Record<string, string> = {
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  amp: "&",
+  "#39": "'",
+  nbsp: "\u00A0",
+};
+
+/**
+ * Findings for text defects that only exist in the RENDERED output: a build
+ * script that wrote `\u2014` into a caption, or a re-encoded file that turned
+ * an em dash into `â€”`. The document is structurally perfect, so every other
+ * pass is blind to them — only reading the rendered page catches them, which is
+ * exactly the expensive manual check this replaces.
+ *
+ * `<pre>`/`<code>` content is exempt: an escape sequence inside a code sample is
+ * usually the subject, not a defect.
+ */
+export function renderedTextFindings(html: string): PlanLintFinding[] {
+  const text = html
+    .replace(/<(pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(lt|gt|quot|amp|#39|nbsp);/g, (match, name: string) => HTML_ENTITIES[name] ?? match);
+
+  return RENDERED_TEXT_DEFECTS.flatMap(([pattern, label]) => {
+    const matches = [...text.matchAll(pattern)];
+    if (!matches.length) return [];
+    const { 0: sample, index } = matches[0]!;
+    return [
+      {
+        severity: "error" as const,
+        message: `Rendered text contains ${label} (\`${sample}\`${matches.length > 1 ? `, ${matches.length} occurrences` : ""}) — it displays verbatim to the reader. Context: …${text
+          .slice(Math.max(0, index - 60), index + 60)
+          .replace(/\s+/g, " ")
+          .trim()}…`,
+      },
+    ];
+  });
+}
+
 const at = (
   node: { position?: { start: Point } } | undefined,
 ): Pick<PlanLintFinding, "line" | "column"> =>

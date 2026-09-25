@@ -1349,7 +1349,9 @@ const CHAT_MARKDOWN_IMAGE_SIZE_CLASS_NAME = cn(
   CHAT_MARKDOWN_MEDIA_BOUNDS_CLASS_NAME,
 );
 
-function markdownImageCopy(alt: string, src: string, title: string | undefined): string {
+// loom: shared with the `.mdx` renderer's image path, which round-trips an
+// authored markdown title into the copyable source the same way.
+export function markdownImageCopy(alt: string, src: string, title: string | undefined): string {
   const escapedAlt = alt.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
   const titleSuffix =
     title === undefined ? "" : ` "${title.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;

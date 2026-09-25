@@ -3,7 +3,7 @@
  * Headless render-health check for an MDX plan/recap — the gate an agent runs
  * before handing a document to a human:
  *
- *   node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx
+ *   node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx [--out <file.html>]
  *
  * Two stages, both against the renderer's REAL module graph so neither can
  * drift from what the app accepts:
@@ -19,6 +19,15 @@
  * Exit 0 ⇒ the document renders in-app. Non-zero ⇒ errors (broken/degraded
  * render); warnings (silent degradation) are reported but do not fail the run.
  *
+ * `--out <file.html>` keeps the markup stage 2 already produces, as a standalone
+ * page with the app's compiled stylesheet inlined — the cheap way to LOOK at a
+ * document (open the file) instead of booting a dev server to click through to
+ * it. An image under the output file's own directory is rewritten to a relative
+ * src, so the page shows real screenshots both opened directly (`file://`) and
+ * through the app's HTML preview, whose iframe cannot load a `file://`
+ * subresource. Write the page BESIDE the document (`<doc-dir>/render.html`) and
+ * that holds for every image the document references.
+ *
  * Outside a browser that graph needs two things, which this script provides:
  * DOM globals (jsdom) and vite-powered module loading (tsx + `~` alias).
  */
@@ -31,12 +40,18 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
-const file = process.argv[2];
-if (!file) {
-  console.error("Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx>");
+const args = process.argv.slice(2);
+const outIndex = args.indexOf("--out");
+const outFile = outIndex === -1 ? undefined : args[outIndex + 1];
+const file = args.find(
+  (arg, index) => !arg.startsWith("--") && (outIndex === -1 || index !== outIndex + 1),
+);
+if (!file || (outIndex !== -1 && !outFile)) {
+  console.error("Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx> [--out <file.html>]");
   process.exit(2);
 }
 const planPath = NodePath.resolve(process.cwd(), file);
+const planDir = NodePath.dirname(planPath);
 const source = NodeFS.readFileSync(planPath, "utf8");
 
 // DOM globals for mermaid.parse and the wireframe sanitiser dry-run.
@@ -72,6 +87,8 @@ const server = await createServer({
   configFile: false,
   root: webRoot,
   logLevel: "error",
+  // Only `--out` needs a stylesheet, and compiling Tailwind costs a second.
+  plugins: outFile ? (await import("@tailwindcss/vite")).default() : [],
   server: { middlewareMode: true, hmr: false, watch: null },
   resolve: { alias: { "~": NodePath.join(webRoot, "src") } },
   optimizeDeps: { noDiscovery: true },
@@ -85,32 +102,47 @@ const server = await createServer({
  */
 async function renderFindings(mdxSource) {
   const load = (module) => server.ssrLoadModule(`/src/components/files/mdx-plan/${module}`);
-  const [{ compilePlanMdx }, { PLAN_BLOCK_COMPONENTS }, { PlanEagerMountContext }] =
-    await Promise.all([
-      load("mdxCompileOptions.ts"),
-      load("registry.tsx"),
-      load("planEagerMount.ts"),
-    ]);
+  const [
+    { compilePlanMdx },
+    { PLAN_BLOCK_COMPONENTS },
+    { PlanEagerMountContext },
+    { PlanDocumentContext },
+    { renderedTextFindings },
+  ] = await Promise.all([
+    load("mdxCompileOptions.ts"),
+    load("registry.tsx"),
+    load("planEagerMount.ts"),
+    load("planDocument.ts"),
+    load("planLint.ts"),
+  ]);
 
   let html;
   try {
     const Content = await compilePlanMdx(mdxSource);
     // Eager mount so lazily-mounted containers (`<Details>`, tabs) materialise
-    // their children — the same thing the annotation layer does.
+    // their children — the same thing the annotation layer does. The document
+    // location resolves `<Image src>` against the document's own directory;
+    // with no thread to sign an asset URL, images fall back to `file://`.
     html = renderToStaticMarkup(
       createElement(
-        PlanEagerMountContext.Provider,
-        { value: true },
-        createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+        PlanDocumentContext.Provider,
+        { value: { baseDir: planDir } },
+        createElement(
+          PlanEagerMountContext.Provider,
+          { value: true },
+          createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+        ),
       ),
     );
   } catch (cause) {
-    return [
-      {
-        severity: "error",
-        message: `render threw (the document fails to display): ${cause instanceof Error ? cause.message : String(cause)}`,
-      },
-    ];
+    return {
+      findings: [
+        {
+          severity: "error",
+          message: `render threw (the document fails to display): ${cause instanceof Error ? cause.message : String(cause)}`,
+        },
+      ],
+    };
   }
 
   const counts = {};
@@ -122,22 +154,73 @@ async function renderFindings(mdxSource) {
     .join(", ");
   console.log(`render: ${html.length} bytes of HTML, blocks mounted: ${rendered || "none"}`);
 
-  // A block whose props its schema rejects at render (e.g. prose children lint
-  // cannot see) degrades to an error card instead of throwing; the card carries
-  // the reason, so quote it back stripped of markup.
-  return [...html.matchAll(/data-plan-block-error="([^"]+)"/g)].map(({ 1: tag, index }) => ({
-    severity: "error",
-    message: `<${tag}> rendered as an in-document error card: ${html
-      .slice(html.indexOf(">", index) + 1, index + 800)
-      .replace(/<[^>]*>/g, " ")
-      .replace(
-        /&(lt|gt|quot|amp|#39);/g,
-        (_, name) => ({ lt: "<", gt: ">", quot: '"', amp: "&", "#39": "'" })[name],
-      )
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 300)}`,
-  }));
+  return {
+    html,
+    findings: [
+      // A block whose props its schema rejects at render (e.g. prose children lint
+      // cannot see) degrades to an error card instead of throwing; the card carries
+      // the reason, so quote it back stripped of markup.
+      ...[...html.matchAll(/data-plan-block-error="([^"]+)"/g)].map(({ 1: tag, index }) => ({
+        severity: "error",
+        message: `<${tag}> rendered as an in-document error card: ${html
+          .slice(html.indexOf(">", index) + 1, index + 800)
+          .replace(/<[^>]*>/g, " ")
+          .replace(
+            /&(lt|gt|quot|amp|#39);/g,
+            (_, name) => ({ lt: "<", gt: ">", quot: '"', amp: "&", "#39": "'" })[name],
+          )
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 300)}`,
+      })),
+      // An `<Image>` whose file is not on disk renders as a broken image in the
+      // app and an empty box in `--out`; the resolved path is stamped for us.
+      ...[...html.matchAll(/data-plan-image-path="([^"]+)"/g)]
+        .map(({ 1: path }) => path.replaceAll("&amp;", "&").replaceAll("&quot;", '"'))
+        .filter((path) => !NodeFS.existsSync(path))
+        .map((path) => ({
+          severity: "error",
+          message: `<Image> file not found: ${path} — the src is resolved relative to the document's own directory.`,
+        })),
+      ...renderedTextFindings(html),
+    ],
+  };
+}
+
+/** The rendered document as a standalone page: the app's compiled stylesheet
+ * inlined, and the same root wrapper + width variable `MdxPlanRenderer` mounts
+ * under, so blocks get the prose measure and the wide-block bleed they have
+ * in-app. */
+async function writeStandalonePage(html, target) {
+  const css = (await server.transformRequest("/src/index.css?direct"))?.code ?? "";
+  // A `file://` src is unloadable in the app's HTML preview (an iframe on the app
+  // origin), and the server resolves a preview's subresources by joining onto the
+  // page's own directory — no `..` segments. So relative wins wherever the image
+  // sits under the output directory, and `file://` stays for anything above it.
+  const outDir = NodePath.dirname(target);
+  const body = html.replaceAll(/src="file:\/\/([^"]*)"/g, (match, encoded) => {
+    const relative = NodePath.relative(outDir, decodeURI(encoded));
+    return relative.startsWith("..") || NodePath.isAbsolute(relative)
+      ? match
+      : `src="${encodeURI(relative.split(NodePath.sep).join("/"))}"`;
+  });
+  const page = `<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${NodePath.basename(planPath)}</title>
+<style>${css}</style>
+</head>
+<body class="bg-background text-foreground" style="--timeline-available-width: 1180px">
+<div data-plan-root class="plan-mdx mx-auto max-w-4xl px-6 py-5">${body}</div>
+</body>
+</html>
+`;
+  NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+  NodeFS.writeFileSync(target, page);
+  const shown = NodePath.relative(process.cwd(), target);
+  console.log(`wrote ${shown.startsWith("..") ? target : shown} (${page.length} bytes)`);
 }
 
 /** Render findings as terse `file:line:col severity: message` lines + a summary. */
@@ -159,7 +242,11 @@ try {
   const findings = await lintPlanSource(source);
   // A lint error already breaks the render; rendering would only repeat it.
   if (!findings.some((finding) => finding.severity === "error")) {
-    findings.push(...(await renderFindings(source)));
+    const render = await renderFindings(source);
+    findings.push(...render.findings);
+    if (outFile && render.html !== undefined) {
+      await writeStandalonePage(render.html, NodePath.resolve(process.cwd(), outFile));
+    }
   }
   console.log(formatFindings(findings, NodePath.relative(process.cwd(), planPath)));
   failed = findings.some((finding) => finding.severity === "error");

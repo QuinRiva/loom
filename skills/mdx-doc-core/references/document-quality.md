@@ -203,10 +203,39 @@ annotating from a mechanically-valid one:
   sign-off** — for a decision doc, a top `<Callout tone="decision">` with the
   review protocol and the silence-defaults rule.
 
-## Before handoff, open the plan and check it
+## Before handoff, look at the rendered document
+
+Render the document to a standalone HTML page and look at it:
+
+```
+node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html
+```
+
+`--out` keeps the markup the render-health check already produces, with the
+app's stylesheet inlined and image sources resolved, so the page is what the
+reviewer sees. **Write it beside the document** (`render.html` in the
+document's own folder — gitignored): images are then relative to the page, which
+is the only form that loads both when you open the file directly and when a
+human opens it in-app from its file chip. A page written elsewhere still renders,
+but its images resolve as `file://` and stay blank inside the app.
+
+To see it yourself, load it in a browser: `browser_navigate` to
+`file:///<absolute path to>/render.html`, then `browser_take_screenshot` (with
+`fullPage: true` for the whole document, or a `selector` for one block). If the
+browser tools are dormant for your role, `enable_toolset` with `browser` first.
+That is the supported way to check a document visually — **do not boot a dev
+server for this.** Reserve a live app instance for what genuinely needs
+interaction: annotation, `<Prototype>` flows, answering a `<QuestionForm>`, or a
+layout question that depends on the real panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
 controls, poor contrast, and unreadable diagrams before asking for approval.
-Check the visual surfaces in dark mode especially: a white mockup panel or
-low-contrast muted text is a defect — rewrite the HTML with `--wf-*` tokens and
-semantic helper classes before surfacing the plan.
+Check the visual surfaces in dark mode especially (the `--out` page renders
+dark, as the app does): a white mockup panel or low-contrast muted text is a
+defect — rewrite the HTML with `--wf-*` tokens and semantic helper classes
+before surfacing the plan.
+
+The check also reads the rendered _text_ for defects no static pass can see —
+literal `\uXXXX` escapes and latin-1 mojibake (`â€”`) that a build script or a
+re-encoded file wrote into captions and prose. Both are errors; fix the source
+that produced them rather than the symptom.
