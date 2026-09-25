@@ -203,6 +203,16 @@ describe("setPauseAwareTimeout", () => {
     expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 
+  it("stops re-arming after the cap and times out as usual", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    setPauseAwareTimeout({ isPaused: () => true, pauseCount: () => 1 }, 1_000, onTimeout, 3);
+    vi.advanceTimersByTime(3_999);
+    expect(onTimeout).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
+
   it("times out on schedule when stdout is never paused", () => {
     vi.useFakeTimers();
     const onTimeout = vi.fn();

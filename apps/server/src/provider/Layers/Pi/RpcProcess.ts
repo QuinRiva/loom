@@ -275,6 +275,10 @@ const STDERR_TAIL_MAX_CHARS = 4_096;
 // toggled on every message.
 const STDOUT_PAUSE_AT_IN_FLIGHT = 16;
 const STDOUT_RESUME_AT_IN_FLIGHT = 4;
+// A request deadline extends at most this many times for backpressure (~5 min
+// at the 30 s default, the ingestion watchdog's horizon), so a child that never
+// answers still times out under sustained saturation.
+const MAX_PAUSE_REARMS = 10;
 
 /**
  * Process-wide stdout backpressure counters, read by the runtime performance
@@ -385,18 +389,21 @@ export function attachStdoutLineReader(
  * backpressure: a paused child cannot deliver its response, and under
  * saturation a pause lasts as long as the global drain takes. When the timer
  * fires during (or after) a pause since it was armed, it re-arms for another
- * `timeoutMs`; otherwise `onTimeout` runs. Returns the cancel function.
+ * `timeoutMs`, up to `maxRearms` times; otherwise `onTimeout` runs. Returns the
+ * cancel function.
  */
 export function setPauseAwareTimeout(
   reader: Pick<StdoutLineReader, "isPaused" | "pauseCount">,
   timeoutMs: number,
   onTimeout: () => void,
+  maxRearms = MAX_PAUSE_REARMS,
 ): () => void {
   let pausesSeen = reader.pauseCount();
+  let rearms = 0;
   let timer: ReturnType<typeof setTimeout>;
   const arm = () => {
     timer = setTimeout(() => {
-      if (reader.isPaused() || reader.pauseCount() !== pausesSeen) {
+      if (rearms++ < maxRearms && (reader.isPaused() || reader.pauseCount() !== pausesSeen)) {
         pausesSeen = reader.pauseCount();
         arm();
         return;
