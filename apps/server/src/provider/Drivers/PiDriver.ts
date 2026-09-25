@@ -153,6 +153,8 @@ const PI_ENRICHMENT_REQUEST_TIMEOUT_MS = 90_000;
  * the driver never gives up first.
  */
 const PI_COMPACT_REQUEST_TIMEOUT_MS = 10 * 60_000;
+/** Session teardown runs on `close`, or this long after `exit` if `close` never comes. */
+const PI_EXIT_TEARDOWN_FALLBACK_MS = 5_000;
 const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
@@ -1998,9 +2000,13 @@ export function makePiAdapter(input: {
   // reader pause the child (RpcProcess `attachStdoutLineReader`). A fibre that
   // finished synchronously must not hold an in-flight slot, or every ≥16-line
   // chunk would pause the child. Failures stay swallowed (the fibre's exit is
-  // never read). Teardown runs on `close`,
-  // not `exit`, so a tail still buffered behind a pause is delivered before the
-  // session is deleted and `session.exited` is emitted.
+  // never read).
+  //
+  // Teardown runs on `close`, not `exit`, so a tail still buffered behind a
+  // pause is delivered before the session is deleted and `session.exited` is
+  // emitted. `close` waits for every holder of pi's stdout, so a grandchild
+  // that inherited it would hold teardown hostage; `exit` + 5 s is the
+  // fallback (the released reader drains a dead child's pipe in far less).
   const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
     active.unsubscribe = process.subscribe((message) => {
       const fiber = Effect.runFork(handleMessage(active, message));
@@ -2008,8 +2014,12 @@ export function makePiAdapter(input: {
         ? new Promise<void>((resolve) => fiber.addObserver(() => resolve()))
         : undefined;
     });
-    process.child.once("close", () => {
-      if (replacedProcesses.has(process)) return;
+    let tornDown = false;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const teardown = () => {
+      clearTimeout(fallback);
+      if (tornDown || replacedProcesses.has(process)) return;
+      tornDown = true;
       const graceful = stoppedProcesses.has(process);
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
       // `close` can land after `stop()` resolved on `exit` and a replacement
@@ -2041,6 +2051,10 @@ export function makePiAdapter(input: {
           }),
         ).catch(() => undefined);
       })();
+    };
+    process.child.once("close", teardown);
+    process.child.once("exit", () => {
+      fallback = setTimeout(teardown, PI_EXIT_TEARDOWN_FALLBACK_MS);
     });
   };
 
