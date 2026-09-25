@@ -278,10 +278,15 @@ const STDOUT_RESUME_AT_IN_FLIGHT = 4;
 
 /**
  * Process-wide stdout backpressure counters, read by the runtime performance
- * monitor: pauses begun, milliseconds spent paused (added on resume), and
- * streams paused right now.
+ * monitor and the ingestion watchdog: pauses begun, milliseconds spent paused
+ * (added on resume), and the streams paused right now, each mapped to when its
+ * pause began.
  */
-export const piStdoutBackpressure = { pauses: 0, pausedMsTotal: 0, pausedNow: 0 };
+export const piStdoutBackpressure = {
+  pauses: 0,
+  pausedMsTotal: 0,
+  pausedSince: new Map<object, number>(),
+};
 
 export interface StdoutLineReader {
   /** Paused for backpressure right now. */
@@ -324,7 +329,7 @@ export function attachStdoutLineReader(
   const resume = () => {
     if (!paused) return;
     paused = false;
-    piStdoutBackpressure.pausedNow -= 1;
+    piStdoutBackpressure.pausedSince.delete(stream);
     piStdoutBackpressure.pausedMsTotal += Date.now() - pausedAtMs;
     stream.resume();
   };
@@ -344,7 +349,7 @@ export function attachStdoutLineReader(
       pauses += 1;
       pausedAtMs = Date.now();
       piStdoutBackpressure.pauses += 1;
-      piStdoutBackpressure.pausedNow += 1;
+      piStdoutBackpressure.pausedSince.set(stream, pausedAtMs);
       stream.pause();
     }
   };

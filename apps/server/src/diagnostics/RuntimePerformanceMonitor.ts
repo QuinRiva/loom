@@ -42,7 +42,7 @@ const make = Effect.acquireRelease(
         const piStdout = {
           piStdoutPauses: piStdoutBackpressure.pauses - piStdoutAtLastSample.pauses,
           piStdoutPausedMs: piStdoutBackpressure.pausedMsTotal - piStdoutAtLastSample.pausedMsTotal,
-          piStdoutPausedNow: piStdoutBackpressure.pausedNow,
+          piStdoutPausedNow: piStdoutBackpressure.pausedSince.size,
         };
         piStdoutAtLastSample = { ...piStdoutBackpressure };
         const eventLoop = {

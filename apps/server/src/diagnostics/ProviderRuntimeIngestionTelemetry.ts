@@ -19,6 +19,8 @@ import * as Effect from "effect/Effect";
 
 import type { DrainableWorker } from "@t3tools/shared/DrainableWorker";
 
+import { piStdoutBackpressure } from "../provider/Layers/Pi/RpcProcess.ts";
+
 const INTERVAL_MS = 60_000;
 // Consecutive once-a-minute checks with work pending and no progress before the
 // process exits: 5 minutes. Long enough that no legitimate single event (the
@@ -139,25 +141,25 @@ type IngestionLiveness = "ok" | "warn" | "escalate";
 
 /**
  * One watchdog check. A check is stalled when ingestion has work it is not
- * getting through — items queued or in flight, or a runtime-event publish
- * suspended (the PubSub full behind some subscriber) since before the previous
- * check — and no item has started or finished since the previous check. Warns
- * on any stalled check; escalates after `thresholdChecks` in a row.
+ * getting through — items queued or in flight, or the pipeline blocked since
+ * before the previous check — and no item has started or finished since the
+ * previous check. `blockedSinceMs` is the earliest of a suspended runtime-event
+ * publish (the PubSub full behind some subscriber) and a paused pi stdout (a
+ * wedge anywhere between the reader and ingestion, e.g. the adapter fibre stuck
+ * in SQL before it publishes); `Infinity` when neither. Warns on any stalled
+ * check; escalates after `thresholdChecks` in a row.
  */
 export const decideIngestionLiveness = (
   check: {
     readonly previousCheckAtMs: number;
     readonly lastProgressAtMs: number;
     readonly queueDepth: number;
-    readonly publishSuspendedSinceMs: number | undefined;
+    readonly blockedSinceMs: number;
     readonly stalledChecks: number;
   },
   thresholdChecks = INGESTION_STALL_CHECKS,
 ): { readonly liveness: IngestionLiveness; readonly stalledChecks: number } => {
-  const pending =
-    check.queueDepth > 0 ||
-    (check.publishSuspendedSinceMs !== undefined &&
-      check.publishSuspendedSinceMs <= check.previousCheckAtMs);
+  const pending = check.queueDepth > 0 || check.blockedSinceMs <= check.previousCheckAtMs;
   const stalledChecks =
     pending && check.lastProgressAtMs <= check.previousCheckAtMs ? check.stalledChecks + 1 : 0;
   return {
@@ -319,30 +321,38 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
     yield* Effect.sleep(INTERVAL_MS);
     const nowMs = yield* Clock.currentTimeMillis;
     const fields = yield* sample(nowMs);
+    const piStdoutPausedSinceMs = Math.min(...piStdoutBackpressure.pausedSince.values());
     const decision = decideIngestionLiveness({
       previousCheckAtMs,
       lastProgressAtMs,
       queueDepth: fields.queueDepthNow,
-      publishSuspendedSinceMs:
+      blockedSinceMs: Math.min(
         runtimeEventPublishBackpressure.inFlight > 0
           ? runtimeEventPublishBackpressure.sinceMs
-          : undefined,
+          : Number.POSITIVE_INFINITY,
+        piStdoutPausedSinceMs,
+      ),
       stalledChecks,
     });
+    const details = {
+      ...fields,
+      piStdoutPausedNow: piStdoutBackpressure.pausedSince.size,
+      piStdoutPausedForMs: Number.isFinite(piStdoutPausedSinceMs)
+        ? nowMs - piStdoutPausedSinceMs
+        : 0,
+      stalledChecks: decision.stalledChecks,
+    };
     previousCheckAtMs = nowMs;
     stalledChecks = decision.stalledChecks;
     if (decision.liveness === "warn") {
-      yield* Effect.logWarning("provider runtime ingestion is not making progress", {
-        ...fields,
-        stalledChecks,
-      });
+      yield* Effect.logWarning("provider runtime ingestion is not making progress", details);
     }
     if (decision.liveness === "escalate") {
       // `Effect.die` here would end only this fibre; the point is a process
       // exit that the supervisor (systemd) restarts, as the OOM abort used to.
       yield* Effect.logError(
         "provider runtime ingestion stalled; exiting so the supervisor restarts the server",
-        { ...fields, stalledChecks },
+        details,
       );
       globalThis.process.exit(1);
     }

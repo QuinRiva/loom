@@ -6,13 +6,13 @@ const PREVIOUS_CHECK_AT_MS = 1_000_000;
 const check = (input: {
   progressSincePreviousCheck: boolean;
   queueDepth?: number;
-  publishSuspendedSinceMs?: number;
+  blockedSinceMs?: number;
   stalledChecks?: number;
 }) => ({
   previousCheckAtMs: PREVIOUS_CHECK_AT_MS,
   lastProgressAtMs: PREVIOUS_CHECK_AT_MS + (input.progressSincePreviousCheck ? 1 : -1),
   queueDepth: input.queueDepth ?? 0,
-  publishSuspendedSinceMs: input.publishSuspendedSinceMs,
+  blockedSinceMs: input.blockedSinceMs ?? Number.POSITIVE_INFINITY,
   stalledChecks: input.stalledChecks ?? 0,
 });
 
@@ -42,22 +42,35 @@ describe("decideIngestionLiveness", () => {
     ).toEqual({ liveness: "ok", stalledChecks: 0 });
   });
 
-  it("counts a publish suspended since before the previous check as pending work", () => {
+  // `blockedSinceMs` is the earliest of a suspended publish and a paused pi
+  // stdout. The stdout case is a wedge upstream of `publish` (the adapter fibre
+  // stuck in SQL): the ingestion queue stays empty and only the pause shows it.
+  it("counts the pipeline blocked since before the previous check as pending work", () => {
     expect(
       decideIngestionLiveness(
         check({
           progressSincePreviousCheck: false,
-          publishSuspendedSinceMs: PREVIOUS_CHECK_AT_MS - 1,
+          blockedSinceMs: PREVIOUS_CHECK_AT_MS - 1,
           stalledChecks: 4,
         }),
       ).liveness,
     ).toBe("escalate");
-    // Suspended only since the previous check: not yet a whole stalled interval.
+    // Blocked only since the previous check: not yet a whole stalled interval.
     expect(
       decideIngestionLiveness(
         check({
           progressSincePreviousCheck: false,
-          publishSuspendedSinceMs: PREVIOUS_CHECK_AT_MS + 1,
+          blockedSinceMs: PREVIOUS_CHECK_AT_MS + 1,
+        }),
+      ).liveness,
+    ).toBe("ok");
+    // Blocked, but ingestion made progress: slow, not wedged.
+    expect(
+      decideIngestionLiveness(
+        check({
+          progressSincePreviousCheck: true,
+          blockedSinceMs: PREVIOUS_CHECK_AT_MS - 1,
+          stalledChecks: 4,
         }),
       ).liveness,
     ).toBe("ok");
