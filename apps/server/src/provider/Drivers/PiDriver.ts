@@ -1982,7 +1982,7 @@ export function makePiAdapter(input: {
   // "creating a new session with that id" warning, say) up as an error reason.
   const stoppedProcesses = new WeakSet<PiRpcProcess>();
 
-  // Mark before the SIGTERM: the exit handler runs on the process's own `exit`
+  // Mark before the SIGTERM: the exit handler runs on the process's own `close`
   // event, so the marking has to be in place before the signal is sent.
   const stopProcessGracefully = (process: PiRpcProcess): Effect.Effect<void> =>
     Effect.suspend(() => {
@@ -1992,15 +1992,24 @@ export function makePiAdapter(input: {
 
   // Attach this adapter's stream subscription + crash handler to a pi process.
   // Shared by session start and relaunch so both wire identical semantics.
+  //
+  // The listener returns the handling promise: it stays pending while the
+  // bounded `events` queue is full, which is what lets the stdout reader pause
+  // the child (RpcProcess `attachStdoutLineReader`). Teardown runs on `close`,
+  // not `exit`, so a tail still buffered behind a pause is delivered before the
+  // session is deleted and `session.exited` is emitted.
   const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
-    active.unsubscribe = process.subscribe(
-      (message) => void Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
+    active.unsubscribe = process.subscribe((message) =>
+      Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
     );
-    process.child.once("exit", () => {
+    process.child.once("close", () => {
       if (replacedProcesses.has(process)) return;
       const graceful = stoppedProcesses.has(process);
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
-      sessions.delete(active.session.threadId);
+      // `close` can land after `stop()` resolved on `exit` and a replacement
+      // session for the thread registered; only delete our own entry.
+      if (sessions.get(active.session.threadId) === active)
+        sessions.delete(active.session.threadId);
       void (async () => {
         // Cancel BEFORE unregistering so the emitter is still present — but the
         // ordering is no longer load-bearing: the broker persists the resolution
@@ -2872,7 +2881,11 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         accentColor,
         continuationGroupKey: continuationIdentity.continuationKey,
       });
-      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      // Bounded so a slow consumer backpressures every pi child of this
+      // instance (all sessions share it). It is a latency knob, not the memory
+      // knob: the stdout pause threshold is. 32 (x2 with the `takeAll` pull) is
+      // enough to keep ProviderService fed without queueing seconds of events.
+      const events = yield* Queue.bounded<ProviderRuntimeEvent>(32);
       // Slug -> context-window (tokens), populated by `enrichPiSnapshot` from pi's
       // live catalogue (fetched once at provider boot) and read synchronously by
       // the adapter so token-usage snapshots carry `maxTokens` with no per-session

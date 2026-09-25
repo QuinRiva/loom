@@ -43,13 +43,23 @@ export interface DrainableWorker<A> {
  * the scope closes. A finalizer shuts down the queue.
  *
  * @param process - The effect to run for each queued item.
+ * @param options.capacity - loom: bound the queue; `enqueue` then suspends
+ *   while `capacity` items are waiting, backpressuring the producer. Omitted,
+ *   the queue is unbounded.
  * @returns A `DrainableWorker` with `queue` and `drain`.
  */
 export const makeDrainableWorker = <A, E, R>(
   process: (item: A) => Effect.Effect<void, E, R>,
+  options?: { readonly capacity?: number },
 ): Effect.Effect<DrainableWorker<A>, never, Scope.Scope | R> =>
   Effect.gen(function* () {
-    const queue = yield* Effect.acquireRelease(TxQueue.unbounded<A>(), TxQueue.shutdown);
+    const queue = yield* Effect.acquireRelease(
+      // loom: optional bound; `TxQueue.offer` retries while a bounded queue is full.
+      options?.capacity === undefined
+        ? TxQueue.unbounded<A>()
+        : TxQueue.bounded<A>(options.capacity),
+      TxQueue.shutdown,
+    );
     const outstanding = yield* TxRef.make(0);
 
     yield* TxQueue.take(queue).pipe(

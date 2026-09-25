@@ -278,7 +278,17 @@ export interface ProviderServiceLiveOptions {
   readonly issueMcpCredential?: typeof McpSessionRegistry.issueActiveMcpCredential;
   /** loom: the matching revoke seam, so a test can observe teardown too. */
   readonly revokeMcpCredential?: typeof McpSessionRegistry.revokeActiveMcpThread;
+  /** loom: shrinks the runtime-event PubSub so a test can fill it. */
+  readonly runtimeEventCapacity?: number;
 }
+
+// loom: bounded runtime-event fan-out. `publish` suspends while the slowest
+// subscriber's buffer is full, backpressuring every adapter's event stream down
+// to the pi children (plans/ingestion-backpressure §3.1). With no subscriber it
+// drops, as the unbounded PubSub effectively did at startup. 256 (x2 with the
+// `takeAll` pull) covers bursts across all instances; beyond that depth only
+// adds lag, not throughput.
+const RUNTIME_EVENT_PUBSUB_CAPACITY = 256;
 
 interface TurnAnalyticsMetadata {
   readonly requestId: number;
@@ -501,7 +511,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const workspaceLease = yield* WorkspaceLease;
-  const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  // loom: bounded (see RUNTIME_EVENT_PUBSUB_CAPACITY).
+  const runtimeEventPubSub = yield* PubSub.bounded<ProviderRuntimeEvent>({
+    capacity: options?.runtimeEventCapacity ?? RUNTIME_EVENT_PUBSUB_CAPACITY,
+  });
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
   // Workspace occupancy (plan §7). Adapters register a live child only AFTER

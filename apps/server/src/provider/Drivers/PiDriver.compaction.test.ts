@@ -63,6 +63,7 @@ const makeFakeProcess = (options?: { readonly failCompact?: string }) => {
     },
     stop: () => {
       child.emit("exit", 0, "SIGTERM");
+      child.emit("close", 0, "SIGTERM");
       return Promise.resolve();
     },
   } as unknown as PiRpcProcess;

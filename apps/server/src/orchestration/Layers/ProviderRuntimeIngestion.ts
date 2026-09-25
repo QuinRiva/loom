@@ -144,6 +144,9 @@ const ACTIVITY_CHECKPOINT_INTERVAL_MS = 10_000;
 // as soon as it is done.
 const MIN_ASSISTANT_DELIVERY_INTERVAL_MS = 400;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+// loom: the global FIFO a fresh turn.started waits behind: 256 at ~35 events/s
+// is ~7 s of lag; more depth adds only lag, not throughput.
+const RUNTIME_INGESTION_CAPACITY = 256;
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -3089,8 +3092,12 @@ const make = Effect.gen(function* () {
         }),
       );
 
-  const worker = yield* makeDrainableWorker((input: RuntimeIngestionInput) =>
-    processInput(input).pipe(logIngestionFailure(input.source, input.event)),
+  const worker = yield* makeDrainableWorker(
+    (input: RuntimeIngestionInput) =>
+      processInput(input).pipe(logIngestionFailure(input.source, input.event)),
+    // loom: bounded intake so a slow worker backpressures ProviderService's
+    // PubSub (and from there the pi children) instead of queueing on the heap.
+    { capacity: RUNTIME_INGESTION_CAPACITY },
   );
 
   // Repository detection for a diff goes through VCS subprocesses, which can
