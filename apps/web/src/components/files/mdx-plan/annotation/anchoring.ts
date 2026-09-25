@@ -330,7 +330,7 @@ export function anchorFromRange(
       textQuote,
       contextBefore: text.slice(Math.max(0, start - CTX), start),
       contextAfter: text.slice(end, end + CTX),
-      blockType: block?.type,
+      ...(block ? { blockType: block.type } : {}),
       ...(countOccurrences(text, textQuote) > 1 ? { ambiguous: true } : {}),
       ...sectionFields,
     },
@@ -355,9 +355,9 @@ export function anchorForBlockElement(
     anchor: {
       anchorKind: "visual",
       targetKind: targetKindForBlock(type),
-      blockType: type ?? undefined,
+      ...(type ? { blockType: type } : {}),
       targetSelector: blockSelector(id),
-      snippet: quotedText || undefined,
+      ...(quotedText ? { snippet: quotedText } : {}),
       ...(section ? { sectionId: section.id, sectionTitle: section.title } : {}),
     },
     quotedText: quotedText || type || "block",
@@ -420,19 +420,20 @@ export function anchorForWireframeNode(
   if (!artboard) return null;
   const wfNode = target.closest<HTMLElement>("[data-wf-node]");
   const nodeEl = wfNode && artboard.contains(wfNode) ? wfNode : target;
-  const targetNodeId = nodeEl.getAttribute("data-wf-node") ?? undefined;
-  const blockType = artboard.getAttribute("data-plan-block-type") ?? undefined;
+  const targetNodeId = nodeEl.getAttribute("data-wf-node");
+  const blockType = artboard.getAttribute("data-plan-block-type");
+  const targetNodePath = nodePathWithin(artboard, nodeEl);
   const section = sectionFor(artboard, root);
   const snippet = collapse(nodeEl.textContent ?? "", BLOCK_SNIPPET_MAX);
   return {
     anchor: {
       anchorKind: "wireframe",
       targetKind: "wireframe",
-      blockType,
+      ...(blockType ? { blockType } : {}),
       targetSelector: blockSelector(artboard.getAttribute("data-plan-block-id") ?? ""),
-      targetNodeId: targetNodeId || undefined,
-      targetNodePath: nodePathWithin(artboard, nodeEl) || undefined,
-      snippet: snippet || undefined,
+      ...(targetNodeId ? { targetNodeId } : {}),
+      ...(targetNodePath ? { targetNodePath } : {}),
+      ...(snippet ? { snippet } : {}),
       ...(section ? { sectionId: section.id, sectionTitle: section.title } : {}),
     },
     quotedText: snippet || targetNodeId || blockType || "wireframe",

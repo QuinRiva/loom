@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
+import { OrchestrationMessageContext } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
+import { reviewCommentContextRecord } from "~/lib/composerContextRecords";
 import { assignBlockIds } from "../MdxPlanRenderer";
 import {
   type CanvasTransform,
@@ -67,6 +70,39 @@ describe("anchoring — text-quote round-trip", () => {
     expect(res?.anchor.sectionTitle).toBe("Overview"); // nearest preceding heading
     expect(res?.quotedText).toBe("shared cache");
     expect(resolveAnchor(res!.anchor, root)?.toString()).toBe("shared cache");
+  });
+});
+
+describe("anchoring \u2014 anchors survive the message wire", () => {
+  // The send path JSON-encodes the message context, and JSON has no `undefined`:
+  // an anchor carrying `blockType: undefined` (prose outside any plan block) or
+  // `snippet: undefined` (a text-less block) failed the whole send with
+  // "Expected JSON value at [\"message\"][\"context\"][\"records\"][0]".
+  const encode = Schema.encodeUnknownSync(Schema.toCodecJson(OrchestrationMessageContext));
+  const sendable = ({ anchor, quotedText }: NonNullable<ReturnType<typeof anchorFromRange>>) =>
+    encode({
+      version: 1,
+      records: [
+        reviewCommentContextRecord({
+          kind: "mdx-anchor",
+          id: "mdx-anchor:1:abc",
+          filePath: "plans/x/plan.mdx",
+          sectionId: anchor.sectionId ?? "file:plans/x/plan.mdx",
+          sectionTitle: anchor.sectionTitle ?? "plan.mdx",
+          rangeLabel: "annotation",
+          text: "please reword this",
+          anchor,
+          quotedText,
+        }),
+      ],
+    });
+
+  it("encodes a prose selection outside any block and a text-less block", () => {
+    expect(() => sendable(anchorFromRange(rangeForText("shared cache"), root)!)).not.toThrow();
+    const empty = document.createElement("figure");
+    empty.setAttribute("data-plan-block-type", "image");
+    root.append(empty);
+    expect(() => sendable(anchorForBlockElement(empty, root))).not.toThrow();
   });
 });
 
