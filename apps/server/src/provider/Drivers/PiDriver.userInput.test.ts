@@ -60,11 +60,13 @@ const makeFakeProcess = () => {
       listener = next;
       return () => undefined;
     },
-    // Real `stop()` SIGTERMs pi and resolves on its `exit`, so the driver's exit
-    // handler always runs on a deliberate stop too — the fake has to reproduce
-    // that or the graceful path is untested.
+    // Real `stop()` SIGTERMs pi and resolves on its `exit` (followed by `close`,
+    // where the driver's teardown runs), so that handler always runs on a
+    // deliberate stop too — the fake has to reproduce that or the graceful path
+    // is untested.
     stop: () => {
       child.emit("exit", 0, "SIGTERM");
+      child.emit("close", 0, "SIGTERM");
       return Promise.resolve();
     },
   } as unknown as PiRpcProcess;
@@ -288,6 +290,7 @@ describe("PiDriver user input", () => {
         yield* startSession(adapter, threadId);
         fake.setStderr("Stored session working directory does not exist");
         fake.process.child.emit("exit", 1, null);
+        fake.process.child.emit("close", 1, null);
         const exited = yield* takeEvent(events, "session.exited");
         expect(exited.payload).toMatchObject({
           exitKind: "error",
@@ -311,6 +314,7 @@ describe("PiDriver user input", () => {
         });
         yield* takeEvent(events, "user-input.requested");
         fake.process.child.emit("exit", 1, null);
+        fake.process.child.emit("close", 1, null);
         const resolved = yield* takeEvent(events, "user-input.resolved");
         expect(resolved.requestId).toBe("crashed-select");
         expect(resolved.payload.answers).toEqual({});

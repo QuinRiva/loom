@@ -4,7 +4,6 @@ import {
   EventId,
   IsoDateTime,
   MessageId,
-  type OrchestrationEvent,
   OrchestrationProposedPlanId,
   CheckpointRef,
   classifyTaskAgentKind,
@@ -53,6 +52,9 @@ import { ProjectionUsageLedgerRepositoryLive } from "../../persistence/Layers/Pr
 import { isGitRepository } from "../../git/Utils.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
+// loom: startup reconcile reads sessions with an active turn (§3.7).
+import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
+import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
@@ -68,6 +70,11 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
+// loom: ingestion interval log + liveness watchdog (plans/ingestion-backpressure §3.5).
+import {
+  makeIngestionTelemetry,
+  timeIngestionWait,
+} from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   dispatchUserInputResolutions,
@@ -144,11 +151,9 @@ const ACTIVITY_CHECKPOINT_INTERVAL_MS = 10_000;
 // as soon as it is done.
 const MIN_ASSISTANT_DELIVERY_INTERVAL_MS = 400;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
-
-type TurnStartRequestedDomainEvent = Extract<
-  OrchestrationEvent,
-  { type: "thread.turn-start-requested" }
->;
+// loom: the global FIFO a fresh turn.started waits behind: 256 at ~35 events/s
+// is ~7 s of lag; more depth adds only lag, not throughput.
+const RUNTIME_INGESTION_CAPACITY = 256;
 
 type ProviderDiffEvent = Extract<ProviderRuntimeEvent, { type: "turn.diff.updated" }>;
 
@@ -156,10 +161,6 @@ type RuntimeIngestionInput =
   | {
       source: "runtime";
       event: ProviderRuntimeEvent;
-    }
-  | {
-      source: "domain";
-      event: TurnStartRequestedDomainEvent;
     }
   | {
       /** A diff whose workspace the diff worker confirmed is a Git repository. */
@@ -1124,7 +1125,14 @@ const make = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const crypto = yield* Crypto.Crypto;
-  const orchestrationEngine = yield* OrchestrationEngineService;
+  // loom: dispatch is the only engine method ingestion uses; timing it splits
+  // engine wait out of the ingestion interval's processing time.
+  const engine = yield* OrchestrationEngineService;
+  const orchestrationEngine = {
+    dispatch: (...args: Parameters<typeof engine.dispatch>) =>
+      timeIngestionWait("engineDispatchMs", engine.dispatch(...args)),
+  };
+  const telemetry = yield* makeIngestionTelemetry; // loom:
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -1248,6 +1256,7 @@ const make = Effect.gen(function* () {
   const projectionThreadMessages = yield* ProjectionThreadMessageRepository;
   const projectionThreadProposedPlans = yield* ProjectionThreadProposedPlanRepository;
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
+  const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository; // loom:
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -2960,8 +2969,6 @@ const make = Effect.gen(function* () {
       }
     });
 
-  const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
-
   // Records a mid-turn placeholder checkpoint for a provider diff. Runs on the
   // lifecycle worker, after repository detection, so the running-turn check
   // and the dispatch are ordered with the turn's terminal events: a diff that
@@ -3003,16 +3010,18 @@ const make = Effect.gen(function* () {
     switch (input.source) {
       case "runtime":
         return processRuntimeEvent(input.event);
-      case "domain":
-        return processDomainEvent(input.event);
       case "diff":
         return recordProviderDiff(input.event);
     }
   };
 
+  // loom: reads only sessions with an active turn and their tool activities.
+  // It used to load the full projection snapshot (every thread's activities,
+  // messages and checkpoints — ~2 GB of heap at boot on a busy install) to find
+  // these few threads (plans/ingestion-backpressure §3.7).
   const reconcileInterruptedToolActivitiesOnStartup = Effect.gen(function* () {
-    const [snapshot, activeProviderSessions, createdAt] = yield* Effect.all([
-      projectionSnapshotQuery.getSnapshot(),
+    const [sessionsWithActiveTurn, activeProviderSessions, createdAt] = yield* Effect.all([
+      projectionThreadSessionRepository.listWithActiveTurn(),
       providerService.listSessions().pipe(Effect.orElseSucceed(() => [])),
       DateTime.now.pipe(Effect.map(DateTime.formatIso)),
     ]);
@@ -3021,13 +3030,24 @@ const make = Effect.gen(function* () {
     );
     let interruptedCount = 0;
 
-    for (const thread of snapshot.threads) {
-      if (
-        thread.session === null ||
-        thread.session.activeTurnId === null ||
-        activeRuntimeThreadIds.has(thread.id)
-      )
-        continue;
+    for (const session of sessionsWithActiveTurn) {
+      if (activeRuntimeThreadIds.has(session.threadId)) continue;
+      const thread = {
+        id: session.threadId,
+        activities: (yield* projectionThreadActivityRepository.listByThreadId({
+          threadId: session.threadId,
+          activityKinds: ["tool.started", "tool.updated", "tool.completed"],
+        })).map((row): OrchestrationThreadActivity => ({
+          id: row.activityId,
+          tone: row.tone,
+          kind: row.kind,
+          summary: row.summary,
+          payload: row.payload,
+          turnId: row.turnId,
+          createdAt: row.createdAt,
+          ...(row.sequence === undefined ? {} : { sequence: row.sequence }),
+        })),
+      };
       const completedToolCallIds = new Set(
         thread.activities.flatMap((activity) => {
           const toolCallId = activityPayloadRecord(activity)?.toolCallId;
@@ -3089,8 +3109,16 @@ const make = Effect.gen(function* () {
         }),
       );
 
-  const worker = yield* makeDrainableWorker((input: RuntimeIngestionInput) =>
-    processInput(input).pipe(logIngestionFailure(input.source, input.event)),
+  // loom: instrumented for the ingestion interval log and liveness watchdog.
+  const worker = telemetry.instrumentWorker(
+    yield* makeDrainableWorker(
+      telemetry.instrumentProcess((input: RuntimeIngestionInput) =>
+        processInput(input).pipe(logIngestionFailure(input.source, input.event)),
+      ),
+      // loom: bounded intake so a slow worker backpressures ProviderService's
+      // PubSub (and from there the pi children) instead of queueing on the heap.
+      { capacity: RUNTIME_INGESTION_CAPACITY },
+    ),
   );
 
   // Repository detection for a diff goes through VCS subprocesses, which can
@@ -3160,20 +3188,13 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      yield* forkParked(telemetry.watchLiveness); // loom: see ProviderRuntimeIngestionTelemetry
       yield* forkParked(
         Stream.runForEach(providerService.streamEvents, (event) =>
           event.type === "turn.diff.updated"
             ? diffWorker.enqueue(event)
             : worker.enqueue({ source: "runtime", event }),
         ),
-      );
-      yield* forkParked(
-        Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-          if (event.type !== "thread.turn-start-requested") {
-            return Effect.void;
-          }
-          return worker.enqueue({ source: "domain", event });
-        }),
       );
     });
 
@@ -3194,6 +3215,7 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
   Layer.provide(ProjectionThreadHeartbeatRepositoryLive),
   Layer.provide(ProjectionUsageLedgerRepositoryLive),
   Layer.provide(ProjectionThreadActivityRepositoryLive),
+  Layer.provide(ProjectionThreadSessionRepositoryLive), // loom: startup reconcile
   Layer.provide(ProjectionThreadMessageRepositoryLive),
   Layer.provide(ProjectionThreadProposedPlanRepositoryLive),
 );

@@ -2,6 +2,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema"; // loom:
 
 import { toPersistenceSqlError } from "../Errors.ts";
 
@@ -75,6 +76,30 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
       `,
   });
 
+  // loom: startup reconcile input (see the service doc).
+  const listProjectionThreadSessionRowsWithActiveTurn = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadSession,
+    execute: () =>
+      sql`
+        SELECT
+          sessions.thread_id AS "threadId",
+          sessions.status,
+          sessions.provider_name AS "providerName",
+          sessions.provider_instance_id AS "providerInstanceId",
+          sessions.runtime_mode AS "runtimeMode",
+          sessions.active_turn_id AS "activeTurnId",
+          sessions.last_error AS "lastError",
+          sessions.last_error_class AS "lastErrorClass",
+          sessions.updated_at AS "updatedAt"
+        FROM projection_thread_sessions sessions
+        INNER JOIN projection_threads threads
+          ON threads.thread_id = sessions.thread_id
+        WHERE sessions.active_turn_id IS NOT NULL
+        ORDER BY sessions.thread_id ASC
+      `,
+  });
+
   const deleteProjectionThreadSessionRow = SqlSchema.void({
     Request: DeleteProjectionThreadSessionInput,
     execute: ({ threadId }) =>
@@ -96,6 +121,14 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
       ),
     );
 
+  // loom:
+  const listWithActiveTurn: ProjectionThreadSessionRepositoryShape["listWithActiveTurn"] = () =>
+    listProjectionThreadSessionRowsWithActiveTurn(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionThreadSessionRepository.listWithActiveTurn:query"),
+      ),
+    );
+
   const deleteByThreadId: ProjectionThreadSessionRepositoryShape["deleteByThreadId"] = (input) =>
     deleteProjectionThreadSessionRow(input).pipe(
       Effect.mapError(
@@ -106,6 +139,7 @@ const makeProjectionThreadSessionRepository = Effect.gen(function* () {
   return {
     upsert,
     getByThreadId,
+    listWithActiveTurn, // loom:
     deleteByThreadId,
   } satisfies ProjectionThreadSessionRepositoryShape;
 });

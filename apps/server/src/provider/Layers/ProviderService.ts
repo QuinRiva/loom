@@ -97,6 +97,7 @@ import {
 import * as ServerSettings from "../../serverSettings.ts";
 import type { ServerSettings as ServerSettingsValue } from "@t3tools/contracts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { trackRuntimeEventPublish } from "../../diagnostics/ProviderRuntimeIngestionTelemetry.ts"; // loom:
 const isModelSelection = Schema.is(ModelSelection);
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -278,7 +279,17 @@ export interface ProviderServiceLiveOptions {
   readonly issueMcpCredential?: typeof McpSessionRegistry.issueActiveMcpCredential;
   /** loom: the matching revoke seam, so a test can observe teardown too. */
   readonly revokeMcpCredential?: typeof McpSessionRegistry.revokeActiveMcpThread;
+  /** loom: shrinks the runtime-event PubSub so a test can fill it. */
+  readonly runtimeEventCapacity?: number;
 }
+
+// loom: bounded runtime-event fan-out. `publish` suspends while the slowest
+// subscriber's buffer is full, backpressuring every adapter's event stream down
+// to the pi children (plans/ingestion-backpressure §3.1). With no subscriber it
+// drops, as the unbounded PubSub effectively did at startup. 256 (x2 with the
+// `takeAll` pull) covers bursts across all instances; beyond that depth only
+// adds lag, not throughput.
+const RUNTIME_EVENT_PUBSUB_CAPACITY = 256;
 
 interface TurnAnalyticsMetadata {
   readonly requestId: number;
@@ -501,7 +512,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const workspaceLease = yield* WorkspaceLease;
-  const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  // loom: bounded (see RUNTIME_EVENT_PUBSUB_CAPACITY).
+  const runtimeEventPubSub = yield* PubSub.bounded<ProviderRuntimeEvent>({
+    capacity: options?.runtimeEventCapacity ?? RUNTIME_EVENT_PUBSUB_CAPACITY,
+  });
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
   // Workspace occupancy (plan §7). Adapters register a live child only AFTER
@@ -1204,7 +1218,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ? canonicalEventLogger.write(canonicalEvent, canonicalEvent.threadId)
           : Effect.void,
       ),
-      Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
+      // loom: `raw` stops at the canonical log. Nothing downstream reads it, and
+      // for pi it is a second reference to the parsed stdout message (up to
+      // multi-MB tool results) held by every queued event. The logger already
+      // summarises events over 64 KB, so large `raw`s were never kept anyway.
+      Effect.flatMap(({ raw: _raw, ...published }) =>
+        // loom: time spent suspended in publish feeds the ingestion interval.
+        trackRuntimeEventPublish(PubSub.publish(runtimeEventPubSub, published)),
+      ),
       Effect.asVoid,
     );
 

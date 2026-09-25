@@ -153,6 +153,8 @@ const PI_ENRICHMENT_REQUEST_TIMEOUT_MS = 90_000;
  * the driver never gives up first.
  */
 const PI_COMPACT_REQUEST_TIMEOUT_MS = 10 * 60_000;
+/** Session teardown runs on `close`, or this long after `exit` if `close` never comes. */
+const PI_EXIT_TEARDOWN_FALLBACK_MS = 5_000;
 const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
@@ -1982,7 +1984,7 @@ export function makePiAdapter(input: {
   // "creating a new session with that id" warning, say) up as an error reason.
   const stoppedProcesses = new WeakSet<PiRpcProcess>();
 
-  // Mark before the SIGTERM: the exit handler runs on the process's own `exit`
+  // Mark before the SIGTERM: the exit handler runs on the process's own `close`
   // event, so the marking has to be in place before the signal is sent.
   const stopProcessGracefully = (process: PiRpcProcess): Effect.Effect<void> =>
     Effect.suspend(() => {
@@ -1992,15 +1994,38 @@ export function makePiAdapter(input: {
 
   // Attach this adapter's stream subscription + crash handler to a pi process.
   // Shared by session start and relaunch so both wire identical semantics.
+  //
+  // The listener returns a promise only when handling suspended (a full
+  // bounded `events` queue, a pi RPC round trip): that is what lets the stdout
+  // reader pause the child (RpcProcess `attachStdoutLineReader`). A fibre that
+  // finished synchronously must not hold an in-flight slot, or every ≥16-line
+  // chunk would pause the child. Failures stay swallowed (the fibre's exit is
+  // never read).
+  //
+  // Teardown runs on `close`, not `exit`, so a tail still buffered behind a
+  // pause is delivered before the session is deleted and `session.exited` is
+  // emitted. `close` waits for every holder of pi's stdout, so a grandchild
+  // that inherited it would hold teardown hostage; `exit` + 5 s is the
+  // fallback (the released reader drains a dead child's pipe in far less).
   const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
-    active.unsubscribe = process.subscribe(
-      (message) => void Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
-    );
-    process.child.once("exit", () => {
-      if (replacedProcesses.has(process)) return;
+    active.unsubscribe = process.subscribe((message) => {
+      const fiber = Effect.runFork(handleMessage(active, message));
+      return fiber.pollUnsafe() === undefined
+        ? new Promise<void>((resolve) => fiber.addObserver(() => resolve()))
+        : undefined;
+    });
+    let tornDown = false;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const teardown = () => {
+      clearTimeout(fallback);
+      if (tornDown || replacedProcesses.has(process)) return;
+      tornDown = true;
       const graceful = stoppedProcesses.has(process);
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
-      sessions.delete(active.session.threadId);
+      // `close` can land after `stop()` resolved on `exit` and a replacement
+      // session for the thread registered; only delete our own entry.
+      if (sessions.get(active.session.threadId) === active)
+        sessions.delete(active.session.threadId);
       void (async () => {
         // Cancel BEFORE unregistering so the emitter is still present — but the
         // ordering is no longer load-bearing: the broker persists the resolution
@@ -2026,6 +2051,10 @@ export function makePiAdapter(input: {
           }),
         ).catch(() => undefined);
       })();
+    };
+    process.child.once("close", teardown);
+    process.child.once("exit", () => {
+      fallback = setTimeout(teardown, PI_EXIT_TEARDOWN_FALLBACK_MS);
     });
   };
 
@@ -2872,7 +2901,11 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         accentColor,
         continuationGroupKey: continuationIdentity.continuationKey,
       });
-      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      // Bounded so a slow consumer backpressures every pi child of this
+      // instance (all sessions share it). It is a latency knob, not the memory
+      // knob: the stdout pause threshold is. 32 (x2 with the `takeAll` pull) is
+      // enough to keep ProviderService fed without queueing seconds of events.
+      const events = yield* Queue.bounded<ProviderRuntimeEvent>(32);
       // Slug -> context-window (tokens), populated by `enrichPiSnapshot` from pi's
       // live catalogue (fetched once at provider boot) and read synchronously by
       // the adapter so token-usage snapshots carry `maxTokens` with no per-session

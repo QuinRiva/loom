@@ -54,6 +54,73 @@ describe("makeDrainableWorker", () => {
       }),
     ),
   );
+
+  // loom: bounded intake (plans/ingestion-backpressure §3.1).
+  it.live("with a capacity, enqueue suspends while full and drain still waits for in-flight", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const gates = yield* Effect.forEach([0, 1, 2, 3], () => Deferred.make<void>());
+        const started = yield* Deferred.make<void>();
+        const processed: number[] = [];
+        const worker = yield* makeDrainableWorker(
+          (item: number) =>
+            Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(Deferred.await(gates[item]!)),
+              Effect.andThen(Effect.sync(() => processed.push(item))),
+            ),
+          { capacity: 2 },
+        );
+
+        yield* worker.enqueue(0);
+        yield* Deferred.await(started);
+        yield* worker.enqueue(1);
+        yield* worker.enqueue(2);
+
+        const thirdAccepted = yield* Deferred.make<void>();
+        yield* Effect.forkChild(
+          worker
+            .enqueue(3)
+            .pipe(Effect.andThen(Deferred.succeed(thirdAccepted, undefined).pipe(Effect.orDie))),
+        );
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(yield* Deferred.isDone(thirdAccepted)).toBe(false);
+
+        yield* Deferred.succeed(gates[0]!, undefined);
+        yield* Deferred.await(thirdAccepted);
+
+        const drained = yield* Deferred.make<void>();
+        yield* Effect.forkChild(
+          worker.drain.pipe(
+            Effect.andThen(Deferred.succeed(drained, undefined).pipe(Effect.orDie)),
+          ),
+        );
+        yield* Deferred.succeed(gates[1]!, undefined);
+        yield* Deferred.succeed(gates[2]!, undefined);
+        yield* Effect.yieldNow;
+        expect(yield* Deferred.isDone(drained)).toBe(false);
+
+        yield* Deferred.succeed(gates[3]!, undefined);
+        yield* Deferred.await(drained);
+        expect(processed).toEqual([0, 1, 2, 3]);
+      }),
+    ),
+  );
+
+  it.live("stays unbounded without a capacity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const gate = yield* Deferred.make<void>();
+        const worker = yield* makeDrainableWorker((_item: number) => Deferred.await(gate));
+        yield* Effect.forEach(
+          Array.from({ length: 1_000 }, (_, index) => index),
+          worker.enqueue,
+        );
+        yield* Deferred.succeed(gate, undefined);
+        yield* worker.drain;
+      }),
+    ),
+  );
 });
 
 // loom: coalescing trigger worker (one idempotent pass, bounded backlog).
