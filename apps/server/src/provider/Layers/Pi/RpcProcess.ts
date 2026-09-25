@@ -2,7 +2,7 @@
 // @effect-diagnostics globalTimers:off
 import * as NodeCrypto from "node:crypto";
 import * as NodeChildProcess from "node:child_process";
-import * as NodeStringDecoder from "node:string_decoder";
+import type * as NodeStream from "node:stream";
 
 import {
   buildPiRpcInvocation,
@@ -249,18 +249,145 @@ export interface PiRpcProcess {
     timeoutMs?: number,
   ) => Promise<PiRpcResponse<TData>>;
   readonly write: (command: PiRpcCommand) => Promise<void>;
-  readonly subscribe: (listener: (message: PiRpcStdoutMessage) => void) => () => void;
+  /**
+   * A listener may return a promise that settles once the message has been
+   * handed downstream; while too many are unsettled, stdout is paused (see
+   * `attachStdoutLineReader`).
+   */
+  readonly subscribe: (
+    listener: (message: PiRpcStdoutMessage) => void | Promise<unknown>,
+  ) => () => void;
   readonly stop: () => Promise<void>;
 }
 
 interface PendingResponse {
-  readonly timeout: ReturnType<typeof setTimeout>;
+  readonly cancelTimeout: () => void;
   readonly resolve: (response: PiRpcResponse) => void;
   readonly reject: (error: Error) => void;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const STDERR_TAIL_MAX_CHARS = 4_096;
+// Backpressure hysteresis, counted in unsettled listener promises (each holds
+// one parsed pi message, up to multi-MB tool results): this is the per-child
+// memory knob. 16 open → pause; drained to 4 → resume, so a busy child is not
+// toggled on every message.
+const STDOUT_PAUSE_AT_IN_FLIGHT = 16;
+const STDOUT_RESUME_AT_IN_FLIGHT = 4;
+
+export interface StdoutLineReader {
+  /** Paused for backpressure right now. */
+  readonly isPaused: () => boolean;
+  /** Pauses so far, so a deadline can notice a pause that has already ended. */
+  readonly pauseCount: () => number;
+  /** The writer is gone: resume for good so the buffered tail drains to `end`. */
+  readonly release: () => void;
+}
+
+/**
+ * Splits a child's stdout into lines and applies backpressure to it.
+ *
+ * Lines are found by scanning raw bytes for `\n` (0x0A never occurs inside a
+ * multi-byte UTF-8 sequence), and only a complete line is concatenated and
+ * decoded, so a multi-MB line costs O(n). A trailing `\r` is trimmed and blank
+ * lines are skipped.
+ *
+ * `onLine` may return a promise; while `pauseAt` or more are unsettled the
+ * stream is paused, and it resumes once they drain to `resumeAt`. The pipe then
+ * becomes the buffer and the child slows down instead of this process holding
+ * its backlog. Pausing takes effect after the current chunk's lines have been
+ * dispatched, so the true ceiling is `pauseAt` + lines-per-chunk. Emitters that
+ * never pass through here (synthetic exit events, retry timers, ask-user
+ * resolutions) suspend on a full downstream queue without pausing anything —
+ * they are low volume, and that is deliberate.
+ */
+export function attachStdoutLineReader(
+  stream: NodeStream.Readable,
+  onLine: (line: string) => void | Promise<unknown>,
+  { pauseAt = STDOUT_PAUSE_AT_IN_FLIGHT, resumeAt = STDOUT_RESUME_AT_IN_FLIGHT } = {},
+): StdoutLineReader {
+  let partial: Buffer[] = [];
+  let inFlight = 0;
+  let paused = false;
+  let released = false;
+  let pauses = 0;
+
+  const resume = () => {
+    if (!paused) return;
+    paused = false;
+    stream.resume();
+  };
+  const settle = () => {
+    inFlight -= 1;
+    if (inFlight <= resumeAt) resume();
+  };
+  const dispatch = (line: string) => {
+    const trimmed = line.endsWith("\r") ? line.slice(0, -1) : line;
+    if (!trimmed) return;
+    const pending = onLine(trimmed);
+    if (!(pending instanceof Promise)) return;
+    inFlight += 1;
+    void pending.then(settle, settle);
+    if (inFlight >= pauseAt && !paused && !released) {
+      paused = true;
+      pauses += 1;
+      stream.pause();
+    }
+  };
+
+  stream.on("data", (chunk: Buffer) => {
+    let start = 0;
+    for (let newline = chunk.indexOf(0x0a); newline !== -1; newline = chunk.indexOf(0x0a, start)) {
+      const tail = chunk.subarray(start, newline);
+      const line = partial.length === 0 ? tail : Buffer.concat([...partial, tail]);
+      partial = [];
+      start = newline + 1;
+      dispatch(line.toString("utf8"));
+    }
+    if (start < chunk.length) partial.push(chunk.subarray(start));
+  });
+  stream.on("end", () => {
+    if (partial.length > 0) dispatch(Buffer.concat(partial).toString("utf8"));
+    partial = [];
+  });
+
+  return {
+    isPaused: () => paused,
+    pauseCount: () => pauses,
+    release: () => {
+      released = true;
+      resume();
+    },
+  };
+}
+
+/**
+ * A request deadline that does not expire while the child's stdout is held by
+ * backpressure: a paused child cannot deliver its response, and under
+ * saturation a pause lasts as long as the global drain takes. When the timer
+ * fires during (or after) a pause since it was armed, it re-arms for another
+ * `timeoutMs`; otherwise `onTimeout` runs. Returns the cancel function.
+ */
+export function setPauseAwareTimeout(
+  reader: Pick<StdoutLineReader, "isPaused" | "pauseCount">,
+  timeoutMs: number,
+  onTimeout: () => void,
+): () => void {
+  let pausesSeen = reader.pauseCount();
+  let timer: ReturnType<typeof setTimeout>;
+  const arm = () => {
+    timer = setTimeout(() => {
+      if (reader.isPaused() || reader.pauseCount() !== pausesSeen) {
+        pausesSeen = reader.pauseCount();
+        arm();
+        return;
+      }
+      onTimeout();
+    }, timeoutMs);
+  };
+  arm();
+  return () => clearTimeout(timer);
+}
 
 function nextStderrTail(previous: string, chunk: string): string {
   const next = `${previous}${chunk}`;
@@ -337,17 +464,15 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
     shell: useWindowsShell,
   });
 
-  const listeners = new Set<(message: PiRpcStdoutMessage) => void>();
+  const listeners = new Set<(message: PiRpcStdoutMessage) => void | Promise<unknown>>();
   const pending = new Map<string, PendingResponse>();
-  const decoder = new NodeStringDecoder.StringDecoder("utf8");
-  let stdoutBuffer = "";
   let stderrTail = "";
   let closed = false;
   let exitPromise: Promise<void> | undefined;
 
   const rejectAllPending = (error: Error) => {
     for (const [id, entry] of pending) {
-      clearTimeout(entry.timeout);
+      entry.cancelTimeout();
       entry.reject(error);
       pending.delete(id);
     }
@@ -358,7 +483,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
       const entry = pending.get(message.id);
       if (entry) {
         pending.delete(message.id);
-        clearTimeout(entry.timeout);
+        entry.cancelTimeout();
         if (message.success) {
           entry.resolve(message);
         } else {
@@ -366,32 +491,20 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
         }
       }
     }
-    for (const listener of listeners) listener(message);
+    const inFlight = [...listeners].flatMap((listener) => {
+      const handled = listener(message);
+      return handled instanceof Promise ? [handled] : [];
+    });
+    return inFlight.length === 0 ? undefined : Promise.all(inFlight);
   };
 
-  const handleLine = (line: string) => {
-    const trimmed = line.endsWith("\r") ? line.slice(0, -1) : line;
-    if (!trimmed) return;
+  const stdout = attachStdoutLineReader(child.stdout, (line) => {
     try {
-      handleMessage(JSON.parse(trimmed) as PiRpcStdoutMessage);
+      return handleMessage(JSON.parse(line) as PiRpcStdoutMessage);
     } catch {
       // Pi may print non-RPC noise; ignore it.
+      return undefined;
     }
-  };
-
-  child.stdout.on("data", (chunk: Buffer | string) => {
-    stdoutBuffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
-    for (;;) {
-      const newlineIndex = stdoutBuffer.indexOf("\n");
-      if (newlineIndex === -1) break;
-      handleLine(stdoutBuffer.slice(0, newlineIndex));
-      stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-    }
-  });
-  child.stdout.on("end", () => {
-    stdoutBuffer += decoder.end();
-    if (stdoutBuffer) handleLine(stdoutBuffer);
-    stdoutBuffer = "";
   });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
@@ -403,6 +516,9 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
   });
   child.once("exit", (code, signal) => {
     closed = true;
+    // Nothing writes to the pipe any more: let the paused tail drain so
+    // `end` (and the child's `close`) can fire.
+    stdout.release();
     rejectAllPending(describePiExit({ command: invocation.command, code, signal, stderrTail }));
   });
 
@@ -419,16 +535,16 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
       });
     const id = `pi-${NodeCrypto.randomUUID()}`;
     const response = await new Promise<PiRpcResponse>((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const cancelTimeout = setPauseAwareTimeout(stdout, timeoutMs, () => {
         pending.delete(id);
         reject(new Error(`Timed out waiting for Pi RPC response to '${rpcCommand.type}'.`));
-      }, timeoutMs);
-      pending.set(id, { timeout, resolve, reject });
+      });
+      pending.set(id, { cancelTimeout, resolve, reject });
       void writeJsonLine(child, { ...rpcCommand, id }).catch((error) => {
         const entry = pending.get(id);
         if (!entry) return;
         pending.delete(id);
-        clearTimeout(entry.timeout);
+        entry.cancelTimeout();
         reject(error instanceof Error ? error : new Error(String(error)));
       });
     });
