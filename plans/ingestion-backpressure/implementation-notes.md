@@ -113,3 +113,54 @@ Implements `plan.md` §3.1, §3.3, §3.4, §3.5, the dead `domain` path (§3.2),
   (ProviderCommandReactor waits), ProviderService's own synthetic publishes. No cycle back into the
   ingestion worker that I could find (ingestion only calls `getSession`/`listSessions`).
 - Bounded PubSub drops when there are zero subscribers (same as the plan states for startup).
+
+## Fix pass (after `review-impl.md`, APPROVE WITH FIXES)
+
+One commit per item, on top of `26af30b44b`:
+
+1. **Blocking 1** (`c88dc9853c`). `wirePiProcess` forks `handleMessage` with `Effect.runFork` and
+   returns `undefined` when `fiber.pollUnsafe()` already has an exit, else a Promise resolved by
+   `fiber.addObserver`; failures stay swallowed (the exit is never read). `RpcProcess` fan-out is a
+   plain loop (single promise, `Promise.all` only if a second listener returns one). New
+   `PiDriver.backpressure.test.ts` with `Queue.bounded(1)` as `events`: `turn_start`,
+   `message_start` and a delta that fits → `undefined`; a delta into the full queue → a Promise
+   still pending a macrotask later; resolves after `Queue.take`. Fails against the old
+   `runPromise` listener (checked).
+2. **Blocking 2** (`0c05d4b02f`). `piStdoutBackpressure.pausedNow` → `pausedSince: Map<object,
+   number>` keyed by the stdout stream, set on pause and deleted on resume; the monitor reports its
+   `size` as `piStdoutPausedNow`. `decideIngestionLiveness` takes `blockedSinceMs` (pending iff
+   `<= previousCheckAtMs`; `Infinity` never is); `watchLiveness` passes the min of the in-flight
+   publish start and every paused stream's start. The warn/escalate log also carries
+   `piStdoutPausedNow` and `piStdoutPausedForMs` so an upstream-of-publish wedge is legible. Decision
+   test covers blocked-before-previous-check (escalates), blocked-since (ok) and blocked-with-
+   progress (ok).
+3. **Non-blocking 1** (`fd74ba1390`). `setPauseAwareTimeout(…, maxRearms = 10)`: the 11th fire
+   rejects as a normal timeout (~5 min at 30 s). Test with a cap of 3 and a permanently paused
+   reader.
+4. **Non-blocking 2** (`337b6f09ba`). Teardown is one function run on `close`, or by a 5 s timer
+   armed on `exit` (`PI_EXIT_TEARDOWN_FALLBACK_MS`); `close` clears the timer, a `tornDown` flag
+   stops a second run, the `sessions.get(...) === active` guard is kept.
+5. **Non-blocking 5** (`b15992aa3e`). Cheap with the new harness: `exit`, a macrotask, a delta via
+   the captured listener, `close` → `content.delta` then `session.exited`. Fails with teardown
+   moved back onto `exit` (checked). The `Queue.bounded(32)` in `PiDriver.make` is still only
+   wired, not tested (needs the full driver layer).
+6. **Non-blocking 6** (`e7e2f1c8d3`). One entry under "Standing drops" in
+   `docs/upstream-sync/25-cadence-pull-v0.0.43-nightly-20260920.md` (upstream's
+   `processDomainEvent` is `Effect.void` too, checked on `upstream/main`).
+7. **Non-blocking 4** (`06281d82e5`). Renamed: `publishSuspendedMs` → `publishInFlightMs`,
+   `publishSuspendedForMs` → `publishInFlightForMs`, `suspendedMsTotal` → `inFlightMsTotal`, plus a
+   doc comment on why in-flight ≈ suspended. `plan.md` §3.5/§5 still say `publishSuspendedMs`; left
+   as the plan author's text — the §6 reader should look for `publishInFlightMs`.
+
+Not addressed (reviewer marked acceptable or pre-existing): non-blocking 3 (straggler
+`session.exited` after re-registration), 8 (module-global engine PubSub size), 9 (no change).
+
+### Gates (at `06281d82e5`)
+
+- `pnpm exec vp check` → exit 0, 0 errors, 912 warnings (unchanged count).
+- `pnpm exec vp run typecheck` → exit 0, 0 `error TS`.
+- `pnpm exec vp test run apps/server/src/orchestration/Layers apps/server/src/provider
+  apps/server/src/diagnostics packages/shared --maxWorkers=4` → exit 0, 190 files passed (2
+  skipped), 3397 tests passed (8 skipped). Load average ~5.
+- `docs/upstream-sync/pull7-tools/unmarkedsweep.sh` → clean.
+- Still not run: canonical entrypoint against real data / production (plan §6 is post-deploy).
