@@ -52,6 +52,9 @@ import { ProjectionUsageLedgerRepositoryLive } from "../../persistence/Layers/Pr
 import { isGitRepository } from "../../git/Utils.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
+// loom: startup reconcile reads sessions with an active turn (§3.7).
+import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
+import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
@@ -1253,6 +1256,7 @@ const make = Effect.gen(function* () {
   const projectionThreadMessages = yield* ProjectionThreadMessageRepository;
   const projectionThreadProposedPlans = yield* ProjectionThreadProposedPlanRepository;
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
+  const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository; // loom:
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -3011,9 +3015,13 @@ const make = Effect.gen(function* () {
     }
   };
 
+  // loom: reads only sessions with an active turn and their tool activities.
+  // It used to load the full projection snapshot (every thread's activities,
+  // messages and checkpoints — ~2 GB of heap at boot on a busy install) to find
+  // these few threads (plans/ingestion-backpressure §3.7).
   const reconcileInterruptedToolActivitiesOnStartup = Effect.gen(function* () {
-    const [snapshot, activeProviderSessions, createdAt] = yield* Effect.all([
-      projectionSnapshotQuery.getSnapshot(),
+    const [sessionsWithActiveTurn, activeProviderSessions, createdAt] = yield* Effect.all([
+      projectionThreadSessionRepository.listWithActiveTurn(),
       providerService.listSessions().pipe(Effect.orElseSucceed(() => [])),
       DateTime.now.pipe(Effect.map(DateTime.formatIso)),
     ]);
@@ -3022,13 +3030,24 @@ const make = Effect.gen(function* () {
     );
     let interruptedCount = 0;
 
-    for (const thread of snapshot.threads) {
-      if (
-        thread.session === null ||
-        thread.session.activeTurnId === null ||
-        activeRuntimeThreadIds.has(thread.id)
-      )
-        continue;
+    for (const session of sessionsWithActiveTurn) {
+      if (activeRuntimeThreadIds.has(session.threadId)) continue;
+      const thread = {
+        id: session.threadId,
+        activities: (yield* projectionThreadActivityRepository.listByThreadId({
+          threadId: session.threadId,
+          activityKinds: ["tool.started", "tool.updated", "tool.completed"],
+        })).map((row): OrchestrationThreadActivity => ({
+          id: row.activityId,
+          tone: row.tone,
+          kind: row.kind,
+          summary: row.summary,
+          payload: row.payload,
+          turnId: row.turnId,
+          createdAt: row.createdAt,
+          ...(row.sequence === undefined ? {} : { sequence: row.sequence }),
+        })),
+      };
       const completedToolCallIds = new Set(
         thread.activities.flatMap((activity) => {
           const toolCallId = activityPayloadRecord(activity)?.toolCallId;
@@ -3196,6 +3215,7 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
   Layer.provide(ProjectionThreadHeartbeatRepositoryLive),
   Layer.provide(ProjectionUsageLedgerRepositoryLive),
   Layer.provide(ProjectionThreadActivityRepositoryLive),
+  Layer.provide(ProjectionThreadSessionRepositoryLive), // loom: startup reconcile
   Layer.provide(ProjectionThreadMessageRepositoryLive),
   Layer.provide(ProjectionThreadProposedPlanRepositoryLive),
 );

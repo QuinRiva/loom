@@ -64,6 +64,16 @@ export interface ProjectionThreadSessionRepositoryShape {
   ) => Effect.Effect<Option.Option<ProjectionThreadSession>, ProjectionRepositoryError>;
 
   /**
+   * loom: sessions whose thread still records an active turn (an existing
+   * thread row only). The startup reconcile reads just these instead of the
+   * full snapshot.
+   */
+  readonly listWithActiveTurn: () => Effect.Effect<
+    ReadonlyArray<ProjectionThreadSession>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Delete projected thread-session state by thread id.
    */
   readonly deleteByThreadId: (
