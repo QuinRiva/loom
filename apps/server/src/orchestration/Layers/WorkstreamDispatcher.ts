@@ -19,6 +19,7 @@ import {
   isHeldForCounterpartFanIn,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
+  isTerminalLane,
   isWaitingInGate,
 } from "@t3tools/shared/workstreamGraph";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
@@ -55,7 +56,13 @@ import {
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
-import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import {
+  areDependenciesSatisfied,
+  cancelledDependencyOf,
+  deadlockedNodes,
+  describeUnsatisfiedDependency,
+} from "@t3tools/shared/workstreamDependencies";
+import * as NodeCrypto from "node:crypto";
 import {
   notifyDeliverCommandId,
   notifyExpireCommandId,
@@ -972,6 +979,52 @@ const formatStalledFor = (ageMs: number): string =>
     : `${Math.max(1, Math.floor(ageMs / 3_600_000))}h`;
 
 /**
+ * Deadlock notice episode key (issue #280): a parent is told once per entry into
+ * the deadlocked state. Keyed on its children's membership and STABLE transition
+ * stamps (lane, dependency set, fan-in) — never `updatedAt`, which activity
+ * appends bump — so ticks and unrelated events leave it alone while any real
+ * graph change that re-enters the state re-arms it.
+ */
+export const deadlockCommandId = (
+  parentId: ThreadId,
+  children: ReadonlyArray<
+    Pick<OrchestrationThreadLeanShell, "id" | "planLaneSince" | "dependenciesSince" | "faninSince">
+  >,
+): string =>
+  `server:workstream-deadlock:${parentId}:${NodeCrypto.createHash("sha256")
+    .update(
+      children
+        .map((c) => `${c.id}:${c.planLaneSince}:${c.dependenciesSince}:${c.faninSince}`)
+        .sort()
+        .join("|"),
+    )
+    .digest("hex")
+    .slice(0, 24)}`;
+
+/**
+ * Pure deadlock wake-message builder (issue #280): names every stuck child and
+ * what it waits on, and the ways out. Nothing here can resolve on its own —
+ * every released child waits on another stuck one, or on a fan-in deferred until
+ * a stuck reviewer resolves its gate.
+ */
+export const buildDeadlockMessage = <T extends OrchestrationThreadLeanShell>(
+  stuck: ReadonlyArray<T>,
+  threadsById: ReadonlyMap<ThreadId, T>,
+): string =>
+  [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    `Your workstream is deadlocked: ${stuck.length === 1 ? "your one unfinished sub-thread is" : `all ${stuck.length} of your unfinished sub-threads are`} released (\`ready\`) but none can start, and nothing in flight will change that — no fan-in is pending that could release one. Each is waiting on:`,
+    "",
+    ...stuck.map(
+      (child) =>
+        `- ${child.role ?? "sub-thread"} \`${child.id}\`${child.title ? ` (“${child.title}”)` : ""}: ${describeUnsatisfiedDependency(child, threadsById) ?? "waiting"}`,
+    ),
+    "",
+    "An isolated thread under review fans in (releasing its dependents) only once its gate reviewer resolves, so a reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`workstream_set_dependencies`), dissolve a review gate (`workstream_set_lane` done/cancelled on the reviewer), or cancel nodes you no longer need.",
+  ].join("\n");
+
+/**
  * Pure brief-needed wake-message builder (scaffold plan §2, liveness plan §3.2):
  * ONE notice naming every simultaneously-eligible unbriefed child of a parent by
  * graph key (falling back to thread id) + role + title. This is deliberately the
@@ -1072,6 +1125,12 @@ export interface ChildWakeContext {
    * and to instruct re-prompting to retry provisioning.
    */
   readonly provisionFailed?: boolean;
+  /**
+   * The un-started child's `needs_guidance` is the control plane's wedge flag:
+   * it is gated on this cancelled sibling, which never releases. Switches the
+   * `attention` copy from "a human is in the loop" to "re-plan the graph".
+   */
+  readonly cancelledDependency?: ThreadId;
   /** How many agent questions are open on an `awaiting-input` wake (≥ 1). */
   readonly openRequestCount?: number;
 }
@@ -1385,6 +1444,8 @@ export interface ChildWakeEvidence {
   readonly errorWakeDelivered?: boolean | undefined;
   /** The child's `needs_guidance` came from a pre-first-turn provisioning park. */
   readonly provisionFailurePending: boolean;
+  /** An un-started child's cancelled dependency (the control plane's wedge flag), else null. */
+  readonly cancelledDependency?: ThreadId | null;
   /** The child is a gate party the protocol has parked (not "forgot to finish"). */
   readonly waitingInGate: boolean;
 }
@@ -1531,10 +1592,18 @@ export const classifyChildWakeFull = (
     if (evidence.idleWakeDelivered) return { skip: "already-notified", suppressEpisode: episode };
     // A pre-first-turn provisioning park wears the same flag as an agent pause;
     // the provisioner's marker switches the copy to "provisioning failed".
-    const context: ChildWakeContext | undefined = evidence.provisionFailurePending
-      ? { quietMs: 0, provisionFailed: true }
-      : undefined;
-    return { kind: "attention", episode, context };
+    if (evidence.provisionFailurePending)
+      return { kind: "attention", episode, context: { quietMs: 0, provisionFailed: true } };
+    // So does the control plane's wedge flag on an un-started child gated on a
+    // cancelled sibling; keyed per dependency, so a second wedge re-arms.
+    const cancelledDependency = evidence.cancelledDependency;
+    if (cancelledDependency != null)
+      return {
+        kind: "attention",
+        episode: `${episode}:wedged:${cancelledDependency}`,
+        context: { quietMs: 0, cancelledDependency },
+      };
+    return { kind: "attention", episode };
   }
 
   // `recovered` — a done child the parent was DURABLY told had errored (its
@@ -1688,11 +1757,13 @@ export const buildChildWakeMessage = (
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : kind === "attention"
-        ? context?.provisionFailed
-          ? `Your Workstream sub-thread ${who} never started: creating its isolated worktree failed with an environment/git error (a transient snapshot-commit race, NOT an agent stall) so it was parked with \`needs_guidance\` before its first turn. Its plan lane is still \`${child.planLane}\` and no turn has run.`
-          : context?.frozen
-            ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
-            : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
+        ? context?.cancelledDependency !== undefined
+          ? `Your Workstream sub-thread ${who} cannot start: it is blocked on \`${context.cancelledDependency}\`, which was cancelled, and a cancelled dependency never releases. The control plane flagged it \`needs_guidance\` for that reason — no human raised it. Its plan lane is still \`${child.planLane}\` and no turn has run.`
+          : context?.provisionFailed
+            ? `Your Workstream sub-thread ${who} never started: creating its isolated worktree failed with an environment/git error (a transient snapshot-commit race, NOT an agent stall) so it was parked with \`needs_guidance\` before its first turn. Its plan lane is still \`${child.planLane}\` and no turn has run.`
+            : context?.frozen
+              ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
+              : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
         : kind === "idle"
           ? child.lastOutcome != null &&
             (child.lastOutcome.decision === "loop" || child.lastOutcome.decision === "yield")
@@ -1707,11 +1778,13 @@ export const buildChildWakeMessage = (
     kind === "recovered"
       ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
       : kind === "attention"
-        ? context?.provisionFailed
-          ? "This is an infrastructure failure, not the agent — nothing ran, so there is no report. `workstream_prompt` the child to retry provisioning (a transient snapshot-commit race normally clears on retry). Its dependents stay gated until it reaches `done`."
-          : context?.frozen
-            ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `workstream_stop` it to close the wedged turn, then `workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
-            : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`workstream_set_lane` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision — otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
+        ? context?.cancelledDependency !== undefined
+          ? `This is your graph to re-plan, not a human pause. Either re-point its dependencies onto live threads (\`workstream_set_dependencies\` — the flag clears itself once no dependency is cancelled), revive \`${context.cancelledDependency}\` (\`workstream_set_lane\` → ready), or cancel this node too.`
+          : context?.provisionFailed
+            ? "This is an infrastructure failure, not the agent — nothing ran, so there is no report. `workstream_prompt` the child to retry provisioning (a transient snapshot-commit race normally clears on retry). Its dependents stay gated until it reaches `done`."
+            : context?.frozen
+              ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `workstream_stop` it to close the wedged turn, then `workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
+              : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`workstream_set_lane` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision — otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
         : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
@@ -2557,6 +2630,8 @@ const make = Effect.gen(function* () {
           errorWakeDelivered,
           processHealth,
           provisionFailurePending: worktreeProvisioner.hasPendingProvisionFailure(child.id),
+          cancelledDependency:
+            child.latestUserMessageAt === null ? cancelledDependencyOf(child, threadsById) : null,
           waitingInGate,
         },
         now,
@@ -3067,6 +3142,64 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Deadlock notice rail (issue #280): a parent whose released children can
+  // never run (the shared `deadlockedNodes` predicate — the web rollup's
+  // "Deadlocked" badge) hears it once per entry into that state, keyed by
+  // `deadlockCommandId`. Skipped while any stuck child carries attention: the
+  // per-child rail already surfaces that pause. The pass re-runs on exactly the
+  // events that change the answer (lane, dependency and fan-in changes), so no
+  // polling is added; the periodic tick is deduped by the episode receipt.
+  const wakeDeadlockedParents = Effect.fn("wakeDeadlockedParents")(function* (
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
+  ) {
+    const childrenByParent = new Map<ThreadId, OrchestrationThreadLeanShell[]>();
+    for (const thread of threads) {
+      if (thread.parentThreadId === null) continue;
+      const siblings = childrenByParent.get(thread.parentThreadId);
+      if (siblings) siblings.push(thread);
+      else childrenByParent.set(thread.parentThreadId, [thread]);
+    }
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+    for (const [parentId, children] of childrenByParent) {
+      const parent = threadsById.get(parentId);
+      if (parent === undefined || isTerminalLane(parent.planLane)) continue;
+      const stuck = deadlockedNodes(children, threadsById);
+      if (stuck === null || stuck.some((child) => child.attention.length > 0)) continue;
+      const commandId = deadlockCommandId(parentId, children);
+      if (yield* dedup.alreadyHandled(commandId)) continue;
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      const now = yield* Clock.currentTimeMillis;
+      if (wakeBudget.wouldTrip(parentId, now)) {
+        yield* parkAndEscalate(parent, "deadlock");
+        yield* dedup.markSuppressed(commandId);
+        continue;
+      }
+      const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      const outcome = yield* dedup.deliverOnce(
+        commandId,
+        orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(commandId),
+          threadId: parent.id,
+          message: {
+            messageId: MessageId.make(yield* crypto.randomUUIDv4),
+            role: "user",
+            origin: "control_notice",
+            text: buildDeadlockMessage(stuck, threadsById),
+            attachments: [],
+          },
+          titleSeed: parent.title,
+          runtimeMode: parent.runtimeMode,
+          interactionMode: parent.interactionMode,
+          requireIdle: true,
+          createdAt,
+        } satisfies OrchestrationCommand),
+      );
+      if (outcome === "delivered") wakeBudget.recordDelivery(parentId, now);
+    }
+  });
+
   // Standalone digest flush (design §4.3, conditions 2 & 3): after the action
   // rails have had their piggyback chance, deliver each parent's still-pending
   // FYI items as their own digest turn-start when the workstream is quiet or the
@@ -3293,6 +3426,7 @@ const make = Effect.gen(function* () {
     yield* wakeIdleAndErroredChildren(threads, threadsById, pending);
     yield* wakeYieldedChildren(threads, threadsById, pending);
     yield* wakeBriefNeededChildren(threads, threadsById);
+    yield* wakeDeadlockedParents(threads, threadsById);
     yield* flushPendingDigests(threads, threadsById, pending);
     yield* deliverPendingNotifications(threadsById, reopenedTargets);
   });

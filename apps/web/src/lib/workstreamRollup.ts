@@ -1,6 +1,6 @@
 import type { EnvironmentId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 
 import type { SidebarThreadSummary } from "../types";
@@ -210,24 +210,20 @@ export function rollupGraphState(
   const incomplete = nodes.filter((t) => !isPlanTerminal(t));
   if (incomplete.length === 0) return { graphState: "done", highestAttentionReason: null, ...base };
 
-  // 4. Deadlock is asserted conservatively: only when EVERY incomplete node is a
-  //    *released* `ready` source with no runnable path — a genuine blockedBy
-  //    cycle / work that only waits on a cycle. A held `planned` subtree awaiting
-  //    release, or a stale `in_progress` node with no live signal, reads as idle,
-  //    not a wired deadlock.
-  const allReleased = incomplete.every((t) => t.planLane === "ready");
-  const hasRunnableSource = incomplete.some(
-    (t) => t.planLane === "ready" && areDependenciesSatisfied(t, byId),
-  );
-  const graphState = allReleased && !hasRunnableSource ? "deadlocked" : "idle";
+  // 4. Deadlock (shared predicate, also behind the dispatcher's deadlock notice):
+  //    every incomplete node is a released `ready` node with no runnable path
+  //    and no fan-in in flight. A held `planned` subtree awaiting release, or a
+  //    stale `in_progress` node with no live signal, reads as idle.
+  const deadlocked = deadlockedNodes(nodes, byId);
+  const graphState = deadlocked !== null ? "deadlocked" : "idle";
   return {
     graphState,
     highestAttentionReason: null,
     ...base,
     // Deadlock → the stuck cycle members are the act-targets (re-plan them).
     actionNodes:
-      graphState === "deadlocked"
-        ? incomplete.map((t) => ({
+      deadlocked !== null
+        ? deadlocked.map((t) => ({
             id: t.id,
             environmentId: t.environmentId,
             title: t.title,

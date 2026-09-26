@@ -233,6 +233,37 @@ describe("renderSubmitOutcome", () => {
     );
   });
 
+  it("done by a gate member: dependents wait for the fan-in the gate defers (issue #280)", () => {
+    expect(
+      renderSubmitOutcome({
+        disposition: "done",
+        fanIn: { of: "author", own: true, gateReviewer: "skill-review" },
+      }),
+    ).toBe(
+      "Work submitted: report recorded, plan advanced to done. Dependents are NOT released yet: they wait for your branch to fan in, which happens only once reviewer `skill-review` resolves its review gate.",
+    );
+    expect(
+      renderSubmitOutcome({
+        disposition: "done",
+        fanIn: { of: "coder", own: true, gateReviewer: undefined },
+      }),
+    ).toBe(
+      "Work submitted: report recorded, plan advanced to done. Dependents are released once your branch fans in to the parent's branch, which the control plane does next.",
+    );
+  });
+
+  it("resolved over an isolated coder: dependents wait for the coder's fan-in", () => {
+    expect(
+      renderSubmitOutcome({
+        disposition: "resolved",
+        outcome: "clean",
+        fanIn: { of: "coder", own: false, gateReviewer: undefined },
+      }),
+    ).toBe(
+      "Work submitted with outcome 'clean': the review gate RESOLVED — you and your gate counterpart are both done. Dependents are released once `coder`'s branch fans in to the parent's branch, which the control plane does next.",
+    );
+  });
+
   it("needs_human", () => {
     expect(renderSubmitOutcome({ disposition: "needs_human" })).toBe(
       "Work submitted: report recorded and needs_guidance raised — a human has been flagged; your lane is unchanged.",

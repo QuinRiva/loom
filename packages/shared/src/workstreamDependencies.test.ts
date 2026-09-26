@@ -3,9 +3,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   areDependenciesSatisfied,
+  deadlockedNodes,
   describeUnsatisfiedDependency,
   findDependencyCycle,
+  implicitGateEdges,
   type DependencyGateThread,
+  type GatedDependencyThread,
 } from "./workstreamDependencies.ts";
 
 // The shared predicate consumed by BOTH the decider's first-turn invariant and
@@ -251,5 +254,79 @@ describe("findDependencyCycle", () => {
       blockedBy: ["a" as ThreadId],
     });
     expect(findDependencyCycle([a, b])).toBeNull();
+  });
+});
+
+// Issue #280, replayed on the incident's graph at 12:36Z: author (isolated,
+// done, fan-in never ran) is reviewed by skill-review, which waits on
+// script-review, which waits on the coder, which waits on the author's fan-in.
+describe("issue #280: implicit gate edges + deadlock", () => {
+  const gated = (
+    id: string,
+    overrides: Parameters<typeof node>[1] & { readonly loopTo?: string } = {},
+  ): GatedDependencyThread => ({
+    ...node(id, { planLane: "ready", isolation: "isolated", ...overrides }),
+    routes:
+      overrides.loopTo === undefined
+        ? []
+        : [{ on: ["needs_rework"], kind: "loop", to: overrides.loopTo as ThreadId }],
+  });
+  const id = (value: string) => value as ThreadId;
+  const byId = (threads: ReadonlyArray<GatedDependencyThread>) =>
+    new Map(threads.map((thread) => [thread.id, thread] as const));
+  const incident = (authorFanIn: DependencyGateThread["fanInState"] = "none") => [
+    gated("researcher", { planLane: "done", isolation: "shared" }),
+    gated("author", { planLane: "done", blockedBy: [id("researcher")], fanInState: authorFanIn }),
+    gated("coder", { blockedBy: [id("author")] }),
+    gated("script-review", { isolation: "attached", blockedBy: [id("coder")], loopTo: "coder" }),
+    gated("skill-review", {
+      isolation: "attached",
+      blockedBy: [id("script-review"), id("author")],
+      loopTo: "author",
+    }),
+  ];
+
+  it("finds exactly the hidden coder → skill-review edge, which closes the cycle", () => {
+    const threads = incident();
+    expect(findDependencyCycle(threads)).toBeNull();
+    const edges = implicitGateEdges(threads);
+    expect(edges).toEqual([{ from: id("coder"), to: id("skill-review"), via: id("author") }]);
+    const explicit = threads.map((thread) =>
+      thread.id === id("coder")
+        ? { ...thread, blockedBy: [...thread.blockedBy, edges[0]!.to] }
+        : thread,
+    );
+    expect(findDependencyCycle(explicit)).toEqual([
+      id("coder"),
+      id("skill-review"),
+      id("script-review"),
+      id("coder"),
+    ]);
+  });
+
+  it("reports the stuck nodes as deadlocked", () => {
+    const threads = incident();
+    expect(deadlockedNodes(threads, byId(threads))?.map((thread) => thread.id)).toEqual([
+      id("coder"),
+      id("script-review"),
+      id("skill-review"),
+    ]);
+  });
+
+  it("is not deadlocked while an ungated fan-in is still in flight, nor with a held node", () => {
+    // Same shape minus the gate: the author's fan-in will land on its own.
+    const ungated = incident().map((thread) =>
+      thread.id === id("skill-review") ? { ...thread, routes: [] } : thread,
+    );
+    expect(deadlockedNodes(ungated, byId(ungated))).toBeNull();
+    const held = incident().map((thread) =>
+      thread.id === id("coder") ? { ...thread, planLane: "planned" as const } : thread,
+    );
+    expect(deadlockedNodes(held, byId(held))).toBeNull();
+    // A settled (failed) fan-in no longer counts as in flight.
+    const failed = ungated.map((thread) =>
+      thread.id === id("author") ? { ...thread, fanInState: "failed" as const } : thread,
+    );
+    expect(deadlockedNodes(failed, byId(failed))).not.toBeNull();
   });
 });
