@@ -1,0 +1,190 @@
+# Issue #280: why the scaffolded child's fan-in never ran
+
+<Callout tone="decision">
+  **What this recap decides.** It gives the root cause of QuinRiva/loom#280, checked against the live event log, answers the brief's seven questions with a confidence for each, and recommends a minimal fix. Each finding has a `ReviewChoice`. **If you leave a finding undecided, it counts as accepting the recommendation.** Use *Discuss* or an annotation where you disagree. This was an investigation only: no code was changed.
+</Callout>
+
+## The answer in one paragraph
+
+Fan-in was **never attempted**, and nothing about scaffolding caused it. The reactor worked as designed: it holds back the fan-in of any **member of an unresolved review gate**. The skill-author `e1494212` was the rework target of the reviewer `skill-review` (`6bb5e721`), and that reviewer was still `ready`. But the scaffolded graph made that reviewer wait, through `script-review` (`87121b33`), on the coder `e6edff99`. The coder was itself waiting on the skill-author's fan-in. That is a **cycle made of three explicit `blockedBy` edges plus one implicit edge**: "an isolated gate target's fan-in waits for its reviewer to reach a terminal lane". The cycle checker only sees `blockedBy`, so the scaffold was accepted. Once the child was `done` the graph could never move. The reactor skips gate members silently, and the FYI digest holds back both gate members and done children whose fan-in is still pending. So the orchestrator heard nothing, and only the client's rollup noticed ("Deadlocked · no path forward"). The two `workstream_spawn` children that later fanned in cleanly each had a reviewer blocked **only** on its own coder, so their gates resolved straight away. The scaffold-vs-spawn split in the issue is a **confound**: the graph shape differed, not the launch path.
+
+<Callout tone="warning">
+  **Brief premise corrections.** (1) The DB path in the brief, `~/.t3/userdata/state.sqlite`, is an empty 0-byte file. The live store is `~/.t3/cockpit/userdata/state.sqlite` (`T3CODE_HOME=/home/Carl/.t3/cockpit`), and I read it with `mode=ro`. (2) The worktree HEAD `5e8d49f` contains the deployed `3450c80`, and `git diff 3450c80..HEAD -- apps packages` is empty, so every citation below matches the code that was running. (3) The server trace logs only begin at 13:26Z, so the incident window has no span data. The event log is the only evidence, and it is enough.
+</Callout>
+
+## The graph that deadlocked
+
+All five nodes came from one `workstream_scaffold` command (`server:workstream-scaffold:269b4fde…`, 12:21:16Z). The red edge is the implicit one. No validator models it.
+
+<Mermaid
+  caption="Scaffolded graph at 12:36Z. Solid = blockedBy (dependent → dependency). Dashed = gate loop route. Red = implicit 'fan-in waits for gate resolution' edge."
+  source={"flowchart LR\n  R[\"researcher 8c51<br/>shared · done\"]\n  A[\"skill-author e149<br/>isolated · done · fanIn none\"]\n  C[\"coder e6ed<br/>isolated · ready\"]\n  SR[\"script-review 8712<br/>attached · ready\"]\n  KR[\"skill-review 6bb5<br/>attached · ready\"]\n  A -->|blockedBy| R\n  C -->|\"blockedBy (needs A fan-in)\"| A\n  SR -->|blockedBy| C\n  KR -->|blockedBy| SR\n  KR -->|blockedBy| A\n  SR -.->|loop to| C\n  KR -.->|loop to| A\n  A ==>|\"fan-in deferred until KR terminal\"| KR\n  linkStyle 7 stroke:#e5484d,stroke-width:3px\n"}
+/>
+
+The cycle is `coder → skill-author(fan-in) → skill-review → script-review → coder`. Every ready node's dependencies are unsatisfied, which is exactly the client-side deadlock predicate (`/home/Carl/.t3/cockpit/worktrees/loom/t3code-14721393/apps/web/src/lib/workstreamRollup.ts:222`).
+
+## Timeline from the event log
+
+<Table
+  density="compact"
+  columns={["Seq", "Time (Z)", "Event", "Meaning"]}
+  rows={[
+    ["1217113–17", "12:21:16", "5× thread.created (one scaffold command)", "e149 isolated; 6bb5 attached with loop→e149 and blockedBy [8712, e149]"],
+    ["1217441/47", "12:30:07–09", "kickoff-brief-set, then provisioner meta-updated", "e149 gets its own ws/ branch and worktree. Provisioning is identical to the spawn path"],
+    ["1217597", "12:36:06", "e149 plan-lane-set done (submit)", "Reactor armed. Parent idle 12:32–13:07, child turn settled 12:36:11"],
+    ["—", "12:36 → 13:18", "no fanin-set, no workstream.fanin.* activity for e149", "Every pass (events and the 60 s tick) returns at the gate skip"],
+    ["1217613", "13:07:08", "orchestrator turn (FYI digest delivered earlier)", "Digest lists only the researcher; e149 is held back"],
+    ["1217690/96", "13:12:08–12", "e6ed planned → ready (orchestrator bounce)", "Irrelevant: fan-in had already been stuck for 36 min"],
+    ["1217724–45", "13:13:41–14:25", "e149 reopen ready → resubmit done", "fanInState reset to none (it was already none). Gate still unresolved, skip again"],
+    ["1217763", "13:16:10", "orchestrator runs git merge --ff-only by hand", "Branch reaches the parent outside the control plane"],
+    ["1217769–73", "13:16:25", "cancel e6ed, then cancel 8712", "M4 cascade raises needs_guidance on 8712, then on 6bb5"],
+    ["1217819", "13:17:25", "6bb5 dependencies-set [88ef, e149]", "Cycle broken. Flag not cleared; gate still unresolved"],
+    ["1217855", "13:18:23", "child-wake attention:none for 6bb5", "Pause notice says 'a human is in the loop'"],
+    ["1217879", "13:18:47", "6bb5 cancelled", "Gate dissolved"],
+    ["1217899", "13:18:57", "e149 fanin-set completed", "Next pass after the parent's turn ended (13:18:55). Merge up to date"],
+    ["1218086", "13:23:15", "fan-in repoint + worktree removal", "Deferred until e149's session stopped (13:23:09)"],
+  ]}
+/>
+
+Fan-in completed **10 s after the gate dissolved**. Nothing else changed in that window, apart from the parent's own turn, which the reactor also waits for (`hasParentActiveTurn`). That is the causal proof. In the same window, no other isolated child anywhere on the server reached `done`, so this was not the reactor stalling globally.
+
+## Findings
+
+<Card id="q1" heading="Q1 · Why fan-in never ran" tone="risk" badge="ROOT CAUSE" meta={["confidence: high", "replayed on shared predicates"]}>
+
+The reactor's `runPass` did select `e1494212`: it is `isolated`, `done`, `fanInState: none`, and provisioned. Every pass then returned at the gate holdback, because `skill-review` (non-terminal) carries a `loop` route to it. **Scaffold records nothing differently.** The `thread.created` payload has `isolation: "isolated"`, and the provisioner `meta-updated` gives it its own `ws/…` branch and worktree, the same shape as the spawn-path children `37df1d48` and `f690004b`. The fault is the graph: the holdback turns the gate into a hidden dependency edge, and neither the scaffold nor spawn cycle checks model that edge.
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration/Layers/WorkstreamFanInReactor.ts"
+  language="ts"
+  code={"        if (\n          child.planLane === \"done\" &&\n          (child.fanInState === \"none\" || child.fanInState === \"conflicted\")\n        ) {\n          // …\n          // Gate members fan in exactly once, at resolution: skip while the gate\n          // is unresolved (plan §3/§4, review finding 1). The both-parties `done`\n          // at resolution — or a parent-override dissolve — re-arms this pass.\n          if (isMemberOfUnresolvedGate(child, threads)) return;\n"}
+  annotations={[
+    { lines: "9", label: ":841", note: "Silent return: no activity, no fanin-set, no notice. With skill-review never able to resolve, this ran on every pass for 42 minutes." },
+  ]}
+/>
+
+<AnnotatedCode
+  filename="packages/shared/src/workstreamGraph.ts"
+  language="ts"
+  code={"export const isMemberOfUnresolvedGate = (thread, threads) =>\n  (!isTerminalLane(thread.planLane) && gateLoopTargetOf(thread) !== null) ||\n  threads.some(\n    (other) =>\n      !isTerminalLane(other.planLane) &&\n      other.routes.some((route) => route.kind === \"loop\" && route.to === thread.id),\n  );\n"}
+  annotations={[
+    { lines: "3-6", label: ":319", note: "True for e149: skill-review 6bb5 is 'ready' and routes loop → e149." },
+  ]}
+/>
+
+<AnnotatedCode
+  filename="packages/shared/src/workstreamDependencies.ts"
+  language="ts"
+  code={"    if (thread.isolation === \"attached\") continue;\n    if (dep.isolation === \"attached\") { /* reviewer-dependency case */ }\n    if (dep.isolation === \"isolated\" && dep.fanInState !== \"completed\")\n      return `dependency '${depId}' is done, but its fan-in has not completed (fanInState: ${dep.fanInState})`;\n"}
+  annotations={[
+    { lines: "3-4", label: ":97", note: "The coder e6ed (isolated, not attached) needs e149's fan-in. This is the exact invariant text from the issue." },
+  ]}
+/>
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration/decider.loom.ts"
+  language="ts"
+  code={"      // Cycle check across the union of existing sibling edges + batch edges.\n      const cycle = findDependencyCycle([\n        ...parentChildren.filter((t) => t.archivedAt === null)\n          .map((t) => ({ id: t.id, parentThreadId: t.parentThreadId, blockedBy: t.blockedBy })),\n        ...command.nodes.map((node) => ({\n          id: node.threadId,\n          parentThreadId: command.parentThreadId,\n          blockedBy: node.blockedBy ?? [],\n        })),\n      ]);\n"}
+  annotations={[
+    { lines: "2-9", label: ":1547", note: "Only blockedBy edges go in; routes are dropped. The spawn and set_dependencies path (dependencyCoherenceError, :124) is the same, so spawn would accept this graph too." },
+  ]}
+/>
+
+<Details summary="Cheap repro: the scaffolded graph replayed through the real shared predicates (bun, no server)">
+
+The scratch file `/home/Carl/.t3/cockpit/worktrees/loom/t3code-14721393/.t3/issue280/repro.ts` is gitignored and was not committed. It imports `isMemberOfUnresolvedGate`, `isFanInPending`, `describeUnsatisfiedDependency` and `findDependencyCycle` straight from `packages/shared/src`, and feeds them the 12:36Z graph state:
+
+<Code
+  language="text"
+  code={"$ bun .t3/issue280/repro.ts\nreactor skip (isMemberOfUnresolvedGate author): true\ndigest holdback (isFanInPending author): true\ndeps(coder-e6ed): dependency 'author-e149' is done, but its fan-in has not completed (fanInState: none)\ndeps(script-review-8712): dependency 'coder-e6ed' is not done yet (lane: ready)\ndeps(skill-review-6bb5): dependency 'script-review-8712' is not done yet (lane: ready)\nscaffold cycle check: null\n"}
+/>
+
+This reproduces the reactor skip, the digest holdback, the exact invariant message and a passing cycle check. Every ready node is blocked, so the graph is deadlocked.
+
+</Details>
+
+<ReviewChoice itemId="q1" label="Q1 root cause" />
+</Card>
+
+<Card id="q2" heading="Q2 · Does fanInState: none mean never attempted?" tone="info" badge="NEVER ATTEMPTED" meta={["confidence: high"]}>
+
+It means **never attempted**. Every attempt outcome is written durably: `conflicted` or `completed` from `doFanIn`, `failed` from the per-child catch, and `completed` for an unprovisioned child. Each write is a `thread.fanin-set`, and a failure also appends a `workstream.fanin.failed` activity. For `e1494212` the log shows no `fanin-set` and no `workstream.fanin.*` activity between 12:36:06 and 13:18:57, and no reactor command ids (`server:workstream-fanin:*`) aimed at it. The gate skip at `WorkstreamFanInReactor.ts:841` runs before any git work.
+
+A caveat on the general meaning of `none`: it also covers a pass that is waiting on `isChildTurnInFlight` or `hasParentActiveTurn` (lines 858–859). Those waits clear on their own. The gate wait only clears when the gate resolves.
+
+<ReviewChoice itemId="q2" label="Q2 none semantics" />
+</Card>
+
+<Card id="q3" heading="Q3 · Why reopen and resubmit did not re-trigger it" tone="info" badge="SAME CAUSE" meta={["confidence: high"]}>
+
+Reopen (`set_lane ready`, seq 1217724) resets `fanInState` to `none` (`projector.loom.ts:350-357`, the reset at :357). It was already `none`. The resubmit's `done` re-arms the reactor, which returns at the same gate check, because `skill-review` was still `ready`. The submit reply "plan advanced to done (dependents released)" comes from `renderSubmitOutcome` (`apps/server/src/mcp/workstreamRender.ts:201`). It is a fixed string that never looks at `isFanInPending` or gate state, so for an isolated gate member it is **wrong**. Only dissolving or resolving the gate (the reviewer reaching a terminal lane) could unblock it. That is what finally happened at 13:18:47 when the orchestrator cancelled `6bb5e721`.
+
+<ReviewChoice itemId="q3" label="Q3 reopen/resubmit" />
+</Card>
+
+<Card id="q4" heading="Q4 · No orchestrator notice, and missing from the FYI digest" tone="warning" badge="SAME CAUSE + OBSERVABILITY GAP" meta={["confidence: high"]}>
+
+Both symptoms come from the same root cause, and both are deliberate holdbacks that assume the gate will resolve:
+
+- **Digest:** `collectTerminalDeltas` skips a child when `isMemberOfUnresolvedGate(child)` or `isFanInPending(child)` is true (`WorkstreamDispatcher.ts:2369-2370`). `e1494212` met both conditions. The design intent is that the pair reports together in one wake at gate resolution, and here resolution never came. The 13:07Z digest therefore carried only the shared researcher `8c5161d9`.
+- **No fan-in-failed notice:** nothing failed. The reactor's only notices are for conflict, resolved conflict and `failed` (`deliverConflictNotice` :227, `deliverResolutionWake` :171, `workstream.fanin.failed` :911). A gate-deferred fan-in is silent by design.
+- **No deadlock notice:** the one place that detects this state is the web rollup (`apps/web/src/lib/workstreamRollup.ts:213-222`), which drives the sidebar badge. The server has no equivalent that wakes the orchestrator.
+
+<ReviewChoice itemId="q4" label="Q4 notice/digest" />
+</Card>
+
+<Card id="q5" heading="Q5 · Cancelling a dependency raised needs_guidance, and the flag outlived its cause" tone="warning" badge="INTENDED RAISE · MISSING CLEAR · MISLEADING COPY" meta={["confidence: high (mechanism) / medium (classification)"]}>
+
+**The raise is intended.** The cancel cascade's "M4" scan (`decider.loom.ts:559-593`) raises `needs_guidance` on any un-started `planned`/`ready` sibling that is gated on the cancelled set, because cancelled never releases. That is why cancelling `e6edff99` flagged `87121b33` (seq 1217770), and cancelling `87121b33` flagged `6bb5e721` (seq 1217773).
+
+**Re-pointing the dependencies does not clear it. That is a gap, and it is a one-way door.** The `thread.dependencies.set` handler (`decider.loom.ts:868-918`, "R3") can *raise* the same wedge flag but never *clears* it once the new set names no cancelled dependency. Stored attention is only cleared by a turn start, a terminal lane, or an explicit `thread.attention.clear`, and the only caller of that command is the client (`packages/client-runtime/src/operations/commands.ts:397`). The dispatcher does not filter on attention (`selectThreadsToDispatch`, `WorkstreamDispatcher.ts:100`), so the flag does not block the launch: it would clear at kickoff once the dependencies were satisfied. Until then it is a stale signal, and it fires the pause wake.
+
+**The copy is misleading.** The 13:18:23 wake used the generic `attention` text (`WorkstreamDispatcher.ts:1714`): "If it is `needs_guidance` (e.g. a human stopped it…), a human is in the loop — plan around the pause rather than resuming it yourself." That text cannot distinguish a control-plane wedge flag from a human stop. Here it steered the orchestrator away from the right move, which was to re-plan its own graph.
+
+<ReviewChoice itemId="q5" label="Q5 cancel/needs_guidance" />
+</Card>
+
+<Card id="q6" heading="Q6 · Does every scaffolded isolated node hit this? Did the lane bounce matter?" tone="success" badge="NOT SCAFFOLD-SPECIFIC · BOUNCE IRRELEVANT" meta={["confidence: high"]}>
+
+**Not every scaffold is affected, and it is not scaffold-specific.** The deadlock needs all three of these:
+
+1. An **isolated** gate target `T`, the rework target of a reviewer `R`.
+2. A **non-attached** dependent `D` blocked on `T` directly. The orchestrator role says to wire downstream work "on the **reviewer** (or on both), never on the coder alone" (`/home/Carl/.t3/cockpit/worktrees/loom/t3code-14721393/roles/orchestrator.md:45`). This graph broke that rule.
+3. `R` depends, directly or transitively, on `D`.
+
+`workstream_spawn` accepts the same shape, because both paths use `findDependencyCycle` over `blockedBy` only. The spawn-path pairs in this workstream (`37df1d48` with reviewer `88ef3487`, `f690004b` with reviewer `ae8ce1e4`) had reviewers blocked only on their own coder. Each gate resolved on the coder's submit, and fan-in followed 2 s later (13:25:10 → 13:25:12, 13:31:42 → 13:31:44). Scaffold makes this mistake *easier*, because a whole multi-gate graph is wired in one call, but it does not cause it. Had the coder been wired on the reviewer, as the role recommends, the cycle would have been explicit and the scaffold would have been rejected.
+
+**Alternative explanation ruled out.** The `e6edff99` planned → ready bounce happened at 13:12:08–12. The fan-in had been deferred since 12:36:06. The reactor keys only on the child's own lane and gate membership, never on a dependent's dispatch, so the bounce played no part.
+
+<ReviewChoice itemId="q6" label="Q6 generality" />
+</Card>
+
+## Recommended minimal fix
+
+<Card id="fix" heading="Q7 · Reject the hidden cycle at graph-authoring time" tone="accent" badge="RECOMMENDED" meta={["packages/shared/src/workstreamDependencies.ts", "decider.loom.ts :124, :1547"]}>
+
+**Primary fix (prevents the deadlock).** Teach `findDependencyCycle` about the implicit gate edge and feed it `routes` and `isolation`. For every node `D` that is not `attached`, and every `blockedBy` entry `T` that is `isolated` and is the `loop` target of a sibling `R`, add the edge `D → R`. Both callers already have the data:
+
+- the scaffold batch check (`decider.loom.ts:1547`), where `routes` and `isolation` are on each node;
+- `dependencyCoherenceError` (`decider.loom.ts:124`), used by `workstream_spawn` (`decider.ts:603-612`) and `set_dependencies`. It should also run when a node's `routes` change (gate re-point), since that can create the cycle too.
+
+The rejection message should name the gate: "D waits on T's fan-in, which waits for T's reviewer R, which waits on D. Wire D on R instead." That turns the role guidance at `roles/orchestrator.md:45` into an enforced rule for the one case where breaking it deadlocks. The fix is roughly 10 lines in one shared function, the checks already exist, and the rejection path, message plumbing and tests all live in `workstreamDependencies.test.ts` and `decider.reviewGate.test.ts`.
+
+**Cheap companion fixes (worth taking, not required).**
+
+- `renderSubmitOutcome` (`workstreamRender.ts:201`): do not claim "dependents released" when the submitter is an isolated gate member or its fan-in is pending. Say that fan-in is deferred until the gate resolves.
+- The Q5 pair: when `dependencies-set` leaves an un-started node with no cancelled dependency, clear the wedge flag it raised. Also give the wedge raise its own wake copy ("a dependency was cancelled — re-point `blockedBy` or cancel this node") instead of the human-in-the-loop text.
+
+**Deliberately not recommended.** Do not make the reactor fan in a gate member early just because a dependent is waiting. That would break the "fan in exactly once, at resolution" invariant (a rework round can reopen the target). A server-side port of the client deadlock detector, which would wake the orchestrator, is a good backstop, but it is more machinery than this defect needs once the hidden cycle is rejected up front.
+
+<ReviewChoice itemId="fix" label="Recommended fix" />
+</Card>
+
+<Checklist
+  items={[
+    { id: "c1", label: "Root cause replayed against the real event log (read-only, mode=ro)", checked: true },
+    { id: "c2", label: "Deployed commit 3450c80 = HEAD for apps/ and packages/ (empty diff)", checked: true },
+    { id: "c3", label: "Repro on the real shared predicates (bun, no server)", checked: true },
+    { id: "c4", label: "Server trace spans for the 12:36–13:18 window", checked: false, note: "trace logs roll over; the oldest starts at 13:26Z" },
+  ]}
+/>
