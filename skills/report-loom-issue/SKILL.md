@@ -2,7 +2,7 @@
 name: report-loom-issue
 description: >-
   Park a bug in Loom itself (the T3 Code fork, its pi extensions/workstream
-  tools, roles/skills, cockpit deploy, pi upstream), not your project, as a
+  tools, roles/skills, cockpit deploy, pi upstream), from any repo, as a
   GitHub issue for triage. Use when you notice Loom is broken, verified or
   not, and it is not your task. Own diff: fix it. Requested Loom work: do it.
 pi_global: true
@@ -19,14 +19,14 @@ data; that constraint shapes everything below.
 
 ## When this applies
 
-| Situation                                                         | Action                                |
-| ----------------------------------------------------------------- | ------------------------------------- |
-| Loom is broken and that is not what you were asked to fix         | **File it**                           |
-| Something in Loom looks wrong; you have not verified it           | **File it, `--confidence suspected`** |
-| Bug in the project you are working on (fathom, anything non-loom) | `report-latent-issue`, not this       |
-| You broke it / it is in the diff you are writing                  | Fix it now. No issue.                 |
-| Loom work the user asked for                                      | Just do it                            |
-| Style nit, "I'd have designed this differently"                   | Neither. Let it go.                   |
+| Situation                                                 | Action                                |
+| --------------------------------------------------------- | ------------------------------------- |
+| Loom is broken and that is not what you were asked to fix | **File it**                           |
+| Something in Loom looks wrong; you have not verified it   | **File it, `--confidence suspected`** |
+| Bug in the project you are working on, not in Loom        | That project's own tracker, not this  |
+| You broke it / it is in the diff you are writing          | Fix it now. No issue.                 |
+| Loom work the user asked for                              | Just do it                            |
+| Style nit, "I'd have designed this differently"           | Neither. Let it go.                   |
 
 Pi upstream bugs are filed here too — never on pi's own tracker.
 
@@ -41,10 +41,8 @@ bash scripts/report_issue.sh \
   --summary "workstream_submit with outcome=clean leaves the coder lane in_progress" \
   --confidence suspected \
   --surface workstream-tools \
-  --description-file /tmp/loom-finding.md
+  --description-file /tmp/loom-finding-$PI_SESSION_ID.md
 ```
-
-(Resolve `scripts/…` and `references/…` against this skill's directory.)
 
 | Flag                 | Required | Notes                                                                              |
 | -------------------- | -------- | ---------------------------------------------------------------------------------- |
@@ -67,11 +65,10 @@ The script labels the issue `bug`, `needs-triage`, `agent-found`,
 `confidence:<x>`, `surface:<x>` — you pass no labels. It also **appends a
 footer** you never write: that an agent filed this under the human's account,
 the Loom release id and commit permalink, the bundled pi version,
-`$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id, and the
-confidence as filed. The
-project line reads `QuinRiva/loom @ <branch> (<sha>)` only when the worktree's
-origin is `QuinRiva/loom`; from anywhere else it reads "a non-loom project". Do
-not repeat any of this in the body.
+`$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id, the confidence as
+filed, and — only when the worktree's origin is `QuinRiva/loom` — its branch and
+sha (any other project is named only as "a non-loom project"). Do not repeat
+any of this in the body.
 
 ### `confirmed` vs `suspected`
 
@@ -96,8 +93,6 @@ verified**, or **Alternative explanations**:
   claim and stops a human chasing a phantom.
 - **Alternative explanations** — at least one way this could be correct
   behaviour you misread. If you truly cannot think of one, say why not.
-
-Full template: `--template`, or `references/issue-template.md`.
 
 ### `--surface` — where a triager starts
 
@@ -124,7 +119,7 @@ environment holds a live bearer token and thread titles carry client names.
 A **leak guard** runs over your summary and body and **refuses to file** (it
 does not scrub) on: a fixed list of known org and host names (`.ts.net` among
 them), Jira keys (`PE-nnnn`, `AIT-nn`), anything shaped like a bearer or
-pairing token, email addresses, any `/home/<user>/` path, any `worktrees/`
+pairing token, known secret env-var names, email addresses, any `/home/<user>/` path, any `worktrees/`
 path. It names the pattern and the line. Rewrite the passage; there is no
 override flag. The guard is a backstop, not the rule: it knows only that list
 and cannot recognise a client, tenant or person it has never heard of. The
@@ -141,10 +136,11 @@ point, not an error to route around:
 - **Same issue** → add your sighting as a comment instead; a second independent
   sighting on one issue is worth more than a second issue:
   ```bash
-  gh issue comment <n> -R QuinRiva/loom -F /tmp/loom-finding.md
+  gh issue comment <n> -R QuinRiva/loom -F /tmp/loom-finding-$PI_SESSION_ID.md
   ```
   Comments get no footer, so end yours with your thread id (`$PI_SESSION_ID`).
-  The redaction rule applies to comments too.
+  The redaction rule applies to comments too, and the leak guard does not run
+  on them — anything you add after exit 3 is unguarded.
 - **Genuinely different** → re-run with `--force` and say in the body how it
   differs from the issue(s) shown.
 - **Unsure** → `gh issue view <n> -R QuinRiva/loom --comments` first.
