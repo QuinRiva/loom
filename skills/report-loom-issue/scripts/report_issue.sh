@@ -47,7 +47,7 @@ while IFS='|' read -r name re; do
 done <<'EOF'
 private org/client/host|Stratus-Labs|fathom|exomnia|unseen\.id|unseen_training|carl-dev|\.ts\.net
 Jira key|\bPE-\d{3,}\b|\bAIT-\d+\b
-secret|Bearer\s+[A-Za-z0-9_.-]{20,}|T3_WORKSTREAM_AUTHORIZATION|GOOGLE_APPLICATION_CREDENTIALS|[?&]token=[A-Za-z0-9_-]+
+secret|Bearer\s+[A-Za-z0-9_.-]{20,}|T3_WORKSTREAM_AUTHORIZATION|GOOGLE_APPLICATION_CREDENTIALS|[?&#]token=[A-Za-z0-9_-]+
 email|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}
 machine path|/home/[^\s/]+/|worktrees/
 EOF
@@ -68,7 +68,7 @@ if [[ -n "$keywords" ]] && ! $force; then
     | sort_by(-.h) | (map(select(.h >= $min))) as $strong
     | (if ($strong | length) > 0 then "STRONG" elif length > 0 then "WEAK" else "NONE" end),
       ((if ($strong | length) > 0 then $strong else . end)[:8][]
-       | "  #\(.i.number)  [\([.i.labels[].name] | join(",") | if . == "" then "-" else . end)]  \(.h)/\($k | length) keywords\n      \(.i.title)\n      \(.i.url)")')
+       | "  #\(.i.number)  [\([.i.labels[].name] | join(",") | if . == "" then "-" else . end)]  \(.h)/\($k | length) keywords\n      \(.i.title)\n      \(.i.url)")') || exit 1
   case "$(head -1 <<<"$report")" in
     STRONG)
       cat >&2 <<EOF
