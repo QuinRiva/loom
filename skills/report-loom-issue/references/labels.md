@@ -27,7 +27,7 @@ gh label create <name> -R QuinRiva/loom --color <hex> --description "<text>" --f
 | `confidence:suspected`     | `FBCA04` | Looks wrong but unverified; reporter may be misreading Loom                                     |
 | `surface:web`              | `1D76DB` | Triage starts in the web/desktop UI (apps/web, apps/desktop)                                    |
 | `surface:server`           | `1D76DB` | Triage starts in the T3 server (apps/server): threads, turns, persistence, adapter              |
-| `surface:workstream-tools` | `1D76DB` | Triage starts in the pi tools Loom injects: workstream__, goal__, consult/notify, gates         |
+| `surface:workstream-tools` | `1D76DB` | Triage starts in the pi tools Loom injects: workstream/goal tools, consult/notify, gates        |
 | `surface:roles-skills`     | `1D76DB` | Triage starts in roles/, skills/, the AGENTS overlay or the work-model doctrine text            |
 | `surface:cockpit`          | `1D76DB` | Triage starts in release/deploy: loom-releases, deployctl, systemd unit, skill linking          |
 | `surface:pi`               | `1D76DB` | Triage starts in pi upstream (@earendil-works/pi-coding-agent); filed here, not on pi's tracker |

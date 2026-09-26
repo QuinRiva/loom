@@ -67,7 +67,8 @@ The script labels the issue `bug`, `needs-triage`, `agent-found`,
 `confidence:<x>`, `surface:<x>` — you pass no labels. It also **appends a
 footer** you never write: that an agent filed this under the human's account,
 the Loom release id and commit permalink, the bundled pi version,
-`$PI_PROVIDER/$PI_MODEL`, the thread id, and the confidence as filed. The
+`$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id, and the
+confidence as filed. The
 project line reads `QuinRiva/loom @ <branch> (<sha>)` only when the worktree's
 origin is `QuinRiva/loom`; from anywhere else it reads "a non-loom project". Do
 not repeat any of this in the body.
@@ -121,11 +122,13 @@ rather than paste logs, `env` output or tool results from non-loom work — the
 environment holds a live bearer token and thread titles carry client names.
 
 A **leak guard** runs over your summary and body and **refuses to file** (it
-does not scrub) on: private org or client names, `.ts.net` and internal
-hostnames, Jira keys (`PE-nnnn`, `AIT-nn`), anything shaped like a bearer or
+does not scrub) on: a fixed list of known org and host names (`.ts.net` among
+them), Jira keys (`PE-nnnn`, `AIT-nn`), anything shaped like a bearer or
 pairing token, email addresses, any `/home/<user>/` path, any `worktrees/`
 path. It names the pattern and the line. Rewrite the passage; there is no
-override flag.
+override flag. The guard is a backstop, not the rule: it knows only that list
+and cannot recognise a client, tenant or person it has never heard of. The
+redaction above is yours to apply before the script ever sees the text.
 
 ## The duplicate check
 
