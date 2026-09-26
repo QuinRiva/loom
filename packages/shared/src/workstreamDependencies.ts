@@ -10,7 +10,6 @@ import {
   isTerminalLane,
   unresolvedGateSourcesOf,
 } from "./workstreamGraph.ts";
-import { isFanInPending } from "./workstreamIsolation.ts";
 
 /**
  * Minimal thread shape the dependency gate needs. Both the read-model thread
@@ -173,11 +172,14 @@ export const implicitGateEdges = (
 /**
  * The deadlocked members of a node set (a subtree's descendants, or one parent's
  * children), or `null`. Asserted conservatively: every incomplete node is a
- * released `ready` node with unsatisfied dependencies, and no fan-in is still in
- * flight to release one (a `done` isolated node whose fan-in is pending and not
- * held by an unresolved gate will fan in on its own). A held `planned` node or
- * an `in_progress` one means "idle", not deadlocked. The single source for the
- * web rollup's "Deadlocked" badge and the dispatcher's deadlock notice.
+ * released `ready` node with unsatisfied dependencies, and no `done` isolated
+ * node outside an unresolved gate still owes a completed fan-in. Such a fan-in
+ * is either still due (the reactor lands it on its own) or settled
+ * `conflicted`/`failed` — stuck, but not a graph deadlock: the fan-in rails own
+ * that notice, and the way out is resolving the merge, not re-planning. A held
+ * `planned` node or an `in_progress` one means "idle", not deadlocked. The
+ * single source for the web rollup's "Deadlocked" badge and the dispatcher's
+ * deadlock notice.
  */
 export const deadlockedNodes = <T extends GatedDependencyThread>(
   nodes: ReadonlyArray<T>,
@@ -188,7 +190,13 @@ export const deadlockedNodes = <T extends GatedDependencyThread>(
     incomplete.every(
       (node) => node.planLane === "ready" && !areDependenciesSatisfied(node, threadsById),
     ) &&
-    !nodes.some((node) => isFanInPending(node) && !isMemberOfUnresolvedGate(node, nodes))
+    !nodes.some(
+      (node) =>
+        node.planLane === "done" &&
+        node.isolation === "isolated" &&
+        node.fanInState !== "completed" &&
+        !isMemberOfUnresolvedGate(node, nodes),
+    )
     ? incomplete
     : null;
 };

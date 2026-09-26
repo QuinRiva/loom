@@ -1014,14 +1014,14 @@ export const buildDeadlockMessage = <T extends OrchestrationThreadLeanShell>(
   [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    `Your workstream is deadlocked: ${stuck.length === 1 ? "your one unfinished sub-thread is" : `all ${stuck.length} of your unfinished sub-threads are`} released (\`ready\`) but none can start, and nothing in flight will change that — no fan-in is pending that could release one. Each is waiting on:`,
+    `Your workstream is deadlocked: ${stuck.length === 1 ? "your one unfinished sub-thread is" : `all ${stuck.length} of your unfinished sub-threads are`} released (\`ready\`) but none can start, and only re-planning the graph can change that — no merge is pending, conflicted or failed that could release one. Each is waiting on:`,
     "",
     ...stuck.map(
       (child) =>
         `- ${child.role ?? "sub-thread"} \`${child.id}\`${child.title ? ` (“${child.title}”)` : ""}: ${describeUnsatisfiedDependency(child, threadsById) ?? "waiting"}`,
     ),
     "",
-    "An isolated thread under review fans in (releasing its dependents) only once its gate reviewer resolves, so a reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`workstream_set_dependencies`), dissolve a review gate (`workstream_set_lane` done/cancelled on the reviewer), or cancel nodes you no longer need.",
+    "An isolated thread under review fans in (releasing its dependents) only once its gate reviewer resolves, so a reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`workstream_set_dependencies`), dissolve a review gate (`workstream_set_lane` done on the reviewer — cancelling it would block the dependents that wait on it), or cancel nodes you no longer need.",
   ].join("\n");
 
 /**

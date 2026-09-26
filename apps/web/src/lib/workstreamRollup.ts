@@ -212,7 +212,7 @@ export function rollupGraphState(
 
   // 4. Deadlock (shared predicate, also behind the dispatcher's deadlock notice):
   //    every incomplete node is a released `ready` node with no runnable path
-  //    and no fan-in in flight. A held `planned` subtree awaiting release, or a
+  //    and no un-landed fan-in outside a gate. A held `planned` subtree awaiting release, or a
   //    stale `in_progress` node with no live signal, reads as idle.
   const deadlocked = deadlockedNodes(nodes, byId);
   const graphState = deadlocked !== null ? "deadlocked" : "idle";

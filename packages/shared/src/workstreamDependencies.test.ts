@@ -313,7 +313,7 @@ describe("issue #280: implicit gate edges + deadlock", () => {
     ]);
   });
 
-  it("is not deadlocked while an ungated fan-in is still in flight, nor with a held node", () => {
+  it("is not deadlocked while an ungated fan-in is un-landed (due, conflicted, failed), nor with a held node", () => {
     // Same shape minus the gate: the author's fan-in will land on its own.
     const ungated = incident().map((thread) =>
       thread.id === id("skill-review") ? { ...thread, routes: [] } : thread,
@@ -323,10 +323,16 @@ describe("issue #280: implicit gate edges + deadlock", () => {
       thread.id === id("coder") ? { ...thread, planLane: "planned" as const } : thread,
     );
     expect(deadlockedNodes(held, byId(held))).toBeNull();
-    // A settled (failed) fan-in no longer counts as in flight.
-    const failed = ungated.map((thread) =>
-      thread.id === id("author") ? { ...thread, fanInState: "failed" as const } : thread,
-    );
-    expect(deadlockedNodes(failed, byId(failed))).not.toBeNull();
+    // A conflicted/failed fan-in is stuck, but the fan-in rails own it and the
+    // way out is the merge, not re-planning: not a deadlock.
+    for (const fanInState of ["conflicted", "failed"] as const) {
+      const settled = ungated.map((thread) =>
+        thread.id === id("author") ? { ...thread, fanInState } : thread,
+      );
+      expect(deadlockedNodes(settled, byId(settled))).toBeNull();
+    }
+    // Once the gate-held author's reviewer is itself stuck, it is a deadlock again.
+    const conflictedButGated = incident("conflicted");
+    expect(deadlockedNodes(conflictedButGated, byId(conflictedButGated))).not.toBeNull();
   });
 });
