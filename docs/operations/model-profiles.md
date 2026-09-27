@@ -63,7 +63,9 @@ _break or invert_ that order somewhere.
 framing: Anthropic models are FN-prone (miss edge cases, get the goal right),
 OpenAI models are FP-prone (catch everything, including non-meaningful "issues",
 and over-engineer). This split is what makes build-with-Anthropic /
-review-with-OpenAI gate pairings principled.
+review-with-OpenAI gate pairings principled — but cross-family review is a
+deliberate opt-in (`modelPreset: reviewer-gpt`), not the configured default:
+every role preset runs Claude.
 
 ### Scoring calibration
 
@@ -153,28 +155,35 @@ misconfiguration is never silent.
 
 ## Initial matrix
 
-Operator-adjusted (Grok dropped — not in use). Apply these as
+Operator-adjusted (Grok dropped — not in use). Apply the **Claude rows only** as
 `workstreamModelProfiles` entries in server settings, keyed by profile name.
+The profile set _is_ the candidate set, so a `taskShape` spawn can only ever
+land on a profile that exists: **do not add an OpenAI profile unless Carl has
+opted in** — that would make OpenAI a default. The GPT rows stay here for
+reference and for scoring new models against.
 
 | Model            | horsepower | goalOrientation | thoroughness | endurance | agentic |
 | ---------------- | ---------- | --------------- | ------------ | --------- | ------- |
 | Opus 5.5         | 9          | 8               | 7            | 9         | full    |
 | Fable 5          | 8          | 8               | 6            | 7         | full    |
+| Sonnet 5         | 7          | 7               | 5            | 7         | full    |
+| Haiku 4.5        | 5          | 5               | 4            | 4         | bounded |
 | GPT-6 Sol        | 8          | 5               | 8            | 7         | full    |
 | GPT-5.6 Terra    | 7          | 5               | 7            | 6         | full    |
 | GPT-6 Luna       | 5          | 3               | 5            | 5         | bounded |
 | Gemini 3.1 Pro   | 7          | 7               | 3            | 3         | oracle  |
 | Gemini 3.0 Flash | 5          | 5               | 2            | 3         | oracle  |
 
-Given this matrix, the resolver ranks (before headroom):
+Given the Claude rows, the resolver ranks (before headroom):
 
-- **explore** → Opus 5.5, Fable 5, GPT-6 Sol, GPT-5.6 Terra
-- **thorough** → GPT-6 Sol, Opus 5.5, GPT-5.6 Terra, Fable 5
-- **mechanical** → ordered by cost, then horsepower (Luna/Sol/Terra/Opus/Fable
+- **explore** → Opus 5.5, Fable 5, Sonnet 5
+- **thorough** → Opus 5.5, Fable 5, Sonnet 5
+- **mechanical** → ordered by cost, then horsepower (Haiku/Sonnet/Opus/Fable
   for the representative costs below)
 
 Representative `costPerMtok` (input/output USD, base tier): Opus 5.5 4/20,
-Fable 5 10/50, GPT-6 Sol 2/10, GPT-5.6 Terra 2/12, GPT-6 Luna 0.1/0.5.
+Fable 5 10/50, Sonnet 5 2/10, Haiku 4.5 1/5, GPT-6 Sol 2/10, GPT-5.6 Terra
+2/12, GPT-6 Luna 0.1/0.5.
 
 ### Per-model routing notes
 
@@ -188,7 +197,14 @@ the behavioural caveats.
   long-running agents (best Terminal-Bench of anything in the matrix) and
   cheaper than both Fable 5 and Opus 5. Still Anthropic-shaped, so the
   false-green "done" risk stands → keep hard verification gates on coders.
-- **GPT-6 Sol** — maximum-thoroughness reviewer/hardener; gate destructive
+- **Sonnet 5** — the cheap-but-competent Claude: the shipper preset and memory
+  consolidation. Same goal-first, edge-case-light shape as Opus, less
+  horsepower.
+- **Haiku 4.5** — a generation behind; bounded, cheapest Claude. On 2026-09-27
+  cli-proxy rejected the undated `cliproxy/claude-haiku-4-5` ("unknown provider
+  for model") but completed the dated `cliproxy/claude-haiku-4-5-20251001`, so
+  route to the dated id.
+- **GPT-6 Sol** — maximum-thoroughness reviewer/hardener (opt-in only); gate destructive
   actions; verify claimed results (documented false-completion/eval-gaming);
   expect some non-meaningful findings. Scores level with GPT-5.6 Sol at half
   the price, so it supersedes it outright.
