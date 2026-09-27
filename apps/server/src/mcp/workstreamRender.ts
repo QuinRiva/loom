@@ -188,7 +188,33 @@ export interface SubmitOutcomeView {
   readonly leg?: string;
   readonly round?: number | undefined;
   readonly reason?: string;
+  /**
+   * For a submit that lands the thread `done`: the isolated thread whose fan-in
+   * releases its dependents (itself, or the coder an attached reviewer gates),
+   * and the unresolved gate reviewer that fan-in is still deferred behind.
+   */
+  readonly fanIn?: {
+    readonly of: string;
+    readonly own: boolean;
+    readonly gateReviewer: string | undefined;
+  };
 }
+
+// What a `done` submit actually released (issue #280): dependents of an isolated
+// thread wait for its fan-in, and a gate member fans in only at gate resolution.
+const releaseClause = (fanIn: SubmitOutcomeView["fanIn"]): string => {
+  if (fanIn === undefined) return " (dependents released).";
+  const branch = fanIn.own ? "your branch" : "`" + fanIn.of + "`'s branch";
+  return fanIn.gateReviewer !== undefined
+    ? ". Dependents are NOT released yet: they wait for " +
+        branch +
+        " to fan in, which happens only once reviewer `" +
+        fanIn.gateReviewer +
+        "` resolves its review gate."
+    : ". Dependents are released once " +
+        branch +
+        " fans in to the parent's branch, which the control plane does next.";
+};
 
 /**
  * The submit disposition → prose mapping (done / needs_human / resolved /
@@ -198,13 +224,14 @@ export interface SubmitOutcomeView {
 export const renderSubmitOutcome = (result: SubmitOutcomeView): string => {
   const submittedOutcome = result.outcome;
   return result.disposition === "done"
-    ? "Work submitted: report recorded, plan advanced to done (dependents released)."
+    ? "Work submitted: report recorded, plan advanced to done" + releaseClause(result.fanIn)
     : result.disposition === "needs_human"
       ? "Work submitted: report recorded and needs_guidance raised — a human has been flagged; your lane is unchanged."
       : result.disposition === "resolved"
         ? "Work submitted with outcome '" +
           submittedOutcome +
-          "': the review gate RESOLVED — you and your gate counterpart are both done (dependents released)."
+          "': the review gate RESOLVED — you and your gate counterpart are both done" +
+          releaseClause(result.fanIn)
         : result.disposition === "routed"
           ? result.leg === "reverify"
             ? "Work submitted: routed to the reviewer for re-verification (round " +

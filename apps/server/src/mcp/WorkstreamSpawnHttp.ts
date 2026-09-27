@@ -11,6 +11,7 @@ import {
   ThreadIsolation,
   ThreadPlanLane,
   isProviderAvailable,
+  type ThreadFanInState,
   type OrchestrationCommand,
   type OrchestrationGoalTask,
   type OrchestrationThreadShell,
@@ -19,7 +20,11 @@ import {
   type WorkstreamModelProfile,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
-import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
+import {
+  findDependencyCycle,
+  implicitGateEdges,
+  type ImplicitGateEdge,
+} from "@t3tools/shared/workstreamDependencies";
 import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -40,6 +45,7 @@ import {
   requiresSubmitToComplete,
   routeWorkSubmit,
   subtreeOf,
+  unresolvedGateSourcesOf,
 } from "@t3tools/shared/workstreamGraph";
 
 import { ServerConfig } from "../config.ts";
@@ -826,14 +832,25 @@ type DependencySibling = {
   readonly blockedBy: ReadonlyArray<ThreadId>;
   readonly session: unknown | null;
   readonly latestUserMessageAt: string | null;
+  readonly isolation: ThreadIsolation;
+  readonly fanInState: ThreadFanInState;
+  readonly routes: ReadonlyArray<WorkstreamRoute>;
 };
+
+/** A replacement `blockedBy` for an existing sibling (an auto-added implicit gate edge). */
+export interface DependentUpdate {
+  readonly threadId: ThreadId;
+  readonly blockedBy: ReadonlyArray<ThreadId>;
+}
 
 export type SpawnGraphResult =
   | { readonly kind: "rejected"; readonly message: string }
   | {
       readonly kind: "ok";
       readonly blockedBy: ReadonlyArray<ThreadId> | undefined;
-      readonly forceAttached: boolean;
+      readonly isolation: ThreadIsolation;
+      /** Existing siblings that now wait on the new gate reviewer (dispatch after create). */
+      readonly dependentUpdates: ReadonlyArray<DependentUpdate>;
       readonly warnings: ReadonlyArray<string>;
     };
 
@@ -869,11 +886,21 @@ const knownChildrenMessage = (siblings: ReadonlyArray<DependencySibling>): strin
 const dependencyCycleMessage = (
   cycle: ReadonlyArray<ThreadId>,
   operation: "spawn" | "set-dependencies",
+  implicitEdges: ReadonlyArray<ImplicitGateEdge>,
 ): string => {
   const path = cycle.join(" → ");
+  // Name an auto-added gate edge on the cycle: without it the path reads as an
+  // edge nobody wrote (issue #280).
+  const edge = implicitEdges.find((candidate) =>
+    cycle.some((id, index) => id === candidate.from && cycle[index + 1] === candidate.to),
+  );
+  const hint =
+    edge === undefined
+      ? ""
+      : ` The edge ${edge.from} → ${edge.to} is implicit: ${edge.from} depends on ${edge.via}, whose branch fans in only once its gate reviewer ${edge.to} resolves the review, so ${edge.from} waits on ${edge.to} either way — while ${edge.to} waits (through the rest of the cycle) on ${edge.from}. Wire the dependent on the reviewer ${edge.to}, and make sure ${edge.to} does not depend on anything that waits on ${edge.via}.`;
   return operation === "spawn"
-    ? `blockedBy would place this child behind a dependency cycle: ${path}. A cyclic set never releases, so the child would never start. Fix the cycle first (workstream_set_dependencies on one of the members). Nothing was spawned.`
-    : `These dependencies would create a cycle: ${path}. A cyclic set never releases — every member waits on another member forever. Remove one edge, or re-order the work. Nothing was changed.`;
+    ? `blockedBy would place this child behind a dependency cycle: ${path}. A cyclic set never releases, so the child would never start.${hint} Fix the cycle first (workstream_set_dependencies on one of the members). Nothing was spawned.`
+    : `These dependencies would create a cycle: ${path}. A cyclic set never releases — every member waits on another member forever.${hint} Remove one edge, or re-order the work. Nothing was changed.`;
 };
 
 export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => {
@@ -1004,22 +1031,62 @@ export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => 
     }
   }
 
-  const graphThreads =
-    operation === "set-dependencies" && input.target !== undefined
-      ? input.siblings.map((thread) =>
-          thread.id === input.target!.id ? { ...thread, blockedBy: effectiveBlockedBy } : thread,
-        )
-      : [
-          ...input.siblings,
-          {
-            id: input.newThreadId ?? ("__new_child__" as ThreadId),
-            parentThreadId: input.siblings[0]?.parentThreadId ?? null,
-            blockedBy: effectiveBlockedBy,
-          },
-        ];
-  const cycle = findDependencyCycle(graphThreads);
+  // Issue #280: make the implicit "fan-in waits for gate resolution" edges this
+  // operation creates explicit, so the cycle check below sees them — the new or
+  // re-pointed thread's own, plus (a new gate reviewer) its target's existing
+  // dependents'. See `implicitGateEdges`.
+  const target = operation === "set-dependencies" ? input.target : undefined;
+  const isolation: ThreadIsolation =
+    target?.isolation ??
+    (input.gateRework !== undefined
+      ? "attached"
+      : (input.isolationOverride ?? roleDefaultIsolation(input.role)));
+  const self: DependencySibling = target ?? {
+    id: input.newThreadId ?? ("__new_child__" as ThreadId),
+    title: null,
+    role: input.role,
+    parentThreadId: input.siblings[0]?.parentThreadId ?? null,
+    planLane: "ready",
+    blockedBy: [],
+    session: null,
+    latestUserMessageAt: null,
+    isolation,
+    fanInState: "none",
+    routes: input.gateRework === undefined ? [] : [{ on: [], kind: "loop", to: input.gateRework }],
+  };
+  const others = input.siblings.filter((thread) => thread.id !== self.id);
+  const implicitEdges = implicitGateEdges([
+    ...others,
+    { ...self, blockedBy: effectiveBlockedBy },
+  ]).filter((edge) => edge.from === self.id || (target === undefined && edge.to === self.id));
+  for (const edge of implicitEdges) {
+    warnings.push(
+      edge.from === self.id
+        ? `blockedBy names ${edge.via}, an isolated thread under review by gate reviewer ${edge.to}: its branch fans in (which is what releases ${operation === "spawn" ? "this child" : "the target thread"}) only once that review resolves, so ${edge.to} was added to blockedBy automatically.`
+        : `${edge.from} waits on ${edge.via}'s fan-in, which this reviewer's gate defers until the review resolves, so ${self.id} was added to ${edge.from}'s blockedBy automatically.`,
+    );
+  }
+  effectiveBlockedBy = uniqueIds([
+    ...effectiveBlockedBy,
+    ...implicitEdges.filter((edge) => edge.from === self.id).map((edge) => edge.to),
+  ]);
+  const dependentIds = new Set(
+    implicitEdges.filter((edge) => edge.to === self.id).map((edge) => edge.from),
+  );
+  const dependentUpdates = others
+    .filter((thread) => dependentIds.has(thread.id))
+    .map((thread) => ({ threadId: thread.id, blockedBy: [...thread.blockedBy, self.id] }));
+
+  const cycle = findDependencyCycle([
+    ...others.map((thread) =>
+      dependentIds.has(thread.id)
+        ? { ...thread, blockedBy: [...thread.blockedBy, self.id] }
+        : thread,
+    ),
+    { ...self, blockedBy: effectiveBlockedBy },
+  ]);
   if (cycle !== null)
-    return { kind: "rejected", message: dependencyCycleMessage(cycle, operation) };
+    return { kind: "rejected", message: dependencyCycleMessage(cycle, operation, implicitEdges) };
 
   if (
     operation === "set-dependencies" &&
@@ -1037,7 +1104,8 @@ export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => 
       input.blockedBy === undefined && effectiveBlockedBy.length === 0
         ? undefined
         : effectiveBlockedBy,
-    forceAttached: operation === "spawn" && input.gateRework !== undefined,
+    isolation,
+    dependentUpdates,
     warnings,
   };
 };
@@ -1474,18 +1542,12 @@ export type ScaffoldGraphResult =
   | {
       readonly kind: "ok";
       readonly nodes: ReadonlyArray<ScaffoldGraphResolvedNode>;
+      /** Existing children that now wait on a batch gate reviewer (dispatch after the scaffold). */
+      readonly dependentUpdates: ReadonlyArray<DependentUpdate>;
       readonly warnings: ReadonlyArray<string>;
     };
 
-interface ScaffoldExistingSibling {
-  readonly id: ThreadId;
-  readonly title: string | null;
-  readonly role: string | null;
-  readonly parentThreadId: ThreadId | null;
-  readonly planLane: ThreadPlanLane;
-  readonly blockedBy: ReadonlyArray<ThreadId>;
-  readonly session: unknown | null;
-  readonly latestUserMessageAt: string | null;
+interface ScaffoldExistingSibling extends DependencySibling {
   readonly graphKey: string | null;
   readonly modelSelection: ModelSelection;
 }
@@ -1616,30 +1678,92 @@ export const resolveScaffoldGraph = (input: {
     identityByKey.set(r.node.key, identity);
   }
 
-  // Materialise every implied fork edge into the effective blockedBy — this is
-  // what makes an implied-edge cycle visible to Phase 2's whole-graph check.
-  const effectiveBlockedByByKey = new Map<string, ReadonlyArray<ThreadId>>();
-  for (const r of resolved) {
-    const effective =
-      r.forkFromId !== undefined && !r.blockedByIds.includes(r.forkFromId)
-        ? [...r.blockedByIds, r.forkFromId]
-        : r.blockedByIds;
-    effectiveBlockedByByKey.set(r.node.key, effective);
+  // Materialise every implied edge into the effective blockedBy — the fork
+  // edge and the gate reviewer → target edge — so Phase 2's whole-graph check
+  // sees them.
+  const routesByKey = new Map<string, ReadonlyArray<WorkstreamRoute>>();
+  const batchSiblings: DependencySibling[] = resolved.map((r) => {
+    const role = identityByKey.get(r.node.key)?.role ?? null;
+    const routes: ReadonlyArray<WorkstreamRoute> =
+      r.gateReworkId === undefined
+        ? []
+        : [
+            {
+              on: ["needs_rework"],
+              kind: "loop",
+              to: r.gateReworkId,
+              maxRounds: r.node.gateMaxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
+            },
+            { on: ["clean", "fixed_inline"], kind: "resolve" },
+          ];
+    routesByKey.set(r.node.key, routes);
+    return {
+      id: r.node.threadId,
+      title: r.node.title,
+      role,
+      parentThreadId: input.parentThreadId,
+      planLane: input.staged ? "planned" : "ready",
+      blockedBy: [
+        ...new Set(
+          [...r.blockedByIds, r.forkFromId, r.gateReworkId].filter(
+            (dep): dep is ThreadId => dep !== undefined,
+          ),
+        ),
+      ],
+      session: null,
+      latestUserMessageAt: null,
+      isolation:
+        r.gateReworkId !== undefined
+          ? "attached"
+          : (r.node.isolationOverride ?? roleDefaultIsolation(role)),
+      fanInState: "none",
+      routes,
+    };
+  });
+
+  // Issue #280: materialise the implicit gate edges touching the batch too, so
+  // every per-node check below sees the complete graph. Edges out of an existing
+  // child (a batch reviewer gating its fan-in dependency) become dependent
+  // updates; each batch node's own edges are re-derived (with a warning) by its
+  // validateSpawnGraph call.
+  const batchIds = new Set(batchSiblings.map((sibling) => sibling.id));
+  const implicitEdges = implicitGateEdges([...input.activeChildren, ...batchSiblings]).filter(
+    (edge) => batchIds.has(edge.from) || batchIds.has(edge.to),
+  );
+  const withImplicit = <T extends DependencySibling>(thread: T): T => {
+    const extra = implicitEdges.filter((edge) => edge.from === thread.id).map((edge) => edge.to);
+    return extra.length === 0
+      ? thread
+      : { ...thread, blockedBy: [...new Set([...thread.blockedBy, ...extra])] };
+  };
+  const existingChildren = input.activeChildren.map(withImplicit);
+  const graphBatch = batchSiblings.map(withImplicit);
+  const warnings: string[] = [];
+  const dependentUpdates = existingChildren.flatMap((child, index) =>
+    child === input.activeChildren[index]
+      ? []
+      : [{ threadId: child.id, blockedBy: child.blockedBy }],
+  );
+  for (const edge of implicitEdges.filter((candidate) => !batchIds.has(candidate.from)))
+    warnings.push(
+      `${edge.from} waits on ${edge.via}'s fan-in, which the gate of new reviewer ${edge.to} defers until the review resolves, so ${edge.to} was added to ${edge.from}'s blockedBy automatically.`,
+    );
+  // Whole-graph cycle check first, labelled by a node ON the cycle and naming
+  // any implicit edge it runs through (a per-node check would blame whichever
+  // node happens to be validated first).
+  const cycle = findDependencyCycle([...existingChildren, ...graphBatch]);
+  if (cycle !== null) {
+    const key = (resolved.find((r) => cycle.includes(r.node.threadId)) ?? resolved[0])?.node.key;
+    return {
+      kind: "error",
+      message: scaffoldNodeRejectionMessage(
+        key ?? "?",
+        dependencyCycleMessage(cycle, "spawn", implicitEdges),
+      ),
+    };
   }
 
-  const batchSiblings: DependencySibling[] = resolved.map((r) => ({
-    id: r.node.threadId,
-    title: r.node.title,
-    role: identityByKey.get(r.node.key)?.role ?? null,
-    parentThreadId: input.parentThreadId,
-    planLane: input.staged ? "planned" : "ready",
-    blockedBy: effectiveBlockedByByKey.get(r.node.key) ?? r.blockedByIds,
-    session: null,
-    latestUserMessageAt: null,
-  }));
-
   // Phase 2: validate the COMPLETE effective graph per node and assemble output.
-  const warnings: string[] = [];
   const outNodes: ScaffoldGraphResolvedNode[] = [];
   for (const r of resolved) {
     const identity = identityByKey.get(r.node.key);
@@ -1652,8 +1776,8 @@ export const resolveScaffoldGraph = (input: {
     const effectiveRole = identity.role;
     const graph = validateSpawnGraph({
       siblings: [
-        ...input.activeChildren,
-        ...batchSiblings.filter((sibling) => sibling.id !== r.node.threadId),
+        ...existingChildren,
+        ...graphBatch.filter((sibling) => sibling.id !== r.node.threadId),
       ],
       archivedSiblings: input.archivedChildren,
       blockedBy: r.blockedByIds.length > 0 ? r.blockedByIds : undefined,
@@ -1668,22 +1792,7 @@ export const resolveScaffoldGraph = (input: {
       return { kind: "error", message: scaffoldNodeRejectionMessage(r.node.key, graph.message) };
     }
     for (const warning of graph.warnings) warnings.push(`[${r.node.key}] ${warning}`);
-
-    const routes: ReadonlyArray<WorkstreamRoute> | undefined =
-      r.gateReworkId === undefined
-        ? undefined
-        : [
-            {
-              on: ["needs_rework"],
-              kind: "loop",
-              to: r.gateReworkId,
-              maxRounds: r.node.gateMaxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
-            },
-            { on: ["clean", "fixed_inline"], kind: "resolve" },
-          ];
-    const isolation: ThreadIsolation = graph.forceAttached
-      ? "attached"
-      : (r.node.isolationOverride ?? roleDefaultIsolation(effectiveRole));
+    const routes = routesByKey.get(r.node.key) ?? [];
 
     outNodes.push({
       key: r.node.key,
@@ -1692,13 +1801,13 @@ export const resolveScaffoldGraph = (input: {
       title: r.node.title,
       purpose: r.node.purpose,
       blockedBy: graph.blockedBy,
-      routes,
-      isolation,
+      routes: routes.length > 0 ? routes : undefined,
+      isolation: graph.isolation,
       modelSelection: identity.modelSelection,
       forkFromThreadId: r.forkFromId,
     });
   }
-  return { kind: "ok", nodes: outNodes, warnings };
+  return { kind: "ok", nodes: outNodes, dependentUpdates, warnings };
 };
 
 const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
@@ -2179,13 +2288,6 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // would merge an out-of-turn spawn into a stale, already-joined generation.
   const spawnGeneration = current.session?.activeTurnId ?? childThreadId;
 
-  // Worktree isolation (design §1): a gated reviewer is forced `attached` (it
-  // joins its gate target's worktree at promotion, §4); everything else honours
-  // the explicit override or takes the role default.
-  const isolation: ThreadIsolation = graph.forceAttached
-    ? "attached"
-    : ((isolationOverride as ThreadIsolation | undefined) ?? roleDefaultIsolation(storedRole));
-
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
   const engine = yield* OrchestrationEngineService;
@@ -2208,7 +2310,10 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     ...(routes !== undefined ? { routes } : {}),
     // loom: forkFrom — the driver forks the source's pi session at first launch.
     ...(forkFromId !== undefined ? { forkFromThreadId: forkFromId } : {}),
-    isolation,
+    // Worktree isolation (design §1): a gated reviewer is forced `attached` (it
+    // joins its gate target's worktree at promotion, §4); everything else honours
+    // the explicit override or takes the role default.
+    isolation: graph.isolation,
     planLane,
     spawnGeneration,
     title,
@@ -2220,6 +2325,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     worktreePath: current.worktreePath,
     createdAt: now,
   } satisfies OrchestrationCommand);
+  yield* dispatchDependentUpdates(graph.dependentUpdates, now);
 
   // Scaffold-first dual-period rule (plan §1a): the dispatcher's brief gate now
   // launches a child only once `kickoffBriefPath` is set, so a spawn must write
@@ -2574,6 +2680,7 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     nodes: commandNodes,
     createdAt: now,
   } satisfies OrchestrationCommand);
+  yield* dispatchDependentUpdates(graphResult.dependentUpdates, now);
 
   const nodes = graphResult.nodes.map((node) => ({
     key: node.key,
@@ -3136,6 +3243,25 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
   ),
 );
 
+// Issue #280: existing dependents of a newly gated isolated thread now wait on
+// its reviewer explicitly. Validated together with the create (the whole graph
+// is cycle-checked before any dispatch), dispatched right after it.
+const dispatchDependentUpdates = Effect.fn("dispatchDependentUpdates")(function* (
+  updates: ReadonlyArray<DependentUpdate>,
+  createdAt: string,
+) {
+  const engine = yield* OrchestrationEngineService;
+  const crypto = yield* Crypto.Crypto;
+  for (const update of updates)
+    yield* engine.dispatch({
+      type: "thread.dependencies.set",
+      commandId: CommandId.make(`server:workstream-dependencies:${yield* crypto.randomUUIDv4}`),
+      threadId: update.threadId,
+      blockedBy: update.blockedBy,
+      createdAt,
+    } satisfies OrchestrationCommand);
+});
+
 // Review gates (design §3): the single terminal call. Writes the report file
 // and dispatches `thread.work.submit`; the decider derives the report pointer,
 // the outcome record, and the lane/attention events in ONE transaction.
@@ -3247,6 +3373,34 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
       : undefined;
   const capBreachFields =
     decision === "cap-breach" ? { reason: "cap-breach", round: routing?.round } : undefined;
+  // Whose fan-in releases this thread's dependents once it is done — its own
+  // when isolated, else (an attached reviewer) the isolated coder it waits on —
+  // mirroring `describeUnsatisfiedDependency`, so the reply never claims a
+  // release that is still pending (issue #280).
+  const fanInThread =
+    self === undefined || (decision !== "terminal" && decision !== "resolve")
+      ? undefined
+      : self.isolation === "isolated"
+        ? self
+        : self.isolation === "attached"
+          ? snapshot.threads.find(
+              (thread) =>
+                self.blockedBy.includes(thread.id) &&
+                thread.parentThreadId === self.parentThreadId &&
+                thread.isolation === "isolated" &&
+                thread.fanInState !== "completed",
+            )
+          : undefined;
+  const fanIn =
+    fanInThread === undefined
+      ? undefined
+      : {
+          of: fanInThread.id,
+          own: fanInThread.id === self?.id,
+          gateReviewer: unresolvedGateSourcesOf(fanInThread.id, snapshot.threads).find(
+            (source) => source.id !== self?.id,
+          )?.id,
+        };
   return HttpServerResponse.jsonUnsafe({
     threadId: scope.threadId,
     reportPath,
@@ -3261,6 +3415,7 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
       ...(capBreachFields !== undefined
         ? { reason: capBreachFields.reason, round: capBreachFields.round }
         : {}),
+      ...(fanIn !== undefined ? { fanIn } : {}),
     }),
   });
 }).pipe(

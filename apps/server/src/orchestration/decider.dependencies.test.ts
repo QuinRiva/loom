@@ -351,4 +351,63 @@ it.layer(NodeServices.layer)("decider dependency coherence backstop (WP2)", (it)
       expect(doneEvents.map((event) => event.type)).toEqual(["thread.dependencies-set"]);
     }),
   );
+
+  // ---- Issue #280: the reverse of R3 — a re-point clears the wedge flag ----
+  const flagged = (threadId: ThreadId) =>
+    seedEvent({
+      aggregateKind: "thread",
+      aggregateId: threadId,
+      type: "thread.attention-raised",
+      payload: { threadId, reason: "needs_guidance", updatedAt: now },
+    });
+
+  it.effect("clears the wedge flag when a re-point leaves only live dependencies", () =>
+    Effect.gen(function* () {
+      const model = yield* Effect.flatMap(base, (m) =>
+        apply(m, [
+          threadCreated(X, { parentThreadId: PARENT, planLane: "cancelled" }),
+          threadCreated(Y, { parentThreadId: PARENT, planLane: "ready" }),
+          threadCreated(T, { parentThreadId: PARENT, planLane: "ready", blockedBy: [X] }),
+          flagged(T),
+        ]),
+      );
+      const events = yield* decide(setDeps(T, [Y]), model);
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.dependencies-set",
+        "thread.attention-cleared",
+      ]);
+      expect(events[1]?.payload).toMatchObject({ threadId: T, reason: "needs_guidance" });
+    }),
+  );
+
+  it.effect("keeps the flag while the new set still names a cancelled dependency", () =>
+    Effect.gen(function* () {
+      const other = ThreadId.make("thread-cancelled-2");
+      const model = yield* Effect.flatMap(base, (m) =>
+        apply(m, [
+          threadCreated(X, { parentThreadId: PARENT, planLane: "cancelled" }),
+          threadCreated(other, { parentThreadId: PARENT, planLane: "cancelled" }),
+          threadCreated(T, { parentThreadId: PARENT, planLane: "ready", blockedBy: [X] }),
+          flagged(T),
+        ]),
+      );
+      const events = yield* decide(setDeps(T, [other]), model);
+      expect(events.map((event) => event.type)).toEqual(["thread.dependencies-set"]);
+    }),
+  );
+
+  it.effect("never clears a flag the wedge did not raise (no cancelled dependency before)", () =>
+    Effect.gen(function* () {
+      const model = yield* Effect.flatMap(base, (m) =>
+        apply(m, [
+          threadCreated(Y, { parentThreadId: PARENT, planLane: "ready" }),
+          threadCreated(A, { parentThreadId: PARENT, planLane: "ready" }),
+          threadCreated(T, { parentThreadId: PARENT, planLane: "ready", blockedBy: [A] }),
+          flagged(T),
+        ]),
+      );
+      const events = yield* decide(setDeps(T, [Y]), model);
+      expect(events.map((event) => event.type)).toEqual(["thread.dependencies-set"]);
+    }),
+  );
 });

@@ -321,10 +321,22 @@ export const isMemberOfUnresolvedGate = (
   threads: ReadonlyArray<Pick<GateNode, "id" | "planLane" | "routes">>,
 ): boolean =>
   (!isTerminalLane(thread.planLane) && gateLoopTargetOf(thread) !== null) ||
-  threads.some(
+  unresolvedGateSourcesOf(thread.id, threads).length > 0;
+
+/**
+ * Every non-terminal gate source (reviewer) whose loop route names `threadId` —
+ * the reviewers an isolated target's fan-in waits on (the fan-in reactor skips
+ * a target while any of these is unresolved), and so the reviewers a thread
+ * waiting on that target's fan-in implicitly waits on too.
+ */
+export const unresolvedGateSourcesOf = <T extends Pick<GateNode, "id" | "planLane" | "routes">>(
+  threadId: ThreadId,
+  threads: ReadonlyArray<T>,
+): ReadonlyArray<T> =>
+  threads.filter(
     (other) =>
       !isTerminalLane(other.planLane) &&
-      other.routes.some((route) => route.kind === "loop" && route.to === thread.id),
+      other.routes.some((route) => route.kind === "loop" && route.to === threadId),
   );
 
 /**

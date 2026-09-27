@@ -18,6 +18,7 @@ import {
   ThreadId,
   type ThreadPlanLane,
   type TurnId,
+  type WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -71,6 +72,7 @@ import {
   idleWakeWithinGrace,
   selectThreadsToDispatch,
   buildBriefNeededMessage,
+  deadlockCommandId,
   WORKSTREAM_CONTROL_PLANE_MARKER,
   slowToolNoticeIndex,
   parseEtaMarkerMs,
@@ -7670,5 +7672,151 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
             expect(snapshotCalls.count - baseline).toBe(2);
           }),
       ),
+  );
+});
+
+// Issue #280: the control plane's wedge flag (an un-started child gated on a
+// cancelled sibling) gets its own copy instead of "a human is in the loop".
+describe("wedged-by-cancelled-dependency attention notice (issue #280)", () => {
+  it("classifies the wedge per dependency and says to re-plan, not wait for a human", () => {
+    const child = shell({ id: "child-1", attention: ["needs_guidance"], session: null });
+    const decision = classifyChildWakeFull(
+      child,
+      wakeEvidence({ idleWakeDelivered: false, cancelledDependency: "dep-x" as ThreadId }),
+      t0,
+      new Set(),
+    );
+    expect(decision).toEqual({
+      kind: "attention",
+      episode: "attention:none:wedged:dep-x",
+      context: { quietMs: 0, cancelledDependency: "dep-x" },
+    });
+    const text = buildChildWakeMessage(
+      { ...child, reportPath: null },
+      "attention",
+      null,
+      "context" in decision ? decision.context : undefined,
+    );
+    expect(text).toContain("`dep-x`, which was cancelled");
+    expect(text).toContain("no human raised it");
+    expect(text).toContain("workstream_set_dependencies");
+    expect(text).not.toContain("a human is in the loop");
+  });
+});
+
+// Issue #280: the incident graph at 12:36Z. Every unfinished child is released
+// and stuck; the parent is told once, naming them — never on a re-pass.
+describe("deadlock notice (full dispatcher layer, issue #280)", () => {
+  const PARENT_ID = "parent-deadlock" as ThreadId;
+  const child = (id: string, overrides: Omit<Partial<OrchestrationThreadLeanShell>, "id"> = {}) =>
+    shell({ id, parentThreadId: PARENT_ID, session: null, isolation: "isolated", ...overrides });
+  const loopTo = (to: string): ReadonlyArray<WorkstreamRoute> => [
+    { on: ["needs_rework"], kind: "loop", to: to as ThreadId },
+  ];
+  const threads = [
+    shell({ id: PARENT_ID, parentThreadId: null, session: null }),
+    child("author", { planLane: "done" }),
+    child("coder", { blockedBy: ["author" as ThreadId] }),
+    child("script-review", {
+      isolation: "attached",
+      blockedBy: ["coder" as ThreadId],
+      routes: loopTo("coder"),
+    }),
+    child("skill-review", {
+      isolation: "attached",
+      blockedBy: ["script-review" as ThreadId, "author" as ThreadId],
+      routes: loopTo("author"),
+    }),
+  ];
+  const deadlockId = deadlockCommandId(
+    PARENT_ID,
+    threads.filter((thread) => thread.parentThreadId === PARENT_ID),
+  );
+
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    opts: { readonly receiptExists: boolean },
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
+    } as unknown as OrchestrationEngineShape;
+    const snapshotQuery = {
+      getLeanShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          projects: [],
+          threads,
+          updatedAt: now,
+        } satisfies OrchestrationLeanShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { readonly commandId: string }) =>
+        Effect.succeed(
+          opts.receiptExists && commandId === deadlockId ? Option.some({} as never) : Option.none(),
+        ),
+    };
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-deadlock-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect("notifies the parent exactly once, naming the stuck nodes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          expect(dispatched.length).toBe(1);
+          const wake = dispatched[0]!;
+          if (wake.type !== "thread.turn.start") throw new Error(`unexpected ${wake.type}`);
+          expect(wake.threadId).toBe(PARENT_ID);
+          expect(wake.commandId).toBe(deadlockId);
+          expect(wake.message.text).toContain("deadlocked");
+          for (const stuck of ["coder", "script-review", "skill-review"])
+            expect(wake.message.text).toContain(`\`${stuck}\``);
+          expect(wake.message.text).toContain("fan-in has not completed");
+          yield* dispatcher.drain;
+          expect(dispatched.length).toBe(1);
+        }).pipe(Effect.provide(buildLayer(dispatched, { receiptExists: false })));
+      }),
+    ),
+  );
+
+  effectIt.effect("stays silent once this episode's receipt exists (e.g. after a restart)", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          expect(dispatched.length).toBe(0);
+        }).pipe(Effect.provide(buildLayer(dispatched, { receiptExists: true })));
+      }),
+    ),
   );
 });

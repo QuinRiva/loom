@@ -1,8 +1,10 @@
 import type {
   ModelSelection,
+  ThreadFanInState,
   ThreadIsolation,
   ThreadPlanLane,
   WorkstreamModelProfile,
+  WorkstreamRoute,
 } from "@t3tools/contracts";
 
 import type { AccountUsageSnapshot } from "../provider/accountUsage.loom.ts";
@@ -77,6 +79,8 @@ const sibling = (
     readonly planLane?: ThreadPlanLane;
     readonly blockedBy?: ReadonlyArray<ThreadId>;
     readonly isolation?: ThreadIsolation;
+    readonly fanInState?: ThreadFanInState;
+    readonly routes?: ReadonlyArray<WorkstreamRoute>;
     readonly session?: unknown | null;
     readonly latestUserMessageAt?: string | null;
   } = {},
@@ -89,6 +93,9 @@ const sibling = (
   blockedBy: overrides.blockedBy ?? [],
   session: overrides.session ?? null,
   latestUserMessageAt: overrides.latestUserMessageAt ?? null,
+  isolation: overrides.isolation ?? ("isolated" as ThreadIsolation),
+  fanInState: overrides.fanInState ?? ("none" as ThreadFanInState),
+  routes: overrides.routes ?? [],
 });
 
 const ok = (result: ReturnType<typeof validateSpawnGraph>) => {
@@ -524,7 +531,7 @@ describe("validateSpawnGraph", () => {
         role: "reviewer",
       }),
     );
-    expect(gated.forceAttached).toBe(true);
+    expect(gated.isolation).toBe("attached");
     expect(gated.warnings.join("\n")).toContain('isolation "shared" was ignored');
 
     expect(
@@ -536,8 +543,8 @@ describe("validateSpawnGraph", () => {
           isolationOverride: "shared",
           role: "reviewer",
         }),
-      ).forceAttached,
-    ).toBe(false);
+      ).isolation,
+    ).toBe("shared");
   });
 
   it("warns on cancelled dependencies", () => {
@@ -2169,5 +2176,202 @@ describe("resolveSpawnAnchor (anchor binding, plan §1)", () => {
       kind: "ok",
       anchorTaskId: "phase-7",
     });
+  });
+});
+
+// Issue #280: a dependent of a gated isolated thread implicitly waits on its
+// reviewer (the target fans in only at gate resolution). Every authoring path
+// makes that edge explicit so the ordinary cycle check sees it.
+describe("implicit gate edges (issue #280)", () => {
+  const loopTo = (target: string): ReadonlyArray<WorkstreamRoute> => [
+    { on: ["needs_rework"], kind: "loop", to: id(target) },
+  ];
+  // Author T (isolated, done, fan-in pending) under review by KR.
+  const author = sibling("author", { planLane: "done" });
+  const reviewer = (blockedBy: ReadonlyArray<ThreadId> = [id("author")]) =>
+    sibling("skill-review", {
+      role: "reviewer",
+      isolation: "attached",
+      blockedBy,
+      routes: loopTo("author"),
+    });
+
+  it("spawn: a dependent of the gated target also waits on the reviewer", () => {
+    const result = ok(
+      validateSpawnGraph({
+        siblings: [author, reviewer()],
+        blockedBy: [author.id],
+        gateRework: undefined,
+        isolationOverride: undefined,
+        role: "coder",
+        newThreadId: id("coder"),
+      }),
+    );
+    expect(result.blockedBy).toEqual([author.id, id("skill-review")]);
+    expect(result.warnings.join("\n")).toContain(
+      "skill-review was added to blockedBy automatically",
+    );
+  });
+
+  it("adds nothing for an attached dependent, a completed fan-in, or a resolved gate", () => {
+    // A second gated reviewer on the same target is attached: it joins the pre-merge worktree.
+    expect(
+      ok(
+        validateSpawnGraph({
+          siblings: [author, reviewer()],
+          blockedBy: [author.id],
+          gateRework: author.id,
+          isolationOverride: undefined,
+          role: "reviewer",
+        }),
+      ).blockedBy,
+    ).toEqual([author.id]);
+    const fannedIn = sibling("author", { planLane: "done", fanInState: "completed" });
+    expect(
+      ok(
+        validateSpawnGraph({
+          siblings: [fannedIn, reviewer()],
+          blockedBy: [fannedIn.id],
+          gateRework: undefined,
+          isolationOverride: undefined,
+          role: "coder",
+        }),
+      ).blockedBy,
+    ).toEqual([fannedIn.id]);
+    const resolved = sibling("skill-review", {
+      planLane: "done",
+      isolation: "attached",
+      routes: loopTo("author"),
+    });
+    expect(
+      ok(
+        validateSpawnGraph({
+          siblings: [author, resolved],
+          blockedBy: [author.id],
+          gateRework: undefined,
+          isolationOverride: undefined,
+          role: "coder",
+        }),
+      ).blockedBy,
+    ).toEqual([author.id]);
+  });
+
+  it("set-dependencies: re-pointing onto the gated target re-adds the reviewer", () => {
+    const target = sibling("coder", { blockedBy: [] });
+    const result = ok(
+      validateSpawnGraph({
+        operation: "set-dependencies",
+        siblings: [author, reviewer(), target],
+        blockedBy: [author.id],
+        gateRework: undefined,
+        isolationOverride: undefined,
+        role: "coder",
+        target,
+      }),
+    );
+    expect(result.blockedBy).toEqual([author.id, id("skill-review")]);
+    expect(result.dependentUpdates).toEqual([]);
+  });
+
+  it("late gate: spawning a reviewer re-points the target's existing dependents onto it", () => {
+    const coder = sibling("coder", { blockedBy: [author.id] });
+    const result = ok(
+      validateSpawnGraph({
+        siblings: [author, coder],
+        blockedBy: undefined,
+        gateRework: author.id,
+        isolationOverride: undefined,
+        role: "reviewer",
+        newThreadId: id("skill-review"),
+      }),
+    );
+    expect(result.dependentUpdates).toEqual([
+      { threadId: coder.id, blockedBy: [author.id, id("skill-review")] },
+    ]);
+    expect(result.warnings.join("\n")).toContain(
+      "skill-review was added to coder's blockedBy automatically",
+    );
+  });
+
+  it("rejects the #280 shape: a reviewer that waits on its target's dependent", () => {
+    // coder → author (fan-in), script-review → coder; skill-review gates author
+    // and waits on script-review. The only cycle runs through the implicit edge.
+    const coder = sibling("coder", { blockedBy: [author.id] });
+    const scriptReview = sibling("script-review", {
+      role: "reviewer",
+      isolation: "attached",
+      blockedBy: [coder.id],
+      routes: loopTo("coder"),
+    });
+    const result = rejected(
+      validateSpawnGraph({
+        siblings: [author, coder, scriptReview],
+        blockedBy: [scriptReview.id],
+        gateRework: author.id,
+        isolationOverride: undefined,
+        role: "reviewer",
+        newThreadId: id("skill-review"),
+      }),
+    );
+    expect(result.message).toContain("cycle");
+    expect(result.message).toContain("The edge coder → skill-review is implicit");
+    expect(result.message).toContain("Wire the dependent on the reviewer skill-review");
+  });
+
+  it("scaffold: rejects the #280 batch, and re-points an existing dependent on a late gate", () => {
+    const node = (
+      key: string,
+      o: { blockedByRefs?: ReadonlyArray<string>; gate?: string; role?: string } = {},
+    ): ScaffoldGraphNode => ({
+      key,
+      threadId: id(key),
+      role: o.role ?? "coder",
+      title: key,
+      purpose: `${key} purpose`,
+      blockedByRefs: o.blockedByRefs ?? [],
+      gateReworkRef: o.gate,
+      gateMaxRounds: undefined,
+      isolationOverride: undefined,
+      forkFromRef: undefined,
+      baseSelection: sel("pi", `${key}-model`),
+    });
+    const run = (
+      nodes: ReadonlyArray<ScaffoldGraphNode>,
+      activeChildren: Parameters<typeof resolveScaffoldGraph>[0]["activeChildren"] = [],
+    ) =>
+      resolveScaffoldGraph({
+        parentThreadId: id("parent"),
+        nodes,
+        activeChildren,
+        archivedChildren: [],
+        instanceDrivers: drivers,
+        staged: false,
+      });
+
+    const cyclic = run([
+      node("author", { role: "skill-author" }),
+      node("coder", { blockedByRefs: ["author"] }),
+      node("script-review", { role: "reviewer", gate: "coder" }),
+      node("skill-review", { role: "reviewer", gate: "author", blockedByRefs: ["script-review"] }),
+    ]);
+    expect(cyclic.kind).toBe("error");
+    expect(cyclic.kind === "error" && cyclic.message).toContain("is implicit");
+    expect(cyclic.kind === "error" && cyclic.message.endsWith("Nothing was created.")).toBe(true);
+
+    const existing = [
+      { ...sibling("author", { planLane: "done" }), graphKey: "author", modelSelection: parent },
+      {
+        ...sibling("coder", { blockedBy: [id("author")] }),
+        graphKey: "coder",
+        modelSelection: parent,
+      },
+    ];
+    const late = run([node("skill-review", { role: "reviewer", gate: "author" })], existing);
+    expect(late.kind).toBe("ok");
+    if (late.kind !== "ok") return;
+    expect(late.dependentUpdates).toEqual([
+      { threadId: id("coder"), blockedBy: [id("author"), id("skill-review")] },
+    ]);
+    expect(late.nodes[0]?.isolation).toBe("attached");
   });
 });

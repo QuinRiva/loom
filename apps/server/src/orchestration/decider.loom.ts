@@ -42,7 +42,7 @@ import {
   requireUniqueGoalSlug,
 } from "./commandInvariants.loom.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
-import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
+import { cancelledDependencyOf, findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { gateLoopTargetOf, gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 import { NOTIFY_PAIR_HOURLY_CAP, notifyPairCapExceeded } from "@t3tools/shared/notify";
 // See the module-cycle note above: these are upstream bindings that stay in
@@ -870,20 +870,27 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
       // silently wedges it (cancelled never releases). Surface it on the same
       // "a human must look" channel as the cancel-cascade scan below — direct
       // event emission, never re-entering a command handler mid-decide.
+      //
+      // The reverse state (issue #280): a re-point that leaves the target with no
+      // cancelled dependency clears the flag the control plane raised for the old
+      // set's cancelled one. The flag carries no provenance, so "raised for this
+      // reason" is read off the state that raises it: an un-started target whose
+      // CURRENT set names a cancelled sibling always got this flag from the
+      // cascade or from here (a started thread's own raises are never touched).
       const targetUnstarted = !targetThread.messages.some((message) => message.role === "user");
       const targetTerminal =
         targetThread.planLane === "done" || targetThread.planLane === "cancelled";
+      const threadsById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
+      const wedgeable = targetUnstarted && !targetTerminal;
       const wedgedByCancelledDep =
-        targetUnstarted &&
-        !targetTerminal &&
-        command.blockedBy.some((depId) => {
-          const dep = readModel.threads.find((thread) => thread.id === depId);
-          return (
-            dep !== undefined &&
-            dep.parentThreadId === targetThread.parentThreadId &&
-            dep.planLane === "cancelled"
-          );
-        });
+        wedgeable &&
+        cancelledDependencyOf({ ...targetThread, blockedBy: command.blockedBy }, threadsById) !==
+          null;
+      const wedgeCleared =
+        wedgeable &&
+        !wedgedByCancelledDep &&
+        targetThread.attention.includes("needs_guidance") &&
+        cancelledDependencyOf(targetThread, threadsById) !== null;
       // Unchanged-value guard (see `noEvents`). Replace-set semantics, so the
       // comparison is the recorded sequence verbatim — an identical set in an
       // identical order is the no-op; a reorder still writes, so the stored array
@@ -897,27 +904,30 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
       // The wedge raise is emitted as a direct event, so it carries the attention
       // guard itself — and it is judged on the (possibly unchanged) set, so a re-set
       // of an already-wedging set still surfaces a wedge nobody has flagged yet.
-      return [
-        ...(dependenciesUnchanged ? [] : [dependenciesSet]),
-        ...(wedgedByCancelledDep && !targetThread.attention.includes("needs_guidance")
-          ? [
-              {
-                ...(yield* withEventBase({
-                  aggregateKind: "thread",
-                  aggregateId: command.threadId,
-                  occurredAt,
-                  commandId: command.commandId,
-                })),
-                type: "thread.attention-raised" as const,
-                payload: {
-                  threadId: command.threadId,
-                  reason: "needs_guidance" as const,
-                  updatedAt: occurredAt,
-                },
-              },
-            ]
-          : []),
-      ];
+      const events: PlannedOrchestrationEvent[] = dependenciesUnchanged ? [] : [dependenciesSet];
+      if (wedgedByCancelledDep && !targetThread.attention.includes("needs_guidance"))
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.attention-raised",
+          payload: { threadId: command.threadId, reason: "needs_guidance", updatedAt: occurredAt },
+        });
+      if (wedgeCleared)
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.attention-cleared",
+          payload: { threadId: command.threadId, reason: "needs_guidance", updatedAt: occurredAt },
+        });
+      return events;
     }
 
     // Review gates (design §3/§4): the single terminal call. One transaction
