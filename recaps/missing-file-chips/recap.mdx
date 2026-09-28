@@ -1,7 +1,10 @@
 # False "missing?" file chips: root cause and fix
 
 <Callout tone="decision">
-This recap covers an investigation. No code has changed. It explains why chips such as `prices.json · missing?` appear for files that exist, and recommends a fix. Record a verdict on each fix option below. **If you leave an option undecided, the recommendation stands:** fix 1 now, fix 2 as a follow-up, and one guidance line (fix 3).
+  This recap covers an investigation. No code has changed. It explains why chips such as
+  `prices.json · missing?` appear for files that exist, and recommends a fix. Record a verdict on
+  each fix option below. **If you leave an option undecided, the recommendation stands:** fix 1 now,
+  fix 2 as a follow-up, and one guidance line (fix 3).
 </Callout>
 
 ## Root cause
@@ -9,7 +12,7 @@ This recap covers an investigation. No code has changed. It explains why chips s
 This is a **regression from 21 Sep 2026**, caused by two commits that each seemed safe on their own:
 
 1. `645c8ae988` moved ChatMarkdown back onto upstream v0.0.43 and re-attached loom's existence check as a wrapper around the chip renderer (`useVerifiedFileLinkChip`). The wrapper is **optimistic**. Every inline-code span that resolves is drawn as a chip straight away, and it flips to **"missing?"** when the stat reports that the file is gone. Before this commit, loom was **pessimistic** about inline code. An unverified span stayed as plain code and became a chip only when a stat confirmed the file. A bare name was also tried against the worktree root and then against every directory mentioned in the same message (`collectMessageDirectoryBases`, `selectChipBinding`). The re-home deleted all of that logic.
-2. `19c964965b` ("bare-filename inline-code chips resolve again") sent separator-less spans like `prices.json` straight to the resolver. Its comment justifies this with *"loom renders a chip only once the server confirms the file exists"*. After commit 1, that premise was no longer true.
+2. `19c964965b` ("bare-filename inline-code chips resolve again") sent separator-less spans like `prices.json` straight to the resolver. Its comment justifies this with _"loom renders a chip only once the server confirms the file exists"_. After commit 1, that premise was no longer true.
 
 As a result, every bare filename is joined onto the **thread worktree root** (`markdownCwd = gitCwd`) and stat'd there. When the file is not at the root, the chip shows **missing?**. This happens for **96% of bare filenames** in the sample.
 
@@ -19,7 +22,12 @@ As a result, every bare filename is joined onto the **thread worktree root** (`m
     { id: "md", label: "`prices.json` in an assistant message", x: 10, y: 20 },
     { id: "gate", label: "isLinkablePathText: known .json extension, so it passes", x: 40, y: 20 },
     { id: "res", label: "resolvePathLinkTarget(cwd = worktree root)", x: 75, y: 20 },
-    { id: "chip", label: "VerifiedFileChip: shown as a chip before the stat returns", x: 75, y: 65 },
+    {
+      id: "chip",
+      label: "VerifiedFileChip: shown as a chip before the stat returns",
+      x: 75,
+      y: 65,
+    },
     { id: "stat", label: "server statPaths: <root>/prices.json is missing", x: 40, y: 65 },
     { id: "miss", label: "MissingFileChip: 'prices.json · missing?'", x: 10, y: 65 },
   ]}
@@ -35,20 +43,41 @@ As a result, every bare filename is joined onto the **thread worktree root** (`m
 <FileTree
   title="The pipeline (at HEAD 3c32456423, the same as the deployed 085bcd5)"
   entries={[
-    { path: "apps/web/src/markdown-links.ts", note: "92–122 resolveInlineCodeFileLinkMeta: the loom gate, then a direct resolve; the comment at 117 states the false premise. 71–84 resolveMarkdownFileLinkTarget. 283 isLinkablePathText" },
-    { path: "apps/web/src/terminal-links.ts", note: "205–222 resolvePathLinkTarget: expands ~/ via the inferred home, otherwise join(cwd, path). No other candidates" },
-    { path: "apps/web/src/components/ChatMarkdown.tsx", note: "2465–2475 per-message inline-code meta map; 3292–3310 the `code` renderer calls fileLinkChip; 2800 wraps it in useVerifiedFileLinkChip; 2768 scanned prose/fence paths (the correct, pessimistic polarity)" },
-    { path: "apps/web/src/loom/verifiedFileChips.tsx", note: "64–100 MissingFileChip; 140–158 VerifiedFileChip (optimistic: a chip unless exists === false); 231–275 useScannedPathTargets (pessimistic: a chip only when confirmed)" },
-    { path: "apps/web/src/components/chat/usePathExistence.ts", note: "ref-counted, batched stat store (80 ms coalesce, 30 s TTL, up to 200 paths per RPC)" },
-    { path: "apps/web/src/components/ChatView.tsx", note: "10286 markdownCwd={gitCwd}: the base directory is the thread worktree root" },
+    {
+      path: "apps/web/src/markdown-links.ts",
+      note: "92–122 resolveInlineCodeFileLinkMeta: the loom gate, then a direct resolve; the comment at 117 states the false premise. 71–84 resolveMarkdownFileLinkTarget. 283 isLinkablePathText",
+    },
+    {
+      path: "apps/web/src/terminal-links.ts",
+      note: "205–222 resolvePathLinkTarget: expands ~/ via the inferred home, otherwise join(cwd, path). No other candidates",
+    },
+    {
+      path: "apps/web/src/components/ChatMarkdown.tsx",
+      note: "2465–2475 per-message inline-code meta map; 3292–3310 the `code` renderer calls fileLinkChip; 2800 wraps it in useVerifiedFileLinkChip; 2768 scanned prose/fence paths (the correct, pessimistic polarity)",
+    },
+    {
+      path: "apps/web/src/loom/verifiedFileChips.tsx",
+      note: "64–100 MissingFileChip; 140–158 VerifiedFileChip (optimistic: a chip unless exists === false); 231–275 useScannedPathTargets (pessimistic: a chip only when confirmed)",
+    },
+    {
+      path: "apps/web/src/components/chat/usePathExistence.ts",
+      note: "ref-counted, batched stat store (80 ms coalesce, 30 s TTL, up to 200 paths per RPC)",
+    },
+    {
+      path: "apps/web/src/components/ChatView.tsx",
+      note: "10286 markdownCwd={gitCwd}: the base directory is the thread worktree root",
+    },
     { path: "apps/server/src/ws.ts", note: "3620–3625 projectsStatPaths RPC" },
-    { path: "apps/server/src/workspace/WorkspaceFileSystem.ts", note: "556–592 statPaths: a plain stat per absolute path. Non-absolute paths come back as missing. No cwd, no lookup" },
+    {
+      path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
+      note: "556–592 statPaths: a plain stat per absolute path. Non-absolute paths come back as missing. No cwd, no lookup",
+    },
   ]}
 />
 
 ## The concrete case (thread cd2f3f37)
 
-Entry 126 of the session reads: *Now* `` `prices.json` `` *, converted to net USD from the export…*. It is a **bare inline-code basename**, with no link and no path. Every bash call in that session runs `cd /home/Carl/.t3/cockpit/worktrees/lease-extraction/t3code-c9847a68/data-pipeline-jobs/lease-extraction && …`. pi's bash tool does not keep the working directory between calls, so the agent repeats the `cd` each time. The agent wrote the file in the **same message** by its absolute path, `…/data-pipeline-jobs/lease-extraction/gold_set/eval/prices.json`. So the file existed, and the agent knew the full path. The chip still resolved to `<worktree>/prices.json`. Resolving against the agent's `cd` directory would **not** have found it either, because the file sits two levels lower, in `gold_set/eval/`. A lookup by basename across the worktree index finds exactly one match. The same thread also shows the second failure class: `` `src/models/chain_models.py:61` `` is relative to the `cd` directory, not to the worktree root.
+Entry 126 of the session reads: _Now_ `` `prices.json` `` _, converted to net USD from the export…_. It is a **bare inline-code basename**, with no link and no path. Every bash call in that session runs `cd /home/Carl/.t3/cockpit/worktrees/lease-extraction/t3code-c9847a68/data-pipeline-jobs/lease-extraction && …`. pi's bash tool does not keep the working directory between calls, so the agent repeats the `cd` each time. The agent wrote the file in the **same message** by its absolute path, `…/data-pipeline-jobs/lease-extraction/gold_set/eval/prices.json`. So the file existed, and the agent knew the full path. The chip still resolved to `<worktree>/prices.json`. Resolving against the agent's `cd` directory would **not** have found it either, because the file sits two levels lower, in `gold_set/eval/`. A lookup by basename across the worktree index finds exactly one match. The same thread also shows the second failure class: `` `src/models/chain_models.py:61` `` is relative to the `cd` directory, not to the worktree root.
 
 ## How common it is
 
@@ -69,21 +98,66 @@ Entry 126 of the session reads: *Now* `` `prices.json` `` *, converted to net US
 <Table
   columns={["Failure class (of the 610 missing)", "Count", "Share", "Example"]}
   rows={[
-    ["Bare name, one file in the worktree has that basename", "144", "24%", "`projector.ts`, found at apps/server/src/orchestration/projector.ts"],
-    ["Bare name, not in the worktree's tracked or unignored files", "113", "19%", "files in gitignored workbench/ or .artifacts/, scratch files, deleted files"],
-    ["Bare name, relative to a directory the agent cd'd into (in the worktree)", "68", "11%", "`predict.py` under workbench/gold-eval-next-test"],
-    ["Bare name, lives outside the worktree (full path named elsewhere in the session)", "52", "9%", "`cliproxy.ts`, which is in ~/pi-craft/…/extensions/"],
-    ["Absolute path that is really gone (deleted, /tmp, a removed sub-worktree)", "49", "8%", "`/tmp/imported-project`"],
-    ["Bare name, several files in the worktree have that basename", "49", "8%", "`settings.ts`, `index.html`"],
-    ["Relative with a dir, relative to a cd directory (in or out of the worktree)", "56", "9%", "`src/models/chain_models.py:61`"],
+    [
+      "Bare name, one file in the worktree has that basename",
+      "144",
+      "24%",
+      "`projector.ts`, found at apps/server/src/orchestration/projector.ts",
+    ],
+    [
+      "Bare name, not in the worktree's tracked or unignored files",
+      "113",
+      "19%",
+      "files in gitignored workbench/ or .artifacts/, scratch files, deleted files",
+    ],
+    [
+      "Bare name, relative to a directory the agent cd'd into (in the worktree)",
+      "68",
+      "11%",
+      "`predict.py` under workbench/gold-eval-next-test",
+    ],
+    [
+      "Bare name, lives outside the worktree (full path named elsewhere in the session)",
+      "52",
+      "9%",
+      "`cliproxy.ts`, which is in ~/pi-craft/…/extensions/",
+    ],
+    [
+      "Absolute path that is really gone (deleted, /tmp, a removed sub-worktree)",
+      "49",
+      "8%",
+      "`/tmp/imported-project`",
+    ],
+    [
+      "Bare name, several files in the worktree have that basename",
+      "49",
+      "8%",
+      "`settings.ts`, `index.html`",
+    ],
+    [
+      "Relative with a dir, relative to a cd directory (in or out of the worktree)",
+      "56",
+      "9%",
+      "`src/models/chain_models.py:61`",
+    ],
     ["Relative with a dir, not found / outside / elsewhere", "60", "10%", "`dist/cli/args.js`"],
-    ["Bare name, relative to a cd directory outside the worktree", "16", "3%", "`compare.py` under ~/data/…"],
+    [
+      "Bare name, relative to a cd directory outside the worktree",
+      "16",
+      "3%",
+      "`compare.py` under ~/data/…",
+    ],
     ["Tilde path that is gone", "3", "<1%", "-"],
   ]}
 />
 
 <Callout tone="warning">
-**Caveats.** Existence was checked now, not when each message was rendered, so some "really gone" absolute paths existed at the time. The gate is an approximation; it errs slightly broad. `git ls-files` leaves out gitignored files, so the "not in the worktree" count includes real files in `workbench/` and `.artifacts/`. **The conclusion does not depend on these details:** about 91% of false "missing?" chips are *unanchored* references (bare or relative) that are joined onto the worktree root, and only about 8% point at a file that has really gone.
+  **Caveats.** Existence was checked now, not when each message was rendered, so some "really gone"
+  absolute paths existed at the time. The gate is an approximation; it errs slightly broad. `git
+  ls-files` leaves out gitignored files, so the "not in the worktree" count includes real files in
+  `workbench/` and `.artifacts/`. **The conclusion does not depend on these details:** about 91% of
+  false "missing?" chips are *unanchored* references (bare or relative) that are joined onto the
+  worktree root, and only about 8% point at a file that has really gone.
 </Callout>
 
 ## Fix options
