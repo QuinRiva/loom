@@ -50,9 +50,12 @@ const isInboxRole = (role: string | null): boolean => role !== null && role.ends
  * Create a NEW goal + a staged (held) root session. Both default to the caller
  * thread's project; an optional `project` (id or title) targets another — and
  * inbox-role callers MUST name one, because their own project is a mailbox.
- * The new root thread is created with no worktree so the human's first send
- * routes through the existing composer worktree bootstrap (provisioning from
- * the TARGET project's workspace); it is held at `planLane: planned` and
+ * The new root thread is created with no worktree; the composer seeds it with
+ * the project's default env mode exactly as for a fresh draft, so under the
+ * usual worktree default the human's first send routes through the composer
+ * worktree bootstrap (provisioning from the TARGET project's workspace, based
+ * on its default branch) unless they pick Local first. It is held at
+ * `planLane: planned` and
  * carries the brief so the UI can seed the composer for a one-send launch.
  */
 const handleGoalHandoff = Effect.gen(function* () {
@@ -148,8 +151,9 @@ const handleGoalHandoff = Effect.gen(function* () {
     }) satisfies OrchestrationCommand,
   );
 
-  // Staged root session: no parent, held at `planned`, NO worktree (so the
-  // composer bootstrap provisions a fresh one on the human's first send),
+  // Staged root session: no parent, held at `planned`, NO worktree (the
+  // composer seeds the project default env mode, so under a worktree default
+  // its bootstrap provisions a fresh one on the human's first send),
   // model/runtime inherited from the caller, brief stored for composer seeding.
   yield* engine.dispatch({
     type: "thread.create",

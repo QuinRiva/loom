@@ -296,6 +296,7 @@ import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 // loom: the fork's chat-view mounts / intercepts — see each marked seam below.
 import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
+import { useProjectDefaultThreadEnvMode } from "../loom/useProjectDefaultThreadEnvMode"; // loom: staged-root env default
 import { useAgentHandoffViews, useHandoffReceipts } from "../loom/useHandoffReceipts";
 import {
   recordHandoffDispatch,
@@ -5921,8 +5922,25 @@ export default function ChatView(props: ChatViewProps) {
     activeThread.worktreePath === null &&
     !envLocked,
   );
+  // loom: a staged fresh root (a goal_handoff launch) has no draft to carry an
+  // env mode, so it seeds the project default a new draft gets instead of
+  // reading "no worktree yet" as Local. Children, forks and goal_continue
+  // successors inherit their source's workspace and keep today's reading.
+  const stagedRootDefaultEnvMode = useProjectDefaultThreadEnvMode(
+    environmentId,
+    canOverrideServerThreadEnvMode &&
+      activeThread?.parentThreadId === null &&
+      activeThread.forkFromThreadId === null &&
+      activeThread.continuesThreadId === null
+      ? (activeProject?.workspaceRoot ?? null)
+      : null,
+    activeProjectSettings,
+  );
   const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+    ? (pendingServerThreadEnvMode ??
+      draftThread?.envMode ??
+      stagedRootDefaultEnvMode ?? // loom: see above
+      derivedEnvMode)
     : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
