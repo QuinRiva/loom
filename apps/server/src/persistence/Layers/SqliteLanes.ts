@@ -25,10 +25,25 @@ import * as ThreadPlanProgress from "../../orchestration/ThreadPlanProgress.ts";
 const onReadLane = <A, E, R>(make: Effect.Effect<A, E, R>) =>
   make.pipe(Effect.provideServiceEffect(SqlClient.SqlClient, SqlReadClient));
 
-/** The one `ProjectionSnapshotQuery` in the server build; its reads run on the worker lane. */
+/**
+ * The one `ProjectionSnapshotQuery` in the server build. Every method runs on
+ * the worker lane except `POINT_READS`: measured hot-path reads whose cost does
+ * not grow with a thread's history, run in-process on the default client
+ * (synchronously on the event loop) instead of queueing on the worker's permit
+ * behind snapshot transactions. Forward the references; never re-declare a
+ * signature.
+ */
 export const ProjectionSnapshotQueryLanes = Layer.effect(
   ProjectionSnapshotQuery,
-  onReadLane(makeProjectionSnapshotQuery),
+  Effect.gen(function* () {
+    const worker = yield* onReadLane(makeProjectionSnapshotQuery);
+    const inProcess = yield* makeProjectionSnapshotQuery;
+    return ProjectionSnapshotQuery.of({
+      ...worker,
+      // POINT_READS — ingestion's per-event thread lookup: one primary-key join.
+      getThreadRuntimeContext: inProcess.getThreadRuntimeContext,
+    });
+  }),
 );
 
 /**

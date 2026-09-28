@@ -248,6 +248,10 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
           processingP95Ms: processing.percentile(0.95),
           processingMaxMs: Math.round(processing.maxMs),
           processingTotalMs: Math.round(processing.totalMs),
+          // Worker read-lane wait only (permit queue + round trip). Ingestion's
+          // per-event `getThreadRuntimeContext` runs in-process (`POINT_READS` in
+          // SqliteLanes.ts), so its time lands in `remainderMs` and this reads
+          // near zero unless ingestion's other snapshot-query reads queue.
           sqlReadWaitMs: Math.round(interval.sqlReadWaitMs),
           engineDispatchWaitMs: Math.round(interval.engineDispatchWaitMs),
           remainderMs: Math.round(
