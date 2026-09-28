@@ -109,6 +109,23 @@ const toastCornerOrbClass = cn(
   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
 );
 
+// loom: dismiss-all. Base UI's `close()` without an id closes every toast but
+// only fires each toast's Base UI `onClose` option; loom's `data.onClose` is run
+// here from the list the stacked viewport last rendered.
+let liveStackedToasts: ReadonlyArray<{ readonly data?: ThreadToastData | undefined }> = [];
+function dismissAllToasts() {
+  for (const toast of liveStackedToasts) toast.data?.onClose?.();
+  toastManager.close();
+}
+
+/** loom: "Clear all · N" footer that fades in under the expanded stack. */
+const toastClearAllClass = cn(
+  "absolute top-0 right-0 z-0 inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-full border border-border/60 bg-popover/92 pr-2.5 pl-2 text-xs text-muted-foreground shadow-md backdrop-blur-sm outline-none select-none",
+  "[--toast-gap:--spacing(3)] translate-y-[calc(var(--toast-stack-height)+var(--toast-stack-count)*var(--toast-gap))] [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.15s,color_.15s]",
+  "pointer-events-none opacity-0 in-data-expanded:pointer-events-auto in-data-expanded:opacity-100 in-data-expanded:delay-[0s,.2s,0s]",
+  "hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+);
+
 function handleToastDismissClick(
   manager: typeof toastManager | typeof anchoredToastManager,
   toastId: ToastId,
@@ -546,8 +563,19 @@ function Toasts({ position }: { position: ToastPosition }) {
     shouldRenderThreadScopedToast(toast.data, activeThreadRef),
   );
   const visibleToastLayout = buildVisibleToastLayout(visibleToasts);
+  // loom: the footer counts every live toast (including those hidden past the
+  // limit) and sits under the last one that is actually shown.
+  const liveToastCount = toasts.filter((toast) => toast.transitionStatus !== "ending").length;
+  const shownItems = visibleToastLayout.items.filter(
+    ({ toast }) => toast.transitionStatus !== "ending" && !toast.limited,
+  );
+  const stackHeight = Math.max(
+    0,
+    ...shownItems.map(({ toast, offsetY }) => offsetY + (toast.height ?? 0)),
+  );
 
   useEffect(() => {
+    liveStackedToasts = toasts; // loom: for dismissAllToasts
     const activeToastIds = new Set(toasts.map((toast) => toast.id));
     for (const toastId of threadToastVisibleTimeoutRemainingMs.keys()) {
       if (!activeToastIds.has(toastId)) {
@@ -697,6 +725,26 @@ function Toasts({ position }: { position: ToastPosition }) {
             </Toast.Root>
           );
         })}
+        {/* loom: dismiss-all footer, revealed with the expanded stack. */}
+        {liveToastCount >= 2 ? (
+          <button
+            aria-label={`Dismiss all ${liveToastCount} notifications`}
+            className={toastClearAllClass}
+            data-slot="toast-clear-all"
+            onClick={dismissAllToasts}
+            style={
+              {
+                "--toast-stack-height": `${stackHeight}px`,
+                "--toast-stack-count": shownItems.length,
+              } as CSSProperties
+            }
+            type="button"
+          >
+            <XIcon className="size-3" strokeWidth={2.25} />
+            Clear all
+            <span className="font-medium text-foreground tabular-nums">{liveToastCount}</span>
+          </button>
+        ) : null}
       </Toast.Viewport>
     </Toast.Portal>
   );
@@ -807,6 +855,7 @@ export {
   ToastProvider,
   type ToastPosition,
   toastManager,
+  dismissAllToasts, // loom:
   AnchoredToastProvider,
   anchoredToastManager,
 };

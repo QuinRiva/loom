@@ -44,6 +44,7 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  BellOffIcon, // loom:
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
@@ -189,7 +190,7 @@ import {
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
-import { stackedThreadToast, toastManager } from "./ui/toast";
+import { dismissAllToasts, stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
@@ -556,6 +557,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         event.stopPropagation();
         if (event.repeat) return;
         dispatch({ _tag: "OpenChangeTheme" });
+        return;
+      }
+      // loom: dismiss-all toasts
+      if (command === "notifications.dismissAll") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismissAllToasts();
         return;
       }
       if (command === "themeEditor.toggle") {
@@ -2033,6 +2041,19 @@ function OpenCommandPaletteDialog(props: {
     icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  // loom: dismiss-all toasts
+  actionItems.push({
+    kind: "action",
+    value: "action:dismiss-notifications",
+    searchTerms: ["dismiss", "clear", "close", "notifications", "toasts", "all"],
+    title: "Dismiss all notifications",
+    icon: <BellOffIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "notifications.dismissAll",
+    run: async () => {
+      dismissAllToasts();
     },
   });
 
