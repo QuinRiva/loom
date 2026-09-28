@@ -14,6 +14,8 @@ import type {
   ProjectEntry,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectLocateFilesInput, // loom
+  ProjectLocateFilesResult, // loom
   ProjectSearchContentsInput,
   ProjectSearchContentsResult,
   ProjectSearchEntriesInput,
@@ -103,6 +105,10 @@ export class WorkspaceEntries extends Context.Service<
       input: ProjectSearchContentsInput,
     ) => Effect.Effect<ProjectSearchContentsResult, WorkspaceEntriesError>;
     readonly refresh: (cwd: string) => Effect.Effect<void>;
+    // loom: chat file-chip index lookup.
+    readonly locateFiles: (
+      input: ProjectLocateFilesInput,
+    ) => Effect.Effect<ProjectLocateFilesResult, WorkspaceEntriesError>;
   }
 >()("t3/workspace/WorkspaceEntries") {}
 
@@ -355,7 +361,31 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return WorkspaceEntries.of({ browse, list, refresh, search, searchContents });
+  // loom: unanchored chat file references, resolved against the same path index
+  // as @-mentions and returned as absolute paths.
+  const locateFiles: WorkspaceEntries["Service"]["locateFiles"] = Effect.fn(
+    "WorkspaceEntries.locateFiles",
+  )(function* (input) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const located = yield* Effect.gen(function* () {
+      const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+      return yield* searchIndex.locateFiles(input.references);
+    }).pipe(
+      Effect.provide(
+        workspaceSearchIndexes.get(
+          WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
+        ),
+      ),
+    );
+    return {
+      entries: located.map(({ reference, relativePath }) => ({
+        reference,
+        path: relativePath === null ? null : path.join(normalizedCwd, relativePath),
+      })),
+    };
+  });
+
+  return WorkspaceEntries.of({ browse, list, locateFiles, refresh, search, searchContents });
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(

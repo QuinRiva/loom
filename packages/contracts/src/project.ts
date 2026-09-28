@@ -13,6 +13,8 @@ const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
 // loom: out-of-workspace file chips (absolute read, listing, batch stat).
 const PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH = 4096;
 const PROJECT_STAT_PATHS_MAX_COUNT = 200;
+// loom: chat file-chip index lookup; see ProjectLocateFilesInput.
+const PROJECT_LOCATE_FILES_MAX_COUNT = 50;
 
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
@@ -359,6 +361,42 @@ export const ProjectStatPathsResult = Schema.Struct({
   entries: Schema.Array(ProjectPathStat),
 });
 export type ProjectStatPathsResult = typeof ProjectStatPathsResult.Type;
+
+/**
+ * loom: resolve unanchored chat file references — a bare `prices.json`, an
+ * unprefixed `src/models/x.py` — against the workspace's path index (the one
+ * behind @-mentions), so a reference agents write relative to wherever they
+ * happened to `cd` still finds its file. Each reference matches indexed files
+ * whose path ends with it on a segment boundary; `path` is the absolute path of
+ * the one file that matches, or null when none or several do. An index query,
+ * never a filesystem walk.
+ */
+export const ProjectLocateFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  references: Schema.Array(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  ).check(Schema.isMaxLength(PROJECT_LOCATE_FILES_MAX_COUNT)),
+});
+export type ProjectLocateFilesInput = typeof ProjectLocateFilesInput.Type;
+
+export const ProjectLocateFilesResult = Schema.Struct({
+  entries: Schema.Array(
+    Schema.Struct({ reference: TrimmedNonEmptyString, path: Schema.NullOr(TrimmedNonEmptyString) }),
+  ),
+});
+export type ProjectLocateFilesResult = typeof ProjectLocateFilesResult.Type;
+
+export class ProjectLocateFilesError extends Schema.TaggedError<ProjectLocateFilesError>()(
+  "ProjectLocateFilesError",
+  {
+    cwd: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Failed to locate files in '${this.cwd}'.`;
+  }
+}
 
 export class ProjectStatPathsError extends Schema.TaggedError<ProjectStatPathsError>()(
   "ProjectStatPathsError",

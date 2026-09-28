@@ -72,6 +72,7 @@ import {
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectStatPathsError,
+  ProjectLocateFilesError, // loom
   ProjectWriteFileError,
   ProviderUploadFeedbackError,
   ProviderSetupError,
@@ -3622,6 +3623,17 @@ const makeWsRpcLayer = (
             workspaceFileSystem
               .statPaths(input)
               .pipe(Effect.mapError((cause) => new ProjectStatPathsError({ cause }))),
+            { "rpc.aggregate": "workspace" },
+          ),
+        // loom: chat file-chip index lookup for unanchored references.
+        [WS_METHODS.projectsLocateFiles]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsLocateFiles,
+            workspaceEntries
+              .locateFiles(input)
+              .pipe(
+                Effect.mapError((cause) => new ProjectLocateFilesError({ cwd: input.cwd, cause })),
+              ),
             { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>

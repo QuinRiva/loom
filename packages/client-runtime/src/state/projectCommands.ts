@@ -91,6 +91,13 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    // loom: chat file-chip index lookup; freshness is the caller's store's job.
+    locateFiles: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:locate-files",
+      tag: WS_METHODS.projectsLocateFiles,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {

@@ -114,6 +114,7 @@ import {
   THREAD_LINK_HREF_PREFIX,
   ThreadLinkChip,
   useScannedPathTargets,
+  useUnanchoredInlineCodeChip,
   useVerifiedFileLinkChip,
   useVerifiedScannedPath,
   verifyChipTargetBeforeOpen,
@@ -121,6 +122,8 @@ import {
 // loom: loose path scanning in plain prose and inside fenced code blocks.
 import { PROSE_FILE_PATH_TAG, rehypeChatFilePaths } from "~/loom/chatPathScan";
 import { decorateCodeBlockPaths, SCANNED_PATH_LINK_CLASS_NAME } from "~/loom/codePathDecorations";
+// loom: unanchored inline-code references chip only once a file is confirmed.
+import { isAnchoredFileReference } from "~/loom/unanchoredFileReferences";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import {
   revealInFileExplorerLabelForKind,
@@ -2801,6 +2804,15 @@ function useChatMarkdownState({
     environmentId,
     renderChip: fileLinkChip,
   });
+  // loom: a bare `prices.json` or unprefixed `src/x.py` is a guess at a place,
+  // so it stays plain code until a file is confirmed, and never says "missing?".
+  const unanchoredInlineCodeChip = useUnanchoredInlineCodeChip({
+    environmentId,
+    cwd,
+    inlineCodeMetas: inlineCodeFileLinkMetaByText,
+    linkMetas: markdownFileLinkMetaByHref,
+    renderChip: fileLinkChip,
+  });
 
   const componentState = useMemo(
     () => ({
@@ -2813,6 +2825,7 @@ function useChatMarkdownState({
       environmentId,
       expandMedia,
       fileLinkChip: verifiedFileLinkChip,
+      unanchoredInlineCodeChip, // loom
       githubMedia,
       renderContextReference,
       headingLevelOffset,
@@ -2846,6 +2859,7 @@ function useChatMarkdownState({
       environmentId,
       expandMedia,
       verifiedFileLinkChip,
+      unanchoredInlineCodeChip, // loom
       githubMedia,
       renderContextReference,
       headingLevelOffset,
@@ -3290,14 +3304,28 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
-    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip } = use(
-      ChatMarkdownRendererContext,
-    );
+    const {
+      cwd,
+      imageBaseDir,
+      inlineCodeFileLinkMetaByText,
+      fileLinkChip,
+      unanchoredInlineCodeChip, // loom
+    } = use(ChatMarkdownRendererContext);
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
       const fileLinkMeta =
         inlineCodeFileLinkMetaByText.get(codeText.trim()) ??
         resolveInlineCodeFileLinkMeta(codeText, cwd, imageBaseDir ?? cwd);
+      // loom: see unanchoredInlineCodeChip.
+      if (fileLinkMeta && !isAnchoredFileReference(codeText)) {
+        return unanchoredInlineCodeChip(
+          codeText.trim(),
+          fileLinkMeta,
+          <code {...props} className={className}>
+            {children}
+          </code>,
+        );
+      }
       if (fileLinkMeta) {
         return fileLinkChip(
           fileLinkMeta,

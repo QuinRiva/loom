@@ -25,6 +25,14 @@ import { useThreadShell } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { extractMessagePathCandidates } from "./chatPathScan";
+import {
+  collectMessageDirectoryBases,
+  locatedFileStore,
+  locateFileKey,
+  selectUnanchoredBinding,
+  unanchoredCandidates,
+  unanchoredLocateReference,
+} from "./unanchoredFileReferences";
 
 /**
  * Loom's file-chip seam over upstream's `fileLinkChip` renderer (slice 1 of the
@@ -39,6 +47,8 @@ import { extractMessagePathCandidates } from "./chatPathScan";
  *    "missing" chip instead of a dead link. An unverified path (no connected
  *    environment, e.g. the `/preview` harness, or a stat still in flight) keeps
  *    upstream's behaviour, so nothing flickers from live to missing and back.
+ *    This optimistic polarity is only for references that name one place;
+ *    unanchored inline code is {@link useUnanchoredInlineCodeChip}'s.
  *  - **click-time re-verification** ({@link verifyChipTargetBeforeOpen}): the
  *    store only revalidates at its TTL, so a chip can be clicked inside the
  *    window where its file has already moved. The click re-stats the path, and
@@ -176,6 +186,84 @@ export function useVerifiedFileLinkChip(input: {
       />
     ),
     [environmentId, renderChip],
+  );
+}
+
+/**
+ * One unanchored inline-code span (see `unanchoredFileReferences`): plain code
+ * until a candidate or the index confirms a file, then upstream's chip for that
+ * file. It subscribes to both stores itself, like {@link VerifiedFileChip}, so
+ * an answer that lands after the message rendered upgrades just this span. All
+ * lookups are issued together — base directory, message directories, index —
+ * so the chip costs one coalesced round of RPCs, not a chain.
+ */
+function UnanchoredFileChip(props: {
+  environmentId: EnvironmentId | null;
+  span: string;
+  rootMeta: MarkdownFileLinkMeta;
+  directoryBases: readonly string[];
+  cwd: string | undefined;
+  renderChip: FileLinkChipRenderer;
+  fallback: ReactNode;
+}) {
+  const { environmentId, span, rootMeta, directoryBases, cwd } = props;
+  const candidates = useMemo(
+    () => unanchoredCandidates(span, rootMeta, directoryBases, cwd),
+    [cwd, directoryBases, rootMeta, span],
+  );
+  const locateKey = cwd ? locateFileKey(cwd, unanchoredLocateReference(span)) : null;
+  const lookupLocated = locatedFileStore.useLookup(environmentId, locateKey ? [locateKey] : []);
+  const located = locateKey ? lookupLocated(locateKey) : null;
+  // The index's answer is also stat'd so a file deleted since it was indexed
+  // drops back to plain code; the binding does not wait on that stat.
+  const paths = useMemo(
+    () => [...candidates.map((meta) => meta.filePath), ...(located ? [located] : [])],
+    [candidates, located],
+  );
+  const lookupExistence = usePathExistence(environmentId, paths);
+  // No connected environment (the `/preview` harness): nothing can be
+  // verified, so the syntactic resolution renders as before.
+  const meta =
+    environmentId === null
+      ? rootMeta
+      : selectUnanchoredBinding({ candidates, lookupExistence, located, span, cwd });
+  return meta ? props.renderChip(meta, `\`${span}\``, undefined, meta.filePath) : props.fallback;
+}
+
+/**
+ * Renderer for unanchored inline-code spans, bound to one message: the
+ * directories it names are collected once here rather than per span.
+ * `renderChip` is upstream's unverified chip — this path is already verified,
+ * and an unanchored guess must never render "missing?".
+ */
+export function useUnanchoredInlineCodeChip(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | undefined;
+  inlineCodeMetas: ReadonlyMap<string, MarkdownFileLinkMeta>;
+  linkMetas: ReadonlyMap<string, MarkdownFileLinkMeta>;
+  renderChip: FileLinkChipRenderer;
+}): (span: string, rootMeta: MarkdownFileLinkMeta, fallback: ReactNode) => ReactNode {
+  const { environmentId, cwd, inlineCodeMetas, linkMetas, renderChip } = input;
+  // Keyed by content so a streaming message's per-token map rebuilds do not
+  // re-render every span.
+  const basesKey = collectMessageDirectoryBases([
+    ...inlineCodeMetas.values(),
+    ...linkMetas.values(),
+  ]).join("\n");
+  const directoryBases = useMemo(() => (basesKey ? basesKey.split("\n") : []), [basesKey]);
+  return useCallback(
+    (span, rootMeta, fallback) => (
+      <UnanchoredFileChip
+        environmentId={environmentId}
+        span={span}
+        rootMeta={rootMeta}
+        directoryBases={directoryBases}
+        cwd={cwd}
+        renderChip={renderChip}
+        fallback={fallback}
+      />
+    ),
+    [cwd, directoryBases, environmentId, renderChip],
   );
 }
 
