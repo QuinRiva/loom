@@ -3,7 +3,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 /**
  * Restore the usage-ledger rows lost from 2026-09-23 while ingestion's inserts
- * ran on the read-only lane (see `ProjectionUsageLedgerOnSqlReadClient`). Every
+ * ran on the read-only lane (see `ProjectionUsageLedgerReader` in SqliteLanes.ts). Every
  * lost row survives as its `context-window.updated` activity: `activity_id` is
  * the ledger `event_id` and the payload is the token-usage snapshot, so this
  * mirrors ingestion's row derivation exactly. Scoped to the regression; the

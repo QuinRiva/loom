@@ -20,7 +20,7 @@ import {
 /** Rows the Usage page's top-spending-threads section shows. */
 const TOP_SPENDING_THREAD_LIMIT = 10;
 
-const makeProjectionUsageLedgerRepository = Effect.gen(function* () {
+export const makeProjectionUsageLedgerRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   const insertRow = SqlSchema.void({

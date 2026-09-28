@@ -125,7 +125,7 @@ import {
 } from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
-import { ProjectionUsageLedgerRepository } from "./persistence/Services/ProjectionUsageLedger.ts"; // loom:
+import { ProjectionUsageLedgerReader } from "./persistence/Layers/SqliteLanes.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -758,7 +758,7 @@ const makeWsRpcLayer = (
       const workstreamWorktreeStatus = yield* WorkstreamWorktreeStatus.WorkstreamWorktreeStatus;
       // loom: the usage ledger's read-lane repository, behind the Usage page's
       // top-consuming-threads section.
-      const usageLedger = yield* ProjectionUsageLedgerRepository;
+      const usageLedger = yield* ProjectionUsageLedgerReader;
       const hostResources = yield* HostResources.HostResources;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;

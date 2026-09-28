@@ -18,7 +18,7 @@
 import * as Layer from "effect/Layer";
 
 import { layerConfig as SqliteReadLayerLive } from "../persistence/Layers/SqliteRead.ts";
-import { ProjectionUsageLedgerOnSqlReadClient } from "../persistence/Layers/SqliteLanes.ts";
+import { ProjectionUsageLedgerReaderLive } from "../persistence/Layers/SqliteLanes.ts";
 import { WorkstreamLivenessSweepLive } from "../orchestration/Layers/WorkstreamLivenessSweep.ts";
 import { ExhaustionResumeSweepLive } from "../orchestration/Layers/ExhaustionResumeSweep.ts";
 import { WorkstreamDispatcherLive } from "../orchestration/Layers/WorkstreamDispatcher.ts";
@@ -55,11 +55,11 @@ export const LoomReactorsLive = WorkstreamWorktreeStatus.layer.pipe(
 );
 
 /**
- * SQLite read-lane persistence; joins `PersistenceLayerLive`. The usage-ledger
- * repository rides the same lane so the ws layer can answer the Usage page's
+ * SQLite read-lane persistence; joins `PersistenceLayerLive`. The usage ledger's
+ * reader rides the same lane so the ws layer can answer the Usage page's
  * top-spending-threads read without touching the write connection.
  */
-export const LoomPersistenceLive = ProjectionUsageLedgerOnSqlReadClient.pipe(
+export const LoomPersistenceLive = ProjectionUsageLedgerReaderLive.pipe(
   Layer.provideMerge(SqliteReadLayerLive),
 );
 
