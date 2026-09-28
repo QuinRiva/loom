@@ -135,7 +135,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
-import { ProjectionUsageLedgerRepository } from "./persistence/Services/ProjectionUsageLedger.ts"; // loom:
+import { ProjectionUsageLedgerReader } from "./persistence/Layers/SqliteLanes.ts"; // loom:
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
@@ -980,7 +980,7 @@ const buildAppUnderTest = (options?: {
           }),
           // loom: the usage ledger behind the Usage page's top-spending-threads
           // read. These router tests never exercise it.
-          Layer.mock(ProjectionUsageLedgerRepository)({
+          Layer.mock(ProjectionUsageLedgerReader)({
             topSpendingThreads: () => Effect.succeed([]),
           }),
         ),

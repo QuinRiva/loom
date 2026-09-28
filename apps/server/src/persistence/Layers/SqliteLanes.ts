@@ -4,99 +4,75 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "./OrchestrationCommandReceipts.ts";
-import { ProjectionUsageLedgerRepositoryLive } from "./ProjectionUsageLedger.ts";
 import { OrchestrationEventStoreLive } from "./OrchestrationEventStore.ts";
-import { OrchestrationEventStore } from "../Services/OrchestrationEventStore.ts";
+import { makeProjectionUsageLedgerRepository } from "./ProjectionUsageLedger.ts";
+import { SqlReadClient } from "./SqliteRead.ts";
+import type { ProjectionUsageLedgerRepositoryShape } from "../Services/ProjectionUsageLedger.ts";
 import { OrchestrationEngineLive } from "../../orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../../orchestration/Layers/ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "../../orchestration/Layers/ProjectionSnapshotQuery.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "../../orchestration/Services/OrchestrationEngine.ts";
+import { makeProjectionSnapshotQuery } from "../../orchestration/Layers/ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../../orchestration/ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../../orchestration/ThreadPlanProgress.ts";
-import { SqlReadClient } from "./SqliteRead.ts";
 
-const SqlReadClientAsSqlClient = Layer.effect(SqlClient.SqlClient, SqlReadClient);
+/**
+ * Runs a repository constructor against the worker read lane. The substitution
+ * happens inside the constructor, so the layer built from it names
+ * `SqlReadClient` in its requirement channel and no layer-memo order can move it
+ * to the writer. Never re-provide the shared `SqlClient` tag to a layer, and
+ * never `Layer.fresh` a repository: both leave the lane to build order.
+ */
+const onReadLane = <A, E, R>(make: Effect.Effect<A, E, R>) =>
+  make.pipe(Effect.provideServiceEffect(SqlClient.SqlClient, SqlReadClient));
 
-const ProjectionSnapshotQueryOnSqlReadClient = OrchestrationProjectionSnapshotQueryLive.pipe(
-  Layer.provide(SqlReadClientAsSqlClient),
-);
-
-const OrchestrationEventStoreOnSqlReadClient = OrchestrationEventStoreLive.pipe(
-  Layer.provide(SqlReadClientAsSqlClient),
+/**
+ * The one `ProjectionSnapshotQuery` in the server build. Every method runs on
+ * the worker lane except `POINT_READS`: measured hot-path reads whose cost does
+ * not grow with a thread's history, run in-process on the default client
+ * (synchronously on the event loop) instead of queueing on the worker's permit
+ * behind snapshot transactions. Forward the references; never re-declare a
+ * signature.
+ */
+export const ProjectionSnapshotQueryLanes = Layer.effect(
+  ProjectionSnapshotQuery,
+  Effect.gen(function* () {
+    const worker = yield* onReadLane(makeProjectionSnapshotQuery);
+    const inProcess = yield* makeProjectionSnapshotQuery;
+    return ProjectionSnapshotQuery.of({
+      ...worker,
+      // POINT_READS — ingestion's per-event thread lookup: one primary-key join.
+      getThreadRuntimeContext: inProcess.getThreadRuntimeContext,
+    });
+  }),
 );
 
 /**
- * The usage ledger's read side, for the Usage page's top-spending-threads
- * section. Ingestion `Layer.provide`s `ProjectionUsageLedgerRepositoryLive` for
- * its writes; `Layer.fresh` keeps that a separate write-lane instance.
+ * The usage ledger's read side, for the Usage page's top-spending-threads read.
+ * Ingestion's writes use `ProjectionUsageLedgerRepository` on the default client.
  */
-// loom: Effect memoises layers by object identity across the whole server build,
-// so without `Layer.fresh` whichever copy builds first is shared by both. This
-// read-lane copy built first, and ingestion's ledger inserts silently failed on
-// the `query_only` connection (swallowed into a warning) from 2026-09-23.
-export const ProjectionUsageLedgerOnSqlReadClient = Layer.fresh(
-  ProjectionUsageLedgerRepositoryLive,
-).pipe(Layer.provide(SqlReadClientAsSqlClient));
+export class ProjectionUsageLedgerReader extends Context.Service<
+  ProjectionUsageLedgerReader,
+  ProjectionUsageLedgerRepositoryShape
+>()("t3/persistence/Layers/SqliteLanes/ProjectionUsageLedgerReader") {}
 
-class OrchestrationEngineReaderReplay extends Context.Service<
-  OrchestrationEngineReaderReplay,
-  OrchestrationEngineShape
->()("t3/persistence/Layers/SqliteLanes/OrchestrationEngineReaderReplay") {}
+export const ProjectionUsageLedgerReaderLive = Layer.effect(
+  ProjectionUsageLedgerReader,
+  onReadLane(makeProjectionUsageLedgerRepository),
+);
 
-const OrchestrationEngineReaderReplayLive = Layer.effect(
-  OrchestrationEngineReaderReplay,
-  Effect.gen(function* () {
-    const engine = yield* OrchestrationEngineService;
-    const readerEventStore = yield* OrchestrationEventStore;
-    return OrchestrationEngineReaderReplay.of({
-      ...engine,
-      // loom: delegate opaquely. A hand-written `(from) => ...(from)` wrapper
-      // silently dropped `limit`, so every caller inherited the store's
-      // page-bounded default instead of the range it asked for — see
-      // plans/2026-07-28-thread-catchup-silent-truncation.md. Forwarding the
-      // reference itself cannot drop this argument, or any added later.
-      readEvents: readerEventStore.readFromSequence,
-      readStreamEvents: readerEventStore.readStreamFromSequence,
-    });
-  }),
-).pipe(Layer.provide(OrchestrationEventStoreOnSqlReadClient));
-
-const routeEngineReplayToSqlReadClient = <E, R>(
-  engineLayer: Layer.Layer<OrchestrationEngineService, E, R>,
-) =>
-  Layer.effect(OrchestrationEngineService, OrchestrationEngineReaderReplay).pipe(
-    Layer.provide(OrchestrationEngineReaderReplayLive),
-    Layer.provide(engineLayer),
-  );
-
-const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
+// Upstream's `OrchestrationLayerLive` (orchestration/runtimeLayer.ts) with the
+// lane-aware snapshot query in place of `OrchestrationProjectionSnapshotQueryLive`.
+const OrchestrationInfrastructureLanes = Layer.mergeAll(
+  ProjectionSnapshotQueryLanes,
   OrchestrationEventStoreLive,
   OrchestrationCommandReceiptRepositoryLive,
-);
-
-const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
-  Layer.provide(OrchestrationEventStoreLive),
-);
-
-const OrchestrationInfrastructureOnSqlReadClient = Layer.mergeAll(
-  ProjectionSnapshotQueryOnSqlReadClient,
-  OrchestrationEventInfrastructureLayerLive,
-  OrchestrationProjectionPipelineLayerLive,
-  // Mirrors upstream's `OrchestrationInfrastructureLayerLive`: the shared
-  // background-liveness and plan-progress registries are written by runtime
-  // ingestion and read by the snapshot query, so the same instance must be fed
-  // here and re-exported for ingestion.
+  OrchestrationProjectionPipelineLive.pipe(Layer.provide(OrchestrationEventStoreLive)),
 ).pipe(
   Layer.provideMerge(ThreadBackgroundLiveness.layer),
   Layer.provideMerge(ThreadPlanProgress.layer),
 );
 
 export const OrchestrationLayerOnSqlReadClient = Layer.mergeAll(
-  OrchestrationInfrastructureOnSqlReadClient,
-  routeEngineReplayToSqlReadClient(
-    OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureOnSqlReadClient)),
-  ),
+  OrchestrationInfrastructureLanes,
+  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLanes)),
 );

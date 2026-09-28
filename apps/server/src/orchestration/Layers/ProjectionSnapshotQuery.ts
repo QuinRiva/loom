@@ -966,7 +966,8 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
       : toPersistenceSqlError(sqlOperation)(cause);
 }
 
-const makeProjectionSnapshotQuery = Effect.gen(function* () {
+// loom: exported so SqliteLanes.ts builds the snapshot query on the read lane.
+export const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const sql = yield* SqlClient.SqlClient;
