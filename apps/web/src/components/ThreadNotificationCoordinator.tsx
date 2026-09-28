@@ -131,6 +131,9 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      // loom: a workstream child's completion is its orchestrator's cue, not the user's;
+      // only its attention events (input/approval/failed) alert.
+      if (kind === "completion" && thread.parentThreadId) continue;
       const title =
         kind === "completion"
           ? "Thread completed"

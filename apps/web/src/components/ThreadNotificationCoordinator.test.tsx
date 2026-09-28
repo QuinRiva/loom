@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   live: true,
   completedAt: null as string | null,
   archivedAt: null as string | null,
+  parentThreadId: null as string | null,
   input: false,
   approval: false,
   sessionError: false,
@@ -40,6 +41,7 @@ vi.mock("@effect/atom-react", () => ({
           // loom: sidebar status derives workstream attention before notification state.
           attention: [],
           archivedAt: state.archivedAt,
+          parentThreadId: state.parentThreadId,
           hasPendingUserInput: state.input,
           hasPendingApprovals: state.approval,
           session: state.sessionError ? { status: "error" } : null,
@@ -107,6 +109,7 @@ beforeEach(() => {
     live: true,
     completedAt: null,
     archivedAt: null,
+    parentThreadId: null,
     input: false,
     approval: false,
     sessionError: false,
@@ -149,7 +152,7 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
   });
 
-  it.each(["active", "blurred", "hidden", "archived", "disabled"])(
+  it.each(["active", "blurred", "hidden", "archived", "disabled", "child"])(
     "does not show a completion toast for %s threads",
     async (condition) => {
       await render();
@@ -158,8 +161,13 @@ describe("thread notifications", () => {
       if (condition === "hidden") state.visible = "hidden";
       if (condition === "archived") state.archivedAt = "2026-09-13T09:00:00.000Z";
       if (condition === "disabled") state.inApp = false;
+      if (condition === "child") {
+        state.parentThreadId = "parent-thread";
+        state.mode = "notifications-and-sound";
+      }
       await complete();
       expect(state.add).not.toHaveBeenCalled();
+      if (condition === "child") expect(state.sound).not.toHaveBeenCalled();
     },
   );
 
