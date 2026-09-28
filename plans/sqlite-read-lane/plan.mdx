@@ -1,0 +1,280 @@
+---
+manager_sessions:
+  - id: 744d3752-bab2-44f3-a260-eb66f2b57720
+    role: plan
+    authored_at: 2026-09-28T04:40:06.103Z
+---
+
+# SQLite read lane: make the lane a type, and take the hot path off it
+
+**Objective.** Loom's server has two SQLite connections: an in-process writer (the default `SqlClient`) and a worker-thread reader (`SqlReadClient`, `PRAGMA query_only`). Two defects share one cause and must be fixed as one design: (1) which repositories actually run on the reader is decided by Effect layer-memoisation order, not by the code — WS reconnect replay has *never* run on the reader, and the usage-ledger write path silently ran on the read-only connection for days; (2) provider-runtime ingestion spends 89% of its processing time waiting for the reader's single permit, almost entirely behind whole-set shell-snapshot transactions fired by background sweeps. **Done means:** every reader-routed service is a distinct layer whose requirement channel names `SqlReadClient` (so a build-order change cannot move it), `SqlReadClientAsSqlClient` and the `Layer.fresh` workaround are deleted, ingestion's per-event read no longer queues on the worker lane, the background sweeps stop reading the full UI shell, and the telemetry acceptance in [Verification](#verification) is met on a production-sized copy before merge.
+
+<Callout tone="decision">
+**The decision in three sentences.** The worker read lane exists for one thing — keeping *unbounded-size* reads (snapshots, thread detail, activity pages) off the event loop and off the writer — and it is expressed as a type: reader services are built from the repositories' exported constructors with `SqlClient` substituted *inside* the constructor, never by re-providing the shared tag. Everything else — replay, thread resume, and the per-event point reads on the ingestion and WS fan-out hot paths — runs on the in-process default `SqlClient`, exactly as upstream does, which removes 93–98% of ingestion's read wait with zero new connections. The remaining lane load is the sweeps' snapshot reads; this plan moves the four full-shell sweeps to the lean snapshot and removes a redundant whole-snapshot decode, and records the larger demand-side redesign (sweeps reading the engine's committed in-memory model) as the follow-up with its honest size.
+</Callout>
+
+This plan builds on two research reports finished this morning (the wiring audit and the workload measurement); their numbers are used, not re-derived. Where a number below is new it is marked as such. Note for the reader: the measurer's scratch worktree (benchmark sources, replay harness, WAL-mode copy) was removed by worktree cleanup before this plan was finished; only the clustering figure in [What the sweeps actually need](#what-the-sweeps-actually-need) was extracted from it beforehand.
+
+## What the measurements established
+
+<Table
+  density="compact"
+  columns={["Fact", "Number", "Consequence for the design"]}
+  rows={[
+    ["Read-lane utilisation (44 min of production traces)", "17.3% busy", "The lane is not short of throughput; the problem is who waits behind whom."],
+    ["Ingestion per-event read (getThreadRuntimeContext, 1 row, 493 B)", "0.19 ms over the worker RPC; 0.09 ms in-process", "For point reads the worker hop costs more main-thread CPU (0.21 ms) than running the read in-process (0.105 ms)."],
+    ["Share of ingestion's sqlReadWaitMs that is permit-queue wait", "93.5%; 72% of that behind shell-snapshot transactions", "Head-of-line blocking, not statement cost."],
+    ["Shell-snapshot transactions (lean 5 statements / full 7)", "0.27/s total; hold p50 243–635 ms, max 8.7 s; ~78% of lane busy", "Every few seconds a sweep re-reads all 2,641 un-archived threads (17–25 MB)."],
+    ["Snapshot cost split (warm, no contention)", "lean 388 ms wall / 331 ms main-thread CPU; full 723 / 408", "Snapshots are main-thread bound; the worker only offloads the ~50–280 ms SQLite part. A pool plateaus at ~1.5x."],
+    ["Effect Semaphore wake order (Semaphore.ts:258-266)", "not FIFO", "A back-to-back snapshot loop can starve a waiting point read indefinitely; fairness cannot be assumed."],
+    ["Ingestion read on a dedicated in-process connection (replay of the production schedule)", "-98% ingestion read time, max 2.0 ms", "The single biggest lever for the ingestion metric, and the cheapest."],
+    ["One in-process connection for ALL reads", "-30% only", "Snapshots on the main thread stall everything; the worker lane stays for them."],
+    ["Write lane (in-process, main thread since 2026-09-21)", "p50 2 ms / p95 20 ms / max 274 ms per transaction; 0.9% busy; 0 SQLITE_BUSY in 3 days", "Point reads can share the writer's connection; a writer worker would buy ~nothing."],
+    ["WS reconnect replay (readEvents)", "0 observed in 44 min; benchmark 1,000 events = 38 ms, 34 ms of it main-thread decode", "Routing replay to the reader was never delivered and is worth ~4 ms per 1,000 events. Not worth a reader service."],
+    ["getThreadShellById fan-out (ws.ts, per shell subscriber per event)", "1.57 calls per engine event, 7 statements each; 10.5% of lane busy; 0.41 ms in-process", "Second point-read hot path; same treatment as ingestion's read."],
+  ]}
+/>
+
+The audit's memoisation findings that shape the fix (Effect 4.0.0-rc.115, `.repos/effect-smol/packages/effect/src/Layer.ts`): the memo key is the layer *object* (`fromBuildMemo`, 380-388); `Layer.effect` memoises, `provide`/`mergeAll`/`fresh` do not (1029-1075, 1251, 1330-1350, 2164); `Layer.provide(X, dep)` re-runs `X.build` with the same memo map, so it changes the environment *offered*, not the *key*; and `Layer.fresh` starts a new root map inside which memoisation still applies (so two copies inside one `fresh` still collide) and is itself unmemoised (so each reference builds another copy — the ledger's duplicate instance). The one shape proven collision-proof on a booted server is a **distinct `Layer.effect` whose constructor substitutes `SqlClient` via `Effect.provideServiceEffect(SqlClient.SqlClient, SqlReadClient)`**.
+
+## Target shape
+
+<Mermaid
+  caption="Today (left): the reader is reached by re-providing the shared SqlClient tag, so build order decides the lane, and every read queues on one permit. Target (right): reader services are distinct layers built on SqlReadClient; point reads on the hot paths use the in-process writer connection like every other repository."
+  source={"flowchart LR\n  subgraph today[Today]\n    direction TB\n    T1[ProjectionSnapshotQueryLive + Layer.provide SqlReadClientAsSqlClient] --> TW[(worker: query_only)]\n    T2[OrchestrationEventStoreLive + Layer.provide ... intended replay] -.memo collision.-> TP[(in-process writer)]\n    T3[Layer.fresh UsageLedgerLive x2] --> TW\n    T4[ingestion getThreadRuntimeContext 11/s] --> T1\n    T5[ws getThreadShellById 2/s] --> T1\n    T6[7 sweeps: getShellSnapshot / getLeanShellSnapshot 0.27/s] --> T1\n  end\n  subgraph target[Target]\n    direction TB\n    R1[ProjectionSnapshotQueryLanes: worker instance for snapshot-sized methods] --> RW[(worker: query_only)]\n    R1b[same layer: in-process instance for POINT_READS] --> RP[(in-process writer)]\n    R2[ProjectionUsageLedgerReader] --> RW\n    R3[event store, replay, thread resume, all repositories] --> RP\n    R4[ingestion getThreadRuntimeContext] --> R1b\n    R5[ws getThreadShellById] --> R1b\n    R6[7 sweeps: all on getLeanShellSnapshot] --> R1\n  end\n"}
+/>
+
+## The rule a maintainer applies when adding a read
+
+<Callout tone="decision">
+A read runs on the **worker read lane** only when its result size is unbounded — a whole-set snapshot, a thread's detail/activity page, a search, an aggregate over an unbounded table. It gets there by being a method of a service whose layer is built in `apps/server/src/persistence/Layers/SqliteLanes.ts` from the repository's exported constructor with `SqlClient` substituted inside the constructor. Every other read — a bounded few-row lookup, however hot — stays on the default in-process `SqlClient`, exactly as upstream ships it. A `ProjectionSnapshotQuery` method moves to the in-process instance by being named in `POINT_READS` in `SqliteLanes.ts`, and only when it is a bounded read on a measured per-event hot path, because an in-process read runs synchronously on the event loop. Never re-provide the shared `SqlClient` tag to a layer, and never `Layer.fresh` a repository: both put the lane at the mercy of build order.
+</Callout>
+
+## Design
+
+### Lane as a type
+
+Reader-routed services become distinct memoised leaves whose requirement channel names `SqlReadClient`. The audit tested this shape live (replay moved to the reader, appends stayed on the writer, even with the flip probe present). What is routed, and how:
+
+- **`ProjectionSnapshotQuery`** — the only service that must be on the reader. There is exactly one instance in the server, so it keeps its shared tag (dozens of upstream consumers) and is built in `SqliteLanes.ts` as `Layer.effect(ProjectionSnapshotQuery, makeProjectionSnapshotQuery.pipe(Effect.provideServiceEffect(SqlClient.SqlClient, SqlReadClient)))`. Its layer object is then distinct from upstream's `OrchestrationProjectionSnapshotQueryLive`, so no memo collision is possible; `server.ts` already substitutes loom's orchestration composition for upstream's with one marked line. Cost in the upstream hotspot `ProjectionSnapshotQuery.ts`: **one** `// loom:` `export` keyword on `makeProjectionSnapshotQuery`.
+- **Usage ledger** — ingestion writes through `ProjectionUsageLedgerRepository` (writer); the Usage page's `topSpendingThreads` aggregate reads through a new distinct tag `ProjectionUsageLedgerReader` built from the exported `makeProjectionUsageLedgerRepository` on `SqlReadClient`. Both ledger files are loom-only; the consumer switch is inside the existing `// loom:` hunk in `ws.ts` plus `loom/wsMethods.ts`. This deletes the `Layer.fresh` workaround and the duplicate read-lane instance it creates.
+- **Event replay and thread resume — not routed** (supersedes D2 item 2 of the July 6 plan). Replay never ran on the reader; the measured benefit of routing it is ~4 ms per 1,000 events (the other 34 ms is Schema decode on the main thread on either lane); the writer is busy 0.9% and in-process, so a page of 500 events cannot interleave with a write transaction; and every extra reader-routed service is another layer that must be kept collision-proof. `OrchestrationEngineReaderReplay`, `routeEngineReplayToSqlReadClient` and `OrchestrationEventStoreOnSqlReadClient` are deleted, and `OrchestrationEventStore.ts` needs no export. Consistency is unchanged: a client's shell snapshot is a WAL-consistent view at sequence S from the reader; replay from S+1 on the writer sees every commit — the same pairing the server has always actually run.
+- **Deleted:** `SqlReadClientAsSqlClient`, every `.pipe(Layer.provide(SqlReadClientAsSqlClient))`, `ProjectionUsageLedgerOnSqlReadClient` and its `Layer.fresh`, the replay wrapper and its engine re-composition. `SqliteLanes.ts` goes from 102 lines to roughly 45.
+
+<AnnotatedCode
+  filename="apps/server/src/persistence/Layers/SqliteLanes.ts (end state after the first two slices; loom-only)"
+  language="ts"
+  code={"import { makeProjectionSnapshotQuery } from \"../../orchestration/Layers/ProjectionSnapshotQuery.ts\";\nimport { makeProjectionUsageLedgerRepository } from \"./ProjectionUsageLedger.ts\";\nimport { SqlReadClient } from \"./SqliteRead.ts\";\n\n/** Build a repository constructor against the worker read lane instead of the default client. */\nconst onReadLane = <A, E, R>(make: Effect.Effect<A, E, R | SqlClient.SqlClient>) =>\n  make.pipe(Effect.provideServiceEffect(SqlClient.SqlClient, SqlReadClient));\n\n/**\n * Bounded few-row reads on per-event hot paths. They run in-process on the\n * default client (synchronously on the event loop, ~0.1-0.4 ms) instead of\n * queueing on the worker lane's single permit behind snapshot transactions.\n * Forward the method references themselves; never re-declare a signature.\n */\nexport const ProjectionSnapshotQueryLanes = Layer.effect(\n  ProjectionSnapshotQuery,\n  Effect.gen(function* () {\n    const worker = yield* onReadLane(makeProjectionSnapshotQuery);\n    const inProcess = yield* makeProjectionSnapshotQuery;\n    return ProjectionSnapshotQuery.of({\n      ...worker,\n      // POINT_READS\n      getThreadRuntimeContext: inProcess.getThreadRuntimeContext,\n      getThreadShellById: inProcess.getThreadShellById,\n    });\n  }),\n);\n\nexport class ProjectionUsageLedgerReader extends Context.Service<\n  ProjectionUsageLedgerReader,\n  ProjectionUsageLedgerRepositoryShape\n>()(\"t3/persistence/Layers/SqliteLanes/ProjectionUsageLedgerReader\") {}\n\nexport const ProjectionUsageLedgerReaderLive = Layer.effect(\n  ProjectionUsageLedgerReader,\n  onReadLane(makeProjectionUsageLedgerRepository),\n);\n\n// Mirrors upstream runtimeLayer.ts `OrchestrationLayerLive` with the lanes-aware\n// snapshot query in place of `OrchestrationProjectionSnapshotQueryLive`.\nconst OrchestrationInfrastructureLanes = Layer.mergeAll(\n  ProjectionSnapshotQueryLanes,\n  Layer.mergeAll(OrchestrationEventStoreLive, OrchestrationCommandReceiptRepositoryLive),\n  OrchestrationProjectionPipelineLive.pipe(Layer.provide(OrchestrationEventStoreLive)),\n).pipe(\n  Layer.provideMerge(ThreadBackgroundLiveness.layer),\n  Layer.provideMerge(ThreadPlanProgress.layer),\n);\n\nexport const OrchestrationLayerOnSqlReadClient = Layer.mergeAll(\n  OrchestrationInfrastructureLanes,\n  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLanes)),\n);\n"}
+  annotations={[
+    { lines: "6-7", label: "the lane as a type", note: "The substitution happens inside the constructor's Effect, so the resulting Layer<Tag, E, SqlReadClient | ...> names the read lane in its requirement channel. No shared-tag re-provide, no Layer.fresh." },
+    { lines: "15-27", label: "one layer object, two instances", note: "Only this layer provides ProjectionSnapshotQuery in the server build, so memoisation cannot hand a consumer a different instance. The two constructor runs share the liveness/plan-progress registries from context." },
+    { lines: "22-24", label: "POINT_READS", note: "The allowlist is the whole routing policy. Adding a method here is a measured decision (bounded rows, per-event rate); the default for a new upstream method is the worker." },
+    { lines: "29-37", label: "ledger read side", note: "Distinct tag, built once, on SqlReadClient. Ingestion keeps Layer.provide(ProjectionUsageLedgerRepositoryLive) for its writes — a different layer object, so no collision and no fresh." },
+    { lines: "39-53", label: "no replay routing", note: "The engine is composed exactly as upstream does it; the reader-backed event store, the replay wrapper and routeEngineReplayToSqlReadClient are gone." },
+  ]}
+/>
+
+**The test that would have caught the replay no-op.** `SqliteLanes.test.ts` today names "reader-routed snapshots and replay" and passes regardless of lane. It is replaced by a lane assertion that needs no probe hook: the test builds the writer on one file and `SqlReadClient` on a **`VACUUM INTO` copy** of it taken after N appends (so the reader sees a strictly older database), appends one more event on the writer, and asserts that `ProjectionSnapshotQuery.getSnapshotSequence()` returns the *copy's* sequence (proving the snapshot query is on the reader) while `OrchestrationEventStore.append` and `engine.dispatch` succeed (proving they are on the writer). A second case reproduces the audit's flip probe — an extra consumer of `ProjectionSnapshotQuery` built *before* the engine via `Layer.effectDiscard` — and asserts `dispatch` still succeeds. The ledger case asserts `ProjectionUsageLedgerRepository.insert` succeeds and `ProjectionUsageLedgerReader.topSpendingThreads` reads from the copy. `SqliteRead.ts` exports its `layer(config)` (loom-only file) so a test can point the reader at a chosen file.
+
+### What the read lane is for, and what leaves it
+
+Applying the rule above to the measured callers:
+
+<Table
+  density="compact"
+  columns={["Read", "Today", "Target", "Why"]}
+  rows={[
+    ["getSnapshot / getShellSnapshot / getLeanShellSnapshot / getArchivedShellSnapshot / getCommandReadModel / getThreadDetailById / getThreadActivitiesPage / searchThreads / every other ProjectionSnapshotQuery method", "worker (by build-order luck)", "worker (by type)", "Unbounded result size; the July 6 rationale still holds: 250-900 ms transactions on the writer would stall dispatchCommand ~17% of the time."],
+    ["getThreadRuntimeContext (ingestion, 1 per event)", "worker, 93% queue wait", "in-process (POINT_READS)", "1 row, 493 B; 0.09 ms in-process; measured -98% on a dedicated in-process connection. Ingestion's other per-event reads already run on the writer."],
+    ["getThreadShellById (ws fan-out, 1.57 per event)", "worker, 7 statements", "in-process (POINT_READS)", "~5.6 KB, 0.41 ms in-process; removes 10.5% of lane busy and 12% of ingestion's wait."],
+    ["OrchestrationEngine.readEvents / readStreamEvents (WS reconnect replay)", "writer (intended reader; never delivered)", "writer, and the routing code is deleted", "38 ms per 1,000 events of which 34 ms is main-thread decode either way; 0 calls in 44 min."],
+    ["readThreadEvents / getThreadReplayStats (thread resume)", "writer", "writer (unchanged)", "Never routed by D2; not in the trace's top callers."],
+    ["ProjectionUsageLedgerRepository.topSpendingThreads (Usage page)", "worker via Layer.fresh (two instances)", "worker via ProjectionUsageLedgerReader (one instance)", "Aggregate over an unbounded table; human-rate."],
+    ["VcsAutoPullPolicy.isEnabled (project row, 1.3/s)", "worker", "worker (unchanged)", "0.8% of lane busy; not on the ingestion path. Leave it; add to POINT_READS only if it shows up."],
+  ]}
+/>
+
+**Which in-process connection for point reads.** The writer's own `SqlClient` (the in-process `@t3tools/shared/nodeSqliteClient`), not a third dedicated read connection. Its plain-statement acquirer releases the permit before the synchronous execution, so a point read waits only while a write transaction is open (0.9% duty; p95 20 ms, max 274 ms) and can never interleave with one; expected added wait is well under a millisecond, versus today's p99 239 ms / max 8.8 s. This is zero new machinery and is exactly upstream's model. A dedicated `query_only` in-process connection (about 20 loom-only lines, one more file handle and prepare cache) is the recorded escape hatch, with the trigger in [Follow-ups](#follow-ups).
+
+**Telemetry consequence.** `sqlReadWaitMs` on the `provider runtime ingestion interval` line is charged by the worker client's permit wrapper only; the in-process shared client (an upstream package file) has no hook and must not get one. After the point reads move, ingestion's read time lands in `remainderMs` by construction, and `sqlReadWaitMs` will read near zero. Acceptance therefore uses `lagP95Ms`, `processingP95Ms` and `remainderMs` — see [Verification](#verification).
+
+### Head-of-line blocking: the levers, ranked
+
+<Table
+  density="compact"
+  columns={["Lever", "Measured or estimated effect", "Moving parts", "Decision"]}
+  rows={[
+    ["1. Ingestion's read (and the ws fan-out read) off the shared permit, in-process", "-93 to -98% of ingestion read time (measured); ingestion lag max still ~1 s from snapshot decode on the main thread", "POINT_READS: ~6 lines in SqliteLanes.ts", "In plan (second slice)."],
+    ["2. Demand side: the four full-shell sweeps read the lean snapshot instead", "Per call: hold 574-635 ms -> ~243 ms, main-thread 408 -> ~331 ms; removes the 221 ms listActiveLatestAssistantMessageRows hold plus goals/goal-tasks/consults/peer-messages/prompt-debug reads. ~36% of lane busy -> roughly 15% (estimate from the per-call figures)", "Lean snapshot gains the PR-links statement (~8 hotspot lines); 4 one-line marked call sites; 3 test fakes", "In plan (third slice)."],
+    ["3. Demand side: drop the redundant whole-snapshot Schema decode in getLeanShellSnapshot / getShellSnapshot", "Unmeasured; bounded above by the ~330 ms main-thread cost per lean snapshot. The rows are already decoded by SqlSchema.findAll and the assembled object already carries `satisfies OrchestrationThreadShell`; the final decode only re-validates 17-25 MB", "2 hotspot hunks of ~3 lines; the slice measures before/after and keeps the change only if it saves >= 50 ms per call", "In plan (third slice, conditional on the measurement)."],
+    ["4. Demand side: sequence-validated single-flight memo of the lean snapshot for the sweeps", "58% of snapshot reads start within 1 s of the previous one ending (p25 inter-arrival 17 ms: sweeps queue behind each other on one trigger). But the projection sequence advances ~11/s, so a correct memo (serve only when snapshotSequence == current head, and re-apply the in-memory liveness/plan-progress fields) hits an unmeasured fraction of that", "A wrapper with a head check on the in-process instance, single-flight join with per-joiner head validation, registry re-decoration", "Follow-up. Correct design is non-trivial and the hit rate is unproven; decide on post-slice telemetry."],
+    ["5. Demand side: sweeps read the engine's committed in-memory read model, no SQL", "Would remove ~74% of today's lane busy and ~9% of main-thread CPU", "The in-memory OrchestrationThread lacks the denormalised shell columns (latestUserMessageAt, pending counts, hasActionableProposedPlan, loom attention fields); needs a projector/read-model change in upstream files plus every sweep", "Follow-up: the true end state for control-plane reads, sized medium-large."],
+    ["6. Move row decode outside the held transaction", "Would shorten holds by up to ~53% (lean) / 26% (full) of hold time", "Rewrite of 5 snapshot methods in the hotspot to read raw inside the transaction and decode after", "Not chosen: after levers 1-3 the lane is lightly loaded and nothing latency-critical waits on it."],
+    ["7. FIFO or priority discipline on the lane", "Fairness only; no reduction in load. Starvation of the ingestion read disappears with lever 1", "A custom semaphore", "Not chosen; revisit only if WS subscribeShell latency shows starvation behind sweeps."],
+    ["8. Worker pool", "-88% for ingestion at 4 workers, but scaling plateaus at ~1.5x because the main thread saturates", "Pool lifecycle, transaction pinning, per-worker prepare caches", "Rejected: lever 1 beats it at 1/50th of the machinery."],
+  ]}
+/>
+
+### What the sweeps actually need
+
+Ten call sites in background sweeps read a shell snapshot with no arguments every few seconds. The seven already on `getLeanShellSnapshot` (`WorkstreamDispatcher.runPass`, `WorktreeReaper`, `WorkstreamFanInReactor`, `HandoffDrafterReactor`, `WorkstreamLivenessSweep`, `ExhaustionResumeSweep`, `WorkstreamWorktreeStatus`) document in code why they need the **whole active set, not a subset**: the dispatcher reads the graph (dependencies, gate siblings, parents, fork sources) and a graph read over a filtered map misreads absence as satisfaction; the fan-in reactor's `hasDependentResident` and `isMemberOfUnresolvedGate` scan all threads and interpret absence as "no such thread". Both are documented silent-wedge classes from past incidents. So the targeted-query replacement for those callers is not "fewer rows" — it is either a cheaper full-set read (levers 3 and 4) or an in-memory source (lever 5). Their cost is row width, and the lean snapshot already trimmed that.
+
+The three upstream sweeps still on the full `getShellSnapshot` — `ThreadPullRequestReactor.synchronize`, `ThreadSettlementReactor.sweep` and `settleFinishedRoots`, `PullRequestSyncReactor.sweep` — read only `projects`, `snapshotSequence`, and per thread `branch`, `pullRequests`, `linkedPullRequest`, `branchPullRequest` plus the lean fields (verified by grep of each file). None reads `brief`, `lastActivityPreview`, `consults`, `peerMessages` or `goals`. The lean snapshot's *type* already keeps `pullRequests`/`linkedPullRequest`; its *query* just does not fetch the PR rows. Adding `listActiveThreadPullRequestRows` to the lean transaction (a small, indexed table) and passing `pullRequests` and `repositoryIdentity` into `mapLeanThreadShellRow` (the shell path already does both) makes the lean snapshot sufficient for every sweep. A per-sweep targeted query (e.g. only threads with a PR link for `PullRequestSyncReactor`) would be about 30 lines each in upstream files; it is recorded as a follow-up because after this change these sweeps cost the same as the dispatcher's, and the next real win is lever 5.
+
+**Clustering (new number, from the measurer's trace before its worktree was removed):** of 359 snapshot transactions in the trace, 39% began within 50 ms of the previous one ending and 58% within 1 s. That is the sweeps firing on the same engine events and serialising on the permit. It is why lever 4 is attractive and why its correctness condition matters: a sweep pass clears its pending trigger flag at pass start, so a pass that is served a snapshot older than its trigger is the wedge class the coalescing workers were designed to avoid. Any memo must be validated against the projection head, never by time.
+
+### Keyed ingestion worker
+
+**Not warranted.** `plans/ingestion-backpressure/plan.md` §3.2 staged `makeKeyedDrainableWorker` pending the SQL-wait / dispatch-wait split, and the split says the serial fibre was waiting, not computing. After lever 1 the per-event read is ~0.1 ms in-process; at the measured 11 events/s (and at a plausible 50/s with 50 agents) one serial fibre spends its time in the engine's serial dispatch, which per-thread concurrency cannot overlap. The ordering surface it would open across ~3,000 lines of stateful ingestion code buys nothing. The prior "no" stands; re-open only if `remainderMs` per event (CPU) becomes the dominant term of `processingP95Ms` on the interval line.
+
+### Write lane on a worker
+
+**No — the writer stays in-process on the main thread**, and this plan records that as a deliberate decision rather than the accident of `94a5029ff1`. The July 3 offload plan's target was 10–40 s event-loop stalls from long *queries*; those are the snapshot-sized reads, which the reader lane carries. The writer's measured profile is p50 2 ms / p95 20 ms / max 274 ms per transaction at 0.9% duty. Putting it back on a worker would add a ~0.2 ms IPC round trip to every one of the 10–20 statements in a command transaction — roughly doubling p50 command latency — to move under 1% of main-thread time off the loop, and it would put the point reads this plan just moved in-process back over IPC. The in-process synchronous client also has no async-interleave hazard to guard. Revisit trigger: `performance interval` shows `eventLoopDelayP99Ms` attributable to writer `sql.transaction` spans over 100 ms at a meaningful rate (bulk deletes in `storageCleanup`, migrations, or a future write-heavy reactor).
+
+### Prior decisions honoured or superseded
+
+- `docs/plans/db-lane-reader-writer-split.md` (July 6): D1 (synchronous = NORMAL), D3 (no cross-process CLI writers) and D2 item 1 (snapshot query on the reader) are honoured and are what makes point-reads-on-the-writer safe. **D2 item 2 (replay on the reader) and item 3's `Layer.fresh` realisation are superseded** by this plan; the first slice adds a short superseding note to that section rather than a second account. The author could not be consulted: `consult_manager` with `author_doc` on that file failed again with the Anthropic OAuth `invalid_grant` error (retried once, as instructed), so the intent above is taken from the plan text.
+- `plans/sqlite-worker-offload/plan.mdx` (July 3): its liveness goal is met by the reader lane for the reads that matter; its "one worker hosts the connection" mechanism no longer applies to the writer, per the section above.
+- `plans/ingestion-backpressure/` (Sept 25): the §3.5 telemetry is this plan's acceptance instrument; §3.2's keyed worker is closed as above.
+
+## Slices
+
+Each slice is independently reviewable and shippable, in dependency order. Every hunk in an upstream-shared file carries a `// loom:` marker (`docs/upstream-sync/pull7-tools/unmarkedsweep.sh` is a ship gate). `vp check` and `vp run typecheck` gate each slice.
+
+### Slice 1 — lane as a type (correctness)
+
+<FileTree
+  title="Slice 1 changes"
+  entries={[
+    { path: "apps/server/src/persistence/Layers/SqliteLanes.ts", change: "modified", note: "rewrite per the sketch, without POINT_READS yet: ProjectionSnapshotQueryLanes on SqlReadClient, ProjectionUsageLedgerReader(+Live), upstream-shaped engine composition; delete SqlReadClientAsSqlClient, Layer.fresh, replay wrapper" },
+    { path: "apps/server/src/persistence/Layers/SqliteRead.ts", change: "modified", note: "export layer(config) so tests can point the reader at a chosen file" },
+    { path: "apps/server/src/persistence/Layers/ProjectionUsageLedger.ts", change: "modified", note: "export makeProjectionUsageLedgerRepository (loom-only file)" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "// loom: export makeProjectionSnapshotQuery — the only hotspot hunk in this slice" },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "LoomPersistenceLive = ProjectionUsageLedgerReaderLive.pipe(Layer.provideMerge(SqliteReadLayerLive))" },
+    { path: "apps/server/src/ws.ts", change: "modified", note: "inside the existing loom hunk: yield ProjectionUsageLedgerReader instead of ProjectionUsageLedgerRepository" },
+    { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "type of usageLedger unchanged (same shape); import path only if needed" },
+    { path: "apps/server/src/persistence/Layers/SqliteLanes.test.ts", change: "modified", note: "replace the three tests with the stale-copy lane assertions and the flip-probe case described above" },
+    { path: "docs/plans/db-lane-reader-writer-split.md", change: "modified", note: "one paragraph under D2: items 2 and the fresh-based ledger routing superseded by plans/sqlite-read-lane/plan.mdx" },
+  ]}
+/>
+
+Acceptance: the new lane tests pass and fail when the substitution is reverted to a shared-tag re-provide (mutation check); `dispatchCommand` works on a booted dev server; `unmarkedsweep.sh` clean; `SqliteLanes.ts` contains no `Layer.fresh` and no `Layer.effect(SqlClient.SqlClient, ...)`.
+
+### Slice 2 — point reads in-process
+
+<FileTree
+  title="Slice 2 changes"
+  entries={[
+    { path: "apps/server/src/persistence/Layers/SqliteLanes.ts", change: "modified", note: "second constructor run on the default client; POINT_READS = getThreadRuntimeContext, getThreadShellById forwarded by reference; the rule as a doc comment" },
+    { path: "apps/server/src/persistence/Layers/SqliteLanes.test.ts", change: "modified", note: "one case: with the reader on a stale copy, getThreadRuntimeContext returns the writer's fresh row and getSnapshotSequence returns the copy's sequence" },
+    { path: "apps/server/src/diagnostics/ProviderRuntimeIngestionTelemetry.ts", change: "modified", note: "doc comment on sqlReadWaitMs: worker-lane wait only; ingestion's point read now lands in remainderMs" },
+  ]}
+/>
+
+Acceptance: on the load recipe, ingestion `sqlReadWaitMs / processingTotalMs` falls from ~89% to under 5%, `lagP95Ms` and `processingP95Ms` meet the targets in [Verification](#verification); `eventLoopDelayP99Ms` is not worse than the baseline run.
+
+### Slice 3 — sweeps read the lean snapshot; drop the redundant decode
+
+<FileTree
+  title="Slice 3 changes"
+  entries={[
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "getLeanShellSnapshot: add listActiveThreadPullRequestRows to the transaction, pass pullRequests + repositoryIdentity to mapLeanThreadShellRow (~8 lines, // loom:); getLeanShellSnapshot + getShellSnapshot: replace the final decodeXSnapshot with a typed return if the measurement justifies it (~3 lines each, // loom:)" },
+    { path: "apps/server/src/orchestration/ThreadPullRequestReactor.ts", change: "modified", note: "// loom: getShellSnapshot() -> getLeanShellSnapshot()" },
+    { path: "apps/server/src/orchestration/ThreadSettlementReactor.ts", change: "modified", note: "// loom: both call sites (sweep, settleFinishedRoots)" },
+    { path: "apps/server/src/orchestration/PullRequestSyncReactor.ts", change: "modified", note: "// loom: sweep call site" },
+    { path: "apps/server/src/orchestration/ThreadPullRequestReactor.test.ts", change: "modified", note: "fake getLeanShellSnapshot instead of getShellSnapshot" },
+    { path: "apps/server/src/orchestration/ThreadSettlementReactor.test.ts", change: "modified", note: "same" },
+    { path: "apps/server/src/orchestration/PullRequestSyncReactor.test.ts", change: "modified", note: "same" },
+    { path: "packages/contracts/src/orchestration.ts", change: "modified", note: "doc comment on OrchestrationLeanShellSnapshot: now carries pullRequests/linkedPullRequest and serves every sweep (no shape change)" },
+  ]}
+/>
+
+Acceptance: the three reactor test files pass with the lean fake; a lean snapshot on the production-sized copy carries the same `pullRequests`/`linkedPullRequest` per thread as the full shell (one-off assertion in the slice's verification, not a committed test); per-call lean-snapshot wall and main-thread time before/after recorded in the PR; the decode change is kept only if it saves at least 50 ms per call on the copy.
+
+## Verification
+
+**Pre-merge, on a production-sized copy.** Follow the AGENTS.md test-data recipe: `VACUUM INTO` a copy of `~/.t3/cockpit/userdata/state.sqlite` into the worktree's `.t3/userdata/` (4.8 GB; never open the live file read-write, never run a server against it). Run the dev server against the copy (`vp run dev`, or the dev-verify recipe in `docs/dev-site-testing.md` for a paired browser). Load, matching PR #274's post-deploy recipe: **20 threads on the cheapest pi model, each instructed to read a ~40 KB file 8 times with the `read` tool**, started together from the web UI in one project. Run it once on `main` for the baseline and once per slice; read the `provider runtime ingestion interval` and `performance interval` lines from the server log for the burst window. The slice-3 per-call snapshot timing comes from the `sql.transaction` spans (`db.name` ending in `:read`) in `server.trace.ndjson` plus a temporary timing log around the final decode, removed before commit.
+
+Acceptance on the `provider runtime ingestion interval` line during the burst (baseline from PR #274's production burst: lag p50 ~30 s / p95 ~60 s, `sqlReadWaitMs` 89% of `processingTotalMs`):
+
+<Checklist
+  items={[
+    { id: "wait", label: "sqlReadWaitMs / processingTotalMs under 5% (from 89%)", note: "after slice 2 this is near zero by construction; the ratio is still reported" },
+    { id: "lag", label: "lagP95Ms under 5,000 during the 20-thread burst and under 1,000 in steady state afterwards", note: "the intake queue is bounded at 256; at ~5 ms per event a full queue drains in ~1.3 s" },
+    { id: "proc", label: "processingP95Ms under 50 ms; remainderMs per event in the low milliseconds", note: "remainderMs now includes the ~0.1 ms in-process read" },
+    { id: "loop", label: "performance interval: eventLoopDelayP99Ms and eventLoopDelayMaxMs not worse than the main baseline run; after slice 3, lower", note: "snapshot decode on the main thread is the residual; slice 3 is what moves it" },
+    { id: "lane", label: "read-lane sql.transaction holds: no full-shell (7-statement) transactions from the three PR/settlement sweeps remain in the trace", note: "slice 3" },
+    { id: "gates", label: "vp check, vp run typecheck, unmarkedsweep.sh, and the SqliteLanes lane tests green at every slice boundary" },
+  ]}
+/>
+
+**Post-deploy (the human's separate act).** The same two journal lines over at least two hours of organic load: `lagP95Ms` under 5 s, `sqlReadWaitMs` share under 5%, no `attempt to write a readonly database` warnings, `eventLoopDelayP99Ms` at or below the pre-deploy figure. Rollback path is `deployctl rollback` as for PR #274.
+
+## Follow-ups
+
+Recorded here so the scope line is explicit; none blocks the slices above.
+
+- **Sequence-validated single-flight memo of the lean snapshot** (lever 4): serve a cached lean snapshot only when `getSnapshotSequence()` on the in-process instance equals the cached `snapshotSequence`; joiners of an in-flight computation record the head at call time and accept the result only if equal; re-apply `ThreadBackgroundLiveness`/`ThreadPlanProgress` fields on serve. Decide after slice 3 telemetry; the 58% clustering figure is the upper bound on hits.
+- **Sweeps on the engine's committed in-memory read model** (lever 5): requires the denormalised shell columns in the in-memory `OrchestrationThread` and an accessor on the engine (module-level registration, as `registerEngineEventPubSubSize` does, avoids touching 15 engine fakes). Medium-large; the true end state for control-plane reads.
+- **Per-sweep targeted queries** for `PullRequestSyncReactor` (threads with a PR link only) and `ThreadPullRequestReactor` (threads with a branch): ~30 lines each in upstream files.
+- **`getThreadShellById` fan-out dedup** in `ws.ts` (same thread and sequence fetched once per subscriber): at 0.4 ms in-process per call this is no longer worth an upstream hunk; revisit only if the subscriber count grows past dozens.
+- **Dedicated in-process `query_only` connection for point reads**: trigger is ingestion `remainderMs` p95 tracking writer transaction duration under load (a sign point reads are waiting on write transactions).
+- **Writer back on a worker**: trigger stated in [Write lane on a worker](#write-lane-on-a-worker).
+- **Read-worker `cache_size`** (2 MB default vs the writer's 128 MB): measured effect small (lean 387 → 363 ms) because the OS page cache is warm; a one-line pragma in `SqliteWorker.ts` if ever wanted.
+- **FIFO/priority on the lane**: only if WS `subscribeShell` snapshot latency shows starvation behind sweeps.
+- **Row decode outside the held transaction** (lever 6): only if the lane's hold time matters again.
+
+## Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "Mitigation"]}
+  rows={[
+    ["A future loom layer re-provides the shared SqlClient tag or Layer.fresh-wraps a repository and re-creates the memo trap", "The rule is a doc comment on POINT_READS and in this plan; the lane test's flip-probe case fails if the snapshot query or the engine's store moves lanes."],
+    ["Point reads in-process run synchronously on the event loop; a wrongly listed method could stall it", "POINT_READS is an explicit two-entry allowlist with the bounded-rows condition; the default for any new method is the worker."],
+    ["Point reads wait on open write transactions on the writer permit", "Bounded by transaction duration (max 274 ms measured, 0.9% duty); the dedicated-connection escape hatch and its trigger are recorded."],
+    ["Lean snapshot now fetches PR rows for every sweep, adding a statement to each lean transaction", "The PR-links table is small and indexed by thread; the three sweeps that needed it were paying 335 ms more per call for the full shell."],
+    ["Dropping the final whole-snapshot decode removes runtime validation of assembled snapshots", "Rows are already Schema-decoded by SqlSchema.findAll and the assembled object is type-checked with satisfies; the change is conditional on a measured saving and confined to two marked hunks."],
+    ["The three PR/settlement sweeps are upstream files; switching them to a loom-only method is fork divergence", "One marked line each; the lost-feature audit sees the markers; the lean method is assignable from the full shell so an upstream re-drop degrades to today's behaviour, not a break."],
+    ["Replay stays on the writer; a very large reconnect gap (tens of thousands of events) pages through the in-process connection", "Each 500-event page is a few ms of synchronous SQLite; the decode that dominates runs on the main thread on either lane. Same behaviour the server has always had."],
+    ["Verification depends on a 4.8 GB copy and 20 live pi threads on a dev box", "Baseline-first on main makes the comparison relative; the production post-deploy check is the absolute one."],
+  ]}
+/>
+
+<QuestionForm
+  questions={[
+    {
+      id: "point-read-connection",
+      title: "Where should the two hot-path point reads (ingestion's per-event thread lookup and the WS per-subscriber shell lookup) run in-process?",
+      subtitle: "Both options take them off the worker lane's single permit, which is where 93% of their time goes today. The difference is whether they can ever wait on an open write transaction.",
+      mode: "single",
+      options: [
+        { id: "writer", label: "On the writer's existing in-process connection (the default SqlClient), like every other repository", recommended: true, detail: "Zero new machinery; waits only while a write transaction is open (0.9% duty, p95 20 ms, max 274 ms measured)." },
+        { id: "dedicated", label: "On a third, dedicated in-process read-only connection", detail: "About 20 loom-only lines, one more file handle and prepare cache; never waits on writes (max 2 ms measured)." },
+      ],
+      refs: [{ label: "What the read lane is for, and what leaves it", anchor: "what-the-read-lane-is-for-and-what-leaves-it" }],
+    },
+    {
+      id: "memo-now-or-later",
+      title: "Should the cached, sequence-validated lean snapshot for the background sweeps be built in this plan, or decided after the three slices ship and are measured?",
+      subtitle: "The sweeps' snapshot reads cluster (58% start within 1 s of the previous one), but the projection sequence advances ~11 times a second, so how often a correctly validated cache would hit is unknown, and the correctness rule (never serve a pass a snapshot older than its trigger) makes the wrapper non-trivial.",
+      mode: "single",
+      options: [
+        { id: "later", label: "Decide after the slices ship, from the post-change telemetry", recommended: true, detail: "Keeps this plan to measured levers; the follow-up is written down with its design and its correctness condition." },
+        { id: "now", label: "Add it as a fourth slice now", detail: "Worth it only if the residual main-thread snapshot cost after slice 3 is still the dominant lag term; that is the number we do not have yet." },
+      ],
+      refs: [{ label: "What the sweeps actually need", anchor: "what-the-sweeps-actually-need" }],
+    },
+    {
+      id: "load-recipe",
+      title: "Is the pre-merge load recipe acceptable: a 4.8 GB VACUUM INTO copy of production in the worktree, a dev server against it, and 20 cheapest-model pi threads each reading a 40 KB file 8 times, baseline on main first?",
+      subtitle: "This mirrors the post-deploy check PR #274 ran on production, but on the dev box; the measurer's replay harness is no longer on disk.",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, run it per slice with a baseline on main", recommended: true },
+        { id: "unit-only", label: "Skip the load run pre-merge; rely on the lane tests and the post-deploy journal", detail: "Faster, but the slice-3 decode decision then has no measurement to rest on." },
+      ],
+      refs: [{ label: "Verification", anchor: "verification" }],
+    },
+  ]}
+/>
