@@ -116,9 +116,9 @@ export function resolveInlineCodeFileLinkMeta(
 
   // loom: upstream's candidate test additionally demands a path separator or a
   // `:line` suffix, so a bare `package.json` / `AGENTS.md` never reaches it. The
-  // gate above already required a known file extension, and loom renders a chip
-  // only once the server confirms the file exists, so a bare span that clears
-  // the gate resolves directly.
+  // gate above already required a known file extension, and a bare span is
+  // unanchored, so ChatMarkdown renders it as plain code until a file is
+  // confirmed (`~/loom/unanchoredFileReferences`); it resolves directly here.
   return resolveMarkdownFileLinkMeta(inlineCodeFilePathCandidate(text) ?? text, cwd, baseDir);
 }
 
@@ -274,7 +274,7 @@ function hasPathSeparator(text: string): boolean {
  * than a path (`example.com/index.html`, `example.com:8080`), so those shapes
  * run {@link looksLikeHostname}. A separator-less bare filename does not: its
  * extension merely collides with a country TLD (`AGENTS.md`, `notes.io`), and
- * loom verifies a chip's target exists before rendering it.
+ * such a span only becomes a chip once the file is confirmed to exist.
  */
 export function isLinkablePathText(rawText: string): boolean {
   const text = rawText.trim();

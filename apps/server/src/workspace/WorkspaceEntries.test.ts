@@ -832,4 +832,46 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
       }),
     );
   });
+
+  // loom: chat file-chip index lookup for unanchored references.
+  describe("locateFiles", () => {
+    it.effect("binds a reference only to the one file whose path ends with it", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-locate-" });
+        yield* writeTextFile(cwd, "jobs/lease/gold_set/eval/prices.json");
+        yield* writeTextFile(cwd, "jobs/lease/src/models/chain_models.py");
+        yield* writeTextFile(cwd, "AGENTS.md");
+        yield* writeTextFile(cwd, "apps/web/settings.ts");
+        yield* writeTextFile(cwd, "apps/server/settings.ts");
+        yield* writeTextFile(cwd, "node_modules/pkg/prices.json");
+
+        const references = [
+          "prices.json",
+          "src/models/chain_models.py",
+          "AGENTS.md",
+          "settings.ts",
+          "server/settings.ts",
+          "missing.md",
+          "models/*.py",
+          "../AGENTS.md",
+        ];
+        const { entries } = yield* workspaceEntries.locateFiles({ cwd, references });
+
+        expect(Object.fromEntries(entries.map((entry) => [entry.reference, entry.path]))).toEqual({
+          "prices.json": path.join(cwd, "jobs/lease/gold_set/eval/prices.json"),
+          "src/models/chain_models.py": path.join(cwd, "jobs/lease/src/models/chain_models.py"),
+          "AGENTS.md": path.join(cwd, "AGENTS.md"),
+          // Several matches have no right answer; a suffix can still single one out.
+          "settings.ts": null,
+          "server/settings.ts": path.join(cwd, "apps/server/settings.ts"),
+          "missing.md": null,
+          // Never widened into a glob or walked out of the workspace.
+          "models/*.py": null,
+          "../AGENTS.md": null,
+        });
+      }),
+    );
+  });
 });

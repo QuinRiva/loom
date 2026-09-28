@@ -368,6 +368,50 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(2),
   });
 
+  // File-chip fixture: inline-code references of every shape against files that
+  // exist in, and are missing from, the orchestrator's worktree. Anchored ones
+  // (absolute) chip at once and say "missing?" when gone; unanchored ones (bare,
+  // unprefixed relative) stay plain code until a file is confirmed — by the
+  // worktree root, a directory the message names, or a unique index match.
+  for (const file of [
+    "data/eval/prices.json",
+    "docs/notes.md",
+    "apps/a/config.ts",
+    "apps/b/config.ts",
+    "reports/_findings/verdict.md",
+    "archive/verdict.md",
+  ]) {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(workspaceRoot, file)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(workspaceRoot, file), `${file}\n`, "utf8");
+  }
+  yield* dispatch({
+    type: "thread.message.assistant.delta",
+    commandId: nextCommandId("orchestrator-file-refs"),
+    threadId: ORCHESTRATOR_ID,
+    messageId: MessageId.make("seed-msg-orchestrator-file-refs"),
+    delta: [
+      "File-chip fixture — each line says what should render.",
+      "",
+      "- Unique nested basename, chip: `prices.json`",
+      "- Root basename, chip: `README.md`",
+      "- Unique suffix with a line, chip: `eval/prices.json:3`",
+      "- Ambiguous basename, plain: `config.ts`",
+      `- Disambiguated by the named \`${workspaceRoot}/reports/_findings/\` folder, chip: \`verdict.md\``,
+      "- Missing basename, plain: `ghost.json`",
+      "- Missing relative path, plain: `src/nowhere.ts:12`",
+      `- Absolute, chip: \`${workspaceRoot}/docs/notes.md\``,
+      `- Absolute and gone, missing chip: \`${workspaceRoot}/docs/gone.md\``,
+    ].join("\n"),
+    createdAt: iso(3),
+  });
+  yield* dispatch({
+    type: "thread.message.assistant.complete",
+    commandId: nextCommandId("orchestrator-file-refs-complete"),
+    threadId: ORCHESTRATOR_ID,
+    messageId: MessageId.make("seed-msg-orchestrator-file-refs"),
+    createdAt: iso(3),
+  });
+
   // ---- coder definitions -------------------------------------------------
   const coderSpecs = [
     {

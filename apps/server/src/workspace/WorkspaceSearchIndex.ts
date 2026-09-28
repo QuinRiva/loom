@@ -124,6 +124,13 @@ export class WorkspaceSearchIndex extends Context.Service<
       void,
       WorkspaceSearchIndexRefreshFailed | WorkspaceSearchIndexScanTimedOut
     >;
+    // loom: chat file-chip lookup; see `locateFiles` below.
+    readonly locateFiles: (
+      references: ReadonlyArray<string>,
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly reference: string; readonly relativePath: string | null }>,
+      WorkspaceSearchIndexSearchFailed
+    >;
   }
 >()("t3/workspace/WorkspaceSearchIndex") {}
 
@@ -379,7 +386,7 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
   const runSearch = Effect.fn("WorkspaceSearchIndex.runSearch")(function* <A>(
     query: string,
     pageSize: number,
-    operation: "directorySearch" | "fileSearch" | "grep" | "mixedSearch",
+    operation: "directorySearch" | "fileSearch" | "glob" | "grep" | "mixedSearch", // loom: glob
     execute: () => Result<A>,
   ): Effect.fn.Return<A, WorkspaceSearchIndexSearchFailed> {
     const result = yield* Effect.try({
@@ -524,8 +531,33 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     };
   });
 
-  return WorkspaceSearchIndex.of({ list, refresh, search, searchContents });
+  // loom: the one indexed file whose path ends with `reference` on a segment
+  // boundary, or null when none or several do. `**/` also matches at the root,
+  // and a page of 2 is enough because `totalMatched` counts the whole index.
+  // References that are not plain relative paths never reach the matcher, so a
+  // client cannot smuggle a wider glob in.
+  const locateFiles: WorkspaceSearchIndex["Service"]["locateFiles"] = (references) =>
+    Effect.forEach(references, (reference) =>
+      LOCATE_UNSAFE_REFERENCE.test(reference)
+        ? Effect.succeed({ reference, relativePath: null })
+        : runSearch(reference, 2, "glob", () =>
+            finder.glob(`**/${reference}`, { pageSize: 2 }),
+          ).pipe(
+            Effect.map((result) => ({
+              reference,
+              relativePath:
+                result.totalMatched === 1 && result.items[0]
+                  ? toPosixPath(result.items[0].relativePath)
+                  : null,
+            })),
+          ),
+    );
+
+  return WorkspaceSearchIndex.of({ list, locateFiles, refresh, search, searchContents });
 });
+
+// loom: glob syntax, backslashes, absolute paths and `.`/`..` segments.
+const LOCATE_UNSAFE_REFERENCE = /[*?[\]{}()!\\]|^\/|(?:^|\/)\.{1,2}(?:\/|$)/;
 
 export const WORKSPACE_SEARCH_INDEX_VARIANTS = ["paths", "content"] as const;
 export type WorkspaceSearchIndexVariant = (typeof WORKSPACE_SEARCH_INDEX_VARIANTS)[number];

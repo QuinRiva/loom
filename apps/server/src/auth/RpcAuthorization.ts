@@ -111,6 +111,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.projectsReadAbsoluteFile]: AuthOrchestrationReadScope, // loom
   [WS_METHODS.projectsListAbsoluteDirectory]: AuthOrchestrationReadScope, // loom
   [WS_METHODS.projectsStatPaths]: AuthOrchestrationReadScope, // loom
+  [WS_METHODS.projectsLocateFiles]: AuthOrchestrationReadScope, // loom
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsWriteFile]: AuthOrchestrationOperateScope,
