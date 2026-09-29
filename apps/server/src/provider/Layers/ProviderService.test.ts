@@ -3568,6 +3568,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         providerInstanceId: codexInstanceId,
         threadId: asThreadId("thread-1"),
         cwd: fixtureCwd("project-send-turn"),
+        cacheRetention: "long", // loom: 1h cache A/B arm survives recovery
         runtimeMode: "full-access",
       });
 
@@ -3590,9 +3591,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
           cwd?: string;
           resumeCursor?: unknown;
           threadId?: string;
+          cacheRetention?: string; // loom:
         };
         assert.equal(startPayload.provider, "codex");
         assert.equal(startPayload.cwd, fixtureCwd("project-send-turn"));
+        assert.equal(startPayload.cacheRetention, "long"); // loom: 1h cache A/B
         assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
         assert.equal(startPayload.threadId, initial.threadId);
       }
