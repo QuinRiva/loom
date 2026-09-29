@@ -420,9 +420,11 @@ function toRuntimePayloadFromSession(
     readonly continueAfterServerUpdate?: TurnId;
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
+    readonly cacheRetention?: string; // loom: 1h cache A/B
   },
 ): Record<string, unknown> {
   return {
+    ...(extra?.cacheRetention !== undefined ? { cacheRetention: extra.cacheRetention } : {}), // loom:
     cwd: session.cwd ?? null,
     model: session.model ?? null,
     activeTurnId: session.activeTurnId ?? null,
@@ -447,6 +449,12 @@ function readPersistedModelSelection(
   const raw = "modelSelection" in runtimePayload ? runtimePayload.modelSelection : undefined;
   return isModelSelection(raw) ? raw : undefined;
 }
+
+// loom: 1h cache A/B — a recovery relaunch keeps the retention its session started with.
+const readPersistedCacheRetention = (runtimePayload: unknown): "long" | undefined =>
+  (runtimePayload as { readonly cacheRetention?: unknown } | null)?.cacheRetention === "long"
+    ? "long"
+    : undefined;
 
 function readPersistedCwd(
   runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
@@ -1604,6 +1612,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             providerInstanceId: bindingInstanceId,
             ...(persistedCwd ? { cwd: persistedCwd } : {}),
             ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
+            ...(readPersistedCacheRetention(input.binding.runtimePayload) // loom: 1h cache A/B
+              ? { cacheRetention: "long" as const }
+              : {}),
             ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
             runtimeMode: input.binding.runtimeMode ?? "full-access",
           })
@@ -1877,6 +1888,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         });
         yield* upsertSessionBinding(sessionWithInstance, threadId, {
           modelSelection: input.modelSelection,
+          ...(input.cacheRetention !== undefined ? { cacheRetention: input.cacheRetention } : {}), // loom:
         });
         yield* analytics.record("provider.session.started", {
           provider: sessionWithInstance.provider,

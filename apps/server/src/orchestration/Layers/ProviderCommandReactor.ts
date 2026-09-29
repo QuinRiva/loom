@@ -76,6 +76,7 @@ import { shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../../loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
 import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
+import { cacheRetentionForThread } from "../../provider/cacheRetention.loom.ts"; // loom: 1h cache A/B
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -1031,6 +1032,13 @@ const make = Effect.gen(function* () {
           ...(thread.forkFromThreadId && thread.role === RETRO_REVIEWER_ROLE
             ? { forkIdentity: "compose" as const }
             : {}),
+          // loom: 1h prompt-cache A/B — roots per the `rootCacheRetention`
+          // setting (read at every launch), every child short.
+          cacheRetention: cacheRetentionForThread(
+            threadId,
+            thread.parentThreadId === null,
+            (yield* serverSettingsService.getSettings).rootCacheRetention,
+          ),
           runtimeMode: desiredRuntimeMode,
         });
       }).pipe(Effect.tap(() => refreshWorkspaceSnapshot));

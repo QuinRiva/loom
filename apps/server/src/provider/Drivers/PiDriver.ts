@@ -105,6 +105,7 @@ import {
   resolvePiAskUserQuestion,
 } from "./Pi/askUserBroker.ts";
 import { ensurePiSearchGuardExtension } from "./Pi/searchGuardExtension.ts";
+import { recordCacheRetentionLaunch } from "../cacheRetention.loom.ts";
 import {
   piSessionIdForThread,
   planPiSessionRewind,
@@ -2366,6 +2367,14 @@ export function makePiAdapter(input: {
           // the server's project workspace root, which always exists. Scoped to
           // resumes: a first launch provisions its own live worktree.
           const resumeCwd = isResume && !directoryExists(piCwd) ? input.serverConfig.cwd : piCwd;
+          // 1h prompt-cache A/B: the reactor picks the arm and ProviderService
+          // recovery replays it from the binding; no arm means short. Recorded per launch.
+          const cacheRetention = startInput.cacheRetention ?? "short";
+          recordCacheRetentionLaunch(
+            input.serverConfig.stateDir,
+            startInput.threadId,
+            cacheRetention,
+          );
           return (input.createProcess ?? createPiRpcProcess)({
             binaryPath: input.settings.binaryPath,
             platform,
@@ -2411,6 +2420,10 @@ export function makePiAdapter(input: {
                 // which would otherwise leak in as a stale profile for every
                 // unrestricted or free-text thread it launches.
                 T3_ACTIVE_TOOLS: tools && tools.length > 0 ? [...tools].join(",") : "",
+                // Set unconditionally for the same reason: a server started from a
+                // shell with `PI_CACHE_RETENTION=long` exported must not leak it
+                // into children.
+                PI_CACHE_RETENTION: cacheRetention,
                 ...(mcpSession
                   ? {
                       T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
@@ -2890,7 +2903,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       const textGeneration: TextGenerationShape = makePiTextGeneration({
         binaryPath: effectiveConfig.binaryPath,
         platform,
-        env: process.env,
+        // One-shot completions: never inherit a shell-exported 1h cache.
+        env: { ...process.env, PI_CACHE_RETENTION: "short" },
         cwd: serverConfig.cwd,
       });
       const snapshot = yield* makeManagedServerProvider<PiSettings>({

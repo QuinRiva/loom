@@ -89,6 +89,9 @@ export const ProviderSessionStartInput = Schema.Struct({
   // whose system-level policy must differ. Deliberately forfeits the fork
   // cache-prefix optimisation. Pi-only; ignored without forkFromThreadId.
   forkIdentity: Schema.optional(Schema.Literals(["replay", "compose"])),
+  // loom: Anthropic prompt-cache retention for this session (pi's
+  // PI_CACHE_RETENTION). Absent means "short". Pi-only; other drivers ignore it.
+  cacheRetention: Schema.optional(Schema.Literals(["short", "long"])),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
