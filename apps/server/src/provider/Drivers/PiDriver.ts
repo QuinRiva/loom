@@ -2367,8 +2367,8 @@ export function makePiAdapter(input: {
           // the server's project workspace root, which always exists. Scoped to
           // resumes: a first launch provisions its own live worktree.
           const resumeCwd = isResume && !directoryExists(piCwd) ? input.serverConfig.cwd : piCwd;
-          // 1h prompt-cache A/B: the reactor picks the arm; any start without one
-          // (e.g. ProviderService recovery) is short. Recorded per launch.
+          // 1h prompt-cache A/B: the reactor picks the arm and ProviderService
+          // recovery replays it from the binding; no arm means short. Recorded per launch.
           const cacheRetention = startInput.cacheRetention ?? "short";
           recordCacheRetentionLaunch(
             input.serverConfig.stateDir,

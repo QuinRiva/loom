@@ -24,8 +24,12 @@ A **root** is a thread with no parent (`parent_thread_id IS NULL`). That include
 `/retro` fork threads. The read-only `consult_thread` fork, pi text generation
 (titles, commit messages) and every child are always short.
 
-The value applies when pi **launches**. A running pi process keeps the retention
-it started with until it restarts (server restart, failover relaunch, resume).
+The value applies when the reactor launches pi. A running pi process keeps the
+retention it started with. A relaunch after a server restart also keeps it: a
+thread that was mid-turn at a deploy is resumed through `ProviderService`
+recovery, which reuses the retention stored on the session binding rather than
+reading the knob. So a revert to `short` reaches such a root only at its next
+reactor launch.
 
 The hash is `sha256(threadId)[0] < 128` → long. To recompute it in Python:
 `hashlib.sha256(tid.encode()).digest()[0] < 128`.
@@ -63,8 +67,8 @@ The server appends one line per pi launch to
 { "threadId": "…", "cacheRetention": "long", "launchedAt": "2026-09-29T01:22:30.224Z" }
 ```
 
-This is the retention pi actually got, including starts that bypass the reactor
-(those are short). It is per launch because the knob can change mid-week. The
+This is the retention pi actually got, including recovery relaunches, which keep
+the thread's last arm. It is per launch because the knob can change mid-week. The
 pi session id is the thread id (`piSessionIdForThread`), so the pi transcript is
 `~/.pi/agent/sessions/*/*_<threadId>.jsonl`.
 
@@ -80,14 +84,18 @@ CREATE TEMP TABLE arms AS
 SELECT thread_id, arm, MIN(launched_at) AS first_launch_at FROM arms GROUP BY thread_id, arm;
 ```
 
-A thread with more than one arm row was relaunched after the knob changed.
-Drop it from the A/B.
+A thread with more than one arm row was launched by the reactor again after the
+knob changed. Drop it from the A/B. Restarts do not cause a second arm.
 
 ## Reading the A/B (after a week, at least 100 roots per arm)
 
 Population: roots (`parent_thread_id IS NULL` in `projection_threads`) with
 exactly one arm in the launch log. Per-root spend is heavy-tailed, so compare
-medians and bootstrapped means, not raw sums.
+medians and bootstrapped means, not raw sums. The treatment only reaches Claude
+models (and OpenAI Responses-API models, which get `prompt_cache_retention:
+"24h"`). The Codex provider ignores it, so restrict the readout to Claude
+messages. A long-arm Claude message with `cache_write > 0` should also have
+`cache_write_1h > 0`.
 
 **1. Δ cost per root (API-priced).** pi prices a 1h write at 2× base input and a
 5-minute write at 1.25× (`calculateCost` in pi-ai). So pi's `usage.cost.total` is
