@@ -196,6 +196,38 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
     );
   });
 
+  // Same guard for the 1h prompt-cache A/B: a server started from a shell with
+  // PI_CACHE_RETENTION=long must not hand it to a thread the reactor made short.
+  effectIt.effect("sets PI_CACHE_RETENTION from the start input, short by default", () => {
+    const inherited = process.env.PI_CACHE_RETENTION;
+    process.env.PI_CACHE_RETENTION = "long";
+    const start = (cacheRetention?: "long") => {
+      const fake = makeFakeProcess();
+      return withAdapter(fake.factory, (adapter) =>
+        adapter
+          .startSession({
+            threadId: ThreadId.make("55555555-0000-4000-8000-000000000005"),
+            providerInstanceId: INSTANCE,
+            modelSelection: { instanceId: INSTANCE, model: "test-model" },
+            runtimeMode: "full-access",
+            ...(cacheRetention ? { cacheRetention } : {}),
+          })
+          .pipe(Effect.map(() => fake.captured.options?.env?.PI_CACHE_RETENTION)),
+      );
+    };
+    return Effect.gen(function* () {
+      expect(yield* start()).toBe("short");
+      expect(yield* start("long")).toBe("long");
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (inherited === undefined) delete process.env.PI_CACHE_RETENTION;
+          else process.env.PI_CACHE_RETENTION = inherited;
+        }),
+      ),
+    );
+  });
+
   effectIt.effect(
     "replays the SOURCE record verbatim (forkFrom + final argv, no double prepend) at a fork's first launch",
     () => {

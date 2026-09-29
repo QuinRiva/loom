@@ -259,7 +259,12 @@ export const askWorkstreamThread = Effect.fn("askWorkstreamThread")(function* (
           appendSystemPrompt: READONLY_FORK_SYSTEM_PROMPT,
           // No `extensions` + a workstream-free env: the fork is structurally
           // incapable of mutating orchestration.
-          env: withLocalNodeModulesBin(envWithoutWorkstream(), input.cwd, platform),
+          // The fork is one short-lived turn: always the 5-minute cache.
+          env: withLocalNodeModulesBin(
+            { ...envWithoutWorkstream(), PI_CACHE_RETENTION: "short" },
+            input.cwd,
+            platform,
+          ),
         }),
       catch: toCleanError,
     }),

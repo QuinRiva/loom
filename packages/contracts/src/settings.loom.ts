@@ -129,6 +129,13 @@ export const LoomServerSettingsFields = {
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   providerFailover: ProviderFailoverSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Prompt-cache retention for ROOT threads (children are always short):
+  // `ab` = stable 50/50 hash of the thread id, `long` = all roots 1h,
+  // `short` = all roots 5 min. Read at each launch; hand-edit settings.json.
+  // See docs/operations/prompt-cache-retention.md.
+  rootCacheRetention: Schema.Literals(["ab", "long", "short"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("ab" as const)),
+  ),
 } as const;
 
 // Spread into `ServerSettingsPatch`.
