@@ -37,11 +37,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "ask_user_question",
     label: "Ask User Question",
     description:
-      "Use for an irreversible, destructive or preference-only decision not settled by the request, codebase or prior context; otherwise state an assumption and proceed. Coupled decisions, plan/design sign-offs or choices needing a walkthrough or supporting records belong in an MDX decision document; ask only a pointer question. If you need human guidance but cannot frame options, use workstream_request_attention with needs_guidance.",
+      "Use for an irreversible, destructive or preference-only decision not settled by the request, codebase or prior context; otherwise state an assumption and proceed. Never ask to reconfirm scope or for approval you do not need. Coupled decisions, plan/design sign-offs or choices needing a walkthrough or supporting records belong in an MDX decision document; ask only a pointer question. If you need human guidance but cannot frame options, use workstream_request_attention with needs_guidance.",
     promptSnippet: "irreversible, destructive or preference-only decision; otherwise proceed.",
     promptGuidelines: [
-      "The user has read none of this thread or child reports. Even a document pointer needs the situation, one real example (named file/record/screen and literal content), stakes, why their decision is needed, and your pick with its reason.",
-      "No internal shorthand as names ('D7', 'a1', 'must-fix #1'); no unexplained acronyms or symbols ('DI'); no references in place of substance ('per the report'). Explain what quoted figures measure and why they matter.",
+      "The user has read none of this thread or child reports. Even a document pointer needs, in order: the situation (the ticket or feature by the name the user knows, and what just happened), one real example (named file/record/screen and literal content), stakes and why their decision is needed, then your pick with its reason.",
+      "No internal shorthand as names ('D7', 'a1', 'must-fix #1'); no unexplained acronyms or symbols ('DI'); no references in place of substance ('per the report'). Explain what quoted figures measure and why they matter. When a child's report ends in questions, translate them; never forward its questions, labels or ids.",
       "One question; two only if independent and answerable alone, despite the schema's capacity of four. Use mdx-visual-recap for decision documents, with evidence beside each decision.",
     ],
     parameters: {
@@ -57,7 +57,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               header: {
                 type: "string",
                 minLength: 1,
-                description: "Decision title, understandable alone.",
+                description: "Short decision title, understandable alone.",
               },
               question: {
                 type: "string",
