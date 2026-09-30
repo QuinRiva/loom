@@ -8557,7 +8557,11 @@ export default function ChatView(props: ChatViewProps) {
 
     let failure: AtomCommandResult<unknown, unknown> | null = null;
     // Auto-title from first message
-    if (isFirstMessage && isServerThread) {
+    // loom: only a server thread still on the default title. A staged thread
+    // (handoff, continue, fork, spawn) carries a deliberate title; renaming it
+    // to the brief's first line would also stamp that seed as `manual`.
+    // Mirrors the server's `canReplaceThreadTitle` default-title rule.
+    if (isFirstMessage && isServerThread && activeThread.title.trim() === "New thread") {
       const titleResult = await updateThreadMetadata({
         environmentId,
         input: {
