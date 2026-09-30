@@ -1,0 +1,303 @@
+---
+manager_sessions:
+  - id: c7ba7329-56ba-4510-81ee-30ff6b55ff38
+    role: plan
+    authored_at: 2026-09-30T03:13:18.969Z
+---
+
+# Agent → human questions a cold reader can answer
+
+**Objective.** When an agent in Loom puts a question to Carl, he is usually arriving from another thread, hours later, having read none of the agent's transcript, none of its children's reports and none of the plans it has open. Today only ≈28% of the 74 real question sets ever asked were answered by simply picking an option; 26% drew an explicit *"I don't understand / I have no context"*, and 34% were never answered through the panel at all (median 7.5 h open). The two research reports this plan builds on — the failure diagnosis at `/home/Carl/.t3/cockpit/userdata/workstream-reports/ec443a94-30fc-4826-84b1-8eff824119ce.md` and the archaeology of the retired Loom question card at `/home/Carl/.t3/cockpit/userdata/workstream-reports/c514bac4-f2a5-45a0-9053-7b834771b619.md` — establish *why*: the failures are **vocabulary, not wording**. Agents name things with labels they coined (`D7`, `a1/a2`, `must-fix #1`, `§7`), lean on artefacts the reader never opened, gloss nothing, give no example, and bundle several coupled decisions into a panel that shows one at a time. And the riskiest moment is system-detectable: a turn woken by a child's report that ends in a question (22 of 74 sets, ~70% failed or unanswered).
+
+**Done means:** a question asked by any Loom agent can be answered by Carl from the question surface alone — no transcript, no report — or it is not asked as a panel question at all but as a reviewable MDX document with the evidence beside each decision, which the panel then points at. The Q80 / AIT-35 set below is the acceptance case: under this plan it is a one-question pointer at a walked-through document, not three dense questions about "the processed blob", "the DI grid cell" and "stale column ids".
+
+This is a plan for Carl to review, not an implementation. It takes a position on each of the seven dimensions the brief names; the genuinely balanced calls are collected in the single form at the bottom.
+
+## The diagnosis in one paragraph, and what it rules out
+
+Both reports agree on three things this plan treats as constraints. First, the tool text *already* says "the user has none of your context" (`apps/server/src/provider/Drivers/Pi/providerToolDefs.ts` guideline 4) — it just turns that premise into two instructions about form (state stakes, write tradeoffs) and none about vocabulary. Second, **structured fields did not help**: `stakes` and `recommended` existed from 27 July to 21 September and the comprehension-failure rate was ≈30% before and ≈25% during. A redesign that only adds prose slots will repeat that result, so this plan adds *no* new prose field. Third, no version of the tool or card ever carried context or rendered anything but plain text, so "resurrect the old card" would not fix the cold-read problem, and Carl's ruling when it was retired stands: build on upstream's panel, add only what is missed.
+
+What *does* have evidence behind it: Q70 (defines the thing in the question) and Q74 (quotes the proposed text, asked while the report was open) were answered cleanly; Q43 → Q44 is a natural experiment — the same decision asked cold drew *"I don't understand this second issue"* and re-asked after a prose explanation drew "Fix it" in four minutes; and AIT-35 itself recovered the moment the agent switched to an MDX walkthrough. The house already owns the right surface (`mdx-visual-recap`'s decision skeleton: evidence beside each decision, `ReviewChoice` / `QuestionForm`) and the right rule (`roles/orchestrator.md`: "communicate through artefacts, not chat walls"; "assume the human has NOT read any child's report"). Nothing connects them to `ask_user_question`. This plan is mostly that connection, plus the smallest set of panel changes that let a cold reader see what they are being asked and when.
+
+## The walked example first: Q80 as asked, and as it would be asked
+
+Q80 is the anchor incident (thread AIT-35, 2026-09-30 02:30Z). The orchestrator had just been woken by its scoping child's report — nineteen minutes after its last prose to Carl, which promised "you'll get the evidence and the option list when the scoping child reports". The question *was* that delivery. Carl's three replies were, in order: *"I need to understand this better before making a decision on it. Give me a walked through example"*, *"Again this is too dense for me to read and comprehend easily … It may be best to put this all in an mdx or html file"*, and *"I don't even know what DI is, you haven't given me context to answer this question."*
+
+<Columns>
+  <Column label="Before — Q80 question 1 of 3, verbatim, as the panel renders it today">
+    <Screen
+      surface="panel"
+      caption="Upstream's panel: plain text, backticks literal, one of three coupled questions, no age, no recommendation, no link to the evidence."
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-pill">?</span><strong>Processed blob</strong><div style="flex:1"></div><small>1/3</small><small>v</small><small>x</small></div><p style="font-size:12px;line-height:1.45">The processed extraction blob emits every nested list[object] field (covers, renewal options, turnover tiers, repayment schedules…) with no `extraction`, so field-level provenance (source chips, DI Cite, document-viewer panel, Clauses confidence) is lost — pre-existing, but AIT-35 puts a headline value in that shape, and the migration writes processed blobs that a later fix will NOT rewrite (they&#39;d stay provenance-less until re-extraction). How should the post-processor handle it?</p><div class="wf-card" style="padding:8px 10px"><strong>a1 now: aggregate extraction on the list field</strong><br /><small>~5 Python lines, no client change, all list[object] fields gain sources and the UI lights up; cost: one joined reasoning (up to ~7k chars with embedded tags) and the first leaf&#39;s provenance mode standing for all items — attribution per field, not per cover.</small></div><div class="wf-card" style="padding:8px 10px"><strong>a2 now: per-item self-describing, client ships with it</strong><br /><small>Correct per-cover provenance and mode; changes the value shape of every list field, so ~5 client files (describeFieldValue, array/object renderers, document/summary/field-index walkers) must land in the same PR — bigger, coupled release.</small></div><div class="wf-card" style="padding:8px 10px"><strong>Defer to a follow-up PR</strong><br /><small>Keeps #4217 to its concern; migrated buildings keep covers without provenance until re-transformed or re-extracted…</small></div></div>'}
+    />
+  </Column>
+  <Column label="After — the same decision under this plan: one pointer question at a walked-through document">
+    <Screen
+      surface="panel"
+      caption="Markdown body with the document as an openable chip, plain-words header, age since asked, the agent's pick badged, digits select but never auto-submit."
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-pill">?</span><strong>Insurance covers lost their source links</strong><div style="flex:1"></div><small class="wf-muted">asked 3 h ago</small><small>v</small><small>x</small></div><p style="font-size:12px;line-height:1.45">I&#39;m on AIT-35 (moving each lease&#39;s insurance covers into a new nested field and migrating the buildings already extracted). Martin&#39;s review found a regression: after the change, each cover shown in the lease view and in the tenant-audit grid has <strong>no link back to the lease clause it came from</strong> — the source chips and the confidence marker are blank, and for building 002351 the grid cell reads <code>&lt;NOT_FOUND&gt;</code> instead of &#34;Public and Products liability; …&#34;. The migration writes that broken shape permanently for already-extracted buildings, so it needs a decision before the PR merges.</p><p style="font-size:12px;line-height:1.45">The walkthrough on that building — what a reader sees today, what each fix changes, and my recommendation — is in <span class="wf-chip">recaps/ait-35-cover-provenance/decision.mdx</span>. It holds three decisions; answer them there.</p><div class="wf-card" style="padding:8px 10px;border-color:var(--wf-accent)"><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><strong>Answered in the document</strong><span class="wf-pill accent">my pick</span><div style="flex:1"></div><small>1</small></div></div><div class="wf-card" style="padding:8px 10px"><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><strong>Go with your recommendation on all three</strong><div style="flex:1"></div><small>2</small></div><small>Small server-side fix now (one shared source link per cover list, ~5 lines, no client change); per-cover links and the grid cell in a follow-up PR you sequence.</small></div><div class="wf-card" style="padding:8px 10px"><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><strong>Hold the PR — discuss in chat</strong><div style="flex:1"></div><small>3</small></div></div><small class="wf-muted" style="margin-top:auto">Reply in chat instead ↩</small></div>'}
+    />
+  </Column>
+</Columns>
+
+The "after" question is longer than any single Q80 question, and that is the point: it spends its words on *what happened and what the reader would see*, not on mechanism. Every term a cold reader needs is defined in the sentence that uses it (the tenant-audit grid, not "DI"; "no link back to the lease clause", not "provenance"; a named building and the literal cell text). It names the ticket the reader knows (AIT-35) and the reviewer (Martin), not the child thread. It carries the agent's recommendation in plain words so that dismissing the question has a defined meaning. And it makes the three coupled decisions *one* decision on the panel — "read the document" — because three views of one regression cannot be answered one wizard step at a time.
+
+### The artefact Q80 should have been
+
+The document the pointer opens is a `mdx-visual-recap` decision document — the house skeleton, unchanged. Its skeleton for AIT-35, with the parts a cold reader needs called out:
+
+<Callout tone="info">
+`recaps/ait-35-cover-provenance/decision.mdx` — **What Martin found, on one building, and three fixes to choose between.**
+
+1. **Decision callout** (first viewport): what is being decided, that silence means "take the recommendation", and the one-paragraph situation above.
+2. **The walkthrough, on building 002351.** A `Columns` before/after pair: the lease-view cover row and the grid cell **as they render today** (screenshot or a `Screen` reproduction: blank source chips, the literal `<NOT_FOUND>` cell) beside the same row **after the recommended fix**. Under it, a `Details` drill-down with the actual extracted record for that cover — the raw JSON — so a reader who wants to see "what does *no link back* mean in the data" can, without leaving the page.
+3. **Three `Card`s, one per decision, each with its own `ReviewChoice`:**
+   - *Where the source link lives* — one shared link for the whole cover list now (small, server only) vs a link per cover (correct, but five client files must ship in the same PR) vs defer. Evidence: the before/after pair above; the tradeoff in one sentence each.
+   - *What the grid cell shows* — fix the cell text in this PR (the PR gains its first client file) vs server side only vs defer. Evidence: the `<NOT_FOUND>` cell and the intended "Public and Products liability; …" text, side by side.
+   - *Saved grid columns that name a deleted field* — leave them to vanish silently vs prune with a notice. Evidence: what the reader would see in the column summary today (the raw id).
+4. **No bottom `QuestionForm`** — the three cards *are* the decisions; a form would duplicate them.
+</Callout>
+
+Nothing in that skeleton is new machinery. It is the `mdx-visual-recap` decision skeleton applied, which is exactly what AIT-35 eventually did to recover. What is new is that the tool text, the orchestrator role and the panel now route the agent there *before* asking, and the panel gives the document an openable chip and a plain-words lead-in when it does.
+
+## Dimension 2 — when a question should not be a question: three surfaces, one routing rule
+
+Loom has three ways for an agent to get a human decision. The failure is that nothing tells an agent which to use, so the panel gets everything.
+
+<Table
+  columns={["Surface", "Use it when", "Never use it for", "Who"]}
+  rows={[
+    ["`ask_user_question` (the panel)", "A fork the human can answer from the question text alone, in under a minute: a preference, an irreversible or destructive step, a yes/no with a clear recommendation. One question; two only if independent.", "A plan sign-off; several views of one problem; anything whose answer needs an example, a record, or evidence beside each choice; anything you would preface with 'let me explain first'.", "Orchestrators (tool resident). Children only after `enable_toolset human-input`."],
+    ["An MDX decision document + one pointer question", "Everything the panel is wrong for: coupled decisions, a plan or design sign-off, a multi-surface tradeoff, an incident explanation. The document carries the walkthrough and the evidence; the panel question says what happened in plain words and points at it.", "A single quick preference that a document would over-dress.", "Orchestrators. A child that must hand a decision to the human writes the document and reports its path; the parent asks the pointer question."],
+    ["`needs_guidance` attention flag", "A child that is stuck and cannot frame options, or has questions for the human but no `ask_user_question`. The questions ride the report, which the human reads cold — so the same vocabulary rule applies to that report.", "Getting a plan approved (that is `awaiting_acceptance`).", "Children."],
+  ]}
+/>
+
+**Where the rule lives so agents follow it:** in the tool text itself (a guideline that names the artefact route and the `mdx-visual-recap` skeleton by name — the tool is the thing the agent is looking at when it decides to ask), restated in `roles/orchestrator.md` where the "artefacts, not chat walls" bullet already lives, and delivered once more at the moment of highest risk by the wake notice (below). **Does the tool need to point at an artefact?** Yes — but not with a new field. The panel renders the question body as markdown with the same file-chip treatment chat uses, so a workspace-relative path in the body becomes an openable chip with no contract change. A dedicated `artefact` field would only buy the *sidebar and board* the ability to say "a document is waiting", which is a later, cheaper-to-defer increment (see the bottom form).
+
+## Dimension 1 — the contract a question must satisfy for a cold reader
+
+A panel question's body reads, in this order, for someone who has read nothing else:
+
+1. **Situation** — one sentence: what you are working on and what just happened (the ticket or feature by the name the human knows, the person or event that triggered this).
+2. **The concrete thing, with one example** — what the reader would *see* today: a named file, record, building, screen or cell, and its literal content. Plain words for every term the first time it appears; if a term cannot be glossed in half a sentence, it is the wrong term.
+3. **Why you cannot decide it yourself** — the fork is a preference, irreversible, or destructive; say which.
+4. **Your recommendation**, in words, so that "dismiss" has a defined meaning.
+5. Then the options, each a plain-words *outcome* ("one shared source link per cover list now"), never a code ("a1"), with its tradeoff as the description.
+
+It must **not** contain: a label you or another agent coined (`D7`, `a1/a2`, `option (c)`, `must-fix #1`, `§6.3`, `Phase 2`, `Miss 3`, a task id); a reference to a report, plan, review or earlier message the reader has not opened ("the report warns", "per the reviewer's third point", "your open M1 question"); an unglossed identifier, acronym or code symbol; a request for approval of something you could simply do and report.
+
+**Enforcement, ranked honestly by what changes model behaviour.** The evidence says positive directives about form are inert (the `stakes`/`recommended` era). Three levers remain, and this plan uses all three, cheapest first:
+
+- **Negative constraints in the tool text, naming the concrete failures.** Carl's own pi-craft ablation found that negative constraints and specific-failure-mode rules are the ones that earn their tokens on frontier models. Guideline 4 today has zero of them; the rewrite below is mostly them. This is the weakest lever on its own and the cheapest; it is also where the *routing* rule must live, and routing removes the hardest cases from the panel altogether.
+- **A narrow server-side lint that refuses, not asks.** `validateAskUserQuestions` in `apps/server/src/mcp/UserInputHttp.ts` already 400s on an empty header or a reserved label, and a 400's `message` reaches the model as a thrown tool error it can act on (`providerToolExtension.ts` `call`, `errorMode: "throw"`). Add one regex over header, body, option labels and descriptions for the *detectable* subset of coined codes — bare `D7`/`F1`/`M1`-style codes, `a1`/`b2`, `§n`, `must-fix #n`, `Miss n`, `option (c)` — returning "questions[0] names something with a label the reader has never seen ('D7'); say what it is in plain words." It cannot catch jargon or a missing example; it *can* catch the pattern behind 17 of the 74 sets (M1), and unlike text it cannot be skimmed past. About ten lines; reversible in one.
+- **Placing the instruction at the moment of failure.** Ambient role text ("assume the human has NOT read any child's report") demonstrably did not fire when a report arrived. One sentence appended to the wake notice that delivers a child's report does fire, because it is in the same message as the thing about to be relayed. See dimension 3.
+
+What this plan deliberately does **not** do: add `stakes` back as a field (the body carries it — the evidence is that the slot did not help), add a `context` field (a slot filled with the same vocabulary fails the same way; the body *is* the context), or relax `minItems: 2` on options. A question with no two defensible options is not a panel question — it is the "explain first" case, and the routing rule sends it to a document. Relaxing the schema would legitimise exactly the bare "help me understand this" panel question the corpus shows failing.
+
+### The tool text, rewritten
+
+The current description and guidelines 3–4 versus the proposed replacement. Guidelines 1–2 (last resort; never for approval) are unchanged and omitted. `providerToolDefs.ts` is loom-only (the Pi driver has no upstream counterpart), so no `// loom:` markers apply.
+
+<Diff
+  filename="apps/server/src/provider/Drivers/Pi/providerToolDefs.ts — ask_user_question description"
+  wrap
+  before={"Ask the user one to four structured questions and wait for their answers — a last resort, not a routine step. Threads here frequently run unattended, so reserve this for a decision that is genuinely irreversible, destructive, or purely a matter of the user's preference; otherwise proceed on the most reasonable assumption and state it. Each question has a short header and two to four labelled options whose descriptions give the tradeoff. A question may allow one or multiple selections. The user can always provide a custom free-text answer instead."}
+  after={"Put one question (at most two independent ones) to the human and wait for the answer — a last resort, not a routine step. Threads here run unattended, so for ordinary uncertainty choose the most reasonable option, state the assumption, and continue. The human reads your question COLD: usually hours later, arriving from another thread, having read none of your transcript, none of your children's reports and none of the plans you have open. Write it so that reader can answer from the question alone. If answering needs an example, a record, evidence beside each choice, or a walkthrough, it is not a panel question: write an MDX decision document first (mdx-visual-recap skeleton) and ask one question that says what happened in plain words and points at the document's workspace-relative path — the panel renders the path as an openable chip. Each question has a short plain-words header, a markdown body, and two to four options whose descriptions give the tradeoff; mark the one you would choose `recommended`. The human may answer in their own words, may dismiss (then proceed on your recommended option and say so), or may answer hours later — write the question so it still holds then."}
+/>
+
+<Diff
+  filename="providerToolDefs.ts — guidelines 3 and 4 (replaced) and 5–6 (new)"
+  wrap
+  before={"3. When ask_user_question is genuinely warranted, put every related clarification into that one call (up to four questions) instead of stacking calls.\n\n4. An ask_user_question call is expensive because the user has none of your context, so make each question answerable on its own terms: say in the question text what the decision costs to get wrong (what breaks, what is hard to undo), and write each option's `description` as the tradeoff it makes rather than its mechanics ('maximum control, but a bad edit breaks schema parsing', not 'edits the template')."}
+  after={"3. Write the body for someone who has read nothing, in this order: one sentence on what you are working on and what just happened (the ticket or feature by the name the human knows); the concrete thing in plain words with ONE real example — a named file, record, building or screen and what it literally shows today; why you cannot decide it yourself (preference, irreversible, destructive — say which); and which option you would pick and why. Then the options, each a plain-words outcome with its tradeoff as the description.\n\n4. Never name anything with a label you or another agent coined — 'D7', 'a1/a2', 'option (c)', 'must-fix #1', '§6.3', 'Phase 2', 'Miss 3', a task id: the human has never seen it, and the server rejects the call. Never cite a report, plan, review or earlier message the human has not opened ('the report warns', 'per the reviewer's third point') — say what it says. Gloss every identifier, acronym or code symbol the first time it appears ('the tenant-audit grid', not 'the DI grid') or leave it out. If you would want to say 'let me explain first', stop: that is a document, not a question.\n\n5. One question per call. Two only when they are independent and each stands alone; if question 2 depends on the answer to question 1, ask question 1 alone. Several views of one problem, a plan or design sign-off, or anything whose answer needs evidence beside each choice, go in one MDX decision document (mdx-visual-recap: evidence beside each decision, ReviewChoice per item) and become ONE question here that points at it.\n\n6. If this turn began with a child's report or plan arriving, the human has not read it. Do not forward its questions, its option labels or its decision ids; translate them into what they mean, or write the document."}
+/>
+
+Schema changes in the same file: `question` gains the description it never had ("The body the human reads, as markdown. Self-contained for a cold reader: situation → the concrete thing with one example → why you cannot decide → your recommendation. No coined labels, no citing unseen artefacts, every identifier glossed."); `header` becomes "Short plain-words title of what is being decided — shown in the sidebar and in notifications, so it must make sense with nothing else"; options gain `recommended: boolean` ("Set true on the one option you would choose. The human sees a badge; a dismissed question means 'proceed on the recommended option'."). `maxItems: 4` on `questions` stays for upstream-panel parity and for the rare Q74 case (four quoted-text questions answered in six minutes while the report was open); the guideline, not the schema, carries the one-question default.
+
+The `promptSnippet` (the one-line form injected into the tool catalogue) becomes: "last resort — one plain-words question the human can answer cold (no coined labels, no cited artefacts, one example, your recommendation); anything needing a walkthrough is an MDX decision document you then point at."
+
+## Dimension 3 — the high-risk moment
+
+Of the 22 sets asked in a turn that a control-plane notice had just woken, roughly 70% failed or went unanswered. The system knows this moment: a child's terminal report reaches the parent through the digest rails in `apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts` (`buildStandaloneDigest` / `buildDigestPiggyback`, closing with `DIGEST_CLOSING`), and the 600-character report excerpt those rails inline (`WAKE_REPORT_EXCERPT_LIMIT`) is precisely the vector by which a child's `D7` lands in the parent's next sentence to the human.
+
+Three options were weighed. **Refuse** bare panel questions in a notice-woken turn: strongest, but it needs the turn's trigger plumbed from the dispatcher to the HTTP broker, it blocks legitimate quick questions, and the lint already refuses the code-leak residue state-independently. **Require a briefing preamble** as a schema field: a slot, and slots did not help. **Inject one sentence into the notice**: the instruction arrives in the same message as the report it guards against, costs ~40 tokens per wake, touches one constant, and is the lever that ambient role text lacked. This plan takes the third:
+
+<Diff
+  filename="WorkstreamDispatcher.ts — DIGEST_CLOSING (one sentence appended)"
+  wrap
+  before={"No first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look."}
+  after={"No first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look. If anything here leads you to put a question to the human: they have not read these reports. Translate, do not cite — no report labels, no decision ids — or write an MDX decision document with the evidence beside each choice and point at it."}
+/>
+
+The same sentence goes on the single-child action wakes (`buildChildWakeMessage`'s `tail` for `attention`), since a paused child's report is the other place decision codes arrive from. The `awaiting-input` notice (a *child* asked a question) is left alone.
+
+## Dimension 4 — bundling
+
+Guideline 3 today says "put every related clarification into that one call (up to four)"; the panel shows one question at a time and auto-advances. The corpus's bundles: 12 sets with three or more questions, of which 3 were clean, 4 confused, 2 unanswered, 1 half-answered. In Q5 question 3 depended on question 1; in Q80 all three were one regression.
+
+Position: **fewer questions, and make the set visible when there is one.** The rewritten guidelines 5 flip the default to one question, two if independent, and send coupled sets to a document. The schema keeps `maxItems: 4` (upstream parity, Q74). On the panel, when a set has more than one question, a one-line strip of every header with its answered/unanswered state sits above the active question, so a reader sees the whole set before answering the first — the accordion-lite the retired card had, at a fraction of its size. A server cap at two was considered and rejected: it would break the one bundling pattern that demonstrably works (quoted-text questions while the reader has the document open) to prevent a pattern the guideline and the routing already remove.
+
+## Dimension 5 — the code-leakage relay
+
+Decision codes are minted in planner artefacts (`D1–D8`, `must-fix #1`, `F1/F2`, phases), copied by the orchestrator into its question (Q35, Q42, Q57, Q67, Q79), and land on a human who has never opened the plan. The tool text and the lint catch the residue; the leak stops at the source with two role edits. Both role files also exist as copies at `/home/Carl/pi-fathom/loom/roles/` for the fathom project — those copies are noted here and not edited by this plan; the fathom project mirrors them on its own cadence.
+
+<Diff
+  filename="roles/planner.md — new bullet after 'Write for a reader with none of your context'"
+  wrap
+  before={"- Write for a reader with none of your context. The coder threads that implement the plan inherit nothing you've read or reasoned through; the plan must stand alone."}
+  after={"- Write for a reader with none of your context. The coder threads that implement the plan inherit nothing you've read or reasoned through; the plan must stand alone.\n- Name every decision in plain words. Ids you mint for cross-reference inside the plan (D1, must-fix #2, F1/F2, Phase 2) never travel: your orchestrator and the human will quote your decisions out of context, so each needs a name that survives being quoted alone — 'the two-tenant probe before any schema change', not 'option (c)' — and the bottom QuestionForm's option labels are those names. A question that only makes sense with the plan open is a question the human cannot answer from the sidebar."}
+/>
+
+<Diff
+  filename="roles/orchestrator.md — the 'single point of contact' bullet, extended"
+  wrap
+  before={"- You are the human's single point of contact. Assume the human has NOT read any child's report, analysis, or plan unless they say so. When you speak to the human, be self-contained: explain what you're referring to rather than citing it — not \"to address Section 5\" or \"per the reviewer's third point\", but what it actually is."}
+  after={"- You are the human's single point of contact. Assume the human has NOT read any child's report, analysis, or plan unless they say so — nor your own earlier messages, if hours have passed. When you speak to the human, be self-contained: explain what you're referring to rather than citing it — not \"to address Section 5\" or \"per the reviewer's third point\", but what it actually is. This applies doubly to `ask_user_question`, which is read cold from the sidebar: a child's report that ends in open questions is not something to forward. Translate each into plain words, or — when it needs evidence or a walkthrough — into an MDX decision document (mdx-visual-recap skeleton) and ask one question that points at it. A planner's open questions are already answerable in its plan's bottom QuestionForm: hand the human the plan path in that one question rather than re-asking them through the panel."}
+/>
+
+For children, the `workstream_request_attention` description (`providerToolDefs.ts` ~452) gains one sentence: "The report the human reads when they open your thread follows the same rule as a panel question — plain words, no labels you coined, nothing cited that they have not opened." The child kickoff text in `apps/server/src/orchestration/workstreamChildPrompt.ts` is unchanged; it already points at that description.
+
+## Dimension 6 — UI treatment on upstream's panel
+
+Every hunk below on a file that also exists upstream carries a `// loom:` marker; the two additions large enough to be their own components live under `apps/web/src/loom/`. The web panel, `apps/web/src/pendingUserInput.ts`, `ChatView.tsx`, the contracts file, `Sidebar.logic.ts`, `ThreadNotificationCoordinator.tsx` and the mobile card are upstream files; `workstreamPresentation.ts`, `userInputOutcome.ts` and the whole Pi driver are loom-only.
+
+<Table
+  columns={["Surface", "Today", "Under this plan", "Increment"]}
+  rows={[
+    ["Web panel body", "Plain `<p>`; backticks and paths render literally.", "Rendered through the chat markdown component (`ChatMarkdown`, as `StagedBriefPreviewCard.tsx` already does for a brief) so inline code, bold and workspace paths become the same chips chat gives them — which is how the pointer question opens its document. One `// loom:` hunk swapping the `<p>`; the wrapper (cwd/environment props) is a small component in `apps/web/src/loom/`.", "2"],
+    ["Web panel header row", "`header`, an `i/N` counter, collapse, dismiss.", "Adds *asked N h ago* from the request's `createdAt` (already on the client's `PendingUserInput`, no contract change). When a set has more than one question, a strip of every header with answered/unanswered state above the active question.", "2"],
+    ["Recommendation", "None; the agent has no supported way to say which option it would pick.", "`recommended` restored as a boolean on `UserInputQuestionOption` (`// loom:` hunk in `packages/contracts/src/providerRuntime.ts`), rendered as a *my pick* badge on web and mobile. Server validation: at most one per question. The Slack bridge's ⭐ rendering is dead code today and lights up with no bridge change. `stakes` and `preview` are *not* restored — the body carries the cost, and a document carries any preview.", "2"],
+    ["Free-text reply on web", "The composer is the answer form: prose typed while a set is open is recorded as the custom answer to the *current* question, and the wizard advances. In Q80 this is why Carl wrote 'I don't understand' three separate times.", "Upstream behaviour kept for a single question. A *Reply in chat instead* control on the panel sends the composer text as a plain message, which the server already treats as `superseded` (settling the whole set, delivered as the tool result). This restores supersede's missing web entry point with one small control rather than the retired non-modal card.", "2"],
+    ["Digit shortcut", "Document-level 1–9 listener; a single-select pick auto-advances after 200 ms and *submits* on the last question — the hazard the retired card's keyboard-safety test pinned.", "Digits still select. Nothing auto-submits: the last question waits for an explicit Send/Enter. One `// loom:` hunk in `handleOptionSelection`.", "2"],
+    ["Mobile card", "Plain `Text` body; all questions stacked; description shown; no badge.", "*my pick* badge and *asked N h ago* line (`// loom:` hunks). Body stays plain text unless the message bubbles' markdown path is trivially reusable — a path in the body is still readable and copyable, so 'unchanged' is acceptable here.", "2"],
+    ["Slack bridge (`loom-slack-bridge/src/message.ts` `composeQuestionPost`)", "Passes header, body and options through as text; `stakes` and ⭐ branches are dead.", "Unchanged. Markdown in the body passes through as text (Slack shows `**bold**` literally — acceptable); a path in the body is a copyable line; ⭐ lights up when `recommended` returns.", "—"],
+    ["Sidebar row / board card", "Pill *Awaiting Input*; card text *paused — waiting for your input*. No header, no age, no count.", "Pill and card carry the first open question's header and age: *Awaiting input · Insurance covers lost their source links · 3 h*. Needs the shell summary to carry `pendingUserInputHeader` and `pendingUserInputSince` (contract `// loom:` hunk in `packages/contracts/src/orchestration.ts`; projection fold in `ProjectionPipeline.ts` next to `pendingUserInputCount`; one Loom-ledger migration, numbered 1034+).", "3"],
+    ["Notification / toast", "Title *Input needed*, body = thread title.", "Body becomes *header — thread title*, from the same shell field.", "3"],
+  ]}
+/>
+
+The retired card's features this plan does **not** bring back, and why: per-option markdown `preview` (a document does it better, and previews were single-select only); the always-on `stakes` line (the body's first paragraph is the stakes); the full accordion (the header strip covers the cold reader's need at a tenth of the size); "N more pending" (rare — the panel shows the oldest, and the sidebar count in increment 3 covers it).
+
+<FileTree
+  title="Files touched, by increment (1 = prompt and routing, 2 = panel, 3 = arrival surfaces)"
+  entries={[
+    { "path": "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", "change": "modified", "note": "1 — description, snippet, guidelines 3–6, `question`/`header` descriptions, `recommended`; one sentence on workstream_request_attention. Loom-only." },
+    { "path": "apps/server/src/mcp/UserInputHttp.ts", "change": "modified", "note": "1 — coined-label lint (~10 lines) and at-most-one-recommended check in validateAskUserQuestions. Loom-only." },
+    { "path": "apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts", "change": "modified", "note": "1 — one sentence on DIGEST_CLOSING and the attention-wake tail. Loom-only." },
+    { "path": "roles/orchestrator.md", "change": "modified", "note": "1 — single-point-of-contact bullet extended (fathom copy noted, not edited)." },
+    { "path": "roles/planner.md", "change": "modified", "note": "1 — 'name every decision in plain words' bullet." },
+    { "path": "packages/contracts/src/providerRuntime.ts", "change": "modified", "note": "2 — `recommended?: boolean` on UserInputQuestionOption. `// loom:`" },
+    { "path": "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", "change": "modified", "note": "2 — markdown body, age, badge, header strip, no auto-submit, reply-in-chat control. Each hunk `// loom:`." },
+    { "path": "apps/web/src/loom/pendingUserInput/QuestionBody.tsx", "change": "added", "note": "2 — ChatMarkdown wrapper with cwd/environment; header strip component." },
+    { "path": "apps/web/src/components/ChatView.tsx", "change": "modified", "note": "2 — supersede handler for the reply-in-chat control (send as plain message while a set is open). `// loom:`" },
+    { "path": "apps/mobile/src/features/threads/PendingUserInputCard.tsx", "change": "modified", "note": "2 — badge and age line. `// loom:`" },
+    { "path": "packages/contracts/src/orchestration.ts", "change": "modified", "note": "3 — pendingUserInputHeader / pendingUserInputSince on the shell summary. `// loom:`" },
+    { "path": "apps/server/src/orchestration/Layers/ProjectionPipeline.ts", "change": "modified", "note": "3 — fold the first open request's header and createdAt beside pendingUserInputCount. `// loom:`" },
+    { "path": "apps/server/src/persistence/Migrations/1034_PendingUserInputHeader.ts", "change": "added", "note": "3 — Loom ledger; two nullable columns." },
+    { "path": "apps/web/src/components/Sidebar.logic.ts", "change": "modified", "note": "3 — Awaiting Input pill carries header and age. `// loom:`" },
+    { "path": "apps/web/src/lib/workstreamPresentation.ts", "change": "modified", "note": "3 — board card activity text. Loom-only." },
+    { "path": "apps/web/src/components/ThreadNotificationCoordinator.tsx", "change": "modified", "note": "3 — notification body. `// loom:`" }
+  ]}
+/>
+
+## Dimension 7 — sequencing
+
+**Increment 1 — prompt, routing and the lint (no UI).** Everything in the file tree marked 1. This alone would have changed Q80: guideline 6 and the digest sentence fire in exactly the turn Q80 was asked in; guideline 5 sends three views of one regression to a document; guideline 4 and the lint refuse `a1/a2`; guideline 3 demands the named building and what its cell shows. The pointer question then renders on today's panel as plain text with a visible path — not a chip yet, but copyable and answerable. Roughly 60 lines changed, all in loom-only files plus two role files; nothing crosses the wire.
+
+**Increment 2 — the panel a cold reader needs.** Markdown body with file chips (the pointer becomes one click), age, the `recommended` badge (contract hunk, Slack lights up), the header strip for multi-question sets, no auto-submit, and the reply-in-chat control that restores supersede on web. Mobile gets the badge and age. This is the increment that touches upstream files, so every hunk is marked and the two larger pieces live under `apps/web/src/loom/`.
+
+**Increment 3 — arrival surfaces.** The shell summary carries the first open question's header and age so the sidebar pill, board card and notification say *what* is waiting and *how long*. Contract, projection fold and one Loom-ledger migration. Deferred last because it is the only increment with persistence cost, and because increments 1–2 already make the question answerable once opened; this one makes it worth opening.
+
+Explicitly out of scope: the settlement architecture (settle-first, dismiss, supersede, derived `awaiting_input`, the parent wake — it survived the card's retirement and works); a `context` or `stakes` field; the full retired card; per-option previews; capping bundling in the schema; closing the leaf test-question hole (Q68 — children lack the toolset by default; a coder enabling it to test is a role-discipline matter, not a tool one); the fathom copies of the roles.
+
+## Risks
+
+- **Prompt text is the weakest lever, and increment 1 leans on it.** Mitigations are structural: the lint refuses the detectable residue; routing moves the hardest cases off the panel; the digest sentence sits at the moment of failure. The measurable check is the corpus method itself — re-read the next twenty real question sets after increment 1 lands and count clean answers against the ≈28% baseline. If the coined-label rate does not fall, the lint's pattern widens; if comprehension failure does not fall, the artefact route is not being taken and guideline 5 needs a harder edge (a server refusal on more than two questions).
+- **Lint false positives.** `S3`, `H1`, `M1` (a chip size) match the code pattern. The model sees the message and rephrases; the pattern is one constant. Kept narrow deliberately — it exists to catch `D7`, not to police prose.
+- **Longer question bodies.** The cold-reader contract makes a body 3–5 sentences where today's are one dense paragraph. The panel already scrolls (`min(24rem, 40dvh)`); the collapse control already exists. The trade is deliberate: words spent on the situation and one example are the words the corpus shows were missing.
+- **`ChatMarkdown` in the panel.** It is a large component with cwd/environment context; the wrapper under `apps/web/src/loom/` keeps the panel hunk to a swap. If its cost in the composer drawer is visible (it renders on every open question, not on every keystroke), a lighter inline-markdown path with only code, bold and path-chips is the fallback.
+- **Supersede from web changes a user habit.** Today typing in the composer and sending answers the current question. That stays; the new control is opt-in and labelled. The failure it fixes (three "I don't understand" answers to three questions) is real, and the server path already exists.
+
+## Verification
+
+Increment 1 has a canonical real-data check: ask, from an orchestrator thread, the *original* Q80 set verbatim through `ask_user_question` and confirm the server rejects it with the coined-label message naming `a1`; then ask the rewritten pointer question and confirm it is accepted and renders. Read the tool text as injected into a fresh orchestrator's system prompt to confirm the guidelines appear verbatim. For the digest sentence, `WorkstreamDispatcher.test.ts` already asserts `DIGEST_CLOSING` content — extend the existing assertion, do not add a test.
+
+Increment 2 is verified live with the dev-verify recipe (`docs/dev-site-testing.md`): seed a workstream, ask a two-question set whose body contains a workspace path and a `recommended` option, and walk the panel — the path is a chip that opens the document, the header strip shows both questions, digits select without submitting, the age reads correctly after a minute, and *Reply in chat instead* settles the set as `superseded` (visible in the thread's `user-input.resolved` activity). Mobile: badge and age visible in the simulator. `vp check` and `vp run typecheck` pass; the ship gate's unmarked-hunk sweep passes.
+
+Increment 3: with the same seeded workstream, leave the thread and confirm the sidebar pill, board card and toast carry the header and age.
+
+## Decisions for Carl
+
+Each question below is answerable from its own text; the sections above are the evidence, and the recommended option is what the plan assumes if you say nothing.
+
+<QuestionForm
+  questions={[
+    {
+      "id": "lint",
+      "title": "Should the server refuse a question whose text uses a coined code label — 'D7', 'a1', 'option (c)', 'must-fix #1', '§6' — and tell the agent to name the thing in plain words?",
+      "subtitle": "Coined labels are the single largest failure mode in the corpus (17 of 74 sets). The tool text will forbid them either way; this asks whether a ~10-line regex in the server's existing validation should also reject the call, at the cost of occasional false positives on things like 'S3' that the agent then rephrases.",
+      "refs": [{ "label": "Dimension 1 — the cold-reader contract", "anchor": "dimension-1-the-contract-a-question-must-satisfy-for-a-cold-reader" }],
+      "mode": "single",
+      "options": [
+        { "id": "yes", "label": "Yes — refuse the call with a plain message; the agent rewrites", "recommended": true, "detail": "The only lever that cannot be skimmed past. Narrow pattern, one constant, reversible in a line." },
+        { "id": "no", "label": "No — rely on the rewritten tool text alone", "detail": "Zero false positives; but the evidence is that text alone had no measurable effect before." }
+      ]
+    },
+    {
+      "id": "recommended",
+      "title": "Restore the agent's ability to mark one option as its pick, shown as a badge on the panel?",
+      "subtitle": "This field existed until 21 September and was removed with the old card. The evidence says it did not improve comprehension — but you asked 'what is your recommendation?' when it was absent, and it is what gives 'dismiss' a defined meaning (proceed on the pick). It is a boolean, not a prose slot; the Slack bridge already renders it.",
+      "refs": [{ "label": "Dimension 6 — UI treatment", "anchor": "dimension-6-ui-treatment-on-upstream-s-panel" }],
+      "mode": "single",
+      "options": [
+        { "id": "yes", "label": "Yes — bring back the badge (web, mobile, Slack)", "recommended": true, "detail": "One contract hunk, small render hunks. The body also states the recommendation in words, so the badge is a pointer, not the only carrier." },
+        { "id": "no", "label": "No — the recommendation stays in the body text only", "detail": "Fewer hunks on upstream files; the reader has to find the pick in the prose." }
+      ]
+    },
+    {
+      "id": "wake",
+      "title": "When a child's report has just woken the parent, should the system remind the agent (one sentence in the notice) or refuse bare panel questions in that turn?",
+      "subtitle": "This is the highest-risk moment: about 70% of questions asked right after a report arrived failed or were never answered. A reminder costs ~40 tokens and one constant; a refusal needs the turn's trigger plumbed to the question broker and blocks legitimate quick questions.",
+      "refs": [{ "label": "Dimension 3 — the high-risk moment", "anchor": "dimension-3-the-high-risk-moment" }],
+      "mode": "single",
+      "options": [
+        { "id": "remind", "label": "Remind — one sentence appended to the report notice", "recommended": true, "detail": "The instruction lands in the same message as the report it guards against. The lint still refuses coined codes regardless of turn." },
+        { "id": "refuse", "label": "Refuse — a panel question in a report-woken turn must point at a document", "detail": "Strongest guarantee; more plumbing; a genuine quick yes/no after a report would also be refused." }
+      ]
+    },
+    {
+      "id": "supersede",
+      "title": "How should typing a prose reply on the web behave while a multi-question set is open?",
+      "subtitle": "Today the composer is the answer form: prose answers the current question and the panel advances to the next. In the anchor incident you typed 'I don't understand' three separate times. The server already supports settling the whole set with one message ('superseded'); the web has no way to trigger it.",
+      "refs": [{ "label": "Dimension 6 — UI treatment", "anchor": "dimension-6-ui-treatment-on-upstream-s-panel" }],
+      "mode": "single",
+      "options": [
+        { "id": "control", "label": "Keep upstream's behaviour; add a small 'Reply in chat instead' control that settles the whole set with the message", "recommended": true, "detail": "Opt-in, labelled, one hunk plus a handler. No change to the habit of answering a single question by typing." },
+        { "id": "auto", "label": "Make a prose send with no option selected always settle the whole set", "detail": "No extra control; but a typed custom answer to question 1 of 3 would silently end the set." },
+        { "id": "none", "label": "Leave the web as it is", "detail": "Supersede stays Slack-only." }
+      ]
+    },
+    {
+      "id": "digits",
+      "title": "Keyboard digits on the panel: keep them but never auto-submit, or remove the shortcut entirely?",
+      "subtitle": "Today pressing a digit outside a text field selects that option and, on the last question, submits the whole set 200 ms later. The old card had a test pinning that a stray keystroke could never answer a question.",
+      "mode": "single",
+      "options": [
+        { "id": "select-only", "label": "Digits select; the last question waits for an explicit Send", "recommended": true, "detail": "Keeps one-keystroke selection; removes the accidental-submit path. One hunk." },
+        { "id": "remove", "label": "Remove the document-level digit listener", "detail": "Maximum safety; loses the shortcut on every question." }
+      ]
+    },
+    {
+      "id": "arrival",
+      "title": "Should the sidebar pill, board card and notification show which question is waiting and for how long — e.g. 'Awaiting input · Insurance covers lost their source links · 3 h'?",
+      "subtitle": "Today all three say only 'Awaiting Input' / 'Input needed'. Showing the header and age needs the server's per-thread summary to carry two more fields (a contract hunk, a projection change and one Loom-ledger migration). It is the only increment with persistence cost, so it is sequenced last.",
+      "refs": [{ "label": "Dimension 7 — sequencing", "anchor": "dimension-7-sequencing" }],
+      "mode": "single",
+      "options": [
+        { "id": "yes", "label": "Yes — as increment 3, after the panel work", "recommended": true, "detail": "Lets you judge from the sidebar whether a question is quick or needs real thought before opening the thread." },
+        { "id": "later", "label": "Not now — ship increments 1 and 2 and revisit", "detail": "Smallest total change; the question is still answerable once the thread is opened." }
+      ]
+    }
+  ]}
+/>
