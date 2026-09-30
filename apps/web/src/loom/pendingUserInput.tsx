@@ -9,7 +9,7 @@ import { CheckIcon } from "lucide-react";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { formatRelativeTime, formatRelativeTimeLabel } from "~/timestampFormat";
+import { formatElapsedDurationLabel } from "~/timestampFormat";
 
 /** Where the body's relative paths resolve and which panel their chips open in. */
 export interface PendingQuestionMarkdownContext {
@@ -32,35 +32,35 @@ export function PendingQuestionBody(props: {
   );
 }
 
-/** "asked 3h ago", re-rendered on the shared minute clock rather than a ticker. */
-export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
-  useNowMinute();
-  const label = formatRelativeTimeLabel(createdAt);
-  return label ? (
-    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">asked {label}</span>
-  ) : null;
+/**
+ * Age of `iso` on the shared minute clock: undefined when unparseable, null
+ * under a minute, else "4m" / "3h" / "2d". The clock's VALUE must feed the
+ * computation: the React Compiler memoises on reactive inputs, so a bare
+ * `useNowMinute()` subscription re-rendered without recomputing a label
+ * derived from `iso` alone (a `Date.now()` inside is invisible to it), so
+ * the label froze.
+ * Minute resolution, so an age reads up to a minute low.
+ */
+function useMinuteAge(iso: string): string | null | undefined {
+  const label = formatElapsedDurationLabel(iso, Date.parse(`${useNowMinute()}:00Z`));
+  if (label === "") return undefined;
+  return label === "just now" || label.endsWith("s") ? null : label;
 }
 
-/**
- * Sidebar row, beside the Input label: which question is waiting and for how
- * long ("· Insurance covers lost their source links · 3h"), from the shell's
- * oldest-open-question fields. Re-renders on the shared minute clock.
- */
-export function PendingQuestionArrival(props: {
-  header: string | null | undefined;
-  since: string | undefined;
-}) {
-  useNowMinute();
-  if (props.since === undefined) return null;
-  const age = formatRelativeTime(props.since)?.value;
-  return (
-    <>
-      {props.header ? (
-        <span className="min-w-0 max-w-40 truncate font-normal">· {props.header}</span>
-      ) : null}
-      {age ? <span className="shrink-0 font-normal">· {age}</span> : null}
-    </>
+/** "asked 3h ago" in the panel header. */
+export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
+  const age = useMinuteAge(createdAt);
+  return age === undefined ? null : (
+    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+      asked {age === null ? "just now" : `${age} ago`}
+    </span>
   );
+}
+
+/** Sidebar row's Input label suffix: how long the oldest open question has waited ("· 3h"). */
+export function PendingQuestionWaitAge({ since }: { since: string }) {
+  const age = useMinuteAge(since);
+  return age === undefined ? null : <span className="font-normal">· {age ?? "now"}</span>;
 }
 
 export function RecommendedBadge() {
