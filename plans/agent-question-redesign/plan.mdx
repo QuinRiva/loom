@@ -13,6 +13,19 @@ manager_sessions:
 
 This is a plan for Carl to review, not an implementation. It takes a position on each of the seven dimensions the brief names; the genuinely balanced calls are collected in the single form at the bottom.
 
+<Callout tone="decision">
+**Decisions recorded 2026-09-30 (Carl, via the form below).** These override the plan's defaults where they differ:
+
+- **No server lint.** Coined-code labels are forbidden by the rewritten tool text only; `validateAskUserQuestions` gains no regex. (Departs from the recommendation.)
+- **No wake-moment reminder and no refusal.** Dimension 3 is dropped entirely: questions are rare, and appending a sentence to every child-report notice is wasted tokens. `DIGEST_CLOSING` and the attention-wake tail are untouched.
+- **Restore `recommended`** as a boolean badge on web, mobile and Slack.
+- **Supersede on web:** keep upstream's answer-form behaviour and add a small "Reply in chat instead" control that settles the whole set with the message.
+- **Digits select, never auto-submit;** the last question waits for an explicit Send.
+- **Arrival surfaces** (sidebar pill, board card, notification) carry the waiting question's header and age — as increment 3, after the panel work.
+
+Carl also asked whether upstream's panel still loses a draft typed in the composer when a question arrives (the old card's bug). The web keys question answers under a separate per-request draft slot and carries displaced custom-answer text back into the thread draft, so it appears resolved; increment 2 verifies this live.
+</Callout>
+
 ## The diagnosis in one paragraph, and what it rules out
 
 Both reports agree on three things this plan treats as constraints. First, the tool text *already* says "the user has none of your context" (`apps/server/src/provider/Drivers/Pi/providerToolDefs.ts` guideline 4) — it just turns that premise into two instructions about form (state stakes, write tradeoffs) and none about vocabulary. Second, **structured fields did not help**: `stakes` and `recommended` existed from 27 July to 21 September and the comprehension-failure rate was ≈30% before and ≈25% during. A redesign that only adds prose slots will repeat that result, so this plan adds *no* new prose field. Third, no version of the tool or card ever carried context or rendered anything but plain text, so "resurrect the old card" would not fix the cold-read problem, and Carl's ruling when it was retired stands: build on upstream's panel, add only what is missed.
