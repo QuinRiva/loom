@@ -660,12 +660,21 @@ export const reconcileProviderSessions = Effect.gen(function* () {
     });
     // Runtime events advance the projection's turn, but not the directory's
     // last admitted turn. Use the projection to identify interrupted work.
+    // loom: no binding-status gate. Upstream only writes a binding `stopped`
+    // on purpose, so for upstream a stopped binding with no marker means "not
+    // continued by choice". The fork's `reconcileExitedSession` also writes
+    // `stopped` on observed process death, and a pi child killed alongside
+    // the server (or a server that never reached `runStopAll`) leaves exactly
+    // that row under a still-`running` projection. The projection alone
+    // identifies the interruption: nothing on a healthy server produces
+    // `running`+turn without a live process, and every death settles it
+    // within milliseconds (ProviderRuntimeIngestion `session.exited` →
+    // `stopped`). `forkResumable` and the boot-time setting still gate it.
     const interruptedByRestart =
       continueAfterRestartFor(thread.projectId) &&
       session.status === "running" &&
       session.activeTurnId !== null &&
       Option.isSome(binding) &&
-      binding.value.status === "running" &&
       resumeStateAvailable &&
       forkResumable; // loom:
     // loom: steers pi was still holding when its process died. Re-delivered with

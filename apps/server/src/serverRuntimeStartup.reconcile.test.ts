@@ -760,7 +760,9 @@ for (const scenario of [
   "disabled",
   "stopped projection",
   "finished projection",
-  "stopped binding",
+  // loom: no "stopped binding" scenario. A stopped binding under a running
+  // projection is a process that died before the projection settled; the fork
+  // continues it (see `interruptedByRestart` in serverRuntimeStartup.ts).
   "missing cursor",
   "marked without cursor",
   "marked stopped projection",
@@ -791,7 +793,7 @@ for (const scenario of [
               threadId: thread.id,
               provider: ProviderDriverKind.make("codex"),
               providerInstanceId,
-              status: scenario === "stopped binding" ? "stopped" : "running",
+              status: "running", // loom:
               ...(scenario.includes("cursor") ? {} : { resumeCursor: { threadId: thread.id } }),
               runtimePayload: {
                 activeTurnId: scenario === "marked superseded turn" ? "another-turn" : turnId,
@@ -1037,72 +1039,85 @@ it.effect("settles failed opt-in recovery without retrying the provider turn", (
 // per-thread session on disk and never produces a resume cursor. Gating
 // continuation on a cursor made restart continuation dead for the whole fork
 // (and settled every interrupted thread as an error instead).
-it.effect("continues a cursor-less session-file thread", () =>
-  Effect.gen(function* () {
-    const turnId = TurnId.make("turn-session-file");
-    const thread = makeThread("thread-session-file", "running", turnId);
-    const sent = yield* Deferred.make<void>();
-    const sends: ProviderSendTurnInput[] = [];
-    const dispatched: OrchestrationCommand[] = [];
-    let binding: ProviderSessionDirectory.ProviderRuntimeBinding = {
-      threadId: thread.id,
-      provider: ProviderDriverKind.make("pi"),
-      providerInstanceId,
-      status: "running",
-      runtimePayload: { activeTurnId: turnId },
-    };
-    yield* runReconciliation({
-      threads: [thread],
-      continueAfterRestart: true,
-      inFlightTool: true,
-      providerService: {
-        ...makeProviderService(),
-        getCapabilities: () =>
-          Effect.succeed({
-            sessionModelSwitch: "in-session",
-            emitsExitOnStop: true,
-            resumeState: "session-file",
-          } as never),
-        sendTurn: (input) =>
-          Effect.gen(function* () {
-            sends.push(input);
-            yield* Deferred.succeed(sent, undefined);
-            return { threadId: input.threadId, turnId: TurnId.make("turn-continued") };
-          }),
-      },
-      directory: {
-        getBinding: () => Effect.sync(() => Option.some(binding)),
-        upsert: (next) =>
-          Effect.sync(() => {
-            binding = next;
-          }),
-        recordImportedTranscript: () => Effect.die("unused"),
-        getProvider: () => Effect.die("unused"),
-        listThreadIds: () => Effect.die("unused"),
-        listBindings: () => Effect.succeed([]),
-      },
-      dispatch: (command) =>
-        Effect.sync(() => {
-          dispatched.push(command);
-          return { sequence: dispatched.length };
-        }),
-    });
-    yield* Deferred.await(sent);
-    assert.deepStrictEqual(sends, [
-      {
+// loom: the `stopped` variant is a pi child that died before the server's
+// shutdown finalizer: `reconcileExitedSession` stopped the binding but the
+// projection hop never landed and no continuation marker was written.
+for (const [name, status, runtimePayload] of [
+  ["continues a cursor-less session-file thread", "running", undefined],
+  [
+    "continues a thread whose process died before shutdown settled the projection",
+    "stopped",
+    { activeTurnId: null, lastRuntimeEvent: "session.exited" },
+  ],
+] as const)
+  it.effect(name, () =>
+    Effect.gen(function* () {
+      const turnId = TurnId.make("turn-session-file");
+      const thread = makeThread("thread-session-file", "running", turnId);
+      const sent = yield* Deferred.make<void>();
+      const sends: ProviderSendTurnInput[] = [];
+      const dispatched: OrchestrationCommand[] = [];
+      let binding: ProviderSessionDirectory.ProviderRuntimeBinding = {
         threadId: thread.id,
-        input:
-          "The server restarted while your previous turn was running, killing that turn's process with a tool call in flight. That tool call did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.",
-        interactionMode: "default",
-      },
-    ]);
-    // The thread was prepared for continuation, never settled as an error.
-    assert.deepStrictEqual(
-      dispatched.map((command) => command.type === "thread.session.set" && command.session.status),
-      ["starting"],
-    );
-  }),
-);
+        provider: ProviderDriverKind.make("pi"),
+        providerInstanceId,
+        status,
+        runtimePayload: runtimePayload ?? { activeTurnId: turnId },
+      };
+      yield* runReconciliation({
+        threads: [thread],
+        continueAfterRestart: true,
+        inFlightTool: true,
+        providerService: {
+          ...makeProviderService(),
+          getCapabilities: () =>
+            Effect.succeed({
+              sessionModelSwitch: "in-session",
+              emitsExitOnStop: true,
+              resumeState: "session-file",
+            } as never),
+          sendTurn: (input) =>
+            Effect.gen(function* () {
+              sends.push(input);
+              yield* Deferred.succeed(sent, undefined);
+              return { threadId: input.threadId, turnId: TurnId.make("turn-continued") };
+            }),
+        },
+        directory: {
+          getBinding: () => Effect.sync(() => Option.some(binding)),
+          upsert: (next) =>
+            Effect.sync(() => {
+              binding = next;
+            }),
+          recordImportedTranscript: () => Effect.die("unused"),
+          getProvider: () => Effect.die("unused"),
+          listThreadIds: () => Effect.die("unused"),
+          listBindings: () => Effect.succeed([]),
+        },
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return { sequence: dispatched.length };
+          }),
+      });
+      yield* Deferred.await(sent);
+      assert.deepStrictEqual(sends, [
+        {
+          threadId: thread.id,
+          input:
+            "The server restarted while your previous turn was running, killing that turn's process with a tool call in flight. That tool call did not complete and may have left partial effects; verify the state you were changing before building on it (for example, run `git status` or re-check the last file you edited). Then continue from the verified state without repeating work that is already complete.",
+          interactionMode: "default",
+        },
+      ]);
+      // The thread was prepared for continuation, never settled as an error.
+      assert.deepStrictEqual(
+        dispatched.map(
+          (command) => command.type === "thread.session.set" && command.session.status,
+        ),
+        ["starting"],
+      );
+    }),
+  );
 
 // loom: an open approval parks the thread on a human and its consumer died with
 // the process; continuing would run a fresh turn underneath an unanswerable
