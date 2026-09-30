@@ -167,6 +167,13 @@ export interface LivenessClassifyInput {
    */
   readonly hasInFlightTool: boolean;
   readonly failureCount: number;
+  /**
+   * When this server's sweep started. A thread cannot have stalled while no
+   * server was watching, so the stall clock never reaches back past boot —
+   * otherwise every mid-turn thread reads as stalled on the first post-restart
+   * sweep and gets a nudge turn racing restart continuation's resume turn.
+   */
+  readonly sweepStartedAtMs: number;
   readonly now: number;
   readonly thresholds: LivenessSweepThresholds;
 }
@@ -233,6 +240,7 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
     heartbeatMs,
     hasInFlightTool,
     failureCount,
+    sweepStartedAtMs,
     now,
     thresholds,
   } = input;
@@ -268,9 +276,14 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
 
     // Measure against the real heartbeat (token/reasoning deltas included),
     // falling back to activity-row freshness / turn start when it is absent
-    // (e.g. right after a restart). Take the newest of the three.
-    const lastActivityMs =
-      Math.max(heartbeatMs ?? 0, maxActivityCreatedAtMs ?? 0, startedAtMs ?? 0) || now;
+    // (e.g. right after a restart), floored at sweep start (see
+    // `sweepStartedAtMs`). Take the newest.
+    const lastActivityMs = Math.max(
+      heartbeatMs ?? 0,
+      maxActivityCreatedAtMs ?? 0,
+      startedAtMs ?? 0,
+      sweepStartedAtMs,
+    );
     const sinceActivityMs = now - lastActivityMs;
     if (sinceActivityMs > thresholds.staleActivityWindowMs) {
       return {
@@ -442,6 +455,7 @@ const makeWorkstreamLivenessSweep = (
     // requirement into `start`, whose shape is Scope-only (same posture as
     // ExhaustionResumeSweep).
     const fileSystem = yield* FileSystem.FileSystem;
+    const sweepStartedAtMs = yield* Clock.currentTimeMillis;
 
     // Consecutive failed-state observations per thread (the circuit-breaker
     // counter). Reset to 0 the moment the thread is observed healthy. Plain
@@ -1040,6 +1054,7 @@ const makeWorkstreamLivenessSweep = (
           heartbeatMs: freshness.heartbeatAt ? Date.parse(freshness.heartbeatAt) : null,
           hasInFlightTool: inFlightTool !== null,
           failureCount,
+          sweepStartedAtMs,
           now,
           thresholds,
         });

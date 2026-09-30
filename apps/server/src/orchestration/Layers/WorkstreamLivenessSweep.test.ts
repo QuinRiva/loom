@@ -120,6 +120,8 @@ const base = {
   heartbeatMs: now,
   hasInFlightTool: false,
   failureCount: 0,
+  // Server booted long before the fixture turn.
+  sweepStartedAtMs: now - 24 * 60 * 60_000,
   now,
   thresholds: DEFAULT_LIVENESS_THRESHOLDS,
 };
@@ -220,6 +222,19 @@ describe("classifyLiveness", () => {
       heartbeatMs: now - 25 * 60_000,
     });
     expect(verdict).toBeNull();
+  });
+
+  it("does not read server downtime as a stall: the stall clock restarts at boot", () => {
+    // Heartbeat froze 65m ago because the server was DOWN, not because the
+    // thread stalled. On the first post-boot tick this must not nudge (it would
+    // race restart continuation's resume turn); once the thread has been
+    // watched silent for the full window after boot, it is a genuine stall.
+    const frozen = { heartbeatMs: now - 65 * 60_000, maxActivityCreatedAtMs: now - 65 * 60_000 };
+    expect(classifyLiveness({ ...base, ...frozen, sweepStartedAtMs: now - 60_000 })).toBeNull();
+    const bootedAt = now - 11 * 60_000;
+    const verdict = classifyLiveness({ ...base, ...frozen, sweepStartedAtMs: bootedAt });
+    expect(verdict?.kind).toBe("stalled");
+    expect(verdict?.effectiveActivityMs).toBe(bootedAt);
   });
 
   it("tags the stalled verdict with the effective-activity episode key", () => {
