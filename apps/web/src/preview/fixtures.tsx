@@ -8,6 +8,8 @@ import {
 } from "@t3tools/contracts";
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
+  derivePendingUserInputProgress,
+  setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
@@ -378,6 +380,7 @@ Inline code must stay literal: \`use $probe now\` — no chip, and it copies ver
  */
 const FILE_CHIP_STATES_CWD = "/Users/julius/project";
 const FILE_CHIP_STATES_PRESENT = `${FILE_CHIP_STATES_CWD}/src/main.ts`;
+const COLD_READER_DOC = `${FILE_CHIP_STATES_CWD}/recaps/ait-35-cover-provenance/decision.mdx`;
 const FILE_CHIP_STATES_MISSING = `${FILE_CHIP_STATES_CWD}/src/removed-by-a-refactor.ts`;
 const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 
@@ -438,6 +441,7 @@ const PREVIEW_PATH_KINDS: Record<string, ProjectPathKind> = {
   [FILE_CHIP_STATES_MISSING]: "missing",
   [SCANNED_PATH_VERIFIED]: "file",
   [SCANNED_PATH_MISSING]: "missing",
+  [COLD_READER_DOC]: "file",
 };
 __setStatFetcherForTests((_environmentId, paths) =>
   Promise.resolve(paths.map((path) => ({ path, kind: PREVIEW_PATH_KINDS[path] ?? "missing" }))),
@@ -674,6 +678,46 @@ const PENDING_USER_INPUT_MULTI: ReadonlyArray<UserInputQuestion> = [
   },
 ];
 
+/**
+ * The redesign's acceptance shape (a pointer question at a decision document)
+ * plus an independent second question: a markdown body whose workspace path is
+ * a file chip, the agent's pick badged, and a two-question set strip.
+ */
+const PENDING_USER_INPUT_COLD_READER: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "covers",
+    header: "Insurance covers lost their source links",
+    question: [
+      "I'm on AIT-35 (moving each lease's insurance covers into a new nested field and migrating the buildings already extracted). Martin's review found a regression: each cover in the lease view and the tenant-audit grid has **no link back to the lease clause it came from**, and for building 002351 the grid cell reads `<NOT_FOUND>` instead of \"Public and Products liability; …\".",
+      "",
+      "The walkthrough on that building is in `recaps/ait-35-cover-provenance/decision.mdx`. I recommend the small server-side fix now.",
+    ].join("\n"),
+    multiSelect: false,
+    options: [
+      {
+        label: "Answered in the document",
+        description: "You have recorded all three choices there.",
+      },
+      {
+        label: "Go with your recommendation",
+        description: "One shared source link per cover list now (~5 lines, no client change).",
+        recommended: true,
+      },
+      { label: "Hold the PR", description: "Discuss in chat before anything merges." },
+    ],
+  },
+  {
+    id: "notice",
+    header: "Tell Martin when it lands",
+    question: "Should I post the fix to Martin's review thread once it merges?",
+    multiSelect: false,
+    options: [
+      { label: "Yes", description: "He sees the outcome without asking.", recommended: true },
+      { label: "No", description: "Quieter; he finds it in the PR." },
+    ],
+  },
+];
+
 const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
   ...PENDING_USER_INPUT_SINGLE,
   {
@@ -699,12 +743,16 @@ const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
 function PendingUserInputPreview({
   questions,
   dismissible,
+  createdAt,
 }: {
   readonly questions: ReadonlyArray<UserInputQuestion>;
   readonly dismissible: boolean;
+  readonly createdAt: string;
 }) {
   const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
+  const progress = derivePendingUserInputProgress(questions, answers, questionIndex);
+  const activeQuestionId = progress.activeQuestion?.id;
 
   return (
     <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
@@ -712,7 +760,7 @@ function PendingUserInputPreview({
         pendingUserInputs={[
           {
             requestId: "preview-request" as ApprovalRequestId,
-            createdAt: "2026-02-23T00:00:00.000Z",
+            createdAt,
             questions,
             dismissible,
           },
@@ -736,6 +784,30 @@ function PendingUserInputPreview({
           setQuestionIndex((current) => Math.min(current + 1, questions.length - 1));
         }}
         onDismiss={() => {}}
+        onSelectQuestion={setQuestionIndex}
+        onReplyInChat={() => {}}
+        markdown={{
+          cwd: FILE_CHIP_STATES_CWD,
+          threadRef: {
+            environmentId: EnvironmentId.make("preview-environment"),
+            threadId: ThreadId.make("preview-thread"),
+          },
+        }}
+      />
+      {/* Stand-in for the composer, which is the custom-answer field in the app. */}
+      <textarea
+        aria-label="Composer text"
+        placeholder="Composer stand-in: type to enable Reply in chat instead"
+        className="mt-2 rounded-md border border-border bg-transparent p-2 text-sm"
+        value={progress.customAnswer}
+        onChange={(event) => {
+          if (!activeQuestionId) return;
+          const value = event.target.value;
+          setAnswers((current) => ({
+            ...current,
+            [activeQuestionId]: setPendingUserInputCustomAnswer(current[activeQuestionId], value),
+          }));
+        }}
       />
     </div>
   );
@@ -747,6 +819,7 @@ function pendingUserInputFixture(
   questions: ReadonlyArray<UserInputQuestion>,
   description: string,
   dismissible = true,
+  createdAt = "2026-02-23T00:00:00.000Z",
 ): PreviewFixture {
   return {
     id,
@@ -755,7 +828,12 @@ function pendingUserInputFixture(
     // Keyed by fixture id: switching fixtures renders the same component type, so
     // without it one fixture's answers would carry into the next.
     render: () => (
-      <PendingUserInputPreview key={id} questions={questions} dismissible={dismissible} />
+      <PendingUserInputPreview
+        key={id}
+        questions={questions}
+        dismissible={dismissible}
+        createdAt={createdAt}
+      />
     ),
   };
 }
@@ -1341,6 +1419,14 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "Three questions (wizard)",
         PENDING_USER_INPUT_WIZARD,
         "One question at a time with a Next affordance; the last question submits. Answered questions collapse to their summary rather than stacking full height.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-cold-reader",
+        "Cold reader: markdown body, pick badge, set strip, age",
+        PENDING_USER_INPUT_COLD_READER,
+        "A pointer question at a decision document (the path is a file chip), the agent's pick badged Recommended, both headers in the set strip, and the age since asked. Picking on the last question selects without submitting; type in the stand-in to enable Reply in chat instead.",
+        true,
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       ),
       pendingUserInputFixture(
         "pending-user-input-not-dismissible",

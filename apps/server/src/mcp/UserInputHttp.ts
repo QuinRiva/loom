@@ -28,6 +28,7 @@ interface RawQuestion {
 interface RawOption {
   readonly label?: unknown;
   readonly description?: unknown;
+  readonly recommended?: unknown;
 }
 
 const LONG_POLL_MS = 25_000;
@@ -94,7 +95,16 @@ export const validateAskUserQuestions = (
         return {
           error: `Option label "${label}" is reserved by Loom's custom-answer control; choose another label.`,
         };
-      options.push({ label, description });
+      if (option.recommended !== undefined && typeof option.recommended !== "boolean")
+        return {
+          error: `questions[${questionIndex}].options[${optionIndex}].recommended must be a boolean when provided.`,
+        };
+      const recommended = option.recommended === true;
+      if (recommended && options.some((existing) => existing.recommended))
+        return {
+          error: `questions[${questionIndex}] marks more than one option recommended; at most one option per question may be recommended.`,
+        };
+      options.push({ label, description, ...(recommended ? { recommended } : {}) });
     }
     questions.push({
       header,

@@ -56,7 +56,7 @@ export const renderUserInputOutcome = (input: {
     case "cancelled":
       return "The questions were cancelled or interrupted without answers. Do not proceed on an assumed answer.";
     case "dismissed":
-      return "The user dismissed these questions without answering. Do not treat this as selecting any option. Proceed on your best judgement and state the assumption you are making.";
+      return "The user dismissed these questions without answering. Proceed on the option you marked recommended and state that you did; where you marked none, proceed on your best judgement and state the assumption you are making.";
     case "superseded":
       return [
         "The user replied with a message instead of the form — treat it as their response:",

@@ -20,6 +20,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
 import { cn } from "../../lib/cn";
+import { relativeTime } from "../../lib/time"; // loom: "asked N ago"
 import {
   isPendingUserInputOptionSelected,
   type PendingUserInput,
@@ -88,6 +89,12 @@ export interface PendingUserInputCardProps {
 const EXPANDED_CARD_IS_OVERLAY = Platform.OS === "ios";
 
 const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
+
+// loom: "Asked 3h ago" / "Asked just now".
+const askedAgo = (createdAt: string) => {
+  const age = relativeTime(createdAt);
+  return age === "<1m" ? "Asked just now" : `Asked ${age} ago`;
+};
 
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const questionCount = props.pendingUserInput.questions.length;
@@ -238,6 +245,10 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
             User input needed
           </Text>
           <Text className="font-t3-bold text-lg text-foreground">Fill in the pending answers</Text>
+          {/* loom: how long the question has waited; computed on render, no ticker. */}
+          <Text className="font-sans text-xs text-foreground-muted">
+            {askedAgo(props.pendingUserInput.createdAt)}
+          </Text>
         </View>
         <View className="h-8 w-8 items-center justify-center rounded-full bg-subtle-strong">
           <SymbolView
@@ -289,14 +300,24 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                       }
                     >
                       <View className="min-w-0 flex-1 gap-0.5">
-                        <Text
-                          className={cn(
-                            "font-t3-bold text-sm",
-                            selected ? "text-foreground" : "text-foreground-secondary",
-                          )}
-                        >
-                          {option.label}
-                        </Text>
+                        {/* loom: the agent's pick is badged beside its label. */}
+                        <View className="flex-row flex-wrap items-center gap-1.5">
+                          <Text
+                            className={cn(
+                              "font-t3-bold text-sm",
+                              selected ? "text-foreground" : "text-foreground-secondary",
+                            )}
+                          >
+                            {option.label}
+                          </Text>
+                          {option.recommended ? (
+                            <View className="rounded border border-primary/40 bg-primary/10 px-1 py-px">
+                              <Text className="font-t3-bold text-2xs uppercase tracking-[0.6px] text-primary">
+                                Recommended
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
                         {description ? (
                           <Text className="font-sans text-sm leading-5 text-foreground-muted">
                             {description}

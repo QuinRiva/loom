@@ -34,7 +34,7 @@ describe("parseUserInputQuestions", () => {
     });
   });
 
-  it("drops fields the contract no longer carries", () => {
+  it("keeps recommended and drops retired fields", () => {
     const parsed = parseUserInputQuestions({
       questions: [
         makeQuestion({
@@ -45,7 +45,7 @@ describe("parseUserInputQuestions", () => {
     });
 
     expect(parsed?.[0]).not.toHaveProperty("stakes");
-    expect(parsed?.[0]?.options).toEqual([{ label: "a", description: "A" }]);
+    expect(parsed?.[0]?.options).toEqual([{ label: "a", description: "A", recommended: true }]);
   });
 
   it("returns null when the payload carries no usable questions", () => {

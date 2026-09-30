@@ -3,12 +3,22 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
+  resolvePendingUserInputAnswer, // loom: set-strip answered state
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
 import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
+// loom: cold-reader additions (markdown body, age, pick badge, set strip, reply in chat).
+import {
+  PendingQuestionAge,
+  PendingQuestionBody,
+  PendingQuestionSetStrip,
+  RecommendedBadge,
+  ReplyInChatInsteadButton,
+  type PendingQuestionMarkdownContext,
+} from "~/loom/pendingUserInput";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -18,6 +28,10 @@ interface PendingUserInputPanelProps {
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
   onDismiss: (requestId: ApprovalRequestId) => void;
+  // loom: set-strip navigation, reply-in-chat supersede, and the body's chip context.
+  onSelectQuestion: (questionIndex: number) => void;
+  onReplyInChat: () => void;
+  markdown?: PendingQuestionMarkdownContext | undefined;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -28,6 +42,9 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   onToggleOption,
   onAdvance,
   onDismiss,
+  onSelectQuestion, // loom:
+  onReplyInChat, // loom:
+  markdown, // loom:
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -43,6 +60,9 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
       onDismiss={onDismiss}
+      onSelectQuestion={onSelectQuestion} // loom:
+      onReplyInChat={onReplyInChat} // loom:
+      markdown={markdown} // loom:
     />
   );
 });
@@ -55,6 +75,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onToggleOption,
   onAdvance,
   onDismiss,
+  onSelectQuestion, // loom:
+  onReplyInChat, // loom:
+  markdown, // loom:
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
@@ -63,6 +86,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
   onDismiss: (requestId: ApprovalRequestId) => void;
+  onSelectQuestion: (questionIndex: number) => void; // loom:
+  onReplyInChat: () => void; // loom:
+  markdown: PendingQuestionMarkdownContext | undefined; // loom:
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
@@ -126,18 +152,23 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
       }
+      // loom: selecting never submits. Only a non-final question auto-advances;
+      // the last one waits for an explicit Send, so a stray digit or click can
+      // never answer the whole set.
+      if (progress.isLastQuestion) return;
       autoAdvanceTimerRef.current = window.setTimeout(() => {
         autoAdvanceTimerRef.current = null;
         onAdvanceRef.current();
       }, 200);
     },
-    [activeQuestion, onToggleOption],
+    [activeQuestion, onToggleOption, progress.isLastQuestion], // loom: isLastQuestion
   );
 
   // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
   // outside editable fields. Multi-select prompts toggle options in place; single-
-  // select prompts keep the existing auto-advance behavior. Collapsed prompts opt
-  // out, since the numbers they refer to are not on screen.
+  // select prompts auto-advance except on the last question, which waits for Send
+  // (loom). Collapsed prompts opt out, since the numbers they refer to are not on
+  // screen.
   useEffect(() => {
     if (!activeQuestion || isResponding || isCollapsed) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -187,7 +218,14 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       >
         <ComposerBanner.Icon />
         <ComposerBanner.Content>
-          <span className="shrink-0 font-medium text-muted-foreground">
+          {/* loom: a plain-words header can be long; wrap it (truncate when collapsed)
+              instead of overflowing under the age and counter. */}
+          <span
+            className={cn(
+              "min-w-0 font-medium text-muted-foreground",
+              isCollapsed ? "max-w-1/2 shrink-0 truncate" : "wrap-anywhere",
+            )}
+          >
             {activeQuestion.header}
           </span>
           {isCollapsed ? (
@@ -197,6 +235,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           ) : null}
         </ComposerBanner.Content>
         <ComposerBanner.Actions>
+          <PendingQuestionAge createdAt={prompt.createdAt} /> {/* loom: */}
           {prompt.questions.length > 1 ? (
             <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
               {questionIndex + 1}/{prompt.questions.length}
@@ -230,7 +269,16 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
-            <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
+            {/* loom: the whole set at a glance, then a markdown body with file chips. */}
+            <PendingQuestionSetStrip
+              questions={prompt.questions}
+              activeIndex={progress.questionIndex}
+              isAnswered={(question) =>
+                resolvePendingUserInputAnswer(question, answers[question.id]) !== null
+              }
+              onSelect={onSelectQuestion}
+            />
+            <PendingQuestionBody text={activeQuestion.question} markdown={markdown} />
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}
@@ -255,7 +303,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 const content = (
                   <>
                     <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">{option.label}</span>
+                      {/* loom: the agent's pick is badged beside its label. */}
+                      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-medium">{option.label}</span>
+                        {option.recommended ? <RecommendedBadge /> : null}
+                      </span>
                       {option.description && option.description !== option.label ? (
                         <span className="text-secondary-label text-[11px]">
                           {option.description}
@@ -290,6 +342,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 );
               })}
             </div>
+            {/* loom: answer the set in prose — settles every question `superseded`. */}
+            <ReplyInChatInsteadButton
+              hasText={customAnswerActive}
+              questionCount={prompt.questions.length}
+              disabled={isResponding}
+              onReply={onReplyInChat}
+            />
           </ComposerBanner.Body>
         </ComposerBanner.Scroll>
       </CollapsiblePanel>

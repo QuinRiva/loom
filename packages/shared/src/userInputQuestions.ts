@@ -12,6 +12,7 @@ function parseOption(value: unknown): UserInputQuestionOption | null {
     label: record.label,
     description: record.description,
     ...(typeof record.value === "string" ? { value: record.value } : {}),
+    ...(record.recommended === true ? { recommended: true } : {}),
   };
 }
 

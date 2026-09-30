@@ -37,15 +37,15 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "ask_user_question",
     label: "Ask User Question",
     description:
-      "Put one question (two only if independent) to the user and wait for the answer — a last resort, not a routine step. Threads here frequently run unattended, so reserve this for a decision that is genuinely irreversible, destructive, or purely a matter of the user's preference; otherwise proceed on the most reasonable assumption and state it. The user reads your question COLD: usually hours later, arriving from another thread, having read none of your transcript, your children's reports, or the plans you have open — so it must be answerable from its own text alone. If answering needs a walkthrough, a record, or evidence beside each choice, it is not a question for this panel: write an MDX decision document first (mdx-visual-recap skeleton) and ask one question that says in plain words what happened and gives the document's workspace-relative path. Each question has a plain-words header, a body, and two to four options whose descriptions give the tradeoff; one or multiple selections. The user can always answer in their own words instead.",
+      "Put one question (two only if independent) to the user and wait for the answer — a last resort, not a routine step. Threads here frequently run unattended, so reserve this for a decision that is genuinely irreversible, destructive, or purely a matter of the user's preference; otherwise proceed on the most reasonable assumption and state it. The user reads your question COLD: usually hours later, arriving from another thread, having read none of your transcript, your children's reports, or the plans you have open — so it must be answerable from its own text alone. Each question has a plain-words header, a markdown body, and two to four options whose descriptions give the tradeoff, one of them marked `recommended`; one or multiple selections. The user can answer in their own words instead, or dismiss the question.",
     promptSnippet:
-      "last resort for a genuinely irreversible, destructive, or preference-dependent fork: one plain-words question the user can answer cold (no coined labels, no cited artefacts, one real example, your pick), then block; anything needing a walkthrough is an MDX decision document the question points at.",
+      "last resort for a genuinely irreversible, destructive, or preference-dependent fork: one plain-words question the user can answer cold (no coined labels, no cited artefacts, one real example, your pick), then block.",
     promptGuidelines: [
       "Do not call ask_user_question to resolve ordinary uncertainty. Threads here often run unattended, so the default is to choose the most reasonable option, state the assumption plainly in your output, and let the user correct it — that is nearly always better than blocking on a human.",
       "Reserve ask_user_question for a fork that is genuinely irreversible or destructive, or that turns purely on the user's preference and cannot be inferred from the request, the codebase, or prior context. Never use it to confirm scope you were already given, to get a plan approved that you could simply carry out and report, or to pick between options you can defend a choice between yourself.",
-      "Write an ask_user_question body for someone who has read nothing, in this order: what you are working on and what just happened, naming the ticket or feature as the user knows it; the concrete thing with ONE real example — a named file, record or screen and what it literally shows today; what getting it wrong costs and why you cannot decide it yourself; and which option you would pick and why, in words. Each option is a plain-words outcome whose description is its tradeoff, not its mechanics.",
+      "Write an ask_user_question body for someone who has read nothing, in this order: what you are working on and what just happened, naming the ticket or feature as the user knows it; the concrete thing with ONE real example — a named file, record or screen and what it literally shows today; what getting it wrong costs and why you cannot decide it yourself; and which option you would pick and why, in words. Each option is a plain-words outcome whose description is its tradeoff, not its mechanics. Set `recommended: true` on that one pick — the badge only points at the words, it does not replace them. A dismissed question means: proceed on the option you marked recommended and state that you did.",
       "In ask_user_question text, never name anything by a label you or another agent coined — 'D7', 'a1/a2', 'option (c)', 'must-fix #1', '§6.3', 'Phase 2', a task or plan id: the user has never seen it. Never cite a report, plan, review or earlier message they have not opened ('the report warns', 'per the reviewer's third point'); say what it says. Gloss every identifier, acronym and code symbol where it first appears ('the tenant-audit grid', not 'the DI grid'), or leave it out.",
-      "One question per ask_user_question call; two only when they are independent and each stands alone. Coupled decisions, several views of one problem, a plan or design sign-off, or anything you would preface with 'let me explain first' go in one MDX decision document (mdx-visual-recap: evidence beside each decision) that ONE question points at by path.",
+      "One question per ask_user_question call; two only when they are independent and each stands alone. Coupled decisions, several views of one problem, a plan or design sign-off, anything whose answer needs a walkthrough, a record or evidence beside each choice, or anything you would preface with 'let me explain first' is not a panel question: write one MDX decision document first (mdx-visual-recap: evidence beside each decision), then ask ONE question that says in plain words what happened and gives the document's workspace-relative path.",
       "If a child's report or plan just arrived, the user has not read it: never forward its questions, option labels, decision ids or figures — translate them into what they mean, or write the document.",
     ],
     parameters: {
@@ -68,7 +68,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                 type: "string",
                 minLength: 1,
                 description:
-                  "The body the user reads cold, with none of your context: situation → the concrete thing with one real example → why you cannot decide → your pick, in words. No labels you coined, nothing cited they have not opened, every identifier glossed. A decision document's workspace-relative path may be the pointer.",
+                  "The markdown body the user reads cold, written as the ask_user_question guidelines require; a decision document's workspace-relative path in it renders as an openable chip and may be the whole pointer.",
               },
               options: {
                 type: "array",
@@ -88,6 +88,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                       minLength: 1,
                       description:
                         "The tradeoff this option makes — what the user gains and gives up — not a description of the mechanics.",
+                    },
+                    recommended: {
+                      type: "boolean",
+                      description:
+                        "True on the one option you would choose; shown as a badge. At most one per question.",
                     },
                   },
                   required: ["label", "description"],

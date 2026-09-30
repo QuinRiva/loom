@@ -9205,6 +9205,57 @@ export default function ChatView(props: ChatViewProps) {
     setActivePendingUserInputQuestionIndex(Math.max(activePendingProgress.questionIndex - 1, 0));
   }, [activePendingProgress, setActivePendingUserInputQuestionIndex]);
 
+  // loom: "Reply in chat instead". A plain human message sent while a question
+  // is open settles the whole set `superseded`, and the decider delivers the
+  // text as the tool result. So this sends the composer text straight to
+  // turn-start, bypassing onSend — which would record it as the answer to the
+  // current question, or queue it behind the turn the question is blocking.
+  // Question attachments are not carried; the text alone supersedes.
+  const onReplyInChatToActivePendingUserInput = useCallback(async () => {
+    const text = activePendingProgress?.customAnswer.trim() ?? "";
+    const sendCtx = composerRef.current?.getSendContext();
+    if (
+      !activeThread ||
+      !activePendingUserInput ||
+      activePendingIsResponding ||
+      text.length === 0 ||
+      !sendCtx?.providerAvailable
+    ) {
+      return;
+    }
+    const { requestId } = activePendingUserInput;
+    setRespondingUserInputRequestIds((existing) => [...existing, requestId]);
+    const result = await startThreadTurn({
+      environmentId,
+      input: {
+        threadId: activeThread.id,
+        message: { messageId: newMessageId(), role: "user", text, attachments: [] },
+        modelSelection: sendCtx.selectedModelSelection,
+        runtimeMode,
+        interactionMode: sendCtx.interactionMode,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to send the reply.",
+      );
+    }
+    setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+  }, [
+    activePendingProgress?.customAnswer,
+    activePendingUserInput,
+    activePendingIsResponding,
+    activeThread,
+    composerRef,
+    environmentId,
+    runtimeMode,
+    setThreadError,
+    startThreadTurn,
+  ]);
+
   const onSubmitPlanFollowUp = useCallback(
     async ({
       text,
@@ -10502,6 +10553,13 @@ export default function ChatView(props: ChatViewProps) {
                             onDismissActivePendingUserInput={onDismissUserInput}
                             onPreviousActivePendingUserInputQuestion={
                               onPreviousActivePendingUserInputQuestion
+                            }
+                            // loom: set-strip jump and reply-in-chat supersede.
+                            onSelectActivePendingUserInputQuestion={
+                              setActivePendingUserInputQuestionIndex
+                            }
+                            onReplyInChatToActivePendingUserInput={
+                              onReplyInChatToActivePendingUserInput
                             }
                             onChangeActivePendingUserInputCustomAnswer={
                               onChangeActivePendingUserInputCustomAnswer
