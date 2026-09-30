@@ -552,6 +552,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 AND MAX(kind = 'user-input.resolved') = 0
             )
           ),
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           oldest_open_user_input AS (
             SELECT
               CASE json_type(requested.payload_json, '$.questions[0].header')
@@ -622,6 +623,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             WHERE thread_id = ${threadId} AND status = 'pending'
           ) AS "pendingApprovalCount",
           pending_user_inputs.pending_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           (SELECT header FROM oldest_open_user_input) AS "pendingUserInputHeader",
           (SELECT created_at FROM oldest_open_user_input) AS "pendingUserInputSince",
           CASE

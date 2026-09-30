@@ -1300,6 +1300,7 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header AS "pendingUserInputHeader",
           pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
@@ -1379,6 +1380,7 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header AS "pendingUserInputHeader",
           pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
@@ -1487,6 +1489,7 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header AS "pendingUserInputHeader",
           pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
@@ -2290,6 +2293,7 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header AS "pendingUserInputHeader",
           pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",

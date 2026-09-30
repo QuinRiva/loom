@@ -102,6 +102,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at,
           pending_approval_count,
           pending_user_input_count,
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header,
           pending_user_input_since,
           has_actionable_proposed_plan,
@@ -168,6 +169,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.latestUserMessageAt},
           ${row.pendingApprovalCount},
           ${row.pendingUserInputCount},
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           ${row.pendingUserInputHeader ?? null},
           ${row.pendingUserInputSince ?? null},
           ${row.hasActionableProposedPlan},
@@ -234,6 +236,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at = excluded.latest_user_message_at,
           pending_approval_count = excluded.pending_approval_count,
           pending_user_input_count = excluded.pending_user_input_count,
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header = excluded.pending_user_input_header,
           pending_user_input_since = excluded.pending_user_input_since,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
@@ -307,6 +310,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
           pending_user_input_header AS "pendingUserInputHeader",
           pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
