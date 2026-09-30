@@ -209,6 +209,7 @@ import {
 // hidden sub-threads surface through. All three live in loom-owned modules.
 import { filterRootThreads } from "../loom/rootThreads";
 import { buildGoalMenuItems, useLoomThreadGoalActions } from "../loom/sidebarGoalActions";
+import { PendingQuestionArrival } from "../loom/pendingUserInput"; // loom:
 import { useGoals } from "../goals/goalState";
 import { isStagedHandoffThread } from "./Sidebar.logic.loom";
 import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
@@ -1864,6 +1865,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             wrapper around the ticking duration would make
                             screen readers announce every second. */}
                           <span role="status">{topStatus.label}</span>
+                          {
+                            // loom: which question is waiting, and for how long.
+                            status === "input" ? (
+                              <PendingQuestionArrival
+                                header={thread.pendingUserInputHeader}
+                                since={thread.pendingUserInputSince}
+                              />
+                            ) : null
+                          }
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />

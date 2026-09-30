@@ -902,6 +902,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.session.lastError}
           </Text>
+        ) : status === "input" && thread.pendingUserInputSince ? (
+          // loom: like a failure's error, a waiting question names itself and its age.
+          <Text
+            className={cn(
+              "flex-1 text-xs",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : "text-adaptive-indigo-600-300",
+            )}
+            numberOfLines={1}
+          >
+            {[thread.pendingUserInputHeader, relativeTime(thread.pendingUserInputSince)]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits
              last so a tight fit cuts the repetitive label, not the branch —

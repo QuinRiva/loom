@@ -9,7 +9,7 @@ import { CheckIcon } from "lucide-react";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { formatRelativeTime, formatRelativeTimeLabel } from "~/timestampFormat";
 
 /** Where the body's relative paths resolve and which panel their chips open in. */
 export interface PendingQuestionMarkdownContext {
@@ -39,6 +39,28 @@ export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
   return label ? (
     <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">asked {label}</span>
   ) : null;
+}
+
+/**
+ * Sidebar row, beside the Input label: which question is waiting and for how
+ * long ("· Insurance covers lost their source links · 3h"), from the shell's
+ * oldest-open-question fields. Re-renders on the shared minute clock.
+ */
+export function PendingQuestionArrival(props: {
+  header: string | null | undefined;
+  since: string | undefined;
+}) {
+  useNowMinute();
+  if (props.since === undefined) return null;
+  const age = formatRelativeTime(props.since)?.value;
+  return (
+    <>
+      {props.header ? (
+        <span className="min-w-0 max-w-40 truncate font-normal">· {props.header}</span>
+      ) : null}
+      {age ? <span className="shrink-0 font-normal">· {age}</span> : null}
+    </>
+  );
 }
 
 export function RecommendedBadge() {

@@ -90,6 +90,9 @@ const ThreadShellSummaryQueryResult = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
+  // loom: the oldest open question's header and asked-at (arrival surfaces).
+  pendingUserInputHeader: Schema.NullOr(Schema.String),
+  pendingUserInputSince: Schema.NullOr(IsoDateTime),
   actionablePlanCandidates: Schema.fromJsonString(
     Schema.Array(
       Schema.Struct({
@@ -549,6 +552,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 AND MAX(kind = 'user-input.resolved') = 0
             )
           ),
+          oldest_open_user_input AS (
+            SELECT
+              CASE json_type(requested.payload_json, '$.questions[0].header')
+                WHEN 'text' THEN json_extract(requested.payload_json, '$.questions[0].header')
+              END AS header,
+              requested.created_at
+            FROM projection_thread_activities AS requested
+              INDEXED BY idx_projection_thread_activities_thread_kind_sequence_created_id
+            WHERE requested.thread_id = ${threadId}
+              AND requested.kind = 'user-input.requested'
+              AND json_type(requested.payload_json, '$.requestId') = 'text'
+              AND length(json_extract(requested.payload_json, '$.requestId')) > 0
+              AND NOT EXISTS (
+                SELECT 1
+                FROM projection_thread_activities AS resolved
+                  INDEXED BY idx_projection_thread_activities_thread_kind_sequence_created_id
+                WHERE resolved.thread_id = ${threadId}
+                  AND resolved.kind = 'user-input.resolved'
+                  AND json_extract(resolved.payload_json, '$.requestId') =
+                    json_extract(requested.payload_json, '$.requestId')
+              )
+            ORDER BY requested.created_at, requested.activity_id
+            LIMIT 1
+          ),
           context_snapshot AS (
             SELECT MAX(used_tokens) AS used_tokens, MAX(max_tokens) AS max_tokens
             FROM (
@@ -595,6 +622,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             WHERE thread_id = ${threadId} AND status = 'pending'
           ) AS "pendingApprovalCount",
           pending_user_inputs.pending_count AS "pendingUserInputCount",
+          (SELECT header FROM oldest_open_user_input) AS "pendingUserInputHeader",
+          (SELECT created_at FROM oldest_open_user_input) AS "pendingUserInputSince",
           CASE
             WHEN ${latestTurnId} IS NOT NULL AND EXISTS (
               SELECT 1

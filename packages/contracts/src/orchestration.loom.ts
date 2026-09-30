@@ -531,6 +531,13 @@ export const LoomThreadShellFields = {
   lastActivityPreview: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Agent-question arrival surfaces (sidebar row, board card, notification):
+  // the OLDEST open question's first header and when it was asked — the same
+  // request the panel shows first. Present only while `hasPendingUserInput`;
+  // absent otherwise, so a quiet thread pays nothing on the wire. The header is
+  // null when the request carried none.
+  pendingUserInputHeader: Schema.optional(Schema.NullOr(Schema.String)),
+  pendingUserInputSince: Schema.optional(IsoDateTime),
   // consult_thread observability: consult edges from THIS (asker) thread,
   // deduped by target. Additive, decode-defaulted so older snapshots load.
   consults: Schema.Array(OrchestrationThreadConsultSummary).pipe(
