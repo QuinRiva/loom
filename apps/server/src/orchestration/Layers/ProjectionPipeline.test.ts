@@ -3785,6 +3785,150 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       }),
   );
 
+  // loom: arrival surfaces — the shell summary carries the OLDEST open
+  // question's header and asked-at, from the same terminal-wins fold as the count.
+  it.effect("folds the oldest open user-input request's header and asked-at", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-pending-header");
+      let seq = 0;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const activity = (kind: string, requestId: string, createdAt: string, header?: string) => {
+        seq += 1;
+        return appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`evt-pending-header-activity-${seq}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: CommandId.make(`cmd-pending-header-activity-${seq}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-pending-header-activity-${seq}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`activity-pending-header-${seq}`),
+              tone: "info",
+              kind,
+              summary: kind,
+              payload:
+                header === undefined
+                  ? { requestId, answers: {} }
+                  : {
+                      requestId,
+                      questions: [
+                        {
+                          id: "q",
+                          header,
+                          question: "?",
+                          options: [{ label: "a", description: "" }],
+                        },
+                      ],
+                    },
+              turnId: null,
+              createdAt,
+            },
+          },
+        });
+      };
+      const readSummary = sql<{
+        readonly count: number;
+        readonly header: string | null;
+        readonly since: string | null;
+      }>`
+        SELECT
+          pending_user_input_count AS "count",
+          pending_user_input_header AS "header",
+          pending_user_input_since AS "since"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-pending-header-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-pending-header"),
+        occurredAt: "2026-03-02T08:00:00.000Z",
+        commandId: CommandId.make("cmd-pending-header-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-header-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-pending-header"),
+          title: "Project Pending Header",
+          workspaceRoot: "/tmp/project-pending-header",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-03-02T08:00:00.000Z",
+          updatedAt: "2026-03-02T08:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-pending-header-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-03-02T08:00:01.000Z",
+        commandId: CommandId.make("cmd-pending-header-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-header-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-pending-header"),
+          title: "Thread Pending Header",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-03-02T08:00:01.000Z",
+          updatedAt: "2026-03-02T08:00:01.000Z",
+        },
+      });
+      assert.deepEqual(yield* readSummary, [{ count: 0, header: null, since: null }]);
+
+      yield* activity(
+        "user-input.requested",
+        "req-old",
+        "2026-03-02T08:00:02.000Z",
+        "Old question",
+      );
+      yield* activity(
+        "user-input.requested",
+        "req-new",
+        "2026-03-02T08:00:03.000Z",
+        "New question",
+      );
+      assert.deepEqual(yield* readSummary, [
+        { count: 2, header: "Old question", since: "2026-03-02T08:00:02.000Z" },
+      ]);
+
+      // Answering the oldest hands the surfaces to the next one still open.
+      yield* activity("user-input.resolved", "req-old", "2026-03-02T08:00:04.000Z");
+      assert.deepEqual(yield* readSummary, [
+        { count: 1, header: "New question", since: "2026-03-02T08:00:03.000Z" },
+      ]);
+
+      // A late duplicate of a settled request cannot reopen it (terminal-wins).
+      yield* activity(
+        "user-input.requested",
+        "req-old",
+        "2026-03-02T08:00:05.000Z",
+        "Old question",
+      );
+      yield* activity("user-input.resolved", "req-new", "2026-03-02T08:00:06.000Z");
+      assert.deepEqual(yield* readSummary, [{ count: 0, header: null, since: null }]);
+    }),
+  );
+
   it.effect("restores pending approvals when a provider reply fails", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

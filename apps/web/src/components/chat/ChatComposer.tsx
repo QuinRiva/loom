@@ -1438,6 +1438,9 @@ export interface ChatComposerProps {
   onAdvanceActivePendingUserInput: () => void;
   onDismissActivePendingUserInput: (requestId: ApprovalRequestId) => void;
   onPreviousActivePendingUserInputQuestion: () => void;
+  // loom: jump within a question set; send the composer text as a superseding message.
+  onSelectActivePendingUserInputQuestion: (questionIndex: number) => void;
+  onReplyInChatToActivePendingUserInput: () => void;
   onChangeActivePendingUserInputCustomAnswer: (
     questionId: string,
     value: string,
@@ -1551,6 +1554,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onAdvanceActivePendingUserInput,
     onDismissActivePendingUserInput,
     onPreviousActivePendingUserInputQuestion,
+    onSelectActivePendingUserInputQuestion, // loom:
+    onReplyInChatToActivePendingUserInput, // loom:
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
     onOpenProviderSetup,
@@ -2572,6 +2577,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const isComposerApprovalState = activePendingApproval !== null;
+  // loom: the question body resolves paths and opens file chips like chat does.
+  const pendingQuestionMarkdown = useMemo(
+    () => ({ cwd: gitCwd ?? undefined, threadRef: routeThreadRef }),
+    [gitCwd, routeThreadRef],
+  );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const isChoiceOnlyPendingQuestion =
     activePendingProgress?.activeQuestion?.allowCustomAnswer === false;
@@ -6383,6 +6393,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onDismiss={onDismissActivePendingUserInput}
+                    onSelectQuestion={onSelectActivePendingUserInputQuestion} // loom:
+                    onReplyInChat={onReplyInChatToActivePendingUserInput} // loom:
+                    markdown={pendingQuestionMarkdown} // loom:
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
@@ -6403,6 +6416,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleOption={onSelectActivePendingUserInputOption}
                       onAdvance={onAdvanceActivePendingUserInput}
                       onDismiss={onDismissActivePendingUserInput}
+                      onSelectQuestion={onSelectActivePendingUserInputQuestion} // loom:
+                      onReplyInChat={onReplyInChatToActivePendingUserInput} // loom:
+                      markdown={pendingQuestionMarkdown} // loom:
                     />
                     {!isChoiceOnlyPendingQuestion ||
                     activePendingProgress?.activeQuestion?.multiSelect ? (

@@ -600,7 +600,16 @@ export function getPurpose(thread: SidebarThreadSummary): string {
 
 export function getActivity(thread: SidebarThreadSummary, column: WorkstreamColumnId): string {
   if (column === "blocked" && thread.blockedBy.length > 0) return "waiting on dependencies";
-  if (thread.hasPendingUserInput) return "paused — waiting for your input";
+  if (thread.hasPendingUserInput) {
+    // Which question is waiting and for how long, so the card says whether it
+    // is a five-second pick or needs real thought.
+    const since = thread.pendingUserInputSince;
+    return since
+      ? ["waiting for your input", thread.pendingUserInputHeader, formatCompactAge(since)]
+          .filter(Boolean)
+          .join(" · ")
+      : "paused — waiting for your input";
+  }
   if (thread.hasPendingApprovals) return "approval required";
   if (thread.hasActionableProposedPlan) return "proposed plan ready";
   if (thread.attention.includes("error")) return "stalled — needs you";

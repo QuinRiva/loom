@@ -22,21 +22,41 @@ describe("ask_user_question validation", () => {
     ]);
   });
 
-  it("drops fields the contract no longer carries", () => {
+  it("keeps a single recommended option and drops retired fields", () => {
     const result = validateAskUserQuestions([
       question({
         stakes: "Dropping the column loses live rows.",
         options: [
           { label: "A", description: "First", preview: "**A**", recommended: true },
-          { label: "B", description: "Second" },
+          { label: "B", description: "Second", recommended: false },
         ],
       }),
     ]);
     expect("questions" in result && result.questions[0]).not.toHaveProperty("stakes");
     expect("questions" in result && result.questions[0]?.options).toEqual([
-      { label: "A", description: "First" },
+      { label: "A", description: "First", recommended: true },
       { label: "B", description: "Second" },
     ]);
+  });
+
+  it("rejects more than one recommended option and a non-boolean recommended", () => {
+    const twoPicks = [
+      { label: "A", description: "First", recommended: true },
+      { label: "B", description: "Second", recommended: true },
+    ];
+    expect(validateAskUserQuestions([question({ options: twoPicks })])).toMatchObject({
+      error: expect.stringContaining("more than one option recommended"),
+    });
+    expect(
+      validateAskUserQuestions([
+        question({
+          options: [
+            { label: "A", description: "First", recommended: "yes" },
+            { label: "B", description: "Second" },
+          ],
+        }),
+      ]),
+    ).toMatchObject({ error: expect.stringContaining("recommended must be a boolean") });
   });
 
   it("rejects more than four questions and fewer than two options", () => {

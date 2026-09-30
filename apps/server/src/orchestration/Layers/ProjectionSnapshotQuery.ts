@@ -842,6 +842,7 @@ function mapLeanThreadShellRow(
     latestUserMessageAt: row.latestUserMessageAt,
     hasPendingApprovals: row.pendingApprovalCount > 0,
     hasPendingUserInput: row.pendingUserInputCount > 0,
+    ...pendingUserInputShellFields(row), // loom:
     hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
     pinnedAt: row.pinnedAt,
     pinOrderKey: row.pinOrderKey ?? null,
@@ -957,6 +958,21 @@ function unionDerivedAttention(
 ): ThreadAttention {
   if (pendingUserInputCount <= 0 || stored.includes("awaiting_input")) return stored;
   return [...stored, "awaiting_input"];
+}
+
+// loom: the arrival surfaces' "which question, since when" — spread onto every
+// shell view, and only while a question is open, so quiet rows pay nothing.
+// Read by the four shell SELECTs (active, lean, archived, by-id).
+function pendingUserInputShellFields(row: {
+  readonly pendingUserInputHeader?: string | null | undefined;
+  readonly pendingUserInputSince?: string | null | undefined;
+}) {
+  return row.pendingUserInputSince == null
+    ? {}
+    : {
+        pendingUserInputHeader: row.pendingUserInputHeader ?? null,
+        pendingUserInputSince: row.pendingUserInputSince,
+      };
 }
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
@@ -1284,6 +1300,9 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header AS "pendingUserInputHeader",
+          pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
           tool_uses AS "toolUses",
@@ -1361,6 +1380,9 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header AS "pendingUserInputHeader",
+          pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
           tool_uses AS "toolUses",
@@ -1467,6 +1489,9 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header AS "pendingUserInputHeader",
+          pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
           tool_uses AS "toolUses",
@@ -2268,6 +2293,9 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header AS "pendingUserInputHeader",
+          pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
           tool_uses AS "toolUses",
@@ -5049,6 +5077,7 @@ pending_approval_requests AS (
                   latestUserMessageAt: row.latestUserMessageAt,
                   hasPendingApprovals: row.pendingApprovalCount > 0,
                   hasPendingUserInput: row.pendingUserInputCount > 0,
+                  ...pendingUserInputShellFields(row), // loom:
                   hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                   backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
                     row.threadId,
@@ -5567,6 +5596,7 @@ pending_approval_requests AS (
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
+        ...pendingUserInputShellFields(threadRow.value), // loom:
         hasActionableProposedPlan: threadRow.value.hasActionableProposedPlan > 0,
         backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
           threadRow.value.threadId,

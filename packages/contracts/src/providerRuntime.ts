@@ -573,6 +573,8 @@ const UserInputQuestionOption = Schema.Struct({
   label: TrimmedNonEmptyStringSchema,
   description: Schema.String,
   value: Schema.optional(Schema.String),
+  // loom: the agent's pick, badged by clients; at most one per question.
+  recommended: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 

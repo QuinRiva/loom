@@ -142,6 +142,11 @@ function EnvironmentNotifications({
             : status === "failed"
               ? "Thread failed"
               : "Input needed";
+      // loom: an input alert names the waiting question — "header — thread title".
+      const body =
+        status === "input" && thread.pendingUserInputHeader
+          ? `${thread.pendingUserInputHeader} — ${thread.title}`
+          : thread.title;
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -156,7 +161,7 @@ function EnvironmentNotifications({
         const toastId = toastManager.add({
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
           title,
-          description: thread.title,
+          description: body, // loom:
           data: { hideCopyButton: true },
           actionProps: {
             children: "Open thread",
@@ -180,7 +185,7 @@ function EnvironmentNotifications({
         continue;
       try {
         const notification = new Notification(title, {
-          body: thread.title,
+          body, // loom:
           tag: `${environmentId}:${thread.id}`,
           silent: true,
         });

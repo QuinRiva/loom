@@ -41,6 +41,9 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
+  // loom: pending_user_input_header/_since (Migration 1044) ride beside the
+  // count in the write and the point read, so a non-summary upsert that spreads
+  // an existing row never blanks them.
   const upsertProjectionThreadRow = SqlSchema.void({
     Request: ProjectionThread,
     execute: (row) =>
@@ -99,6 +102,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at,
           pending_approval_count,
           pending_user_input_count,
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header,
+          pending_user_input_since,
           has_actionable_proposed_plan,
           cumulative_cost_usd,
           tool_uses,
@@ -163,6 +169,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.latestUserMessageAt},
           ${row.pendingApprovalCount},
           ${row.pendingUserInputCount},
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          ${row.pendingUserInputHeader ?? null},
+          ${row.pendingUserInputSince ?? null},
           ${row.hasActionableProposedPlan},
           ${row.cumulativeCostUsd},
           ${row.toolUses},
@@ -227,6 +236,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at = excluded.latest_user_message_at,
           pending_approval_count = excluded.pending_approval_count,
           pending_user_input_count = excluded.pending_user_input_count,
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header = excluded.pending_user_input_header,
+          pending_user_input_since = excluded.pending_user_input_since,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
           cumulative_cost_usd = excluded.cumulative_cost_usd,
           tool_uses = excluded.tool_uses,
@@ -298,6 +310,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          -- loom: arrival surfaces (oldest open question's header + asked-at)
+          pending_user_input_header AS "pendingUserInputHeader",
+          pending_user_input_since AS "pendingUserInputSince",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
           tool_uses AS "toolUses",

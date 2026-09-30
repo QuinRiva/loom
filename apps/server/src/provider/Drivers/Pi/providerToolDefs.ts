@@ -37,14 +37,15 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "ask_user_question",
     label: "Ask User Question",
     description:
-      "Ask the user one to four structured questions and wait for their answers — a last resort, not a routine step. Threads here frequently run unattended, so reserve this for a decision that is genuinely irreversible, destructive, or purely a matter of the user's preference; otherwise proceed on the most reasonable assumption and state it. Each question has a short header and two to four labelled options whose descriptions give the tradeoff. A question may allow one or multiple selections. The user can always provide a custom free-text answer instead.",
+      "Ask only for an irreversible, destructive or user-preference decision you cannot resolve from the request, codebase or prior context; otherwise state a reasonable assumption and proceed. Never ask to reconfirm scope or obtain approval you do not need. If you need human guidance but cannot frame options, use workstream_request_attention with needs_guidance instead. For coupled decisions, plan/design sign-off, or choices needing a walkthrough or supporting records, write an MDX decision document first; use this panel only to point at it.",
     promptSnippet:
-      "last resort for a genuinely irreversible, destructive, or preference-dependent fork: put one to four structured questions to the user, with labelled options and single- or multi-select answers, then block until they answer.",
+      "irreversible, destructive or preference-dependent fork only; follow the tool description to choose panel, document or needs_guidance.",
     promptGuidelines: [
-      "Do not call ask_user_question to resolve ordinary uncertainty. Threads here often run unattended, so the default is to choose the most reasonable option, state the assumption plainly in your output, and let the user correct it — that is nearly always better than blocking on a human.",
-      "Reserve ask_user_question for a fork that is genuinely irreversible or destructive, or that turns purely on the user's preference and cannot be inferred from the request, the codebase, or prior context. Never use it to confirm scope you were already given, to get a plan approved that you could simply carry out and report, or to pick between options you can defend a choice between yourself.",
-      "When ask_user_question is genuinely warranted, put every related clarification into that one call (up to four questions) instead of stacking calls.",
-      "An ask_user_question call is expensive because the user has none of your context, so make each question answerable on its own terms: say in the question text what the decision costs to get wrong (what breaks, what is hard to undo), and write each option's `description` as the tradeoff it makes rather than its mechanics ('maximum control, but a bad edit breaks schema parsing', not 'edits the template').",
+      "The user arrives from another thread, possibly hours later, having read none of your transcript or child reports. In the body, give in order: the ticket or feature by its familiar name and what just happened; one real example (a named file, record or screen and what it literally shows today); what getting it wrong costs and why you cannot decide; your recommended option and why. Never omit the example or the recommendation in words, even when linking a document.",
+      "Never use agent-invented codes as names in the header, body or options ('D7', 'a1/a2', 'option (c)', 'must-fix #1', '§6.3', 'Phase 2', internal task/plan ids). Never leave an identifier, acronym or code symbol unexplained at first use ('the tenant-audit grid', not 'the DI grid'); explain it or omit it.",
+      "Never substitute a reference to a report, plan, review or earlier message for its substance ('the report warns', 'per the reviewer's third point'). Do not forward a child's questions or figures without explaining what they mean; name what each figure measures and its consequence for this decision.",
+      "Ask one question per call; two only if independent and each answerable alone. The schema's capacity of four is not permission to bundle more. For a decision document, use mdx-visual-recap with evidence beside each decision; ask only one pointer question and include the document's full absolute path in inline code, not a bare path in place of the summary.",
+      "Dismissal means proceed on the recommended option and say so; if none was marked, use your best judgement and state the assumption. It is not an explicit user selection.",
     ],
     parameters: {
       type: "object",
@@ -59,9 +60,14 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               header: {
                 type: "string",
                 minLength: 1,
-                description: "Short tab label for this question.",
+                description:
+                  "Short plain-words title of what is being decided; it must make sense with nothing else on screen.",
               },
-              question: { type: "string", minLength: 1 },
+              question: {
+                type: "string",
+                minLength: 1,
+                description: "Markdown body; follow the cold-reader guidelines above.",
+              },
               options: {
                 type: "array",
                 minItems: 2,
@@ -73,7 +79,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                       type: "string",
                       minLength: 1,
                       description:
-                        "Concise choice label. 'Other' and 'Type something.' are reserved for Loom's custom-answer control.",
+                        "Concise plain-words outcome. 'Other' and 'Type something.' are reserved for Loom's custom-answer control.",
                     },
                     description: {
                       type: "string",
@@ -81,12 +87,21 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                       description:
                         "The tradeoff this option makes — what the user gains and gives up — not a description of the mechanics.",
                     },
+                    recommended: {
+                      type: "boolean",
+                      description:
+                        "Set true on exactly one option per question: your pick, shown as a badge.",
+                    },
                   },
                   required: ["label", "description"],
                   additionalProperties: false,
                 },
               },
-              multiSelect: { type: "boolean", description: "Defaults to false." },
+              multiSelect: {
+                type: "boolean",
+                description:
+                  "True allows multiple selections; false allows one. Defaults to false.",
+              },
             },
             required: ["header", "question", "options"],
             additionalProperties: false,
@@ -449,7 +464,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "workstream_request_attention",
     label: "Request Workstream Attention",
     description:
-      "Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. A raise HOLDS the work for that human; it is your turn's last act, not a label you attach to a report. The flag clears the moment the thread resumes or reaches done/cancelled, so completing yourself in the same turn erases the hold and releases your dependents — the submit path refuses a plain completion while your raise stands, and a raise on an already-finished thread is refused too. To hand a report back with the hold intact, pass a short non-'done' outcome to workstream_submit: the report is recorded and you yield to your parent, flag standing. Two reasons: 'awaiting_acceptance' means a human (or the parent acting for the human) must accept this thread's output before its plan may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just goes 'done', which releases that reviewer). 'needs_guidance' means you cannot proceed without a human — including when what you want is answers to your questions, which is guidance, not acceptance.",
+      "Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. A raise HOLDS the work for that human; it is your turn's last act, not a label you attach to a report. The flag clears the moment the thread resumes or reaches done/cancelled, so completing yourself in the same turn erases the hold and releases your dependents — the submit path refuses a plain completion while your raise stands, and a raise on an already-finished thread is refused too. To hand a report back with the hold intact, pass a short non-'done' outcome to workstream_submit: the report is recorded and you yield to your parent, flag standing. Two reasons: 'awaiting_acceptance' means a human (or the parent acting for the human) must accept this thread's output before its plan may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just goes 'done', which releases that reviewer). 'needs_guidance' means you cannot proceed without a human — including when what you want is answers to your questions, which is guidance, not acceptance. Write the accompanying report for a human who has read none of this thread: explain the blocker without relying on internal labels or unseen reports.",
     promptSnippet:
       "raise a hold for a human — 'awaiting_acceptance' (your output needs sign-off before it may be done) or 'needs_guidance' (you're stuck, or you need answers); the raise ends your turn, so don't complete yourself in the same turn.",
     // No guidelines by design: the description states both reasons and the

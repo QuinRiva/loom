@@ -142,9 +142,12 @@ export function foldUserInputActivities(
       tone: "tool",
       summary: submittedAnswer
         ? "User input submitted"
-        : group.some((activity) => activity.kind === "user-input.resolved")
-          ? "User input dismissed"
-          : "User input requested",
+        : // loom: a set settled by a chat reply says so, not "dismissed".
+          payloads.some((payload) => payload.outcome === "superseded")
+          ? "User input superseded by a message"
+          : group.some((activity) => activity.kind === "user-input.resolved")
+            ? "User input dismissed"
+            : "User input requested",
       payload: answer,
     });
   }

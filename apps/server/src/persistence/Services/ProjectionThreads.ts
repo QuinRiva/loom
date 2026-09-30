@@ -123,6 +123,10 @@ export const ProjectionThread = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
+  // loom: the oldest open question's header and asked-at, folded beside the
+  // count (null when none is open). Optional so row literals need not name them.
+  pendingUserInputHeader: Schema.optional(Schema.NullOr(Schema.String)),
+  pendingUserInputSince: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasActionableProposedPlan: NonNegativeInt,
   cumulativeCostUsd: NonNegativeNumber,
   // Latest context-window snapshot (newest `context-window.updated` activity).

@@ -209,6 +209,7 @@ import {
 // hidden sub-threads surface through. All three live in loom-owned modules.
 import { filterRootThreads } from "../loom/rootThreads";
 import { buildGoalMenuItems, useLoomThreadGoalActions } from "../loom/sidebarGoalActions";
+import { PendingQuestionWaitAge } from "../loom/pendingUserInput"; // loom:
 import { useGoals } from "../goals/goalState";
 import { isStagedHandoffThread } from "./Sidebar.logic.loom";
 import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
@@ -1864,6 +1865,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             wrapper around the ticking duration would make
                             screen readers announce every second. */}
                           <span role="status">{topStatus.label}</span>
+                          {
+                            // loom: which question is waiting, and for how long.
+                            status === "input" && thread.pendingUserInputSince ? (
+                              <PendingQuestionWaitAge since={thread.pendingUserInputSince} />
+                            ) : null
+                          }
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -1954,7 +1961,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
-              {thread.branch ? (
+              {status === "input" && thread.pendingUserInputHeader ? (
+                // loom: except while a question waits — its header then matters
+                // more than the branch, and this is the row's only full-width
+                // line (the top-line pill has no room for it).
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-indigo-600/80 dark:text-indigo-300/80">
+                  {thread.pendingUserInputHeader}
+                </span>
+              ) : thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground/40">
