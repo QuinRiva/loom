@@ -209,7 +209,7 @@ packageExtensions:
 patchedDependencies:
   "@clerk/expo@4.6.8": patches/@clerk__expo@4.6.8.patch
   # loom: pi-coding-agent patch (fork-only dependency)
-  "@earendil-works/pi-coding-agent@0.87.1": patches/@earendil-works__pi-coding-agent@0.87.1.patch
+  "@earendil-works/pi-coding-agent@0.99.2": patches/@earendil-works__pi-coding-agent@0.99.2.patch
   "@effect/vitest@4.0.0-rc.115": patches/@effect__vitest@4.0.0-rc.115.patch
   "@expo/metro-config@57.0.12": patches/@expo__metro-config@57.0.12.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch
