@@ -1,4 +1,6 @@
 /// <reference lib="webworker" />
+import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links";
+
 import type { PlanSections } from "./headingAnchors";
 import { compilePlanDocument, compilePlanSection } from "./mdxCompileOptions";
 
@@ -22,6 +24,8 @@ export interface CompileRequest {
   /** One section slice for a question "peek" rather than a whole document:
    * heading ids are not stamped and no section bounds come back. */
   section?: boolean;
+  /** The project's reference-link rules (`.t3code/links.json`). */
+  referenceLinks?: ReadonlyArray<ReferenceLinkRule> | undefined;
 }
 
 export type CompileResponse =
@@ -29,10 +33,10 @@ export type CompileResponse =
   | { id: number; ok: false; error: string };
 
 self.addEventListener("message", (event: MessageEvent<CompileRequest>) => {
-  const { id, source, section } = event.data;
+  const { id, source, section, referenceLinks } = event.data;
   const compiled = section
     ? compilePlanSection(source).then((code) => ({ code, sections: {} }))
-    : compilePlanDocument(source);
+    : compilePlanDocument(source, referenceLinks);
   void compiled.then(
     ({ code, sections }) => {
       const response: CompileResponse = { id, ok: true, code, sections };

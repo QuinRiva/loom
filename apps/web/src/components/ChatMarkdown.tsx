@@ -180,6 +180,9 @@ import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell, useProjects } from "../state/entities";
+import { useReferenceLinkRules } from "../loom/referenceLinks"; // loom:
+import { remarkReferenceLinks } from "../loom/remarkReferenceLinks"; // loom:
+import type { PluggableList } from "unified"; // loom:
 import { serverEnvironment } from "../state/server";
 import { shellEnvironment } from "../state/shell";
 import { assetEnvironment } from "../state/assets";
@@ -3545,13 +3548,18 @@ function ChatMarkdown({
     props.isStreaming === true &&
     extraRemarkPlugins.length === 0 &&
     /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
+  const referenceLinkRules = useReferenceLinkRules(); // loom: project ticket/PR links
   const remarkPlugins = useMemo(
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
       ...extraRemarkPlugins,
+      // loom: after extraRemarkPlugins, so a caller's own autolinks win.
+      ...(referenceLinkRules
+        ? [[remarkReferenceLinks, { rules: referenceLinkRules }] satisfies PluggableList[number]]
+        : []),
       ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),
     ],
-    [extraRemarkPlugins, incrementalParsing, lineBreaks],
+    [extraRemarkPlugins, incrementalParsing, lineBreaks, referenceLinkRules],
   );
   // loom: prose path scanning runs last, after sanitisation, so its injected
   // (trusted) nodes survive; it is appended only once streaming completes, so a

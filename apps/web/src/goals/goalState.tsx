@@ -5,6 +5,7 @@
  * environments by `goalsAtom`; these hooks/components replace the old
  * file-index polling client.
  */
+import { LinkifiedText } from "../loom/referenceLinks";
 import { useAtomValue } from "@effect/atom-react";
 import { useMemo } from "react";
 
@@ -59,7 +60,7 @@ export function TaskTree({
             </span>
             {/* Chips flow with the text so a long task wraps as one paragraph. */}
             <span className={task.done ? "text-muted-foreground line-through" : undefined}>
-              {task.text}
+              <LinkifiedText text={task.text} />
               {anchors?.get(task.id)?.map((thread) => (
                 <TaskThreadChip key={thread.id} thread={thread} />
               ))}

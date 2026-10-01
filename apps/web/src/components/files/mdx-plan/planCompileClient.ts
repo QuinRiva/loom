@@ -1,3 +1,5 @@
+import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links";
+
 import CompileWorker from "./compileWorker?worker";
 import type { PlanSections } from "./headingAnchors";
 import {
@@ -49,12 +51,13 @@ function getCompileWorker(): Worker | null {
 async function compile(
   source: string,
   section: boolean,
+  referenceLinks?: ReadonlyArray<ReferenceLinkRule>,
 ): Promise<{ code: string; sections: PlanSections }> {
   const worker = getCompileWorker();
   if (!worker) {
     return section
       ? { code: await compilePlanSection(source), sections: {} }
-      : compilePlanDocument(source);
+      : compilePlanDocument(source, referenceLinks);
   }
   const id = ++requestCounter;
   return new Promise((resolve, reject) => {
@@ -62,7 +65,7 @@ async function compile(
       if (response.ok) resolve({ code: response.code, sections: response.sections });
       else reject(new Error(response.error));
     });
-    const request: CompileRequest = { id, source, section };
+    const request: CompileRequest = { id, source, section, referenceLinks };
     worker.postMessage(request);
   });
 }
@@ -71,8 +74,9 @@ async function compile(
  * section, which a question "peek" slices with. */
 export async function loadPlanDocument(
   source: string,
+  referenceLinks?: ReadonlyArray<ReferenceLinkRule>,
 ): Promise<{ Component: PlanMdxComponent; sections: PlanSections }> {
-  const { code, sections } = await compile(source, false);
+  const { code, sections } = await compile(source, false, referenceLinks);
   return { Component: await runPlanModule(code), sections };
 }
 

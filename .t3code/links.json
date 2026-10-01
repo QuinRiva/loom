@@ -1,0 +1,8 @@
+{
+  "links": [
+    {
+      "pattern": "(?<![\\w/&])#([1-9]\\d{0,4})\\b",
+      "url": "https://github.com/QuinRiva/loom/issues/$1"
+    }
+  ]
+}

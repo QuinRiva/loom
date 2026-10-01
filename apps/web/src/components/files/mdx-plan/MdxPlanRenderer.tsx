@@ -10,6 +10,7 @@ import {
 import { LoaderCircle } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { useReferenceLinkRules } from "~/loom/referenceLinks";
 
 import { PlanPeekContext } from "./blocks/questionRefs";
 import type { PlanSections } from "./headingAnchors";
@@ -180,6 +181,7 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
   const [error, setError] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
+  const referenceLinks = useReferenceLinkRules();
   const peekDocument = useMemo(
     () => ({ source, sections: content?.sections ?? {}, components: PLAN_BLOCK_COMPONENTS }),
     [source, content],
@@ -189,7 +191,7 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
     let active = true;
     setError(null);
     setCompiling(true);
-    void loadPlanDocument(source)
+    void loadPlanDocument(source, referenceLinks)
       .then((compiled) => {
         if (active) {
           setContent(compiled);
@@ -206,7 +208,7 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
     return () => {
       active = false;
     };
-  }, [source]);
+  }, [source, referenceLinks]);
 
   useEffect(() => {
     if (!containerRef.current) return;

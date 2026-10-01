@@ -61,6 +61,7 @@ import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
 import { NOTIFY_PAIR_WINDOW_MS } from "@t3tools/shared/notify";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
+import { resolveReferenceLinks } from "@t3tools/shared/t3codeConfig"; // loom:
 import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -751,7 +752,11 @@ function mapProjectShellRow(
   row: Schema.Schema.Type<typeof ProjectionProjectDbRowSchema>,
   repositoryIdentity: OrchestrationProject["repositoryIdentity"],
 ): OrchestrationProjectShell {
+  // loom: `.t3code/links.json` is re-read per shell build (a few stat-sized
+  // reads), so an edit lands on the next snapshot/upsert without a restart.
+  const referenceLinks = resolveReferenceLinks(row.workspaceRoot);
   return {
+    ...(referenceLinks?.length ? { referenceLinks } : {}), // loom:
     id: row.projectId,
     title: row.title,
     workspaceRoot: row.workspaceRoot,

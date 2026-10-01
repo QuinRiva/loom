@@ -746,6 +746,18 @@ export const LoomReadModelFields = {
   goals: Schema.Array(OrchestrationGoal),
 } as const;
 
+// One `.t3code/links.json` rule: text matching `pattern` (a JS regex source)
+// renders as a link to `url`, with `$0` (whole match) / `$1`… substituted.
+export const ProjectReferenceLink = Schema.Struct({ pattern: Schema.String, url: Schema.String });
+export type ProjectReferenceLink = typeof ProjectReferenceLink.Type;
+
+// Spread into `OrchestrationProjectShell`.
+export const LoomProjectShellFields = {
+  // The project's `.t3code/links.json` rules, resolved server-side from the
+  // workspace root (walking up); absent when the project declares none.
+  referenceLinks: Schema.optional(Schema.Array(ProjectReferenceLink)),
+} as const;
+
 // Spread into `OrchestrationShellSnapshot`.
 export const LoomShellSnapshotFields = {
   goals: Schema.Array(OrchestrationGoalShell),
