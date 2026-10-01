@@ -1726,6 +1726,7 @@ describe("startup stale session reconciliation", () => {
           getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
           listPendingPeerMessages: () => Effect.succeed([]),
+          hasToolActivityReferencingThread: () => Effect.succeed(false),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -3125,6 +3126,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -3252,6 +3254,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -3399,6 +3402,7 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
               } satisfies OrchestrationLeanShellSnapshot),
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
             listPendingPeerMessages: () => Effect.succeed([]),
+            hasToolActivityReferencingThread: () => Effect.succeed(false),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
           } as unknown as ProjectionSnapshotQueryShape;
@@ -3495,6 +3499,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -3626,6 +3631,7 @@ describe("awaiting_input parent wake (full dispatcher layer)", () => {
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       // The heartbeat keeps advancing while the tool call blocks — the measured
       // reality that makes the frozen-executing fallback unreachable here. If the
       // wake depended on quiet, this stub would silence it.
@@ -3796,6 +3802,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       // Heartbeat frozen at epoch: quiet time === TestClock time.
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
@@ -4004,6 +4011,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -4112,6 +4120,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -4308,6 +4317,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -4913,6 +4923,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -5065,6 +5076,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -5338,6 +5350,7 @@ describe("fan-in settlement releases dependents", () => {
           getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
           listPendingPeerMessages: () => Effect.succeed([]),
+          hasToolActivityReferencingThread: () => Effect.succeed(false),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -5400,6 +5413,9 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
       maxCreatedAt: string | null;
       heartbeatAt: string | null;
     },
+    // The parent's own tool activity that references a child (the evidence the
+    // already-seen query matches), honouring its strictly-after-`since` bound.
+    seen: ReadonlyArray<{ threadId: ThreadId; referencedThreadId: ThreadId; at: string }> = [],
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
@@ -5427,6 +5443,19 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: (input: {
+        threadId: ThreadId;
+        referencedThreadId: ThreadId;
+        since: string;
+      }) =>
+        Effect.succeed(
+          seen.some(
+            (s) =>
+              s.threadId === input.threadId &&
+              s.referencedThreadId === input.referencedThreadId &&
+              s.at > input.since,
+          ),
+        ),
       getActivityFreshnessByThreadId: () => Effect.succeed(freshness()),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -5642,6 +5671,138 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
       ),
   );
 
+  // Already-seen suppression: the parent learned of the completion itself (a
+  // `workstream_list`, a report read) after the child went terminal, so the
+  // digest item is dropped and the durable marker written in its place. The
+  // evidence must be the parent's, about THIS child, and after the terminal
+  // time (the later of the outcome and the lane change).
+  const reportedAt = "2026-06-24T01:00:00.000Z";
+  const terminalChild = shell({
+    id: A as unknown as string,
+    parentThreadId: PARENT_ID,
+    planLane: "done",
+    planLaneSince: reportedAt,
+    lastOutcome: {
+      outcome: "done",
+      decision: "resolve",
+      round: 0,
+      at: reportedAt,
+      recordedByEventId: EventId.make("22222222-2222-2222-2222-222222222222"),
+    } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
+  });
+  const runWithEvidence = (
+    child: OrchestrationThreadLeanShell,
+    seen: ReadonlyArray<{ threadId: ThreadId; referencedThreadId: ThreadId; at: string }>,
+  ) =>
+    Effect.gen(function* () {
+      const dispatched: Array<OrchestrationCommand> = [];
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+      const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([parent, child]);
+      yield* Effect.gen(function* () {
+        const dispatcher = yield* WorkstreamDispatcher;
+        yield* dispatcher.start();
+        yield* dispatcher.drain;
+      }).pipe(
+        Effect.provide(
+          WorkstreamDispatcherLive.pipe(
+            Layer.provide(buildDeps(ref, dispatched, new Set(), events, freshAt(now), seen)),
+          ),
+        ),
+      );
+      return dispatched;
+    });
+  const childMarkers = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+        c.type === "thread.activity.append" && c.threadId === A,
+    );
+
+  effectIt.effect("seen by the parent after it went terminal: marker written, no digest wake", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched = yield* runWithEvidence(terminalChild, [
+          { threadId: PARENT_ID, referencedThreadId: A, at: "2026-06-24T01:00:30.000Z" },
+        ]);
+        expect(parentWakes(dispatched)).toHaveLength(0);
+        const markers = childMarkers(dispatched);
+        expect(markers).toHaveLength(1);
+        expect(markers[0]!.commandId).toBe(
+          childReportedCommandId(A, terminalEpisodeKey(terminalChild)),
+        );
+        expect(markers[0]!.activity.summary).toContain("already seen by the parent");
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "evidence before the terminal time, from another thread, or about another child: still woken",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          for (const seen of [
+            // A `workstream_list` the parent ran BEFORE the child finished.
+            [{ threadId: PARENT_ID, referencedThreadId: A, at: "2026-06-24T00:59:59.000Z" }],
+            // Some other thread referencing the child.
+            [{ threadId: B, referencedThreadId: A, at: "2026-06-24T01:00:30.000Z" }],
+            // The parent referencing a different child.
+            [{ threadId: PARENT_ID, referencedThreadId: B, at: "2026-06-24T01:00:30.000Z" }],
+            [],
+          ]) {
+            const dispatched = yield* runWithEvidence(terminalChild, seen);
+            const wakes = parentWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            expect(wakes[0]!.message.text).toContain(A);
+            expect(childMarkers(dispatched)[0]!.activity.summary).toContain(
+              "reported to the parent",
+            );
+          }
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "terminal time is the LATER of outcome and lane change: a look between the two is not evidence",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Submitted (yielded) at 01:00, lane set done at 02:00 (accept / human):
+          // the parent's 01:30 look predates the terminal lane.
+          const child = { ...terminalChild, planLaneSince: "2026-06-24T02:00:00.000Z" };
+          const look = (at: string) => [{ threadId: PARENT_ID, referencedThreadId: A, at }];
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T01:30:00.000Z"))),
+          ).toHaveLength(1);
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T02:00:01.000Z"))),
+          ).toHaveLength(0);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "a look during an in-flight fan-in is not evidence: a failed merge still wakes the parent",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Submitted at 01:00, fan-in settled `failed` at 03:00: the parent's
+          // 02:30 look saw `done` but could not know the merge would fail.
+          const child = {
+            ...terminalChild,
+            isolation: "isolated" as const,
+            fanInState: "failed" as const,
+            faninSince: "2026-06-24T03:00:00.000Z",
+          };
+          const look = (at: string) => [{ threadId: PARENT_ID, referencedThreadId: A, at }];
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T02:30:00.000Z"))),
+          ).toHaveLength(1);
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T03:00:01.000Z"))),
+          ).toHaveLength(0);
+        }),
+      ),
+  );
+
   effectIt.effect(
     "a done isolated child with fan-in still pending is held back until it settles",
     () =>
@@ -5786,6 +5947,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -5925,6 +6087,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -6424,6 +6587,7 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -6740,6 +6904,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
           getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
           listPendingPeerMessages: () => Effect.succeed([]),
+          hasToolActivityReferencingThread: () => Effect.succeed(false),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -7071,6 +7236,7 @@ describe("notify_thread deferred-delivery rail", () => {
             })),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
           listPendingPeerMessages: () => Ref.get(pendingRef),
+          hasToolActivityReferencingThread: () => Effect.succeed(false),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -7471,6 +7637,7 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
           if (input.passCalls) input.passCalls.count += 1;
           return [];
         }),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -7759,6 +7926,7 @@ describe("deadlock notice (full dispatcher layer, issue #280)", () => {
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;

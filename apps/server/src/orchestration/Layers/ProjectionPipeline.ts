@@ -2204,6 +2204,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;
           if (turnId === null || event.payload.session.status !== "running") {
+            // loom: a turn-start requested while a turn was already running was
+            // steered into that turn and never gets its own `turn.started`, so
+            // the turn's end (often a provider `ready`, which below must not
+            // clear a pending launch) is the last moment its row means anything.
+            // Left behind, it wedges the idle gate until the next human message.
+            const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+              threadId: event.payload.threadId,
+            });
+            if (
+              Option.isSome(pendingTurnStart) &&
+              settledTurnStateForSessionStatus(event.payload.session.status) !== null &&
+              (yield* projectionTurnRepository.listRunningByThreadId({
+                threadId: event.payload.threadId,
+              })).some(
+                (turn) =>
+                  turn.turnId !== null &&
+                  turn.startedAt !== null &&
+                  turn.startedAt <= pendingTurnStart.value.requestedAt,
+              )
+            ) {
+              yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+                threadId: event.payload.threadId,
+              });
+            }
             if (
               (event.payload.session.status === "ready" &&
                 event.commandId?.startsWith("server:provider-session-set:") === true) ||

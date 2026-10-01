@@ -2256,11 +2256,13 @@ const make = Effect.gen(function* () {
   // the CHILD under kind `workstream.child-reported`, which the activity-
   // freshness query excludes (`kind NOT LIKE 'workstream.%'`), so it never
   // perturbs the child's idle/stall episode keys. Dispatched after the wake
-  // (wake-before-markers); idempotent — a re-dispatch under the same id is a
-  // no-op that writes no second row.
+  // (wake-before-markers), or with `via: "seen"` INSTEAD of one when the parent
+  // already saw the completion itself; idempotent — a re-dispatch under the same
+  // id is a no-op that writes no second row.
   const dispatchChildReportedMarker = Effect.fn("dispatchChildReportedMarker")(function* (
     child: OrchestrationThreadLeanShell,
     episode: string,
+    via: "digest" | "seen",
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
@@ -2271,8 +2273,11 @@ const make = Effect.gen(function* () {
         id: EventId.make(yield* crypto.randomUUIDv4),
         tone: "info",
         kind: "workstream.child-reported",
-        summary: `Terminal status (${child.planLane}) reported to the parent orchestrator.`,
-        payload: { parentId: child.parentThreadId, episode, planLane: child.planLane },
+        summary:
+          via === "digest"
+            ? `Terminal status (${child.planLane}) reported to the parent orchestrator.`
+            : `Terminal status (${child.planLane}) already seen by the parent orchestrator; not re-reported.`,
+        payload: { parentId: child.parentThreadId, episode, planLane: child.planLane, via },
         turnId: null,
         createdAt: now,
       },
@@ -2313,7 +2318,10 @@ const make = Effect.gen(function* () {
   // their `childWakeCommandId`. Idempotent via `deliverOnce`.
   const recordDigestMarker = (entry: PendingDigestEntry) =>
     entry.kind === "terminal"
-      ? dedup.deliverOnce(entry.marker, dispatchChildReportedMarker(entry.child, entry.episode))
+      ? dedup.deliverOnce(
+          entry.marker,
+          dispatchChildReportedMarker(entry.child, entry.episode, "digest"),
+        )
       : dedup.deliverOnce(
           entry.marker,
           dispatchDigestExtraMarker(entry.child, entry.kind, entry.marker),
@@ -2418,6 +2426,29 @@ const make = Effect.gen(function* () {
     );
   });
 
+  // Has the parent observably seen this terminal child ITSELF — the rails above
+  // only know their own deliveries, but an orchestrator mid-turn routinely
+  // learns of a completion by `workstream_list`, reading the report, or acting
+  // on the child, and a digest turn after that is a full model call for news it
+  // already integrated. Evidence must be the PARENT's own tool activity, after
+  // the child went terminal, naming THIS child (what counts:
+  // `hasToolActivityReferencingThread`). "Terminal" is the LATEST of its report,
+  // its terminal lane (a human-set lane or an accept-after-yield) and its fan-in
+  // settling: a look during an in-flight merge cannot know it failed, and a
+  // failed fan-in's only parent notice is this digest item.
+  const parentAlreadySawTerminal = (child: OrchestrationThreadLeanShell, parentId: ThreadId) =>
+    projectionSnapshotQuery.hasToolActivityReferencingThread({
+      threadId: parentId,
+      referencedThreadId: child.id,
+      // File name only: `ls` output carries no directory.
+      reportFileName: child.reportPath?.slice(child.reportPath.lastIndexOf("/") + 1) ?? null,
+      since:
+        [child.lastOutcome?.at, child.planLaneSince, child.faninSince]
+          .filter((at) => at != null)
+          .toSorted()
+          .at(-1) ?? child.updatedAt,
+    });
+
   // Terminal-child delta collection (two-tier, design §4.2/§4.3): terminal
   // children are now FYI, so instead of an immediate wake this stashes every
   // newly-reportable terminal child into the per-pass pending-digest map. The
@@ -2458,6 +2489,12 @@ const make = Effect.gen(function* () {
         // process. Not a delivery of THIS marker — so `markSuppressed`, not
         // `deliverOnce`.
         yield* dedup.markSuppressed(marker);
+        continue;
+      }
+      // Seen by the parent itself: write the durable marker (survives restart,
+      // short-circuits `alreadyHandled` on later passes) instead of a digest item.
+      if (yield* parentAlreadySawTerminal(child, child.parentThreadId)) {
+        yield* dedup.deliverOnce(marker, dispatchChildReportedMarker(child, episode, "seen"));
         continue;
       }
       stashPending(pending, child.parentThreadId, {

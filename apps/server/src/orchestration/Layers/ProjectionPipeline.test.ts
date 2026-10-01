@@ -4694,6 +4694,100 @@ it.layer(makeProjectionPipelinePrefixedTestLayer("t3-pending-turn-terminal-test-
         assert.deepEqual(pendingRows, [{ messageId: "new-message" }]);
       }),
     );
+
+    // loom: incident 2026-09-30 — both threads see a provider-originated `ready`;
+    // only the row requested mid-turn (a steer) may be cleared by it.
+    it.effect("clears a steer's pending row at turn end but keeps a genuine launch's", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const turnStartRequested = (threadId: ThreadId, messageId: string, at: string) =>
+          eventStore.append({
+            type: "thread.turn-start-requested",
+            eventId: EventId.make(`evt-request-${messageId}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: at,
+            commandId: CommandId.make(`cmd-request-${messageId}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-request-${messageId}`),
+            metadata: {},
+            payload: {
+              threadId,
+              messageId: MessageId.make(messageId),
+              runtimeMode: "full-access",
+              createdAt: at,
+            },
+          });
+        const providerSessionSet = (
+          threadId: ThreadId,
+          status: "running" | "ready",
+          activeTurnId: TurnId | null,
+          at: string,
+        ) =>
+          eventStore.append({
+            type: "thread.session-set",
+            eventId: EventId.make(`evt-session-${threadId}-${at}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: at,
+            // The turn-end `ready` comes from ingestion, not the server reactor.
+            commandId: CommandId.make(`provider:pi-event-${threadId}-${at}:thread-session-set`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`provider:${threadId}-${at}`),
+            metadata: {},
+            payload: {
+              threadId,
+              session: {
+                threadId,
+                status,
+                providerName: "pi",
+                runtimeMode: "full-access",
+                activeTurnId,
+                lastError: null,
+                updatedAt: at,
+              },
+            },
+          });
+
+        // Steer: a human message lands mid-turn and is folded into that turn.
+        const steered = ThreadId.make("thread-steer-leak");
+        yield* turnStartRequested(steered, "steer-launch", "2026-09-30T06:36:00.000Z");
+        yield* providerSessionSet(
+          steered,
+          "running",
+          TurnId.make("turn-steered-into"),
+          "2026-09-30T06:36:01.000Z",
+        );
+        yield* turnStartRequested(steered, "steer-message", "2026-09-30T06:42:29.000Z");
+        yield* providerSessionSet(steered, "ready", null, "2026-09-30T06:54:52.000Z");
+
+        // Genuine launch: requested while idle; a provider `ready` (e.g. a late
+        // named completion) before `turn.started` must not drop it.
+        const launched = ThreadId.make("thread-genuine-launch");
+        yield* turnStartRequested(launched, "first-launch", "2026-09-30T07:00:00.000Z");
+        yield* providerSessionSet(
+          launched,
+          "running",
+          TurnId.make("turn-first"),
+          "2026-09-30T07:00:01.000Z",
+        );
+        yield* providerSessionSet(launched, "ready", null, "2026-09-30T07:05:00.000Z");
+        yield* turnStartRequested(launched, "second-launch", "2026-09-30T07:06:00.000Z");
+        yield* providerSessionSet(launched, "ready", null, "2026-09-30T07:06:01.000Z");
+
+        yield* projectionPipeline.bootstrap;
+
+        const pendingRows = yield* sql<{ readonly messageId: string }>`
+          SELECT pending_message_id AS "messageId"
+          FROM projection_turns
+          WHERE thread_id IN (${steered}, ${launched})
+            AND turn_id IS NULL
+        `;
+        assert.deepEqual(pendingRows, [{ messageId: "second-launch" }]);
+      }),
+    );
   },
 );
 

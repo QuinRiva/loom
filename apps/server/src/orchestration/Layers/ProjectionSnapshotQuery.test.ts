@@ -859,6 +859,64 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  // loom: a leaked pending row (requested before the thread's last turn ended)
+  // must not hold the idle gate; a live one must, including mid-turn.
+  it.effect("ignores pending turn-starts that predate the thread's last settled turn", () =>
+    Effect.gen(function* () {
+      const query = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const turn = (
+        threadId: string,
+        turnId: string | null,
+        state: string,
+        requestedAt: string,
+        completedAt: string | null,
+      ) => sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, pending_message_id, assistant_message_id, state,
+          requested_at, started_at, completed_at, checkpoint_files_json
+        )
+        VALUES (
+          ${threadId}, ${turnId}, ${turnId === null ? `message-${threadId}` : null}, NULL,
+          ${state}, ${requestedAt}, ${turnId === null ? null : requestedAt}, ${completedAt}, '[]'
+        )
+      `;
+      // Steered into a turn that has since ended: stale.
+      yield* turn(
+        "pending-stale",
+        "turn-a",
+        "completed",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:54:52.000Z",
+      );
+      yield* turn("pending-stale", null, "pending", "2026-09-30T06:42:29.000Z", null);
+      // Requested after the last turn ended: a genuine launch awaiting turn.started.
+      yield* turn(
+        "pending-live",
+        "turn-b",
+        "completed",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:54:52.000Z",
+      );
+      yield* turn("pending-live", null, "pending", "2026-09-30T06:55:00.000Z", null);
+      // Mid-turn placeholder checkpoints stamp a running turn's completed_at;
+      // that is not a turn end.
+      yield* turn(
+        "pending-mid-turn",
+        "turn-c",
+        "running",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:50:00.000Z",
+      );
+      yield* turn("pending-mid-turn", null, "pending", "2026-09-30T06:42:29.000Z", null);
+
+      const pending = yield* query.getPendingTurnStartThreadIds();
+      assert.isFalse(pending.has(ThreadId.make("pending-stale")));
+      assert.isTrue(pending.has(ThreadId.make("pending-live")));
+      assert.isTrue(pending.has(ThreadId.make("pending-mid-turn")));
+    }),
+  );
+
   it.effect("reads one turn-start message without decoding unrelated history", () =>
     Effect.gen(function* () {
       const query = yield* ProjectionSnapshotQuery;
@@ -3207,6 +3265,108 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           ThreadId.make("thread-fresh"),
         );
         assert.equal(freshness.maxCreatedAt, "2026-05-01T00:00:00.000Z");
+      }),
+  );
+
+  // loom: the dispatcher's already-seen evidence "must be the parent's own tool
+  // activity, after `since`, naming THIS child" / not a mere mention.
+  it.effect(
+    "already-seen evidence: only the parent's post-terminal looks at this child count",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        const child = "child-seen-0000";
+        const since = "2026-05-01T01:00:00.000Z";
+        const seen = () =>
+          snapshotQuery.hasToolActivityReferencingThread({
+            threadId: ThreadId.make("parent-seen"),
+            referencedThreadId: ThreadId.make(child),
+            reportFileName: `${child}.md`,
+            since,
+          });
+        const insert = (
+          id: string,
+          thread: string,
+          kind: string,
+          summary: string,
+          payload: unknown,
+          at: string,
+        ) =>
+          sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          ) VALUES (${id}, ${thread}, NULL, 'tool', ${kind}, ${summary}, ${JSON.stringify(payload)}, NULL, ${at})
+        `;
+        const listing = { data: { content: [{ type: "text", text: `- ${child} lane=done` }] } };
+
+        yield* sql`DELETE FROM projection_thread_activities`;
+        // Non-evidence: a list BEFORE the child finished; another thread's list; a
+        // control-plane row; a consult of the child, even one citing its report (its
+        // fork may predate the completion); a bash whose output merely mentions the id.
+        yield* insert(
+          "n1",
+          "parent-seen",
+          "tool.completed",
+          "workstream_list",
+          listing,
+          "2026-05-01T00:59:00.000Z",
+        );
+        yield* insert(
+          "n2",
+          "other-thread",
+          "tool.completed",
+          "workstream_list",
+          listing,
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n3",
+          "parent-seen",
+          "workstream.child-reported",
+          "marker",
+          { child },
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n4",
+          "parent-seen",
+          "tool.completed",
+          "consult_thread",
+          { data: { rawInput: { threadId: child }, content: [{ text: `${child}.md` }] } },
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n5",
+          "parent-seen",
+          "tool.completed",
+          "bash",
+          { data: { rawInput: { command: "ls" }, content: [{ text: child }] } },
+          "2026-05-01T01:05:00.000Z",
+        );
+        assert.equal(yield* seen(), false);
+
+        // Evidence, each on its own: a post-terminal list, acting on the child,
+        // seeing its report file (matched by file name: `ls` prints no directory).
+        for (const [summary, payload] of [
+          ["workstream_list", listing],
+          ["workstream_set_lane", { data: { rawInput: { threadId: child, planLane: "done" } } }],
+          [
+            "bash",
+            { data: { rawInput: { command: "ls /reports" }, content: [{ text: `${child}.md` }] } },
+          ],
+        ] as const) {
+          yield* insert(
+            "e",
+            "parent-seen",
+            "tool.completed",
+            summary,
+            payload,
+            "2026-05-01T01:05:00.000Z",
+          );
+          assert.equal(yield* seen(), true, summary);
+          yield* sql`DELETE FROM projection_thread_activities WHERE activity_id = 'e'`;
+        }
       }),
   );
 

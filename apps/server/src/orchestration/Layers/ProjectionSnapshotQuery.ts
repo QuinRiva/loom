@@ -3346,9 +3346,24 @@ pending_approval_requests AS (
     Result: ProjectionThreadIdLookupRowSchema,
     execute: () =>
       sql`
-        SELECT DISTINCT thread_id AS "threadId"
-        FROM projection_turns
-        WHERE turn_id IS NULL
+        SELECT DISTINCT pending.thread_id AS "threadId"
+        FROM projection_turns AS pending
+        WHERE pending.turn_id IS NULL
+          -- loom: a row requested before the thread's last turn ended cannot be
+          -- a launch still awaiting its turn; it leaked (e.g. a steer folded into
+          -- that turn) and must not wedge the idle gate. Accepted residual: a real
+          -- launch requested inside the turn-end race (pi opens a fresh turn, or
+          -- the request is stamped before the turn-end event but ordered after
+          -- it) reads idle until turn.started; under pi a wake landing then is
+          -- folded into that turn as a steer, not an abort.
+          AND NOT EXISTS (
+            SELECT 1
+            FROM projection_turns AS settled
+            WHERE settled.thread_id = pending.thread_id
+              AND settled.turn_id IS NOT NULL
+              AND settled.state <> 'running'
+              AND settled.completed_at > pending.requested_at
+          )
       `,
   });
 
@@ -3554,6 +3569,57 @@ pending_approval_requests AS (
           maxCreatedAt: row.maxCreatedAt,
           heartbeatAt: row.heartbeatAt,
         })),
+      );
+
+  // loom: the dispatcher's already-seen evidence (see the service doc). Bounded
+  // by `(thread_id, created_at)`; `kind LIKE 'tool.%'` already keeps out the
+  // `workstream.%` control-plane rows. Only completed tool rows are persisted
+  // (no start time), so each clause must be evidence whose CONTENT reflects the
+  // state at completion. `consult_thread` never counts: its answer comes from a
+  // fork frozen at call START, so a consult spanning the completion would read
+  // as seen. Otherwise:
+  //  - a `workstream_list` listing the referenced thread (current lanes);
+  //  - any tool whose INPUT names it (set_lane / prompt / bash on its files);
+  //  - any payload naming its report file (written at submit, so seeing it
+  //    means the report exists). Matched by file name: some report paths are
+  //    stored absolute while `ls` output carries only the name.
+  // A mere mention elsewhere (another thread's consult answer, a session
+  // listing) is NOT evidence.
+  const getToolActivityReferencingThreadRow = SqlSchema.findOne({
+    Request: Schema.Struct({
+      threadId: ThreadId,
+      referencedThreadId: ThreadId,
+      reportFileName: Schema.NullOr(Schema.String),
+      since: Schema.String,
+    }),
+    Result: Schema.Struct({ seen: NonNegativeInt }),
+    execute: ({ threadId, referencedThreadId, reportFileName, since }) =>
+      sql`
+        SELECT EXISTS (
+          SELECT 1 FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+            AND created_at > ${since}
+            AND kind LIKE 'tool.%'
+            AND summary <> 'consult_thread'
+            AND (
+              (summary = 'workstream_list' AND instr(payload_json, ${referencedThreadId}) > 0)
+              OR instr(json_extract(payload_json, '$.data.rawInput'), ${referencedThreadId}) > 0
+              OR instr(payload_json, ${reportFileName}) > 0
+            )
+        ) AS "seen"
+      `,
+  });
+
+  const hasToolActivityReferencingThread: ProjectionSnapshotQueryShape["hasToolActivityReferencingThread"] =
+    (input) =>
+      getToolActivityReferencingThreadRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.hasToolActivityReferencingThread:query",
+            "ProjectionSnapshotQuery.hasToolActivityReferencingThread:decodeRow",
+          ),
+        ),
+        Effect.map((row) => row.seen > 0),
       );
 
   // Outstanding obligations on ONE thread, as a single aggregate row (the
@@ -6249,6 +6315,7 @@ pending_approval_requests AS (
     getDeletedThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
+    hasToolActivityReferencingThread, // loom:
     getOpenUserInputRequestIdsByThreadId,
     getInFlightToolByThreadId,
     getRecentToolActivityByThreadId,

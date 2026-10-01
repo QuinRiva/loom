@@ -613,6 +613,9 @@ export interface ProjectionSnapshotQueryShape {
    * pending-turn-start projection used by the D-notify idle gate: a parent is
    * not idle while it has a pending turn-start, even though `activeTurnId` is
    * still null in that window.
+   *
+   * loom: a row requested before the thread's latest settled turn ended is
+   * excluded — it cannot be awaiting a turn, so it must not wedge the gate.
    */
   readonly getPendingTurnStartThreadIds: () => Effect.Effect<
     ReadonlySet<ThreadId>,
@@ -692,6 +695,20 @@ export interface ProjectionSnapshotQueryShape {
   readonly getActivityFreshnessByThreadId: (
     threadId: ThreadId,
   ) => Effect.Effect<ProjectionActivityFreshness, ProjectionRepositoryError>;
+
+  /**
+   * loom: has `threadId`'s own tool activity observably seen `referencedThreadId`
+   * strictly after `since`? The dispatcher's already-seen check: an orchestrator
+   * that learned of a child's completion itself (a `workstream_list`, a read of
+   * its report, acting on it) is not woken for it again. What counts as evidence
+   * is decided in the query (see the layer).
+   */
+  readonly hasToolActivityReferencingThread: (input: {
+    readonly threadId: ThreadId;
+    readonly referencedThreadId: ThreadId;
+    readonly reportFileName: string | null;
+    readonly since: string;
+  }) => Effect.Effect<boolean, ProjectionRepositoryError>;
 
   /**
    * Read the set of agent-question requestIds still OPEN on a thread, folded
