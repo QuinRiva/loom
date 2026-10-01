@@ -254,11 +254,14 @@ export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvi
       ),
     );
 
+    /** Set by a failed query embed, cleared by the next success: one warning per outage. */
+    let queryWarned = false;
     const nearest = (query: string, k: number) =>
       Effect.gen(function* () {
         const current = state;
         if (!current?.provider || !current.identity) return undefined;
         const [embedded] = yield* current.provider.embed([query], "query");
+        queryWarned = false;
         const vector = normalise(embedded!);
         return [...current.vectors]
           .map(([threadId, candidate]) => {
@@ -274,9 +277,16 @@ export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvi
         Effect.timeoutOption(QUERY_TIMEOUT),
         Effect.map(Option.getOrUndefined),
         Effect.catch((error) =>
-          Effect.logWarning("thread-search.embedder.query-failed", { error: String(error) }).pipe(
-            Effect.as(undefined),
-          ),
+          queryWarned
+            ? Effect.succeed(undefined)
+            : Effect.sync(() => (queryWarned = true)).pipe(
+                Effect.andThen(
+                  Effect.logWarning("thread-search.embedder.query-failed", {
+                    error: String(error),
+                  }),
+                ),
+                Effect.as(undefined),
+              ),
         ),
       );
 

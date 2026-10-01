@@ -55,9 +55,14 @@ export const toTerms = (query: string) => {
   return kept.length > 0 ? kept : all;
 };
 
-/** Each term quoted; the last one is a prefix so results move while typing. */
+/**
+ * Each term quoted; the last one is a prefix so results move while typing — from
+ * 3 characters, as expanding a 1–2 character prefix costs 0.5–1 s.
+ */
 const matchTerms = (terms: ReadonlyArray<string>) =>
-  terms.map((term, index) => `"${term}"${index === terms.length - 1 ? "*" : ""}`);
+  terms.map(
+    (term, index) => `"${term}"${index === terms.length - 1 && term.length >= 3 ? "*" : ""}`,
+  );
 
 /**
  * Every column a document needs comes from its rowid (kind = rowid % 8, owner =
