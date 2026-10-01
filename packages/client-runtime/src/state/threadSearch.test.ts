@@ -103,6 +103,12 @@ it("merges successful environments and silently ignores failures", () => {
         source: "user",
         snippet: "needle",
         messageCreatedAt: "2026-07-30T00:00:00.000Z",
+        // loom: root-describing fields
+        title: "Thread A",
+        archivedAt: null,
+        updatedAt: "2026-07-30T00:00:00.000Z",
+        matchedThreadId: null,
+        matchedThreadTitle: null,
       },
     ],
   };

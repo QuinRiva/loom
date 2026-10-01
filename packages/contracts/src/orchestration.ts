@@ -2403,7 +2403,17 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
-export const OrchestrationThreadSearchSource = Schema.Literals(["user", "assistant"]);
+// loom: every text unit the thread-search index holds; clients label the excerpt by source.
+export const OrchestrationThreadSearchSource = Schema.Literals([
+  "user",
+  "assistant",
+  "title",
+  "purpose",
+  "brief",
+  "goal",
+  "task",
+  "report",
+]);
 export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSource.Type;
 
 // The server's SQLite client is synchronous and single-connection. Bound both
@@ -2420,6 +2430,14 @@ export const OrchestrationThreadSearchMatch = Schema.Struct({
   source: OrchestrationThreadSearchSource,
   snippet: Schema.String.check(Schema.isMaxLength(240)),
   messageCreatedAt: Schema.NullOr(IsoDateTime),
+  // loom: `threadId` is always a ROOT thread. These describe it, so a client can
+  // draw a result row without a shell (archived roots have none)…
+  title: Schema.String,
+  archivedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+  // loom: …and name the sub-thread that produced the hit (null when the root did).
+  matchedThreadId: Schema.NullOr(ThreadId),
+  matchedThreadTitle: Schema.NullOr(Schema.String),
 });
 export type OrchestrationThreadSearchMatch = typeof OrchestrationThreadSearchMatch.Type;
 
