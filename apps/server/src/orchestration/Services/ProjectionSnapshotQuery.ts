@@ -694,6 +694,20 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<ProjectionActivityFreshness, ProjectionRepositoryError>;
 
   /**
+   * loom: has `threadId`'s own tool activity observably seen `referencedThreadId`
+   * strictly after `since`? The dispatcher's already-seen check: an orchestrator
+   * that learned of a child's completion itself (a `workstream_list`, a read of
+   * its report, acting on it) is not woken for it again. What counts as evidence
+   * is decided in the query (see the layer).
+   */
+  readonly hasToolActivityReferencingThread: (input: {
+    readonly threadId: ThreadId;
+    readonly referencedThreadId: ThreadId;
+    readonly reportFileName: string | null;
+    readonly since: string;
+  }) => Effect.Effect<boolean, ProjectionRepositoryError>;
+
+  /**
    * Read the set of agent-question requestIds still OPEN on a thread, folded
    * terminal-wins from its activity log (`@t3tools/shared/openRequests`). The
    * shell carries only the count; the dispatcher's `awaiting_input` parent wake

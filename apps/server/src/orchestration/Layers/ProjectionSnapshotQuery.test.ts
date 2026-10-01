@@ -3210,6 +3210,108 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }),
   );
 
+  // loom: the dispatcher's already-seen evidence "must be the parent's own tool
+  // activity, after `since`, naming THIS child" / not a mere mention.
+  it.effect(
+    "already-seen evidence: only the parent's post-terminal looks at this child count",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        const child = "child-seen-0000";
+        const since = "2026-05-01T01:00:00.000Z";
+        const seen = () =>
+          snapshotQuery.hasToolActivityReferencingThread({
+            threadId: ThreadId.make("parent-seen"),
+            referencedThreadId: ThreadId.make(child),
+            reportFileName: `${child}.md`,
+            since,
+          });
+        const insert = (
+          id: string,
+          thread: string,
+          kind: string,
+          summary: string,
+          payload: unknown,
+          at: string,
+        ) =>
+          sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          ) VALUES (${id}, ${thread}, NULL, 'tool', ${kind}, ${summary}, ${JSON.stringify(payload)}, NULL, ${at})
+        `;
+        const listing = { data: { content: [{ type: "text", text: `- ${child} lane=done` }] } };
+
+        yield* sql`DELETE FROM projection_thread_activities`;
+        // Non-evidence: a list BEFORE the child finished; another thread's list; a
+        // control-plane row; a consult of the child (its fork may predate the
+        // completion); a bash whose output merely mentions the id.
+        yield* insert(
+          "n1",
+          "parent-seen",
+          "tool.completed",
+          "workstream_list",
+          listing,
+          "2026-05-01T00:59:00.000Z",
+        );
+        yield* insert(
+          "n2",
+          "other-thread",
+          "tool.completed",
+          "workstream_list",
+          listing,
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n3",
+          "parent-seen",
+          "workstream.child-reported",
+          "marker",
+          { child },
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n4",
+          "parent-seen",
+          "tool.completed",
+          "consult_thread",
+          { data: { rawInput: { threadId: child } } },
+          "2026-05-01T01:05:00.000Z",
+        );
+        yield* insert(
+          "n5",
+          "parent-seen",
+          "tool.completed",
+          "bash",
+          { data: { rawInput: { command: "ls" }, content: [{ text: child }] } },
+          "2026-05-01T01:05:00.000Z",
+        );
+        assert.equal(yield* seen(), false);
+
+        // Evidence, each on its own: a post-terminal list, acting on the child,
+        // seeing its report file (matched by file name: `ls` prints no directory).
+        for (const [summary, payload] of [
+          ["workstream_list", listing],
+          ["workstream_set_lane", { data: { rawInput: { threadId: child, planLane: "done" } } }],
+          [
+            "bash",
+            { data: { rawInput: { command: "ls /reports" }, content: [{ text: `${child}.md` }] } },
+          ],
+        ] as const) {
+          yield* insert(
+            "e",
+            "parent-seen",
+            "tool.completed",
+            summary,
+            payload,
+            "2026-05-01T01:05:00.000Z",
+          );
+          assert.equal(yield* seen(), true, summary);
+          yield* sql`DELETE FROM projection_thread_activities WHERE activity_id = 'e'`;
+        }
+      }),
+  );
+
   it.effect(
     "in-flight tool detection treats an updated lifecycle row as running until completed",
     () =>

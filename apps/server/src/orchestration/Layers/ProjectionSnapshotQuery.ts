@@ -3556,6 +3556,59 @@ pending_approval_requests AS (
         })),
       );
 
+  // loom: the dispatcher's already-seen evidence (see the service doc). Bounded
+  // by `(thread_id, created_at)`; `kind LIKE 'tool.%'` already keeps out the
+  // `workstream.%` control-plane rows. Only completed tool rows are persisted
+  // (no start time), so each clause must be evidence whose CONTENT reflects the
+  // state at completion:
+  //  - a `workstream_list` listing the referenced thread (current lanes);
+  //  - any tool whose INPUT names it (set_lane / prompt / bash on its files) —
+  //    except `consult_thread`, whose answer comes from a fork frozen at call
+  //    START, so a consult spanning the completion would read as seen;
+  //  - any payload naming its report file (written at submit, so seeing it
+  //    means the report exists). Matched by file name: some report paths are
+  //    stored absolute while `ls` output carries only the name.
+  // A mere mention elsewhere (another thread's consult answer, a session
+  // listing) is NOT evidence.
+  const getToolActivityReferencingThreadRow = SqlSchema.findOne({
+    Request: Schema.Struct({
+      threadId: ThreadId,
+      referencedThreadId: ThreadId,
+      reportFileName: Schema.NullOr(Schema.String),
+      since: Schema.String,
+    }),
+    Result: Schema.Struct({ seen: NonNegativeInt }),
+    execute: ({ threadId, referencedThreadId, reportFileName, since }) =>
+      sql`
+        SELECT EXISTS (
+          SELECT 1 FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+            AND created_at > ${since}
+            AND kind LIKE 'tool.%'
+            AND (
+              (summary = 'workstream_list' AND instr(payload_json, ${referencedThreadId}) > 0)
+              OR (
+                summary <> 'consult_thread'
+                AND instr(json_extract(payload_json, '$.data.rawInput'), ${referencedThreadId}) > 0
+              )
+              OR instr(payload_json, ${reportFileName}) > 0
+            )
+        ) AS "seen"
+      `,
+  });
+
+  const hasToolActivityReferencingThread: ProjectionSnapshotQueryShape["hasToolActivityReferencingThread"] =
+    (input) =>
+      getToolActivityReferencingThreadRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.hasToolActivityReferencingThread:query",
+            "ProjectionSnapshotQuery.hasToolActivityReferencingThread:decodeRow",
+          ),
+        ),
+        Effect.map((row) => row.seen > 0),
+      );
+
   // Outstanding obligations on ONE thread, as a single aggregate row (the
   // provider-session reaper's liveness guard). Every branch is an indexed
   // point/range read: the thread's own row by primary key, its direct children
@@ -6249,6 +6302,7 @@ pending_approval_requests AS (
     getDeletedThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
+    hasToolActivityReferencingThread, // loom:
     getOpenUserInputRequestIdsByThreadId,
     getInFlightToolByThreadId,
     getRecentToolActivityByThreadId,
