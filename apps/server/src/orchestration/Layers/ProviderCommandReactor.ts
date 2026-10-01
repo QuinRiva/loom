@@ -953,13 +953,12 @@ const make = Effect.gen(function* () {
         // the workstream tools behind it.
         const roleProjectRoot = effectiveCwd ?? process.cwd();
         // loom: `/retro` fork-reviewer — its policy is SERVER-OWNED, never the
-        // reviewed project's. The generic path reads `roles/<role>.md` from the
-        // fork's inherited worktree, which belongs to the project under review;
-        // resolving there would silently drop the retro policy for any project
-        // (or older worktree) without the file — leaving only the base work-
-        // model prompt, whose worktree-write rule forbids the reviewer's one
-        // deliverable (~/loom-retro/). One server-owned overlay for all
-        // projects instead.
+        // reviewed project's, and it is injected here rather than shipped as a
+        // built-in `roles/` file because a built-in would list it in every
+        // spawn catalogue. The generic path would also compose in the reviewed
+        // project's `.t3code/roles/` addition. Without this text the reviewer
+        // has only the base work-model prompt, whose worktree-write rule forbids
+        // its one deliverable (~/loom-retro/).
         const roleOverlay =
           thread.role === RETRO_REVIEWER_ROLE
             ? // No tools restriction, so its effective surface keeps
@@ -969,8 +968,8 @@ const make = Effect.gen(function* () {
         // The defined-roles catalogue: only threads whose EFFECTIVE surface
         // includes workstream_spawn (no overlay at all, no tool restriction, or
         // `toolsets:` naming delegation). A leaf that enables delegation
-        // mid-session gets the catalogue pointer from the enable_toolset result
-        // instead — roles/ is listable on demand.
+        // mid-session gets the built-in role names from the enable_toolset result
+        // instead.
         const roleCatalogue =
           roleOverlay === undefined || roleOverlay.delegation
             ? listRoleOverlays({ projectRoot: roleProjectRoot })
@@ -978,7 +977,8 @@ const make = Effect.gen(function* () {
         const rolesBlock =
           roleCatalogue.length > 0
             ? [
-                "Available roles for spawning children (defined in roles/). A free-text role may still be used when none fits:",
+                // loom: built-ins ship with the server; projects add under .t3code/roles/.
+                "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
                 ...roleCatalogue.map((role) => `- ${role.name}: ${role.summary}`),
               ].join("\n")
             : undefined;

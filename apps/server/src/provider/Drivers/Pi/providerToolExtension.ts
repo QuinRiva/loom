@@ -49,13 +49,14 @@ export interface LocalProviderToolDef extends Pick<
 
 /** Paid only on use (zero resident cost): the doctrine a leaf needs the moment it
  * becomes a parent, referencing the canonical brief contract rather than
- * restating it. */
-const DELEGATION_TOOLSET_DIGEST = `Delegation tools are now active. The essentials before you spawn:
+ * restating it. Exported so roleOverlay.test.ts can hold its role names to the
+ * shipped built-ins. */
+export const DELEGATION_TOOLSET_DIGEST = `Delegation tools are now active. The essentials before you spawn:
 
 - You are now a parent. A child inherits NONE of your conversation — only the brief you write. The contract on workstream_spawn's \`brief\` parameter says what a child already inherits and what still belongs in the brief — read it before writing your first brief.
 - One self-contained sub-task → workstream_spawn (role + title + purpose + brief). More than a couple of dependent pieces → workstream_scaffold lays out the shape (keys + blockedBy/gate edges), then workstream_brief each node in topological order. Pass staged: true to hold a graph for review; workstream_release runs it.
 - Review gates: spawn the reviewer with gate: { rework: coderId }; wire anything downstream on the reviewer, never the coder alone.
-- Defined roles live in roles/*.md at your project root — list that directory for the catalogue. A free-text role is allowed when none fits.
+- The built-in roles are orchestrator, planner, coder, reviewer, researcher, assessor and shipper; a project may add more under \`.t3code/roles/\` (walk up from your worktree). A free-text role is allowed when none fits.
 - Children report back via their own workstream_submit and you are woken when one finishes or needs you. Steer with workstream_prompt, pause with workstream_stop, accept/abandon with workstream_set_lane.
 - These tools stay active for the rest of this session; re-enable after a restart if they go dormant.`;
 
