@@ -7,7 +7,7 @@ manager_sessions:
 
 # Thread content search: hybrid lexical + semantic search over root threads
 
-**Objective.** Carl types a few words he remembers about a piece of work — "sidebar v2 rehome", "slash commands in loom", "the model picker with duplicate names" — and the right **top-level thread** is in the first three results, whether it is active or archived, and whether the words came from its title, its goal, a child's brief, a child's report, something the agent said, or a paraphrase of any of those. Done means: the 57-query acceptance set in [Verification](#verification) clears its measured floor on a copy of Carl's real database (with the default local embedder: R@5 ≥ 70 % and MRR ≥ 0.50 on the 43 headline queries; 8/8 exact-identifier queries at #1), results appear within the existing 200 ms debounce on the sidebar, command palette and mobile, search keeps working (lexical-only) when the embedding model is unavailable, and the upstream `LIKE` scan is gone — not sitting beside the new path.
+**Objective.** Carl types a few words he remembers about a piece of work — "sidebar v2 rehome", "slash commands in loom", "the model picker with duplicate names" — and the right **top-level thread** is in the first three results, whether it is active or archived, and whether the words came from its title, its goal, a child's brief, a child's report, something the agent said, or a paraphrase of any of those. Done means: the 57-query acceptance set in [Verification](#verification) clears its measured floor on a copy of Carl's real database (with the default local embedder: R@5 ≥ 70 % and MRR ≥ 0.50 on the 43 headline queries; at least 7/8 exact-identifier queries at #1 and all 8 in the top 3), results appear within the existing 200 ms debounce on the sidebar, command palette and mobile, search keeps working (lexical-only) when the embedding model is unavailable, and the upstream `LIKE` scan is gone — not sitting beside the new path.
 
 **Evidence base** (read for defect-level detail this plan does not repeat): the search landscape report `/home/Carl/.t3/cockpit/userdata/workstream-reports/c2af4d05-d816-4ff7-8a5d-b9bcb9cf6af1.md`, the pi-session-search assessment `/home/Carl/.t3/cockpit/userdata/workstream-reports/065150b1-ecff-467c-b9bc-eb28381bd07e.md`, and the embedding-model benchmark `/home/Carl/.t3/cockpit/userdata/workstream-reports/01078735-7e35-4e58-9bcf-6620c377f452.md` (five models, two fusion variants, 57 queries). Every number below that is not from those reports was measured for this plan on this machine — the production VM, 16 vCPU Xeon, 62 GB RAM, no GPU — against the `VACUUM INTO` snapshot at `.t3/research/state.sqlite` (5 GB, gitignored, safe to delete).
 
@@ -379,8 +379,8 @@ A settings UI for the provider (v1 is file-edited like `rootCacheRetention`); pe
 <Table
   columns={["Provider", "43 headline queries — fused", "Exact-identifier group — fused", "Note"]}
   rows={[
-    ["local (bge-small, default)", "R@5 ≥ 70 %, MRR ≥ 0.50", "R@1 = 8/8", "Benchmark: R@5 70 %, MRR 0.52; exact 7/8 semantic-only → 8/8 after lexical fusion"],
-    ["none", "equals lexical-only: R@10 ≥ 40 %, MRR ≥ 0.27", "R@1 = 8/8", "Proves the fallback path is the full lexical answer"],
+    ["local (bge-small, default)", "R@5 ≥ 70 %, MRR ≥ 0.50", "R@1 ≥ 7/8, R@3 = 8/8", "Benchmark: R@5 70 %, MRR 0.52; exact R@1 7/8 fused (the miss is a fork sharing the target's transcript)"],
+    ["none", "equals lexical-only: R@10 ≥ 40 %, MRR ≥ 0.27", "R@1 ≥ 7/8, R@3 = 8/8", "Proves the fallback path is the full lexical answer (the miss: two roots both contain every query word)"],
     ["vertex (gemini-embedding-001)", "R@5 ≥ 80 %, MRR ≥ 0.58", "R@1 = 8/8", "Benchmark: R@5 81 %, MRR 0.60; run only when ADC is available"],
     ["openai-compatible", "no floor — depends on the model behind it", "R@1 = 8/8", "The harness still reports; the lexical side guarantees the identifier group"],
   ]}

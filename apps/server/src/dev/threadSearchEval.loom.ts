@@ -44,11 +44,12 @@ import { makeThreadSearch } from "../orchestration/Layers/ThreadSearch.loom.ts";
 import queries from "./threadSearchQueries.json" with { type: "json" };
 
 // The plan's floors, in whole percent as the plan reports them (30/43 is its "70 %").
-const FLOORS: Record<string, { r5?: number; r10?: number; mrr?: number }> = {
-  local: { r5: 70, mrr: 0.5 },
-  vertex: { r5: 80, mrr: 0.58 },
-  none: { r10: 40, mrr: 0.27 },
-  "openai-compatible": {},
+// Exact identifiers: all 8 in the top 3, and `exactR1` of them at #1.
+const FLOORS: Record<string, { r5?: number; r10?: number; mrr?: number; exactR1: number }> = {
+  local: { r5: 70, mrr: 0.5, exactR1: 7 },
+  vertex: { r5: 80, mrr: 0.58, exactR1: 8 },
+  none: { r10: 40, mrr: 0.27, exactR1: 7 },
+  "openai-compatible": { exactR1: 8 },
 };
 const percent = (count: number, n: number) => Math.round((100 * count) / n);
 
@@ -200,7 +201,8 @@ const main = Effect.gen(function* () {
       percent(headline.r10, headline.n) < floor.r10 &&
       `headline R@10 < ${floor.r10}%`,
     floor.mrr !== undefined && headline.mrr < floor.mrr && `headline MRR < ${floor.mrr}`,
-    exact.r1 < exact.n && `exact-identifier R@1 ${exact.r1}/${exact.n}`,
+    exact.r1 < floor.exactR1 && `exact-identifier R@1 ${exact.r1}/${exact.n} < ${floor.exactR1}`,
+    exact.r3 < exact.n && `exact-identifier R@3 ${exact.r3}/${exact.n}`,
   ].filter(Boolean);
   console.log(failures.length === 0 ? "\nPASS: floor cleared" : `\nFAIL: ${failures.join("; ")}`);
   if (failures.length > 0) process.exitCode = 1;
