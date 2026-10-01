@@ -37,15 +37,12 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "ask_user_question",
     label: "Ask User Question",
     description:
-      "Ask only for an irreversible, destructive or user-preference decision you cannot resolve from the request, codebase or prior context; otherwise state a reasonable assumption and proceed. Never ask to reconfirm scope or obtain approval you do not need. If you need human guidance but cannot frame options, use workstream_request_attention with needs_guidance instead. For coupled decisions, plan/design sign-off, or choices needing a walkthrough or supporting records, write an MDX decision document first; use this panel only to point at it.",
-    promptSnippet:
-      "irreversible, destructive or preference-dependent fork only; follow the tool description to choose panel, document or needs_guidance.",
+      "Use for an irreversible, destructive or preference-only decision not settled by the request, codebase or prior context; otherwise state an assumption and proceed. Never ask to reconfirm scope or for approval you do not need. Coupled decisions, plan/design sign-offs or choices needing a walkthrough or supporting records belong in an MDX decision document; ask only a pointer question. If you need human guidance but cannot frame options, use workstream_request_attention with needs_guidance.",
+    promptSnippet: "irreversible, destructive or preference-only decision; otherwise proceed.",
     promptGuidelines: [
-      "The user arrives from another thread, possibly hours later, having read none of your transcript or child reports. In the body, give in order: the ticket or feature by its familiar name and what just happened; one real example (a named file, record or screen and what it literally shows today); what getting it wrong costs and why you cannot decide; your recommended option and why. Never omit the example or the recommendation in words, even when linking a document.",
-      "Never use agent-invented codes as names in the header, body or options ('D7', 'a1/a2', 'option (c)', 'must-fix #1', '§6.3', 'Phase 2', internal task/plan ids). Never leave an identifier, acronym or code symbol unexplained at first use ('the tenant-audit grid', not 'the DI grid'); explain it or omit it.",
-      "Never substitute a reference to a report, plan, review or earlier message for its substance ('the report warns', 'per the reviewer's third point'). Do not forward a child's questions or figures without explaining what they mean; name what each figure measures and its consequence for this decision.",
-      "Ask one question per call; two only if independent and each answerable alone. The schema's capacity of four is not permission to bundle more. For a decision document, use mdx-visual-recap with evidence beside each decision; ask only one pointer question and include the document's full absolute path in inline code, not a bare path in place of the summary.",
-      "Dismissal means proceed on the recommended option and say so; if none was marked, use your best judgement and state the assumption. It is not an explicit user selection.",
+      "The user has read none of this thread or child reports. Even a document pointer needs, in order: the situation (what you are working on in plain words, the ticket reference so they can open it, and what just happened), one real example (named file/record/screen and literal content), stakes and why their decision is needed, then your pick with its reason.",
+      "No internal shorthand as names ('D7', 'a1', 'must-fix #1'); no unexplained acronyms or symbols ('DI'); no references in place of substance ('per the report'). Explain what quoted figures measure and why they matter. A child's report is written for you, not the user: translate before you ask, and never pass on its questions, labels or ids as they stand.",
+      "One question; two only if independent and answerable alone, despite the schema's capacity of four. Use mdx-visual-recap for decision documents, with evidence beside each decision.",
     ],
     parameters: {
       type: "object",
@@ -60,13 +57,12 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               header: {
                 type: "string",
                 minLength: 1,
-                description:
-                  "Short plain-words title of what is being decided; it must make sense with nothing else on screen.",
+                description: "Short decision title, understandable alone.",
               },
               question: {
                 type: "string",
                 minLength: 1,
-                description: "Markdown body; follow the cold-reader guidelines above.",
+                description: "Markdown body.",
               },
               options: {
                 type: "array",
@@ -79,18 +75,17 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                       type: "string",
                       minLength: 1,
                       description:
-                        "Concise plain-words outcome. 'Other' and 'Type something.' are reserved for Loom's custom-answer control.",
+                        "Plain-words outcome. 'Other' and 'Type something.' are reserved.",
                     },
                     description: {
                       type: "string",
                       minLength: 1,
-                      description:
-                        "The tradeoff this option makes — what the user gains and gives up — not a description of the mechanics.",
+                      description: "What this option gains and gives up, not how it works.",
                     },
                     recommended: {
                       type: "boolean",
                       description:
-                        "Set true on exactly one option per question: your pick, shown as a badge.",
+                        "Mark exactly one option: your pick and the default on dismissal.",
                     },
                   },
                   required: ["label", "description"],
@@ -99,8 +94,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               },
               multiSelect: {
                 type: "boolean",
-                description:
-                  "True allows multiple selections; false allows one. Defaults to false.",
+                description: "Allow multiple selections. Defaults to false.",
               },
             },
             required: ["header", "question", "options"],
