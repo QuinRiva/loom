@@ -33,7 +33,6 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { carriedAccounts, makeCliproxyApi } from "./cliproxyApi.ts"; // loom: carriedAccounts
 
@@ -64,7 +63,6 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
   const settingsService = yield* ServerSettingsService;
-  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),
@@ -164,8 +162,10 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((wait) =>
         Effect.sleep(Duration.toMillis(Duration.fromInputUnsafe(wait)) <= 0 ? "60 seconds" : wait),
       ),
-      Effect.andThen(backgroundPolicy.shouldRunScopeWork({ type: "provider-status" })),
-      Effect.flatMap((shouldRun) => (shouldRun ? refresh : Effect.void)),
+      // loom: no foreground-client gate (upstream's `shouldRunScopeWork`):
+      // failover health is fed from these readings while a hub owns Claude
+      // quota (SubscriptionUsagePoller), so they must stay fresh unattended.
+      Effect.andThen(refresh),
       Effect.ignoreCause({ log: true }),
     ),
   ).pipe(Effect.forkScoped);
