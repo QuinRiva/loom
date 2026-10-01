@@ -399,9 +399,19 @@ export function applyServerSettingsPatch(
     ...(patch.workstreamModelProfiles !== undefined
       ? { workstreamModelProfiles: patch.workstreamModelProfiles }
       : {}),
-    // loom: thread-search embedder replaces wholesale (tagged union).
+    // loom: thread-search embedder replaces wholesale (tagged union). Clients only
+    // ever see a redacted apiKey, so an openai-compatible patch without one keeps
+    // the stored key.
     ...(patch.threadSearchEmbedding !== undefined
-      ? { threadSearchEmbedding: patch.threadSearchEmbedding }
+      ? {
+          threadSearchEmbedding:
+            patch.threadSearchEmbedding.provider === "openai-compatible" &&
+            patch.threadSearchEmbedding.apiKey === undefined &&
+            current.threadSearchEmbedding.provider === "openai-compatible" &&
+            current.threadSearchEmbedding.apiKey !== undefined
+              ? { ...patch.threadSearchEmbedding, apiKey: current.threadSearchEmbedding.apiKey }
+              : patch.threadSearchEmbedding,
+        }
       : {}),
     // loom: provider failover config.
     // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
