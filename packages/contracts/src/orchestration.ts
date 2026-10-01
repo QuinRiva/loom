@@ -37,6 +37,7 @@ import {
   LoomReadModelFields,
   MessageOrigin,
   LoomSessionFields,
+  LoomProjectShellFields, // loom:
   LoomShellSnapshotFields,
   LoomShellStreamEventMembers,
   LoomThreadCreateCommandFields,
@@ -885,6 +886,7 @@ export const OrchestrationReadModel = Schema.Struct({
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
 
 export const OrchestrationProjectShell = Schema.Struct({
+  ...LoomProjectShellFields, // loom:
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,

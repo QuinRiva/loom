@@ -79,6 +79,10 @@
       "types": "./src/shipPolicy.ts",
       "import": "./src/shipPolicy.ts"
     },
+    "./t3codeConfig": {
+      "types": "./src/t3codeConfig.ts",
+      "import": "./src/t3codeConfig.ts"
+    },
     "./Net": {
       "types": "./src/Net.ts",
       "import": "./src/Net.ts"

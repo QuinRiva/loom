@@ -1,3 +1,4 @@
+import { ReferenceLinksProvider } from "../loom/referenceLinks"; // loom:
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -10116,7 +10117,8 @@ export default function ChatView(props: ChatViewProps) {
     addFolders: (folders) => composerRef.current?.addDroppedFolders(folders),
   });
 
-  return (
+  const chatView = (
+    // loom: wrapped below in the project's reference-link rules
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
       <Dialog
         open={
@@ -10886,5 +10888,12 @@ export default function ChatView(props: ChatViewProps) {
         />
       )}
     </div>
+  );
+  // loom: the project's `.t3code/links.json` rules for every agent-text surface
+  // in this view (timeline, panels, documents).
+  return (
+    <ReferenceLinksProvider rules={activeProject?.referenceLinks}>
+      {chatView}
+    </ReferenceLinksProvider>
   );
 }

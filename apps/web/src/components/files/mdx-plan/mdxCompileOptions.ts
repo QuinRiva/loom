@@ -2,6 +2,10 @@ import { compile, evaluate, run, type CompileOptions, type EvaluateOptions } fro
 import * as runtime from "react/jsx-runtime";
 import remarkGfm from "remark-gfm";
 
+import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links";
+
+import { remarkReferenceLinks } from "~/loom/remarkReferenceLinks";
+
 import { type PlanSections, remarkHeadingAnchors } from "./headingAnchors";
 import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
 import { PLAN_BLOCK_TAGS } from "./planBlockTags";
@@ -162,8 +166,21 @@ export async function compilePlanMdx(source: string): Promise<PlanMdxComponent> 
  */
 export async function compilePlanDocument(
   source: string,
+  referenceLinks?: ReadonlyArray<ReferenceLinkRule>,
 ): Promise<{ code: string; sections: PlanSections }> {
-  const file = await compile(source, planCompileOptions);
+  // The project's `.t3code/links.json` rules linkify prose after the guards.
+  const file = await compile(
+    source,
+    referenceLinks?.length
+      ? {
+          ...planCompileOptions,
+          remarkPlugins: [
+            ...PLAN_REMARK_PLUGINS,
+            [remarkReferenceLinks, { rules: referenceLinks }],
+          ],
+        }
+      : planCompileOptions,
+  );
   return { code: String(file), sections: (file.data.planSections as PlanSections) ?? {} };
 }
 

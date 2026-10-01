@@ -1,6 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
+import { readT3codeConfig } from "./t3codeConfig.ts";
 
 /**
  * Who may merge a PR to the project's main branch. The default is `"human"`: a
@@ -17,24 +15,13 @@ export type MergeAuthority = "agent" | "human";
  * more conservative.
  */
 export function resolveMergeAuthority(cwd: string): MergeAuthority {
-  for (let dir = NodePath.resolve(cwd); ;) {
-    let raw: string | undefined;
-    try {
-      raw = NodeFS.readFileSync(NodePath.join(dir, ".t3code", "ship.json"), "utf8");
-    } catch {
-      raw = undefined;
-    }
-    if (raw !== undefined) {
-      try {
-        const authority = (JSON.parse(raw) as { merge?: { authority?: unknown } }).merge?.authority;
-        return authority === "agent" ? "agent" : "human";
-      } catch {
-        return "human";
-      }
-    }
-    const parent = NodePath.dirname(dir);
-    if (parent === dir) return "human";
-    dir = parent;
+  try {
+    const raw = readT3codeConfig(cwd, "ship.json") ?? "{}";
+    return (JSON.parse(raw) as { merge?: { authority?: unknown } }).merge?.authority === "agent"
+      ? "agent"
+      : "human";
+  } catch {
+    return "human";
   }
 }
 

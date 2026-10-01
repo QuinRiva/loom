@@ -43,6 +43,10 @@
       "types": "./src/markdownImages.ts",
       "default": "./src/markdownImages.ts"
     },
+    "./reference-links": {
+      "types": "./src/referenceLinks.ts",
+      "default": "./src/referenceLinks.ts"
+    },
     "./markdown-links": {
       "types": "./src/markdownLinks.ts",
       "default": "./src/markdownLinks.ts"

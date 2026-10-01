@@ -38,6 +38,17 @@ not enforcement: a human-only repo should also protect `main` so an agent token
 _cannot_ merge regardless of prompts. `pnpm ship` is loom's own path and loom is
 `agent`, so the sequence below merges.
 
+### Reference links (`.t3code/links.json`)
+
+The same walk-up resolves `.t3code/links.json`, which turns ticket keys and
+PR/issue numbers in rendered agent output (chat, MDX documents, goal task text)
+into links: `{ "links": [{ "pattern": "<JS regex>", "url": "…$0…$1…" }] }`,
+where `$0` is the whole match and `$1`… its groups, and the first rule wins at a
+position. Code spans, code blocks and authored links are never linkified. The
+server re-reads it into each project shell, so an edit lands on the next
+snapshot; loom's own file maps `#N` to this repo's issues (GitHub redirects a
+PR number to the PR).
+
 ## Before you ship
 
 - **Ship only once the change is approved.** Landing work on `main` is not a
