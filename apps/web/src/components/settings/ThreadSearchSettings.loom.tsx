@@ -178,7 +178,9 @@ function EmbeddingRow({ saved }: { saved: ThreadSearchEmbeddingSettings }) {
       shown.provider === "none" ||
       scope.kind === "project" ||
       scope.kind === "checkout" ? null : (
-        <div className="mt-3 grid max-w-2xl gap-3 pb-3.5 sm:grid-cols-2">
+        // Keyed by provider: the inputs are uncontrolled, so a shared field key
+        // (`model`) would keep the previous provider's value on screen.
+        <div key={shown.provider} className="mt-3 grid max-w-2xl gap-3 pb-3.5 sm:grid-cols-2">
           {PROVIDERS[shown.provider].fields.map(({ key, label, hint }) => (
             <label key={key} className="space-y-1 text-xs text-muted-foreground">
               <span>{label}</span>
