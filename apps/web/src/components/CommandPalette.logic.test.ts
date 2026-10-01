@@ -600,6 +600,8 @@ describe("buildThreadActionItems", () => {
         source: "assistant",
         snippet: "The relay reconnect is now bounded.",
         query: "reconnect",
+        matchedThreadTitle: null,
+        position: 0,
       }),
       runThread: async (_thread) => undefined,
     });
@@ -609,6 +611,8 @@ describe("buildThreadActionItems", () => {
       source: "assistant",
       snippet: "The relay reconnect is now bounded.",
       query: "reconnect",
+      matchedThreadTitle: null,
+      position: 0,
     });
     expect(item?.description).toBe("T3 Code · #feat/search");
   });

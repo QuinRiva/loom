@@ -18,10 +18,9 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { canSnooze, effectiveSnoozed, threadWokeAt } from "@t3tools/shared/threadSettled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
-import {
-  threadSearchMatchKey,
-  type EnvironmentThreadSearchMatch,
-} from "@t3tools/client-runtime/state/thread-search";
+import { type EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
+import { rankSidebarSearchResults } from "../loom/threadSearch"; // loom: content search order
+import { ArchivedSearchResultRow } from "../loom/ArchivedSearchResultRow"; // loom
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -167,7 +166,6 @@ import {
   resolveSidebarDropVerb,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
-  searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   shouldRecedeSidebarThread,
@@ -2169,11 +2167,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
             </span>
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt
-                match={{
-                  source: props.searchMatch.source,
-                  snippet: props.searchMatch.snippet,
-                  query: props.searchQuery,
-                }}
+                match={{ ...props.searchMatch, query: props.searchQuery }} // loom
               />
             ) : null}
           </span>
@@ -2719,22 +2713,22 @@ export default function Sidebar() {
   );
   // useThreadSearch owns the debounce and the two-character floor.
   const threadSearch = useThreadSearch(searchEnvironmentIds, threadSearchQuery);
-  const threadSearchMatchByKey = useMemo(
-    () =>
-      new Map(threadSearch.matches.map((match) => [threadSearchMatchKey(match), match] as const)),
-    [threadSearch.matches],
-  );
+  // loom: the server's root-only fused order, archived roots included; local
+  // title matches follow (see loom/threadSearch.ts).
   const threadSearchResults = useMemo(
     () =>
-      searchSidebarThreads(
-        searchableThreads,
-        threadSearchQuery,
-        new Set(threadSearchMatchByKey.keys()),
-      ),
-    [searchableThreads, threadSearchQuery, threadSearchMatchByKey],
+      rankSidebarSearchResults({
+        threads: searchableThreads,
+        query: threadSearchQuery,
+        matches: threadSearch.matches,
+        isInScope: (match) =>
+          scopedProjectKeys === null ||
+          scopedProjectKeys.has(`${match.environmentId}:${match.projectId}`),
+      }),
+    [scopedProjectKeys, searchableThreads, threadSearchQuery, threadSearch.matches],
   );
   const threadSearchResultOrderKey = threadSearchResults
-    .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)))
+    .map((result) => scopedThreadKey(result.threadRef)) // loom
     .join("\0");
 
   useEffect(() => {
@@ -2997,9 +2991,10 @@ export default function Sidebar() {
     setActiveSearchResultIndex(0);
   }, []);
   const selectThreadSearchResult = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    // loom: archived results carry only the match, so select by ref.
+    (threadRef: ScopedThreadRef) => {
       clearThreadSearch();
-      navigateToThread(scopeThreadRef(thread.environmentId, thread.id));
+      navigateToThread(threadRef);
     },
     [clearThreadSearch, navigateToThread],
   );
@@ -3030,7 +3025,7 @@ export default function Sidebar() {
       if (event.key === "Enter") {
         event.preventDefault();
         const result = threadSearchResults[activeSearchResultIndex];
-        if (result) selectThreadSearchResult(result);
+        if (result) selectThreadSearchResult(result.threadRef); // loom
       }
     },
     [
@@ -4684,10 +4679,26 @@ export default function Sidebar() {
                   aria-label="Thread search results"
                   className="flex flex-col gap-px"
                 >
-                  {threadSearchResults.map((thread, index) => {
-                    const threadKey = scopedThreadKey(
-                      scopeThreadRef(thread.environmentId, thread.id),
-                    );
+                  {threadSearchResults.map(({ threadRef, thread, match }, index) => {
+                    const threadKey = scopedThreadKey(threadRef);
+                    // loom: an archived root has no shell; its row is drawn from the match.
+                    if (thread === null) {
+                      return (
+                        <ArchivedSearchResultRow
+                          key={threadKey}
+                          match={match}
+                          project={
+                            projectByKey.get(`${match.environmentId}:${match.projectId}`) ?? null
+                          }
+                          isHighlighted={activeSearchResultIndex === index}
+                          isRouteActive={routeThreadKey === threadKey}
+                          resultId={`sidebar-thread-search-result-${index}`}
+                          searchQuery={threadSearchQuery}
+                          onHighlight={() => setActiveSearchResultIndex(index)}
+                          onSelect={() => selectThreadSearchResult(threadRef)}
+                        />
+                      );
+                    }
                     return (
                       <SidebarSearchResultRow
                         key={threadKey}
@@ -4711,17 +4722,10 @@ export default function Sidebar() {
                         isHighlighted={activeSearchResultIndex === index}
                         isRouteActive={routeThreadKey === threadKey}
                         resultId={`sidebar-thread-search-result-${index}`}
-                        searchMatch={
-                          threadSearchMatchByKey.get(
-                            threadSearchMatchKey({
-                              environmentId: thread.environmentId,
-                              threadId: thread.id,
-                            }),
-                          ) ?? null
-                        }
+                        searchMatch={match}
                         searchQuery={threadSearchQuery}
                         onHighlight={() => setActiveSearchResultIndex(index)}
-                        onSelect={() => selectThreadSearchResult(thread)}
+                        onSelect={() => selectThreadSearchResult(threadRef)}
                         onFileDropThreads={handleThreadFileDrop}
                       />
                     );
@@ -4733,7 +4737,8 @@ export default function Sidebar() {
                 role="status"
                 className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
               >
-                {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
+                {/* loom: content search covers more than messages */}
+                {threadSearch.isPending ? "Searching threads…" : "No threads found"}
               </p>
             )
           ) : null}
