@@ -73,7 +73,7 @@ this repo's fork/worktree gotchas) lives in
 [`docs/operations/shipping.md`](docs/operations/shipping.md) — the single source
 of truth. Run the mechanical sequence with `pnpm ship -m "<summary>"` (it is
 encoded in `scripts/ship.ts`); the `ship` skill loads the procedure inline and
-`roles/shipper.md` is the delegated path. In a workstream, spawn a `shipper`
+the `shipper` role is the delegated path. In a workstream, spawn a `shipper`
 child once the work is approved or ship inline via the `ship` skill; outside a
 workstream, follow the doc directly. Do not ship until the user has approved
 shipping the change.
