@@ -43,7 +43,7 @@ import {
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
-import { isThreadIdle } from "../threadIdle.ts";
+import { threadBusyReason } from "../threadIdle.ts"; // loom: reason feeds the deferral log
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -360,10 +360,21 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           const target = commandReadModel.threads.find(
             (thread) => thread.id === idleCommand.threadId,
           );
-          if (target === undefined || !isThreadIdle(target, pendingTurnStartThreadIds)) {
+          // loom: name why the gate held, so a wedged gate is visible in logs
+          // (a leaked pending row once stalled a parent silently for 16h).
+          const busyReason =
+            target === undefined
+              ? "thread-not-found"
+              : threadBusyReason(target, pendingTurnStartThreadIds);
+          if (target === undefined || busyReason !== null) {
+            yield* Effect.logDebug("idle-gated turn-start deferred", {
+              threadId: idleCommand.threadId,
+              commandId: idleCommand.commandId,
+              reason: busyReason,
+            });
             return yield* new OrchestrationCommandDeferredError({
               commandType: idleCommand.type,
-              detail: `Idle-gated turn-start for thread '${idleCommand.threadId}' deferred: target is not idle.`,
+              detail: `Idle-gated turn-start for thread '${idleCommand.threadId}' deferred: target is not idle (${busyReason}).`,
             });
           }
           // notify_thread (D3/D4): a peer-message delivery must NEVER re-engage a

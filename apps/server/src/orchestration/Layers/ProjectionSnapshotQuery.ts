@@ -3346,9 +3346,20 @@ pending_approval_requests AS (
     Result: ProjectionThreadIdLookupRowSchema,
     execute: () =>
       sql`
-        SELECT DISTINCT thread_id AS "threadId"
-        FROM projection_turns
-        WHERE turn_id IS NULL
+        SELECT DISTINCT pending.thread_id AS "threadId"
+        FROM projection_turns AS pending
+        WHERE pending.turn_id IS NULL
+          -- loom: a row requested before the thread's last turn ended cannot be
+          -- a launch still awaiting its turn; it leaked (e.g. a steer folded into
+          -- that turn) and must not wedge the idle gate.
+          AND NOT EXISTS (
+            SELECT 1
+            FROM projection_turns AS settled
+            WHERE settled.thread_id = pending.thread_id
+              AND settled.turn_id IS NOT NULL
+              AND settled.state <> 'running'
+              AND settled.completed_at > pending.requested_at
+          )
       `,
   });
 

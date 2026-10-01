@@ -613,6 +613,9 @@ export interface ProjectionSnapshotQueryShape {
    * pending-turn-start projection used by the D-notify idle gate: a parent is
    * not idle while it has a pending turn-start, even though `activeTurnId` is
    * still null in that window.
+   *
+   * loom: a row requested before the thread's latest settled turn ended is
+   * excluded — it cannot be awaiting a turn, so it must not wedge the gate.
    */
   readonly getPendingTurnStartThreadIds: () => Effect.Effect<
     ReadonlySet<ThreadId>,

@@ -24,10 +24,20 @@ export interface IdleGateThread {
 export const isThreadIdle = (
   thread: IdleGateThread,
   pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
-): boolean =>
-  !pendingTurnStartThreadIds.has(thread.id) &&
-  thread.session?.status !== "running" &&
-  (thread.session === null || thread.session.activeTurnId === null);
+): boolean => threadBusyReason(thread, pendingTurnStartThreadIds) === null;
+
+/** Which clause of {@link isThreadIdle} holds the thread busy (null = idle), for logs. */
+export const threadBusyReason = (
+  thread: IdleGateThread,
+  pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
+): "pending-turn-start" | "session-running" | "active-turn" | null =>
+  pendingTurnStartThreadIds.has(thread.id)
+    ? "pending-turn-start"
+    : thread.session?.status === "running"
+      ? "session-running"
+      : (thread.session?.activeTurnId ?? null) !== null
+        ? "active-turn"
+        : null;
 
 /**
  * Thread fork (MVP) — the lazy first-fork-launch gate. A forked child copies its

@@ -859,6 +859,64 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  // loom: a leaked pending row (requested before the thread's last turn ended)
+  // must not hold the idle gate; a live one must, including mid-turn.
+  it.effect("ignores pending turn-starts that predate the thread's last settled turn", () =>
+    Effect.gen(function* () {
+      const query = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const turn = (
+        threadId: string,
+        turnId: string | null,
+        state: string,
+        requestedAt: string,
+        completedAt: string | null,
+      ) => sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, pending_message_id, assistant_message_id, state,
+          requested_at, started_at, completed_at, checkpoint_files_json
+        )
+        VALUES (
+          ${threadId}, ${turnId}, ${turnId === null ? `message-${threadId}` : null}, NULL,
+          ${state}, ${requestedAt}, ${turnId === null ? null : requestedAt}, ${completedAt}, '[]'
+        )
+      `;
+      // Steered into a turn that has since ended: stale.
+      yield* turn(
+        "pending-stale",
+        "turn-a",
+        "completed",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:54:52.000Z",
+      );
+      yield* turn("pending-stale", null, "pending", "2026-09-30T06:42:29.000Z", null);
+      // Requested after the last turn ended: a genuine launch awaiting turn.started.
+      yield* turn(
+        "pending-live",
+        "turn-b",
+        "completed",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:54:52.000Z",
+      );
+      yield* turn("pending-live", null, "pending", "2026-09-30T06:55:00.000Z", null);
+      // Mid-turn placeholder checkpoints stamp a running turn's completed_at;
+      // that is not a turn end.
+      yield* turn(
+        "pending-mid-turn",
+        "turn-c",
+        "running",
+        "2026-09-30T06:36:00.000Z",
+        "2026-09-30T06:50:00.000Z",
+      );
+      yield* turn("pending-mid-turn", null, "pending", "2026-09-30T06:42:29.000Z", null);
+
+      const pending = yield* query.getPendingTurnStartThreadIds();
+      assert.isFalse(pending.has(ThreadId.make("pending-stale")));
+      assert.isTrue(pending.has(ThreadId.make("pending-live")));
+      assert.isTrue(pending.has(ThreadId.make("pending-mid-turn")));
+    }),
+  );
+
   it.effect("reads one turn-start message without decoding unrelated history", () =>
     Effect.gen(function* () {
       const query = yield* ProjectionSnapshotQuery;
