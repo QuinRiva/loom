@@ -14,6 +14,7 @@ import { makeProjectionSnapshotQuery } from "../../orchestration/Layers/Projecti
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../../orchestration/ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../../orchestration/ThreadPlanProgress.ts";
+import { ThreadEmbedderLive } from "../../orchestration/Layers/ThreadEmbedder.loom.ts";
 
 /**
  * Runs a repository constructor against the worker read lane. The substitution
@@ -44,6 +45,10 @@ export const ProjectionSnapshotQueryLanes = Layer.effect(
       getThreadRuntimeContext: inProcess.getThreadRuntimeContext,
     });
   }),
+).pipe(
+  // Thread search's semantic half. Its sweep writes on the default client; the
+  // lexical query and fusion run with the rest of `searchThreads` on the worker.
+  Layer.provide(ThreadEmbedderLive),
 );
 
 /**

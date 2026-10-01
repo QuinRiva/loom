@@ -21,6 +21,9 @@ allowBuilds:
   esbuild: true
   msw: false
   node-pty: true
+  # loom: thread-search embedder. The npm tarball ships the CPU binaries; the
+  # postinstall only downloads the CUDA provider, which loom never loads.
+  onnxruntime-node: false
   protobufjs: false
   sharp: true
   utf-8-validate: false

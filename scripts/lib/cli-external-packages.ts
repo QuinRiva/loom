@@ -43,6 +43,13 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   // becoming real if either is ever declared as a dependency.
   "bufferutil",
   "utf-8-validate",
+  // loom: thread search's default embedder. onnxruntime-node and sharp are
+  // native; transformers loads them by real path and is imported lazily, so an
+  // absent install degrades search to lexical-only.
+  "@huggingface/transformers",
+  "onnxruntime-",
+  "sharp",
+  "@img/",
 ] as const;
 
 export function isRuntimeExternalCliDependency(id: string): boolean {

@@ -1,0 +1,407 @@
+---
+manager_sessions:
+  - id: 79b4214b-178b-4f24-bf07-5c2b15b79c88
+    role: plan
+    authored_at: 2026-10-01T03:38:39.054Z
+---
+
+# Thread content search: hybrid lexical + semantic search over root threads
+
+**Objective.** Carl types a few words he remembers about a piece of work — "sidebar v2 rehome", "slash commands in loom", "the model picker with duplicate names" — and the right **top-level thread** is in the first three results, whether it is active or archived, and whether the words came from its title, its goal, a child's brief, a child's report, something the agent said, or a paraphrase of any of those. Done means: the 57-query acceptance set in [Verification](#verification) clears its measured floor on a copy of Carl's real database (with the default local embedder: R@5 ≥ 70 % and MRR ≥ 0.50 on the 43 headline queries; at least 7/8 exact-identifier queries at #1 and all 8 in the top 3), results appear within the existing 200 ms debounce on the sidebar, command palette and mobile, search keeps working (lexical-only) when the embedding model is unavailable, and the upstream `LIKE` scan is gone — not sitting beside the new path.
+
+**Evidence base** (read for defect-level detail this plan does not repeat): the search landscape report `/home/Carl/.t3/cockpit/userdata/workstream-reports/c2af4d05-d816-4ff7-8a5d-b9bcb9cf6af1.md`, the pi-session-search assessment `/home/Carl/.t3/cockpit/userdata/workstream-reports/065150b1-ecff-467c-b9bc-eb28381bd07e.md`, and the embedding-model benchmark `/home/Carl/.t3/cockpit/userdata/workstream-reports/01078735-7e35-4e58-9bcf-6620c377f452.md` (five models, two fusion variants, 57 queries). Every number below that is not from those reports was measured for this plan on this machine — the production VM, 16 vCPU Xeon, 62 GB RAM, no GPU — against the `VACUUM INTO` snapshot at `.t3/research/state.sqlite` (5 GB, gitignored, safe to delete).
+
+<Callout tone="decision">
+**Recommendation: evolve upstream's `orchestration.searchThreads` in place onto two loom-owned structures in `state.sqlite` — an FTS5 index kept current by SQLite triggers, and one embedding vector per root thread produced by a pluggable embedding provider (default: in-process `bge-small-en-v1.5`) — fused by reciprocal rank fusion in which the lexical side votes only for full-term matches, ranked per root.** The FTS5 table (`loom_thread_search`, porter-stemmed, one row per text unit: title, purpose, brief, goal, task, user message, final assistant message, workstream report) is populated by triggers on the projection tables plus one hook where reports are written, so it cannot drift from the projection. The semantic side is one vector per root over its title, purpose, goal, opening prompt and child titles, produced by whichever of four providers (`none`, `local`, `openai-compatible`, `vertex`) `settings.json` selects, stamped with the provider/model/dimension that made it, and refreshed by a background sweep. The query credits every hit to its root, includes archived roots (marked), returns everything the client needs to draw the row, and runs lexical-only whenever the configured provider is `none` or unavailable.
+</Callout>
+
+## Decisions settled in review
+
+Carl reviewed the first draft; these are decided and no longer open:
+
+1. **Embeddings ship in v1, through a pluggable provider, with a local default.** Anthropic has no embeddings API and the OpenAI Codex subscription does not grant `/v1/embeddings`, so the default must run on the box: **in-process `bge-small-en-v1.5` via `@huggingface/transformers`**, confirmed by the five-model benchmark (EmbeddingGemma within noise at 15× the per-root cost; Qwen3-0.6B worse; Vertex `gemini-embedding-2` measurably better but a network and credential dependency). Loom must also run with **no** embedder, or with a different one, the way it supports multiple agent providers — so the embedder is a tiny interface with four implementations (`none`, `local`, `openai-compatible`, `vertex`), selected in `settings.json`. See [Semantic side](#semantic-side-one-vector-per-root-through-a-pluggable-provider).
+6. **Fusion is reciprocal rank fusion with a full-coverage lexical list.** The first draft's equal-weight RRF over lexical top-50 and semantic top-50 *reduced* quality for every model (bge-small R@1 51 % → 40 %): lexical's partial-term matches outvote a correct semantic #1. Lexical now votes only for roots whose best document contains every query term. See [Fusion](#fusion).
+7. **The acceptance set is the benchmark's 57 queries**, committed beside the harness, with a measured floor per provider instead of "every root top-3" (which only semantic-only meets). See [Verification](#verification).
+2. **Workstream reports are indexed from the start** (kind `report`, see [What goes in](#what-goes-in-and-with-what-weight)).
+3. **Content hits are root-only on every surface, without exception.** Carl: "I can't imagine that I would *ever* want to find a sub-thread this way … enabling sub-threads to appear in the result is just going to clutter the result with things I'm not looking for." A sub-thread remains reachable by its title through the palette's local term match; its *content* always credits the top-level thread.
+4. **The legacy sidebar is out of scope** — Carl uses the default sidebar.
+5. **pi-session-search stays rejected even with its sync re-enabled** — the rejection row below says why.
+
+## What exists today, and what is actually wrong with it
+
+Upstream shipped content search on 30 Jul 2026 (`feat(search): find threads by conversation content #4959`) and it is live in loom on the sidebar, the command palette and mobile. The landscape report measured its failure modes on Carl's data; the ones that matter for the design are:
+
+| Symptom | Cause in code | Measured |
+|---|---|---|
+| The root you want is missing | `searchActiveThreadRows` caps at 50 *threads*, children included; `searchSidebarThreads` then drops any hit whose thread is not a root — children are discarded, not credited to their parent | "sidebar": 145 hits, 54 roots, **5 roots survive** |
+| Old work is unfindable | `WHERE threads.archived_at IS NULL` | **217 of 517 roots (42%)** excluded |
+| Must remember exact phrasing | one contiguous `LIKE '%q%'` | "thread search" → 3 threads; word-anywhere → 374 |
+| Titles, goals, briefs, reports are invisible | only `projection_thread_messages` rows with `role='user'` or a turn's `assistant_message_id` are scanned | 0.7 M chars of purpose, 7.4 M of brief, 1.6 M of goal+task, 28 MB of reports never searched |
+| Slow | full-table `LIKE` over 17 k rows | ~200 ms per keystroke settle |
+
+One correction to the landscape report: in loom the scan does **not** run on the writer connection. `ProjectionSnapshotQueryLanes` in `/home/Carl/.t3/cockpit/worktrees/loom/t3code-57998ed5/apps/server/src/persistence/Layers/SqliteLanes.ts` already builds every `ProjectionSnapshotQuery` method (including `searchThreads`) on the worker-thread `SqlReadClient`; only `getThreadRuntimeContext` is pinned in-process. The new query inherits the read lane for free.
+
+The client side is a thin, shared consumer: `useThreadSearch` (`apps/web/src/state/queries.ts`, mirrored in `apps/mobile/src/state/queries.ts`) debounces 200 ms, requires two characters and fans one request per connected environment through `createThreadSearchResultsAtomFamily` in `packages/client-runtime/src/state/threadSearch.ts`. Sidebar, command palette and the three mobile lists each key the returned matches by `[environmentId, threadId]` onto the shells they already hold. That shape is kept: the server decides *which roots* and *in what order*; the clients only decorate.
+
+## Approach: the options and why one wins
+
+<Table
+  columns={["Option", "What it would mean", "Verdict"]}
+  rows={[
+    ["Reuse pi-session-search's index", "Read ~/.pi/session-search/*.db from loom; map by session id = thread id", "Rejected — and re-enabling its sync would not rescue it. Sync being off (interval -1) is why it is two months stale, but the shape is the real problem: one row per session, user messages only (no assistant text, no title, no goal, no brief, no reports), no root/child signal, no project signal, forks duplicate their source, and every pi process on the machine writes the same private schema which migrates by DROP TABLE. Each gap needs loom's own DB anyway, so the index would be a stale copy of a subset of what loom already holds."],
+    ["Adapt pi-session-search's code", "Vendor parser.ts + fts-index.ts into the server; index the pi jsonl files", "Rejected. The jsonl is 5.2 GB of mostly tool noise; loom's projection already holds the clean 40 M chars of the same conversation, keyed by thread id, beside title/purpose/brief/goal/tasks. Borrowed: porter tokenizer, bm25, RRF k=60."],
+    ["Client-side search", "Ship text to the browser and filter locally", "Rejected. 40 M chars over the websocket; the client holds shells only. Title/purpose/brief stay as the instant local fallback, nothing more."],
+    ["Hosted embeddings as the default (OpenAI API, Vertex)", "Call an API per root and per query", "Not the default. No subscription grants it (Anthropic has no embeddings API; Codex OAuth does not cover /v1/embeddings). Vertex gemini-embedding-2 is the best model measured (MRR 0.72 vs 0.59 semantic-only) and costs cents per backfill, but puts network, quota, a credential and 235–630 ms per query on the keystroke path. Offered as an opt-in provider."],
+    ["Ollama daemon as the default (nomic-embed-text / mxbai)", "Loom calls the installed Ollama over HTTP", "Not the default: nomic-embed-text 516 ms per root, 91 ms per query; mxbai-embed-large 1,239 ms per root; quality no better than bge-small. Reachable anyway through the openai-compatible provider (Ollama serves /v1/embeddings) for anyone who prefers a daemon."],
+    ["Loom-owned FTS5 + pluggable embedder in state.sqlite — recommended", "FTS5 table fed by triggers; one vector per root from the configured provider (default bge-small in-process via @huggingface/transformers); RRF fusion with a full-coverage lexical list in a *.loom.ts module; upstream contract widened behind // loom: hunks", "Default: 24 ms per root (12 s backfill, once, in the background), 3.5 ms per query, R@5 70 % / MRR 0.52 fused on the 43 headline queries, no daemon, no network after the one-time 34 MB model download. Any provider can be swapped in by editing settings.json; none/unavailable means lexical-only."],
+  ]}
+/>
+
+**Where it plugs in: evolve `orchestration.searchThreads`, do not add a loom RPC.** The request is a live upstream contract consumed by web, mobile and the palette through one shared atom family. A parallel `loom.searchThreads` would duplicate the atom, the hook and every consumer, and leave upstream's `LIKE` path alive as dead code. Evolving in place means: the server handler body becomes one call into `ThreadSearch.loom.ts`; the contract gains fields behind `// loom:` hunks; consumers change only where loom's semantics (roots, archived) need them.
+
+## Lexical side: one FTS5 table, one row per text unit
+
+<DataModel
+  entities={[
+    {
+      id: "fts",
+      name: "loom_thread_search (FTS5 virtual table)",
+      change: "added",
+      note: "tokenize='porter unicode61 remove_diacritics 2'. rowid is derived from the source row so triggers can delete/replace by primary key instead of scanning: rowid = source.rowid * 8 + kind_code.",
+      fields: [
+        { name: "rowid", type: "integer", pk: true, note: "source rowid * 8 + kind code (report 0, title 1, purpose 2, brief 3, user 4, assistant 5, goal 6, task 7)" },
+        { name: "thread_id", type: "text UNINDEXED", nullable: true, fk: "projection_threads.thread_id", note: "owning thread; NULL for goal/task rows" },
+        { name: "goal_id", type: "text UNINDEXED", nullable: true, fk: "projection_goals.goal_id", note: "set for goal/task rows; joined to roots via projection_threads.goal_id at query time" },
+        { name: "kind", type: "text UNINDEXED", note: "report | title | purpose | brief | user | assistant | goal | task" },
+        { name: "text", type: "text (indexed)", note: "the only tokenised column; FTS5 stores a copy for snippet()" },
+      ],
+    },
+    {
+      id: "emb",
+      name: "loom_thread_embeddings",
+      change: "added",
+      note: "One row per root thread. With the default model, 528 rows × 384 float32 ≈ 0.8 MB (≈ 6.5 MB at Vertex's 3072 dims); rows whose identity matches the configured provider are loaded into memory at startup and kept there.",
+      fields: [
+        { name: "thread_id", type: "text", pk: true, fk: "projection_threads.thread_id" },
+        { name: "identity", type: "text", note: "'<provider>/<model>/<dim>', e.g. 'local/Xenova/bge-small-en-v1.5@q8/384' or 'vertex/gemini-embedding-001/3072'. Rows whose identity differs from the configured provider's are never fused and are replaced by the sweep" },
+        { name: "source_hash", type: "text", note: "sha1 of the embedded document text; the sweep re-embeds when it differs" },
+        { name: "vector", type: "blob", note: "dim × float32, L2-normalised" },
+        { name: "updated_at", type: "text" },
+      ],
+    },
+    {
+      id: "threads",
+      name: "projection_threads",
+      fields: [
+        { name: "thread_id", type: "text", pk: true },
+        { name: "parent_thread_id", type: "text", nullable: true, note: "NULL = root. Indexed; never changes after creation" },
+        { name: "goal_id / report_path", type: "text", nullable: true },
+        { name: "title / purpose / brief", type: "text", note: "feed kinds 1–3" },
+        { name: "archived_at / deleted_at", type: "text", nullable: true },
+      ],
+    },
+    {
+      id: "messages",
+      name: "projection_thread_messages",
+      fields: [
+        { name: "message_id", type: "text", pk: true },
+        { name: "thread_id", type: "text", fk: "projection_threads.thread_id" },
+        { name: "role / origin / is_streaming / text", type: "…", note: "feed kinds 4–5; streaming rows are appended per delta and must not be indexed until is_streaming = 0" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "threads", to: "fts", kind: "1-n", label: "report/title/purpose/brief rows" },
+    { from: "messages", to: "fts", kind: "1-n", label: "user/assistant rows" },
+    { from: "threads", to: "emb", kind: "1-1", label: "roots only" },
+  ]}
+/>
+
+**Why per text unit rather than one document per root.** Per-root documents make ranking trivial but maintenance expensive and fuzzy: every turn, title change, task edit or child spawn anywhere in a tree would rebuild a document of up to 1.7 M chars from application code. Per-unit rows are maintained by SQLite triggers in the same transaction as the projection write, cost microseconds each, and give bm25 short, well-normalised documents. Root attribution moves to query time, where a recursive CTE over 3.8 k threads costs ~10 ms.
+
+**Why the derived rowid.** Measured: `DELETE FROM fts WHERE ref = ?` on an UNINDEXED column is a 30 ms content-table scan; by rowid it is a B-tree lookup. All source tables are ordinary rowid tables (TEXT primary keys, not `WITHOUT ROWID`), upserts are `ON CONFLICT DO UPDATE` so rowids are stable, and the server never runs an in-place `VACUUM` (only `VACUUM INTO` copies). The one hazard — a future migration that rebuilds a source table renumbers rowids — is handled by that migration re-running the exported backfill; see [Risks](#risks).
+
+### What goes in, and with what weight
+
+<Table
+  columns={["Kind", "Source", "Rows / chars on Carl's DB", "Weight", "Why"]}
+  rows={[
+    ["title", "projection_threads.title (every non-deleted thread, children included)", "3,801 / 0.12 M", "4", "A child's title credits its root — 'Loom sidebar capability inventory' finds 'Sidebar v2 re-home for Pi'"],
+    ["purpose", "projection_threads.purpose", "3,437 / 0.72 M", "3", "One-line intent, densest signal per token"],
+    ["goal", "projection_goals.title + description, attributed to roots carrying that goal_id", "493 / 0.16 M", "3", "Found 'Thread content search in loom' and the archived 'Make Thread Naming Configurable' at #1"],
+    ["brief", "projection_threads.brief", "1,966 / 7.4 M", "1.5", "Child briefs restate the root's topic; long, so below purpose"],
+    ["task", "projection_goal_tasks.text, attributed via goal_id", "6,881 / 1.5 M", "1.5", "Short imperative items; good for 'what did we do' queries"],
+    ["report", "the latest workstream_submit markdown per thread (file at report_path)", "~1,900 threads / ~20 M", "1", "The child's curated hand-back: what was actually done. Written by one hook (below); backfilled from report_path files"],
+    ["user", "messages role='user', origin NOT IN ('kickoff','control_notice')", "6,515 / 8.0 M", "1", "Carl's own words and orchestrator→child prompts. Kickoff duplicates brief (14.9 M chars); control notices are automated noise (5.0 M chars)"],
+    ["assistant", "messages role='assistant' that are some turn's assistant_message_id", "9,623 / 15.0 M", "0.8", "Final per-turn synthesis only, as upstream chose; interim rows (105 k) would be short, high-bm25 noise. Reasoning excluded"],
+  ]}
+/>
+
+Without reports: 32.7 k rows, 33 M chars, **69 MB** after `optimize`, built in **1.5 s**. Reports add roughly 20 M chars and ~40 MB (not benchmarked; same tokenizer, linear cost).
+
+### Tokenizer: porter, not trigram
+
+| | `porter unicode61 remove_diacritics 2` | `trigram` |
+|---|---|---|
+| Index size (landscape trial, messages only) | 71 MB | 173 MB |
+| Query | 1–5 ms | 6–9 ms |
+| Buys | stemming (rehome/rehoming/re-home → rehom; lanes → lane), prefix search on the last term as you type | substring-of-word matching anywhere in a token |
+| Does not buy | mid-word substrings | stemming; terms under 3 characters; typo tolerance |
+
+Porter matches how Carl searches (words he remembers, roughly inflected) and halves the index; paraphrase is the semantic side's job.
+
+### Kept current by triggers (plus one hook for reports)
+
+Migration `1044_ThreadSearchIndex.ts` (loom lane, `LoomMigrations.ts`) creates both tables, installs the triggers and backfills. The trigger and backfill SQL live once in `threadSearchIndex.loom.ts` so a future rebuild migration reuses them verbatim.
+
+<Code
+  filename="apps/server/src/persistence/threadSearchIndex.loom.ts (sketch of the trigger family)"
+  language="sql"
+  wrap
+  code={"-- threads: title (1), purpose (2), brief (3). Fires only when those columns change.\nCREATE TRIGGER loom_ts_threads_au AFTER UPDATE OF title, purpose, brief, deleted_at ON projection_threads BEGIN\n  DELETE FROM loom_thread_search WHERE rowid IN (OLD.rowid*8+1, OLD.rowid*8+2, OLD.rowid*8+3);\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT NEW.rowid*8+1, NEW.thread_id, 'title', NEW.title WHERE NEW.deleted_at IS NULL;\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT NEW.rowid*8+2, NEW.thread_id, 'purpose', NEW.purpose WHERE NEW.deleted_at IS NULL AND NEW.purpose <> '';\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT NEW.rowid*8+3, NEW.thread_id, 'brief', NEW.brief WHERE NEW.deleted_at IS NULL AND NEW.brief <> '';\nEND;\n-- (AFTER INSERT has the same three inserts; AFTER DELETE removes rowids *8+0..3, i.e. the report row too.)\n\n-- messages: user (4), assistant (5). Only finalised text: streaming deltas UPDATE text with is_streaming = 1\n-- (appendStreaming in ProjectionThreadMessages.ts) and must not be indexed per delta.\nCREATE TRIGGER loom_ts_messages_au AFTER UPDATE OF text, is_streaming, origin ON projection_thread_messages\nWHEN NEW.is_streaming = 0 BEGIN\n  DELETE FROM loom_thread_search WHERE rowid IN (NEW.rowid*8+4, NEW.rowid*8+5);\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT NEW.rowid*8+4, NEW.thread_id, 'user', NEW.text\n    WHERE NEW.role = 'user' AND (NEW.origin IS NULL OR NEW.origin NOT IN ('kickoff', 'control_notice'));\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT NEW.rowid*8+5, NEW.thread_id, 'assistant', NEW.text\n    WHERE NEW.role = 'assistant'\n      AND EXISTS (SELECT 1 FROM projection_turns WHERE assistant_message_id = NEW.message_id);\nEND;\n-- (AFTER INSERT ... WHEN NEW.is_streaming = 0 has the same body; AFTER DELETE removes both rowids.)\n\n-- turns: the final assistant message may be recorded before or after the message finalises,\n-- so both sides index it; the derived rowid makes the double write idempotent.\nCREATE TRIGGER loom_ts_turns_au AFTER UPDATE OF assistant_message_id ON projection_turns\nWHEN NEW.assistant_message_id IS NOT NULL BEGIN\n  DELETE FROM loom_thread_search WHERE rowid IN (\n    SELECT m.rowid*8+5 FROM projection_thread_messages m WHERE m.message_id IN (OLD.assistant_message_id, NEW.assistant_message_id));\n  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)\n    SELECT m.rowid*8+5, m.thread_id, 'assistant', m.text FROM projection_thread_messages m\n    WHERE m.message_id = NEW.assistant_message_id AND m.is_streaming = 0;\nEND;\n\n-- goals (6) and tasks (7): keyed by goal_id, thread_id NULL; attributed to roots at query time.\nCREATE TRIGGER loom_ts_goals_au AFTER UPDATE OF title, description, deleted_at ON projection_goals BEGIN\n  DELETE FROM loom_thread_search WHERE rowid = OLD.rowid*8+6;\n  INSERT INTO loom_thread_search(rowid, goal_id, kind, text)\n    SELECT NEW.rowid*8+6, NEW.goal_id, 'goal', NEW.title || char(10) || NEW.description WHERE NEW.deleted_at IS NULL;\nEND;\n-- tasks: same shape on projection_goal_tasks(text, deleted_at) → rowid*8+7.\n\n-- reports (0): no trigger can read a file, so the one place that writes the file also writes the row\n-- (writeWorkstreamReport, see below). Latest report per thread wins: a gate round replaces the previous row.\n-- DELETE FROM loom_thread_search WHERE rowid = (SELECT rowid*8 FROM projection_threads WHERE thread_id = ?);\n-- INSERT INTO loom_thread_search(rowid, thread_id, kind, text) SELECT rowid*8, thread_id, 'report', ? FROM projection_threads WHERE thread_id = ?;\n"}
+/>
+
+Why triggers and not a projector hunk: the text arrives through five repository write paths (`ProjectionThreadMessages.upsert` and `.appendStreaming`, `ProjectionTurns.upsert`, `ProjectionThreads` upserts, goals, tasks) plus `DELETE FROM … WHERE thread_id` on thread deletion. Triggers cover all of them from one file, run inside the same transaction, see the source `rowid` without an extra `SELECT`, and cannot be forgotten by a future write path. Reports are the one exception: `writeWorkstreamReport` in `/home/Carl/.t3/cockpit/worktrees/loom/t3code-57998ed5/apps/server/src/orchestration/workstreamReport.ts` already has the thread id and the markdown in hand; it gains a `SqlClient` dependency and runs the two statements above after the file write. Backfill in the migration reads each `projection_threads.report_path` with `node:fs` (3.8 k files, 28 MB, ~1 s; missing files skipped) — the migration already runs on the writer with the DB open, and `report_path` values are absolute.
+
+Backfill of the other seven kinds is the seven `INSERT … SELECT` statements used to build the trial index, then `INSERT INTO loom_thread_search(loom_thread_search) VALUES('optimize')`. On Carl's 5.5 GB database this adds roughly three seconds to one startup. Reads run wherever `ProjectionSnapshotQuery` already runs — the worker read lane.
+
+## Semantic side: one vector per root, through a pluggable provider
+
+### The provider interface
+
+Loom must work with no embedder, with the bundled local one, or with an external one, the way it supports several agent providers — but the surface is tiny, so there is no registry: one interface, one small module per provider, and a `switch` on the configured kind in `ThreadEmbedder.loom.ts`.
+
+<Code
+  filename="apps/server/src/orchestration/Layers/embedding/EmbeddingProvider.loom.ts"
+  language="ts"
+  wrap
+  code={"export interface EmbeddingProvider {\n  /** '<provider>/<model>/<dim>' — stamped on every stored vector; a change invalidates them all. */\n  readonly identity: string;\n  readonly dim: number;\n  /** Resolves false (and logs once) when the backing model/package/credential cannot be reached. */\n  readonly available: () => Effect.Effect<boolean>;\n  /** Each provider applies its own task framing: bge query instruction, Vertex task_type, none for raw OpenAI-style models. */\n  readonly embed: (texts: ReadonlyArray<string>, kind: \"query\" | \"document\") => Effect.Effect<ReadonlyArray<Float32Array>, EmbeddingError>;\n}\n"}
+/>
+
+<Table
+  columns={["Provider", "Module", "What it does", "Config fields", "Task framing"]}
+  rows={[
+    ["none", "none.loom.ts", "available() → false. Search is lexical-only by deliberate choice; the sweep is idle.", "—", "—"],
+    ["local (default)", "local.loom.ts", "Lazily import()s @huggingface/transformers; feature-extraction pipeline, dtype q8, cls pooling, normalize, 4 intra-op threads; model cache in <stateDir>/models/. Unavailable if the package is missing from the install, the first download fails, or the binding does not load.", "model (default Xenova/bge-small-en-v1.5)", "query: prefixed 'Represent this sentence for searching relevant passages: '; document: none"],
+    ["openai-compatible", "openaiCompatible.loom.ts", "POST {baseUrl}/embeddings with {model, input[]}; Bearer apiKey when set; reads data[].embedding. Covers OpenAI, Ollama (http://localhost:11434/v1), vLLM, LiteLLM.", "baseUrl, model, apiKey?, dim (declared; checked against the first response)", "none — these models take raw text"],
+    ["vertex", "vertex.loom.ts", "Native adapter. gemini-embedding-001: POST https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predict with instances[{content, task_type, title?}], reads predictions[].embeddings.values. gemini-embedding-2: POST https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/google/models/{model}:embedContent (served from global only), reads embedding.values. Auth: Application Default Credentials.", "project, location, model", "gemini-embedding-001: task_type RETRIEVAL_QUERY / RETRIEVAL_DOCUMENT (+ title on documents); gemini-embedding-2: in-text 'task: search result | query: …' / 'title: … | text: …' as Google documents"],
+  ]}
+/>
+
+**Why Vertex needs a native adapter.** The benchmark proved Vertex's OpenAI-compatible endpoint (`/endpoints/openapi/embeddings`) returns HTTP 500 for both Gemini embedding models in every location tried, so `openai-compatible` cannot reach it. The native REST calls above worked (`gemini-embedding-001` p50 235 ms per query from `australia-southeast1`; `gemini-embedding-2` p50 632 ms, `global` only). **Data residency:** `gemini-embedding-2` is served only from the `global` endpoint and returns 404 in `australia-southeast1`, so choosing it sends thread text outside Australia; `gemini-embedding-001` stays in-region at a lower MRR (0.60 vs 0.63 fused). The plan's default Vertex config is therefore `gemini-embedding-001` in `australia-southeast1`; the operator opts into `gemini-embedding-2` knowingly.
+
+**Vertex auth.** `google-auth-library` 10.9.1 is already in the server's dependency graph (pi-coding-agent → pi-ai → `@google/genai`), so declaring it directly in `apps/server/package.json` at the same version adds nothing to the install. `new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] }).getClient()` resolves Application Default Credentials (the `test-ds-research` service account on this VM) and `getAccessToken()` caches and refreshes the hourly token itself; no hand-rolled refresh timer. Unavailable if ADC cannot be resolved or the first call returns 401/403.
+
+### Configuration
+
+Server-side config in loom lives in `settings.json` under the state dir, owned by `ServerSettings` (`/home/Carl/.t3/cockpit/worktrees/loom/t3code-57998ed5/apps/server/src/serverSettings.ts`) with loom's fields contributed by `LoomServerSettingsFields` in `/home/Carl/.t3/cockpit/worktrees/loom/t3code-57998ed5/packages/contracts/src/settings.loom.ts` — the same place `workstreamModelPresets`, `providerFailover` and `rootCacheRetention` live, hand-edited like `rootCacheRetention`. The embedder gets one field there, a tagged union on `provider`:
+
+<Code
+  filename="packages/contracts/src/settings.loom.ts — threadSearchEmbedding"
+  language="ts"
+  wrap
+  code={"export const ThreadSearchEmbeddingSettings = Schema.Union([\n  Schema.Struct({ provider: Schema.Literal(\"none\") }),\n  Schema.Struct({\n    provider: Schema.Literal(\"local\"),\n    model: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(\"Xenova/bge-small-en-v1.5\"))),\n  }),\n  Schema.Struct({\n    provider: Schema.Literal(\"openai-compatible\"),\n    baseUrl: TrimmedNonEmptyString,      // e.g. https://api.openai.com/v1 or http://localhost:11434/v1\n    model: TrimmedNonEmptyString,\n    dim: Schema.Int,\n    apiKey: Schema.optionalKey(TrimmedNonEmptyString), // or the name of a ServerSecretStore secret — follow providerInstances' convention\n  }),\n  Schema.Struct({\n    provider: Schema.Literal(\"vertex\"),\n    project: TrimmedNonEmptyString,\n    location: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(\"australia-southeast1\"))),\n    model: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(\"gemini-embedding-001\"))),\n  }),\n]);\n// in LoomServerSettingsFields:\nthreadSearchEmbedding: ThreadSearchEmbeddingSettings.pipe(\n  Schema.withDecodingDefault(Effect.succeed({ provider: \"local\" as const, model: \"Xenova/bge-small-en-v1.5\" })),\n),\n// in LoomServerSettingsPatchFields: whole-value replacement, like workstreamModelPresets.\n"}
+/>
+
+`ThreadEmbedder` subscribes to `ServerSettings.changes` and swaps the provider when this field changes; the next sweep sees a new identity and re-embeds every root. No UI in v1 — it is an operator setting, edited in the file, exactly like `rootCacheRetention`.
+
+### The default model — measured on this machine
+
+<Table
+  columns={["Candidate", "Query embed", "Per root (sequential)", "All 528 roots", "Footprint / dependency", "Semantic-only on 43 headline queries (R@1 / R@5 / MRR)"]}
+  rows={[
+    ["In-process · Xenova/bge-small-en-v1.5 q8 (384 d) — default", "3.5 ms", "24 ms", "12 s", "+130 MB RSS after load (+260 MB after backfill), 34 MB model cache, ~590 MB in node_modules (onnxruntime-node 536 MB, of which a 327 MB CUDA provider is never loaded); 17 of 528 root documents exceed its 512-token window", "51 % / 70 % / 0.59"],
+    ["In-process · EmbeddingGemma-300m q8 (768 d)", "143 ms", "363 ms", "192 s", "+1.5 GB RSS, 316 MB download", "53 % / 72 % / 0.61 — within noise of bge-small at 15× the cost"],
+    ["In-process · Qwen3-Embedding-0.6B q8 (1024 d)", "43–47 ms", "322 ms", "170 s", "+1.4 GB RSS, 597 MB download", "44 % / 70 % / 0.56 — worse than bge-small"],
+    ["Ollama daemon · nomic-embed-text (768 d)", "91 ms", "516 ms", "267 s", "systemd daemon loom does not manage", "equal to bge-small on the plan-8 set; not run on the 43"],
+    ["Vertex · gemini-embedding-001 (3072 d, australia-southeast1)", "p50 235 ms", "—", "14 s at 8 parallel; ≈ $0.02", "network + ADC credential", "53 % / 84 % / 0.67"],
+    ["Vertex · gemini-embedding-2 (3072 d, global only)", "p50 632 ms", "—", "44 s at 8 parallel; ≈ $0.03", "network + ADC credential; data leaves Australia", "63 % / 84 % / 0.72"],
+  ]}
+/>
+
+<Callout tone="decision">
+**Default: `Xenova/bge-small-en-v1.5`, int8 ONNX, run in the server process by `@huggingface/transformers` on `onnxruntime-node`.** It is the fastest option by an order of magnitude on the keystroke path, removes any daemon or network, and the larger local models buy nothing measurable. Vertex is measurably better (its edge is queries that need world knowledge to bridge vocabulary — "anaconda" → the conda/PATH thread) and is why the provider seam exists, but it belongs to the operator who accepts the latency, the credential and the residency consequence. The server bundle owns its default embedder the same way it owns `node-pty` and `@ff-labs/fff-node`: `@huggingface/transformers` is a declared, externalised dependency, `import()`ed lazily so a missing package degrades rather than crashes.
+</Callout>
+
+**What is embedded.** One document per root: `title`, `purpose`, goal title and description, the first non-automated user message (origin `NULL`, capped at 800 chars), and the titles of its direct children (capped at 400 chars), joined by newlines. On Carl's DB that is a median of 242 bge tokens (p90 441); 3 % of roots exceed bge-small's 512-token window, with the lowest-value text (child titles) last so truncation drops the right end. Providers apply their own query/document framing per the table above; the document text itself is provider-independent, which is what lets `source_hash` survive a provider switch.
+
+**How it stays fresh — a hash sweep, not event plumbing.** `ThreadEmbedder.loom.ts` is an Effect service with one job: make `loom_thread_embeddings` agree with the current root documents under the current provider identity. On startup and every 2 minutes it runs one SQL statement that builds the document text for every non-deleted root (528 rows, single-digit ms), hashes each, and queues for embedding every root whose stored row is missing, has a different `source_hash`, or has a different `identity`. The queue is drained sequentially in the background (the local default: 24 ms per root, so a fresh database or a provider switch completes in ~12 s; Vertex: a few minutes at one request at a time, or ~15 s if the provider batches 8-wide as the benchmark did). A sweep after the first finds the handful of roots whose title, purpose, goal or children changed. This replaces per-event wiring with one short query, at the cost of up to two minutes of semantic staleness on a brand-new root — acceptable, because a root under two minutes old is at the top of the sidebar anyway. The in-memory matrix (`Float32Array` of n × dim, identity-matched rows only) is updated on each write.
+
+**Graceful degradation.** `none` and "unavailable" are the same path: `searchThreads` runs lexical-only, which is already a complete answer. Availability is probed lazily on the first search or sweep; a failure logs once at `warn` with the reason (package missing, download failed, ADC unresolved, HTTP 401) and is retried on the next sweep. The search request path never awaits a model load or a network call for availability: a query arriving while the provider is still loading is answered lexically. Vectors whose `identity` does not match the configured provider are never fused — they sit in the table only until the sweep replaces them.
+
+## Ranking and result shape
+
+### Lexical query recipe
+
+The query builder in `ThreadSearch.loom.ts`: lowercase, split on non-alphanumerics, drop a two-dozen-word English stopword list (unless that empties the query), quote each term, and give the **last** term a prefix `*` so results move while Carl is still typing. One `MATCH` per term (typically 2–5, each 4–8 ms) gives per-document **term coverage**, which pure OR-bm25 cannot express and which turned out to be the decisive lexical signal.
+
+<Code
+  filename="ThreadSearch.loom.ts — lexical ranking query (one root per row)"
+  language="sql"
+  wrap
+  code={"WITH RECURSIVE roots(thread_id, root_id) AS MATERIALIZED (\n  SELECT thread_id, thread_id FROM projection_threads WHERE parent_thread_id IS NULL\n  UNION ALL\n  -- CROSS JOIN pins the join order: without it the planner scans the recursive queue per row (13 s vs 10 ms).\n  SELECT t.thread_id, r.root_id FROM roots r CROSS JOIN projection_threads t ON t.parent_thread_id = r.thread_id\n),\nhits AS MATERIALIZED (            -- one arm per query term; ?1..?n are the quoted terms, last one with *\n  SELECT 0 AS term, rowid, thread_id, goal_id, kind,\n         bm25(loom_thread_search) * CASE kind WHEN 'title' THEN 4 WHEN 'purpose' THEN 3 WHEN 'goal' THEN 3\n                                              WHEN 'brief' THEN 1.5 WHEN 'task' THEN 1.5 WHEN 'assistant' THEN 0.8 ELSE 1 END AS score\n  FROM loom_thread_search WHERE loom_thread_search MATCH ?1\n  UNION ALL SELECT 1, rowid, thread_id, goal_id, kind, bm25(loom_thread_search) * … FROM loom_thread_search WHERE loom_thread_search MATCH ?2\n  -- …\n),\ndocs AS (SELECT rowid, thread_id, goal_id, kind, COUNT(DISTINCT term) AS coverage, SUM(score) AS score FROM hits GROUP BY rowid),\nattributed AS (\n  SELECT COALESCE(r.root_id, g.thread_id) AS root_id, d.*\n  FROM docs d\n  LEFT JOIN roots r ON r.thread_id = d.thread_id\n  LEFT JOIN projection_threads g ON d.goal_id IS NOT NULL AND g.goal_id = d.goal_id AND g.parent_thread_id IS NULL\n),\nranked AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY root_id ORDER BY coverage DESC, score) AS rn\n  FROM attributed WHERE root_id IS NOT NULL\n)\nSELECT p.root_id, p.rowid, p.kind, p.thread_id AS matched_thread_id, p.coverage\nFROM ranked p JOIN projection_threads t ON t.thread_id = p.root_id\nWHERE p.rn = 1 AND t.deleted_at IS NULL\nORDER BY p.coverage DESC, p.score, t.updated_at DESC\nLIMIT 50;   -- lexical candidates; fusion keeps only rows with coverage = n_terms (see Fusion)\n\n-- Snippets, for the final rows only (snippet() over all 3k hits costs 130 ms; over 30 it is ~1 ms).\n-- Note: FTS5 honours `rowid IN (...)` alongside MATCH but silently ignores `rowid = ?`.\nSELECT rowid, snippet(loom_thread_search, 3, '', '', '…', 16) AS snippet\nFROM loom_thread_search WHERE loom_thread_search MATCH ?or_query AND rowid IN (…);\n"}
+/>
+
+**Lexical rule, in words:** a root's score is its single best document; a document is better if it contains more of the query's terms, then by kind-weighted bm25 (bm25 is negative, lower is better); ties by the root's recency. Best-document rather than sum-of-documents is deliberate: sum makes 200-child orchestrator roots win every query ("Cadence pull 7" topped six of eight sums). End-to-end on the snapshot: 40–60 ms for a four-term query including root attribution, before snippets, on the worker lane.
+
+### Fusion
+
+`searchThreads` runs both sides concurrently: the lexical query on the read lane (top-50 roots, each carrying the `coverage` of its best document) and, if the configured provider is available, the query embed (3.5 ms for the default) plus a dot product against the in-memory matrix (top-50 roots, archived included). The two lists are combined by reciprocal rank fusion with k = 60 — `score(root) = Σ 1 / (60 + rank_in_list)` over the lists the root appears in — ordered by that score, ties by recency, first `limit` returned. RRF needs no calibration between bm25 and cosine, which is why pi-session-search uses it too.
+
+<Callout tone="decision">
+**Lexical votes only for full-coverage roots.** Before fusion the lexical list is filtered to roots whose best document contains *every* query term (`WHERE coverage = n_terms`); the rest of the lexical top-50 is discarded. Equal-weight RRF over the unfiltered lists — the first draft's recipe — *lowered* quality for every model on the 43 headline queries (bge-small R@1 51 % → 40 %, R@5 70 % → 58 %; gemini-embedding-2 R@1 63 % → 40 %), because lexical's top-50 is mostly partial-term noise that outvotes a correct semantic #1 the lexical side never found. With the filter the fused result keeps semantic-only's R@5 and R@10 while recovering the deep-detail queries semantic-only cannot answer. The filter has no free parameter and never lost to the unfiltered variant on any query group; it was designed on this set, so re-check it when the set grows.
+</Callout>
+
+Measured on the 43 headline queries (35 paraphrases written against a stratified sample of roots plus the plan's 8), bge-small as the provider:
+
+<Table
+  columns={["Ranking", "R@1", "R@3", "R@5", "R@10", "MRR"]}
+  rows={[
+    ["Lexical only (FTS5, this plan's recipe)", "21 %", "30 %", "30 %", "40 %", "0.28"],
+    ["Semantic only (bge-small)", "51 %", "63 %", "70 %", "72 %", "0.59"],
+    ["Fused, unfiltered lexical (first draft)", "40 %", "53 %", "58 %", "63 %", "0.49"],
+    ["Fused, full-coverage lexical — adopted", "40 %", "58 %", "70 %", "72 %", "0.52"],
+    ["Fused, full-coverage lexical — Vertex gemini-embedding-001", "44 %", "70 %", "81 %", "91 %", "0.60"],
+    ["Fused, full-coverage lexical — Vertex gemini-embedding-2", "51 %", "67 %", "77 %", "88 %", "0.63"],
+  ]}
+/>
+
+By query group (R@1 counts, bge-small; semantic-only / unfiltered / full-coverage): paraphrase-35 **15 / 11 / 11** (MRR 0.51 / 0.40 / 0.44), plan-8 **7 / 6 / 6**, exact-identifier-8 **7 / 7 / 7**, deep-detail-6 **1 / 3 / 3** (MRR 0.22 / 0.56 / 0.70). Semantic-only wins paraphrases but fails on details that live only in child reports or transcripts, because the embedded document holds ~250 tokens; lexical is what finds those, and the coverage filter is what stops it from drowning the paraphrases. The remaining semantic gap to Vertex is queries that need world or domain knowledge ("anaconda" → the conda/PATH thread: bge #34, gemini-2 #1) — the reason the provider seam exists.
+
+**Snippet for a root the lexical side did not find:** its `purpose` (source `purpose`), falling back to its title. Those are true statements about the root, so no new source literal is needed.
+
+### Contract: the match carries what the row needs
+
+Archived roots have no shell on the client, and the best hit is often a child the client never sees. The match therefore describes the **root** and names the **matched unit**.
+
+<Diff
+  filename="packages/contracts/src/orchestration.ts"
+  language="ts"
+  mode="unified"
+  before={"export const OrchestrationThreadSearchSource = Schema.Literals([\"user\", \"assistant\"]);\n\nexport const OrchestrationThreadSearchMatch = Schema.Struct({\n  threadId: ThreadId,\n  projectId: ProjectId,\n  source: OrchestrationThreadSearchSource,\n  snippet: Schema.String.check(Schema.isMaxLength(240)),\n  messageCreatedAt: Schema.NullOr(IsoDateTime),\n});\n"}
+  after={"// loom: every text unit the index holds; clients label the excerpt by source.\nexport const OrchestrationThreadSearchSource = Schema.Literals([\n  \"user\", \"assistant\", \"title\", \"purpose\", \"brief\", \"goal\", \"task\", \"report\",\n]);\n\nexport const OrchestrationThreadSearchMatch = Schema.Struct({\n  threadId: ThreadId, // loom: always the ROOT thread\n  projectId: ProjectId,\n  source: OrchestrationThreadSearchSource,\n  snippet: Schema.String.check(Schema.isMaxLength(240)),\n  messageCreatedAt: Schema.NullOr(IsoDateTime),\n  // loom: enough to draw a result row without a shell (archived roots have none)\n  title: Schema.String,\n  archivedAt: Schema.NullOr(IsoDateTime),\n  updatedAt: IsoDateTime,\n  // loom: the sub-thread that produced the hit; null when the root itself did\n  matchedThreadId: Schema.NullOr(ThreadId),\n  matchedThreadTitle: Schema.NullOr(Schema.String),\n});\n"}
+  annotations={[
+    { side: "after", lines: "2-4", note: "Widened, not replaced: 'user'/'assistant' keep upstream's meaning" },
+    { side: "after", lines: "13-15", note: "≈120 bytes per match; 30 matches ≈ 10 KB over the socket" },
+    { side: "after", lines: "17-18", note: "Lets the row say 'Sub-thread: Two-lane migration ledger'" }
+  ]}
+/>
+
+`OrchestrationSearchThreadsInput` is unchanged (query 2–200 chars, `limit` ≤ 50); the sidebar and palette request `limit: 30` roots. `messageCreatedAt` stays (upstream's field, null for non-message kinds): no client reads it and removing it would only widen the upstream diff.
+
+### Root-only, everywhere, unqualified
+
+The server returns roots only; a hit inside a sub-thread is reported as its root with `matchedThreadId` naming the sub-thread. In the sidebar that is already the model (`filterRootThreads`). In the command palette, thread items include sub-threads today; content matches land on the root item and nowhere else — a sub-thread stays findable by its *title* through the palette's local term match, which is the one way Carl would ever look for one. Both surfaces show archived roots with an "Archived" marker, ranked on merit.
+
+## Surfaces
+
+<FileTree
+  title="Change map (loom hunks in upstream files are marked; new code lives in *.loom.ts or apps/web/src/loom/)"
+  entries={[
+    { path: "apps/server/package.json", change: "modified", note: "+ @huggingface/transformers (default provider; brings onnxruntime-node, sharp); + google-auth-library@10.9.1 (vertex ADC; already in the graph via pi-ai → @google/genai)" },
+    { path: "scripts/lib/cli-external-packages.ts", change: "modified", note: "// loom: add @huggingface/transformers, onnxruntime-node, sharp, @img/ to CLI_RUNTIME_EXTERNAL_PREFIXES (native addons stay out of the bundle; the closure test covers it)" },
+    { path: "apps/server/src/persistence/Migrations/1044_ThreadSearchIndex.ts", change: "added", note: "FTS5 table + loom_thread_embeddings (with identity column) + triggers + backfill (incl. report files) + optimize" },
+    { path: "packages/contracts/src/settings.loom.ts", change: "modified", note: "// loom: ThreadSearchEmbeddingSettings union; threadSearchEmbedding field (default local) in LoomServerSettingsFields and whole-value patch" },
+    { path: "apps/server/src/orchestration/Layers/embedding/EmbeddingProvider.loom.ts", change: "added", note: "the interface: identity, dim, available(), embed(texts, kind)" },
+    { path: "apps/server/src/orchestration/Layers/embedding/none.loom.ts", change: "added", note: "available() → false" },
+    { path: "apps/server/src/orchestration/Layers/embedding/local.loom.ts", change: "added", note: "lazy import(@huggingface/transformers), q8, cacheDir <stateDir>/models, bge query prefix" },
+    { path: "apps/server/src/orchestration/Layers/embedding/openaiCompatible.loom.ts", change: "added", note: "fetch {baseUrl}/embeddings; Bearer apiKey; dim check" },
+    { path: "apps/server/src/orchestration/Layers/embedding/vertex.loom.ts", change: "added", note: ":predict (gemini-embedding-001, task_type) / :embedContent on global (gemini-embedding-2); GoogleAuth ADC" },
+    { path: "apps/server/src/orchestration/Layers/embedding/fromSettings.loom.ts", change: "added", note: "settings value → provider (the one switch)" },
+    { path: "apps/server/src/persistence/threadSearchIndex.loom.ts", change: "added", note: "DDL, trigger, drop-trigger and backfill SQL as exported strings, shared by 1044 and any future rebuild migration; the report upsert statement" },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "register 1044; header 'next id' → 1045+" },
+    { path: "apps/server/src/orchestration/Layers/ThreadSearch.loom.ts", change: "added", note: "query builder (tokens, stopwords, prefix), lexical ranking SQL with coverage, full-coverage filter, semantic top-k, RRF k=60, snippet pass, row → match mapping" },
+    { path: "apps/server/src/orchestration/Layers/ThreadEmbedder.loom.ts", change: "added", note: "Effect service: provider from settings (swapped on change), root document builder, hash + identity sweep (startup + 2 min), in-memory identity-matched matrix, unavailable → lexical-only" },
+    { path: "apps/server/src/orchestration/workstreamReport.ts", change: "modified", note: "// loom: after writing the file, upsert the 'report' row (latest wins)" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "// loom: searchThreads delegates to ThreadSearch.loom.ts; delete searchActiveThreadRows, escapeLikePattern, buildSearchSnippet, ProjectionThreadSearchRequest/Row" },
+    { path: "apps/server/src/persistence/Layers/SqliteLanes.ts", change: "modified", note: "// loom: provide ThreadEmbedder to the snapshot query layer" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts", change: "modified", note: "// loom: replace the LIKE-semantics block (~L4105) with stemming, root credit, archived, streaming-excluded, notice-excluded, report, coverage-filter, provider-none and identity-mismatch cases" },
+    { path: "apps/server/src/dev/threadSearchQueries.json", change: "added", note: "the 57-query acceptance set with ground-truth root ids (from .t3/research/queries.json)" },
+    { path: "apps/server/src/dev/threadSearchEval.loom.ts", change: "added", note: "acceptance harness: --db, --provider → R@1/3/5/10 + MRR per group for lexical / semantic / fused, wall times, non-zero exit below the floor" },
+    { path: "packages/contracts/src/orchestration.ts", change: "modified", note: "// loom: widen source; add title, archivedAt, updatedAt, matchedThreadId, matchedThreadTitle" },
+    { path: "apps/web/src/loom/threadSearch.ts", change: "added", note: "rankSidebarSearchResults (server order + local title fallback), per-token highlighter, source → label map" },
+    { path: "apps/web/src/loom/ArchivedSearchResultRow.tsx", change: "added", note: "row for a match with no shell: title, time, 'Archived' pill, excerpt" },
+    { path: "apps/web/src/components/Sidebar.tsx", change: "modified", note: "// loom: results = server order; render shell-less rows; drop title-first reordering; pending copy 'Searching threads…'" },
+    { path: "apps/web/src/components/Sidebar.logic.ts", change: "modified", note: "// loom: searchSidebarThreads reduced to the local title/PR fallback used when no server match exists" },
+    { path: "apps/web/src/components/ThreadSearchMatch.tsx", change: "modified", note: "// loom: labels for the new sources ('Brief:', 'Goal:', 'Report:', 'Sub-thread: <title>'); highlight per query token with prefix match" },
+    { path: "apps/web/src/components/CommandPalette.logic.ts", change: "modified", note: "// loom: items carrying a threadContentMatch bypass the every-token filter and rank by server position" },
+    { path: "apps/web/src/components/CommandPalette.tsx", change: "modified", note: "// loom: stop narrowing to user|assistant; append items for archived roots the shell list lacks" },
+    { path: "apps/web/src/state/queries.ts", change: "modified", note: "// loom: request limit 30" },
+    { path: "apps/mobile/src/features/threads/thread-search-match.tsx", change: "modified", note: "// loom: same labels + per-token highlight as web" },
+    { path: "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx", change: "modified", note: "// loom: drop source narrowing; render archived shell-less matches" },
+    { path: "apps/mobile/src/features/home/HomeScreen.tsx", change: "modified", note: "// loom: same" },
+    { path: "apps/mobile/src/features/keyboard/CommandPalette.tsx", change: "modified", note: "// loom: same" },
+    { path: "apps/mobile/src/state/queries.ts", change: "modified", note: "// loom: request limit 30" },
+  ]}
+/>
+
+**Sidebar** (`Sidebar.tsx` around L2691–2730 and the results list at L4660+). Today: local title/PR-term matches over the visible shells first, then server-matched shells, in lifecycle order. New: results are the server's fused order, each paired with its shell when the client has one (active roots — the existing `SidebarSearchResultRow`, with the excerpt) or drawn from the match itself when it does not (archived roots — `ArchivedSearchResultRow`). Local title matches are **appended** for roots the server did not return (disconnected environments, servers without the index); they no longer outrank content hits, because title is an indexed kind with the highest weight and the server ranks it. Keyboard navigation and `selectThreadSearchResult` are unchanged — both operate on `[environmentId, threadId]`, which archived matches also carry.
+
+**Command palette** (`CommandPalette.tsx` L832–843, L1373–1385; `CommandPalette.logic.ts` `filterCommandPaletteGroups` L383+). Two loom hunks: content-matched items skip the "every token must appear in title+snippet" filter (the server already judged relevance, and a stemmed or semantic hit need not contain the literal token) and rank in server order; and matches whose root is not in `useThreadShells()` (archived) become palette items built from the match payload.
+
+**Mobile** (three consumers). Root crediting is free: each list keys matches by thread id onto shells, and the server now returns roots. Two small changes per consumer: stop filtering `source === "user" || "assistant"` (which would drop every non-message hit), and render archived matches with no shell as a plain row. `thread-search-match.tsx` gets the same label map and per-token highlighter as web.
+
+## Phased implementation
+
+### Phase 1 — server: index, provider seam, four providers, fusion, contract, harness (self-contained and verifiable alone)
+
+1. **Dependencies.** `apps/server/package.json`: add `@huggingface/transformers` (default provider) and `google-auth-library@10.9.1` (already in the graph via pi-ai → `@google/genai`; a direct declaration adds no bytes). Extend `CLI_RUNTIME_EXTERNAL_PREFIXES` in `scripts/lib/cli-external-packages.ts` with `@huggingface/transformers`, `onnxruntime-node`, `sharp`, `@img/`; run the externals closure test.
+2. **Index.** `threadSearchIndex.loom.ts`: DDL for `loom_thread_search` and `loom_thread_embeddings` (with the `identity` column), the trigger family (threads, messages, turns, goals, tasks; insert/update/delete each), `dropTriggers`, the eight backfill statements (reports via `node:fs` over `report_path`, missing files skipped), `optimize`, and the report upsert statement. `1044_ThreadSearchIndex.ts` runs them in order; register in `LoomMigrations.ts`, bump the header's next id to 1045+.
+3. **Config.** `packages/contracts/src/settings.loom.ts`: `ThreadSearchEmbeddingSettings` union and the `threadSearchEmbedding` field in `LoomServerSettingsFields` (default `{ provider: "local" }`) and whole-value replacement in `LoomServerSettingsPatchFields`; `apps/server/src/serverSettings.ts` needs no change beyond what the contract carries — verify `applyServerSettingsPatch` in `packages/shared` handles the new key like the other whole-value loom fields.
+4. **Provider seam.** `embedding/EmbeddingProvider.loom.ts` (interface + `EmbeddingError`), `embedding/none.loom.ts`, `embedding/local.loom.ts` (lazy `import("@huggingface/transformers")`, `dtype: "q8"`, cls pooling, normalise, 4 intra-op threads, `env.cacheDir = <stateDir>/models`, bge query prefix), `embedding/openaiCompatible.loom.ts` (`fetch` to `{baseUrl}/embeddings`, Bearer key, dim check on first response), `embedding/vertex.loom.ts` (`:predict` for `gemini-embedding-001` with `task_type`/`title`; `:embedContent` on the `global` host for `gemini-embedding-2` with in-text framing; `GoogleAuth` ADC with `cloud-platform` scope), and `embedding/fromSettings.loom.ts` — the one `switch` that builds a provider from the settings value.
+5. **Embedder service.** `ThreadEmbedder.loom.ts`: holds the current provider (rebuilt on `ServerSettings.changes`), document builder SQL, sha1 hash, sweep on startup and every 2 minutes comparing `source_hash` and `identity`, sequential embed queue writing `loom_thread_embeddings` and the in-memory identity-matched matrix, `topK(queryVector, 50)`, unavailable state (one warn, retry next sweep). Provided to the snapshot-query layer in `SqliteLanes.ts`.
+6. **Search.** `ThreadSearch.loom.ts`: `toTerms(query)`, the lexical query for N terms returning `coverage`, the full-coverage filter, semantic top-k when the provider is available, RRF k=60, snippet pass for the returned rowids only, mapping to `OrchestrationThreadSearchMatch` (purpose/title fallback for semantic-only roots). Kind weights, stopwords and k are module constants.
+7. **Wiring.** `workstreamReport.ts` report-row hook; contract hunks in `packages/contracts/src/orchestration.ts`; `searchThreads` in `ProjectionSnapshotQuery.ts` becomes a delegation; delete `searchActiveThreadRows`, `escapeLikePattern`, `buildSearchSnippet`, `ProjectionThreadSearchRequest/Row`.
+8. **Harness and tests.** Commit the 57-query set as `apps/server/src/dev/threadSearchQueries.json` (copied from `.t3/research/queries.json`); `threadSearchEval.loom.ts` reads it, runs lexical / semantic / fused for the configured (or `--provider`-overridden) provider, prints R@1/3/5/10 and MRR per group and overall with per-query wall time, and exits non-zero below the floor. Rewrite the upstream search tests as listed in [Verification](#verification).
+
+Exit: harness clears the floor on a fresh snapshot with `local`, and runs lexical-only with `none` and with `local` pointed at an unreadable cache dir; `vp check` and `vp run typecheck` green; a server started on a copy of Carl's DB logs the one-time backfill (~3 s), downloads the model once into `<stateDir>/models/`, completes the first sweep in ~15 s, and — with a `vertex` block in `settings.json` on this VM — re-embeds all roots under the new identity and answers queries through Vertex.
+
+### Phase 2 — web surfaces
+
+Sidebar, command palette, `ThreadSearchMatch.tsx`, `apps/web/src/loom/threadSearch.ts`, `ArchivedSearchResultRow.tsx`. Verify live with the dev-verify recipe against the snapshot.
+
+### Phase 3 — mobile
+
+The three consumers plus `thread-search-match.tsx`; `vp run lint:mobile`. Verify via `test-t3-mobile` on request.
+
+### Later, if the data asks for it
+
+A settings UI for the provider (v1 is file-edited like `rootCacheRetention`); per-message embeddings (one vector per root deliberately keeps the matrix small and the sweep at ~530 hashes); trimming the unused CUDA provider from the install; a local model with a longer window if the 3 % of over-length root documents turn out to matter.
+
+## Verification
+
+**Data.** `VACUUM INTO` a fresh copy of `~/.t3/cockpit/userdata/state.sqlite` (the live DB; `~/.t3/userdata/state.sqlite` is a 0-byte decoy) into the worktree's `.t3/userdata/`, per AGENTS.md "Test data".
+
+**Acceptance set.** The benchmark's 57 queries with ground-truth root ids, committed as `apps/server/src/dev/threadSearchQueries.json` (source: `/home/Carl/.t3/cockpit/worktrees/loom/t3code-57998ed5/.t3/research/queries.json`, rendered beside it as `queries.md`). Four groups: **35 sampled paraphrases** (written in Carl's register against a stratified sample of roots across time and projects, avoiding the title's distinctive words; 14 targets archived), the **8 plan queries** from the first draft, **8 exact-identifier** controls (`CSM-412`, `PR 4223`, `x-session-affinity`, `PI_CACHE_RETENTION`, …) and **6 deep-detail** controls written from child reports (`pragma busy timeout cache size tuning`, `LegendList isAtEnd strict follow`, …). The 43 headline queries are the first two groups. The set was written against the 1 Oct 2026 snapshot; as threads are archived or deleted, a target may vanish — the harness reports a missing target as a skipped query, not a miss, and the file is refreshed when that happens.
+
+**Harness.** `node apps/server/src/dev/threadSearchEval.loom.ts --db .t3/userdata/state.sqlite [--provider none|local|openai-compatible|vertex]` prints, per group and overall, R@1 / R@3 / R@5 / R@10 and MRR for lexical / semantic / fused, plus per-query wall time and the top-5 for any miss. **Pass bar (floor on the benchmark's measured numbers for the configured provider):**
+
+<Table
+  columns={["Provider", "43 headline queries — fused", "Exact-identifier group — fused", "Note"]}
+  rows={[
+    ["local (bge-small, default)", "R@5 ≥ 70 %, MRR ≥ 0.50", "R@1 ≥ 7/8, R@3 = 8/8", "Benchmark: R@5 70 %, MRR 0.52; exact R@1 7/8 fused (the miss is a fork sharing the target's transcript)"],
+    ["none", "equals lexical-only: R@10 ≥ 40 %, MRR ≥ 0.27", "R@1 ≥ 7/8, R@3 = 8/8", "Proves the fallback path is the full lexical answer (the miss: two roots both contain every query word)"],
+    ["vertex (gemini-embedding-001)", "R@5 ≥ 80 %, MRR ≥ 0.58", "R@1 = 8/8", "Benchmark: R@5 81 %, MRR 0.60; run only when ADC is available"],
+    ["openai-compatible", "no floor — depends on the model behind it", "R@1 = 8/8", "The harness still reports; the lexical side guarantees the identifier group"],
+  ]}
+/>
+
+"Every root top-3" was the first draft's bar; the benchmark showed only semantic-only on the plan-8 group meets it, so the bar is now the measured floor and the harness is the regression check — for the fusion rule, the kind weights (title 4, purpose 3, goal 3, brief 1.5, task 1.5, report 1, user 1, assistant 0.8), and any future provider or model.
+
+**Server behaviour tests** (replacing upstream's `LIKE` block in `ProjectionSnapshotQuery.test.ts`): a stemmed match ("rehoming" finds "re-home"); a child's brief credits the parent and `matchedThreadId` names the child; an archived root is returned with `archivedAt` set; a streaming assistant row is not indexed until finalised; a `control_notice` user message is not indexed; a written report is searchable and a second (gate-round) report replaces it; a deleted thread's rows disappear; `limit` counts roots; a lexical candidate with partial coverage does not enter fusion while a full-coverage one does; with provider `none`, results equal the lexical order; vectors stored under a different `identity` are ignored by fusion. Providers are exercised by the harness on real data (and by one contract test each against a stubbed HTTP response for `openai-compatible` and `vertex`), not by unit tests with a fake model.
+
+**Live smoke** (dev-verify recipe, web): type "sidebar v2 rehome" in the sidebar search — the root is first with a "Sub-thread: …" excerpt; type "thread naming" — the archived root appears with the Archived pill and opens; type "duplicate model names" — the model-picker root is top-3 with a "Purpose:" excerpt; in the command palette, "migration lanes" surfaces the root even though its title contains neither word; set `threadSearchEmbedding` to `{ "provider": "none" }` in `settings.json` and confirm the first two still work and the third degrades. Mobile: the first two queries in the thread list.
+
+**Performance budget:** fused query under 100 ms on the snapshot with the default provider (lexical 40–60 ms on the read lane, in parallel with a 3.5 ms query embed plus a sub-millisecond dot product); with Vertex, lexical results are not delayed by the remote call beyond the request's own latency (235–630 ms p50); first-sweep backfill ≈ 15 s in the background for the default; server RSS +130 MB after model load, +260 MB after backfill.
+
+## Risks
+
+- **Heavy native dependency for the default provider.** `onnxruntime-node` is 536 MB on disk (327 MB of it a CUDA provider that is never loaded) in a 3.4 GB release `node_modules`; `sharp` comes along as a transitive dependency of transformers. Mitigation: externalised like `node-pty`, loaded lazily so its absence degrades to lexical-only; trimming the CUDA `.so` is a later nicety. The Windows desktop sidecar derives its runtime roots from the same externals list and would ship it too — loom does not build that artifact today.
+- **First-run network for the default provider.** The 34 MB model downloads from huggingface.co once into `<stateDir>/models/`. If the production VM cannot reach it, search runs lexical-only and logs why; the files can be copied in by hand, or the operator switches to `vertex`.
+- **Vertex specifics.** `gemini-embedding-2` is served only from `global` (thread text leaves Australia); the OpenAI-compatible Vertex route is broken (HTTP 500), so only the native adapter works; a revoked or expired ADC credential turns search lexical-only until the next sweep succeeds. Per-query latency (235–630 ms) sits on the keystroke path, inside the 200 ms debounce plus request time rather than hidden by it.
+- **Fusion rule designed on the acceptance set.** The full-coverage filter has no tunable parameter and beat the unfiltered variant on every group, but the 57 queries are the only evidence; new paraphrase queries that lexical would have rescued with a partial match are the failure mode to watch. The harness and the committed set make it a one-command check.
+- **Rowid renumbering.** A future migration that rebuilds a source table by copy-and-rename invalidates the derived rowids. Mitigation: the rebuild migration re-runs the exported backfill (`delete-all` then the eight inserts); `threadSearchIndex.loom.ts` says so at the top.
+- **Column drops.** `ALTER TABLE … DROP COLUMN` fails on a column a trigger references (loom's own `1041` dropped columns on `projection_thread_messages`). Mitigation: the exported `dropTriggers`/`createTriggers` pair brackets any such migration.
+- **Upstream drift on `searchThreads`.** Upstream may change the contract or ship its own FTS. The `// loom:` hunks are small and the harness is the regression check at the next pull.
+- **Staleness window on the semantic side.** A root is embedded within ~2 minutes of changing, not instantly; a brand-new root is lexically searchable immediately (triggers) and semantically after the next sweep. A provider switch re-embeds everything, during which fusion uses only the identity-matched rows embedded so far.
+- **bm25 per-term arms cost O(hits).** Five common terms ≈ 40 ms plus attribution; if it grows, cap the arms at the six rarest terms.

@@ -3,6 +3,8 @@ export interface CommandPaletteItem {
   readonly kind: "action" | "project" | "thread";
   readonly title: string;
   readonly detail?: string;
+  /** loom: an archived root, reachable only through content search. */
+  readonly archived?: boolean;
   readonly searchTerms: ReadonlyArray<string>;
   readonly run: () => void;
 }

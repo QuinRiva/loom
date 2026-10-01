@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type OrchestrationThreadSearchMatch, // loom
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -122,11 +123,15 @@ export function reduceCommandPaletteUiState(
   }
 }
 
-export interface CommandPaletteThreadContentMatch {
-  readonly source: "user" | "assistant";
-  readonly snippet: string;
+// loom: every indexed source, the sub-thread that produced the hit, and the
+// root's position in the server's fused ranking.
+export type CommandPaletteThreadContentMatch = Pick<
+  OrchestrationThreadSearchMatch,
+  "source" | "snippet" | "matchedThreadTitle"
+> & {
   readonly query: string;
-}
+  readonly position: number;
+};
 
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
@@ -434,7 +439,12 @@ export function filterCommandPaletteGroups(input: {
   return searchableGroups.flatMap((group) => {
     const items = Arr.filterMap(group.items, (item, index) => {
       const haystack = normalizeSearchText(item.searchTerms.join(" "));
-      if (!queryTokens.every((token) => haystack.includes(token))) {
+      // loom: a content hit was already judged by the server — stemmed or
+      // semantic, so it may contain none of the typed words.
+      if (
+        item.threadContentMatch === undefined &&
+        !queryTokens.every((token) => haystack.includes(token))
+      ) {
         return Result.failVoid;
       }
 
@@ -447,6 +457,11 @@ export function filterCommandPaletteGroups(input: {
       .toSorted(
         (left, right) =>
           Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
+          // loom: items whose title holds every token lead (the only way to
+          // find a sub-thread); content hits then follow the server's order.
+          Number(right.rank >= 1_000) - Number(left.rank >= 1_000) ||
+          (left.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) -
+            (right.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) ||
           right.rank - left.rank ||
           left.index - right.index,
       )

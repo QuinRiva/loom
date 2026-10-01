@@ -6,7 +6,6 @@ import {
   isAtomCommandInterrupted,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
@@ -990,45 +989,22 @@ export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/c
 export { pinOrderKeyBetween, planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
 export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 
-const EMPTY_CONTENT_MATCH_KEYS: ReadonlySet<string> = new Set<string>();
-
 /**
- * Search the already-ordered sidebar thread collection by title or linked PR,
- * plus any thread whose messages the server matched (`contentMatchKeys`, keyed
- * by `threadSearchMatchKey`). Keeping the input order means lifecycle ordering
- * (active, snoozed, settled) remains stable while the user narrows the list.
+ * Search the already-ordered sidebar thread collection by title or linked PR.
+ * Keeping the input order means lifecycle ordering (active, snoozed, settled)
+ * remains stable while the user narrows the list.
+ * loom: content hits are merged ahead of these in loom/threadSearch.ts.
  */
 export function searchSidebarThreads<
-  T extends {
-    readonly environmentId: EnvironmentId;
-    readonly id: ThreadId;
-    readonly title: string;
-  } & Parameters<typeof threadPullRequestSearchTerms>[0],
->(
-  threads: readonly T[],
-  query: string,
-  contentMatchKeys: ReadonlySet<string> = EMPTY_CONTENT_MATCH_KEYS,
-): T[] {
+  T extends { readonly title: string } & Parameters<typeof threadPullRequestSearchTerms>[0],
+>(threads: readonly T[], query: string): T[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery.length === 0) return [];
-  const titleMatches: T[] = [];
-  const contentMatches: T[] = [];
-  for (const thread of threads) {
-    const matchesTitle = [thread.title, ...threadPullRequestSearchTerms(thread)].some((term) =>
+  return threads.filter((thread) =>
+    [thread.title, ...threadPullRequestSearchTerms(thread)].some((term) =>
       term.toLowerCase().includes(normalizedQuery),
-    );
-    if (matchesTitle) {
-      titleMatches.push(thread);
-    } else if (
-      contentMatchKeys.size > 0 &&
-      contentMatchKeys.has(
-        threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
-      )
-    ) {
-      contentMatches.push(thread);
-    }
-  }
-  return [...titleMatches, ...contentMatches];
+    ),
+  );
 }
 
 export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {

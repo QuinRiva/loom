@@ -149,6 +149,7 @@ import {
   buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
+  type CommandPaletteThreadContentMatch, // loom
   type CommandPaletteOpenIntent,
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
@@ -202,6 +203,8 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { ArchivedBadge } from "~/loom/ArchivedSearchResultRow"; // loom: archived content hits
+import { formatRelativeTimeLabel } from "~/timestampFormat"; // loom
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -830,16 +833,22 @@ function OpenCommandPaletteDialog(props: {
   );
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
   const threadSearch = useThreadSearch(environmentIds, threadSearchQuery);
+  // loom: every source counts, and each hit keeps its server rank position.
   const threadContentMatchByKey = useMemo(
     () =>
       new Map(
-        threadSearch.matches.flatMap((match) =>
-          match.source === "user" || match.source === "assistant"
-            ? [[threadSearchMatchKey(match), match] as const]
-            : [],
-        ),
+        threadSearch.matches.map((match, position) => {
+          const contentMatch: CommandPaletteThreadContentMatch = {
+            source: match.source,
+            snippet: match.snippet,
+            matchedThreadTitle: match.matchedThreadTitle,
+            query: threadSearchQuery,
+            position,
+          };
+          return [threadSearchMatchKey(match), { match, contentMatch }] as const;
+        }),
       ),
-    [threadSearch.matches],
+    [threadSearch.matches, threadSearchQuery],
   );
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const browseNavigationRef = useRef<ReturnType<typeof createBrowseNavigationCoordinator> | null>(
@@ -1371,19 +1380,13 @@ function OpenCommandPaletteDialog(props: {
           );
         },
         getContentMatch: (thread) => {
-          const match = threadContentMatchByKey.get(
+          // loom: keyed by ROOT id, so only root items ever carry a content hit.
+          return threadContentMatchByKey.get(
             threadSearchMatchKey({
               environmentId: thread.environmentId,
               threadId: thread.id,
             }),
-          );
-          return match && (match.source === "user" || match.source === "assistant")
-            ? {
-                source: match.source,
-                snippet: match.snippet,
-                query: threadSearchQuery,
-              }
-            : undefined;
+          )?.contentMatch;
         },
         runThread: async (thread) => {
           await navigate({
@@ -1401,11 +1404,40 @@ function OpenCommandPaletteDialog(props: {
       projectTitleById,
       providerEntryByEnvironmentAndInstanceId,
       threadContentMatchByKey,
-      threadSearchQuery,
       threads,
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  // loom: archived roots have no shell, so their content hits become items
+  // built from the match itself.
+  const archivedThreadSearchItems = useMemo((): CommandPaletteActionItem[] => {
+    const itemValues = new Set(allThreadItems.map((item) => item.value));
+    return [...threadContentMatchByKey.values()].flatMap(({ match, contentMatch }) =>
+      match.archivedAt === null || itemValues.has(`thread:${match.threadId}`)
+        ? []
+        : [
+            {
+              kind: "action",
+              value: `thread:${match.threadId}`,
+              searchTerms: [match.title],
+              title: match.title,
+              description: projectTitleById.get(match.projectId) ?? "",
+              threadContentMatch: contentMatch,
+              timestamp: formatRelativeTimeLabel(match.updatedAt),
+              icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+              titleTrailingContent: <ArchivedBadge />,
+              run: async () => {
+                await navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(
+                    scopeThreadRef(match.environmentId, match.threadId),
+                  ),
+                });
+              },
+            },
+          ],
+    );
+  }, [allThreadItems, navigate, projectTitleById, threadContentMatchByKey]);
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -2162,7 +2194,7 @@ function OpenCommandPaletteDialog(props: {
               });
             },
           })
-        : allThreadItems,
+        : [...allThreadItems, ...archivedThreadSearchItems], // loom: + archived roots
   });
 
   const handleAddProjectForEnvironment = useCallback(
@@ -3064,7 +3096,7 @@ function OpenCommandPaletteDialog(props: {
                     emptyStateMessage: "Press Enter to create this folder and add it as a project.",
                   }
                 : threadSearch.isPending
-                  ? { emptyStateMessage: "Searching thread messages…" }
+                  ? { emptyStateMessage: "Searching threads…" } // loom
                   : {})}
       />
     </CommandPaletteContent>

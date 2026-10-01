@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import { ServerConfig } from "../config.ts";
+import { upsertThreadSearchReport } from "../persistence/threadSearchIndex.loom.ts"; // loom: thread search
 
 /**
  * Filesystem-safe report file name for a thread (threadIds are uuids). Inside a
@@ -50,6 +51,12 @@ export const writeWorkstreamReport = Effect.fn("writeWorkstreamReport")(function
   );
   yield* fs.makeDirectory(config.workstreamReportsDir, { recursive: true });
   yield* fs.writeFileString(filePath, markdown);
+  // loom: index the latest report for thread content search; never fails the submit.
+  yield* upsertThreadSearchReport(threadId, markdown).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("thread-search.report-index-failed", { threadId, error }),
+    ),
+  );
   return filePath;
 });
 
