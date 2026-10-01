@@ -98,6 +98,7 @@ import {
   type TurnDiffSummary,
 } from "../../types";
 import {
+  DIFF_SURFACE_THEME_UNSAFE_CSS, // loom:
   getRenderablePatch,
   resolveDiffThemeName,
   resolveFileDiffPath,
@@ -4231,6 +4232,9 @@ function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentC
                 diffStyle: "unified",
                 theme: resolveDiffThemeName(ctx.resolvedTheme),
                 preferredHighlighter: PREFERRED_HIGHLIGHTER,
+                // loom: the app's diff surface (theme tokens + solid word-diff emphasis), not the
+                // panel's sticky-header/selection chrome, which has no job in a quoted comment.
+                unsafeCSS: DIFF_SURFACE_THEME_UNSAFE_CSS,
               }}
             />
           ))}
