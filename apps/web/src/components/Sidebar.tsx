@@ -2713,7 +2713,7 @@ export default function Sidebar() {
   );
   // useThreadSearch owns the debounce and the two-character floor.
   const threadSearch = useThreadSearch(searchEnvironmentIds, threadSearchQuery);
-  // loom: the server's root-only fused order, archived roots included; local
+  // loom: the server's root-only fused order, archived roots unless hidden; local
   // title matches follow (see loom/threadSearch.ts).
   const threadSearchResults = useMemo(
     () =>

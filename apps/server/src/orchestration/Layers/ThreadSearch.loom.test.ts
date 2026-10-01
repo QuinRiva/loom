@@ -65,10 +65,14 @@ const message = (
         '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z')`;
   });
 
-const search = (query: string, limit?: number) =>
+const search = (query: string, limit?: number, includeArchived?: boolean) =>
   makeThreadSearch.pipe(
     Effect.flatMap((threadSearch) =>
-      threadSearch.searchThreads({ query, ...(limit === undefined ? {} : { limit }) }),
+      threadSearch.searchThreads({
+        query,
+        ...(limit === undefined ? {} : { limit }),
+        ...(includeArchived === undefined ? {} : { includeArchived }),
+      }),
     ),
     Effect.map(({ matches }) => matches),
   );
@@ -116,6 +120,34 @@ layer("ThreadSearch", (it) => {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`UPDATE projection_threads SET deleted_at = '2026-01-04T00:00:00.000Z' WHERE thread_id = 'child'`;
       assert.deepStrictEqual(yield* search("flux capacitor"), []);
+    }),
+  );
+
+  it.effect("includeArchived: false drops archived roots from both rankings", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("archived", "nebula survey", { archivedAt: "2026-01-03T00:00:00.000Z" });
+      yield* thread("archived-child", "Probe", { parent: "archived", brief: "nebula drift" });
+      yield* thread("live", "nebula notes");
+      const ids = (matches: ReadonlyArray<{ readonly threadId: string }>) =>
+        matches.map((match) => match.threadId).toSorted();
+
+      assert.deepStrictEqual(ids(yield* search("nebula")), ["archived", "live"]);
+      // The child's brief hit must not resurrect its archived root.
+      assert.deepStrictEqual(ids(yield* search("nebula", undefined, false)), ["live"]);
+      assert.deepStrictEqual(ids(yield* search("drift", undefined, false)), []);
+
+      // Semantic side: the archived root is the nearest vector, yet stays out.
+      const embedder = yield* makeThreadEmbedder(
+        Effect.succeed(stubProvider({ cosmos: [1, 0], "nebula survey": [1, 0] })),
+      );
+      yield* embedder.sweep;
+      const semantic = (includeArchived: boolean) =>
+        search("cosmos", undefined, includeArchived).pipe(
+          Effect.provideService(ThreadEmbedder, embedder),
+        );
+      assert.equal((yield* semantic(true))[0]?.threadId, "archived");
+      assert.notInclude(ids(yield* semantic(false)), "archived");
     }),
   );
 

@@ -2421,6 +2421,8 @@ export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSo
 export const OrchestrationSearchThreadsInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+  // loom: omitted = true (archived roots are searchable by default).
+  includeArchived: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 

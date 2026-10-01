@@ -113,10 +113,11 @@ const normalise = (vector: Float32Array) => {
 export class ThreadEmbedder extends Context.Service<
   ThreadEmbedder,
   {
-    /** Root thread ids nearest the query, best first; `undefined` = lexical-only. */
+    /** Root thread ids nearest the query, best first, never one in `skip`; `undefined` = lexical-only. */
     readonly nearest: (
       query: string,
       k: number,
+      skip?: ReadonlySet<string>,
     ) => Effect.Effect<ReadonlyArray<string> | undefined>;
     /** Bring the stored vectors in line with the root documents and provider. */
     readonly sweep: Effect.Effect<{ readonly embedded: number; readonly identity?: string }>;
@@ -256,7 +257,7 @@ export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvi
 
     /** Set by a failed query embed, cleared by the next success: one warning per outage. */
     let queryWarned = false;
-    const nearest = (query: string, k: number) =>
+    const nearest = (query: string, k: number, skip?: ReadonlySet<string>) =>
       Effect.gen(function* () {
         const current = state;
         if (!current?.provider || !current.identity) return undefined;
@@ -264,6 +265,7 @@ export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvi
         queryWarned = false;
         const vector = normalise(embedded!);
         return [...current.vectors]
+          .filter(([threadId]) => !skip?.has(threadId))
           .map(([threadId, candidate]) => {
             let score = 0;
             for (let index = 0; index < vector.length; index++)

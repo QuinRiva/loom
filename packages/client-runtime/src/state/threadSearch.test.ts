@@ -28,7 +28,7 @@ it("creates keys without array methods unavailable in Hermes", () => {
   Reflect.deleteProperty(Array.prototype, "toSorted");
 
   try {
-    expect(makeThreadSearchKey([envB, envA], "needle")).toBe('[["env-a","env-b"],"needle"]');
+    expect(makeThreadSearchKey([envB, envA], "needle")).toBe('[["env-a","env-b"],"needle",true]'); // loom: includeArchived
   } finally {
     if (descriptor !== undefined) {
       Reflect.defineProperty(Array.prototype, "toSorted", descriptor);
