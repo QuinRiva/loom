@@ -566,7 +566,7 @@ function ThreadNavigationSidebarPane(
     settledVisibleCount,
     settlementEnvironmentIds,
     snoozeEnvironmentIds,
-    hasSearchQuery,
+    hasSearchQuery, // loom
     threadListV2Enabled,
     threads,
     selectedProjectScope,
@@ -646,12 +646,12 @@ function ThreadNavigationSidebarPane(
     }
     return items;
   }, [
-    hasSearchQuery,
+    hasSearchQuery, // loom
     listLayout.items,
     nowMinute,
     options.selectedEnvironmentId,
     pendingTasks,
-    threadSearch.matches,
+    threadSearch.matches, // loom
     threads,
     props.searchQuery,
     selectedProjectRefs,

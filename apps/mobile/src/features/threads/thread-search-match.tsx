@@ -41,7 +41,7 @@ export function ThreadSearchMatchExcerpt(props: {
               : "text-adaptive-emerald-600-400",
         )}
       >
-        {label}{" "}
+        {label /* loom */}{" "}
       </Text>
       {parts.map((part) => (
         <Text

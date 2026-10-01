@@ -25,17 +25,23 @@ export function ThreadSearchMatchExcerpt(props: {
   };
 }) {
   const isUser = props.match.source === "user";
+  // loom: a title hit's snippet IS the title — the root's is already the row's
+  // own title, and a sub-thread's needs only the "Sub-thread:" prefix (as on mobile).
+  const titleHit = props.match.source === "title";
+  if (titleHit && props.match.matchedThreadTitle === null) return null;
   return (
     <span className="truncate text-xs text-muted-foreground/85">
       {/* loom: a hit inside a sub-thread credits the root but names the sub-thread */}
       {props.match.matchedThreadTitle !== null ? (
         <span className="text-muted-foreground/70">
-          Sub-thread: {props.match.matchedThreadTitle} ·{" "}
+          {titleHit ? "Sub-thread:" : `Sub-thread: ${props.match.matchedThreadTitle} ·`}{" "}
         </span>
       ) : null}
-      <span className={isUser ? "text-blue-400" : "text-emerald-400"}>
-        {THREAD_SEARCH_SOURCE_LABEL[props.match.source]}
-      </span>{" "}
+      {titleHit ? null : (
+        <span className={isUser ? "text-blue-400" : "text-emerald-400"}>
+          {THREAD_SEARCH_SOURCE_LABEL[props.match.source]}{" "}
+        </span>
+      )}
       <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
     </span>
   );

@@ -768,7 +768,7 @@ export function HomeScreen(props: HomeScreenProps) {
     props.selectedEnvironmentId,
     props.threads,
     matchedThreadKeys,
-    hasSearchQuery,
+    hasSearchQuery, // loom
     threadListV2Enabled,
     v2ScopedProjectGroup,
   ]);
@@ -1010,6 +1010,7 @@ export function HomeScreen(props: HomeScreenProps) {
       nowMinute,
     ],
   );
+  // loom: archived search rows
   const v2KeyExtractor = useCallback(
     (item: ThreadListV2ListItem | ThreadSearchArchivedItem) => item.key,
     [],
@@ -1157,6 +1158,7 @@ export function HomeScreen(props: HomeScreenProps) {
     ],
   );
 
+  // loom: archived search rows
   const keyExtractor = useCallback((item: HomeListItem | ThreadSearchArchivedItem) => item.key, []);
 
   /* Empty states */

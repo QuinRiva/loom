@@ -382,7 +382,7 @@ export function CommandPalette(props: {
     projects,
     runCommand,
     savedConnectionsById,
-    search.matches,
+    search.matches, // loom
     selectThread,
     threads,
   ]);
