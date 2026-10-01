@@ -37,10 +37,9 @@ catalogue: a model no pi on the machine knows cannot be rolled to. Read the
 npm view @earendil-works/pi-coding-agent version time --json | tail -5
 ```
 
-pnpm 11 refuses packages younger than 24 h unless they are in
-`pnpm-workspace.yaml` → `minimumReleaseAgeExclude`; a same-day pi needs all six
-`@earendil-works/*` entries there moved to the new version (the README covers
-it). Prefer a release older than a day.
+Take the newest release, even one published today: loom sets
+`minimumReleaseAge: 0` in `pnpm-workspace.yaml`, so pnpm 11's release-age gate
+does not apply.
 
 **Confirm the models you want are in that version's catalogue — before touching
 anything.** The catalogue ships in `@earendil-works/pi-ai`, and the version that
@@ -50,14 +49,14 @@ in `node_modules` governs only the readable `dist/` tree, never the binary loom
 runs.
 
 ```bash
-V=0.87.1
+V=0.99.2
 cd "$(mktemp -d)" && npm pack "@earendil-works/pi-ai@$V" --silent && tar xzf *.tgz
 ls package/dist/providers/data/                      # one JSON per provider
 python3 - <<'EOF'
 import json
 for f, api in (("anthropic", "anthropic-messages"), ("openai-codex", "openai-codex-responses")):
     d = json.load(open(f"package/dist/providers/data/{f}.json"))
-    for k in d:                                       # keyed {"<api>": {"<model-id>": …}}, not a `models` array
+    for k in d:                                       # keyed {"<api>": {"<model-id>": …}} (≥0.99: "chat:<model-id>"), not a `models` array
         for m in d[k]:
             if any(s in m for s in ("opus-5-5", "gpt-6")):
                 e = d[k][m]; print(f, m, e["cost"], e["contextWindow"], e["maxTokens"], e.get("thinkingLevelMap"))
@@ -100,20 +99,20 @@ with no explicit human pick or orchestrator opt-in — except the named presets
 are **opt-in**. Default surfaces run Claude; putting an OpenAI model on one
 needs Carl's yes first (the `platform-update` skill asks).
 
-| #   | Surface                             | Path                                                                                                                                                                                    | Kind          | Effect                | Why it matters                                                                                                                                                                                                                                                                                                           |
-| --- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Bundled pi version pin + pnpm patch | `apps/server/package.json` (exact pin), `pnpm-workspace.yaml` (`patchedDependencies` key, six `minimumReleaseAgeExclude` entries), `patches/@earendil-works__pi-coding-agent@<v>.patch` | repo          | deploy                | The cockpit's pi keeps the old builtin catalogue — and with it the old custom-provider catalogue (row 4). A mismatched patch key fails `pnpm install` loudly — the one failure that cannot be silent.                                                                                                                    |
-| 2   | Global pi install                   | `/home/Carl/.n/lib/node_modules/@earendil-works/pi-coding-agent` (`which pi`)                                                                                                           | machine       | live                  | A stock global pi writes `~/.pi/agent/auth.json` non-atomically — and that file is shared by **every** pi on the machine, bundled ones included, so an unpatched terminal pi can hand a cockpit thread an empty credential store. Interactive `pi --session … --cwd …` also loses the flag.                              |
-| 3   | Machine-wide builtin catalogue      | `~/.pi/agent/models-store.json` (refreshed by `pi update --models`)                                                                                                                     | machine       | live                  | Nothing to edit. Builtin-provider models (`openai-codex/*`, `anthropic/*`, vertex, bedrock) come from here for every pi on the machine, **including a stale deployed bundle**. This is why GPT-6 ran on the deployed 0.86.0 cockpit with no deploy — and why a model probe passing proves nothing about the bundle (§7). |
-| 4   | Custom-provider catalogues          | pi-craft `plugins/pi-craft/extensions/cliproxy.ts`, `anthropic-subs.ts`                                                                                                                 | other project | with the loading pi   | Nothing to edit: both derive their models from pi's own bundled catalogue (`getBuiltinModels("anthropic")`) at extension load. A pi bump is what adds a model to `cliproxy/*` and `anthropic-<account>/*` — terminal pi at the global install (row 2), the cockpit at the deploy (row 15).                               |
-| 6   | cli-proxy (Claude pool only)        | `/home/Carl/cli-proxy/docker-compose.yml` `image:` tag; upstream `internal/registry/models/models.json` + cloak pin in `internal/runtime/executor/helps/claude_device_profile.go`       | other project | restart (~6 s outage) | Anthropic rejects the model with `Claude Code <old> does not support this model; version <floor> or newer is required` — even though `GET /v1/models` lists it.                                                                                                                                                          |
-| 10  | Role prose                          | `roles/*.md`                                                                                                                                                                            | repo          | —                     | Nothing to edit: roles name model families and tiers (Opus = anthropic/medium, Sol = openai/medium), never versions.                                                                                                                                                                                                     |
-| 12  | Tests that assert a default         | the fixtures asserting `PI_DEFAULT_MODEL`'s value                                                                                                                                       | repo          | —                     | The skill's loom PR updates them with the constant (the gate fails loudly otherwise); the ~100 fixtures that merely _use_ a slug stay as they are.                                                                                                                                                                       |
-| 14  | Other patched pi extensions         | `~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts` (`grep -c "LOCAL PATCH (Carl)"` → 4)                                                          | machine       | live                  | Not touched by `npm install -g` of pi core; **is** wiped by `pi update --all`/`--extensions` on a version change. See `~/pi-craft/local-patches/README.md`.                                                                                                                                                              |
-| 15  | Deploy                              | `~/loom-releases/RUNBOOK.md` → `deployctl deploy cockpit main`                                                                                                                          | machine       | —                     | Row 1 and the skill's loom PR stay on paper, and the cockpit cannot run a new `cliproxy/*` model.                                                                                                                                                                                                                        |
-| 16  | Overlay role prose                  | `~/pi-fathom/loom/roles/orchestrator.md` (fathom's copy of row 10's model sentence)                                                                                                     | other project | live                  | Nothing to edit for a rollover — it mirrors row 10 and names families, not versions. Keep it in step when the model doctrine itself changes.                                                                                                                                                                             |
-| 17  | Web search backend                  | `~/.pi/web-search.json` → `provider` (`exa`; absent means `auto`, which tries OpenAI first)                                                                                             | machine       | live                  | An unset provider sends every `web_search` through an OpenAI model on the Codex subscription.                                                                                                                                                                                                                            |
-| 18  | Prompt-template provider preference | `pi-prompt-template-model` `PREFERRED_PROVIDERS` (`openai-codex` first)                                                                                                                 | machine       | live                  | Note only: it breaks a tie only for a template naming a bare model id, and `~/.pi/agent/prompts/` is empty.                                                                                                                                                                                                              |
+| #   | Surface                             | Path                                                                                                                                                                              | Kind          | Effect                | Why it matters                                                                                                                                                                                                                                                                                                           |
+| --- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Bundled pi version pin + pnpm patch | `apps/server/package.json` (exact pin), `pnpm-workspace.yaml` (`patchedDependencies` key), `patches/@earendil-works__pi-coding-agent@<v>.patch`                                   | repo          | deploy                | The cockpit's pi keeps the old builtin catalogue — and with it the old custom-provider catalogue (row 4). A mismatched patch key fails `pnpm install` loudly — the one failure that cannot be silent.                                                                                                                    |
+| 2   | Global pi install                   | `/home/Carl/.n/lib/node_modules/@earendil-works/pi-coding-agent` (`which pi`)                                                                                                     | machine       | live                  | A stock global pi writes `~/.pi/agent/auth.json` non-atomically — and that file is shared by **every** pi on the machine, bundled ones included, so an unpatched terminal pi can hand a cockpit thread an empty credential store. Interactive `pi --session … --cwd …` also loses the flag.                              |
+| 3   | Machine-wide builtin catalogue      | `~/.pi/agent/models-store.json` (refreshed by `pi update --models`)                                                                                                               | machine       | live                  | Nothing to edit. Builtin-provider models (`openai-codex/*`, `anthropic/*`, vertex, bedrock) come from here for every pi on the machine, **including a stale deployed bundle**. This is why GPT-6 ran on the deployed 0.86.0 cockpit with no deploy — and why a model probe passing proves nothing about the bundle (§7). |
+| 4   | Custom-provider catalogues          | pi-craft `plugins/pi-craft/extensions/cliproxy.ts`, `anthropic-subs.ts`                                                                                                           | other project | with the loading pi   | Nothing to edit: both derive their models from pi's own bundled catalogue (`getBuiltinModels("anthropic")`) at extension load. A pi bump is what adds a model to `cliproxy/*` and `anthropic-<account>/*` — terminal pi at the global install (row 2), the cockpit at the deploy (row 15).                               |
+| 6   | cli-proxy (Claude pool only)        | `/home/Carl/cli-proxy/docker-compose.yml` `image:` tag; upstream `internal/registry/models/models.json` + cloak pin in `internal/runtime/executor/helps/claude_device_profile.go` | other project | restart (~6 s outage) | Anthropic rejects the model with `Claude Code <old> does not support this model; version <floor> or newer is required` — even though `GET /v1/models` lists it.                                                                                                                                                          |
+| 10  | Role prose                          | `roles/*.md`                                                                                                                                                                      | repo          | —                     | Nothing to edit: roles name model families and tiers (Opus = anthropic/medium, Sol = openai/medium), never versions.                                                                                                                                                                                                     |
+| 12  | Tests that assert a default         | the fixtures asserting `PI_DEFAULT_MODEL`'s value                                                                                                                                 | repo          | —                     | The skill's loom PR updates them with the constant (the gate fails loudly otherwise); the ~100 fixtures that merely _use_ a slug stay as they are.                                                                                                                                                                       |
+| 14  | Other patched pi extensions         | `~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts` (`grep -c "LOCAL PATCH (Carl)"` → 4)                                                    | machine       | live                  | Not touched by `npm install -g` of pi core; **is** wiped by `pi update --all`/`--extensions` on a version change. See `~/pi-craft/local-patches/README.md`.                                                                                                                                                              |
+| 15  | Deploy                              | `~/loom-releases/RUNBOOK.md` → `deployctl deploy cockpit main`                                                                                                                    | machine       | —                     | Row 1 and the skill's loom PR stay on paper, and the cockpit cannot run a new `cliproxy/*` model.                                                                                                                                                                                                                        |
+| 16  | Overlay role prose                  | `~/pi-fathom/loom/roles/orchestrator.md` (fathom's copy of row 10's model sentence)                                                                                               | other project | live                  | Nothing to edit for a rollover — it mirrors row 10 and names families, not versions. Keep it in step when the model doctrine itself changes.                                                                                                                                                                             |
+| 17  | Web search backend                  | `~/.pi/web-search.json` → `provider` (`exa`; absent means `auto`, which tries OpenAI first)                                                                                       | machine       | live                  | An unset provider sends every `web_search` through an OpenAI model on the Codex subscription.                                                                                                                                                                                                                            |
+| 18  | Prompt-template provider preference | `pi-prompt-template-model` `PREFERRED_PROVIDERS` (`openai-codex` first)                                                                                                           | machine       | live                  | Note only: it breaks a tie only for a template naming a bare model id, and `~/.pi/agent/prompts/` is empty.                                                                                                                                                                                                              |
 
 ## 3. Order of operations
 
@@ -148,7 +147,10 @@ deploy. Sequence so that nothing points at a model that nothing can serve:
    `pi -p` per provider (§7).
 4. **Model rollover** — the skill writes its live targets and probes each
    changed tier (§7). The preset flip needs neither deploy nor restart; it is
-   the step that actually changes what tomorrow's threads run on.
+   the step that actually changes what tomorrow's threads run on. The
+   exception is a `cliproxy/*` model only the new pi ships: the deployed
+   cockpit derives that catalogue from its own, older pi (row 4), so the skill
+   holds those targets until after step 5 (0.99.2's `claude-sonnet-5-5`).
 5. **Deploy** (row 15) per `~/loom-releases/RUNBOOK.md`. Confirm the promoted
    release resolves the new pi:
    `grep '"version"' "$(readlink -f ~/loom-releases/current/apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`.
@@ -179,9 +181,9 @@ to bottom. Two things it cannot know about your situation:
 ## 5. The global install
 
 ```bash
-V=0.87.1
+V=0.99.2
 npm install -g "@earendil-works/pi-coding-agent@$V"     # not `pi update`
-pi --version                                             # → 0.87.1
+pi --version                                             # → 0.99.2
 <loom worktree>/infra/pi-patches/apply.sh                # readable dist, then the bundle
 <loom worktree>/infra/pi-patches/apply.sh --check        # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
 grep -c "LOCAL PATCH (Carl)" ~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts   # → 4
@@ -212,7 +214,7 @@ silently.
 | 0002 atomic `auth.json`      | `grep -n "writeFileSync\|renameSync" dist/core/auth-storage.js` shows `renameSync` (or any write-then-rename) on **both** the `withLock` and `withLockAsync` paths | `atomic-window.mjs` (§7) reports all zeros against stock.                                                                                                                                                                                                                           |
 
 Record the outcome in the README's patch section either way. So far: both kept
-at 0.86.0 and 0.87.1.
+at 0.86.0, 0.87.1 and 0.99.2.
 
 ## 7. Verification
 
@@ -238,15 +240,17 @@ report clean on stock.
 cd /home/Carl/pi-craft/local-patches/authlock-repro && node atomic-window.mjs
 # patched: zeroByte=0 unparseable=0 emptyObject=0 on all three readers; final file parses
 # stock 0.87.1 (calibration): ~4–9 k zeroByte, ~600–800 unparseable per reader
+# stock 0.99.2: ~2–3 M zeroByte, ~50–90 unparseable, ~300 good per reader, every run
 ```
 
 The harness's import is hard-coded to the global install; for the bundled copy
 point it at `<resolved package>/dist/core/auth-storage.js`. That proves the
 readable tree; the bundle is proven by
-`grep -c __loomWriteAuthAtomic dist/bundle/chunks/chunk-*.js` → 2 and no
-remaining raw `this.authPath,next,AUTH_FILE_WRITE_OPTIONS` write. A stock run
-reporting _millions_ of zero-byte reads is a stalled writer, not a wider window
-— rerun it.
+`grep -c __loomWriteAuthAtomic dist/bundle/chunks/chunk-*.js` → 2 (one chunk) and no
+remaining `writeFileSync(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)`. A stock run
+reporting _millions_ of zero-byte reads is usually a stalled writer, not a wider
+window — rerun it. Stock 0.99.2 reports millions on every run, so there read the
+unparseable count instead.
 
 **`--cwd` parity in the bundle**
 
@@ -331,7 +335,7 @@ Each of these cost real time in the last two rounds.
 - **The catalogue is inlined into that bundle.** New builtin models arrive with
   the pi-coding-agent version, not with a `pi-ai` resolution; only
   `models-store.json` (row 3) can front-run a bump, and only for builtin
-  providers.
+  providers. A `models.json` entry (§9) stands in when the overlay lags.
 - **A probe that passes on a stale bundle.** Sibling worktrees keep the old pi
   until `pnpm install`; row 3 supplies builtin-provider models regardless; the probe
   goes green. Assert the version first.
@@ -352,19 +356,83 @@ Each of these cost real time in the last two rounds.
   the tarball before patching.
 - **`pnpm patch` chicken-and-egg.** `pnpm patch pkg@<new>` refuses until that
   version is installed; `pnpm install` refuses while `patchedDependencies`
-  names a patch file that does not exist. Comment the entry out, install,
-  restore, patch, commit — in that order.
+  names a patch file that does not exist, and so does `pnpm patch` itself.
+  Remove the entry, install, patch, then `patch-commit`, which writes the
+  entry back — in that order.
 - **`patch` leaves `.orig` files on any offset.** Delete them before
   `patch-commit` on the bundled path; keep them on the global path.
 - **In-process readers report clean.** The atomic-write harness only means
   anything with separate-process readers. A stock run showing millions of
-  zero-byte reads is a stalled writer — rerun, don't record.
+  zero-byte reads is usually a stalled writer — rerun, don't record (stock
+  0.99.2 is the exception, see §7).
 - **The bundle chunk filename changes every release** (`chunk-7YM6BE7Y.js` →
-  `chunk-OJP47DM6.js`). `patch-bundle.mjs` finds it by content; do not
-  hard-code it anywhere else.
+  `chunk-OJP47DM6.js`), and from 0.99 the two patches land in different
+  chunks. `patch-bundle.mjs` finds each by content; do not hard-code a chunk
+  name anywhere else.
+- **New pi packages need license notices.** `@earendil-works/*` packages ship
+  no LICENSE file, so each one pi adds (0.99 added `pi-codemode` and
+  `pi-mcp`) fails the web build's license generation until it has a
+  `packageOverrides` entry in `third-party-licenses.config.json`. Neither
+  `vp check` nor typecheck catches it; the README's verification list does.
 - **Presets are settings, not code.** A shipped, deployed rollover changes
   nothing a child runs on until the skill writes the live cockpit settings. Conversely, the edit is live
   in seconds — there is no "deploy" to hide behind if it is wrong.
 - **Codex quota reads like a rollover failure.** `usage limit has been reached`
   on the new slugs is the account, not the catalogue; the old slugs fail
   identically. Use the negative-control slug to prove resolution.
+
+## 9. One new model between updates
+
+The skill decides which tier and targets move ("One new model between
+updates"). This section gets pi to serve the model and proves it.
+
+**Check whether pi already serves it.** Builtin-provider models reach every pi
+on the machine through the pi.dev overlay (row 3), often before any pi release
+ships them: `gpt-6.1-sol` was in `models-store.json` on 2026-09-29, a day
+before pi-ai 0.99.2 published it.
+
+```bash
+pi update --models                  # force the overlay refresh (pi otherwise re-checks at most every 4 h)
+pi --list-models | grep <id>        # listed → skip to "Point and test"
+```
+
+If `pi update --models` fails for one provider (for example
+`anthropic: … invalid_grant`), it still refreshes the others. `--list-models`
+is the check that counts.
+
+**If it is not listed, register it in `~/.pi/agent/models.json`.** Copy the
+entry from a pi-ai catalogue that has it (§1's `npm pack`), minus `provider`
+and `type`. The snippet appends to an existing file:
+
+```bash
+python3 - <<'EOF'
+import json, os
+F = os.path.expanduser("~/.pi/agent/models.json")
+P, API, ID = "openai-codex", "openai-codex-responses", "gpt-6.1-sol"
+e = json.load(open(f"package/dist/providers/data/{P}.json"))[API][f"chat:{ID}"]   # pre-0.99 keys are bare ids
+for k in ("provider", "type"): e.pop(k, None)
+m = json.load(open(F)) if os.path.exists(F) else {}
+m.setdefault("providers", {}).setdefault(P, {}).setdefault("models", []).append(e)
+json.dump(m, open(F, "w"), indent=2)
+EOF
+```
+
+pi 0.87.1 accepts this entry as is (checked with `gpt-6.1-sol`), and it
+overrides an overlay or bundled model with the same id.
+
+**Point and test.** Write the targets with the skill's `--set`, then probe both
+binaries and run the §7 `workstream_list` check, using a bogus id of the same
+family as the negative control:
+
+```bash
+B="node $(readlink -f ~/loom-releases/current/apps/server/node_modules/@earendil-works/pi-coding-agent)/dist/bundle/cli.js"
+for bin in pi "$B"; do $bin -p --model openai-codex/gpt-6.1-sol --thinking high "Reply with exactly: OK"; done   # OK, OK
+```
+
+There is no restart or deploy. The cockpit re-reads its settings within
+seconds and re-probes pi's catalogue every ~2 min, so right after a `models.json`
+edit `workstream_list` may show `[INVALID]` for up to 2 min.
+
+**Once a pi bump ships the model,** delete its `models.json` entry, and check
+that `pi --list-models` still lists the model. The targets need nothing: the
+skill now resolves the tier to that id itself.

@@ -10,7 +10,7 @@
          else if (arg === "--models" && i + 1 < args.length) {
              result.models = args[++i].split(",").map((s) => s.trim());
          }
-@@ -289,6 +292,8 @@
+@@ -290,6 +293,8 @@
    --session-id <id>              Use exact project session ID, creating it if missing
    --fork <path|id>               Fork specific session file or partial UUID into a new session
    --session-dir <dir>            Directory for session storage and lookup
@@ -40,7 +40,7 @@
  import { createInterface } from "node:readline";
  import { modelsAreEqual } from "@earendil-works/pi-ai";
  import { setCapabilityOverrides } from "@earendil-works/pi-tui";
-@@ -261,9 +262,39 @@
+@@ -262,9 +263,39 @@
          process.exit(1);
      }
  }
@@ -82,7 +82,7 @@
      }
      catch (error) {
          const message = error instanceof Error ? error.message : String(error);
-@@ -281,7 +312,7 @@
+@@ -282,7 +313,7 @@
          process.exit(1);
      }
  }
@@ -91,7 +91,7 @@
      if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
          return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
      }
-@@ -306,6 +337,12 @@
+@@ -307,6 +338,12 @@
      }
      if (parsed.session) {
          const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
@@ -104,7 +104,7 @@
          switch (resolved.type) {
              case "path":
              case "local":
-@@ -514,6 +551,7 @@
+@@ -520,6 +557,7 @@
      }
      validateForkFlags(parsed);
      validateSessionIdFlags(parsed);
@@ -112,7 +112,7 @@
      // Run migrations (pass cwd for project-local migrations)
      const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
      time("runMigrations");
-@@ -537,7 +575,7 @@
+@@ -543,7 +581,7 @@
      const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
          (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
          startupSettingsManager.getSessionDir();
