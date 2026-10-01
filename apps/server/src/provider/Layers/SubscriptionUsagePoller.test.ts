@@ -5,6 +5,7 @@ import {
   UsageLimitSourceId,
   type ServerProvider,
   type ServerProviderUsageLimits,
+  type UsageLimitSourceSnapshot,
 } from "@t3tools/contracts";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 import * as Duration from "effect/Duration";
@@ -25,6 +26,7 @@ import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.t
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
 import { SubscriptionUsagePoller } from "../Services/SubscriptionUsagePoller.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
 import {
   anthropicAccountPrefixes,
   hubReportsClaudeQuota,
@@ -125,6 +127,14 @@ const PI = ProviderInstanceId.make("pi");
 const POOLED = ["carl@", "jacob@"];
 const HUB_ID = UsageLimitSourceId.make("local");
 const HUB = { kind: "cliproxy" as const, url: "http://127.0.0.1:8317", managementKey: "k" };
+const HUB_READ_AT = "2026-09-21T10:00:00.000Z";
+
+/** A hub account as `cliproxyApi` publishes it; its id is the auth file's name. */
+const hubAccount = (file: string, usageLimits: ServerProviderUsageLimits) => ({
+  id: file,
+  driver: ProviderDriverKind.make("claudeAgent"),
+  usageLimits,
+});
 
 /** One pi instance pooling the hub's accounts through their token files. */
 const PI_INSTANCE = {
@@ -169,12 +179,21 @@ const withPoller = (
     readonly limits: Effect.Effect<ServerProviderUsageLimits | undefined>;
     /** Accounts that reported to the health registry since the last cycle. */
     readonly telemetry: Effect.Effect<ReadonlyArray<string>>;
+    readonly readings: Effect.Effect<ReadonlyArray<AccountUsageSnapshot>>;
+    /** Calls to Anthropic's rate-limited usage endpoint since the last cycle. */
+    readonly anthropicCalls: Effect.Effect<number>;
     readonly setHub: (config: { readonly enabled: boolean } | null) => Effect.Effect<void>;
+    /** What the hub source currently publishes. */
+    readonly setHubAccounts: (
+      accounts: UsageLimitSourceSnapshot["accounts"],
+    ) => Effect.Effect<void>;
   }) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
     const limitsRef = yield* Ref.make<ServerProviderUsageLimits | undefined>(undefined);
     const telemetryRef = yield* Ref.make<ReadonlyArray<AccountUsageSnapshot>>([]);
+    let anthropicCalls = 0;
+    const hubRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
     const instance = {
       snapshot: {
         applyUsageLimits: (update: { readonly checkedAt: string; readonly windows: never }) =>
@@ -193,6 +212,7 @@ const withPoller = (
       Layer.mock(ProviderHealthRegistry)({
         applyUsage: (snapshot) => Ref.update(telemetryRef, (all) => [...all, snapshot]),
       }),
+      Layer.mock(UsageLimitSources)({ current: Ref.get(hubRef) }),
       Layer.mock(ProviderInstanceRegistry)({
         getInstance: (instanceId) => Effect.succeed(instanceId === PI ? instance : undefined),
       }),
@@ -204,12 +224,14 @@ const withPoller = (
       Layer.succeed(
         HttpClient.HttpClient,
         HttpClient.make((request) =>
-          Effect.succeed(
-            HttpClientResponse.fromWeb(
+          Effect.sync(() => {
+            const anthropic = request.url.includes("anthropic.com");
+            if (anthropic) anthropicCalls += 1;
+            return HttpClientResponse.fromWeb(
               request,
-              Response.json(request.url.includes("anthropic.com") ? anthropicBody : codexBody),
-            ),
-          ),
+              Response.json(anthropic ? anthropicBody : codexBody),
+            );
+          }),
         ),
       ),
       FileSystem.layerNoop({
@@ -232,8 +254,15 @@ const withPoller = (
       yield* TestClock.adjust(Duration.zero);
       yield* body({
         cycle: Ref.set(telemetryRef, []).pipe(
+          Effect.andThen(Effect.sync(() => (anthropicCalls = 0))),
           Effect.andThen(TestClock.adjust(Duration.minutes(5))),
         ),
+        readings: Ref.get(telemetryRef),
+        anthropicCalls: Effect.sync(() => anthropicCalls),
+        setHubAccounts: (accounts) =>
+          Ref.set(hubRef, [
+            { id: HUB_ID, kind: "cliproxy", label: "CLI Proxy", checkedAt: HUB_READ_AT, accounts },
+          ]),
         limits: Ref.get(limitsRef),
         telemetry: Ref.get(telemetryRef).pipe(
           Effect.map((all) => all.map((s) => s.accountLabel ?? s.providerName).toSorted()),
@@ -257,20 +286,55 @@ const withPoller = (
   });
 
 describe("the cliproxy hub stand-down", () => {
-  it.effect("retracts both Anthropic arms' windows while failover telemetry keeps flowing", () =>
-    withPoller(({ cycle, limits, telemetry, setHub }) =>
+  it.effect("retracts both Anthropic arms' windows and feeds failover from the hub instead", () =>
+    withPoller(({ cycle, limits, telemetry, readings, anthropicCalls, setHub, setHubAccounts }) =>
       Effect.gen(function* () {
         yield* cycle;
         expect(accountsOf(yield* limits)).toEqual(EVERY_ACCOUNT);
+        // No hub: the direct-auth arm and both pooled token files poll Anthropic.
+        expect(yield* anthropicCalls).toBe(3);
 
         yield* setHub({ enabled: true });
+        yield* setHubAccounts([
+          hubAccount("carl@.json", {
+            checkedAt: HUB_READ_AT,
+            windows: [
+              { id: "five_hour", kind: "session", label: "Session", usedPercent: 99.5 },
+              { id: "seven_day_fable", kind: "weekly", label: "Weekly · Fable", usedPercent: 40 },
+            ],
+          }),
+          // A read that failed past carry-forward has no reading to feed.
+          hubAccount("jacob@.json", {
+            checkedAt: HUB_READ_AT,
+            windows: [],
+            unavailable: { reason: "probeFailed" },
+          }),
+        ]);
         yield* cycle;
 
         // Only Codex is left on the pi card; the hub draws every Claude account.
         expect(accountsOf(yield* limits)).toEqual(["codex"]);
-        // The pooled accounts still report to the health registry — loom's only
-        // per-account exhaustion signal, and the reason they stay in settings.
-        expect(yield* telemetry).toEqual(["carl@", "codex", "jacob@"]);
+        // The hub already reads these accounts, so nothing calls Anthropic again...
+        expect(yield* anthropicCalls).toBe(0);
+        // ...and failover gets the hub's reading of the same auth file, stamped
+        // with when the hub took it, under the pooled account's own label.
+        expect(yield* telemetry).toEqual(["carl@", "codex"]);
+        expect((yield* readings).find((s) => s.accountLabel === "carl@")).toEqual({
+          providerName: "pi",
+          providerInstanceId: PI,
+          accountLabel: "carl@",
+          observedAt: HUB_READ_AT,
+          windows: [
+            { kind: "primary", usedPercent: 99.5, resetsAt: null, windowDurationMins: null },
+            {
+              kind: "secondary",
+              usedPercent: 40,
+              resetsAt: null,
+              windowDurationMins: null,
+              scope: { displayName: "Fable", modelId: null },
+            },
+          ],
+        });
       }),
     ),
   );
