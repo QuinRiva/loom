@@ -82,7 +82,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@ff-labs/fff-node", "node-pty"],
+      ["@ff-labs/fff-node", "@huggingface/transformers", "node-pty"], // loom: thread search embedder
     );
   });
 });
@@ -182,6 +182,22 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
       // the prefix strings themselves would skip every scoped entry, since a
       // prefix is not a package name.
       const queue = [...installed.keys()].filter(isRuntimeExternal);
+      // loom: the CLI archive and desktop stages run a production install of the
+      // selected server roots, which brings each root's whole dependency closure
+      // (onnxruntime's, sharp's, …). Only a dependency outside every selected
+      // root's closure can be missing at runtime.
+      const installedWithRoots = new Set<string>();
+      const rootQueue = Object.keys(
+        selectCliRuntimeExternalDependencies(serverPackageJson.dependencies),
+      );
+      for (const name of rootQueue) {
+        if (installedWithRoots.has(name)) continue;
+        installedWithRoots.add(name);
+        const manifest = installed.get(name);
+        rootQueue.push(
+          ...Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies }),
+        );
+      }
 
       for (const name of queue) {
         if (seen.has(name)) continue;
@@ -196,7 +212,7 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
           ...manifest.peerDependencies,
         };
         for (const dependency of Object.keys(declared)) {
-          if (!isRuntimeExternal(dependency)) {
+          if (!isRuntimeExternal(dependency) && !installedWithRoots.has(dependency)) {
             violations.push(`${name} -> ${dependency}`);
           }
           if (!seen.has(dependency)) queue.push(dependency);
