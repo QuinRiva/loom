@@ -735,6 +735,16 @@ export const ServerConfig = Schema.Struct({
    * stays absent for subscribers that did not opt in.
    */
   usageLimitSources: Schema.optional(UsageLimitSourceSnapshots),
+  // loom: each project's `.t3code/links.json` rules (`$0`/`$1`… in `url` take
+  // the match and its groups), keyed by project and absent for projects that
+  // declare none. Derived from disk, so it rides this per-connection snapshot
+  // rather than the event-sourced (and client-cached) project shell.
+  referenceLinks: Schema.optionalKey(
+    Schema.Record(
+      ProjectId,
+      Schema.Array(Schema.Struct({ pattern: Schema.String, url: Schema.String })),
+    ),
+  ),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 

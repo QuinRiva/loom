@@ -45,9 +45,9 @@ PR/issue numbers in rendered agent output (chat, MDX documents, goal task text)
 into links: `{ "links": [{ "pattern": "<JS regex>", "url": "…$0…$1…" }] }`,
 where `$0` is the whole match and `$1`… its groups, and the first rule wins at a
 position. Code spans, code blocks and authored links are never linkified. The
-server re-reads it into each project shell, so an edit lands on the next
-snapshot; loom's own file maps `#N` to this repo's issues (GitHub redirects a
-PR number to the PR).
+server re-reads it for every project each time a client connects, so an edit
+reaches a client on its next reload or reconnect; loom's own file maps `#N` to
+this repo's issues (GitHub redirects a PR number to the PR).
 
 ## Before you ship
 
