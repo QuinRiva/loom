@@ -7,11 +7,15 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { readWorkstreamReport, writeWorkstreamReport } from "./workstreamReport.ts";
 
 const testLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-workstream-report-test-",
-}).pipe(Layer.provideMerge(NodeServices.layer));
+}).pipe(
+  Layer.provideMerge(SqlitePersistenceMemory), // loom: the report is also indexed for thread search
+  Layer.provideMerge(NodeServices.layer),
+);
 
 describe("workstreamReport", () => {
   it.effect("returns an absolute path that round-trips with a read", () =>
