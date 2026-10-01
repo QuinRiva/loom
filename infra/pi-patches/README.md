@@ -101,13 +101,9 @@ Record the outcome here either way.
 
 ### 1. Move the version pins
 
-Three places, and all of them matter:
+Both places matter:
 
 - `apps/server/package.json` — the exact pin (no caret).
-- `pnpm-workspace.yaml` → `minimumReleaseAgeExclude` — **all six**
-  `@earendil-works/*` entries (chord, pi-agent-core, pi-ai, pi-coding-agent,
-  pi-telemetry, pi-tui) move together; pnpm 11 defaults to a 24 h minimum
-  release age and a same-day pi release is refused without them.
 - `pnpm-workspace.yaml` → `patchedDependencies` — the version-scoped patch key.
   Remove the old entry; never leave both versions registered.
 
