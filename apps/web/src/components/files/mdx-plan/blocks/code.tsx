@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { isValidElement, type ReactNode, useMemo, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -129,3 +129,23 @@ export const codeBlock: PlanBlock<CodeData> = {
   mdx: codeMdx,
   Read: CodeRead,
 };
+
+/** Markdown code fences (```json …```) compile to `<pre><code class="language-x">`;
+ * render them as `<Code>` so they get the same highlighting, header and wrap toggle.
+ * Never collapsed — a fence is shown in full, as authored. */
+export function PlanMarkdownPre({ children }: { children?: ReactNode }) {
+  if (!isValidElement<{ className?: string; children?: ReactNode }>(children)) {
+    return <pre>{children}</pre>;
+  }
+  const { className, children: code } = children.props;
+  return (
+    <CodeRead
+      blockId={undefined}
+      data={{
+        code: String(code ?? "").replace(/\n$/, ""),
+        language: /language-(\S+)/.exec(className ?? "")?.[1] ?? "text",
+        maxLines: 0,
+      }}
+    />
+  );
+}

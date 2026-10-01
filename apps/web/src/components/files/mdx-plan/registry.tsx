@@ -13,7 +13,7 @@ import {
   sectionBlock,
 } from "./blocks/canvas";
 import { checklistBlock } from "./blocks/checklist";
-import { codeBlock } from "./blocks/code";
+import { codeBlock, PlanMarkdownPre } from "./blocks/code";
 import { columnBlock, columnsBlock } from "./blocks/columns";
 import { dataModelBlock } from "./blocks/dataModel";
 import { detailsBlock } from "./blocks/details";
@@ -155,6 +155,8 @@ export const PLAN_BLOCK_COMPONENTS: Record<string, FC<Record<string, unknown>>> 
   // emit a bare `<img>` whose relative src resolves against the app origin and
   // silently shows broken. Same resolution/signing as `<Image>`.
   img: PlanMarkdownImage,
+  // Markdown code fences: route through `<Code>` for Shiki highlighting.
+  pre: PlanMarkdownPre,
   UnknownPlanBlock,
 };
 

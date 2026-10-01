@@ -2427,7 +2427,8 @@ code {
 }
 
 .plan-mdx :is(p, ul, ol, blockquote, pre, table):not([data-plan-block-type] *),
-.prose-plan :is(p, ul, ol, blockquote, pre, table) {
+.prose-plan :is(p, ul, ol, blockquote, table),
+.prose-plan pre:not(.prose-plan [data-plan-block-type] *) {
   margin: 0.65rem 0;
 }
 
@@ -2529,8 +2530,9 @@ code {
   font-size: 0.75rem;
 }
 
+/* A nested block (a fenced `<Code>` in a <Details>/<Callout>) styles its own <pre>. */
 .plan-mdx pre:not([data-plan-block-type] *),
-.prose-plan pre {
+.prose-plan pre:not(.prose-plan [data-plan-block-type] *) {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
