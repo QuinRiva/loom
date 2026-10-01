@@ -123,7 +123,7 @@ Two consequences fall straight out of the map:
      `.t3code/roles/` file (loom's own live there too — editing `roles/` in a
      loom worktree changes nothing for that worktree's threads; it changes
      the next release).
-   - An overlay bullet *sharpens* the built-in that precedes it — adds a
+   - An overlay bullet _sharpens_ the built-in that precedes it — adds a
      boundary, names an exception, sets a stricter bar. If it has to negate a
      built-in sentence, change the built-in. If it restates one, delete it.
    - Posture that is Carl-wide and role-neutral (optimise the end state,
