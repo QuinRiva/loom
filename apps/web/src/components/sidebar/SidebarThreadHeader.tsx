@@ -20,6 +20,7 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
+import { ThreadSearchArchivedToggle } from "~/loom/ThreadSearchArchivedToggle"; // loom:
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarMenuButton } from "../ui/sidebar";
@@ -106,6 +107,7 @@ export function SidebarThreadHeader({
           }
           className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-[var(--sidebar-icon-color)]"
         />
+        {isSearching ? <ThreadSearchArchivedToggle /> : null /* loom: */}
         {isSearching ? (
           <Button
             type="button"

@@ -22,6 +22,7 @@ import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useClientSettings } from "../hooks/useSettings"; // loom:
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { orchestrationEnvironment } from "./orchestration";
 import { isPaginatedBranchesNextPagePending } from "./paginatedBranches";
@@ -45,10 +46,10 @@ const EMPTY_THREAD_SEARCH_ATOM = Atom.make({
 }).pipe(Atom.withLabel("web:thread-search:empty"));
 
 const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
-  getSearchAtom: (environmentId, query) =>
+  getSearchAtom: (environmentId, query, includeArchived) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query, limit: 30 }, // loom: 30 roots (plans/thread-content-search)
+      input: { query, limit: 30, includeArchived }, // loom: 30 roots (plans/thread-content-search)
     }),
   labelPrefix: "web:thread-search",
 });
@@ -83,13 +84,18 @@ export function useThreadSearch(
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly isPending: boolean;
 } {
+  // loom: a per-device preference, so the sidebar and the palette agree.
+  const includeArchived = useClientSettings((settings) => settings.threadSearchIncludeArchived);
   const normalizedQuery = query.trim();
   const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_SEARCH_DEBOUNCE_MS);
   const canSearch = environmentIds.length > 0 && normalizedQuery.length >= 2;
   const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
   const searchKey = useMemo(
-    () => (settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery)),
-    [environmentIds, settledQuery],
+    () =>
+      settledQuery === null
+        ? null
+        : makeThreadSearchKey(environmentIds, settledQuery, includeArchived), // loom:
+    [environmentIds, settledQuery, includeArchived],
   );
   const result = useAtomValue(
     searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),

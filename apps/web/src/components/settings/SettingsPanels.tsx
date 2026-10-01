@@ -191,6 +191,7 @@ import {
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { FailoverSettingsPanel } from "./FailoverSettingsCard";
+import { ThreadSearchSettingsSection } from "./ThreadSearchSettings.loom"; // loom:
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {
   buildProviderInstanceUpdatePatch,
@@ -3241,6 +3242,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ThreadSearchSettingsSection /* loom: */ />
 
       <SettingsSection id="about" title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

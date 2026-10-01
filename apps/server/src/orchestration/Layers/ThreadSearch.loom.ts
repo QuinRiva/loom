@@ -12,6 +12,8 @@
  *   lexical matches would outvote a correct semantic #1.
  * - No embedder (provider `none`, unavailable, still loading): the full lexical
  *   order, partial matches included.
+ * - `includeArchived: false` drops archived roots (and so their subtrees) from
+ *   both candidate sets before ranking, so they never take a result slot.
  *
  * @module ThreadSearch
  */
@@ -69,10 +71,10 @@ const matchTerms = (terms: ReadonlyArray<string>) =>
  * the source row at rowid / 8): reading the FTS5 table's own columns per hit,
  * or joining it back by rowid, costs several times the MATCH itself.
  */
-const lexicalSql = (termCount: number) => `
+const lexicalSql = (termCount: number, includeArchived: boolean) => `
   WITH RECURSIVE roots(thread_id, root_id) AS MATERIALIZED (
     SELECT thread_id, thread_id FROM projection_threads
-    WHERE parent_thread_id IS NULL AND deleted_at IS NULL
+    WHERE parent_thread_id IS NULL AND deleted_at IS NULL${includeArchived ? "" : " AND archived_at IS NULL"}
     UNION ALL
     -- CROSS JOIN pins the join order (13 s vs 10 ms without it).
     SELECT t.thread_id, r.root_id FROM roots r CROSS JOIN projection_threads t
@@ -80,7 +82,7 @@ const lexicalSql = (termCount: number) => `
   ),
   goal_roots AS MATERIALIZED (
     SELECT goal_id, thread_id AS root_id FROM projection_threads
-    WHERE parent_thread_id IS NULL AND deleted_at IS NULL AND goal_id IS NOT NULL
+    WHERE parent_thread_id IS NULL AND deleted_at IS NULL AND goal_id IS NOT NULL${includeArchived ? "" : " AND archived_at IS NULL"}
   ),
   hits AS MATERIALIZED (
     ${Array.from(
@@ -144,13 +146,24 @@ export const makeThreadSearch = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const embedder = yield* Effect.serviceOption(ThreadEmbedder);
 
-  const lexical = (terms: ReadonlyArray<string>) =>
+  const lexical = (terms: ReadonlyArray<string>, includeArchived: boolean) =>
     terms.length === 0
       ? Effect.succeed([] as ReadonlyArray<LexicalHit>)
-      : sql.unsafe<LexicalHit>(lexicalSql(terms.length), matchTerms(terms));
+      : sql.unsafe<LexicalHit>(lexicalSql(terms.length, includeArchived), matchTerms(terms));
 
-  const semantic = (query: string) =>
-    Option.isSome(embedder) ? embedder.value.nearest(query, CANDIDATES) : Effect.succeed(undefined);
+  /** Archived roots leave the candidate set before the top-k cut, not after it. */
+  const semantic = (query: string, includeArchived: boolean) =>
+    Option.isNone(embedder)
+      ? Effect.succeed(undefined)
+      : includeArchived
+        ? embedder.value.nearest(query, CANDIDATES)
+        : sql<{ readonly threadId: string }>`
+            SELECT thread_id AS "threadId" FROM projection_threads
+            WHERE parent_thread_id IS NULL AND archived_at IS NOT NULL`.pipe(
+            Effect.flatMap((rows) =>
+              embedder.value.nearest(query, CANDIDATES, new Set(rows.map((row) => row.threadId))),
+            ),
+          );
 
   /** Live roots (not deleted, project not deleted) among `ids`. */
   const rootRows = (ids: ReadonlyArray<string>) =>
@@ -168,11 +181,12 @@ export const makeThreadSearch = Effect.gen(function* () {
    * Both rankings and their fusion, as root ids best-first (the harness reads
    * all three). `semantic` is undefined when search is lexical-only.
    */
-  const rank = Effect.fn("ThreadSearch.rank")(function* (query: string) {
+  const rank = Effect.fn("ThreadSearch.rank")(function* (query: string, includeArchived = true) {
     const terms = toTerms(query);
-    const [hits, nearest] = yield* Effect.all([lexical(terms), semantic(query)], {
-      concurrency: 2,
-    });
+    const [hits, nearest] = yield* Effect.all(
+      [lexical(terms, includeArchived), semantic(query, includeArchived)],
+      { concurrency: 2 },
+    );
     const roots = yield* rootRows([...hits.map((hit) => hit.rootId), ...(nearest ?? [])]);
     const lexicalIds = hits.map((hit) => hit.rootId).filter((id) => roots.has(id));
     let fused = lexicalIds;
@@ -196,7 +210,7 @@ export const makeThreadSearch = Effect.gen(function* () {
   const searchThreads = Effect.fn("ThreadSearch.searchThreads")(function* (
     input: OrchestrationSearchThreadsInput,
   ): Effect.fn.Return<OrchestrationSearchThreadsResult, SqlError> {
-    const { terms, hits, roots, fused } = yield* rank(input.query);
+    const { terms, hits, roots, fused } = yield* rank(input.query, input.includeArchived);
     const ids = fused.slice(0, input.limit ?? CANDIDATES);
     const best = new Map(hits.map((hit) => [hit.rootId, hit] as const));
     const shown = ids.flatMap((id) => best.get(id)?.rowid ?? []);

@@ -82,7 +82,7 @@ export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
 
 // Thread-search embedding provider (plans/thread-content-search). One vector per
 // root thread; `none` (or an unreachable provider) means lexical-only search.
-// Hand-edited in settings.json like `rootCacheRetention`; a change re-embeds
+// Set in Settings → General → Thread search; a change re-embeds
 // every root under the new provider's identity on the next sweep.
 export const ThreadSearchEmbeddingSettings = Schema.Union([
   Schema.Struct({ provider: Schema.Literal("none") }),
@@ -135,12 +135,18 @@ export const LoomClientSettingsFields = {
   // flags make the cost a single non-overriding seed per thread.
   autoOpenGoalTasksPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   autoOpenWorkstreamPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Thread content search returns archived roots too unless this is off. A
+  // per-device view preference, sent with every `orchestration.searchThreads`.
+  threadSearchIncludeArchived: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
 } as const;
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
   autoOpenGoalTasksPanel: Schema.optionalKey(Schema.Boolean),
   autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
+  threadSearchIncludeArchived: Schema.optionalKey(Schema.Boolean),
 } as const;
 
 // Spread into `ServerSettings`.

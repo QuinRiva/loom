@@ -449,6 +449,20 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
     searchTerms: ["generated thread titles source control content default provider"],
   },
+  // loom: thread content search (ThreadSearchSettings.loom.tsx).
+  {
+    id: "thread-search-embedding",
+    title: "Thread search ranking",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["semantic meaning embedding provider model local vertex openai none word"],
+  },
+  {
+    id: "thread-search-include-archived",
+    title: "Include archived threads in search",
+    to: "/settings/general",
+    searchTerms: ["thread search results archive sidebar command palette"],
+  },
   {
     id: "diagnostics",
     title: "Diagnostics",
