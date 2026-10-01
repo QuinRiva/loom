@@ -3351,7 +3351,11 @@ pending_approval_requests AS (
         WHERE pending.turn_id IS NULL
           -- loom: a row requested before the thread's last turn ended cannot be
           -- a launch still awaiting its turn; it leaked (e.g. a steer folded into
-          -- that turn) and must not wedge the idle gate.
+          -- that turn) and must not wedge the idle gate. Accepted residual: a real
+          -- launch requested inside the turn-end race (pi opens a fresh turn, or
+          -- the request is stamped before the turn-end event but ordered after
+          -- it) reads idle until turn.started; under pi a wake landing then is
+          -- folded into that turn as a steer, not an abort.
           AND NOT EXISTS (
             SELECT 1
             FROM projection_turns AS settled
