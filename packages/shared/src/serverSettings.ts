@@ -399,6 +399,10 @@ export function applyServerSettingsPatch(
     ...(patch.workstreamModelProfiles !== undefined
       ? { workstreamModelProfiles: patch.workstreamModelProfiles }
       : {}),
+    // loom: thread-search embedder replaces wholesale (tagged union).
+    ...(patch.threadSearchEmbedding !== undefined
+      ? { threadSearchEmbedding: patch.threadSearchEmbedding }
+      : {}),
     // loom: provider failover config.
     // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
     // replace wholesale (records/arrays have no coherent partial merge).

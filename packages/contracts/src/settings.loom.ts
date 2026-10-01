@@ -80,6 +80,38 @@ export const ProviderFailoverSettings = Schema.Struct({
 });
 export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
 
+// Thread-search embedding provider (plans/thread-content-search). One vector per
+// root thread; `none` (or an unreachable provider) means lexical-only search.
+// Hand-edited in settings.json like `rootCacheRetention`; a change re-embeds
+// every root under the new provider's identity on the next sweep.
+export const ThreadSearchEmbeddingSettings = Schema.Union([
+  Schema.Struct({ provider: Schema.Literal("none") }),
+  Schema.Struct({
+    provider: Schema.Literal("local"),
+    model: Schema.String.pipe(
+      Schema.withDecodingDefault(Effect.succeed("Xenova/bge-small-en-v1.5")),
+    ),
+  }),
+  Schema.Struct({
+    provider: Schema.Literal("openai-compatible"),
+    baseUrl: TrimmedNonEmptyString, // e.g. https://api.openai.com/v1 or http://localhost:11434/v1
+    model: TrimmedNonEmptyString,
+    dim: Schema.Int,
+    apiKey: Schema.optionalKey(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    provider: Schema.Literal("vertex"),
+    project: TrimmedNonEmptyString,
+    // gemini-embedding-2 is served from `global` only, so choosing it sends
+    // thread text outside the configured region.
+    location: Schema.String.pipe(
+      Schema.withDecodingDefault(Effect.succeed("australia-southeast1")),
+    ),
+    model: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("gemini-embedding-001"))),
+  }),
+]);
+export type ThreadSearchEmbeddingSettings = typeof ThreadSearchEmbeddingSettings.Type;
+
 // ---------------------------------------------------------------------------
 // Struct field records (shape c). Each is spread — HEAD position — into the
 // upstream struct that owns it.
@@ -136,6 +168,11 @@ export const LoomServerSettingsFields = {
   rootCacheRetention: Schema.Literals(["ab", "long", "short"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("ab" as const)),
   ),
+  threadSearchEmbedding: ThreadSearchEmbeddingSettings.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({ provider: "local" as const, model: "Xenova/bge-small-en-v1.5" }),
+    ),
+  ),
 } as const;
 
 // Spread into `ServerSettingsPatch`.
@@ -147,6 +184,8 @@ export const LoomServerSettingsPatchFields = {
   workstreamModelProfiles: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, WorkstreamModelProfile),
   ),
+  // Whole-value replacement: the union's fields depend on `provider`.
+  threadSearchEmbedding: Schema.optionalKey(ThreadSearchEmbeddingSettings),
   // Shallow-merged into current (see applyServerSettingsPatch): scalar toggles
   // replace when present; `chains`/`pausedAccounts` replace wholesale (the UI
   // sends complete values), so a partial per-key merge has no coherent meaning.

@@ -7,6 +7,7 @@ import * as SqlError from "effect/unstable/sql/SqlError";
 
 import * as ServerConfig from "../../config.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { LoomPersistenceLive } from "../../loom/serverLayers.ts";
 import { ProjectionUsageLedgerRepository } from "../Services/ProjectionUsageLedger.ts";
 import { ProjectionUsageLedgerRepositoryLive } from "./ProjectionUsageLedger.ts";
@@ -28,6 +29,8 @@ it.live("keeps the ledger writer on the write lane and the ledger reader on the 
     ).pipe(
       Layer.provideMerge(LoomPersistenceLive),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
+      // loom: thread search's embedder off — this test is about SQL lanes.
+      Layer.provideMerge(ServerSettings.layerTest({ threadSearchEmbedding: { provider: "none" } })),
       Layer.provideMerge(Sqlite.layerConfig),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(configLayer),

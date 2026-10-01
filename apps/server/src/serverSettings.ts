@@ -186,7 +186,13 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       },
     ]),
   );
-  return { ...settings, providerInstances, usageLimitSources };
+  // loom: an openai-compatible embedder key is a bearer secret too.
+  const threadSearchEmbedding =
+    settings.threadSearchEmbedding.provider === "openai-compatible" &&
+    settings.threadSearchEmbedding.apiKey !== undefined
+      ? { ...settings.threadSearchEmbedding, apiKey: USAGE_LIMIT_SOURCE_KEY_REDACTED }
+      : settings.threadSearchEmbedding;
+  return { ...settings, providerInstances, usageLimitSources, threadSearchEmbedding };
 }
 
 export class ServerSettingsService extends Context.Service<
