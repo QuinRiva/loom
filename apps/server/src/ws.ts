@@ -126,6 +126,7 @@ import {
 } from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
+import { loadProjectReferenceLinks } from "./loom/referenceLinks.ts"; // loom:
 import { ProjectionUsageLedgerReader } from "./persistence/Layers/SqliteLanes.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -2030,6 +2031,7 @@ const makeWsRpcLayer = (
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
             reasoningMessages: true,
+            referenceLinks: yield* loadProjectReferenceLinks(sql), // loom:
           };
         });
 

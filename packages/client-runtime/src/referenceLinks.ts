@@ -1,8 +1,8 @@
 /**
  * Project reference links (`.t3code/links.json`): ticket keys and PR/issue
- * numbers in agent prose render as links. Rules arrive on the project shell;
- * every renderer (chat markdown, MDX documents, plain sidebar text) shares this
- * matcher so they agree on what links where.
+ * numbers in agent prose render as links. Rules arrive per project on
+ * `ServerConfig.referenceLinks`; every renderer (chat markdown, MDX documents,
+ * plain sidebar text) shares this matcher so they agree on what links where.
  */
 
 export interface ReferenceLinkRule {
@@ -28,7 +28,8 @@ const compiled = new WeakMap<ReadonlyArray<ReferenceLinkRule>, ReferenceLinker |
 /**
  * One alternation regex for all rules, so a text is scanned once and the
  * earliest match wins, with ties going to the first rule. Memoised on the rules
- * array (stable per project shell), so callers may compile on every render.
+ * array (stable per server config snapshot), so callers may compile on every
+ * render.
  * Invalid patterns are dropped.
  */
 export function compileReferenceLinks(

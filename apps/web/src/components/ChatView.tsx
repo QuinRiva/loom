@@ -10889,10 +10889,16 @@ export default function ChatView(props: ChatViewProps) {
       )}
     </div>
   );
-  // loom: the project's `.t3code/links.json` rules for every agent-text surface
-  // in this view (timeline, panels, documents).
+  // loom: the project's `.t3code/links.json` rules (delivered on the server
+  // config) for every agent-text surface in this view (timeline, panels, documents).
   return (
-    <ReferenceLinksProvider rules={activeProject?.referenceLinks}>
+    <ReferenceLinksProvider
+      rules={
+        activeProject
+          ? activeEnvironment?.serverConfig?.referenceLinks?.[activeProject.id]
+          : undefined
+      }
+    >
       {chatView}
     </ReferenceLinksProvider>
   );
