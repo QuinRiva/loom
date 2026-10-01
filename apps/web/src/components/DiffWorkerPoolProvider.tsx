@@ -53,6 +53,10 @@ function acquireDiffWorkerPool(themeName: DiffThemeName, poolSize: number) {
         preferredHighlighter: PREFERRED_HIGHLIGHTER,
         tokenizeMaxLineLength: 1_000,
         useTokenTransformer: true,
+        // loom: these pool options, not each viewer's, drive word highlighting on the worker path;
+        // raise the 1k-char cap so single-line markdown paragraphs still show their changed words.
+        lineDiffType: "word-alt",
+        maxLineDiffLength: 10_000,
       },
     ),
     consumers: 0,

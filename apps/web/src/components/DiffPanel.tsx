@@ -1435,7 +1435,10 @@ export default function DiffPanel({
                     }}
                     options={{
                       diffStyle: diffLayout === "split" ? "split" : "unified",
-                      lineDiffType: "none",
+                      // loom: upstream disables word highlighting; keep the fallback renderer in
+                      // step with the worker pool so prose edits show their changed words.
+                      lineDiffType: "word-alt",
+                      maxLineDiffLength: 10_000,
                       overflow: wordWrap ? "wrap" : "scroll",
                       theme: resolveDiffThemeName(resolvedTheme),
                       preferredHighlighter: PREFERRED_HIGHLIGHTER,
