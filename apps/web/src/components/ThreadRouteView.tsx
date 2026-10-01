@@ -26,6 +26,7 @@ import {
   useThreadRefs,
   useThreadShell,
   useThreadStatus,
+  useThreadSyncError, // loom
 } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
@@ -85,6 +86,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const serverThreadShell = useThreadShell(serverThreadRef);
   const serverThreadDetail = useThreadDetail(serverThreadRef);
   const serverThreadStatus = useThreadStatus(serverThreadRef);
+  const serverThreadSyncError = useThreadSyncError(serverThreadRef); // loom
   const environmentThreadRefs = useEnvironmentThreadRefs(serverThreadRef?.environmentId ?? null);
   const bootstrapComplete = shell.data?.snapshot._tag === "Some";
   const draftThread = useComposerDraftStore((store) =>
@@ -112,13 +114,22 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const environmentHasDraftThreads = useComposerDraftStore((store) =>
     serverThreadRef ? store.hasDraftThreadsInEnvironment(serverThreadRef.environmentId) : false,
   );
-  const renderState = resolveThreadRouteRenderState({
+  const resolvedRenderState = resolveThreadRouteRenderState({
     bootstrapComplete,
     serverThreadShellExists: serverThreadShell !== null,
     serverThreadDetailExists: serverThreadDetail !== null,
     serverThreadDetailDeleted: serverThreadStatus === "deleted",
     draftThreadExists: draftThread !== null,
   });
+  // loom: an archived thread has no shell, so it reads as missing until its
+  // detail subscription answers (opened from thread search). Wait for that
+  // answer; a thread that does not exist fails the subscription and bounces.
+  const renderState =
+    resolvedRenderState === "missing" &&
+    serverThreadSyncError === null &&
+    (serverThreadStatus === "empty" || serverThreadStatus === "synchronizing")
+      ? "loading"
+      : resolvedRenderState;
   const threadSyncPhase = resolveThreadSyncPhase({
     detailExists: serverThreadDetail !== null,
     shellExists: serverThreadShell !== null,
