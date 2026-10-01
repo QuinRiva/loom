@@ -28,7 +28,7 @@ automatically at install time via pnpm's `patchedDependencies`:
 
 pi used to ship `bin.pi = dist/cli.js`, the readable transpiled tree. From 0.84
 it is `dist/bundle/cli.js`, an esbuild bundle of the whole CLI into
-`dist/bundle/chunks/chunk-<hash>.js`. The readable `dist/` tree still ships (it
+`dist/bundle/chunks/chunk-<hash>.js` files. The readable `dist/` tree still ships (it
 is the package's `exports` entry), but **patching it alone leaves the binary
 Loom runs unpatched** — silently, with no install-time error.
 
@@ -36,15 +36,19 @@ So each patch exists in two forms, and both are part of the pnpm patch:
 
 - the readable diff below (`0001-…patch`, `0002-…patch`), applied to `dist/`;
 - the same change applied to the bundle by `patch-bundle.mjs`, as anchored
-  string replacements against the minified chunk. The script is idempotent,
-  refuses to write unless every anchor matches its expected count, and
-  `node --check`s the result — so a pi bump whose bundle drifted fails loudly.
+  string replacements against the minified chunks. Since 0.99 the two patches
+  land in different chunks (the auth storage and the CLI's `main()` were split
+  apart; 0.84–0.87 had one), so the script finds each patch's chunk by content.
+  It is idempotent, writes nothing unless every anchor of both patches matches
+  its expected count, and `node --check`s the result — so a pi bump whose
+  bundle drifted fails loudly.
 
 The two forms must stay behaviourally identical, which means reusing pi's own
 helpers in the bundle rather than re-implementing them: `--cwd` is resolved by
 pi's `resolvePath` in both (a hand-rolled `path.resolve` clone silently dropped
 bare `~` and `file://` targets that the readable patch accepts). The applier
-asserts that name still exists.
+asserts that name is still bound in the CLI chunk, declared there (≤0.87) or
+imported unaliased (0.99+).
 
 Keeping `bin.pi` on the bundle is deliberate: the unbundled entry boots ~275 ms
 slower and holds ~23 MB more RSS per pi process (measured on 0.86.0), which Loom
@@ -77,7 +81,7 @@ The atomic-write harness in step 3 imports the global install by default, so
 for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
-Authored against pi **0.82.1**; both diffs were re-derived against **0.87.1**
+Authored against pi **0.82.1**; both diffs were re-derived against **0.99.2**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
@@ -110,15 +114,15 @@ Both places matter:
 ### 2. Regenerate the pnpm patch
 
 `pnpm patch <pkg>@<newVersion>` refuses unless that version is **already
-installed**, and `pnpm install` refuses while `patchedDependencies` names a
-patch file that does not exist yet. So the new version has to land unpatched
-first:
+installed**, and both `pnpm install` and `pnpm patch` refuse while
+`patchedDependencies` names a patch file that does not exist yet. So the new
+version has to land unpatched first, and the entry stays out until
+`patch-commit` writes it:
 
 ```bash
-# patchedDependencies entry temporarily commented out:
+# patchedDependencies entry removed (or commented out) until patch-commit:
 pnpm install                       # resolves the new version, unpatched — the moment to run the
                                    # step-0 retirement proofs against stock (contract test, harness)
-# put the entry back, then:
 rm -rf /tmp/pi-patch-<newVersion>  # never reuse a stale editable dir
 pnpm patch @earendil-works/pi-coding-agent@<newVersion> --edit-dir /tmp/pi-patch-<newVersion>
 diff -r --brief <pristine-tarball-dir> /tmp/pi-patch-<newVersion>   # must be empty
@@ -127,13 +131,14 @@ for p in infra/pi-patches/000*.patch; do patch -p1 -F 0 -d /tmp/pi-patch-<newVer
 # 2. the bundle that bin.pi actually runs:
 node infra/pi-patches/patch-bundle.mjs /tmp/pi-patch-<newVersion>
 find /tmp/pi-patch-<newVersion> -name '*.orig' -delete  # `patch` backs a file up when a hunk lands at an offset
-pnpm patch-commit /tmp/pi-patch-<newVersion>      # writes patches/… and registers it
+pnpm patch-commit /tmp/pi-patch-<newVersion>      # writes patches/… and registers the entry
 pnpm install                                      # confirm both land in the resolved copy
 ```
 
 `pnpm patch-commit` rewrites the `patchedDependencies` entry with single quotes
 and drops it above the `# loom:` comment — put the comment back on top and
-requote, then `vp check --fix` the YAML.
+requote. It also re-spaces the `supportedArchitectures` arrays (`[ current, x64 ]`);
+restore those, then `vp check --fix` the YAML.
 
 ### 3. Re-derive the stored diffs and verify
 
@@ -156,14 +161,21 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   hard-coded to the global install; for the bundled copy point it at the
   resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
   instead. That exercises the readable tree — the bundle's write path is proven
-  by `grep -c __loomWriteAuthAtomic` on the chunk (expect 2) with no raw
-  `this.authPath,next,AUTH_FILE_WRITE_OPTIONS` write left. Stock pi is dramatically dirty for
+  by `grep -c __loomWriteAuthAtomic` on the auth chunk (expect 2) with no raw
+  `writeFileSync(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)` left. Stock pi is dramatically dirty for
   calibration: on 0.87.1 the same harness reports ~4–9 k zero-byte and ~600–800
   unparseable reads per 4 s reader, alongside ~5–6 k good ones. A stock run
-  reporting _millions_ of zero-byte reads is a stalled writer leaving the file
-  truncated, not a wider window — rerun it rather than record it;
+  reporting _millions_ of zero-byte reads is usually a stalled writer leaving the file
+  truncated, not a wider window — rerun it rather than record it. Stock 0.99.2
+  was the exception: ~2–3 M zero-byte, ~50–90 unparseable and ~300 good reads
+  per reader on 3 of 3 runs, so there the unparseable count carries the
+  calibration. Patched 0.99.2 reads ~7 k good and zero of everything else;
 - `pnpm install` is idempotent (lockfile unchanged on a second run), and
-  `vp check` / `vp run typecheck` pass.
+  `vp check` / `vp run typecheck` pass;
+- every package pi pulls in has a license notice: `generateThirdPartyLicenseManifest`
+  (`scripts/lib/third-party-licenses.ts`) over the web, server and desktop
+  manifests succeeds. A new `@earendil-works/*` package has no LICENSE file and
+  needs a `packageOverrides` entry in `third-party-licenses.config.json`.
 
 All of the above must run in a worktree that has itself run `pnpm install`
 since the bump: a sibling worktree that merely merged the commit still resolves
@@ -224,8 +236,12 @@ semantics are already accepted.
 the signature hunk had to be re-derived. 0.87.1 drift: none in this patch's
 territory — all nine bundle anchors matched first try and the readable hunks
 applied at a pure line offset (0.87.1 only reworked `--mode` validation and
-`prepareInitialMessage` nearby). Still **not** retired: 0.87.1 has no `--cwd` on
-the headless path. The only cosmetic difference in the
+`prepareInitialMessage` nearby). 0.99.2 drift: the readable hunks applied at a
+pure line offset (re-derived), but esbuild moved the CLI's `main()` into its own
+chunk and `resolvePath` became an import there, so `patch-bundle.mjs` now
+locates each patch's chunk separately. Still **not** retired: stock 0.99.2
+rejects `--cwd` as an unknown option (the contract test fails 5 of 6 against
+it), so there is still no `--cwd` on the headless path. The only cosmetic difference in the
 bundle is that the two usage errors are plain text rather than chalk-red, since
 chalk's binding there is mangled by esbuild; path resolution and every accepted
 `--cwd` form are identical, because both forms call pi's `resolvePath`.
@@ -276,9 +292,11 @@ retries. The stickiness is gone upstream, so only the atomic write was ported.
 
 File: `dist/core/auth-storage.js` (plus the bundle). Not yet filed upstream;
 confirmed still present in 0.87.1 — that file is byte-identical to 0.86.0, so
-the patch applied unchanged and retirement was never on the table.
+the patch applied unchanged and retirement was never on the table. Still present
+in 0.99.2: both lock paths still `writeFileSync` with no rename, and the stored
+diff re-derived byte-identical.
 
 > Note: `pnpm patch` byte-compares the whole package, so
-> `patches/@earendil-works__pi-coding-agent@0.87.1.patch` is ~465 KB — the two
+> `patches/@earendil-works__pi-coding-agent@0.99.2.patch` is ~625 KB — the
 > edited minified chunk lines dominate it. The readable diffs in this directory
 > are the reviewable form of the same change.

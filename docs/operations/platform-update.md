@@ -49,7 +49,7 @@ in `node_modules` governs only the readable `dist/` tree, never the binary loom
 runs.
 
 ```bash
-V=0.87.1
+V=0.99.2
 cd "$(mktemp -d)" && npm pack "@earendil-works/pi-ai@$V" --silent && tar xzf *.tgz
 ls package/dist/providers/data/                      # one JSON per provider
 python3 - <<'EOF'
@@ -178,9 +178,9 @@ to bottom. Two things it cannot know about your situation:
 ## 5. The global install
 
 ```bash
-V=0.87.1
+V=0.99.2
 npm install -g "@earendil-works/pi-coding-agent@$V"     # not `pi update`
-pi --version                                             # → 0.87.1
+pi --version                                             # → 0.99.2
 <loom worktree>/infra/pi-patches/apply.sh                # readable dist, then the bundle
 <loom worktree>/infra/pi-patches/apply.sh --check        # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
 grep -c "LOCAL PATCH (Carl)" ~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts   # → 4
@@ -211,7 +211,7 @@ silently.
 | 0002 atomic `auth.json`      | `grep -n "writeFileSync\|renameSync" dist/core/auth-storage.js` shows `renameSync` (or any write-then-rename) on **both** the `withLock` and `withLockAsync` paths | `atomic-window.mjs` (§7) reports all zeros against stock.                                                                                                                                                                                                                           |
 
 Record the outcome in the README's patch section either way. So far: both kept
-at 0.86.0 and 0.87.1.
+at 0.86.0, 0.87.1 and 0.99.2.
 
 ## 7. Verification
 
@@ -237,15 +237,17 @@ report clean on stock.
 cd /home/Carl/pi-craft/local-patches/authlock-repro && node atomic-window.mjs
 # patched: zeroByte=0 unparseable=0 emptyObject=0 on all three readers; final file parses
 # stock 0.87.1 (calibration): ~4–9 k zeroByte, ~600–800 unparseable per reader
+# stock 0.99.2: ~2–3 M zeroByte, ~50–90 unparseable, ~300 good per reader, every run
 ```
 
 The harness's import is hard-coded to the global install; for the bundled copy
 point it at `<resolved package>/dist/core/auth-storage.js`. That proves the
 readable tree; the bundle is proven by
-`grep -c __loomWriteAuthAtomic dist/bundle/chunks/chunk-*.js` → 2 and no
-remaining raw `this.authPath,next,AUTH_FILE_WRITE_OPTIONS` write. A stock run
-reporting _millions_ of zero-byte reads is a stalled writer, not a wider window
-— rerun it.
+`grep -c __loomWriteAuthAtomic dist/bundle/chunks/chunk-*.js` → 2 (one chunk) and no
+remaining `writeFileSync(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)`. A stock run
+reporting _millions_ of zero-byte reads is usually a stalled writer, not a wider
+window — rerun it. Stock 0.99.2 reports millions on every run, so there read the
+unparseable count instead.
 
 **`--cwd` parity in the bundle**
 
@@ -351,16 +353,24 @@ Each of these cost real time in the last two rounds.
   the tarball before patching.
 - **`pnpm patch` chicken-and-egg.** `pnpm patch pkg@<new>` refuses until that
   version is installed; `pnpm install` refuses while `patchedDependencies`
-  names a patch file that does not exist. Comment the entry out, install,
-  restore, patch, commit — in that order.
+  names a patch file that does not exist, and so does `pnpm patch` itself.
+  Remove the entry, install, patch, then `patch-commit`, which writes the
+  entry back — in that order.
 - **`patch` leaves `.orig` files on any offset.** Delete them before
   `patch-commit` on the bundled path; keep them on the global path.
 - **In-process readers report clean.** The atomic-write harness only means
   anything with separate-process readers. A stock run showing millions of
-  zero-byte reads is a stalled writer — rerun, don't record.
+  zero-byte reads is usually a stalled writer — rerun, don't record (stock
+  0.99.2 is the exception, see §7).
 - **The bundle chunk filename changes every release** (`chunk-7YM6BE7Y.js` →
-  `chunk-OJP47DM6.js`). `patch-bundle.mjs` finds it by content; do not
-  hard-code it anywhere else.
+  `chunk-OJP47DM6.js`), and from 0.99 the two patches land in different
+  chunks. `patch-bundle.mjs` finds each by content; do not hard-code a chunk
+  name anywhere else.
+- **New pi packages need license notices.** `@earendil-works/*` packages ship
+  no LICENSE file, so each one pi adds (0.99 added `pi-codemode` and
+  `pi-mcp`) fails the web build's license generation until it has a
+  `packageOverrides` entry in `third-party-licenses.config.json`. Neither
+  `vp check` nor typecheck catches it; the README's verification list does.
 - **Presets are settings, not code.** A shipped, deployed rollover changes
   nothing a child runs on until the skill writes the live cockpit settings. Conversely, the edit is live
   in seconds — there is no "deploy" to hide behind if it is wrong.
