@@ -31,6 +31,8 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useThreadSearch } from "../../state/queries";
+import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom";
+import { rankThreadSearchItems, type ThreadSearchArchivedItem } from "./threadSearch.loom";
 import { useThreadListV2Enabled } from "./use-thread-list-v2-enabled";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
 import { usePendingThreadOrder } from "../../state/thread-order";
@@ -102,7 +104,8 @@ import {
 type SidebarListItem =
   | HomeListItem
   | ThreadListV2ListItem
-  | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number };
+  | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number }
+  | ThreadSearchArchivedItem; // loom
 
 const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
 
@@ -115,7 +118,8 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onSearchQueryChange: (query: string) => void;
-  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  // loom: archived search hits select by id; they have no shell.
+  readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onRequestVisibility: () => void;
   readonly searchQuery: string;
 }
@@ -216,10 +220,9 @@ function ThreadNavigationSidebarPane(
   const threadSearch = useThreadSearch(searchEnvironmentIds, props.searchQuery);
   const threadSearchMatchByKey = useMemo(() => {
     const matches = new Map<string, EnvironmentThreadSearchMatch>();
+    // loom: every source labels its own excerpt; no narrowing to messages.
     for (const match of threadSearch.matches) {
-      if (match.source === "user" || match.source === "assistant") {
-        matches.set(threadSearchMatchKey(match), match);
-      }
+      matches.set(threadSearchMatchKey(match), match);
     }
     return matches;
   }, [threadSearch.matches]);
@@ -542,10 +545,11 @@ function ThreadNavigationSidebarPane(
       settlementEnvironmentIds,
       snoozeEnvironmentIds,
       queuedThreadKeys,
-      settledLimit: settledVisibleCount,
+      // loom: a search reaches every hit, so shelves and paging stand aside.
+      settledLimit: hasSearchQuery ? undefined : settledVisibleCount,
       now: new Date().toISOString(),
-      snoozedShelfExpanded,
-      settledShelfExpanded,
+      snoozedShelfExpanded: hasSearchQuery || snoozedShelfExpanded,
+      settledShelfExpanded: hasSearchQuery || settledShelfExpanded,
       selectedThreadKey: props.selectedThreadKey ?? null,
     });
   }, [
@@ -562,6 +566,7 @@ function ThreadNavigationSidebarPane(
     settledVisibleCount,
     settlementEnvironmentIds,
     snoozeEnvironmentIds,
+    hasSearchQuery,
     threadListV2Enabled,
     threads,
     selectedProjectScope,
@@ -581,7 +586,28 @@ function ThreadNavigationSidebarPane(
     // range) the boundary string is identical and the chain would die.
   }, [nextSnoozeWakeAt, snoozeWakeTick]);
   const listItems = useMemo<readonly SidebarListItem[]>(() => {
-    if (!threadListV2Enabled) return listLayout.items;
+    // loom: a search lists hits flat in the server's rank, archived roots included.
+    const rankSearch = (items: ReadonlyArray<SidebarListItem>) =>
+      rankThreadSearchItems({
+        items: items.filter(
+          (item) =>
+            item.type === "thread" ||
+            item.type === "pending-task" ||
+            item.type === "v2-thread" ||
+            item.type === "v2-pending",
+        ),
+        threadOf: (item) =>
+          item.type === "thread"
+            ? item.thread
+            : item.type === "v2-thread"
+              ? item.item.thread
+              : null,
+        matches: threadSearch.matches,
+        liveThreads: threads.filter((thread) => thread.archivedAt === null),
+        projectKeys: selectedProjectRefs,
+      });
+    if (!threadListV2Enabled)
+      return hasSearchQuery ? rankSearch(listLayout.items) : listLayout.items;
     // Queued offline tasks are not thread shells, so the v2 item builder
     // never sees them; the shared splice puts them below the active block
     // (mirrors the compact Home v2 list) where they stay visible and
@@ -610,6 +636,7 @@ function ThreadNavigationSidebarPane(
       settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
       snoozeLabelNow: `${nowMinute}:00.000Z`,
     });
+    if (hasSearchQuery) return rankSearch(items); // loom
     if (settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0) {
       items.push({
         type: "v2-show-more",
@@ -619,10 +646,13 @@ function ThreadNavigationSidebarPane(
     }
     return items;
   }, [
+    hasSearchQuery,
     listLayout.items,
     nowMinute,
     options.selectedEnvironmentId,
     pendingTasks,
+    threadSearch.matches,
+    threads,
     props.searchQuery,
     selectedProjectRefs,
     settledShelfExpanded,
@@ -777,7 +807,8 @@ function ThreadNavigationSidebarPane(
     }
   }, []);
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    // loom: archived search hits select by id.
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
       props.onSelectThread(thread);
       openSwipeableRef.current?.close();
     },
@@ -826,6 +857,10 @@ function ThreadNavigationSidebarPane(
           previous.item.pinned === item.item.pinned &&
           previous.snoozeWakeLabelText === item.snoozeWakeLabelText
         );
+      }
+      // loom: archived search rows are rebuilt per result set; compare them by identity.
+      if (previous.type === "search-archived" || item.type === "search-archived") {
+        return previous === item;
       }
       if (previous.type === "v2-show-more" && item.type === "v2-show-more") {
         return previous.hiddenCount === item.hiddenCount;
@@ -881,6 +916,19 @@ function ThreadNavigationSidebarPane(
   const renderListItem = useCallback(
     ({ item }: { readonly item: SidebarListItem }) => {
       switch (item.type) {
+        case "search-archived": // loom
+          return (
+            <ArchivedSearchResultRow
+              match={item.match}
+              searchQuery={props.searchQuery}
+              pane="sidebar"
+              selected={
+                scopedThreadKey(item.match.environmentId, item.match.threadId) ===
+                props.selectedThreadKey
+              }
+              onSelectThread={handleSelectThread}
+            />
+          );
         case "v2-pending": {
           const pendingScopeKey = scopedProjectKey(
             item.pendingTask.environmentId,

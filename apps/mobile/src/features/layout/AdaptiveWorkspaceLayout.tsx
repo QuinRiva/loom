@@ -66,7 +66,8 @@ interface AdaptiveWorkspaceContextValue {
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
   readonly primarySidebarSearchQuery: string;
-  readonly selectThread: (thread: EnvironmentThreadShell) => void;
+  // loom: by id, so archived search hits (no shell) can open too.
+  readonly selectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
   /**
    * Route screens hand their inspector pane content to the workspace so it
@@ -494,7 +495,8 @@ function AdaptiveWorkspaceLayoutContent(
   );
 
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    // loom: by id, so archived search hits (no shell) can open too.
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
       const params = {
         environmentId: String(thread.environmentId),
         threadId: String(thread.id),

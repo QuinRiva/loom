@@ -2,46 +2,8 @@ import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state
 
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
-
-function foldAsciiCase(value: string): string {
-  return value.replace(/[A-Z]/g, (character) => character.toLowerCase());
-}
-
-function splitHighlightParts(text: string, query: string) {
-  const normalizedText = foldAsciiCase(text);
-  const normalizedQuery = foldAsciiCase(query.trim());
-  if (normalizedQuery.length === 0) {
-    return [{ text, highlighted: false, start: 0 }];
-  }
-
-  const parts: Array<{
-    readonly text: string;
-    readonly highlighted: boolean;
-    readonly start: number;
-  }> = [];
-  let cursor = 0;
-  while (cursor < text.length) {
-    const matchIndex = normalizedText.indexOf(normalizedQuery, cursor);
-    if (matchIndex === -1) {
-      parts.push({ text: text.slice(cursor), highlighted: false, start: cursor });
-      break;
-    }
-    if (matchIndex > cursor) {
-      parts.push({
-        text: text.slice(cursor, matchIndex),
-        highlighted: false,
-        start: cursor,
-      });
-    }
-    parts.push({
-      text: text.slice(matchIndex, matchIndex + normalizedQuery.length),
-      highlighted: true,
-      start: matchIndex,
-    });
-    cursor = matchIndex + normalizedQuery.length;
-  }
-  return parts;
-}
+// loom: labels for every indexed source, the sub-thread a hit came from, per-token highlight.
+import { threadSearchExcerptLabel, threadSearchHighlightParts } from "./threadSearch.loom";
 
 export function ThreadSearchMatchExcerpt(props: {
   readonly match: EnvironmentThreadSearchMatch;
@@ -50,8 +12,11 @@ export function ThreadSearchMatchExcerpt(props: {
   readonly compact?: boolean;
   readonly sidebar?: boolean;
 }) {
-  const isUser = props.match.source === "user";
-  const parts = splitHighlightParts(props.match.snippet, props.query);
+  // loom: only agent text takes the agent accent; a root-title hit adds nothing to the row.
+  const isUser = props.match.source !== "assistant";
+  const label = threadSearchExcerptLabel(props.match);
+  if (label === null) return null;
+  const parts = threadSearchHighlightParts(props.match.snippet, props.query);
   return (
     <Text
       className={cn(
@@ -76,7 +41,7 @@ export function ThreadSearchMatchExcerpt(props: {
               : "text-adaptive-emerald-600-400",
         )}
       >
-        {isUser ? "You:" : "Agent:"}{" "}
+        {label}{" "}
       </Text>
       {parts.map((part) => (
         <Text

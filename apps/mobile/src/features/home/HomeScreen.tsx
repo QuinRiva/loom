@@ -37,6 +37,8 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
+import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom";
+import { rankThreadSearchItems, type ThreadSearchArchivedItem } from "../threads/threadSearch.loom";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { usePendingThreadOrder } from "../../state/thread-order";
@@ -86,6 +88,16 @@ import {
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
 
+// loom: archived search rows are rebuilt per result set; compare them by identity.
+function listItemsAreEqual(
+  previous: HomeListItem | ThreadSearchArchivedItem,
+  item: HomeListItem | ThreadSearchArchivedItem,
+) {
+  return previous.type === "search-archived" || item.type === "search-archived"
+    ? previous === item
+    : homeListItemsAreEqual(previous, item);
+}
+
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
@@ -111,7 +123,8 @@ interface HomeScreenProps {
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
-  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  // loom: archived search hits select by id; they have no shell.
+  readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   /** Resolves true iff the settle was dispatched and succeeded. */
@@ -253,10 +266,9 @@ export function HomeScreen(props: HomeScreenProps) {
   const threadSearch = useThreadSearch(searchEnvironmentIds, props.searchQuery);
   const threadSearchMatchByKey = useMemo(() => {
     const matches = new Map<string, EnvironmentThreadSearchMatch>();
+    // loom: every source labels its own excerpt; no narrowing to messages.
     for (const match of threadSearch.matches) {
-      if (match.source === "user" || match.source === "assistant") {
-        matches.set(threadSearchMatchKey(match), match);
-      }
+      matches.set(threadSearchMatchKey(match), match);
     }
     return matches;
   }, [threadSearch.matches]);
@@ -435,6 +447,26 @@ export function HomeScreen(props: HomeScreenProps) {
             showAllThreads: hasSearchQuery,
           }),
     [threadListV2Enabled, projectGroups, effectiveGroupDisplayStates, hasSearchQuery],
+  );
+  // loom: a search lists hits flat in the server's rank, archived roots included.
+  const liveThreads = useMemo(
+    () => props.threads.filter((thread) => thread.archivedAt === null),
+    [props.threads],
+  );
+  const listItems = useMemo<ReadonlyArray<HomeListItem | ThreadSearchArchivedItem>>(
+    () =>
+      hasSearchQuery
+        ? rankThreadSearchItems({
+            items: listLayout.items.filter(
+              (item) => item.type === "thread" || item.type === "pending-task",
+            ),
+            threadOf: (item) => (item.type === "thread" ? item.thread : null),
+            matches: threadSearch.matches,
+            liveThreads,
+            projectKeys: selectedProjectRefKeys,
+          })
+        : listLayout.items,
+    [hasSearchQuery, listLayout.items, liveThreads, selectedProjectRefKeys, threadSearch.matches],
   );
 
   const projectByKey = useMemo(() => {
@@ -715,10 +747,11 @@ export function HomeScreen(props: HomeScreenProps) {
       settlementEnvironmentIds,
       snoozeEnvironmentIds,
       queuedThreadKeys,
-      settledLimit: settledVisibleCount,
+      // loom: a search reaches every hit, so shelves and paging stand aside.
+      settledLimit: hasSearchQuery ? undefined : settledVisibleCount,
       now: new Date().toISOString(),
-      snoozedShelfExpanded,
-      settledShelfExpanded,
+      snoozedShelfExpanded: hasSearchQuery || snoozedShelfExpanded,
+      settledShelfExpanded: hasSearchQuery || settledShelfExpanded,
       selectedThreadKey: null,
     });
   }, [
@@ -735,6 +768,7 @@ export function HomeScreen(props: HomeScreenProps) {
     props.selectedEnvironmentId,
     props.threads,
     matchedThreadKeys,
+    hasSearchQuery,
     threadListV2Enabled,
     v2ScopedProjectGroup,
   ]);
@@ -772,29 +806,59 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
   );
-  const threadListV2Items = useMemo(
-    () =>
-      buildThreadListV2ListItems({
-        items: threadListV2Layout.items,
-        pendingTasks: v2PendingTasks,
-        snoozedCount: threadListV2Layout.snoozedCount,
-        snoozedShelfExpanded,
-        snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
-        settledCount: threadListV2Layout.settledCount,
-        settledShelfExpanded,
-        settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
-        snoozeLabelNow: `${nowMinute}:00.000Z`,
-      }),
-    [settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout, v2PendingTasks],
-  );
+  const threadListV2Items = useMemo(() => {
+    const items = buildThreadListV2ListItems({
+      items: threadListV2Layout.items,
+      pendingTasks: v2PendingTasks,
+      snoozedCount: threadListV2Layout.snoozedCount,
+      snoozedShelfExpanded,
+      snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
+      settledCount: threadListV2Layout.settledCount,
+      settledShelfExpanded,
+      settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
+      snoozeLabelNow: `${nowMinute}:00.000Z`,
+    });
+    // loom: a search lists hits flat in the server's rank, archived roots included.
+    return hasSearchQuery
+      ? rankThreadSearchItems({
+          items: items.filter((item) => item.type === "v2-thread" || item.type === "v2-pending"),
+          threadOf: (item) => (item.type === "v2-thread" ? item.item.thread : null),
+          matches: threadSearch.matches,
+          liveThreads,
+          projectKeys: v2ScopedProjectKeys,
+        })
+      : items;
+  }, [
+    hasSearchQuery,
+    liveThreads,
+    settledShelfExpanded,
+    snoozedShelfExpanded,
+    threadListV2Layout,
+    threadSearch.matches,
+    v2PendingTasks,
+    v2ScopedProjectKeys,
+  ]);
 
-  useThreadJumpShortcuts(
-    threadListV2Enabled ? threadListV2Items : listLayout.items,
-    props.onSelectThread,
-  );
+  useThreadJumpShortcuts(threadListV2Enabled ? threadListV2Items : listItems, props.onSelectThread);
 
   const renderV2Item = useCallback(
-    ({ item, index }: { readonly item: ThreadListV2ListItem; readonly index: number }) => {
+    ({
+      item,
+      index,
+    }: {
+      readonly item: ThreadListV2ListItem | ThreadSearchArchivedItem;
+      readonly index: number;
+    }) => {
+      if (item.type === "search-archived") {
+        // loom
+        return (
+          <ArchivedSearchResultRow
+            match={item.match}
+            searchQuery={props.searchQuery}
+            onSelectThread={props.onSelectThread}
+          />
+        );
+      }
       const nextItem = threadListV2Items[index + 1];
       const showTrailingDivider =
         nextItem?.type === "v2-thread" ||
@@ -946,7 +1010,10 @@ export function HomeScreen(props: HomeScreenProps) {
       nowMinute,
     ],
   );
-  const v2KeyExtractor = useCallback((item: ThreadListV2ListItem) => item.key, []);
+  const v2KeyExtractor = useCallback(
+    (item: ThreadListV2ListItem | ThreadSearchArchivedItem) => item.key,
+    [],
+  );
 
   // FlatList treats a changed extraData identity as "re-render every visible
   // row", so an inline object literal would invalidate all rows on every
@@ -982,8 +1049,16 @@ export function HomeScreen(props: HomeScreenProps) {
   );
 
   const renderItem = useCallback(
-    ({ item }: LegendListRenderItemProps<HomeListItem>) => {
+    ({ item }: LegendListRenderItemProps<HomeListItem | ThreadSearchArchivedItem>) => {
       switch (item.type) {
+        case "search-archived": // loom
+          return (
+            <ArchivedSearchResultRow
+              match={item.match}
+              searchQuery={props.searchQuery}
+              onSelectThread={props.onSelectThread}
+            />
+          );
         case "header":
           return (
             <ThreadListGroupHeader
@@ -1082,7 +1157,7 @@ export function HomeScreen(props: HomeScreenProps) {
     ],
   );
 
-  const keyExtractor = useCallback((item: HomeListItem) => item.key, []);
+  const keyExtractor = useCallback((item: HomeListItem | ThreadSearchArchivedItem) => item.key, []);
 
   /* Empty states */
   // The signal must ignore the search/environment filters: an active query
@@ -1091,7 +1166,7 @@ export function HomeScreen(props: HomeScreenProps) {
   // so the v1 check already covers v2.
   const hasAnyThreads =
     props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
-  const hasResults = threadListV2Enabled ? threadListV2Items.length > 0 : projectGroups.length > 0;
+  const hasResults = threadListV2Enabled ? threadListV2Items.length > 0 : listItems.length > 0; // loom
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null
@@ -1202,7 +1277,7 @@ export function HomeScreen(props: HomeScreenProps) {
 
   if (
     Platform.OS === "android" &&
-    (threadListV2Enabled ? threadListV2Items.length === 0 : listLayout.items.length === 0)
+    (threadListV2Enabled ? threadListV2Items.length === 0 : listItems.length === 0) // loom
   ) {
     return (
       <View className="flex-1 bg-header">
@@ -1281,10 +1356,10 @@ export function HomeScreen(props: HomeScreenProps) {
         <SwipeableScrollGateProvider enabled={swipeEnabled}>
           <LegendList
             ref={listRef}
-            data={listLayout.items}
+            data={listItems}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
-            itemsAreEqual={homeListItemsAreEqual}
+            itemsAreEqual={listItemsAreEqual} // loom
             drawDistance={500}
             estimatedItemSize={ESTIMATED_THREAD_ROW_HEIGHT}
             extraData={extraData}
