@@ -81,6 +81,7 @@ import {
   WAKE_REPORT_EXCERPT_LIMIT,
   WorkstreamDispatcherLive,
   wakeRateGuardTrips,
+  wakeDeferredCommandId,
 } from "./WorkstreamDispatcher.ts";
 import { dayBucket } from "../receiptDedup.ts";
 import {
@@ -7986,5 +7987,310 @@ describe("deadlock notice (full dispatcher layer, issue #280)", () => {
         }).pipe(Effect.provide(buildLayer(dispatched, { receiptExists: true })));
       }),
     ),
+  );
+});
+
+// Deferred-wake notice (issue #304) through the assembled dispatcher layer: a
+// root parent owed FYI digest items (done children) reads busy; the notice must
+// fire only once its runtime silence passes the shared 10-minute window with no
+// tool in flight, once per silence episode, and never for a working parent.
+describe("deferred-wake notice (TestClock, full dispatcher layer)", () => {
+  const PARENT_ID = "parent-wd" as ThreadId;
+  const epochIso = "1970-01-01T00:00:00.000Z";
+  const doneChild = (n: number) =>
+    shell({
+      id: `child-wd-${n}`,
+      parentThreadId: PARENT_ID,
+      role: "researcher",
+      planLane: "done",
+      spawnGeneration: "gen-wd",
+      reportPath: `/nonexistent/child-wd-${n}.md`,
+      updatedAt: epochIso,
+    });
+  const parentShell = (session: OrchestrationSession | null) =>
+    shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session });
+
+  interface World {
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>;
+    pending: Set<ThreadId>;
+    heartbeatAt: Effect.Effect<string | null>;
+    inFlightTool: unknown;
+    /** Boot the dispatcher this long after epoch (a restart after an outage). */
+    bootAfterMs?: number;
+  }
+
+  const buildLayer = (world: World, dispatched: Array<OrchestrationCommand>) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
+      // Like the projector: a turn-start writes the target's pending row in the
+      // dispatching transaction, so later rails in the same pass read it busy.
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          if (command.type === "thread.turn.start") world.pending.add(command.threadId);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
+    } as unknown as OrchestrationEngineShape;
+    const snapshotQuery = {
+      getLeanShellSnapshot: () =>
+        Effect.sync(() => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: world.threads,
+          updatedAt: epochIso,
+        })),
+      getPendingTurnStartThreadIds: () => Effect.sync(() => new Set(world.pending)),
+      listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
+      getActivityFreshnessByThreadId: () =>
+        Effect.map(world.heartbeatAt, (heartbeatAt) => ({ maxCreatedAt: null, heartbeatAt })),
+      getInFlightToolByThreadId: () => Effect.sync(() => world.inFlightTool),
+    } as unknown as ProjectionSnapshotQueryShape;
+    // Empty receipt store: cross-pass dedup is carried by the in-memory
+    // delivered set (the machinery under test).
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-wd-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  const raises = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.attention.raise" }> =>
+        c.type === "thread.attention.raise" && c.threadId === PARENT_ID,
+    );
+  const notices = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+        c.type === "thread.activity.append" && c.activity.kind === "workstream.wake-deferred",
+    );
+  const parentWakes = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID);
+
+  const scenario = (
+    name: string,
+    world: World,
+    body: (
+      dispatched: ReadonlyArray<OrchestrationCommand>,
+      advance: (ms: number) => Effect.Effect<void>,
+    ) => Effect.Effect<void>,
+  ) =>
+    effectIt.effect(name, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* TestClock.adjust(Duration.millis(world.bootAfterMs ?? 0));
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            yield* body(dispatched, (ms) =>
+              TestClock.adjust(Duration.millis(ms)).pipe(Effect.andThen(dispatcher.drain)),
+            );
+          }).pipe(Effect.provide(buildLayer(world, dispatched)));
+        }),
+      ),
+    );
+
+  const WINDOW = DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS;
+  const busyActiveTurn = runningSession({
+    threadId: PARENT_ID,
+    status: "ready",
+    activeTurnId: "turn-wd" as TurnId,
+  });
+
+  scenario(
+    "stays quiet for a busy parent that keeps emitting runtime activity",
+    {
+      threads: [parentShell(busyActiveTurn), doneChild(1)],
+      pending: new Set(),
+      heartbeatAt: DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+      inFlightTool: null,
+    },
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        for (let i = 0; i < 30; i++) yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(raises(dispatched)).toHaveLength(0);
+        expect(notices(dispatched)).toHaveLength(0);
+        expect(parentWakes(dispatched)).toHaveLength(0);
+      }),
+  );
+
+  scenario(
+    "stays quiet while the busy parent has a tool call in flight",
+    {
+      threads: [parentShell(busyActiveTurn), doneChild(1)],
+      pending: new Set(),
+      heartbeatAt: Effect.succeed(epochIso),
+      inFlightTool: { toolName: "bash", startedAt: epochIso, activityId: "act-wd" },
+    },
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        yield* advance(WINDOW);
+        expect(dispatched.filter((c) => "threadId" in c && c.threadId === PARENT_ID)).toHaveLength(
+          0,
+        );
+      }),
+  );
+
+  scenario(
+    "speaks once past the silence window, then dedups across passes",
+    {
+      threads: [parentShell(null), doneChild(1)],
+      pending: new Set([PARENT_ID]),
+      heartbeatAt: Effect.succeed(epochIso),
+      inFlightTool: null,
+    },
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        expect(raises(dispatched)).toHaveLength(0);
+        yield* advance(WINDOW);
+        const commandId = wakeDeferredCommandId(PARENT_ID, epochIso);
+        expect(raises(dispatched).map((c) => [c.commandId, c.reason])).toEqual([
+          [`${commandId}:block`, "needs_guidance"],
+        ]);
+        const [notice] = notices(dispatched);
+        expect(notices(dispatched)).toHaveLength(1);
+        expect(notice!.commandId).toBe(commandId);
+        expect(notice!.threadId).toBe(PARENT_ID);
+        expect(notice!.activity.tone).toBe("error");
+        expect(notice!.activity.summary).toContain(
+          "reads busy (pending-turn-start) but has shown no runtime activity for 10 min. Waiting: 1 fyi-digest.",
+        );
+        expect(notice!.activity.payload).toEqual({
+          reason: "pending-turn-start",
+          silentSince: epochIso,
+          deferred: { "fyi-digest": 1 },
+        });
+        for (let i = 0; i < 5; i++) yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(raises(dispatched)).toHaveLength(1);
+        expect(notices(dispatched)).toHaveLength(1);
+      }),
+  );
+
+  scenario(
+    "raises one signal for a parent owed N children",
+    {
+      threads: [parentShell(null), doneChild(1), doneChild(2), doneChild(3)],
+      pending: new Set([PARENT_ID]),
+      heartbeatAt: Effect.succeed(epochIso),
+      inFlightTool: null,
+    },
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        yield* advance(WINDOW);
+        expect(raises(dispatched)).toHaveLength(1);
+        expect(notices(dispatched).map((c) => c.activity.payload)).toEqual([
+          { reason: "pending-turn-start", silentSince: epochIso, deferred: { "fyi-digest": 3 } },
+        ]);
+      }),
+  );
+
+  const rearmWorld: World = {
+    threads: [parentShell(null), doneChild(1)],
+    pending: new Set([PARENT_ID]),
+    heartbeatAt: Effect.succeed(epochIso),
+    inFlightTool: null,
+  };
+  scenario(
+    "clears when the parent goes idle and re-arms on a new silence episode",
+    rearmWorld,
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        yield* advance(WINDOW);
+        expect(notices(dispatched)).toHaveLength(1);
+
+        // Idle: the deferred digest is delivered and no further notice fires.
+        rearmWorld.pending.delete(PARENT_ID);
+        yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(parentWakes(dispatched)).toHaveLength(1);
+        for (let i = 0; i < 3; i++) yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(notices(dispatched)).toHaveLength(1);
+
+        // Busy again with fresh activity and a new item owed: a new episode.
+        const resumedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+        rearmWorld.pending.add(PARENT_ID);
+        rearmWorld.heartbeatAt = Effect.succeed(resumedAt);
+        rearmWorld.threads = [...rearmWorld.threads, doneChild(2)];
+        yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(notices(dispatched)).toHaveLength(1);
+        yield* advance(WINDOW);
+        expect(raises(dispatched)).toHaveLength(2);
+        expect(notices(dispatched).map((c) => c.commandId)).toEqual([
+          wakeDeferredCommandId(PARENT_ID, epochIso),
+          wakeDeferredCommandId(PARENT_ID, resumedAt),
+        ]);
+      }),
+  );
+  const idleWorld: World = {
+    threads: [parentShell(null)],
+    pending: new Set(),
+    heartbeatAt: Effect.succeed(epochIso),
+    inFlightTool: null,
+  };
+  scenario(
+    "stays quiet for a long-idle parent woken by an earlier rail in the same pass",
+    idleWorld,
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        yield* advance(WINDOW);
+        // Two rails owe the idle, long-silent parent in one pass: the per-child
+        // error wake delivers first, so the yield rail then reads it busy.
+        idleWorld.threads = [
+          ...idleWorld.threads,
+          shell({ id: "child-wd-err", parentThreadId: PARENT_ID, attention: ["error"] }),
+          shell({
+            id: "child-wd-yield",
+            parentThreadId: PARENT_ID,
+            planLane: "yielded",
+            lastOutcome: {
+              outcome: "rework_approach",
+              decision: "yield",
+              round: 0,
+              recordedByEventId: "evt-wd-yield",
+              at: epochIso,
+            } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
+          }),
+        ];
+        yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(parentWakes(dispatched)).toHaveLength(1);
+        expect(raises(dispatched)).toHaveLength(0);
+        expect(notices(dispatched)).toHaveLength(0);
+      }),
+  );
+  scenario(
+    "measures silence from dispatcher start after an outage, not from before it",
+    {
+      threads: [parentShell(null), doneChild(1)],
+      pending: new Set([PARENT_ID]),
+      heartbeatAt: Effect.succeed(epochIso),
+      inFlightTool: null,
+      bootAfterMs: 60 * 60_000,
+    },
+    (dispatched, advance) =>
+      Effect.gen(function* () {
+        yield* advance(IDLE_WAKE_REPASS_INTERVAL_MS);
+        expect(notices(dispatched)).toHaveLength(0);
+        yield* advance(WINDOW);
+        expect(notices(dispatched).map((c) => c.commandId)).toEqual([
+          wakeDeferredCommandId(PARENT_ID, "1970-01-01T01:00:00.000Z"),
+        ]);
+      }),
   );
 });
