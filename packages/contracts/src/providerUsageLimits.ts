@@ -89,8 +89,12 @@ export type UsageLimitSourceAccount = typeof UsageLimitSourceAccount.Type;
 
 /**
  * The published state of one configured `usageLimitSources` entry. A source
- * that could not be read keeps `error` beside an empty account list rather
- * than vanishing, so the user can see it is configured but failing.
+ * that could not be read keeps `error` rather than vanishing, so the user can
+ * see it is configured but failing.
+ *
+ * loom: beside `error`, and in place of an account whose own read failed, the
+ * accounts' last good readings carry forward (with their old `checkedAt`) for a
+ * bounded time; the account list is empty only once none is left.
  */
 export const UsageLimitSourceSnapshot = Schema.Struct({
   id: UsageLimitSourceId,

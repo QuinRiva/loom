@@ -33,9 +33,8 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { makeCliproxyApi } from "./cliproxyApi.ts";
+import { carriedAccounts, makeCliproxyApi } from "./cliproxyApi.ts"; // loom: carriedAccounts
 
 export class UsageLimitSources extends Context.Service<
   UsageLimitSources,
@@ -64,7 +63,6 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
   const settingsService = yield* ServerSettingsService;
-  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),
@@ -75,15 +73,23 @@ export const make = Effect.gen(function* () {
     id: UsageLimitSourceId,
     config: UsageLimitSourceConfig,
   ) {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    const now = yield* DateTime.now;
+    const checkedAt = DateTime.formatIso(now);
     const base = { id, kind: config.kind, label: sourceLabel(id, config), checkedAt } as const;
+    // loom: Anthropic 429s most per-account usage reads, so each account's last
+    // good reading carries forward (see `carriedAccounts`) instead of flickering out.
+    const previous = (yield* Ref.get(stateRef)).find((source) => source.id === id)?.accounts ?? [];
     if (config.managementKey.length === 0) {
       return { ...base, accounts: [], error: "No management key configured." };
     }
-    const accounts = yield* api.readAccounts(config).pipe(Effect.result);
+    const accounts = yield* api.readAccounts(config, previous).pipe(Effect.result);
     if (accounts._tag === "Failure") {
       yield* Effect.logDebug("usage limit source read failed", { id, cause: accounts.failure });
-      return { ...base, accounts: [], error: accounts.failure.detail };
+      return {
+        ...base,
+        accounts: carriedAccounts(previous, DateTime.toEpochMillis(now)), // loom
+        error: accounts.failure.detail,
+      };
     }
     return { ...base, accounts: accounts.success };
   });
@@ -156,8 +162,10 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((wait) =>
         Effect.sleep(Duration.toMillis(Duration.fromInputUnsafe(wait)) <= 0 ? "60 seconds" : wait),
       ),
-      Effect.andThen(backgroundPolicy.shouldRunScopeWork({ type: "provider-status" })),
-      Effect.flatMap((shouldRun) => (shouldRun ? refresh : Effect.void)),
+      // loom: no foreground-client gate (upstream's `shouldRunScopeWork`):
+      // failover health is fed from these readings while a hub owns Claude
+      // quota (SubscriptionUsagePoller), so they must stay fresh unattended.
+      Effect.andThen(refresh),
       Effect.ignoreCause({ log: true }),
     ),
   ).pipe(Effect.forkScoped);

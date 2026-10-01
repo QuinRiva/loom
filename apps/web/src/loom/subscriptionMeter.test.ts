@@ -1,7 +1,7 @@
 import type { LimitPresentations } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
-import { derivePools, meterAccounts, type MeterPool } from "./subscriptionMeter";
+import { derivePools, meterAccounts, readMeter, type MeterPool } from "./subscriptionMeter";
 import {
   METER_FIXTURE_STATES,
   meterFixturePresentations,
@@ -236,5 +236,51 @@ describe("pools across sources", () => {
     expect(minutes("danger", codex.axis.from)).toBe(528);
     expect(minutes("danger", codex.axis.to)).toBe(828);
     expect(codex.rows[0]!.bar?.used).toBe(12);
+  });
+});
+
+describe("held readings", () => {
+  /** The hub snapshot `ago` minutes before `now`, listing only the named subs. */
+  const hubListing = (ago: number, keep: readonly string[]): LimitPresentations =>
+    new Map(
+      [...meterFixturePresentations(state("danger"), "hub", ago)].map(([id, presentation]) => [
+        id,
+        {
+          ...presentation,
+          serverConfig: {
+            ...presentation.serverConfig,
+            usageLimitSources: presentation.serverConfig!.usageLimitSources!.map((source) => ({
+              ...source,
+              accounts: source.accounts.filter((account) =>
+                keep.includes(account.email!.split("@")[0]!),
+              ),
+            })),
+          },
+        },
+      ]),
+    );
+  const at = (ago: number) => midnight("danger") + (state("danger").now - ago) * MINUTE;
+  const labels = (pools: readonly MeterPool[]) => claude(pools).rows.map((entry) => entry.label);
+  const ALL = ["caaarl@", "carl@", "carl3@", "carl4@", "jacob@"];
+
+  it("keeps every account a partial listing lacks, then lets the missing ones age out", () => {
+    expect(
+      labels(
+        readMeter(
+          hubListing(
+            40,
+            ALL.map((l) => l.slice(0, -1)),
+          ),
+          at(40),
+        ).pools,
+      ),
+    ).toEqual(ALL);
+    // One account read through: the other four stay, and so does the pool row.
+    const partial = readMeter(hubListing(10, ["caaarl"]), at(10)).pools;
+    expect(labels(partial)).toEqual(ALL);
+    expect(claude(partial).pool).not.toBeNull();
+    expect(partial.find((pool) => pool.driver === "claudeAgent")!.stale).toBe(false);
+    // Thirty minutes on, an account no source reports any more has gone.
+    expect(labels(readMeter(hubListing(0, ["caaarl"]), at(0)).pools)).toEqual(["caaarl@"]);
   });
 });

@@ -93,19 +93,25 @@ function scopeOf(window: ServerProviderUsageWindow): string | undefined {
 export function meterAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
   const merged = new Map<string, LimitAccount>();
   for (const account of collectLimitAccounts(presentations).flatMap(splitLoomPiAccount)) {
-    const key = `${account.driver}:${accountLabel(account) ?? ""}`;
+    const key = rowKey(account);
     const previous = merged.get(key);
     const fresher =
       !previous || Date.parse(account.limits.checkedAt) > Date.parse(previous.limits.checkedAt);
     const winner = fresher ? account : previous;
     merged.set(key, { ...winner, email: winner.email ?? previous?.email ?? account.email });
   }
+  return namedFirst([...merged.values()]);
+}
+
+/** One row per driver + display label. */
+const rowKey = (account: LimitAccount) => `${account.driver}:${accountLabel(account) ?? ""}`;
+
+/** Drop the unlabelled account from a pool that has named members. */
+function namedFirst(accounts: readonly LimitAccount[]): readonly LimitAccount[] {
   const named = new Set(
-    [...merged.values()].flatMap((account) => (accountLabel(account) ? [account.driver] : [])),
+    accounts.flatMap((account) => (accountLabel(account) ? [account.driver] : [])),
   );
-  return [...merged.values()].filter(
-    (account) => accountLabel(account) !== null || !named.has(account.driver),
-  );
+  return accounts.filter((account) => accountLabel(account) !== null || !named.has(account.driver));
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +326,7 @@ function weeklyOf(window: ServerProviderUsageWindow, now: number): MeterWeekly {
 
 function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow {
   const label = accountLabel(account);
-  const key = `${account.driver}:${label ?? ""}`;
+  const key = rowKey(account);
   const session = account.limits.windows.find((window) => window.kind === "session");
   const weeklies = account.limits.windows
     .filter((window) => window.kind === "weekly")
@@ -404,14 +410,20 @@ export function derivePools(
 /** How often the countdown moves, and the bucket the derive is cached in. */
 export const METER_TICK_MS = 30_000;
 
+/**
+ * How long an account's last reading is held once no source reports it: the
+ * server's own carry-forward bound, after which a removed account leaves.
+ */
+const HOLD_MS = 30 * MINUTE;
+
 export interface MeterView {
-  /** `stale`: the driver's last reading, held since its source stopped reporting. */
+  /** `stale`: every row is a held reading; no source of the driver is reporting. */
   readonly pools: readonly (MeterPool & { readonly stale: boolean })[];
 }
 
 /** One entry, shared by the footer meter and its header chip: they derive the same pools. */
 let memo: { readonly key: string; readonly view: MeterView } | null = null;
-const held = new Map<ServerProvider["driver"], readonly LimitAccount[]>();
+const held = new Map<string, LimitAccount>();
 
 /**
  * The pools to draw, each marked live or stale.
@@ -419,9 +431,11 @@ const held = new Map<ServerProvider["driver"], readonly LimitAccount[]>();
  * Provider limits are runtime snapshot state: a reconnect, a server restart, or
  * a provider republishing its snapshot delivers a `serverConfig` with none
  * until the poller publishes again — and it goes per provider rather than all
- * at once. The meter is on screen permanently, so each driver's last reading is
- * held and marked stale rather than blinking out; nothing is drawn only when
- * there has never been a reading, and a reload starts empty again.
+ * at once — and a hub can drop an account whose read failed. The meter is on
+ * screen permanently, so each account's last reading is held rather than
+ * blinking out, until it is {@link HOLD_MS} old; a pool with no live row is
+ * marked stale. Nothing is drawn only when there has never been a reading, and
+ * a reload starts empty again.
  *
  * Cached on the limits slice and the tick, because the presentations atom
  * updates on every `serverConfig` change and the sidebar is always mounted.
@@ -429,11 +443,16 @@ const held = new Map<ServerProvider["driver"], readonly LimitAccount[]>();
 export function readMeter(presentations: LimitPresentations, now: number): MeterView {
   const key = `${limitsFingerprint(presentations)}|${Math.floor(now / METER_TICK_MS)}`;
   if (memo?.key === key) return memo.view;
-  const live = byDriver(meterAccounts(presentations));
-  for (const [driver, accounts] of live) held.set(driver, accounts);
-  const pools = derivePools([...held.values()].flat(), now).map((pool) => ({
+  const live = meterAccounts(presentations);
+  for (const account of live) held.set(rowKey(account), account);
+  const liveKeys = new Set(live.map(rowKey));
+  for (const [row, account] of held)
+    if (!liveKeys.has(row) && now - Date.parse(account.limits.checkedAt) > HOLD_MS)
+      held.delete(row);
+  const liveDrivers = new Set(live.map((account) => account.driver));
+  const pools = derivePools(namedFirst([...held.values()]), now).map((pool) => ({
     ...pool,
-    stale: !live.has(pool.driver),
+    stale: !liveDrivers.has(pool.driver),
   }));
   memo = { key, view: { pools } };
   return memo.view;

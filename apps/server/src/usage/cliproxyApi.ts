@@ -96,6 +96,23 @@ const decodeConsumeResponse = Schema.decodeUnknownEffect(
   ),
 );
 
+// loom: how long an account's last good reading stands in for reads that fail.
+// Six 5-minute refreshes: Anthropic 429s roughly half of the per-account usage
+// reads, so a gap longer than that is a real outage worth showing, and it stays
+// well inside the 5-hour window the reading describes.
+const CARRY_FORWARD_MS = 30 * 60_000;
+
+/** loom: the previous accounts whose reading is good and young enough to carry forward. */
+export const carriedAccounts = (
+  previous: ReadonlyArray<UsageLimitSourceAccount>,
+  now: number,
+): ReadonlyArray<UsageLimitSourceAccount> =>
+  previous.filter(
+    (account) =>
+      !account.usageLimits.unavailable &&
+      now - Date.parse(account.usageLimits.checkedAt) < CARRY_FORWARD_MS,
+  );
+
 const CODEX_BASE = "https://chatgpt.com/backend-api/wham";
 const CREDIT_URL = `${CODEX_BASE}/rate-limit-reset-credits`;
 
@@ -199,6 +216,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const readAccount = Effect.fn("CliproxyApi.readAccount")(function* (
     config: UsageLimitSourceConfig,
     account: typeof AuthFile.Type,
+    carried: UsageLimitSourceAccount | undefined, // loom: last good reading
   ) {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     const base = {
@@ -281,31 +299,42 @@ export const makeCliproxyApi = Effect.gen(function* () {
       };
     });
     return yield* read.pipe(
-      Effect.orElseSucceed(() => ({
-        ...base,
-        usageLimits: makeUnavailableUsageLimits({
-          checkedAt,
-          reason: "probeFailed",
-          message: "The hub could not read this account's usage.",
-        }),
-      })),
+      // loom: a failed read keeps the account's last good reading, checkedAt and all.
+      Effect.orElseSucceed(
+        (): UsageLimitSourceAccount =>
+          carried ?? {
+            ...base,
+            usageLimits: makeUnavailableUsageLimits({
+              checkedAt,
+              reason: "probeFailed",
+              message: "The hub could not read this account's usage.",
+            }),
+          },
+      ),
     );
   });
 
   const readAccounts = Effect.fn("CliproxyApi.readAccounts")(function* (
     config: UsageLimitSourceConfig,
+    previous: ReadonlyArray<UsageLimitSourceAccount>, // loom: carry-forward source
   ): Effect.fn.Return<ReadonlyArray<UsageLimitSourceAccount>, UsageLimitSourceError> {
     const accounts = yield* authFiles(config).pipe(
       Effect.mapError(
         () => new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
       ),
     );
+    const carried = carriedAccounts(previous, DateTime.toEpochMillis(yield* DateTime.now)); // loom
     return yield* Effect.forEach(
       accounts.filter(
         (account) =>
           !account.disabled && (account.provider === "codex" || account.provider === "claude"),
       ),
-      (account) => readAccount(config, account),
+      (account) =>
+        readAccount(
+          config,
+          account,
+          carried.find((candidate) => candidate.id === account.id), // loom
+        ),
       { concurrency: 4 },
     );
   });

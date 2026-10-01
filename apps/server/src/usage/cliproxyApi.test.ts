@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ProviderDriverKind } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
@@ -118,7 +119,7 @@ describe("CLIProxyAPI built-in management API", () => {
         yield* TestClock.setTime(1788710400000);
         const test = fixture();
         const api = yield* test.api;
-        const result = yield* api.readAccounts(config);
+        const result = yield* api.readAccounts(config, []);
         expect(result.map((account) => account.usageLimits.resetCredits)).toEqual([
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
@@ -150,7 +151,7 @@ describe("CLIProxyAPI built-in management API", () => {
             : { status: 200, body: { rate_limit: { primary_window: { used_percent: 12 } } } },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config);
+      const result = yield* api.readAccounts(config, []);
       expect(result[0]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(result[0]?.usageLimits.resetCredits).toBeUndefined();
     }),
@@ -170,10 +171,53 @@ describe("CLIProxyAPI built-in management API", () => {
               },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config);
+      const result = yield* api.readAccounts(config, []);
       expect(result[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
       expect(result[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(encodeJson(result)).not.toContain("do-not-publish");
+    }),
+  );
+
+  // loom: Anthropic 429s most per-account reads, so a failed read keeps the
+  // account's last good reading rather than dropping it off the meter.
+  it.effect("carries a failed account's last good reading forward for 30 minutes", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-09-30T12:00:00.000Z"));
+      const test = fixture({
+        upstream: (request) =>
+          request.auth_index === "a"
+            ? { status: 429, body: {} }
+            : {
+                status: 200,
+                body: request.url?.endsWith("rate-limit-reset-credits")
+                  ? { credits: [] }
+                  : { rate_limit: { primary_window: { used_percent: 12 } } },
+              },
+      });
+      const api = yield* test.api;
+      const good = (id: string, checkedAt: string) => ({
+        id,
+        driver: ProviderDriverKind.make("codex"),
+        usageLimits: {
+          checkedAt,
+          windows: [{ id: "primary", kind: "session" as const, label: "5h", usedPercent: 40 }],
+        },
+      });
+      const recent = good("first.json", "2026-09-30T11:35:00.000Z");
+
+      const carried = yield* api.readAccounts(config, [
+        recent,
+        good("gone.json", recent.usageLimits.checkedAt),
+      ]);
+      expect(carried[0]).toBe(recent);
+      // Only the failed account is carried; the other is read fresh, and a
+      // previous account the hub no longer lists is not resurrected.
+      expect(carried.map((account) => account.id)).toEqual(["first.json", "second.json"]);
+      expect(carried[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
+
+      const old = good("first.json", "2026-09-30T11:29:00.000Z");
+      const expired = yield* api.readAccounts(config, [old]);
+      expect(expired[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
     }),
   );
 
@@ -198,7 +242,7 @@ describe("CLIProxyAPI built-in management API", () => {
         }),
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config);
+      const result = yield* api.readAccounts(config, []);
       expect(
         result[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
       ).toEqual([
@@ -264,7 +308,7 @@ describe("CLIProxyAPI built-in management API", () => {
     Effect.gen(function* () {
       const test = fixture({ accounts: [{ ...accounts[0]!, disabled: true }] });
       const api = yield* test.api;
-      expect(yield* api.readAccounts(config)).toEqual([]);
+      expect(yield* api.readAccounts(config, [])).toEqual([]);
       expect((yield* api.consume(config, "first.json", "credit").pipe(Effect.result))._tag).toBe(
         "Failure",
       );
