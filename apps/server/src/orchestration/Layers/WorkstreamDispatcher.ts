@@ -68,7 +68,7 @@ import {
   notifyExpireCommandId,
   notifyMarkCommandId,
 } from "@t3tools/shared/notify";
-import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
+import { isThreadIdle, shouldRefuseForkLaunch, threadBusyReason } from "../threadIdle.ts";
 // loom: forkFrom (D2/D7) — fork-source-idle promotion gate + captured-selection
 // persistence.
 import { ModelSelection } from "@t3tools/contracts";
@@ -1326,7 +1326,9 @@ export const classifyChildWake = (
  * Set equal to the liveness sweep's no-progress window (`staleActivityWindowMs`,
  * 10m) so the active-turn (stall) and idle rails share ONE inactivity threshold
  * — "no new activity for 10m → wake the parent", whether or not a turn is open.
- * No dead zone, and a normal between-turns gap (seconds) never trips it.
+ * No dead zone, and a normal between-turns gap (seconds) never trips it. A third
+ * reader, the deferred-wake notice (`surfaceDeferredWakes`), uses the same window
+ * to call a busy-but-silent parent wrongly busy.
  */
 export const DEFAULT_IDLE_WAKE_GRACE_MS = 600_000;
 
@@ -1796,15 +1798,16 @@ export const buildChildWakeMessage = (
     tail,
   ].join("\n");
 };
-// Deterministic park command ids (shared by every wake rail): `parkAndEscalate`
-// writes the `needs_guidance` attention.raise under `parkBlockCommandId` and the
-// activity marker under `parkCommandId`, both receipt-deduped so a re-run never
-// double-raises. The `episode` is a per-rail key (e.g. `child-wake:<id>` or
-// `delta` for a whole terminal-child batch).
+// Deterministic park command id (shared by every wake rail): `parkAndEscalate`
+// writes the activity marker under it and the `needs_guidance` raise under its
+// `:block` suffix (see `escalateToHuman`). The `episode` is a per-rail key (e.g.
+// `child-wake:<id>` or `delta` for a whole terminal-child batch).
 const parkCommandId = (parentId: ThreadId, episode: string): string =>
   `server:workstream-notify:park:${parentId}:${episode}`;
-const parkBlockCommandId = (parentId: ThreadId, episode: string): string =>
-  `${parkCommandId(parentId, episode)}:block`;
+
+/** Deterministic deferred-wake notice id: one per (parent, silence episode). */
+export const wakeDeferredCommandId = (parentId: ThreadId, silentSinceIso: string): string =>
+  `server:workstream-dispatcher:wake-deferred:${parentId}:${silentSinceIso}`;
 
 // loom: forkFrom (D2) — hoisted decoder (no per-call inline schema compile).
 const decodeCapturedSelection = Schema.decodeUnknownEffect(ModelSelection);
@@ -1840,6 +1843,33 @@ const make = Effect.gen(function* () {
   // Per-parent wake-rate budget backing the interim runaway guard, shared by the
   // delta, per-child, and yield rails so they draw on ONE budget per parent.
   const wakeBudget = makeWakeRateBudget();
+  // Floor for the deferred-wake silence clock: the boot pass runs before session
+  // reconciliation, so a parent still marked `running` from before a long outage
+  // must not read as silent for the outage's length (cf. the liveness sweep's
+  // `sweepStartedAtMs`).
+  const startedAtMs = yield* Clock.currentTimeMillis;
+
+  // Deferred-wake visibility (issue #304): every parent a rail wanted to wake
+  // this pass but could not because it read busy, with how many items each rail
+  // owed it. Reset at the top of `runPass`, read once by `surfaceDeferredWakes`
+  // at its end. Plain mutable state: rails run serially on the coalescing worker.
+  let deferredWakes = new Map<ThreadId, Map<string, number>>();
+
+  // The one idle gate every wake rail uses: `true` ⇒ the parent is busy, the
+  // deferral is recorded, and the caller must `continue` (a later
+  // thread.session-set re-triggers the pass).
+  const deferIfBusy = (
+    parent: OrchestrationThreadLeanShell,
+    pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
+    rail: string,
+    count = 1,
+  ): boolean => {
+    if (isThreadIdle(parent, pendingTurnStartThreadIds)) return false;
+    const rails = deferredWakes.get(parent.id) ?? new Map<string, number>();
+    rails.set(rail, (rails.get(rail) ?? 0) + count);
+    deferredWakes.set(parent.id, rails);
+    return true;
+  };
 
   // ------------------------------------------------------------------------
   // FYI digest accumulator (design §4.3). One entry per withheld FYI item; the
@@ -2342,50 +2372,50 @@ const make = Effect.gen(function* () {
   const PARK_SUMMARY =
     "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
 
-  // The activity marker — the SECOND durable park write (under `parkCommandId`).
-  const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
+  // Pull a human in: raise the parent's `needs_guidance` flag (the single
+  // human-facing surface — the Slack bridge posts it) under `<commandId>:block`,
+  // then record WHY as a tone-`error` activity row under `commandId`. Both ids
+  // are deterministic and receipt-deduped, so a re-run never double-raises.
+  // Shared by the runaway park and the deferred-wake notice.
+  const escalateToHuman = Effect.fn("escalateToHuman")(function* (
     parent: OrchestrationThreadLeanShell,
-    episode: string,
+    commandId: string,
+    activity: { readonly kind: string; readonly summary: string; readonly payload: unknown },
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
+      type: "thread.attention.raise",
+      commandId: CommandId.make(`${commandId}:block`),
+      threadId: parent.id,
+      reason: "needs_guidance",
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+    yield* orchestrationEngine.dispatch({
       type: "thread.activity.append",
-      commandId: CommandId.make(parkCommandId(parent.id, episode)),
+      commandId: CommandId.make(commandId),
       threadId: parent.id,
       activity: {
         id: EventId.make(yield* crypto.randomUUIDv4),
         tone: "error",
-        kind: "workstream.runaway-guard.tripped",
-        summary: PARK_SUMMARY,
-        payload: { reason: "wake-rate-guard", episode },
         turnId: null,
         createdAt: now,
+        ...activity,
       },
       createdAt: now,
     } satisfies OrchestrationCommand);
   });
 
   // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
-  // not deliver — raise the parent's `needs_guidance` attention flag (the single
-  // notification surface) and surface it to the human (the stub for the future
-  // investigator agent). Both writes are receipt-deduped by their deterministic
-  // ids so re-running the pass never double-raises. The rate guard itself is an
-  // in-memory runaway catch (backed by `wakeTimestamps`), so after a restart a
-  // genuine runaway simply re-trips and re-parks — the human was already alerted.
-  const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
-    parent: OrchestrationThreadLeanShell,
-    episode: string,
-  ) {
-    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* orchestrationEngine.dispatch({
-      type: "thread.attention.raise",
-      commandId: CommandId.make(parkBlockCommandId(parent.id, episode)),
-      threadId: parent.id,
-      reason: "needs_guidance",
-      createdAt: now,
-    } satisfies OrchestrationCommand);
-    yield* dispatchParkMarker(parent, episode);
-  });
+  // not deliver — escalate to the human (the stub for the future investigator
+  // agent). The rate guard itself is an in-memory runaway catch (backed by
+  // `wakeTimestamps`), so after a restart a genuine runaway simply re-trips and
+  // re-parks — the human was already alerted.
+  const parkAndEscalate = (parent: OrchestrationThreadLeanShell, episode: string) =>
+    escalateToHuman(parent, parkCommandId(parent.id, episode), {
+      kind: "workstream.runaway-guard.tripped",
+      summary: PARK_SUMMARY,
+      payload: { reason: "wake-rate-guard", episode },
+    });
 
   // Has the parent ALREADY heard about this terminal child's current state
   // through one of the other wake rails, with no new work since? Each check is an
@@ -2723,7 +2753,7 @@ const make = Effect.gen(function* () {
       }
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (deferIfBusy(parent, pendingTurnStartThreadIds, kind)) continue;
 
       if (wakeBudget.wouldTrip(parent.id, now)) {
         yield* parkAndEscalate(parent, `child-wake:${child.id}`);
@@ -2919,7 +2949,7 @@ const make = Effect.gen(function* () {
       if (yield* dedup.alreadyHandled(commandId)) continue;
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (deferIfBusy(parent, pendingTurnStartThreadIds, "yield")) continue;
 
       const now = yield* Clock.currentTimeMillis;
       if (wakeBudget.wouldTrip(parent.id, now)) {
@@ -3166,7 +3196,7 @@ const make = Effect.gen(function* () {
       const parent = threadsById.get(parentId);
       if (parent === undefined) continue;
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (deferIfBusy(parent, pendingTurnStartThreadIds, "brief-needed", entries.length)) continue;
       if (wakeBudget.wouldTrip(parentId, now)) {
         yield* parkAndEscalate(parent, "brief-needed");
         for (const entry of entries) yield* dedup.markSuppressed(entry.marker);
@@ -3205,7 +3235,7 @@ const make = Effect.gen(function* () {
       if (stuck === null || stuck.some((child) => child.attention.length > 0)) continue;
       const commandId = deadlockCommandId(parentId, children);
       if (yield* dedup.alreadyHandled(commandId)) continue;
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (deferIfBusy(parent, pendingTurnStartThreadIds, "deadlock")) continue;
       const now = yield* Clock.currentTimeMillis;
       if (wakeBudget.wouldTrip(parentId, now)) {
         yield* parkAndEscalate(parent, "deadlock");
@@ -3265,7 +3295,7 @@ const make = Effect.gen(function* () {
         })
       )
         continue;
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (deferIfBusy(parent, pendingTurnStartThreadIds, "fyi-digest", entries.length)) continue;
       if (wakeBudget.wouldTrip(parentId, now)) {
         yield* parkAndEscalate(parent, "fyi-digest");
         for (const entry of entries) yield* dedup.markSuppressed(entry.marker);
@@ -3301,6 +3331,7 @@ const make = Effect.gen(function* () {
     reopenedTargets: ReadonlySet<ThreadId>,
   ) {
     const pending = yield* projectionSnapshotQuery.listPendingPeerMessages();
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
     const attemptedTargets = new Set<ThreadId>();
     for (const row of pending) {
       // Rows come oldest-first; skip a target once its oldest was handled so at
@@ -3347,9 +3378,11 @@ const make = Effect.gen(function* () {
         } satisfies OrchestrationCommand);
         continue;
       }
-      // Deliver on idle. `requireIdle` defers a busy target atomically (no
-      // receipt); `deliverOnce` reports that as `deferred` and records nothing,
-      // so the deterministic id stays redeliverable on the target's next idle.
+      // Deliver on idle. A busy target is deferred (and recorded) here; the
+      // engine's `requireIdle` re-checks atomically behind it, and `deliverOnce`
+      // reports that race as `deferred` and records nothing, so the deterministic
+      // id stays redeliverable on the target's next idle.
+      if (deferIfBusy(target, pendingTurnStartThreadIds, "notify")) continue;
       const outcome = yield* dedup.deliverOnce(
         deliverId,
         orchestrationEngine.dispatch({
@@ -3379,6 +3412,71 @@ const make = Effect.gen(function* () {
           createdAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso)),
         } satisfies OrchestrationCommand);
       }
+    }
+  });
+
+  // Deferred-wake notice (issue #304): a parent that owed wakes this pass, reads
+  // busy, has had NO runtime activity for the shared 10-minute window, and has no
+  // tool call in flight is wrongly busy by definition — a genuinely working
+  // parent either emits runtime events (the heartbeat advances on every token
+  // delta) or is inside a tool call. Pull a human in once per silence episode.
+  // The episode key is the last-activity timestamp itself, so it is stable while
+  // the wedge persists (restart-safe through the receipt) and re-arms the moment
+  // the parent shows any sign of life — including a human message that then goes
+  // unanswered. Freshness excludes `workstream.%` rows, so the notice row cannot
+  // refresh the clock that fired it.
+  //
+  // Busyness is judged at PASS START (`passStartPending` + the shell snapshot),
+  // not by the rails' fresh reads: a parent idle at pass start that an earlier
+  // rail just woke reads busy to later rails, but its silence clock (snapshot +
+  // heartbeat) has not seen that wake yet. Its busyness began inside this pass,
+  // so it cannot be a 10-minute wedge.
+  const surfaceDeferredWakes = Effect.fn("surfaceDeferredWakes")(function* (
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
+    passStartPending: ReadonlySet<ThreadId>,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    for (const [parentId, rails] of deferredWakes) {
+      const parent = threadsById.get(parentId);
+      if (parent === undefined) continue;
+      const reason = threadBusyReason(parent, passStartPending);
+      if (reason === null) continue;
+      const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(parentId);
+      const lastActivityMs = Math.max(
+        startedAtMs,
+        ...[
+          freshness.heartbeatAt,
+          freshness.maxCreatedAt,
+          parent.latestTurn?.startedAt ?? null,
+          parent.latestUserMessageAt,
+        ]
+          .map(parseIsoMs)
+          .filter((ms): ms is number => ms !== null),
+      );
+      if (now - lastActivityMs < DEFAULT_IDLE_WAKE_GRACE_MS) continue;
+      const activeTurnId = parent.session?.activeTurnId ?? null;
+      if (
+        activeTurnId !== null &&
+        (yield* projectionSnapshotQuery.getInFlightToolByThreadId(parentId, activeTurnId)) !== null
+      )
+        continue;
+      const silentSince = DateTime.formatIso(DateTime.makeUnsafe(lastActivityMs));
+      const commandId = wakeDeferredCommandId(parentId, silentSince);
+      const details = { reason, silentSince, deferred: Object.fromEntries(rails) };
+      const outcome = yield* dedup.deliverOnce(
+        commandId,
+        escalateToHuman(parent, commandId, {
+          kind: "workstream.wake-deferred",
+          summary:
+            `Control-plane wakes are being deferred: this thread reads busy (${reason}) but ` +
+            `has shown no runtime activity for ${Math.round((now - lastActivityMs) / 60_000)} min. ` +
+            `Waiting: ${[...rails].map(([rail, n]) => `${n} ${rail}`).join(", ")}. If it is ` +
+            `not actually working, a server restart reconciles a stale pending turn-start.`,
+          payload: details,
+        }),
+      );
+      if (outcome === "delivered")
+        yield* Effect.logWarning("workstream.wake-deferred", { threadId: parentId, ...details });
     }
   });
 
@@ -3450,6 +3548,10 @@ const make = Effect.gen(function* () {
     // any quiet thread — so a thread that still owes control-plane work can
     // always be classified settled. No sweep whose quarry is "a thread that
     // still owes an action" can be gated on it.
+    deferredWakes = new Map();
+    // Read BEFORE the snapshot, so any turn-start in it already has its message
+    // in the snapshot (see `surfaceDeferredWakes`).
+    const passStartPending = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
     const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const threads = snapshot.threads;
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
@@ -3466,6 +3568,7 @@ const make = Effect.gen(function* () {
     yield* wakeDeadlockedParents(threads, threadsById);
     yield* flushPendingDigests(threads, threadsById, pending);
     yield* deliverPendingNotifications(threadsById, reopenedTargets);
+    yield* surfaceDeferredWakes(threadsById, passStartPending);
   });
 
   const runPassSafely = runPass().pipe(
