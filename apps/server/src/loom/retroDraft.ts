@@ -41,13 +41,12 @@ export const RETRO_REVIEWER_ROLE = "retro-reviewer";
 export const RETRO_BRIEF_PATH = "~/loom-retro/retro-brief.md";
 
 /**
- * The retro reviewer's role overlay, SERVER-OWNED. The generic role-overlay
- * path loads `roles/<role>.md` from the REVIEWED project's worktree — which
- * would make the retro policy exist only in checkouts that happen to carry the
- * file (never other projects, never older worktrees). A `/retro` fork is minted
- * by the server, not spawned from a project's role catalogue, so its policy is
- * a single server-owned source: the reactor injects this text for the
- * `retro-reviewer` role instead of consulting the project's roles dir.
+ * The retro reviewer's role overlay, SERVER-OWNED. The built-in roles also ship
+ * with the server, but every built-in is listed in the spawn catalogue and
+ * composed with the reviewed project's `.t3code/roles/` addition. A `/retro`
+ * fork is minted by the server, never spawned from that catalogue, so its
+ * policy stays a constant here: the reactor injects this text for the
+ * `retro-reviewer` role instead of calling the role loader.
  */
 export const RETRO_REVIEWER_OVERLAY_PROMPT = `You are a retrospective reviewer: a fork of the thread under review, carrying its full conversation as your context. The transcript that precedes your kickoff is the development process you are reviewing — you did not do that work; you are auditing how it went.
 

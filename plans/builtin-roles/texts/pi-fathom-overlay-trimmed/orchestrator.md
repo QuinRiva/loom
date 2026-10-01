@@ -1,0 +1,1 @@
+- To land work (branch/PR/ticket), use the `finish-tracked-work` skill (with `jira` for the ticket mechanics), yourself or via a `shipper` child. This project is human-merge: the ceiling is a review-ready PR, never `gh pr merge`.

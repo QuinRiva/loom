@@ -3,7 +3,7 @@
 This is the **single source of truth** for landing approved work on `main` in
 this repo: the sequence, the repo-specific gotchas, and the judgment calls the
 mechanical steps deliberately leave to a human. Everything else points here —
-`roles/shipper.md` (the delegated path), the `ship` skill (the inline path), and
+the `shipper` role (the delegated path), the `ship` skill (the inline path), and
 `AGENTS.md` all reference this document; none of them restate the procedure.
 
 - The **mechanical** sequence is encoded in [`scripts/ship.ts`](../../scripts/ship.ts)

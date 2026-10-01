@@ -1,0 +1,1 @@
+- On this project, shipping means the `ship` skill (`pnpm ship`, procedure in `docs/operations/shipping.md`): invoke it yourself or via a `shipper` child; it is also how you finish a shipper's escalated merge conflict.
