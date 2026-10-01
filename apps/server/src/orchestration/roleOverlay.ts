@@ -8,8 +8,21 @@ import {
   LEAF_CORE_PROVIDER_TOOLS,
 } from "../mcp/toolPaths.ts";
 
-const ROLE_OVERLAY_DIR = "roles";
 const DEFAULT_ROLE = "orchestrator";
+const OVERLAY_DIR = NodePath.join(".t3code", "roles");
+
+/** The built-in roles ship with the server: `<repo>/roles`, four levels above
+ * this source file, or three above the `dist/` chunk the bundle inlines it into.
+ * A release without it is a broken install, so the miss fails at import rather
+ * than as a roleless thread at launch. */
+const BUILTIN_ROLES_DIR = NodePath.resolve(
+  import.meta.dirname,
+  import.meta.url.endsWith(".ts") ? "../../../.." : "../../..",
+  "roles",
+);
+if (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {
+  throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);
+}
 
 /** The lifeline every workstream thread must keep ACTIVE: the leaf-core provider
  * tools (completion, attention, orientation, consultation, task-tree upkeep)
@@ -21,8 +34,10 @@ const LIFELINE_TOOLS: ReadonlyArray<string> = [...LEAF_CORE_PROVIDER_TOOLS, ENAB
 export interface RoleOverlay {
   /** System-prompt overlay text (the markdown body after any frontmatter). */
   readonly prompt?: string;
-  /** Skill paths from frontmatter, resolved to absolute paths against projectRoot
-   * and passed to pi as repeated `--skill` args (additive to normal discovery). */
+  /** Skill paths from frontmatter, resolved to absolute paths (built-in paths
+   * against the directory holding `roles/`, project paths against the one
+   * holding `.t3code/`) and passed to pi as repeated `--skill` args (additive
+   * to normal discovery). */
   readonly skills?: ReadonlyArray<string>;
   /** ACTIVE-tool profile from frontmatter. Not an allowlist: pi launches with
    * its full tool registry and the provider-tool extension selects this set as
@@ -100,91 +115,128 @@ const parseRoleFile = (
   };
 };
 
-/**
- * Resolve a thread role to its overlay, read fresh from
- * `<projectRoot>/roles/<role>.md` at session start (no cache — editable without a
- * rebuild). The file may open with YAML frontmatter carrying `skills` (paths,
- * resolved against projectRoot) and `tools` (the active-tool profile); the rest is
- * the system-prompt overlay, plus `toolsets` naming dormant families to keep
- * resident. null/empty role → the root orchestrator. A free-string/unknown role
- * whose file is absent yields `undefined` (permissive spawning: no profile,
- * and the reactor treats it as delegation-capable). Role is slugified to
- * `[a-z0-9-]`, which also blocks path traversal.
- */
-/**
- * Enumerate the defined roles (`roles/*.md`), each with a one-line summary
- * derived from the file's first non-empty body line (after any frontmatter).
- * Each role file opens with `You are a <role> sub-thread. <summary>` or `You are
- * the orchestrator: <summary>`; the identity lead-in is trimmed and the
- * substantive remainder used, degrading to the whole first line when the pattern
- * doesn't match. orchestrator is listed first, the rest alphabetically. Reading
- * fresh each call (no cache) mirrors `loadRoleOverlay`.
- */
-export const listRoleOverlays = (input: {
+/** The project's `.t3code/roles/`: the nearest one at or above `projectRoot`,
+ * bounded by the repo top level (the first ancestor holding a `.git` entry — a
+ * directory, or a worktree's file). Outside any repo only `projectRoot` itself
+ * is read. The nearest directory wins: a role it lacks means no addition, not
+ * "keep looking". */
+const findOverlayDir = (projectRoot: string): string | undefined => {
+  const dirs = [NodePath.resolve(projectRoot)];
+  while (dirs.at(-1)! !== NodePath.dirname(dirs.at(-1)!)) dirs.push(NodePath.dirname(dirs.at(-1)!));
+  const top = dirs.findIndex((dir) => NodeFS.existsSync(NodePath.join(dir, ".git")));
+  return dirs
+    .slice(0, top + 1 || 1)
+    .map((dir) => NodePath.join(dir, OVERLAY_DIR))
+    .find((dir) => NodeFS.existsSync(dir));
+};
+
+const readRole = (dir: string | undefined, slug: string) => {
+  const file = dir && NodePath.join(dir, `${slug}.md`);
+  return file && NodeFS.existsSync(file)
+    ? parseRoleFile(NodeFS.readFileSync(file, "utf8"))
+    : undefined;
+};
+
+/** A role is its built-in followed by the project's addition: bodies joined by
+ * one blank line; a non-empty project `tools:`/`toolsets:` replaces the
+ * built-in's; `skills:` union, each side resolved against its own root. Either
+ * side alone is the whole role; neither → undefined. */
+const composeRole = (slug: string, builtinDir: string, overlayDir: string | undefined) => {
+  const builtin = readRole(builtinDir, slug);
+  const project = readRole(overlayDir, slug);
+  if (!builtin && !project) return undefined;
+  return {
+    prompt: [builtin?.body, project?.body]
+      .map((body) => body?.trim() ?? "")
+      .filter((body) => body.length > 0)
+      .join("\n\n"),
+    tools: project?.tools.length ? project.tools : (builtin?.tools ?? []),
+    toolsets: project?.toolsets.length ? project.toolsets : (builtin?.toolsets ?? []),
+    skills: [
+      ...(builtin?.skills ?? []).map((skill) => NodePath.resolve(builtinDir, "..", skill)),
+      ...(project?.skills ?? []).map((skill) => NodePath.resolve(overlayDir!, "../..", skill)),
+    ],
+  };
+};
+
+interface RoleLookup {
   readonly projectRoot: string;
-}): ReadonlyArray<RoleSummary> => {
-  const dir = NodePath.join(input.projectRoot, ROLE_OVERLAY_DIR);
-  let files: ReadonlyArray<string>;
-  try {
-    files = NodeFS.readdirSync(dir).filter((file) => file.endsWith(".md"));
-  } catch {
-    return []; // roles dir absent/unreadable → no catalogue
-  }
-  const summaries = files.flatMap((file) => {
-    let raw: string;
-    try {
-      raw = NodeFS.readFileSync(NodePath.join(dir, file), "utf8");
-    } catch {
-      return [];
-    }
-    const firstLine = parseRoleFile(raw)
-      .body.split(/\r?\n/)
+  /** Test seam; production always reads the server's own `roles/`. */
+  readonly builtinDir?: string;
+}
+
+/**
+ * Enumerate the defined roles — the union of the built-ins and the project's
+ * `.t3code/roles/` — each with a one-line summary from the composed role's first
+ * non-empty body line. Each built-in opens with `You are a <role> sub-thread.
+ * <summary>` or `You are the orchestrator: <summary>`; the identity lead-in is
+ * trimmed and the substantive remainder used, degrading to the whole first line
+ * when the pattern doesn't match. orchestrator is listed first, the rest
+ * alphabetically. Read fresh each call (no cache), like `loadRoleOverlay`.
+ */
+export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> => {
+  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;
+  const overlayDir = findOverlayDir(input.projectRoot);
+  const names = new Set(
+    [builtinDir, overlayDir]
+      .flatMap((dir) => (dir === undefined ? [] : NodeFS.readdirSync(dir)))
+      .filter((file) => file.endsWith(".md"))
+      .map((file) => file.slice(0, -3)),
+  );
+  const summaries = [...names].flatMap((name) => {
+    const firstLine = composeRole(name, builtinDir, overlayDir)
+      ?.prompt.split(/\r?\n/)
       .find((line) => line.trim().length > 0)
       ?.trim();
-    if (!firstLine) return [];
-    // Strip the identity lead-in; `.replace` returns firstLine unchanged (the
-    // graceful fallback) when the pattern doesn't match.
-    const summary = firstLine.replace(/^You are (?:a|an|the) .*?(?:sub-thread\.|:)\s*/, "");
-    return [{ name: file.slice(0, -3), summary }];
+    // `.replace` returns firstLine unchanged (the graceful fallback) when the
+    // identity pattern doesn't match.
+    return firstLine
+      ? [{ name, summary: firstLine.replace(/^You are (?:a|an|the) .*?(?:sub-thread\.|:)\s*/, "") }]
+      : [];
   });
   return summaries.sort((a, b) =>
     a.name === DEFAULT_ROLE ? -1 : b.name === DEFAULT_ROLE ? 1 : a.name.localeCompare(b.name),
   );
 };
 
-export const loadRoleOverlay = (input: {
-  readonly role: string | null;
-  readonly projectRoot: string;
-}): RoleOverlay | undefined => {
+/**
+ * Resolve a thread role to its overlay, read fresh at session start (no cache):
+ * the server's built-in `roles/<role>.md` composed with the project's
+ * `.t3code/roles/<role>.md` (see `composeRole`). A file may open with YAML
+ * frontmatter carrying `skills` (paths), `tools` (the active-tool profile) and
+ * `toolsets` (dormant families to keep resident); the rest is the system-prompt
+ * overlay. null/empty role → the root orchestrator. A free-text/unknown role
+ * with neither file yields `undefined` (permissive spawning: no profile, and the
+ * reactor treats it as delegation-capable). Role is slugified to `[a-z0-9-]`,
+ * which also blocks path traversal.
+ */
+export const loadRoleOverlay = (
+  input: RoleLookup & { readonly role: string | null },
+): RoleOverlay | undefined => {
   const slug = (input.role ?? DEFAULT_ROLE)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "");
   if (slug.length === 0) return undefined;
-  try {
-    const raw = NodeFS.readFileSync(
-      NodePath.join(input.projectRoot, ROLE_OVERLAY_DIR, `${slug}.md`),
-      "utf8",
-    );
-    const { body, skills, tools, toolsets } = parseRoleFile(raw);
-    const prompt = body.trim();
-    if (prompt.length === 0 && skills.length === 0 && tools.length === 0) return undefined;
-    // Unknown toolset names are ignored: a typo costs the role that family until
-    // the frontmatter is fixed, exactly as an unknown tool name does in pi.
-    const resident = toolsets.flatMap(
-      (name) => DORMANT_PROVIDER_TOOLSETS[name as keyof typeof DORMANT_PROVIDER_TOOLSETS] ?? [],
-    );
-    return {
-      ...(prompt.length > 0 ? { prompt } : {}),
-      ...(skills.length > 0
-        ? { skills: skills.map((skill) => NodePath.resolve(input.projectRoot, skill)) }
-        : {}),
-      ...(tools.length > 0
-        ? { tools: [...new Set([...tools, ...LIFELINE_TOOLS, ...resident])] }
-        : {}),
-      delegation: tools.length === 0 || toolsets.includes("delegation"),
-    };
-  } catch {
-    return undefined; // ENOENT / unreadable → no overlay (permissive)
-  }
+  const role = composeRole(
+    slug,
+    input.builtinDir ?? BUILTIN_ROLES_DIR,
+    findOverlayDir(input.projectRoot),
+  );
+  if (!role) return undefined;
+  const { prompt, skills, tools, toolsets } = role;
+  if (prompt.length === 0 && skills.length === 0 && tools.length === 0) return undefined;
+  // Unknown toolset names are ignored: a typo costs the role that family until
+  // the frontmatter is fixed, exactly as an unknown tool name does in pi.
+  const resident = toolsets.flatMap(
+    (name) => DORMANT_PROVIDER_TOOLSETS[name as keyof typeof DORMANT_PROVIDER_TOOLSETS] ?? [],
+  );
+  return {
+    ...(prompt.length > 0 ? { prompt } : {}),
+    ...(skills.length > 0 ? { skills } : {}),
+    ...(tools.length > 0
+      ? { tools: [...new Set([...tools, ...LIFELINE_TOOLS, ...resident])] }
+      : {}),
+    delegation: tools.length === 0 || toolsets.includes("delegation"),
+  };
 };
