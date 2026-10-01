@@ -12,7 +12,8 @@ one surface (the provider tool definition) in depth. This document maps **all**
 the text surfaces a workstream thread's context is composed from, states each
 surface's cost model and binding moment, and gives the authoring principles for
 the two surfaces the tool-def doc does not cover: **role overlays**
-(`roles/*.md`) and **skills** (`skills/*/SKILL.md`).
+(built-in `roles/*.md`, plus a project's `.t3code/roles/*.md` additions) and
+**skills** (`skills/*/SKILL.md`).
 
 The governing test is the same as for tool defs: every sentence is a
 behavioural bet. What will the model _do_ after reading this, at the moment it
@@ -30,7 +31,7 @@ priced for its actual applicability.
 | ----------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Work-model prompt       | `PI_WORK_MODEL_SYSTEM_PROMPT` (driver-prepended, first in reading order)                               | System prompt, every workstream thread              | Ambient × every thread                                                           | The shared mechanics all roles operate under (goals/tasks/workstream, lanes, liveness) — role-agnostic by design                                           |
 | Role overlay            | built-in `roles/<role>.md` + project `.t3code/roles/<role>.md` body, injected via `appendSystemPrompt` | System prompt, every turn of every such thread      | **Ambient × role population** — paid by every turn of every thread with the role | Role identity and doctrine that binds unconditionally for that role                                                                                        |
-| Roles catalogue         | First body line of each `roles/*.md`, harvested by `listRoleOverlays`                                  | System prompt, threads whose tool profile can spawn | Ambient × delegation-capable threads × role count                                | One line per role: what a spawner gets by choosing it — the first body line is written for this reader too                                                 |
+| Roles catalogue         | First body line of each composed role (built-in ∪ project), harvested by `listRoleOverlays`            | System prompt, threads whose tool profile can spawn | Ambient × delegation-capable threads × role count                                | One line per role: what a spawner gets by choosing it — the first body line is written for this reader too                                                 |
 | Skill (header)          | `SKILL.md` frontmatter `name` + `description`                                                          | Ambient (the skill catalogue line)                  | Ambient, but ~2 lines                                                            | The trigger: when to open the body                                                                                                                         |
 | Skill (body)            | `SKILL.md` body + references                                                                           | Only when the model opens it                        | **On demand** — free until triggered                                             | Conditional protocol: procedures, format contracts, edge-case matrices                                                                                     |
 | Tool def                | `providerToolDefs.ts` (description, params, guidelines)                                                | Per the tool-def decision-moment model              | Selection/composition-time; guidelines ambient                                   | See [`tool-def-authoring.md`](./tool-def-authoring.md) — this doc does not restate it                                                                      |
@@ -70,8 +71,9 @@ Two consequences fall straight out of the map:
    masquerading as doctrine. Move the body to a skill and leave a two-line
    trigger in the overlay: the condition, and the instruction to read the
    skill **before** the first action the protocol governs. The `ship` skill is
-   the pattern: `roles/shipper.md` carries the authority boundary
-   (unconditional), the skill carries the procedure (read at shipping time).
+   the pattern: the built-in `roles/shipper.md` carries the authority boundary
+   (unconditional), loom's `.t3code/roles/shipper.md` names the procedure, and
+   the skill carries it (read at shipping time).
 
 3. **Never demote a terminal contract.** Anything that must hold even if the
    model never opens the skill — the submit-outcome contract, "never set your
@@ -107,16 +109,27 @@ Two consequences fall straight out of the map:
    bullet lands on every role file that carries it, in the same change —
    exactly the tool-def rule for shared parameters.
 
-7. **Coding philosophy lives in the project's role files, not global config.**
-   Role overlays are loaded from each project's own `roles/` directory
-   (`roleOverlay.ts`), and that is deliberate: posture is per-project (a
-   reliability-first control plane and a throwaway-analytics prototype need
-   opposite defaults for tests, defensive code, and compat), so each project's
-   `roles/coder.md` / `roles/reviewer.md` owns its philosophy fully, tuned to
-   that project. Global ambient config (`~/.pi/agent/AGENTS.md`) is the wrong
-   home for posture rules — it cannot vary by project and silently fights the
-   projects it doesn't fit. The cost is accepted duplication across projects;
-   an edit to shared doctrine lands per-project, consciously.
+7. **Built-in doctrine, project additions.** The seven roles ship with the
+   server (`roles/*.md` in the loom release, located from `roleOverlay.ts`'s
+   own module path) and reach every project. A project adds only what is
+   genuinely its own in `.t3code/roles/<role>.md`, found by walking up from
+   the thread's working directory to the repo top level; the file's body is
+   **appended** to the built-in's, its `tools:`/`toolsets:` replace the
+   built-in's when declared, its `skills:` union with them. Consequences for
+   authors:
+   - A built-in bullet is read by every project, so it must be true
+     everywhere: name the generic rule and the generic boundary set, never a
+     repo's commands, layout or named exceptions. Those go in that repo's
+     `.t3code/roles/` file (loom's own live there too — editing `roles/` in a
+     loom worktree changes nothing for that worktree's threads; it changes
+     the next release).
+   - An overlay bullet *sharpens* the built-in that precedes it — adds a
+     boundary, names an exception, sets a stricter bar. If it has to negate a
+     built-in sentence, change the built-in. If it restates one, delete it.
+   - Posture that is Carl-wide and role-neutral (optimise the end state,
+     tests are rare, no backwards compatibility) belongs in
+     `~/.pi/agent/AGENTS.md`, which every thread already reads; the role
+     file carries only the role-scoped application of it.
 
 8. **The overlay loses to the assignment.** Work-model precedence means a
    doer-framed brief can override role framing (the `goal_handoff` incident).
