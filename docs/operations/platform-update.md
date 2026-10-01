@@ -389,15 +389,18 @@ is the check that counts.
 
 **If it is not listed, register it in `~/.pi/agent/models.json`.** Copy the
 entry from a pi-ai catalogue that has it (§1's `npm pack`), minus `provider`
-and `type`. Merge by hand if the file already exists:
+and `type`. The snippet appends to an existing file:
 
 ```bash
 python3 - <<'EOF'
-import json
+import json, os
+F = os.path.expanduser("~/.pi/agent/models.json")
 P, API, ID = "openai-codex", "openai-codex-responses", "gpt-6.1-sol"
 e = json.load(open(f"package/dist/providers/data/{P}.json"))[API][f"chat:{ID}"]   # pre-0.99 keys are bare ids
 for k in ("provider", "type"): e.pop(k, None)
-json.dump({"providers": {P: {"models": [e]}}}, open("/home/Carl/.pi/agent/models.json", "w"), indent=2)
+m = json.load(open(F)) if os.path.exists(F) else {}
+m.setdefault("providers", {}).setdefault(P, {}).setdefault("models", []).append(e)
+json.dump(m, open(F, "w"), indent=2)
 EOF
 ```
 
@@ -414,7 +417,8 @@ for bin in pi "$B"; do $bin -p --model openai-codex/gpt-6.1-sol --thinking high 
 ```
 
 There is no restart or deploy. The cockpit re-reads its settings within
-seconds, and it re-probes pi's catalogue whenever it refreshes the provider.
+seconds and re-probes pi's catalogue every ~2 min, so right after a `models.json`
+edit `workstream_list` may show `[INVALID]` for up to 2 min.
 
 **Once a pi bump ships the model,** delete its `models.json` entry, and check
 that `pi --list-models` still lists the model. The targets need nothing: the
