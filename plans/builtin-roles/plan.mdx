@@ -2,19 +2,21 @@
 manager_sessions:
   - id: 4d77624b-9270-413a-af87-d09a7661992e
     role: plan
-    authored_at: 2026-09-30T23:58:23.263Z
+    authored_at: 2026-10-01T00:58:04.817Z
 ---
 
 # Built-in roles for every cockpit project
 
 ## Objective
 
-Every thread the cockpit launches — in any of its ten projects, and in any project added later — runs with the current role definition for its role (orchestrator, planner, coder, reviewer, researcher, assessor, shipper). Loom ships those seven roles inside the server release as **built-ins**. A project adds only what is genuinely specific to it, as a short file that is **appended** to the built-in — never a copy of it — so a change to loom's roles reaches every project on the next deploy without anyone enumerating projects or hand-merging. And a thread finds its project's additions from anywhere under the repo, because lookup walks up the directory tree the way `.t3code/ship.json` lookup already does.
+Every thread the cockpit launches — in any of its ten projects, and in any project added later — runs with the current role definition for its role (orchestrator, planner, coder, reviewer, researcher, assessor, shipper). Loom ships those seven roles inside the server release as **built-ins**. A project adds only what is genuinely specific to it, as a short file that is **appended** to the built-in — never a copy of it — so a change to loom's roles reaches every project on the next deploy without anyone enumerating projects or hand-merging. And a thread finds its project's additions from anywhere under the repo, because lookup walks up the directory tree to the repository's top level.
 
 Done means, observably: a thread in `cli-proxy` (no `roles/`, not even a git repo) launches with the built-in role text and a seven-role catalogue; a **local** lease-extraction thread (project root three directories below the fathom repo root) launches with the built-in text plus fathom's data-science additions; a loom thread launches with the built-in text plus loom's `pnpm ship` / reliability-boundary additions; and `roleOverlay.test.ts` covers the walk-up and the merge. The evidence for each is the prompt-debug sidecar the server already writes per thread (see Verification).
 
 <Callout tone="decision">
-  Mechanism: built-in defaults shipped as `roles/*.md` in the loom release, plus an **additive** per-project overlay at `.t3code/roles/<role>.md`, found by walking up from the thread's working directory. No compatibility path for today's "a project file replaces the whole role" behaviour: the loader reads one location for built-ins and one for overlays, and nothing else.
+  Mechanism: built-in defaults shipped as `roles/*.md` in the loom release, plus an **additive** per-project overlay at `.t3code/roles/<role>.md`, found by walking up from the thread's working directory to the git top level. No compatibility path for today's "a project file replaces the whole role" behaviour: the loader reads one location for built-ins and one for overlays, and nothing else.
+
+  Settled with Carl: the overlay path, the built-ins as markdown files located from the server module, the git-top-level bound, and that the role-pruning commits land on `main` first. The one open call — how much of fathom's coder/reviewer posture stays in its overlay — is the form at the bottom.
 </Callout>
 
 ## What is true today
@@ -30,7 +32,7 @@ Done means, observably: a thread in `cli-proxy` (no `roles/`, not even a git rep
 
 <Mermaid
   caption="Role resolution after this change. Two reads, one composition; the project side is optional."
-  source={"flowchart TB\n  A[\"thread launch: role slug + projectRoot\\n(worktree path, else project workspaceRoot)\"] --> B[\"built-in: <release>/roles/<slug>.md\\nlocated from the server module's own path\"]\n  A --> C[\"walk up from projectRoot to /\\nnearest .t3code/roles/ directory\"]\n  C --> D[\"project addition: <found dir>/<slug>.md\\n(absent is normal)\"]\n  B --> E[\"compose\"]\n  D --> E\n  E --> F[\"prompt = built-in body + blank line + project body\\ntools/toolsets = project's if declared, else built-in's\\nskills = built-in's + project's\"]\n  F --> G[\"appendSystemPrompt / --tools / --skill\\n(unchanged wiring in ProviderCommandReactor)\"]\n"}
+  source={"flowchart TB\n  A[\"thread launch: role slug + projectRoot\\n(worktree path, else project workspaceRoot)\"] --> B[\"built-in: <release>/roles/<slug>.md\\nlocated from the server module's own path\"]\n  A --> C[\"walk up from projectRoot to the dir holding .git\\n(project root alone when there is none)\\nnearest .t3code/roles/ directory\"]\n  C --> D[\"project addition: <found dir>/<slug>.md\\n(absent is normal)\"]\n  B --> E[\"compose\"]\n  D --> E\n  E --> F[\"prompt = built-in body + blank line + project body\\ntools/toolsets = project's if declared, else built-in's\\nskills = built-in's + project's\"]\n  F --> G[\"appendSystemPrompt / --tools / --skill\\n(unchanged wiring in ProviderCommandReactor)\"]\n"}
 />
 
 ### Why additive, and not one of the simpler-looking alternatives
@@ -69,7 +71,7 @@ The overlay directory is `.t3code/roles/`, beside `.t3code/ship.json`, not a bar
 
 1. **Walking up makes an unqualified `roles/` dangerous.** Once lookup climbs from the working directory to `/`, any ancestor directory named `roles/` — an Ansible tree, a docs folder, a `~/roles` someone once made — would be read as agent role overlays. `.t3code/` is namespaced to this tool.
 2. **It keeps loom's own `roles/` unambiguous.** With built-ins at `<loom>/roles/`, loom's *project delta* cannot also live at `<loom>/roles/`; it goes to `<loom>/.t3code/roles/`. Every project then has the same shape: built-ins are loom's, `.t3code/` is mine.
-3. **`.t3code/` is already "what loom reads from a project"** — the ship policy lives there and is found by the same walk.
+3. **`.t3code/` is already "what loom reads from a project"** — the ship policy lives there and is found by a walk of the same shape.
 
 Costs: loom-slack-bridge moves `roles/slack-inbox.md` to `.t3code/roles/slack-inbox.md`; fathom-platform's `.gitignore` gains `/.t3code` next to its existing `/roles` and `/skills` lines (`.gitignore:582-583`), and pi-fathom's `sync_agent_overlay.sh` links `.t3code/roles` instead of `roles`. All three are one-line changes; the sequencing is in the work breakdown.
 
@@ -103,7 +105,7 @@ A worked example — a local lease-extraction **reviewer**: built-in `roles/revi
   title="Loom changes (all loom-only files or `// loom:`-marked hunks)"
   entries={[
     { path: "apps/server/src/orchestration/roleOverlay.ts", change: "modified", note: "built-in dir constant + load-time assert; findOverlayDir walk-up; compose; catalogue union; builtinDir test seam" },
-    { path: "apps/server/src/orchestration/roleOverlay.test.ts", change: "modified", note: "fixtures become (builtinDir, repo/.t3code/roles, repo/sub/dir); walk-up, additive merge, override/union, project-only, catalogue-union cases" },
+    { path: "apps/server/src/orchestration/roleOverlay.test.ts", change: "modified", note: "fixtures become (builtinDir, repo/.git + repo/.t3code/roles, repo/sub/dir); walk-up and its .git bound, additive merge, override/union, project-only, catalogue-union cases" },
     { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "rolesBlock lead-in no longer says '(defined in roles/)'; retro comment updated" },
     { path: "apps/server/src/provider/Drivers/Pi/providerToolExtension.ts", change: "modified", note: "delegation digest names the seven built-ins + `.t3code/roles/` instead of 'list roles/ at your project root'" },
     { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "brief guideline: 'only a role with a roles/ file has one' → 'every built-in or project-defined role has one'" },
@@ -127,22 +129,23 @@ The new loader, in full. It is a sketch for the coder to implement, not a paste 
 <AnnotatedCode
   filename="apps/server/src/orchestration/roleOverlay.ts (sketch)"
   language="ts"
-  code={"// Built-ins ship with the server: <repo>/roles from src/orchestration, <release>/roles from dist.\nconst BUILTIN_ROLES_DIR = NodePath.resolve(\n  import.meta.dirname,\n  import.meta.url.endsWith(\".ts\") ? \"../../../..\" : \"../../..\",\n  \"roles\",\n);\nif (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {\n  throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);\n}\nconst OVERLAY_DIR = NodePath.join(\".t3code\", \"roles\");\n\n/** Nearest `.t3code/roles/` at or above `start`; filesystem-root bound, like resolveMergeAuthority. */\nconst findOverlayDir = (start: string): string | undefined => {\n  for (let dir = NodePath.resolve(start); ; dir = NodePath.dirname(dir)) {\n    const candidate = NodePath.join(dir, OVERLAY_DIR);\n    if (NodeFS.existsSync(candidate)) return candidate;\n    if (NodePath.dirname(dir) === dir) return undefined;\n  }\n};\n\nconst readRole = (dir: string, slug: string) => {\n  const file = NodePath.join(dir, `${slug}.md`);\n  return NodeFS.existsSync(file) ? parseRoleFile(NodeFS.readFileSync(file, \"utf8\")) : undefined;\n};\n\nexport const loadRoleOverlay = (input: {\n  readonly role: string | null;\n  readonly projectRoot: string;\n  readonly builtinDir?: string; // test seam; production always uses BUILTIN_ROLES_DIR\n}): RoleOverlay | undefined => {\n  const slug = slugify(input.role ?? DEFAULT_ROLE);\n  if (slug.length === 0) return undefined;\n  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;\n  const overlayDir = findOverlayDir(input.projectRoot);\n  const builtin = readRole(builtinDir, slug);\n  const project = overlayDir === undefined ? undefined : readRole(overlayDir, slug);\n  if (!builtin && !project) return undefined;\n  const prompt = [builtin?.body, project?.body]\n    .map((body) => body?.trim() ?? \"\")\n    .filter((body) => body.length > 0)\n    .join(\"\\n\\n\");\n  const tools = project?.tools.length ? project.tools : (builtin?.tools ?? []);\n  const toolsets = project?.toolsets.length ? project.toolsets : (builtin?.toolsets ?? []);\n  const skills = [\n    ...(builtin?.skills ?? []).map((s) => NodePath.resolve(builtinDir, \"..\", s)),\n    ...(project?.skills ?? []).map((s) => NodePath.resolve(overlayDir!, \"../..\", s)),\n  ];\n  // …then exactly today's tail: empty guard, resident toolsets, lifeline union, delegation.\n};\n\nexport const listRoleOverlays = (input: { readonly projectRoot: string; readonly builtinDir?: string }) => {\n  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;\n  const overlayDir = findOverlayDir(input.projectRoot);\n  const slugs = new Set(\n    [builtinDir, ...(overlayDir ? [overlayDir] : [])]\n      .flatMap((dir) => NodeFS.readdirSync(dir))\n      .filter((file) => file.endsWith(\".md\"))\n      .map((file) => file.slice(0, -3)),\n  );\n  // summary = first non-empty line of the COMPOSED prompt, identity lead-in trimmed as today\n  // sort: orchestrator first, then alphabetical (unchanged)\n};\n"}
+  code={"// Built-ins ship with the server: <repo>/roles from src/orchestration, <release>/roles from dist.\nconst BUILTIN_ROLES_DIR = NodePath.resolve(\n  import.meta.dirname,\n  import.meta.url.endsWith(\".ts\") ? \"../../../..\" : \"../../..\",\n  \"roles\",\n);\nif (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {\n  throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);\n}\nconst OVERLAY_DIR = NodePath.join(\".t3code\", \"roles\");\n\n/** The repo top level: first ancestor holding a `.git` entry (dir, or file in a worktree). */\nconst gitTopLevel = (start: string): string | undefined => {\n  for (let dir = start; ; dir = NodePath.dirname(dir)) {\n    if (NodeFS.existsSync(NodePath.join(dir, \".git\"))) return dir;\n    if (NodePath.dirname(dir) === dir) return undefined;\n  }\n};\n\n/** Nearest `.t3code/roles/` from `start` up to the repo top level; `start` alone outside a repo. */\nconst findOverlayDir = (start: string): string | undefined => {\n  const top = gitTopLevel(NodePath.resolve(start)) ?? NodePath.resolve(start);\n  for (let dir = NodePath.resolve(start); ; dir = NodePath.dirname(dir)) {\n    const candidate = NodePath.join(dir, OVERLAY_DIR);\n    if (NodeFS.existsSync(candidate)) return candidate;\n    if (dir === top) return undefined;\n  }\n};\n\nconst readRole = (dir: string, slug: string) => {\n  const file = NodePath.join(dir, `${slug}.md`);\n  return NodeFS.existsSync(file) ? parseRoleFile(NodeFS.readFileSync(file, \"utf8\")) : undefined;\n};\n\nexport const loadRoleOverlay = (input: {\n  readonly role: string | null;\n  readonly projectRoot: string;\n  readonly builtinDir?: string; // test seam; production always uses BUILTIN_ROLES_DIR\n}): RoleOverlay | undefined => {\n  const slug = slugify(input.role ?? DEFAULT_ROLE);\n  if (slug.length === 0) return undefined;\n  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;\n  const overlayDir = findOverlayDir(input.projectRoot);\n  const builtin = readRole(builtinDir, slug);\n  const project = overlayDir === undefined ? undefined : readRole(overlayDir, slug);\n  if (!builtin && !project) return undefined;\n  const prompt = [builtin?.body, project?.body]\n    .map((body) => body?.trim() ?? \"\")\n    .filter((body) => body.length > 0)\n    .join(\"\\n\\n\");\n  const tools = project?.tools.length ? project.tools : (builtin?.tools ?? []);\n  const toolsets = project?.toolsets.length ? project.toolsets : (builtin?.toolsets ?? []);\n  const skills = [\n    ...(builtin?.skills ?? []).map((s) => NodePath.resolve(builtinDir, \"..\", s)),\n    ...(project?.skills ?? []).map((s) => NodePath.resolve(overlayDir!, \"../..\", s)),\n  ];\n  // …then exactly today's tail: empty guard, resident toolsets, lifeline union, delegation.\n};\n\nexport const listRoleOverlays = (input: { readonly projectRoot: string; readonly builtinDir?: string }) => {\n  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;\n  const overlayDir = findOverlayDir(input.projectRoot);\n  const slugs = new Set(\n    [builtinDir, ...(overlayDir ? [overlayDir] : [])]\n      .flatMap((dir) => NodeFS.readdirSync(dir))\n      .filter((file) => file.endsWith(\".md\"))\n      .map((file) => file.slice(0, -3)),\n  );\n  // summary = first non-empty line of the COMPOSED prompt, identity lead-in trimmed as today\n  // sort: orchestrator first, then alphabetical (unchanged)\n};\n"}
   annotations={[
     { lines: "2-9", label: "built-in root", note: "Two-branch path selected by source-vs-bundle, the NodeSqliteWorkerClient.ts:51 test; a missing directory fails at import, never silently at launch." },
-    { lines: "13-19", label: "walk-up", note: "Same loop shape as resolveMergeAuthority (shipPolicy.ts:19-38). Nearest directory wins; bound is the filesystem root, so cli-proxy (not a git repo) works." },
-    { lines: "36-46", label: "compose", note: "Body appended with one blank line; tools/toolsets override when the project declares them; skills union, each side against its own root (built-in root = parent of roles/, project root = parent of .t3code/)." },
-    { lines: "28", label: "test seam", note: "The only new parameter. Tests point it at a temp built-in fixture so they never assert on the real prose." },
-    { lines: "50-58", label: "catalogue", note: "Union of slugs; summaries come from the composed prompt, so a project-only role lists and a built-in's identity line leads." },
+    { lines: "12-18", label: "git top level", note: "A `.git` entry — directory, or the file a git worktree carries — marks the top; existsSync only, no subprocess. No entry anywhere → undefined, and the walk below reads the start directory alone." },
+    { lines: "20-28", label: "walk-up", note: "Nearest directory wins; the loop ends at the repo top, so nothing above a repository is ever read." },
+    { lines: "46-56", label: "compose", note: "Body appended with one blank line; tools/toolsets override when the project declares them; skills union, each side against its own root (built-in root = parent of roles/, project root = parent of .t3code/)." },
+    { lines: "38", label: "test seam", note: "The only new parameter. Tests point it at a temp built-in fixture so they never assert on the real prose." },
+    { lines: "60-70", label: "catalogue", note: "Union of slugs; summaries come from the composed prompt, so a project-only role lists and a built-in's identity line leads." },
   ]}
 />
 
-Tests, in `roleOverlay.test.ts`, replacing today's `<tmp>/roles/` fixture with `<tmp>/builtin/` plus `<tmp>/repo/.t3code/roles/` and a `<tmp>/repo/sub/dir` project root (the existing parser cases — prettier-wrapped lists, lifeline union, toolsets, empty file — carry over onto the new fixture unchanged):
+Tests, in `roleOverlay.test.ts`, replacing today's `<tmp>/roles/` fixture with `<tmp>/builtin/` plus a `<tmp>/repo/` holding an empty `.git` file and `.t3code/roles/`, and a `<tmp>/repo/sub/dir` project root (the existing parser cases — prettier-wrapped lists, lifeline union, toolsets, empty file — carry over onto the new fixture unchanged):
 
 <Checklist
   items={[
     { id: "t1", label: "Built-in only: no `.t3code/roles` anywhere above projectRoot → built-in prompt, tools, skills (resolved into the built-in root's parent)" },
-    { id: "t2", label: "Walk-up: projectRoot = repo/sub/dir finds repo/.t3code/roles; projectRoot = repo finds it too; a sibling repo does not" },
+    { id: "t2", label: "Walk-up: projectRoot = repo/sub/dir finds repo/.t3code/roles; projectRoot = repo finds it too; a .t3code/roles placed in <tmp> above repo/.git is NOT found; a project root with no .git anywhere above reads only itself" },
     { id: "t3", label: "Additive body: composed prompt is builtin + \"\\n\\n\" + project, with the built-in's identity line first" },
     { id: "t4", label: "Frontmatter: project `tools:` replaces the built-in list (lifeline still unioned); absent → built-in's; `skills:` union with each side against its own root" },
     { id: "t5", label: "Project-only role is the whole role; unknown slug → undefined; empty composition → undefined" },
@@ -163,7 +166,7 @@ Three model-facing strings assume "roles are a directory in your project" and mu
 
 ## The role texts
 
-Source of truth for the current roles is the pruned, reviewed text on the unmerged branch `t3code/improve-agent-question-context` at `3dcc5e427b`. Relative to `main` it changes only `orchestrator.md` and `planner.md` (`git diff --stat origin/main 3dcc5e427b -- roles`: 14 insertions, 33 deletions). Everything below is authored against that text. The exact files sit beside this plan under `plans/builtin-roles/texts/` — `builtin/` (seven files, complete with frontmatter), `loom-overlay/` (three) and `pi-fathom-overlay/` (four) — and the coder's job is to copy them into place, not to edit prose.
+Source of truth for the current roles is the pruned, reviewed text at `3dcc5e427b` on `t3code/improve-agent-question-context`, which is being landed on `main` as its own PR ahead of this work. Relative to today's `main` it changes only `orchestrator.md` and `planner.md` (14 insertions, 33 deletions). Everything below is authored against that text. The exact files sit beside this plan under `plans/builtin-roles/texts/` — `builtin/` (seven files, complete with frontmatter), `loom-overlay/` (three) and `pi-fathom-overlay/` (four) — and the coder's job is to copy them into place, not to edit prose.
 
 ### Built-ins: what changes against the prune branch
 
@@ -221,15 +224,35 @@ The four files that keep project content are cut to their deltas; the three that
   ]}
 />
 
+The orchestrator and shipper files are the same in both variants below:
+
 <Code language="md" wrap filename="pi-fathom/loom/roles/orchestrator.md" code={"- To land work (branch/PR/ticket), use the `finish-tracked-work` skill (with `jira` for the ticket mechanics), yourself or via a `shipper` child. This project is human-merge: the ceiling is a review-ready PR, never `gh pr merge`.\n"} />
+
+<Code language="md" wrap filename="pi-fathom/loom/roles/shipper.md" code={"- **This project is human-merge** (the platform default \u2014 fathom-platform declares no `.t3code/ship.json`): your ceiling is the open, review-ready PR with the ticket moved to In Review.\n- **Read the `finish-tracked-work` skill before your first ship action** \u2014 it owns the procedure and its footguns (with `jira` for the ticket mechanics); driving `acli`/`gh` by hand is how ticket fields and PR bodies come out wrong.\n- Your handoff also names the Jira ticket key and its new status.\n"} />
+
+The coder and reviewer files are the open decision. `~/.pi/agent/AGENTS.md` — read by every thread in every project — already states "optimise the end state, not the diff" with the compression checklist, "tests are optional and rare", "verify with the canonical entrypoint", "no backwards compatibility in prototypes" (including the review-stopping flag on "kept for backward compatibility") and "automated review feedback is a claim, not a verdict". Fathom's current coder and reviewer files restate all of that. What they say that the global file does **not** say anywhere:
+
+- **"Trust the happy path; crash loud"** — no guards inside internal code; the only boundaries are user input, external APIs, LLM outputs and files another system wrote. This is a general stance, not a role-specific one, and applies to every project Carl runs — the natural candidate for promotion into the global AGENTS.md, which is Carl's edit, not this plan's.
+- **Reviewer-side application of it:** flag every non-boundary guard and recommend *deletion* — not an assert, not a comment.
+- **Excess-class defects are must-fix** on this project (enterprise-grade engineering on throwaway analytics, scaffolding variables, single-use helpers).
+- **Agent-written tests → recommend deletion**, because in practice they fail only through brittleness.
+- **Coder-side burden of proof:** a finding that asks for more code (guards, compat, tests) must justify itself.
+
+Those five are role-scoped — three bind the reviewer at the moment it writes a finding, one binds the coder at the moment it adjudicates one, and one (crash loud) binds whoever writes code. None is fathom-specific in principle; they are fathom-specific today only because fathom is the data-science project where excess has been the observed failure.
+
+**Variant A — as drafted.** Keeps the full posture in the role files, overlap with the global AGENTS.md included (five coder bullets, six reviewer bullets):
 
 <Code language="md" wrap filename="pi-fathom/loom/roles/coder.md" code={"- **Optimise the end state, not the diff.** Deliver the task's outcome first, then minimise the code and moving parts that deliver it \u2014 this is a data-science prototype codebase. Prefer comprehensions and stdlib utilities over ceremony, direct expressions over scaffolding variables, one canonical happy path over \"helpful\" alternate paths. Before finalising, do a compression pass: inline single-use variables, remove single-use helpers unless materially clarifying, collapse branches a direct expression covers.\n- **Trust the happy path; crash loud.** Do not guard internal code against itself. No try/except, fallback value, silent default, or re-validation except at genuine boundaries \u2014 user input, external APIs, LLM outputs, files another system wrote. A hard crash with a stack trace is the cheapest diagnostic there is; a swallowed exception is a silent wrong answer. When you're tempted to write a guard, the right amount of code is usually none.\n- **No backwards compatibility.** Internal schemas, caches, logs, and pipeline artefacts migrate by delete-and-regenerate, never by shim. Do not keep old fields alongside replacements, do not write dual-shape output, do not preserve an old shape because a downstream script reads it \u2014 update the script. If a clean migration is genuinely too big, say so and let the human decide to defer it; never silently ship the shim.\n- **Do not default to writing tests.** Propose a test only when change risk is genuinely high, and say why in plain language. Verification here means running the canonical entrypoint against real data \u2014 a green mock-heavy suite is not evidence the change works, and a synthetic fixture doesn't catch real-data shape surprises. If the real verification needs resources you lack (API key, real input data), say so explicitly rather than substituting a synthetic smoke test.\n- A reviewer finding that asks for more code \u2014 more guards, more compat, more tests \u2014 carries the burden of proof: this project's failure mode is excess, not absence.\n"} />
 
 <Code language="md" wrap filename="pi-fathom/loom/roles/reviewer.md" code={"- **On this project the dominant defect is excess, not absence.** This is a data-science prototype codebase: enterprise-grade engineering on throwaway analytics, scaffolding variables, single-use helpers and scope beyond the brief are the most frequent failures. For each, describe the simpler implementation that preserves the intended outcome. Pervasive or structural excess is must-fix.\n- **Defensive code is a defect; the fix is removal.** The codebase trusts the happy path and wants bugs to crash loudly at the point of fault \u2014 a stack trace is the cheapest diagnostic there is, and an agent reads one perfectly well. A try/except, fallback value, silent default, `.get()` with a fabricated fallback, or re-validation of internal data converts a loud, locatable crash into a silent wrong answer. The only genuine boundaries are user input, external APIs, LLM outputs and files another system wrote; flag every other guard and recommend deletion \u2014 not an assert, not a comment.\n- **Backwards compatibility does not exist here.** Migration or compat code for internal schemas, caches, logs or pipeline artefacts is a defect, not diligence \u2014 delete-and-regenerate is the default, and \"kept for backward compatibility\" in a diff is a review-stopping flag unless the human explicitly approved that specific shim. If a downstream script reads the old shape, the script gets updated; the shape does not get preserved.\n- **Tests almost never earn their place.** In practice agent-written tests here fail only through their own brittleness; recommend deletion and say so plainly. The verification that counts is running the canonical entrypoint against real data \u2014 a green mock-heavy suite is not evidence the change works.\n- Ask what business question the change serves and whether the codebase left behind is the simplest one that answers it. Do not recommend deleting useful behaviour merely because its repair crosses a package or repo boundary.\n- Posture for the severity bar: a prototype under active watch where recovery is cheap, iteration speed is the currency, and every line of code is a liability \u2014 an excess-class defect above is must-fix.\n"} />
 
-<Code language="md" wrap filename="pi-fathom/loom/roles/shipper.md" code={"- **This project is human-merge** (the platform default \u2014 fathom-platform declares no `.t3code/ship.json`): your ceiling is the open, review-ready PR with the ticket moved to In Review.\n- **Read the `finish-tracked-work` skill before your first ship action** \u2014 it owns the procedure and its footguns (with `jira` for the ticket mechanics); driving `acli`/`gh` by hand is how ticket fields and PR bodies come out wrong.\n- Your handoff also names the Jira ticket key and its new status.\n"} />
+**Variant B — trimmed to what exists nowhere else.** Only the role-specific applications above; every restatement of a global rule goes (two coder bullets, four reviewer bullets; files under `texts/pi-fathom-overlay-trimmed/`):
 
-The coder and reviewer bullets overlap with `~/.pi/agent/AGENTS.md` (which already states "optimise the end state", "tests are optional and rare", "no backwards compatibility" for every thread). They are kept per Carl's direction: a role-scoped rule binds at the moment the role acts on it, and the reviewer's versions are sharper than the global text. Trimming them further is a separate, later call — the bottom form asks it.
+<Code language="md" wrap filename="pi-fathom/loom/roles/coder.md" code={"- **Trust the happy path; crash loud.** Do not guard internal code against itself. No try/except, fallback value, silent default, or re-validation except at genuine boundaries \u2014 user input, external APIs, LLM outputs, files another system wrote. A hard crash with a stack trace is the cheapest diagnostic there is; a swallowed exception is a silent wrong answer. When you're tempted to write a guard, the right amount of code is usually none.\n- A reviewer finding that asks for more code \u2014 more guards, more compat, more tests \u2014 carries the burden of proof: this project's failure mode is excess, not absence.\n"} />
+
+<Code language="md" wrap filename="pi-fathom/loom/roles/reviewer.md" code={"- **Defensive code is a defect; the fix is removal.** Flag every guard that is not at a genuine boundary \u2014 user input, external APIs, LLM outputs, files another system wrote \u2014 and recommend deletion: not an assert, not a comment. A try/except, fallback value, silent default, `.get()` with a fabricated fallback, or re-validation of internal data converts a loud, locatable crash into a silent wrong answer.\n- **Excess is must-fix here.** On this data-science prototype the dominant defect is excess, not absence: enterprise-grade engineering on throwaway analytics, scaffolding variables, single-use helpers, scope beyond the brief. Describe the simpler implementation that preserves the outcome; pervasive or structural excess clears the must-fix bar.\n- **Agent-written tests: recommend deletion.** In practice they fail only through their own brittleness; say so plainly. The verification that counts is the canonical entrypoint against real data.\n- Posture for the severity bar: a prototype under active watch where recovery is cheap, iteration speed is the currency, and every line of code is a liability.\n"} />
+
+**Variant B plus promotion.** Variant B, and Carl adds the "trust the happy path; crash loud" rule (with its four-boundary list) to `~/.pi/agent/AGENTS.md`; the fathom coder file then keeps only its burden-of-proof bullet, and the reviewer's first bullet keeps the "recommend deletion, not an assert" instruction while its boundary list becomes a pointer to the global rule. That is a two-sentence edit to the Variant B files once Carl's AGENTS.md change exists.
 
 Two mechanical changes travel with the fathom trim:
 
@@ -244,31 +267,28 @@ Two mechanical changes travel with the fathom trim:
 
 `/home/Carl/pi-craft/plugins/pi-craft/skills/platform-update/SKILL.md` lists "loom `roles/` and `~/pi-fathom/loom/roles/`" twice (line ~31, in the default-surfaces paragraph; line ~67, in the `openai-codex/` grep step). Both become "loom `roles/`" alone: fathom's overlay no longer carries a model sentence. `docs/operations/platform-update.md` row 16 in loom says the same thing about the same file and is deleted.
 
-## Coordination with the unmerged prune branch
+## Coordination with the role-pruning commits
 
-`t3code/improve-agent-question-context` has four commits past `main` (`0ffa9b3e47`…`3dcc5e427b`) that touch only `roles/orchestrator.md` and `roles/planner.md`. The built-in texts above are authored on top of them. Two ways to sequence, either of which works:
-
-- **Merge the prune branch first** (preferred; it is reviewed and self-contained). The built-ins coder then starts from `main`'s `roles/` and applies only the diffs shown above — `orchestrator.md` one bullet, `reviewer.md` five, `shipper.md` a rewrite; `planner.md` untouched.
-- **Do not merge it first.** The built-ins coder copies all seven files from `plans/builtin-roles/texts/builtin/` (which already contain the prune text), and the prune branch is closed as superseded when this lands. Its `orchestrator.md`/`planner.md` would otherwise conflict on rebase.
+PR #302 landed only `f773653414`; the four pruning commits after it (`0ffa9b3e47`…`3dcc5e427b`, touching only `roles/orchestrator.md` and `roles/planner.md`) were never PR'd. A shipper child is merging them to `main` as their own PR now, ahead of this work. The built-in texts above are authored on top of them, so the built-ins coder starts from the merged `main` and applies only the three diffs shown — `orchestrator.md` one bullet, `reviewer.md` five, `shipper.md` a rewrite; `planner.md` untouched. The copies under `plans/builtin-roles/texts/builtin/` must then equal `main`'s `roles/` except for those three diffs; the coder checks that with a `diff` before copying and stops if it does not hold.
 
 ## Work breakdown
 
 <Mermaid
   caption="Dependency graph. Solid = must precede; the fathom, bridge and pi-craft branches are prepared in parallel but merged only after the loom deploy."
-  source={"flowchart LR\n  P[\"Carl approves plan\\n+ answers the form\"] --> A[\"A. loader + reactor/tool text\\n+ tests (coder, review gate)\"]\n  P --> B[\"B. built-in texts into roles/\\n(coder, mechanical copy)\"]\n  P --> C[\"C. loom overlay .t3code/roles/\\n+ doc pointer edits (coder)\"]\n  P --> E1[\"E1. pi-fathom PR prepared:\\ntrim 4, delete 3, delete skill copy,\\nsync script (coder)\"]\n  P --> E2[\"E2. fathom-platform PR prepared:\\n.gitignore /.t3code (coder)\"]\n  P --> F1[\"F1. loom-slack-bridge PR 1:\\nadd .t3code/roles/slack-inbox.md\"]\n  B --> W[\"W. GPT wording review of\\nbuilt-ins + both overlays\\n(reviewer-gpt; author adjudicates)\"]\n  C --> W\n  E1 --> W\n  A --> R[\"R. integration review\\n(loader + texts together)\"]\n  W --> R\n  R --> S[\"S. ship loom (shipper, agent-merge)\"]\n  F1 --> D\n  S --> D[\"D. Carl deploys\\n(RUNBOOK; human act)\"]\n  D --> V1[\"V1. verify cli-proxy thread\\n+ loom thread sidecars\"]\n  D --> M[\"Carl merges E1, E2, F2, G\\n(all human-merge)\"]\n  E2 --> M\n  M --> SY[\"run sync_agent_overlay.sh on\\n~/.t3/project-roots/fathom-platform\"]\n  SY --> V2[\"V2. verify local lease-extraction\\nreviewer sidecar\"]\n"}
+  source={"flowchart LR\n  P0[\"pruning commits merged to main\\n(in flight, separate PR)\"] --> B\n  P[\"Carl approves plan\\n+ answers the form\"] --> A[\"A. loader + reactor/tool text\\n+ tests (coder, review gate)\"]\n  P --> B[\"B. built-in texts into roles/\\n(coder, mechanical copy)\"]\n  P --> C[\"C. loom overlay .t3code/roles/\\n+ doc pointer edits (coder)\"]\n  P --> E1[\"E1. pi-fathom PR prepared:\\ntrim 4, delete 3, delete skill copy,\\nsync script (coder)\"]\n  P --> E2[\"E2. fathom-platform PR prepared:\\n.gitignore /.t3code (coder)\"]\n  P --> F1[\"F1. loom-slack-bridge PR 1:\\nadd .t3code/roles/slack-inbox.md\"]\n  B --> W[\"W. GPT wording review of\\nbuilt-ins + both overlays\\n(reviewer-gpt; author adjudicates)\"]\n  C --> W\n  E1 --> W\n  A --> R[\"R. integration review\\n(loader + texts together)\"]\n  W --> R\n  R --> S[\"S. ship loom (shipper, agent-merge)\"]\n  F1 --> D\n  S --> D[\"D. Carl deploys\\n(RUNBOOK; human act)\"]\n  D --> V1[\"V1. verify cli-proxy thread\\n+ loom thread sidecars\"]\n  D --> M[\"Carl merges E1, E2, F2, G\\n(all human-merge)\"]\n  E2 --> M\n  M --> SY[\"run sync_agent_overlay.sh on\\n~/.t3/project-roots/fathom-platform\"]\n  SY --> V2[\"V2. verify local lease-extraction\\nreviewer sidecar\"]\n"}
 />
 
 <Table
   columns={["Step", "Who", "Runs in parallel with", "Needs Carl"]}
   rows={[
     ["A — loader, reactor lead-in, tool-text edits, `roleOverlay.test.ts`", "coder + gated reviewer (Opus)", "B, C, E1, E2, F1", "no"],
-    ["B — copy the seven built-in texts into `roles/` (or apply the three diffs on top of the merged prune branch)", "coder, mechanical", "A, C", "the prune-branch sequencing choice"],
+    ["B — apply the three built-in diffs on top of the merged pruning commits, so `roles/` equals `texts/builtin/`", "coder, mechanical", "A, C", "no — the pruning PR must have merged"],
     ["C — write `.t3code/roles/{orchestrator,reviewer,shipper}.md`; fix the four doc pointers", "coder, mechanical", "A, B", "no"],
     ["W — cross-family wording review of every built-in and overlay text (claims, not verdicts: the planner adjudicates each finding before any text changes)", "reviewer, `modelPreset: reviewer-gpt`", "A", "no"],
     ["R — integration review: loader + texts as one change-set, catalogue lead-in reads right, tests pass, `vp check` / `vp run typecheck` green", "reviewer (Opus)", "—", "no"],
     ["S — ship loom", "shipper (agent-merge)", "—", "shipping approval"],
     ["D — deploy", "Carl", "—", "**yes** — a human-initiated act per AGENTS.md"],
-    ["E1 — pi-fathom PR: overlay trim, skill copy deletion, sync-script change", "coder, mechanical; PR only", "A–C", "**merge** (pi-fathom is human-merge)"],
+    ["E1 — pi-fathom PR: overlay trim (variant per Carl's answer), skill copy deletion, sync-script change", "coder, mechanical; PR only", "A–C", "**merge** (pi-fathom is human-merge)"],
     ["E2 — fathom-platform PR: `.gitignore` `/.t3code`", "coder; PR only", "A–C", "**merge** (human-merge)"],
     ["F1 / F2 — loom-slack-bridge: add the new path before deploy; delete the old path after", "coder; two PRs", "F1 with A–C", "**merge** both"],
     ["G — pi-craft `platform-update` skill: drop the fathom roles path, twice", "coder or Carl; one-line edit", "anything", "**merge/edit**"],
@@ -308,8 +328,9 @@ The inventory's caveat that "session files do not store the system prompt" is tr
 - **Built-ins are the server's copy.** Editing `roles/*.md` in a loom worktree no longer affects threads in that worktree (see "Where the built-ins live"). Anyone iterating on role prose needs a dev instance or a deploy. This is the one behaviour a loom author will notice.
 - **Every project's delegation-capable threads gain the seven-line catalogue block** and every role gains its overlay text. That is the intended outcome, but it is a prompt-cache invalidation for every thread that restarts after the deploy — the same cost any role edit has today, paid once across all projects.
 - **The wording changes are behavioural bets.** The generic reviewer boundary list and the generic shipper procedure are new sentences that thousands of turns will read. The cross-family review exists for this; the planner (this thread's author) adjudicates its findings.
-- **Prose overlap between fathom's overlay and the global AGENTS.md** is left in place deliberately; see the form.
+- **How much of fathom's posture lives in its overlay** is the one open decision; both variants are drafted, so Carl's answer changes which files the fathom PR carries, not the loader.
 - **Existing fathom worktrees** keep stale `roles`/`skills` symlinks until `sync_agent_overlay.sh` runs on them; until then their threads get built-ins only. The script runs on every bootstrap, so this self-heals per worktree.
+- **cli-proxy is not a git repository**, so its walk reads only `/home/Carl/cli-proxy` itself — correct, and no change for it today (it has no overlay). Making it a repository is Carl's call and needs no loader change.
 - **The bundle path assumption** (`dist/` is three levels below the release root) is checked by the load-time assert: a future bundling change that moves the chunk fails the server at boot, not a thread at launch.
 - **The retro reviewer stays special-cased** in the reactor. Moving it to a built-in would need a "not in the catalogue" rule; out of scope, noted in `retroDraft.ts`'s comment.
 
@@ -318,58 +339,15 @@ The inventory's caveat that "session files do not store the system prompt" is tr
 <QuestionForm
   questions={[
     {
-      id: "overlay-path",
-      title: "Where does a project keep its role additions?",
-      subtitle: "Lookup will walk up from the thread's working directory to the filesystem root, so the directory name is what stops unrelated folders being read as roles.",
-      refs: [{ label: "Overlay path", anchor: "overlay-path" }],
-      mode: "single",
-      options: [
-        { id: "t3code", label: ".t3code/roles/<role>.md — beside ship.json, namespaced to loom", recommended: true, detail: "One-line moves for loom-slack-bridge and fathom's sync script, plus a /.t3code gitignore line in fathom-platform. Loom's own roles/ stays the unambiguous built-in source." },
-        { id: "roles", label: "Keep roles/<role>.md at the repo root, and move the built-ins to apps/server/roles/", detail: "No path change for projects that have roles today, but any ancestor roles/ directory (Ansible, docs) becomes an overlay source once lookup walks up, and loom's repo-root roles/ becomes its delta rather than the built-ins." },
-      ],
-    },
-    {
-      id: "builtin-location",
-      title: "How does the server carry the seven built-in role texts?",
-      subtitle: "Both options put the same text in every project; they differ in how the prose is edited and reviewed.",
-      refs: [{ label: "Where the built-ins live at runtime", anchor: "where-the-built-ins-live-at-runtime" }],
-      mode: "single",
-      options: [
-        { id: "files", label: "Markdown files at roles/*.md, located from the server module's own path", recommended: true, detail: "Prose stays reviewable markdown; a load-time assert makes a missing directory loud. Requires the two-branch source-vs-bundle path already used by config.ts and NodeSqliteWorkerClient.ts." },
-        { id: "module", label: "String constants in a server module, as the retro reviewer already is", detail: "No filesystem lookup at all, identical in dev, tests and the bundle — but 270 lines of model-facing prose with hundreds of backticks live in template literals, and every wording change is a TypeScript diff." },
-      ],
-    },
-    {
-      id: "walk-bound",
-      title: "How far up does the search for a project's role additions go?",
-      subtitle: "cli-proxy is not a git repository, so a git-based bound would have to fall back to the project root there.",
-      refs: [{ label: "Walk-up bound", anchor: "walk-up-bound" }],
-      mode: "single",
-      options: [
-        { id: "fs-root", label: "To the filesystem root, exactly as .t3code/ship.json is found", recommended: true, detail: "One rule for both files; no git call in the loader. Side effect: a ~/.t3code/roles/ would apply to every project under home — nothing creates one." },
-        { id: "git-top", label: "To the git top level, or just the project root when there is no repository", detail: "Prevents a home-level directory from ever applying, at the cost of a git subprocess (or a .git probe) in a synchronous loader and a rule that differs from the ship policy's." },
-      ],
-    },
-    {
-      id: "prune-branch",
-      title: "Merge the unmerged role-pruning branch before this work starts?",
-      subtitle: "Branch t3code/improve-agent-question-context has four reviewed commits past main that shorten orchestrator.md and planner.md; the built-in texts in this plan are written on top of them.",
-      refs: [{ label: "Coordination with the unmerged prune branch", anchor: "coordination-with-the-unmerged-prune-branch" }],
-      mode: "single",
-      options: [
-        { id: "merge-first", label: "Yes — merge it first; the built-ins work then applies only the three small diffs shown in this plan", recommended: true, detail: "Keeps the prune's own review history and avoids a rebase conflict on orchestrator.md." },
-        { id: "supersede", label: "No — this work lands the pruned text itself and the branch is closed as superseded", detail: "One fewer merge, but the prune's commits never land as themselves." },
-      ],
-    },
-    {
-      id: "fathom-overlap",
-      title: "Keep fathom's coder and reviewer data-science bullets even though the global AGENTS.md states the same posture?",
-      subtitle: "~/.pi/agent/AGENTS.md already tells every thread to optimise the end state, avoid tests by default and never add backwards compatibility; fathom's role files repeat that, more sharply, for the coder and the reviewer.",
+      id: "fathom-posture",
+      title: "How much of fathom's coder/reviewer posture stays in its own role files?",
+      subtitle: "The global ~/.pi/agent/AGENTS.md already tells every thread to optimise the end state, avoid tests by default, verify against the canonical entrypoint and never add backwards compatibility. Fathom's role files restate that and add a few role-specific instructions that exist nowhere else. Both variants are drafted in full in the pi-fathom overlay section.",
       refs: [{ label: "The pi-fathom overlay", anchor: "the-pi-fathom-overlay" }],
       mode: "single",
       options: [
-        { id: "keep", label: "Keep them as written in this plan (five coder bullets, six reviewer bullets)", recommended: true, detail: "A role-scoped rule binds at the moment the role acts on it, and the reviewer's 'defensive code is a defect' and 'tests almost never earn their place' are stronger than the global text." },
-        { id: "trim", label: "Cut them to only what AGENTS.md does not say (the reviewer's severity-bar bullet and the coder's burden-of-proof bullet)", detail: "Less ambient text per fathom turn; relies on the global AGENTS.md carrying the posture for both roles." },
+        { id: "a", label: "A — keep the full posture in the role files, overlap included (5 coder bullets, 6 reviewer bullets)", detail: "Strongest per-turn reinforcement for fathom's coder and reviewer; the same rules then reach those roles twice, once globally and once by role." },
+        { id: "b", label: "B — trim to what the global AGENTS.md does not say (2 coder bullets, 4 reviewer bullets)", recommended: true, detail: "Keeps crash-loud/no-guards, the reviewer's delete-not-assert and excess-is-must-fix instructions, the agent-tests-get-deleted rule and the coder's burden-of-proof rule; drops every restatement." },
+        { id: "b-plus", label: "B, and promote 'trust the happy path; crash loud' into the global AGENTS.md (Carl's edit)", detail: "The crash-loud stance applies to every project and every role, not just fathom's coder; once it is global, the fathom coder file is one bullet and the reviewer file points at the global rule for its boundary list." },
       ],
     },
   ]}

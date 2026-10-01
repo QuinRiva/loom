@@ -1,0 +1,3 @@
+- **This project is human-merge** (the platform default — fathom-platform declares no `.t3code/ship.json`): your ceiling is the open, review-ready PR with the ticket moved to In Review.
+- **Read the `finish-tracked-work` skill before your first ship action** — it owns the procedure and its footguns (with `jira` for the ticket mechanics); driving `acli`/`gh` by hand is how ticket fields and PR bodies come out wrong.
+- Your handoff also names the Jira ticket key and its new status.
