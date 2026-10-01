@@ -56,7 +56,7 @@ python3 - <<'EOF'
 import json
 for f, api in (("anthropic", "anthropic-messages"), ("openai-codex", "openai-codex-responses")):
     d = json.load(open(f"package/dist/providers/data/{f}.json"))
-    for k in d:                                       # keyed {"<api>": {"<model-id>": …}}, not a `models` array
+    for k in d:                                       # keyed {"<api>": {"<model-id>": …}} (≥0.99: "chat:<model-id>"), not a `models` array
         for m in d[k]:
             if any(s in m for s in ("opus-5-5", "gpt-6")):
                 e = d[k][m]; print(f, m, e["cost"], e["contextWindow"], e["maxTokens"], e.get("thinkingLevelMap"))
@@ -330,7 +330,7 @@ Each of these cost real time in the last two rounds.
 - **The catalogue is inlined into that bundle.** New builtin models arrive with
   the pi-coding-agent version, not with a `pi-ai` resolution; only
   `models-store.json` (row 3) can front-run a bump, and only for builtin
-  providers.
+  providers. A `models.json` entry (§9) stands in when the overlay lags.
 - **A probe that passes on a stale bundle.** Sibling worktrees keep the old pi
   until `pnpm install`; row 3 supplies builtin-provider models regardless; the probe
   goes green. Assert the version first.
@@ -367,3 +367,55 @@ Each of these cost real time in the last two rounds.
 - **Codex quota reads like a rollover failure.** `usage limit has been reached`
   on the new slugs is the account, not the catalogue; the old slugs fail
   identically. Use the negative-control slug to prove resolution.
+
+## 9. One new model between updates
+
+The skill decides which tier and targets move ("One new model between
+updates"). This section gets pi to serve the model and proves it.
+
+**Check whether pi already serves it.** Builtin-provider models reach every pi
+on the machine through the pi.dev overlay (row 3), often before any pi release
+ships them: `gpt-6.1-sol` was in `models-store.json` on 2026-09-29, a day
+before pi-ai 0.99.2 published it.
+
+```bash
+pi update --models                  # force the overlay refresh (pi otherwise re-checks at most every 4 h)
+pi --list-models | grep <id>        # listed → skip to "Point and test"
+```
+
+If `pi update --models` fails for one provider (for example
+`anthropic: … invalid_grant`), it still refreshes the others. `--list-models`
+is the check that counts.
+
+**If it is not listed, register it in `~/.pi/agent/models.json`.** Copy the
+entry from a pi-ai catalogue that has it (§1's `npm pack`), minus `provider`
+and `type`. Merge by hand if the file already exists:
+
+```bash
+python3 - <<'EOF'
+import json
+P, API, ID = "openai-codex", "openai-codex-responses", "gpt-6.1-sol"
+e = json.load(open(f"package/dist/providers/data/{P}.json"))[API][f"chat:{ID}"]   # pre-0.99 keys are bare ids
+for k in ("provider", "type"): e.pop(k, None)
+json.dump({"providers": {P: {"models": [e]}}}, open("/home/Carl/.pi/agent/models.json", "w"), indent=2)
+EOF
+```
+
+pi 0.87.1 accepts this entry as is (checked with `gpt-6.1-sol`), and it
+overrides an overlay or bundled model with the same id.
+
+**Point and test.** Write the targets with the skill's `--set`, then probe both
+binaries and run the §7 `workstream_list` check, using a bogus id of the same
+family as the negative control:
+
+```bash
+B="node $(readlink -f ~/loom-releases/current/apps/server/node_modules/@earendil-works/pi-coding-agent)/dist/bundle/cli.js"
+for bin in pi "$B"; do $bin -p --model openai-codex/gpt-6.1-sol --thinking high "Reply with exactly: OK"; done   # OK, OK
+```
+
+There is no restart or deploy. The cockpit re-reads its settings within
+seconds, and it re-probes pi's catalogue whenever it refreshes the provider.
+
+**Once a pi bump ships the model,** delete its `models.json` entry, and check
+that `pi --list-models` still lists the model. The targets need nothing: the
+skill now resolves the tier to that id itself.
