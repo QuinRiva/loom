@@ -313,13 +313,29 @@ export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string
   }
 }
 
+// loom: Pierre derives its word-diff emphasis colours on `:host`, so the overrides only take
+// effect there (declared on `[data-diff]` below they were dead, leaving a faint 20% tint). Mixed
+// well past the row tint so changed words read as a solid block, GitHub-style.
+const WORD_DIFF_EMPHASIS_UNSAFE_CSS = `
+:host {
+  --diffs-bg-addition-emphasis-override: light-dark(
+    color-mix(in srgb, var(--code-background) 55%, var(--diff-addition)),
+    color-mix(in srgb, var(--code-background) 45%, var(--diff-addition))
+  );
+  --diffs-bg-deletion-emphasis-override: light-dark(
+    color-mix(in srgb, var(--code-background) 55%, var(--diff-deletion)),
+    color-mix(in srgb, var(--code-background) 45%, var(--diff-deletion))
+  );
+}
+`;
+
 /**
  * Maps every diff/file surface the @pierre/diffs renderer paints onto the
  * app's code tokens, so themed palettes reach the code body, gutter, and
  * row tints instead of the renderer's bundled colors. Shared by the diff
  * panel and the file preview.
  */
-export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
+export const DIFF_SURFACE_THEME_UNSAFE_CSS = `${WORD_DIFF_EMPHASIS_UNSAFE_CSS}
 [data-diffs-header],
 [data-diff],
 [data-file],
@@ -354,11 +370,6 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
     color-mix(in srgb, var(--code-background) 60%, var(--diff-addition))
   );
   --diffs-bg-addition-hover-override: color-mix(in srgb, var(--code-background) 85%, var(--diff-addition));
-  --diffs-bg-addition-emphasis-override: color-mix(
-    in srgb,
-    var(--code-background) 80%,
-    var(--diff-addition)
-  );
 
   --diffs-bg-deletion-override: light-dark(
     color-mix(in srgb, var(--code-background) 50%, var(--diff-deletion)),
@@ -371,11 +382,6 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
   --diffs-bg-deletion-hover-override: color-mix(
     in srgb,
     var(--code-background) 85%,
-    var(--diff-deletion)
-  );
-  --diffs-bg-deletion-emphasis-override: color-mix(
-    in srgb,
-    var(--code-background) 80%,
     var(--diff-deletion)
   );
 

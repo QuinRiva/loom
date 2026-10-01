@@ -877,7 +877,10 @@ function PullRequestCodeTab({
   const diffViewOptions = useMemo(
     () => ({
       diffStyle: diffLayout === "split" ? ("split" as const) : ("unified" as const),
-      lineDiffType: "none" as const,
+      // loom: upstream disables word highlighting; keep the fallback renderer in step with the
+      // worker pool so prose edits show their changed words.
+      lineDiffType: "word-alt" as const,
+      maxLineDiffLength: 10_000,
       overflow: wordWrap ? ("wrap" as const) : ("scroll" as const),
       theme: resolveDiffThemeName(resolvedTheme),
       preferredHighlighter: PREFERRED_HIGHLIGHTER,

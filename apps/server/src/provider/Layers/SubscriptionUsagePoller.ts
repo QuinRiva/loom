@@ -14,6 +14,7 @@ import { HttpClient, HttpClientError } from "effect/unstable/http";
 import {
   ProviderInstanceId,
   type ProviderUsageSource,
+  type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type ServerSettings,
 } from "@t3tools/contracts";
@@ -21,7 +22,9 @@ import {
 import { encodeUsageWindowId, usageWindowAccountPrefix } from "@t3tools/shared/usageWindowId";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
 import type { AccountUsageWindow } from "../accountUsage.loom.ts";
+import { scopedDisplayNameToModelId } from "../exhaustionMapping.ts";
 import { ProviderHealthRegistry } from "../Services/ProviderHealthRegistry.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
@@ -143,8 +146,10 @@ export const toLimitsWindows = (
  * Configuration is the rule: while any enabled `cliproxy` source is registered,
  * the hub is the authority on Claude quota and *every* Anthropic arm of this
  * poller stands down — the `auth.json` one above and the instance-scoped
- * `usageSources`, which read the same pooled accounts the hub pools. Removing or
- * disabling the entry brings them back on the next poll.
+ * `usageSources`, which read the same pooled accounts the hub pools. None of them
+ * calls the rate-limited usage endpoint; the pooled sources feed failover from
+ * the hub's reading of the same auth file instead. Removing or disabling the
+ * entry brings direct polling back on the next poll.
  */
 export const hubReportsClaudeQuota = (
   settings: Pick<ServerSettings, "usageLimitSources">,
@@ -186,6 +191,37 @@ export const anthropicAccountPrefixes = (
   return byInstance;
 };
 
+/**
+ * A hub account's published windows (`claudeUsageLimits` shape) in failover's
+ * shape, as `fetchAnthropicUsage` would have read them: the model carve-out's
+ * display name rides the `Weekly · <name>` label.
+ */
+export const hubLimitsToWindows = (
+  limits: ServerProviderUsageLimits,
+  modelSlugs: ReadonlyArray<string>,
+): ReadonlyArray<AccountUsageWindow> =>
+  limits.windows.map((window) => {
+    const displayName = window.label.split(" · ")[1];
+    return {
+      kind: window.kind === "session" ? "primary" : "secondary",
+      usedPercent: window.usedPercent,
+      resetsAt: window.resetsAt ?? null,
+      windowDurationMins: window.windowDurationMins ?? null,
+      ...(displayName
+        ? {
+            scope: {
+              displayName,
+              modelId: scopedDisplayNameToModelId({
+                displayName,
+                modelSlugs,
+                accountKey: "claudeAgent",
+              }),
+            },
+          }
+        : {}),
+    };
+  });
+
 /** Account display names for the Limits page's window labels. */
 const ACCOUNT_DISPLAY_NAMES: Record<string, string> = {
   claudeAgent: "Claude",
@@ -197,6 +233,7 @@ const make = Effect.gen(function* () {
   const instanceRegistry = yield* ProviderInstanceRegistry;
   const providerRegistry = yield* ProviderRegistry;
   const serverSettings = yield* ServerSettingsService;
+  const usageLimitSources = yield* UsageLimitSources;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
@@ -241,11 +278,6 @@ const make = Effect.gen(function* () {
       readonly accountLabel?: string;
     },
     usage: ProviderUsage,
-    // loom: false while the hub owns this account's quota — the reading still
-    // feeds the health registry (failover reads exhaustion and headroom off
-    // it) but never reaches the instance's published limits, where it would
-    // draw a second bar beside the hub's.
-    publishLimits = true,
   ) => {
     const label = attribution.accountLabel ?? attribution.providerName;
     const accountKey = attribution.providerInstanceId ?? attribution.providerName;
@@ -279,18 +311,16 @@ const make = Effect.gen(function* () {
                   usage.windows,
                 ),
               };
-              const targets = publishLimits
-                ? yield* limitsTargets(attribution.providerInstanceId)
-                : [];
+              const targets = yield* limitsTargets(attribution.providerInstanceId);
               for (const instanceId of targets) {
                 const instance = yield* instanceRegistry.getInstance(instanceId);
                 if (instance)
                   yield* instance.snapshot.applyUsageLimits({ ...limits, checkedAt: observedAt });
               }
-              yield* Effect.logDebug(
-                `subscription-usage poller: ${label} ${publishLimits ? "limits published" : "health-only (hub owns Claude quota)"}`,
-                { instances: targets, ids: limits.windows.map((w) => w.id) },
-              );
+              yield* Effect.logDebug(`subscription-usage poller: ${label} limits published`, {
+                instances: targets,
+                ids: limits.windows.map((w) => w.id),
+              });
             }),
           ),
           Effect.andThen(
@@ -387,6 +417,40 @@ const make = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const label = sourceLabel(source);
+      const attribution = {
+        providerName: driver,
+        providerInstanceId: instanceId,
+        accountLabel: label,
+      };
+      // These pooled accounts ARE the hub's: it reads the same auth file (its
+      // account id is the file's name) on its own refresh. Reading it here too
+      // doubled the load on a 429-ing endpoint, so failover — loom's only
+      // per-account exhaustion signal — takes the hub's reading, stamped with
+      // when the hub took it, and nothing is published (the hub draws the bar).
+      if (yield* standDownForHub) {
+        const tokenFile = path.basename(expandHome(source.tokenFile));
+        const reading = (yield* usageLimitSources.current)
+          .flatMap((hub) => hub.accounts)
+          .filter(
+            (account) =>
+              account.id === tokenFile &&
+              account.driver === "claudeAgent" &&
+              !account.usageLimits.unavailable,
+          )
+          .toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt))[0];
+        if (!reading) {
+          yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
+            tokenFile,
+          });
+          return;
+        }
+        yield* health.applyUsage({
+          ...attribution,
+          windows: hubLimitsToWindows(reading.usageLimits, yield* piModelSlugs),
+          observedAt: reading.usageLimits.checkedAt,
+        });
+        return;
+      }
       const token = yield* readSourceToken(source).pipe(
         Effect.catch(() =>
           Effect.logDebug(
@@ -396,18 +460,7 @@ const make = Effect.gen(function* () {
         ),
       );
       if (!token) return;
-      // loom: these pooled accounts ARE the hub's accounts, so while it is
-      // registered they keep polling for failover telemetry (this is loom's
-      // only per-account exhaustion signal) but stop publishing limits.
-      yield* feed(
-        {
-          providerName: driver,
-          providerInstanceId: instanceId,
-          accountLabel: label,
-        },
-        yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
-        !(yield* standDownForHub),
-      );
+      yield* feed(attribution, yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs));
     });
 
   const pollCodex = (auth: typeof PiAuthSchema.Type) =>

@@ -548,6 +548,31 @@
     },
     {
       "license": "MIT",
+      "name": "@earendil-works/pi-codemode",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/codemode",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-mcp",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/mcp",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+        },
+        {
+          "licenseId": "MIT",
+          "preamble": ["Includes code from the Model Context Protocol TypeScript SDK."],
+          "copyrights": ["Copyright (c) 2024 Anthropic, PBC"]
+        }
+      ]
+    },
+    {
+      "license": "MIT",
       "name": "@earendil-works/pi-telemetry",
       "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/telemetry",
       "generatedNotice": {
