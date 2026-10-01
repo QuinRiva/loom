@@ -1076,6 +1076,52 @@ const mdxWideBlockFixture: PreviewFixture = {
 };
 
 /**
+ * loom: word-level emphasis in `<Diff>` — one sentence rewritten inside a long
+ * prose paragraph, a one-token code change, and a rewritten line sharing too
+ * few words to pair (must fall back to whole-line rows).
+ */
+const MDX_DIFF_WORDS_PARAGRAPH = [
+  "The workstream graph is the durable record of who is doing what: every thread carries a plan lane, an optional attention flag, and the edges that say which threads it waits on.",
+  "When a child finishes, its report is stored on disk and the parent is woken automatically, so nothing has to poll.",
+  "Review gates are the one deliberate cycle in the graph, looping a coder back for rework a bounded number of times before yielding to the orchestrator.",
+  "Everything else flows strictly downward as briefs and back upward as reports.",
+];
+const MDX_DIFF_WORDS_BEFORE = [
+  "## Coordination model",
+  "",
+  MDX_DIFF_WORDS_PARAGRAPH.join(" "),
+  "",
+  "const MAX_ROUNDS = 2;",
+  "Ship it once the reviewer is happy.",
+].join("\n");
+const MDX_DIFF_WORDS_AFTER = [
+  "## Coordination model",
+  "",
+  MDX_DIFF_WORDS_PARAGRAPH.toSpliced(
+    1,
+    1,
+    "When a child finishes, its report is written to disk and the parent receives a notice in its next turn, so no thread ever has to poll.",
+  ).join(" "),
+  "",
+  "const MAX_ROUNDS = 3;",
+  "Merging waits for an explicit human approval under the project's policy.",
+].join("\n");
+const MDX_DIFF_WORDS_FIXTURE_SOURCE = ["unified", "split"]
+  .map(
+    (mode) =>
+      `## ${mode}\n\n<Diff filename="plan.mdx" mode="${mode}" wrap={true} before={${JSON.stringify(MDX_DIFF_WORDS_BEFORE)}} after={${JSON.stringify(MDX_DIFF_WORDS_AFTER)}} />`,
+  )
+  .join("\n\n");
+
+const mdxDiffWordsFixture: PreviewFixture = {
+  id: "mdx-diff-words",
+  title: "Diff word highlighting",
+  description:
+    "Modified lines in a <Diff> emphasise the changed words: in the long paragraph only the rewritten sentence's edits are highlighted (as a few joined blocks, not confetti), and in the code line only `2`→`3`. The last line is rewritten wholesale and must render as plain whole-line rows. Check both layouts and both themes.",
+  render: () => <PlanPanelPreview key="mdx-diff-words" source={MDX_DIFF_WORDS_FIXTURE_SOURCE} />,
+};
+
+/**
  * loom: a realistic plan whose bottom Open Questions carry section `refs` — the
  * "peek". Several questions are unanswerable without something defined
  * higher up (the delivery order, the lane vocabulary, the schema table), which is
@@ -1394,6 +1440,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     fixtures: [
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,
+      mdxDiffWordsFixture,
       mdxAnnotationFixture,
       mdxScrollingTableFixture,
     ],

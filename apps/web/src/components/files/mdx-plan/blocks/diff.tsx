@@ -10,12 +10,13 @@ import { WrapToggle } from "./wrapToggle";
 
 /**
  * The `<Diff>` block — a GitHub-style before/after line diff, unified or split.
- * The line differ is a small self-contained LCS (`diffLines`) ported verbatim
- * from `@agent-native/core` `DiffBlock.tsx` — NO `jsdiff`/`diff` runtime
- * dependency. Line-anchored `annotations` (mirroring `<AnnotatedCode>`, plus a
- * `side`) render as a note list below the diff. Schema + MDX round-trip ported
- * verbatim from `@agent-native/core` `diff.config.ts` (flat attrs; `before`/
- * `after` multiline string attrs; `annotations` a JSON array attr).
+ * The differ is a small self-contained LCS (`diffTokens`, ported from
+ * `@agent-native/core` `DiffBlock.tsx`) run over lines, then over the words of
+ * each paired changed line — NO `jsdiff`/`diff` runtime dependency.
+ * Line-anchored `annotations` (mirroring `<AnnotatedCode>`, plus a `side`)
+ * render as a note list below the diff. Schema + MDX round-trip ported verbatim
+ * from `@agent-native/core` `diff.config.ts` (flat attrs; `before`/`after`
+ * multiline string attrs; `annotations` a JSON array attr).
  */
 
 export type DiffMode = "unified" | "split";
@@ -84,44 +85,23 @@ const diffMdx: BlockMdxConfig<DiffData> = {
     }) as DiffData,
 };
 
-/* ── Inline line differ (LCS) — replaces jsdiff `diffLines` ─────────────────── */
+/* ── Inline token differ (LCS) — replaces jsdiff `diffLines` ────────────────── */
+
+type DiffRowKind = "context" | "added" | "removed";
 
 interface Change {
+  kind: DiffRowKind;
   value: string;
-  added?: boolean | undefined;
-  removed?: boolean | undefined;
 }
 
 const MAX_DIFF_LCS_CELLS = 1_000_000;
 
-/** Split text into lines, each KEEPING its trailing newline. */
-function toLineTokens(text: string): string[] {
-  if (text === "") return [];
-  const out: string[] = [];
-  let start = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    if (text[i] === "\n") {
-      out.push(text.slice(start, i + 1));
-      start = i + 1;
-    }
-  }
-  if (start < text.length) out.push(text.slice(start));
-  return out;
-}
-
-/** A minimal LCS line-level diff producing jsdiff-compatible `Change[]`. */
-function diffLines(before: string, after: string): Change[] {
-  const a = toLineTokens(before);
-  const b = toLineTokens(after);
+/** A minimal LCS diff over token arrays, one `Change` per token; `undefined`
+ * when the table would exceed {@link MAX_DIFF_LCS_CELLS}. */
+function diffTokens(a: string[], b: string[]): Change[] | undefined {
   const n = a.length;
   const m = b.length;
-
-  if ((n + 1) * (m + 1) > MAX_DIFF_LCS_CELLS) {
-    return [
-      ...(before ? [{ value: before, removed: true }] : []),
-      ...(after ? [{ value: after, added: true }] : []),
-    ];
-  }
+  if ((n + 1) * (m + 1) > MAX_DIFF_LCS_CELLS) return undefined;
 
   const lcs: number[][] = Array.from({ length: n + 1 }, () =>
     Array.from<number>({ length: m + 1 }).fill(0),
@@ -134,50 +114,95 @@ function diffLines(before: string, after: string): Change[] {
   }
 
   const changes: Change[] = [];
-  const push = (value: string, kind: "context" | "added" | "removed") => {
-    const last = changes[changes.length - 1];
-    const sameKind =
-      last &&
-      Boolean(last.added) === (kind === "added") &&
-      Boolean(last.removed) === (kind === "removed");
-    if (sameKind) last!.value += value;
-    else
-      changes.push({
-        value,
-        added: kind === "added" ? true : undefined,
-        removed: kind === "removed" ? true : undefined,
-      });
-  };
-
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      push(a[i]!, "context");
+      changes.push({ kind: "context", value: a[i]! });
       i += 1;
       j += 1;
-    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
-      push(a[i]!, "removed");
-      i += 1;
-    } else {
-      push(b[j]!, "added");
-      j += 1;
-    }
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!)
+      changes.push({ kind: "removed", value: a[i++]! });
+    else changes.push({ kind: "added", value: b[j++]! });
   }
-  while (i < n) push(a[i++]!, "removed");
-  while (j < m) push(b[j++]!, "added");
+  while (i < n) changes.push({ kind: "removed", value: a[i++]! });
+  while (j < m) changes.push({ kind: "added", value: b[j++]! });
   return changes;
 }
 
-/* ── Diff model ────────────────────────────────────────────────────────────── */
+/** Lines each KEEPING their trailing newline. */
+const toLineTokens = (text: string): string[] => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
-type DiffRowKind = "context" | "added" | "removed";
+function diffLines(before: string, after: string): Change[] {
+  return (
+    diffTokens(toLineTokens(before), toLineTokens(after)) ?? [
+      { kind: "removed", value: before },
+      { kind: "added", value: after },
+    ]
+  );
+}
+
+/* loom: word-level emphasis inside a positionally paired removed/added line —
+ * the same tokens (words, whitespace runs, single punctuation) and gap-joining
+ * as `@pierre/diffs` `lineDiffType: "word-alt"`, so the plan diff reads like the
+ * diff panel. `[emphasised, text]` spans; `undefined` (whole-line rows) when the
+ * lines share too few words for positional pairing to mean anything, or are too
+ * long for the LCS budget. */
+type WordSpan = [emphasis: boolean, text: string];
+
+const WORD_TOKEN = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
+const MIN_SHARED_WORD_RATIO = 0.3;
+
+function diffWords(before: string, after: string): [WordSpan[], WordSpan[]] | undefined {
+  const changes = diffTokens(before.match(WORD_TOKEN) ?? [], after.match(WORD_TOKEN) ?? []);
+  if (!changes) return undefined;
+  const words = changes.filter((c) => /\S/.test(c.value));
+  const shared = words.filter((c) => c.kind === "context").length;
+  // shared / mean word count of the two lines
+  if ((2 * shared) / (words.length + shared || 1) < MIN_SHARED_WORD_RATIO) return undefined;
+
+  const spans: Record<"removed" | "added", WordSpan[]> = { removed: [], added: [] };
+  changes.forEach((change, index) => {
+    const emphasis = change.kind !== "context";
+    // word-alt: a one-char unchanged gap (a space) before another change joins the
+    // emphasised run, so an edited phrase reads as one block, not confetti.
+    const joins = (last: WordSpan) =>
+      last[0] === emphasis ||
+      (last[0] &&
+        change.value.length === 1 &&
+        (changes[index + 1]?.kind ?? "context") !== "context");
+    for (const side of ["removed", "added"] as const) {
+      if (emphasis && change.kind !== side) continue;
+      const last = spans[side].at(-1);
+      if (last && joins(last)) last[1] += change.value;
+      else spans[side].push([emphasis, change.value]);
+    }
+  });
+  // Edge whitespace of an emphasised run stays plain, so blocks hug their words.
+  const tidy = (side: WordSpan[]) =>
+    side
+      .flatMap(([emphasis, text]): WordSpan[] => {
+        const [, lead = "", core = "", trail = ""] = /^(\s*)(.*?)(\s*)$/s.exec(text) ?? [];
+        return emphasis && core
+          ? [
+              [false, lead],
+              [true, core],
+              [false, trail],
+            ]
+          : [[emphasis, text]];
+      })
+      .filter(([, text]) => text);
+  return [tidy(spans.removed), tidy(spans.added)];
+}
+
+/* ── Diff model ────────────────────────────────────────────────────────────── */
 
 interface DiffRow {
   kind: DiffRowKind;
   oldNo?: number;
   newNo?: number;
   text: string;
+  spans?: WordSpan[] | undefined;
 }
 
 /** Split a change `value` into lines, dropping the empty trailing element. */
@@ -187,16 +212,22 @@ function splitLines(value: string): string[] {
   return lines;
 }
 
-/** Flatten change objects into numbered diff rows. */
+/** Flatten change objects into numbered diff rows, word-diffing paired lines. */
 function buildRows(changes: Change[]): DiffRow[] {
   const rows: DiffRow[] = [];
   let oldNo = 0;
   let newNo = 0;
-  for (const change of changes) {
-    for (const text of splitLines(change.value)) {
-      if (change.added) rows.push({ kind: "added", newNo: ++newNo, text });
-      else if (change.removed) rows.push({ kind: "removed", oldNo: ++oldNo, text });
-      else rows.push({ kind: "context", oldNo: ++oldNo, newNo: ++newNo, text });
+  for (const { kind, value } of changes) {
+    for (const text of splitLines(value)) {
+      if (kind === "added") rows.push({ kind, newNo: ++newNo, text });
+      else if (kind === "removed") rows.push({ kind, oldNo: ++oldNo, text });
+      else rows.push({ kind, oldNo: ++oldNo, newNo: ++newNo, text });
+    }
+  }
+  // loom: removed line i pairs with added line i of the same change block.
+  for (const { left, right } of pairSplitRows(rows)) {
+    if (left?.kind === "removed" && right?.kind === "added") {
+      [left.spans, right.spans] = diffWords(left.text, right.text) ?? [];
     }
   }
   return rows;
@@ -239,6 +270,15 @@ const SIGN_COLOR: Record<DiffRowKind, string> = {
   context: "text-muted-foreground",
 };
 const SIGN: Record<DiffRowKind, string> = { added: "+", removed: "−", context: " " };
+// loom: changed-word emphasis — the diff panel's word-alt mix (`diffRendering.ts`
+// `:host`), over this block's card surface.
+const emphasisBg = (color: string) =>
+  `light-dark(color-mix(in srgb, var(--card) 55%, var(${color})), color-mix(in srgb, var(--card) 45%, var(${color})))`;
+const EMPHASIS_BG: Record<DiffRowKind, string | undefined> = {
+  added: emphasisBg("--diff-addition"),
+  removed: emphasisBg("--diff-deletion"),
+  context: undefined,
+};
 const LINE_NO = "select-none px-2 text-right tabular-nums text-muted-foreground";
 
 const DEFAULT_VISIBLE_DIFF_LINES = 40;
@@ -289,7 +329,18 @@ function DiffLine({
           wrap ? "min-w-0 flex-1 whitespace-pre-wrap break-words" : "whitespace-pre",
         )}
       >
-        {row.text || " "}
+        {row.spans
+          ? row.spans.map(([emphasis, text], index) => (
+              <span
+                // oxlint-disable-next-line react/no-array-index-key -- static spans; position is identity
+                key={index}
+                className={emphasis ? "rounded-[2px]" : undefined}
+                style={emphasis ? { backgroundColor: EMPHASIS_BG[row.kind] } : undefined}
+              >
+                {text}
+              </span>
+            ))
+          : row.text || " "}
       </span>
     </div>
   );
