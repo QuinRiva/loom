@@ -3631,10 +3631,10 @@ describe("awaiting_input parent wake (full dispatcher layer)", () => {
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
+      hasToolActivityReferencingThread: () => Effect.succeed(false),
       // The heartbeat keeps advancing while the tool call blocks — the measured
       // reality that makes the frozen-executing fallback unreachable here. If the
       // wake depended on quiet, this stub would silence it.
-      hasToolActivityReferencingThread: () => Effect.succeed(false),
       getActivityFreshnessByThreadId: () =>
         Effect.map(DateTime.now.pipe(Effect.map(DateTime.formatIso)), (iso) => ({
           maxCreatedAt: iso,
@@ -3802,8 +3802,8 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
         } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
-      // Heartbeat frozen at epoch: quiet time === TestClock time.
       hasToolActivityReferencingThread: () => Effect.succeed(false),
+      // Heartbeat frozen at epoch: quiet time === TestClock time.
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
       // One tool call in flight since epoch, never completing (unless the test
@@ -5774,6 +5774,30 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           ).toHaveLength(1);
           expect(
             parentWakes(yield* runWithEvidence(child, look("2026-06-24T02:00:01.000Z"))),
+          ).toHaveLength(0);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "a look during an in-flight fan-in is not evidence: a failed merge still wakes the parent",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Submitted at 01:00, fan-in settled `failed` at 03:00: the parent's
+          // 02:30 look saw `done` but could not know the merge would fail.
+          const child = {
+            ...terminalChild,
+            isolation: "isolated" as const,
+            fanInState: "failed" as const,
+            faninSince: "2026-06-24T03:00:00.000Z",
+          };
+          const look = (at: string) => [{ threadId: PARENT_ID, referencedThreadId: A, at }];
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T02:30:00.000Z"))),
+          ).toHaveLength(1);
+          expect(
+            parentWakes(yield* runWithEvidence(child, look("2026-06-24T03:00:01.000Z"))),
           ).toHaveLength(0);
         }),
       ),

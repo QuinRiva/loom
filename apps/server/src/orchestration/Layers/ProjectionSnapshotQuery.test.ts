@@ -3244,8 +3244,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
         yield* sql`DELETE FROM projection_thread_activities`;
         // Non-evidence: a list BEFORE the child finished; another thread's list; a
-        // control-plane row; a consult of the child (its fork may predate the
-        // completion); a bash whose output merely mentions the id.
+        // control-plane row; a consult of the child, even one citing its report (its
+        // fork may predate the completion); a bash whose output merely mentions the id.
         yield* insert(
           "n1",
           "parent-seen",
@@ -3275,7 +3275,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           "parent-seen",
           "tool.completed",
           "consult_thread",
-          { data: { rawInput: { threadId: child } } },
+          { data: { rawInput: { threadId: child }, content: [{ text: `${child}.md` }] } },
           "2026-05-01T01:05:00.000Z",
         );
         yield* insert(

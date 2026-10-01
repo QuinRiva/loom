@@ -3560,11 +3560,11 @@ pending_approval_requests AS (
   // by `(thread_id, created_at)`; `kind LIKE 'tool.%'` already keeps out the
   // `workstream.%` control-plane rows. Only completed tool rows are persisted
   // (no start time), so each clause must be evidence whose CONTENT reflects the
-  // state at completion:
+  // state at completion. `consult_thread` never counts: its answer comes from a
+  // fork frozen at call START, so a consult spanning the completion would read
+  // as seen. Otherwise:
   //  - a `workstream_list` listing the referenced thread (current lanes);
-  //  - any tool whose INPUT names it (set_lane / prompt / bash on its files) —
-  //    except `consult_thread`, whose answer comes from a fork frozen at call
-  //    START, so a consult spanning the completion would read as seen;
+  //  - any tool whose INPUT names it (set_lane / prompt / bash on its files);
   //  - any payload naming its report file (written at submit, so seeing it
   //    means the report exists). Matched by file name: some report paths are
   //    stored absolute while `ls` output carries only the name.
@@ -3585,12 +3585,10 @@ pending_approval_requests AS (
           WHERE thread_id = ${threadId}
             AND created_at > ${since}
             AND kind LIKE 'tool.%'
+            AND summary <> 'consult_thread'
             AND (
               (summary = 'workstream_list' AND instr(payload_json, ${referencedThreadId}) > 0)
-              OR (
-                summary <> 'consult_thread'
-                AND instr(json_extract(payload_json, '$.data.rawInput'), ${referencedThreadId}) > 0
-              )
+              OR instr(json_extract(payload_json, '$.data.rawInput'), ${referencedThreadId}) > 0
               OR instr(payload_json, ${reportFileName}) > 0
             )
         ) AS "seen"

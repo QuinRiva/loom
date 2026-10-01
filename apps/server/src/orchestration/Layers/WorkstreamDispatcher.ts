@@ -2431,9 +2431,11 @@ const make = Effect.gen(function* () {
   // learns of a completion by `workstream_list`, reading the report, or acting
   // on the child, and a digest turn after that is a full model call for news it
   // already integrated. Evidence must be the PARENT's own tool activity, after
-  // the child went terminal (the later of its report and its terminal lane, so a
-  // human-set lane or an accept-after-yield still counts from the lane change),
-  // naming THIS child (what counts: `hasToolActivityReferencingThread`).
+  // the child went terminal, naming THIS child (what counts:
+  // `hasToolActivityReferencingThread`). "Terminal" is the LATEST of its report,
+  // its terminal lane (a human-set lane or an accept-after-yield) and its fan-in
+  // settling: a look during an in-flight merge cannot know it failed, and a
+  // failed fan-in's only parent notice is this digest item.
   const parentAlreadySawTerminal = (child: OrchestrationThreadLeanShell, parentId: ThreadId) =>
     projectionSnapshotQuery.hasToolActivityReferencingThread({
       threadId: parentId,
@@ -2441,7 +2443,7 @@ const make = Effect.gen(function* () {
       // File name only: `ls` output carries no directory.
       reportFileName: child.reportPath?.slice(child.reportPath.lastIndexOf("/") + 1) ?? null,
       since:
-        [child.lastOutcome?.at, child.planLaneSince]
+        [child.lastOutcome?.at, child.planLaneSince, child.faninSince]
           .filter((at) => at != null)
           .toSorted()
           .at(-1) ?? child.updatedAt,
