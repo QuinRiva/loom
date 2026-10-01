@@ -147,7 +147,10 @@ deploy. Sequence so that nothing points at a model that nothing can serve:
    `pi -p` per provider (§7).
 4. **Model rollover** — the skill writes its live targets and probes each
    changed tier (§7). The preset flip needs neither deploy nor restart; it is
-   the step that actually changes what tomorrow's threads run on.
+   the step that actually changes what tomorrow's threads run on. The
+   exception is a `cliproxy/*` model only the new pi ships: the deployed
+   cockpit derives that catalogue from its own, older pi (row 4), so the skill
+   holds those targets until after step 5 (0.99.2's `claude-sonnet-5-5`).
 5. **Deploy** (row 15) per `~/loom-releases/RUNBOOK.md`. Confirm the promoted
    release resolves the new pi:
    `grep '"version"' "$(readlink -f ~/loom-releases/current/apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`.
