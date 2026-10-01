@@ -597,6 +597,42 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
       }
+    },
+    {
+      "license": "MIT",
+      "repositoryUrl": "https://github.com/microsoft/onnxruntime",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"],
+        "preamble": [
+          "The ONNX Runtime native and WebAssembly binaries include third-party components whose notices are listed at:\nhttps://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt"
+        ]
+      }
+    },
+    {
+      "name": "guid-typescript",
+      "sourceUrl": "https://github.com/snico-dev/guid-typescript",
+      "generatedNotice": {
+        "licenseId": "ISC",
+        "copyrights": ["Copyright (c) 2018 Nicolas Silva dos Santos"]
+      }
+    },
+    {
+      "license": "LGPL-3.0-or-later",
+      "repositoryUrl": "https://github.com/lovell/sharp-libvips",
+      "sourceUrl": "https://github.com/lovell/sharp-libvips",
+      "generatedNotices": [
+        {
+          "licenseId": "LGPL-3.0-or-later",
+          "preamble": [
+            "Prebuilt libvips and its dependencies, dynamically loaded by sharp. Source: https://github.com/lovell/sharp-libvips and https://github.com/libvips/libvips\n\nThis software contains third-party libraries used under the terms of the following licenses:\n- aom: BSD 2-Clause + Alliance for Open Media Patent License 1.0\n- cairo: Mozilla Public License 2.0\n- cgif, expat, harfbuzz, lcms, libffi, libnsgif, libultrahdr, libxml2, pixman: MIT License\n- fontconfig, freetype, libtiff: BSD-like project licenses\n- fribidi, glib, libexif, libheif, librsvg, libvips, pango, proxy-libintl: LGPLv3\n- highway: BSD 3-Clause\n- libarchive, libimagequant: BSD 2-Clause\n- libpng: libpng License\n- libwebp: New BSD License\n- mozjpeg: zlib License, IJG License, BSD 3-Clause\n- zlib-ng: zlib License\n\nUse of libraries under the terms of the LGPLv3 is via the \"any later version\" clause of the LGPLv2 or LGPLv2.1. The GNU General Public License v3, which the LGPLv3 supplements, follows the LGPLv3 text."
+          ]
+        },
+        {
+          "licenseId": "GPL-3.0-or-later"
+        }
+      ]
     }
   ]
 }
