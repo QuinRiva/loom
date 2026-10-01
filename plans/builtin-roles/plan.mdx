@@ -2,7 +2,7 @@
 manager_sessions:
   - id: 4d77624b-9270-413a-af87-d09a7661992e
     role: plan
-    authored_at: 2026-10-01T01:12:53.509Z
+    authored_at: 2026-10-01T01:21:15.432Z
 ---
 
 # Built-in roles for every cockpit project
@@ -77,10 +77,11 @@ Costs: loom-slack-bridge moves `roles/slack-inbox.md` to `.t3code/roles/slack-in
 
 ### Walk-up bound
 
-Lookup starts at `roleProjectRoot` (`ProviderCommandReactor.ts:954` — worktree path or project workspace root, unchanged) and takes the **nearest** `.t3code/roles/` directory at or above it, stopping at the filesystem root. That is the `resolveMergeAuthority` loop (`shipPolicy.ts:19-38`), so the ship policy and the roles are always found in the same place. It does not consult git: cli-proxy is not a repository, and the loader is synchronous. The nearest *directory* wins, not the nearest file — one project directory is the unit, so a role absent from it is "no addition", not "keep looking".
+Lookup starts at `roleProjectRoot` (`ProviderCommandReactor.ts:954` — the thread's worktree path, else the project's workspace root; unchanged) and takes the **nearest** `.t3code/roles/` directory at or above it, **stopping at the repository's top level**. The top level is the first ancestor (the start directory included) that contains a `.git` entry — a directory in a primary checkout, a *file* in a `git worktree` — detected with `existsSync`, no `git` subprocess, so the synchronous loader stays synchronous (`roleOverlay.ts`, `findOverlayDir`). When no ancestor has a `.git` entry (cli-proxy today, which should become a repository), only the start directory is read: a project with no repository has no "above". The nearest *directory* wins, not the nearest file — one project directory is the unit, so a role absent from it is "no addition", not "keep looking".
 
-The one non-obvious consequence: a `~/.t3code/roles/` would act as a user-level addition for every project under home. Nothing in this plan creates one; it is noted so nobody creates one by accident.
+Concretely: a local lease-extraction thread starts at `…/project-roots/fathom-platform/data-pipeline-jobs/lease-extraction`, finds no overlay there or in `data-pipeline-jobs/`, finds it in `fathom-platform/` (which holds `.git`) and stops. A loom child starts at its worktree root, whose `.git` file ends the walk after one check. Nothing above a repository — `~/.t3/cockpit/worktrees/`, `~` — is ever consulted, so no home-level directory can leak into every project.
 
+This is deliberately narrower than `.t3code/ship.json`, which keeps walking to the filesystem root (`shipPolicy.ts:19-38`); the two lookups differ by design and the ship policy's rule is not changed here. They agree everywhere inside a repository, which is the only place either file should exist.
 ### Merge semantics
 
 <Table
