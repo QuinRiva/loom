@@ -39,6 +39,8 @@ interface StagedKickoffCardProps {
   readonly brief: string;
   readonly markdownCwd?: string | undefined;
   readonly launchDisabled?: boolean;
+  /** Why the composer cannot send yet; Launch waits, showing this, until it clears. */
+  readonly launchBlockedReason?: string | null;
   /** Space to reserve at the bottom so the card clears the composer overlay. */
   readonly bottomInset?: number;
   readonly onLaunch: () => void;
@@ -56,6 +58,7 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
   brief,
   markdownCwd,
   launchDisabled,
+  launchBlockedReason,
   bottomInset,
   onLaunch,
   onEditFirst,
@@ -67,11 +70,14 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
       bottomInset={bottomInset}
       footer={
         <>
+          {launchBlockedReason ? (
+            <span className="mr-auto text-muted-foreground text-xs">{launchBlockedReason}</span>
+          ) : null}
           <Button variant="outline" size="sm" onClick={onEditFirst}>
             <PencilIcon />
             Edit first
           </Button>
-          <Button size="sm" onClick={onLaunch} disabled={launchDisabled}>
+          <Button size="sm" onClick={onLaunch} disabled={launchDisabled || !!launchBlockedReason}>
             <RocketIcon />
             Launch
           </Button>
