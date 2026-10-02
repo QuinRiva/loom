@@ -82,6 +82,8 @@ const CODER_BLOCKED_ID = ThreadId.make("seed-thread-coder-blocked");
 // for the settle-precedence rule (docs/upstream-sync/23 §I): an explicit Settle
 // must clear it out of the inbox even though the flag stands.
 const ABANDONED_ROOT_ID = ThreadId.make("seed-thread-abandoned-root");
+// A `goal_handoff`-shaped staged root: no branch, no worktree, a brief.
+const STAGED_HANDOFF_ROOT_ID = ThreadId.make("seed-thread-staged-handoff-root");
 
 const MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("pi"),
@@ -791,6 +793,29 @@ const seedProgram = Effect.gen(function* () {
     branch: null,
     worktreePath: workspaceRoot,
     createdAt: iso(263),
+  });
+
+  // ---- staged handoff root (Launch fixture) -------------------------------
+  // Shaped exactly as `goal_handoff` stages one (`mcp/GoalHandoffHttp.ts`): no
+  // parent, no branch, NO worktree, brief stored. Launch must provision a
+  // worktree when the project defaults to New worktree.
+  yield* dispatch({
+    type: "thread.create",
+    commandId: nextCommandId("staged-handoff-root"),
+    threadId: STAGED_HANDOFF_ROOT_ID,
+    projectId: PROJECT_ID,
+    goalId: GOAL_ID,
+    parentThreadId: null,
+    purpose: "Launch a staged handoff brief into a fresh worktree.",
+    brief: "# Staged handoff\n\nList the files in this repository and stop.",
+    planLane: "planned",
+    title: "Staged handoff root (Launch)",
+    modelSelection: MODEL_SELECTION,
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    branch: null,
+    worktreePath: null,
+    createdAt: iso(265),
   });
 
   // ---- abandoned orchestration root (settle-precedence fixture) -----------

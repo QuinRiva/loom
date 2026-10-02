@@ -5930,17 +5930,25 @@ export default function ChatView(props: ChatViewProps) {
   // successors inherit their source's workspace and keep today's reading. The
   // shell-level never-started check keeps a started Local thread from seeding
   // while its detail loads (the loading fallback reports `messages: []`).
+  const stagedRootWorkspaceRoot =
+    canOverrideServerThreadEnvMode &&
+    !threadShellHasStarted(activeThreadShell) &&
+    activeThread?.parentThreadId === null &&
+    activeThread.forkFromThreadId === null &&
+    activeThread.continuesThreadId === null
+      ? (activeProject?.workspaceRoot ?? null)
+      : null;
   const stagedRootDefaultEnvMode = useProjectDefaultThreadEnvMode(
     environmentId,
-    canOverrideServerThreadEnvMode &&
-      !threadShellHasStarted(activeThreadShell) &&
-      activeThread?.parentThreadId === null &&
-      activeThread.forkFromThreadId === null &&
-      activeThread.continuesThreadId === null
-      ? (activeProject?.workspaceRoot ?? null)
-      : null,
+    stagedRootWorkspaceRoot,
     activeProjectSettings,
   );
+  // loom: until the project default settles, the fallback below reads Local, so
+  // a send in that window would start a New-worktree project in its main checkout.
+  const stagedRootEnvModePending =
+    stagedRootWorkspaceRoot !== null &&
+    stagedRootDefaultEnvMode === null &&
+    (pendingServerThreadEnvMode ?? draftThread?.envMode) == null;
   const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
     ? (pendingServerThreadEnvMode ??
       draftThread?.envMode ??
@@ -5961,6 +5969,19 @@ export default function ChatView(props: ChatViewProps) {
     requestedEnvMode: envMode,
     isGitRepo,
   });
+  // loom: one send gate for the composer and the staged-kickoff Launch, so
+  // Launch can never fire into a send that `onSend` would silently refuse.
+  const sendDisabledReason = isRevertingCheckpoint
+    ? "Rewinding conversation"
+    : feedbackUploading
+      ? "Sending feedback"
+      : threadDetailLoading
+        ? "Messages loading"
+        : worktreeSetupBlocksSend
+          ? "Preparing worktree"
+          : stagedRootEnvModePending // loom:
+            ? "Resolving workspace"
+            : projectCloneSendBlockReason;
   const localCheckoutBranchMismatch = useMemo(
     () =>
       isServerThread
@@ -10341,7 +10362,10 @@ export default function ChatView(props: ChatViewProps) {
                   environmentId={activeThread.environmentId}
                   brief={activeThread.brief}
                   markdownCwd={gitCwd ?? undefined}
-                  launchDisabled={isSendBusy || isConnecting || activeEnvironmentUnavailable}
+                  launchDisabled={isSendBusy || isConnecting}
+                  launchBlockedReason={
+                    activeEnvironmentUnavailable ? "Not connected" : sendDisabledReason
+                  }
                   bottomInset={scrollToEndClearance}
                   onLaunch={onLaunchStagedKickoff}
                   onEditFirst={onEditStagedKickoff}
@@ -10467,17 +10491,7 @@ export default function ChatView(props: ChatViewProps) {
                             isConnecting={isConnecting}
                             isSendBusy={isSendBusy}
                             isRevertingCheckpoint={isRevertingCheckpoint}
-                            sendDisabledReason={
-                              isRevertingCheckpoint
-                                ? "Rewinding conversation"
-                                : feedbackUploading
-                                  ? "Sending feedback"
-                                  : threadDetailLoading
-                                    ? "Messages loading"
-                                    : worktreeSetupBlocksSend
-                                      ? "Preparing worktree"
-                                      : projectCloneSendBlockReason
-                            }
+                            sendDisabledReason={sendDisabledReason} // loom: hoisted, see definition
                             isPreparingWorktree={isPreparingWorktree}
                             bannerItems={composerBannerItems}
                             // With attachments or contexts aboard the pick just inserts the
