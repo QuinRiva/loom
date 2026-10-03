@@ -2114,6 +2114,7 @@ function PullRequestsRouteView() {
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
             onAddAgents={() => undefined}
+            // loom: tasks/workstream panels
             onAddTasks={() => undefined}
             onAddWorkstream={() => undefined}
             onAddDevice={() => undefined}
@@ -2124,6 +2125,7 @@ function PullRequestsRouteView() {
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
             agentsAvailable={false}
+            // loom
             tasksAvailable={false}
             workstreamAvailable={false}
             deviceAvailable={false}

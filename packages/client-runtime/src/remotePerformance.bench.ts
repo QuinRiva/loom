@@ -20,12 +20,12 @@ import type { RemoteEnvironmentRequestError } from "./rpc/http.ts";
 import { fetchEnvironmentThreadSnapshot } from "./state/threadSnapshotHttp.ts";
 import { applyThreadDetailEvent } from "./state/threadReducer.ts";
 
-import { THREAD_FIXTURE_DEFAULTS } from "./state/threadFixtureDefaults.ts";
+import { THREAD_FIXTURE_DEFAULTS } from "./state/threadFixtureDefaults.ts"; // loom: fork thread fields
 
 const timestamp = "2026-09-01T00:00:00.000Z";
 const runOptions = { warmupTime: 1_000, time: 1_500 };
 const thread: OrchestrationThread = {
-  ...THREAD_FIXTURE_DEFAULTS,
+  ...THREAD_FIXTURE_DEFAULTS, // loom
   id: ThreadId.make("thread-1"),
   projectId: ProjectId.make("project-1"),
   title: "Remote thread",

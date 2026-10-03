@@ -52,7 +52,7 @@ import { applyServerConfigProjection } from "./serverConfigProjection.ts";
 
 const CONFIG = {
   availableEditors: [],
-  remoteEditorSshHost: null,
+  remoteEditorSshHost: null, // loom: remote-editor SSH host config field
   issues: [],
   keybindings: {},
   keybindingsConfigPath: null,

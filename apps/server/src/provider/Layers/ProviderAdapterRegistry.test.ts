@@ -35,7 +35,7 @@ const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
 
 const fakeCodexAdapter: CodexAdapter.CodexAdapterShape = {
   provider: CODEX_DRIVER,
-  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
+  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true }, // loom: required capability
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -44,7 +44,7 @@ const fakeCodexAdapter: CodexAdapter.CodexAdapterShape = {
   stopSession: vi.fn(),
   listSessions: vi.fn(),
   hasSession: vi.fn(),
-  getSession: vi.fn(),
+  getSession: vi.fn(), // loom
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   uploadFeedback: vi.fn(),
@@ -54,7 +54,7 @@ const fakeCodexAdapter: CodexAdapter.CodexAdapterShape = {
 
 const fakeClaudeAdapter: ClaudeAdapter.ClaudeAdapterShape = {
   provider: CLAUDE_AGENT_DRIVER,
-  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
+  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true }, // loom: required capability
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -63,7 +63,7 @@ const fakeClaudeAdapter: ClaudeAdapter.ClaudeAdapterShape = {
   stopSession: vi.fn(),
   listSessions: vi.fn(),
   hasSession: vi.fn(),
-  getSession: vi.fn(),
+  getSession: vi.fn(), // loom
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
@@ -72,7 +72,7 @@ const fakeClaudeAdapter: ClaudeAdapter.ClaudeAdapterShape = {
 
 const fakeOpenCodeAdapter: OpenCodeAdapter.OpenCodeAdapterShape = {
   provider: OPENCODE_DRIVER,
-  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
+  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true }, // loom: required capability
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -81,7 +81,7 @@ const fakeOpenCodeAdapter: OpenCodeAdapter.OpenCodeAdapterShape = {
   stopSession: vi.fn(),
   listSessions: vi.fn(),
   hasSession: vi.fn(),
-  getSession: vi.fn(),
+  getSession: vi.fn(), // loom
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
@@ -90,7 +90,7 @@ const fakeOpenCodeAdapter: OpenCodeAdapter.OpenCodeAdapterShape = {
 
 const fakeCursorAdapter: CursorAdapter.CursorAdapterShape = {
   provider: CURSOR_DRIVER,
-  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
+  capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true }, // loom: required capability
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -99,7 +99,7 @@ const fakeCursorAdapter: CursorAdapter.CursorAdapterShape = {
   stopSession: vi.fn(),
   listSessions: vi.fn(),
   hasSession: vi.fn(),
-  getSession: vi.fn(),
+  getSession: vi.fn(), // loom
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
@@ -132,7 +132,7 @@ const makeFakeInstance = (
       refresh: Effect.succeed({} as unknown as ServerProvider),
       streamChanges: Stream.empty,
       applyUsageLimits: () => Effect.void,
-      retractUsageLimits: () => Effect.void,
+      retractUsageLimits: () => Effect.void, // loom: fork usage-limits SPI
     },
     adapter,
     textGeneration: {} as unknown as TextGeneration.TextGeneration["Service"],

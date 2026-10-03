@@ -1,4 +1,4 @@
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "@t3tools/contracts"; // loom: shell fixtures for loom status cases
 import {
   ProjectId,
   ProviderInstanceId,

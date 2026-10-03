@@ -32,7 +32,7 @@ import {
 
 import {
   inferReviewCommentFenceLanguage,
-  type LineReviewCommentContext,
+  type LineReviewCommentContext, // loom: review contexts are a kind union
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 import { reviewCommentContextId } from "~/lib/composerContextRecords";
@@ -603,7 +603,7 @@ function reviewThreadContext(
 ): LineReviewCommentContext {
   const lineIndex = Math.max(0, (thread.line ?? 1) - 1);
   return {
-    kind: "line",
+    kind: "line", // loom
     id: `pull-request-finding:${thread.id}`,
     sectionId: `pull-request:${pullRequestNumber}`,
     sectionTitle: `PR #${pullRequestNumber} review`,
@@ -935,7 +935,7 @@ function pullRequestContextComment(
   instructions: ReadonlyArray<string>,
 ): LineReviewCommentContext {
   return {
-    kind: "line",
+    kind: "line", // loom
     id: `pull-request-context:${input.number}`,
     sectionId: `pull-request:${input.number}`,
     sectionTitle: `PR #${input.number}`,

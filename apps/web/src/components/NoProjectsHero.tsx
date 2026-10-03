@@ -1,5 +1,5 @@
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react"; // loom: header slot
 
 import { openCommandPalette } from "../commandPaletteBus";
 import { isElectron } from "../env";
@@ -10,6 +10,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 
+// loom: header slot
 /** `header` renders inside the inset, above the hero — loom's routes put the thread-tabs strip there. */
 export function NoProjectsHero({ header }: { header?: ReactNode }) {
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
@@ -19,7 +20,7 @@ export function NoProjectsHero({ header }: { header?: ReactNode }) {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      {header}
+      {header /* loom */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
         {/* The desktop window only moves where CSS opts in, so keep a titlebar strip. */}
         {isElectron ? <WorkspacePageHeader electron /> : null}

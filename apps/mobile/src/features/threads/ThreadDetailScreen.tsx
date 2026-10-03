@@ -22,7 +22,7 @@ import type {
   OrchestrationThreadShell,
   ProviderApprovalDecision,
   ProviderInteractionMode,
-  ProviderUserInputAnswers,
+  ProviderUserInputAnswers, // loom: answers carry loom's structured shape
   RuntimeMode,
   ServerConfig as T3ServerConfig,
   ThreadId,
@@ -140,7 +140,7 @@ export interface ThreadDetailScreenProps {
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
-  readonly activePendingUserInputAnswers: ProviderUserInputAnswers | null;
+  readonly activePendingUserInputAnswers: ProviderUserInputAnswers | null; // loom
   readonly respondingUserInputId: ApprovalRequestId | null;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;

@@ -382,6 +382,7 @@ export function matchesPullRequestFilters(
   filters: PullRequestListFilters,
   viewer?: string | null,
 ): boolean {
+  // loom: Set lookup, not Array.includes, per filter label
   const labels = new Set(entry.labels.map((label) => label.name.trim().toLowerCase()));
   const holds = (label: string) => labels.has(label.trim().toLowerCase());
   return (

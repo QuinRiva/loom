@@ -22,7 +22,7 @@ function makeMessage(prompt: string): Omit<QueuedComposerMessage, "id"> {
       runtimeMode: "full-access",
       interactionMode: "default",
       promptEffort: null,
-      skillNames: [], // loom
+      skillNames: [], // loom: queued pi $skill expansion (DL-37)
     },
     queuedAfterToolActivityId: null,
     createdAt: "2026-09-11T00:00:00.000Z",

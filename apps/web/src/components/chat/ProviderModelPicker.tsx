@@ -211,7 +211,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             data-chat-provider-model-picker="true"
             className={cn(
               "min-w-0 justify-between whitespace-nowrap",
-              props.compact ? "max-w-42 shrink-0" : "shrink",
+              props.compact ? "max-w-42 shrink-0" : "shrink", // loom: compact footer
               !props.compact && !props.isComposerOwned && "max-w-48 sm:max-w-56",
               props.triggerClassName,
             )}

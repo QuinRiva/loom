@@ -12,7 +12,7 @@ import {
   AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
-  AutocompleteSeparator,
+  AutocompleteSeparator, // loom: CommandSeparator
 } from "~/components/ui/autocomplete";
 import { DIALOG_BACKDROP_CLASS, DIALOG_POPUP_CLASS } from "~/components/ui/dialog-styles";
 import { Button } from "~/components/ui/button";
@@ -234,6 +234,7 @@ export {
   CommandShortcut,
 };
 
+// loom: grouped command palette sections
 export function CommandSeparator({
   className,
   ...props

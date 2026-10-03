@@ -6,8 +6,8 @@ import {
   QUEUED_TURN_START_GRACE_MS,
   resolveSnoozePresets,
   snoozeWakeLabel,
-} from "@t3tools/shared/threadSettled";
-import type { SnoozePreset } from "@t3tools/shared/threadSettled";
+} from "@t3tools/shared/threadSettled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
+import type { SnoozePreset } from "@t3tools/shared/threadSettled"; // loom
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {

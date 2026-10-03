@@ -1167,7 +1167,7 @@ describe("asking about a change rather than working on it", () => {
 
   it("puts the reader's request in the composer and the selected lines in chips", () => {
     const comment = {
-      kind: "line" as const,
+      kind: "line" as const, // loom: review contexts are a kind union
       id: "pull-request-selection:page.tsx:12:18",
       sectionId: "pull-request:42",
       sectionTitle: "PR #42 review",
@@ -1196,7 +1196,7 @@ describe("asking about a change rather than working on it", () => {
 
 describe("a second ask into the same composer", () => {
   const chip = (id: string): ReviewCommentContext => ({
-    kind: "line",
+    kind: "line", // loom
     id,
     sectionId: "pull-request:42",
     sectionTitle: "PR #42",

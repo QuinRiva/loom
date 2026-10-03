@@ -516,7 +516,7 @@ describe("Cursor command catalog", () => {
           streamChanges: Stream.empty,
           resolveMaintenance: () => Effect.die("Not used"),
           applyUsageLimits: () => Effect.void,
-          retractUsageLimits: () => Effect.void,
+          retractUsageLimits: () => Effect.void, // loom: fork usage-limits SPI
         });
         const skills = [
           { name: "review", path: "/one/.cursor/skills/review/SKILL.md", enabled: true },

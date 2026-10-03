@@ -393,12 +393,12 @@ interface ProviderInstanceCardProps {
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
-  readonly selectedModels: ReadonlyArray<string>;
+  readonly selectedModels: ReadonlyArray<string>; // loom: model selection (picker shows only selected)
   readonly showOnlySelectedModels: boolean;
   readonly onHiddenModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onFavoriteModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onModelOrderChange: (next: ReadonlyArray<string>) => void;
-  readonly onSelectedModelsChange: (next: ReadonlyArray<string>) => void;
+  readonly onSelectedModelsChange: (next: ReadonlyArray<string>) => void; // loom
   readonly onShowOnlySelectedModelsChange: (next: boolean) => void;
   readonly onRunUpdate?: (() => void) | undefined;
   readonly onInstallRecommended?: (() => void) | undefined;
@@ -441,13 +441,13 @@ export function ProviderInstanceCard({
   hiddenModels,
   favoriteModels,
   modelOrder,
-  selectedModels,
-  showOnlySelectedModels,
+  selectedModels, // loom
+  showOnlySelectedModels, // loom
   onHiddenModelsChange,
   onFavoriteModelsChange,
   onModelOrderChange,
-  onSelectedModelsChange,
-  onShowOnlySelectedModelsChange,
+  onSelectedModelsChange, // loom
+  onShowOnlySelectedModelsChange, // loom
   onRunUpdate,
   onInstallRecommended,
   isUpdating = false,
@@ -996,6 +996,7 @@ export function ProviderInstanceCard({
               onHiddenModelsChange={onHiddenModelsChange}
               onFavoriteModelsChange={onFavoriteModelsChange}
               onModelOrderChange={onModelOrderChange}
+              // loom: model selection
               selectedModels={selectedModels}
               showOnlySelectedModels={showOnlySelectedModels}
               onSelectedModelsChange={onSelectedModelsChange}

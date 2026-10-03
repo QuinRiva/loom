@@ -594,11 +594,11 @@ function SidebarContent({
       {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}
       {/* Rows take focus on click. Scroll padding would make the browser nudge
           the list whenever a focused row sits under the fade. */}
-      {/* loom: scrollbars VISIBLE (upstream passes hideScrollbars). This viewport is
-          the element the thread list actually scrolls, so hiding them left a long
-          sidebar with nothing to see or grab — and `scrollbar-width: none` inherits,
-          so no descendant could reinstate one either. */}
       <ScrollArea
+        // loom: scrollbars VISIBLE (upstream passes hideScrollbars). This viewport is
+        // the element the thread list actually scrolls, so hiding them left a long
+        // sidebar with nothing to see or grab — and `scrollbar-width: none` inherits,
+        // so no descendant could reinstate one either.
         scrollFade
         scrollFadePadding={false}
         // Thread rows provide keyboard access to this scroll region. Keeping
