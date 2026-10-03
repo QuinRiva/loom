@@ -497,7 +497,13 @@ describe("buildThreadActionItems", () => {
       icon: null,
       getContentMatch: (thread) =>
         thread.id === ThreadId.make("recent-content")
-          ? { source: "user", snippet: "Please check Convex", query: "convex" }
+          ? {
+              source: "user",
+              snippet: "Please check Convex",
+              query: "convex",
+              position: 0,
+              matchedThreadTitle: null,
+            } // loom: ranked content match
           : undefined,
       runThread: async () => undefined,
     });

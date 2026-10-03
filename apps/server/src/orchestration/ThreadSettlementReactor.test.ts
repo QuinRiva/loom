@@ -1713,6 +1713,12 @@ describe("ThreadSettlementReactor", () => {
             Layer.succeed(RepositoryIdentityResolver, { resolve: () => Effect.succeed(null) }),
           ),
           Layer.provideMerge(SqlitePersistenceMemory),
+          // loom: the two-lane migrator reads ServerConfig.
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-migrations-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
         ),
       ),
     ),

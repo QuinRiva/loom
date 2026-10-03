@@ -16,7 +16,7 @@ import type {
   RelayAgentActivityPublishProofPayload,
   RelayAgentActivityState,
 } from "@t3tools/contracts/relay";
-import { CommandId, ProviderInstanceId } from "@t3tools/contracts";
+import { CommandId, loomThreadShellDefaults, ProviderInstanceId } from "@t3tools/contracts";
 import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { RELAY_ACTIVITY_PUBLISH_TYP, verifyRelayJwt } from "@t3tools/shared/relayJwt";
 import { describe, expect, it } from "@effect/vitest";
@@ -960,6 +960,7 @@ describe("signRelayAgentActivityPublishProof", { concurrent: false }, () => {
           assistantMessageId: null,
         } as const;
         const completedThread = {
+          ...loomThreadShellDefaults, // loom: fork shell fields
           id: threadId,
           projectId,
           title: "Old task",
@@ -980,8 +981,8 @@ describe("signRelayAgentActivityPublishProof", { concurrent: false }, () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
-        } satisfies OrchestrationThreadShell;
-        let currentThread: OrchestrationThreadShell | null = completedThread;
+        } satisfies OrchestrationThreadLeanShell; // loom: the relay reads lean shells
+        let currentThread: OrchestrationThreadLeanShell | null = completedThread;
         let publishes = 0;
         const originalFetch = globalThis.fetch;
         globalThis.fetch = (() => {
@@ -1095,7 +1096,8 @@ describe("startup catch-up", { concurrent: false }, () => {
             streamDomainEvents: Stream.never,
           } as unknown as OrchestrationEngineShape),
           Layer.succeed(ProjectionSnapshotQuery, {
-            getShellSnapshot: () =>
+            getLeanShellSnapshot: () =>
+              // loom: the relay's catch-up reads the lean snapshot
               Effect.sync(() => {
                 counts.catchUpPublishes += 1;
                 return {
@@ -1103,7 +1105,7 @@ describe("startup catch-up", { concurrent: false }, () => {
                   projects: [],
                   threads: [],
                   updatedAt: "2026-05-25T00:00:00.000Z",
-                } satisfies OrchestrationShellSnapshot;
+                } satisfies OrchestrationLeanShellSnapshot;
               }),
           } as unknown as ProjectionSnapshotQueryShape),
         ),

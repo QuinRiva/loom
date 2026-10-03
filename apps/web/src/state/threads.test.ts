@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 import {
   EnvironmentId,
+  loomThreadDefaults,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -47,6 +48,7 @@ function detail(
 ) {
   const threadId = ThreadId.make(id);
   const thread: OrchestrationThread = {
+    ...loomThreadDefaults, // loom: fork thread fields
     id: threadId,
     projectId: ProjectId.make("project"),
     title: id,

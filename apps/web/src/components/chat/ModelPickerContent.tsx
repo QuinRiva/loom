@@ -819,8 +819,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             index={index}
             value={modelKey}
             aria-expanded={legacySection.isExpanded}
-            className="group w-full cursor-pointer rounded-md px-2 py-2"
-            contentClassName="flex w-full items-center gap-3"
+            className="group w-full cursor-pointer"
           >
             <div className="min-w-0 flex-1 text-left">
               <div className="text-xs font-medium leading-snug">Legacy models</div>

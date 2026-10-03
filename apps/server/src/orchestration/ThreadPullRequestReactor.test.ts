@@ -29,6 +29,8 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import * as NodeServices from "@effect/platform-node/NodeServices"; // loom
+import { layerTest as serverConfigLayerTest } from "../config.ts"; // loom
 import { GitManager, type GitBranchPullRequest } from "../git/GitManager.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
@@ -764,6 +766,12 @@ describe("ThreadPullRequestReactor", () => {
             }),
           ),
           Layer.provideMerge(SqlitePersistenceMemory),
+          // loom: the two-lane migrator reads ServerConfig.
+          Layer.provideMerge(
+            serverConfigLayerTest(process.cwd(), { prefix: "t3-loom-migrations-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
         ),
       ),
     ),

@@ -224,7 +224,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     snapshot.getSnapshot.pipe(Effect.map((value) => value.models)),
     resolveRuntime,
   );
-  const protect = <A>(operation: string, effect: Effect.Effect<A, TextGenerationError>) =>
+  // loom: `R` lets structured generation carry its schema's decoding services.
+  const protect = <A, R>(operation: string, effect: Effect.Effect<A, TextGenerationError, R>) =>
     runtime.auth.controller.withAccess!(effect).pipe(
       Effect.scoped,
       Effect.mapError(
@@ -244,6 +245,9 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       protect("generateBranchName", nativeGeneration.generateBranchName(value)),
     generateThreadTitle: (value) =>
       protect("generateThreadTitle", nativeGeneration.generateThreadTitle(value)),
+    // loom: structured one-shot generation (goal/handoff drafting) is part of the SPI.
+    generateStructured: (value) =>
+      protect("generateStructured", nativeGeneration.generateStructured(value)),
   };
   return {
     instanceId,

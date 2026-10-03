@@ -5134,6 +5134,12 @@ it.effect(
         }),
       ),
       Layer.provideMerge(SqlitePersistenceMemory),
+      // loom: the two-lane migrator reads ServerConfig.
+      Layer.provideMerge(
+        serverConfigLayerTest(process.cwd(), { prefix: "t3-loom-migrations-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
     );
     return Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -5208,6 +5214,12 @@ it.effect("reads one sweep thread and its projects like the shell snapshot", () 
       }),
     ),
     Layer.provideMerge(SqlitePersistenceMemory),
+    // loom: the two-lane migrator reads ServerConfig.
+    Layer.provideMerge(
+      serverConfigLayerTest(process.cwd(), { prefix: "t3-loom-migrations-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
   );
   return Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -5271,6 +5283,12 @@ it.effect("reads a full sweep from unsettled threads and every project", () => {
       }),
     ),
     Layer.provideMerge(SqlitePersistenceMemory),
+    // loom: the two-lane migrator reads ServerConfig.
+    Layer.provideMerge(
+      serverConfigLayerTest(process.cwd(), { prefix: "t3-loom-migrations-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
   );
   return Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

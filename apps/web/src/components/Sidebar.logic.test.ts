@@ -2651,10 +2651,13 @@ describe("Working shelf (beta)", () => {
     interactionMode: "default" as const,
     latestTurn: makeLatestTurn(),
     session: { ...session, status: "ready" as const },
+    attention: [], // loom
   };
 
   it("folds away running and monitoring threads only", () => {
     expect(isSidebarThreadWorking({ ...idle, session })).toBe(true);
+    // loom: an attention flag is the thread needing the user — never shelved.
+    expect(isSidebarThreadWorking({ ...idle, session, attention: ["needs_guidance"] })).toBe(false);
     expect(isSidebarThreadWorking({ ...idle, backgroundLiveness: "monitoring" })).toBe(true);
     expect(isSidebarThreadWorking(idle)).toBe(false);
     expect(isSidebarThreadWorking({ ...idle, session, hasPendingApprovals: true })).toBe(false);

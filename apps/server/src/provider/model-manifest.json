@@ -706,22 +706,10 @@
           }
         },
         {
-          "slug": "claude-opus-5-5",
-          "name": "Claude Opus 5.5",
-          "aliases": ["opus", "opus-5.5", "claude-opus-5.5"],
-          "status": "current",
-          "profile": "opus-5",
-          "adapter": {
-            "claudeCode": {
-              "minVersion": "2.1.280"
-            }
-          }
-        },
-        {
           "slug": "claude-opus-5",
           "name": "Claude Opus 5",
-          "aliases": ["opus-5", "claude-opus-5.0", "claude-opus-5-0"],
-          "status": "legacy",
+          "aliases": ["opus", "opus-5", "claude-opus-5.0", "claude-opus-5-0"],
+          "status": "current",
           "profile": "opus-5",
           "adapter": {
             "claudeCode": {

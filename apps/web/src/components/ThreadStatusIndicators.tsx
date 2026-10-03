@@ -182,7 +182,7 @@ export function WorkstreamGraphIndicator({
         <GraphBadgeGlyph tone={badge.tone} />
         {countLabel === null ? null : <span>{countLabel}</span>}
       </PopoverTrigger>
-      <PopoverPopup side="top" align="end" className="w-60" viewportClassName="px-0 py-0">
+      <PopoverPopup side="top" align="end" className="w-60" padding="none">
         <div className="px-3 pt-2.5 pb-1.5 text-xs font-semibold text-foreground">
           {badge.title}
         </div>

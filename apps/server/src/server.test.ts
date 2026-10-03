@@ -7336,6 +7336,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               refresh: Effect.never,
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              retractUsageLimits: () => Effect.void, // loom
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],

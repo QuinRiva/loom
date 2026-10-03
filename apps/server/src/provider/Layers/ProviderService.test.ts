@@ -795,6 +795,7 @@ it.effect("ProviderServiceLive shutdown leaves settled session rows untouched", 
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(recordedAnalytics.layer),
+        Layer.provide(WorkspaceLeaseTestLive), // loom: occupancy lease
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,

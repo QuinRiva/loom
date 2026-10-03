@@ -589,6 +589,7 @@ export function parsePiLine(line: string, sessionId: string): UsageRecord | null
     model,
     sessionId,
     totals,
+    fast: false, // pi records no fast-mode marker
     reportedCostUsd: typeof costTotal === "number" && Number.isFinite(costTotal) ? costTotal : null,
     dedupeKey: id === null ? null : `${id}:${timestampMs}:${totalTokens(totals)}`,
   };

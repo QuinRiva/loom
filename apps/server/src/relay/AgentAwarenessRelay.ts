@@ -277,7 +277,8 @@ export function resolveAgentAwarenessRelayPublishSnapshot(input: {
   };
 }
 
-function terminalWorkSinceStart(thread: OrchestrationThreadShell, startedAt: number): boolean {
+// loom: the relay reads lean shells.
+function terminalWorkSinceStart(thread: OrchestrationThreadLeanShell, startedAt: number): boolean {
   return Date.parse(thread.latestTurn?.completedAt ?? "") > startedAt;
 }
 

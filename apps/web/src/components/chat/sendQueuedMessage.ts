@@ -168,7 +168,7 @@ export async function sendQueuedMessage(
       terminalContexts: sendableTerminalContexts,
       reviewComments: message.reviewComments,
       previewAnnotations: message.previewAnnotations,
-      threadReferences: message.threadReferences, // loom: a queued `#thread` chip keeps its record
+      threadReferences: message.threadReferences ?? [], // loom: a queued `#thread` chip keeps its record
       attachments: attachments.map((attachment, index) => ({
         attachment,
         attachmentId: wireAttachments[index]?.id ?? attachment.id,

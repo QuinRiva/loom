@@ -2,10 +2,12 @@ import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result"; // loom: repo-wide PR listing
 import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contracts";
 
 import * as GitHubCli from "./GitHubCli.ts";
 import { findAuthenticatedGitHubAccount, parseGitHubAuthStatus } from "./gitHubAuthStatus.ts";
+import { decodeGitHubPullRequestListJson } from "./gitHubPullRequests.ts"; // loom: repo-wide PR listing
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
   combinedAuthOutput,
@@ -113,7 +115,8 @@ export const discovery = {
 
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
-  // loom: repository-wide PR listing shared by the per-branch and all-PR arms.
+  // loom: repository-wide PR listing (`gh pr list`); the per-branch arm is
+  // upstream's batched GraphQL head lookup.
   const executeChangeRequestList = (input: {
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;

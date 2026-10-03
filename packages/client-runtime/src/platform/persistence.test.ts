@@ -1,4 +1,5 @@
 import {
+  OrchestrationGoalShell,
   OrchestrationProjectShell,
   OrchestrationShellSnapshot,
   OrchestrationThreadShell,
@@ -34,6 +35,7 @@ describe("encodeShellSnapshotForCache", () => {
     Effect.gen(function* () {
       const threads = yield* sampleDecoded(OrchestrationThreadShell);
       const projects = yield* sampleDecoded(OrchestrationProjectShell);
+      const goals = yield* sampleDecoded(OrchestrationGoalShell); // loom: shell snapshots carry goals
       const snapshot: OrchestrationShellSnapshot = {
         snapshotSequence: 1,
         // The generator rarely makes monogram icons, and they are the one
@@ -44,6 +46,7 @@ describe("encodeShellSnapshotForCache", () => {
             : project,
         ),
         threads,
+        goals, // loom
         updatedAt: "2026-09-25T00:00:00.000Z",
       };
 

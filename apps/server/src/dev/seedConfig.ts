@@ -10,6 +10,8 @@
 // @effect-diagnostics globalErrorInEffectFailure:off
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
+import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
+import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 
 import * as ServerConfig from "../config.ts";
 
@@ -42,10 +44,10 @@ export const buildSeedConfig = Effect.gen(function* () {
     otlpTracesUrl: undefined,
     otlpMetricsUrl: undefined,
     otlpLogsUrl: undefined,
-    otlpHeaders: undefined,
-    otlpProtocol: "http/json",
-    otlpExportIntervalMs: 10_000,
-    otlpServiceName: "t3-seed",
+    otlpTracesExport: DEFAULT_SIGNAL_EXPORT,
+    otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
+    otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
+    otelEnvironment: OtelEnvironment.none,
     mode: "web",
     port: 0,
     host: undefined,

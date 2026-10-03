@@ -1,5 +1,6 @@
 import {
   CommandId,
+  loomThreadDefaults,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -23,6 +24,7 @@ function makeReadModel(input: {
     projects: [],
     threads: [
       {
+        ...loomThreadDefaults, // loom: fork thread fields
         id: ThreadId.make("thread-1"),
         projectId: ProjectId.make("project-1"),
         title: "Thread",
@@ -47,6 +49,7 @@ function makeReadModel(input: {
         session: null,
       },
     ],
+    goals: [], // loom
     updatedAt: NOW,
   };
 }

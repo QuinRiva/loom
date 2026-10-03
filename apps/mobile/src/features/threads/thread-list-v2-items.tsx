@@ -32,6 +32,7 @@ import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { relativeTime } from "../../lib/time"; // loom: pending-question age
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
