@@ -137,9 +137,8 @@ function ChainTargetRow({
       <div className="flex shrink-0 items-center">
         <Button
           type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
+          size="icon-micro"
+          variant="ghost-muted"
           disabled={isFirst}
           onClick={() => onMove(-1)}
           aria-label="Move target earlier"
@@ -148,9 +147,8 @@ function ChainTargetRow({
         </Button>
         <Button
           type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
+          size="icon-micro"
+          variant="ghost-muted"
           disabled={isLast}
           onClick={() => onMove(1)}
           aria-label="Move target later"
@@ -159,9 +157,8 @@ function ChainTargetRow({
         </Button>
         <Button
           type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="size-5 p-0 text-muted-foreground hover:text-destructive"
+          size="icon-micro"
+          variant="ghost-destructive"
           onClick={onRemove}
           aria-label="Remove target"
         >
@@ -215,13 +212,7 @@ function ChainSourceCard({
           )}
         </div>
         {(isOverridden || !hasDefault) && (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            className="h-6 gap-1 px-1.5 text-2xs text-muted-foreground hover:text-foreground"
-            onClick={onReset}
-          >
+          <Button type="button" size="xs" variant="ghost-muted" className="h-6" onClick={onReset}>
             <RotateCcwIcon className="size-3" />
             {hasDefault ? "Reset" : "Remove"}
           </Button>
@@ -256,7 +247,8 @@ function ChainSourceCard({
             <Button
               type="button"
               variant="outline"
-              className="h-7 w-full justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+              size="compact"
+              className="w-full justify-start"
               aria-label={`Add fallback target for ${source}`}
             >
               <PlusIcon className="size-3" />
@@ -420,7 +412,7 @@ export function FailoverSettingsPanel() {
                     type="button"
                     size="xs"
                     variant={paused ? "default" : "outline"}
-                    className="h-6 shrink-0 px-2 text-2xs"
+                    className="h-6 shrink-0"
                     onClick={() => togglePause(account.key, !paused)}
                   >
                     {paused ? "Unpause" : "Pause"}
@@ -445,8 +437,8 @@ export function FailoverSettingsPanel() {
                 <Button
                   type="button"
                   size="xs"
-                  variant="ghost"
-                  className="h-6 gap-1 px-2 text-2xs text-muted-foreground hover:text-foreground"
+                  variant="ghost-muted"
+                  className="h-6"
                   aria-label="Add a model-specific fallback chain"
                 >
                   <PlusIcon className="size-3" />

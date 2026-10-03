@@ -168,8 +168,7 @@ export function DiagnosticsRefreshButton({
         render={
           <Button
             size="icon-xs"
-            variant="ghost"
-            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+            variant="ghost-muted"
             disabled={isPending}
             onClick={onClick}
             aria-label={label}
