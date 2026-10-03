@@ -17,8 +17,9 @@ import {
 } from "@t3tools/shared/providerFailover";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
-import { primaryServerProvidersAtom } from "../../state/server";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -247,8 +248,8 @@ function ChainSourceCard({
             <Button
               type="button"
               variant="outline"
-              size="compact"
-              className="w-full justify-start"
+              size="xs"
+              className="h-7 w-full justify-start"
               aria-label={`Add fallback target for ${source}`}
             >
               <PlusIcon className="size-3" />
@@ -261,10 +262,22 @@ function ChainSourceCard({
   );
 }
 
-export function FailoverSettingsPanel() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
-  const serverProviders = useAtomValue(primaryServerProvidersAtom);
+/**
+ * Each environment's server applies failover from its own settings and its own
+ * provider accounts, so this card edits exactly the environment the providers
+ * page displays; `readOnly` freezes every control for a read-only credential.
+ */
+export function FailoverSettingsPanel({
+  environmentId,
+  readOnly,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly readOnly: boolean;
+}) {
+  const settings = useEnvironmentSettings(environmentId);
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const serverProviders =
+    useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
   const failover = settings.providerFailover;
   const nowMs = Date.now();
 
@@ -357,115 +370,119 @@ export function FailoverSettingsPanel() {
 
   return (
     <SettingsSection title="Failover">
-      <SettingsRow
-        title="Cross-provider failover"
-        description="When a subscription hits its limit, automatically reroute turns to a healthy model and switch back when the window resets."
-        control={
-          <Switch
-            checked={failover.enabled}
-            onCheckedChange={(checked) => patchFailover({ enabled: Boolean(checked) })}
-            aria-label="Enable cross-provider failover"
-          />
-        }
-      />
-      <SettingsRow
-        title="Resume stalled threads on reset"
-        description="Continue threads that stalled on an exhausted provider once the limit resets."
-        control={
-          <Switch
-            checked={failover.resumeOnReset}
-            onCheckedChange={(checked) => patchFailover({ resumeOnReset: Boolean(checked) })}
-            aria-label="Resume stalled threads on reset"
-          />
-        }
-      />
+      <fieldset disabled={readOnly} className="contents">
+        <SettingsRow
+          title="Cross-provider failover"
+          description="When a subscription hits its limit, automatically reroute turns to a healthy model and switch back when the window resets."
+          control={
+            <Switch
+              checked={failover.enabled}
+              disabled={readOnly}
+              onCheckedChange={(checked) => patchFailover({ enabled: Boolean(checked) })}
+              aria-label="Enable cross-provider failover"
+            />
+          }
+        />
+        <SettingsRow
+          title="Resume stalled threads on reset"
+          description="Continue threads that stalled on an exhausted provider once the limit resets."
+          control={
+            <Switch
+              checked={failover.resumeOnReset}
+              disabled={readOnly}
+              onCheckedChange={(checked) => patchFailover({ resumeOnReset: Boolean(checked) })}
+              aria-label="Resume stalled threads on reset"
+            />
+          }
+        />
 
-      {accounts.length > 0 && (
-        <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-          <p className="mb-2 text-xs font-medium text-foreground">Subscription accounts</p>
-          <div className="space-y-1.5">
-            {accounts.map((account) => {
-              const reset = formatResetClock(account.resetsAt, nowMs);
-              const paused = account.state === "paused";
-              return (
-                <div
-                  key={account.key}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-xs font-medium text-foreground">
-                      {account.displayName}
-                    </span>
-                    {paused ? (
-                      <Badge variant="warning" size="sm">
-                        Paused
-                      </Badge>
-                    ) : account.state === "exhausted" ? (
-                      <span className="truncate text-2xs text-destructive">
-                        Limit reached{reset ? ` · resets ${reset}` : ""}
+        {accounts.length > 0 && (
+          <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+            <p className="mb-2 text-xs font-medium text-foreground">Subscription accounts</p>
+            <div className="space-y-1.5">
+              {accounts.map((account) => {
+                const reset = formatResetClock(account.resetsAt, nowMs);
+                const paused = account.state === "paused";
+                return (
+                  <div
+                    key={account.key}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {account.displayName}
                       </span>
-                    ) : (
-                      <span className="text-2xs text-muted-foreground/70">Available</span>
-                    )}
+                      {paused ? (
+                        <Badge variant="warning" size="sm">
+                          Paused
+                        </Badge>
+                      ) : account.state === "exhausted" ? (
+                        <span className="truncate text-2xs text-destructive">
+                          Limit reached{reset ? ` · resets ${reset}` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-2xs text-muted-foreground/70">Available</span>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={paused ? "default" : "outline"}
+                      className="h-6 shrink-0"
+                      onClick={() => togglePause(account.key, !paused)}
+                    >
+                      {paused ? "Unpause" : "Pause"}
+                    </Button>
                   </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="border-t border-border/60 px-4 pt-3 sm:px-5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-foreground">Fallback chains</p>
+            {addableSourceOptions.length > 0 && (
+              <SearchableModelPopover
+                options={addableSourceOptions}
+                align="end"
+                placeholder="Search models..."
+                onSelect={(value) => setSourceTargets(value, [])}
+                trigger={
                   <Button
                     type="button"
                     size="xs"
-                    variant={paused ? "default" : "outline"}
-                    className="h-6 shrink-0"
-                    onClick={() => togglePause(account.key, !paused)}
+                    variant="ghost-muted"
+                    className="h-6"
+                    aria-label="Add a model-specific fallback chain"
                   >
-                    {paused ? "Unpause" : "Pause"}
+                    <PlusIcon className="size-3" />
+                    Add model
                   </Button>
-                </div>
-              );
-            })}
+                }
+              />
+            )}
           </div>
+          <p className="mt-0.5 text-2xs text-muted-foreground/70">
+            Ordered targets tried when the source is exhausted. "Same model" keeps the model on
+            another provider's pool.
+          </p>
         </div>
-      )}
-
-      <div className="border-t border-border/60 px-4 pt-3 sm:px-5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium text-foreground">Fallback chains</p>
-          {addableSourceOptions.length > 0 && (
-            <SearchableModelPopover
-              options={addableSourceOptions}
-              align="end"
-              placeholder="Search models..."
-              onSelect={(value) => setSourceTargets(value, [])}
-              trigger={
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost-muted"
-                  className="h-6"
-                  aria-label="Add a model-specific fallback chain"
-                >
-                  <PlusIcon className="size-3" />
-                  Add model
-                </Button>
-              }
-            />
-          )}
-        </div>
-        <p className="mt-0.5 text-2xs text-muted-foreground/70">
-          Ordered targets tried when the source is exhausted. "Same model" keeps the model on
-          another provider's pool.
-        </p>
-      </div>
-      {sources.map((source) => (
-        <ChainSourceCard
-          key={source}
-          source={source}
-          targets={userChains[source] ?? DEFAULT_FAILOVER_CHAINS[source] ?? []}
-          isOverridden={source in userChains}
-          hasDefault={source in DEFAULT_FAILOVER_CHAINS}
-          nameBySlug={nameBySlug}
-          targetOptions={targetOptions}
-          onChange={(targets) => setSourceTargets(source, targets)}
-          onReset={() => resetSource(source)}
-        />
-      ))}
+        {sources.map((source) => (
+          <ChainSourceCard
+            key={source}
+            source={source}
+            targets={userChains[source] ?? DEFAULT_FAILOVER_CHAINS[source] ?? []}
+            isOverridden={source in userChains}
+            hasDefault={source in DEFAULT_FAILOVER_CHAINS}
+            nameBySlug={nameBySlug}
+            targetOptions={targetOptions}
+            onChange={(targets) => setSourceTargets(source, targets)}
+            onReset={() => resetSource(source)}
+          />
+        ))}
+      </fieldset>
     </SettingsSection>
   );
 }
