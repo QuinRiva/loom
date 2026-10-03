@@ -167,7 +167,7 @@ export function WorkstreamLifecycleDrawer({
         aria-modal={open}
         role="dialog"
         aria-label="Lifecycle history"
-        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-workstream to-workstream-deep shadow-2xl/50 transition-transform duration-260 ease-in-out motion-reduce:transition-none ${
+        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-workstream to-workstream-deep shadow-workstream-drawer transition-transform duration-260 ease-in-out motion-reduce:transition-none ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
