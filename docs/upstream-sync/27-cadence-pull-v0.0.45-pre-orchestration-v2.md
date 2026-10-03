@@ -648,7 +648,38 @@ Reversibility: `trivial` (re-add a hunk), `local` (one file/feature),
 | id | zone / file | what conflicted | ruling | reasoning | evidence | reversibility |
 | -- | ----------- | --------------- | ------ | --------- | -------- | ------------- |
 | DL-0 | repo | tip `f391794a35` vs `024d49520e` | pre-V2 target | V2 is a re-platform, not a merge (§0, §12) | Carl's addendum; pull-7 framing | structural — pull 9 re-opens it |
-| | | | | | | |
+| DL-1 | lockfile / `pnpm-workspace.yaml` | loom's global `"@noble/hashes": 1.8.0` override vs upstream's new scoped `"@exodus/bytes>@noble/hashes": "1.8.0"` (same comment: one jsdom peer → one vitest) | upstream's override; loom's deleted | same concern arrived at twice — upstream's mechanism (doctrine §5 rule 4); upstream's apps/web now carries jsdom itself | upstream `pnpm-workspace.yaml` comment "Keep jsdom's optional peer consistent so Vite+ has one test-runner instance" | trivial |
+| DL-2 | lockfile / `pnpm-workspace.yaml` | Expo 57 overrides (incl. `expo-modules-core: 57.0.14`) vs Expo 58 set | upstream's Expo 58 set; `expo-modules-core` override dropped (upstream dropped it); loom's `astro>esbuild 0.28.2` and `@types/hast 3.0.5` kept. PR-16 "prove load-bearing by reverting" deferred to S2 (needs typecheck) | upstream lines; loom overrides kept pending the S2 revert test | PR-16 | trivial |
+| DL-3 | `apps/web/package.json` | `jsdom` ^29.1.1 (loom-added) vs ^30.0.1 (upstream-added) | upstream's ^30.0.1 | both sides added the same dependency; upstream's version | none — default | trivial |
+| DL-4 | contracts / `usage.ts` | module doc + `USAGE_MERGE_COMPATIBLE_SINCE` doc: loom's "v6 only adds `pi`" vs upstream's generic "v5/v6 add providers" (both sides independently landed on `USAGE_CONTRACT_VERSION = 6`) | upstream's comments; `UsageProviderKind` = upstream's six + loom's `pi` (marked) | upstream's wording already covers pi as "a provider"; provider additions are now additive by upstream's `ForwardCompatibleArray` note, so the shared v6 number is harmless | upstream `usage.ts` version doc | trivial |
+| DL-5 | contracts / `model.ts` | `DEFAULT_TEXT_GENERATION_MODEL = "gpt-6-luna"` both sides | identical line; loom's "rolled from gpt-5.6-luna" marker comment deleted (no longer a fork delta) | PR-1 keeps `PI_DEFAULT_MODEL` + thinking levels unchanged | PR-1 | trivial |
+| DL-6 | shared / `usageMerge.test.ts` | loom's rewritten floor test ("excludes older than the floor, merges one at it", `staleEnvironments`, env-c at the floor) vs upstream's rewrite of the same test against the floor (`contractMismatches`, serverBehind/clientBehind) + three new partial-scan tests | upstream's file verbatim; loom's test case deleted | same concern fixed twice (fixture written against `USAGE_MERGE_COMPATIBLE_SINCE`); upstream's source now returns `contractMismatches`, and its "keeps new cells…" case merges an environment at the floor | PR-18; upstream `usageMerge.test.ts` | trivial |
+| DL-7 | server core / `ProjectionSnapshotQuery.ts` | git mis-aligned upstream's `listActiveThreadRows` change (`unsettledOnly` filter, `auto_settle_disabled_at` column, `threads` alias) across two near-identical SELECTs: the request/execute header landed on loom's full `listActiveThreadRows`, the column + alias + filter on loom's `listActiveLeanThreadRows` (conflicting with its role filter) | re-split by hand: the full read gets upstream's column, alias and `unsettledOnly` filter; the lean read keeps its `RoleFilterInput` role filter and gains the column (its row schema now carries `autoSettleDisabledAt`); sessions/latest-turn reads take a composed `ActiveThreadRoleRowsRequest = { unsettledOnly, role }` with both predicates in SQL (lean snapshot passes `unsettledOnly: false`, full passes `role: null`) | PR-4 as pre-ruled; recorded because the clean-merged text was silently wrong, not only the conflicted lines | PR-4; §11.2 | local |
+| DL-8 | server core / `ProjectionSnapshotQuery.ts` | upstream deleted `decodeShellSnapshot` (`b6eefc926a`: the full and archived shell snapshots are built from schema-decoded rows and `satisfies OrchestrationShellSnapshot`, no second decode) vs PR-4's "keep both decoders" | `decodeShellSnapshot` deleted with upstream; loom's `decodeLeanShellSnapshot` (control-plane read) kept; `mapLeanThreadShellRow` kept and now also maps `autoSettleDisabledAt` (PR-5: upstream's switch rides the lean row) | adopting upstream's single-decode structure (PR-4's own instruction) leaves `decodeShellSnapshot` with no caller; keeping an unused decoder would only fail knip. Deviation from PR-4's literal "keep both decoders" | PR-4; upstream `b6eefc926a` | trivial |
+| DL-9 | server core / `serverSettings.ts` | upstream renamed `USAGE_LIMIT_SOURCE_KEY_REDACTED` → `SECRET_REDACTED` (+ `redactSecret`, bitbucket secrets) vs loom's embedder-key redaction | union: both `bitbucket` and loom's `threadSearchEmbedding` redaction returned; loom's hunk re-pointed at `SECRET_REDACTED` | composition; the old constant no longer exists | none — default | trivial |
+| DL-10 | provider / `ProviderSessionReaper.ts` | upstream now reads only live bindings (`listBindings({ excludeStopped: true })`, merged clean) and dropped the in-loop stopped skip; loom's retention prune lived in that stopped branch — with the clean-merged query it would never have run again | one all-rows `listBindings()` read split in memory: live rows feed upstream's reap loop, stopped rows of deleted threads feed loom's prune (now its own loop); sweep log carries `prunedCount` + upstream's `liveBindings` | PR-13 (keep loom's irreversible-class prune). Upstream's query-side skip of stopped rows is NOT adopted — that is its perf win given up; a dedicated "delete stopped bindings of deleted threads" SQL statement would recover it if it matters | PR-13; upstream `8872666957` | local |
+| DL-11 | provider / `model-manifest.json` | `currentModels.codex`: loom `gpt-6-luna, gpt-5.6-terra, gpt-6-sol` vs upstream `gpt-6.1-sol, gpt-6-luna`; `claudeAgent` loom ⊂ upstream; new `compatibility` block; `updatedAt` | union codex (`gpt-6.1-sol, gpt-6-luna, gpt-5.6-terra, gpt-6-sol`), upstream's claudeAgent, upstream's `compatibility` and `updatedAt`. No `pi` compatibility entry added — the "does the checker flag Pi" check is S3's PiDriver parity item | PR-12 | PR-12 | trivial |
+| DL-12 | server / `ProjectSetupScriptRunner.ts` | upstream's optional `completion?` (`{ exitCode: number \| null, durationMs }`, only when `observeCompletion`) + close-idle-shell-on-exit-0 vs loom's always-present `completion` (marker/Deferred, 30-min timeout, breadcrumb writer, failure fold) | loom's implementation and required `completion` type kept; upstream's behaviour (close the idle setup shell on exit 0) re-expressed in loom's detached observer after the `ready` breadcrumb | deviation from PR-7's "upstream's shape (optional)": loom observes completion on every run because the breadcrumb is written for every run, so an optional type would only add undefined-handling to `WorktreeProvisioner` for a value that is always there; upstream's `ProjectSetupScriptOutputLine` / `durationMs` shape not adopted (pull 7 already kept loom's runner) | PR-7; doc 25 session 5 | local |
+| DL-13 | source control / `GitHubSourceControlProvider.test.ts` | upstream deleted "treats empty non-open change request listing output as no results" (`10ac2f2ba4`: history listing moved to the batched GraphQL head lookup) vs loom's added repo-wide listing test beside it | loom's repo-wide `listRepositoryChangeRequests` test kept (its source survives); the empty-listing test deleted with upstream | tests follow source; the `gh pr list` path that test pinned is gone upstream | PR-18 | trivial |
+| DL-14 | usage / `UsageService.test.ts` | loom's `HOME: input.home` (marked) vs upstream's identical line | upstream's line; loom marker comment dropped | no longer a fork delta | none — default | trivial |
+| DL-15 | project / `ProjectSetupScriptRunner.test.ts` | upstream's tests against its sentinel-wrapper runner (`closeIdle` on clean exit / not on failure, `__T3_SETUP_DONE___<hex>` sentinel) vs loom's tests against loom's marker runner | loom's tests kept; the terminal mock gains an optional `closeIdle` (default no-op) because loom's runner now calls it; upstream's "closes the idle setup shell after a clean exit" and its `closeIdle` assertion in the failure test not taken | those cases pin upstream's runner implementation, which loom does not ship (DL-12); no loom replacement test added (S3 worktree-setup smoke covers the idle-shell close live) | PR-7, PR-18 | trivial |
+| DL-16 | process / `externalLauncher.test.ts` | loom's file had lost upstream's "ignores unusable app bundles and keeps PATH launchers first" test (dropped at the pull-7 merge, no loom commit removes it); upstream added the `agy` CLI tests beside it | union: upstream's `agy` loop + the restored upstream test (024d text) + loom's two `zed-remote` tests | upstream case dropped by accident is restored | PR-18 (`externalLauncher` precedent) | trivial |
+| DL-17 | server tests / `server.test.ts` | (a) `appLayer` harness: loom's two-`.pipe` split (20-arg limit) vs upstream's single pipe gaining `otlpTracesExport.protocol`, `CloudManagedEndpointRuntime` recovery members + `AgentAwarenessRelay` mock, `getExisting: succeedNone`, an optional `httpClient` layer; (b) the bootstrapped-session handshake test: git spliced loom's assertion tail onto upstream's new "creates a project from just a name" test; (c) 19 hunks where upstream's only change was `succeedSome`/`succeedNone` sugar on mocks loom had already rewritten (`getLiveSubtreeSessionLiveness`, `getSnapshotSequence`, loom's catch-up tests) or deleted | (a) loom's split harness with upstream's four edits applied by hand; (b) upstream's new test kept intact, loom's handshake assertions (no `shellRevealInFileManager*` isUndefined lines, marker comment) moved back to the handshake test; (c) loom's side throughout. Upstream's "stops an overflowing shell producer without an ACK…" and "subscribeThread replaces a cursor ahead of the authoritative head" stay absent — loom dropped them at the pull-7 merge (ledger entry 50) and upstream only re-sugared them | composition; (c) carries no upstream behaviour. S3 should decide whether the two ACK/overflow tests can be restored against loom's `ws.ts` (they pin upstream's shell producer backpressure) | PR-18; doc 25 ledger #50 | trivial |
+| DL-18 | web sidebar / `Sidebar.logic.ts`, `Sidebar.logic.test.ts` | upstream deleted `sortSettledThreadsForSidebar` (moved to client-runtime `sortSettledThreads`) and `resolveThreadRowClassName`, added `sortInboxThreadsByReturn` + `resolveSidebarRowAccessibility`; loom kept the old helper beside its `shouldNavigateAfterProjectRemoval` | upstream's helpers; loom's copy of `sortSettledThreadsForSidebar` deleted (no loom caller — only its test import); `shouldNavigateAfterProjectRemoval` kept; unused `threadSearchMatchKey` test import dropped | upstream owns settled ordering now | PR-8 | trivial |
+| DL-19 | web sidebar / `Sidebar.logic.ts` `isSidebarThreadWorking` | upstream's Working-shelf predicate types its input without `attention`, but loom's `resolveSidebarThreadStatus` needs it | PR-8's marked hunk: any loom attention flag keeps a thread out of the Working shelf (counts as "needs you"); input type widened with `attention` | PR-8 as pre-ruled (one marked hunk) | PR-8 | trivial |
+| DL-20 | web sidebar / `Sidebar.tsx` | (a) memo deps: loom had dropped `nowMinute` (client-side settle clock deleted, #199), upstream added `workingShelfEnabled`; (b) context menu: loom's spliced goal-menu list vs upstream's new `autoSettleEnabled` + `autoSettleOptOut` capability; (c) imports: upstream dropped `snoozeWakeDescription`, loom keeps `@t3tools/shared/threadSettled` | (a) loom's deps + `workingShelfEnabled`; (b) loom's splice with upstream's two new fields threaded in; (c) loom's import paths, upstream's narrowed `Sidebar.snooze` import, `sortSettledThreads` added | composition | PR-5, PR-8 | trivial |
+| DL-21 | web routes / `__root.tsx` | loom hoisted dialogs/coordinators/app shell above `FirstRunGate`; upstream added `ProviderAuthCallbackCoordinator` + `ChatGptWelcomeCoordinator` (outside the gate), `RunningThreadKeepAlive` (electron) and `QueuedMessageSender` (inside the gate) | loom's structure kept; upstream's four mounts added at their upstream positions relative to the gate | composition | none — default | trivial |
+| DL-22 | web / `useHandleNewThread.ts` + `loom/useProjectDefaultThreadEnvMode.ts` + `loom/useGoalPanelActions.ts` | upstream deleted `@t3tools/shared/threadEnvMode` (`742173a132`: t3.json is resolved inside `resolveProjectSettings`); loom's exported `resolveNewThreadDefaultEnvMode` and its render-time twin `useProjectDefaultThreadEnvMode` (merged clean, would not compile) used the deleted resolver | both re-expressed on upstream's resolver: the async helper now takes `(settings, projectId, project)` and calls the 4-arg `resolveProjectSettings` with the t3.json only when project+environment tiers are unset; the hook uses `resolveProjectFileBackedSetting`. Behaviour change inherited from upstream: priority is now project > environment > t3.json > built-in (was project > t3.json > global) | PR-17: adopt upstream's replacement, never restore a deleted module | PR-17 | local |
+| DL-23 | web / `ThreadSearchMatch.tsx`, `ThreadRouteView.tsx`, `_chat.index.tsx`, `NoProjectsHero.tsx` | upstream's restyle (raw `text-blue-400`/`emerald-400` → `text-info-foreground`/`text-success-foreground`; `bg-background text-foreground` dropped from `SidebarInset`; electron header on draft-error/no-project screens) vs loom's richer sub-thread search labels and thread-tabs strip | loom's markup with upstream's tokens/classes; loom's tabs strip after upstream's electron titlebar | composition | PR-15 | trivial |
+| DL-24 | web chat / `FileTagChip.tsx`, `composerInlineChip.ts` + loom `verifiedFileChips.tsx`, `threadReferencePresentation.tsx` | upstream's `ContextChip` component (`266d70cc4d`) replaced the chip class-name constants (`CHAT_FILE_TAG_CHIP_CLASS_NAME`, `COMPOSER_INLINE_CHIP_*`, `CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES`) and `FileTagChipContent`'s `selectable` prop; loom kept the constants + `ThreadTagChipContent` (raw `THREAD_CHIP_ICON_SVG`) + `COMPOSER_INLINE_CHIP_DISMISS_BUTTON_CLASS_NAME` | upstream's files; loom's `#thread` chip re-homed onto `<ContextChip kind="mention">` (`ThreadTagChipContent` = lucide `MessagesSquareIcon` + `ContextChipLabel`, `THREAD_CHIP_ICON_SVG` deleted); the missing-file chip and the thread chips in `verifiedFileChips.tsx` render through `ContextChip` (`select-text` replaces `selectable`) | §7 "loom's `#thread` chip must ride `ContextChip`"; PR-17 (no restored constants) | §7 chat-surface row; PR-17 | local |
+| DL-25 | web chat / `ComposerCommandMenu.tsx`, `ChatComposer.tsx` | upstream's composer-suggestion a11y (`listId`, `optionId`, `LISTBOX_LABEL_BY_TRIGGER`, sr-only status keyed on the `"pull-request"` trigger) vs loom's `#` sectioned menu with the trigger renamed `"hash"` | composed: upstream's listbox ids/labels around loom's sectioned groups; the label map and sr-only status keyed on loom's `"hash"` trigger (marked) | composition; loom's unified `#` trigger is a KEEP (pull-7 3A item 3) | PR-20; pull-7 3A | trivial |
+| DL-26 | web chat / `ChatView.tsx`, `queuedMessageStore.ts`, `chat/sendQueuedMessage.ts` | upstream moved queued sends out of `onSend` into `QueuedMessageSender`/`sendQueuedMessage` (`295d7cba09`; `onSend` lost its `queuedMessage` param, queue rows carry `sendSettings` instead of `submissionIntent`) vs loom's `threadReferences` on queued rows and `$skill` expansion in `onSend` | upstream's structure; loom's `threadReferences` kept on queued rows and threaded into `sendQueuedMessage`'s `buildMessageContext` (marked); `interceptable = !directAnnotation` (queued rows never reach `onSend`; `/handoff` is still intercepted before enqueue). **Gap left for S3:** queued messages no longer get loom's `$name → /skill:name` pi expansion (it lives only in `onSend`) | upstream owns queued sending now | PR-10 family; none — default | local |
+| DL-27 | web panels / `DiffPanel.tsx` | upstream's radio-group scope menu vs loom's highlighted-item menu with the By-coder group | upstream's radio groups; By-coder re-homed as a third radio group (`coder:<thread>` / `coder:<thread>:<turn>`, sub-menus carry their own radio group), the top-level scope value is empty while a coder is selected (marked) | PR-9 as pre-ruled | PR-9 | local |
+| DL-28 | web panels / `DiagnosticsSettings.tsx` + loom `settingsLayout.tsx` | loom hoisted `StatBlock`/`StatsGrid` into `settingsLayout.tsx` (shared with Worktrees); upstream restyled them in place (`text-2xs`, `tracking-widest`, `text-warning-foreground`, default `TooltipPopup`) | loom's hoist kept; upstream's restyle ported into `settingsLayout.tsx` | composition | PR-15 | trivial |
+| DL-29 | web panels / `rightPanelStore.ts`, `terminal-links.ts` | upstream's `openFile(".")` → explorer and normalisation (in its `openFile`) aligned by git against loom's `openFilesAt`; upstream's `trimClosingDelimiters(value, kind)` (path drops a trailing colon) vs loom's exported one-arg version | loom's `openFile`/`upsertFileSurface` kept with upstream's `"."` → explorer case added; upstream's two-arg trimmer exported (marked), loom's `chatPathScan` passes `"path"` | composition | none — default | trivial |
+| DL-30 | web / `chat/timelineLayout.ts` (loom) | upstream's chat-width setting replaced `max-w-3xl` with `max-w-(--chat-max-width)` on timeline rows; loom's shared `TIMELINE_ROW_CLASS_NAME` hard-coded `max-w-3xl` | loom's row class adopts `max-w-(--chat-max-width)` (still no `overflow-x-clip`, for table bleed) | upstream owns the chat measure now | none — default | trivial |
+| DL-31 | mobile / `HomeScreen.tsx`, `ThreadNavigationSidebar.tsx`, `keyboard/threadKeyboardShortcuts.ts`, `homeListItems.test.ts` | upstream retired the legacy grouped list (`0c91f687de`, `aca3c87cdb`); loom's search ranking + archived rows were wired into both the v1 and v2 paths | both screens rebuilt from upstream's v2-only files with loom's v2 hunks re-applied (server-ranked flat results via `rankThreadSearchItems`, `ArchivedSearchResultRow.loom` rows, id-only `onSelectThread`, every-source excerpts, shelves/paging stand aside during a search, identity compare for archived rows); every v1-path hunk (`listItems`, `listItemsAreEqual`, the v1 `renderItem`/`keyExtractor` archived arms, `threadListV2Enabled` branches) deleted; `homeListItems.test.ts` stays deleted; loom's unused `sortPinnedThreadsByOrderKey`/`AsyncResult`/`Pressable`… imports in the sidebar not carried | PR-11 as pre-ruled (search kept unconditionally on the surviving v2 surfaces; the command palette merged clean — S3 verifies all three consumers) | PR-11; `plans/thread-content-search/plan.mdx`; `1fbd74d918` | local |
+| DL-32 | web chat / `ChatView.logic.test.ts` | upstream dropped `beforeEach` from the vitest import; loom's stray "fork's required session field" comment sat on that import line | upstream's import; the orphaned loom comment dropped (it described nothing on that line) | no behaviour | none — default | trivial |
 
 The pull-7 "mechanical-resolution ledger" JSON is **not** produced for this
 pull (D-B); this table is the ledger.
@@ -825,3 +856,121 @@ Generated from `.artifacts/pull8-plan/prev2-conflicts.txt`; the zone table in §
 
 Total: 91 files.
 
+
+---
+
+## Session 1 — merge resolved and COMMITTED (91/91 files, by hand)
+
+**Topology (verified).**
+
+| ref | hash |
+| --- | --- |
+| `pre_merge_oid` (origin/main `131166c11d` + session 0 tooling) | `474c8d755e` |
+| `merge_oid` | `5277c9abfd` |
+| `merge_oid^1` | `474c8d755e` ✔ |
+| `merge_oid^2` | `024d49520e` ✔ |
+| follow-up: lockfile settle | `f7ec7c93ab` (single-parent) |
+| follow-up: this record + §10 | the commit after it (single-parent) |
+
+The merge ran once, as `git -c rerere.enabled=false merge --no-ff --no-commit
+024d49520e`; the conflict set matched the dry run exactly (`prev2-conflicts.txt`,
+90 UU + 1 UD). The conflicted files were re-materialised with
+`git -c rerere.enabled=false checkout --conflict=diff3` so every hunk was read
+against its base. No `autoresolve.mjs`/`protected.mjs`; `union.py`/`sideresolve.py`
+were not needed — hunks were resolved one by one with a small diff3 hunk editor
+(scratch, `.artifacts/pull8-s1/hx3.py`). Every commit `--no-verify`; no stash,
+rebase or squash.
+
+**DoD.** Parse sweep over all 18,779 tracked `.ts`/`.tsx`: 0 damaged / 0
+conflicted. No conflict markers in any tracked file. `vp i` succeeds (the
+second install pruned orphaned `@aws-sdk/*` lockfile entries — committed as
+`f7ec7c93ab`; a third install is a no-op and `--frozen-lockfile` passes).
+Deletions `474c8d755e..HEAD` = 31 paths, all inside upstream's
+`c14f6015bf..024d49520e` deletion set. `// loom:` marker counts: no clean-merged
+file lost a marker; the conflicted files that lost one are each covered by a
+§10 row (DL-1, 4, 5, 6, 14, 31, 32).
+
+### Per zone
+
+- **Lockfile/workspace/config (6).** Upstream's lockfile + `vp i`; workspace =
+  upstream's Expo 58 overrides + loom's `astro>esbuild` and `@types/hast`;
+  loom's global `@noble/hashes` override replaced by upstream's scoped one
+  (DL-1/2/3). Licences config unioned (JSON parses, no duplicate names).
+  The PR-16 "prove each override load-bearing by reverting it" test is **not
+  done** — it needs typecheck; S2.
+- **Contracts (5).** Unions; `PI_DEFAULT_MODEL` block kept (PR-1); keybindings
+  unioned with no collisions (`mod+[`/`mod+]` and `mod+z` vs loom's
+  `mod+alt+[`/`]`, `mod+w`) (PR-14); `UsageProviderKind` = upstream's six + `pi`.
+- **Shared/client-runtime (3).** `usageMerge.test.ts` → upstream's (DL-6).
+- **Server core (19).** PR-2: `openBlockingRequests` is still narrower than
+  upstream's `openRequests` (it uses `openUserInputRequestIds`, which knows
+  loom's dismissed/superseded outcomes), so loom's predicate with upstream's
+  `yield* new …Error` syntax. PR-3 as ruled. PR-4: see DL-7/8 — git silently
+  mis-split upstream's `listActiveThreadRows` change across loom's full and
+  lean SELECTs; re-split by hand. PR-5: pre-filter kept on
+  `readSweepSnapshot` (comment says best-effort), and
+  `OrchestrationThreadSettleBlockedError` from the sweep dispatch is now a
+  debug log on both sweep paths (marked); `autoSettleDisabledAt` rides the lean
+  row. PR-6 PRAGMAs unioned with `runAllMigrations`. `ws.ts`: imports/services
+  unioned, loom's per-subscription mapper kept with upstream's
+  `succeedSome`/`succeedNone` sugar applied by hand; upstream's
+  `retryShellProjectionRead`/`orElseSucceed` did **not** come back.
+  `server.ts`: `ResetCreditCoordinator` beside `LoomProviderHealthLive`,
+  `LoomMcpHttpLive` beside upstream's new `untracedRequestsLayer`.
+  Tests: DL-15/16/17.
+- **Provider/usage/vcs/project (17).** PR-13 (DL-10: the reaper's retention
+  prune would have silently died under upstream's live-only query). PR-12
+  (DL-11). `GitVcsDriverCore` → upstream's `filterOrFail` with loom's bounded
+  stderr fold. `VcsStatusBroadcaster`: loom's per-repo poller kept (upstream's
+  per-cwd loop it replaced only got sugar), sugar ported. PR-7 deviation
+  (DL-12).
+- **Web (33).** PR-8 (DL-18/19/20), PR-9 (DL-27), PR-10 (`shownSyncPhase` +
+  loom's `threadRef`), PR-17 (DL-22), chat chips onto `ContextChip` (DL-24),
+  queued-send refactor (DL-26), plus DL-21/23/25/28/29/30.
+- **Mobile (7).** PR-11 (DL-31).
+
+### Surprises
+
+1. **Clean regions are not safe.** Three times git produced a
+   syntactically-valid but wrong merge outside the markers: the PSQ
+   SELECT split (DL-7), the reaper's live-only query that orphaned loom's
+   prune branch (DL-10), and `server.test.ts`'s handshake test whose loom
+   assertions git attached to an unrelated new upstream test (DL-17). The S3
+   clean-overlap review should expect more of this class.
+2. **Upstream deleted symbols that merged-clean loom files still use** — the
+   chip class constants (fixed, DL-24), `threadEnvMode` (fixed, DL-22),
+   `"pull-request"` trigger kind vs loom's `"hash"` (fixed, DL-25). Not every
+   instance is caught by grep; S2's typecheck is the net.
+3. `apps/web/src/components/chat/ComposerPendingReviewComments.tsx` (+ its
+   test) is a loom-only orphan of an upstream file deleted before `c14f6015bf`;
+   it imports the deleted chip constants and has no importer. It could not be
+   deleted in the merge commit (the deletion-subset DoD) — S2 should delete it
+   in a repair commit.
+
+### Typecheck (observation only, not a gate)
+
+`vp run typecheck` from deleted `tsbuildinfo`: contracts, shared,
+effect-acp, effect-codex-app-server, marketing pass;
+**client-runtime fails on one error** (`src/platform/persistence.test.ts:37`, a
+clean-merged upstream fixture missing loom's `goals` shell field — PR-18:
+`goals: []`), so every downstream package was skipped. Raw output:
+`.artifacts/pull8-s1/typecheck-s1.txt`.
+
+### What S2 should look at first
+
+1. `client-runtime/src/platform/persistence.test.ts` `goals` fixture, then
+   re-run to get the real server/web/mobile counts.
+2. Delete `ComposerPendingReviewComments.tsx` + test (surprise 3).
+3. Server: `ProjectSetupScriptRunner` callers vs DL-12's required
+   `completion`; `toPersistenceDecodeError` may now be unused in PSQ (DL-8);
+   `ThreadSettlementReactor` `catchTag` typing (DL-5 PR-5 hunk);
+   `serverSettings` long line; `usageTranscriptReader` import order.
+4. Web: `Sidebar.tsx`/`ThreadStatusIndicators.tsx` imports (loom's
+   `@t3tools/shared/threadSettled` vs upstream code paths), `HomeScreen`/
+   `ThreadNavigationSidebar` rebuilt from upstream (DL-31) — type-level fit of
+   `rankThreadSearchItems` with upstream's new v2 item fields.
+5. PR-16 override-revert proof (DL-2).
+6. Then S3 gaps already known: queued `$skill` expansion (DL-26); the two
+   upstream ws ACK/overflow tests still absent (DL-17); PR-5 verification
+   tests (i)/(ii) in `ThreadSettlementReactor.test.ts` not yet written;
+   PR-12 Pi compatibility advisory check (DL-11).
