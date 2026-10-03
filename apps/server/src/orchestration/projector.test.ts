@@ -120,6 +120,7 @@ describe("orchestration projector", () => {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      autoSettleDisabledAt: null, // loom: upstream's field, kept in loom's toMatchObject form
       settledOverride: null,
       settledAt: null,
       snoozedUntil: null,
