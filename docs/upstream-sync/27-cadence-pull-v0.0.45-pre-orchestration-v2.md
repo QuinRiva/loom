@@ -963,7 +963,7 @@ clean-merged upstream fixture missing loom's `goals` shell field — PR-18:
 2. Delete `ComposerPendingReviewComments.tsx` + test (surprise 3).
 3. Server: `ProjectSetupScriptRunner` callers vs DL-12's required
    `completion`; `toPersistenceDecodeError` may now be unused in PSQ (DL-8);
-   `ThreadSettlementReactor` `catchTag` typing (DL-5 PR-5 hunk);
+   `ThreadSettlementReactor` `catchTag` typing (the PR-5 hunk);
    `serverSettings` long line; `usageTranscriptReader` import order.
 4. Web: `Sidebar.tsx`/`ThreadStatusIndicators.tsx` imports (loom's
    `@t3tools/shared/threadSettled` vs upstream code paths), `HomeScreen`/
