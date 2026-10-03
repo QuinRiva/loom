@@ -43,8 +43,8 @@ export function WorkstreamActiveStrip({
 
   return (
     <div className="mb-3">
-      <div className="mb-2 flex items-center gap-2 px-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/45">
-        <span className="size-1.5 animate-pulse rounded-full bg-sky-400 motion-reduce:animate-none" />
+      <div className="mb-2 flex items-center gap-2 px-0.5 text-2xs font-semibold uppercase tracking-widest text-white/45">
+        <span className="size-1.5 animate-pulse rounded-full bg-workstream-running motion-reduce:animate-none" />
         Active now
       </div>
       <div className="flex flex-wrap gap-2">
@@ -83,9 +83,9 @@ function ActiveChip({
           <button
             type="button"
             onClick={() => onOpenThread(thread)}
-            className={`flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition active:translate-y-px ${
+            className={`flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition active:translate-y-px ${
               needsHuman
-                ? "border-orange-400/45 bg-gradient-to-b from-orange-400/10 to-orange-400/[0.04] hover:from-orange-400/15"
+                ? "border-workstream-attention/45 bg-gradient-to-b from-workstream-attention/10 to-workstream-attention/4 hover:from-workstream-attention/15"
                 : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.07]"
             }`}
           />
@@ -97,7 +97,7 @@ function ActiveChip({
           role (two letters made reviewer/researcher both “RE”) and the hover
           title has the rest. */}
         <span
-          className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-[8.5px] font-semibold uppercase"
+          className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-4xs font-semibold uppercase"
           style={{
             color,
             borderColor: `${color}80`,
@@ -112,7 +112,7 @@ function ActiveChip({
             <span className="min-w-0 flex-1 truncate text-xs font-semibold text-white">
               {thread.title}
             </span>
-            <span className="shrink-0 text-[9.5px] text-white/30">
+            <span className="shrink-0 text-3xs text-white/30">
               {formatRelativeAge(getLastActivityAt(thread))}
             </span>
           </span>
@@ -120,7 +120,7 @@ function ActiveChip({
             to starting… while running with no preview, and to the short
             getActivity() phrase for a rare attention-flagged, preview-less chip
             so it is never blank. */}
-          <span className="mt-1 flex gap-1.5 text-[10.5px] italic leading-snug text-white/50">
+          <span className="mt-1 flex gap-1.5 text-2xs italic leading-snug text-white/50">
             <span
               className="mt-1 size-1.5 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
               style={{ backgroundColor: color }}
@@ -139,7 +139,7 @@ function ActiveChip({
           </span>
           {/* Meta row: provider pill · cost · tools, omitting any null segment (and
             its separator) — the strip is a glance surface. */}
-          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-[9.5px] text-white/40">
+          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-3xs text-white/40">
             <WorkstreamModelPill selection={thread.modelSelection} />
             {cost ? (
               <>

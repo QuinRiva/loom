@@ -70,8 +70,14 @@ function GraphLiveDots() {
   return (
     <span className="inline-flex items-center gap-0.5" aria-hidden>
       <span className="size-1 animate-pulse rounded-full bg-current" />
-      <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
-      <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:300ms]" />
+      <span
+        className="size-1 animate-pulse rounded-full bg-current"
+        style={{ animationDelay: "150ms" }}
+      />
+      <span
+        className="size-1 animate-pulse rounded-full bg-current"
+        style={{ animationDelay: "300ms" }}
+      />
     </span>
   );
 }
@@ -201,7 +207,7 @@ export function WorkstreamGraphIndicator({
                 >
                   <span
                     className={`size-[7px] shrink-0 rounded-full ${
-                      node.reason ? ACTION_REASON_DOT[node.reason] : "bg-rose-400"
+                      ACTION_REASON_DOT[node.reason ?? "error"]
                     }`}
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
@@ -228,7 +234,7 @@ export function WorkstreamGraphIndicator({
             ))}
           </div>
         )}
-        <div className="border-t border-border/60 text-[10.5px] text-muted-foreground">
+        <div className="border-t border-border/60 text-2xs text-muted-foreground">
           {actionNodes.length > 0 ? (
             <div className="px-3 py-1.5">Click a sub-thread to open it</div>
           ) : (

@@ -167,14 +167,14 @@ export function WorkstreamLifecycleDrawer({
         aria-modal={open}
         role="dialog"
         aria-label="Lifecycle history"
-        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-[#10151d] to-[#0b0f15] shadow-[-20px_0_50px_rgba(0,0,0,0.5)] transition-transform duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
+        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-workstream to-workstream-deep shadow-2xl/50 transition-transform duration-260 ease-in-out motion-reduce:transition-none ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
           <div className="min-w-0">
             <div className="truncate text-xs font-semibold text-white">{thread?.title ?? "—"}</div>
-            <div className="truncate text-[10.5px] text-white/40">
+            <div className="truncate text-2xs text-white/40">
               {thread ? getRoleLabel(thread) : "sub-thread"} · lifecycle
             </div>
           </div>
@@ -186,7 +186,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                         onClick={() => onOpenReport(thread.reportPath!)}
                       />
                     }
@@ -206,7 +206,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                         onClick={() => onOpenReport(thread.promptDebugPath!)}
                       />
                     }
@@ -224,7 +224,7 @@ export function WorkstreamLifecycleDrawer({
                   render={
                     <button
                       type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                       onClick={() => onOpenThread(thread)}
                     />
                   }
@@ -242,7 +242,7 @@ export function WorkstreamLifecycleDrawer({
                 <button
                   ref={closeRef}
                   type="button"
-                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                   onClick={onClose}
                   aria-label="Close lifecycle history"
                 />
@@ -299,7 +299,7 @@ export function WorkstreamLifecycleDrawer({
                         render={
                           <button
                             type="button"
-                            className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                            className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                             onClick={() =>
                               onOpenDispatch(thread.id, row.deepLink ? row.at : undefined)
                             }
@@ -320,7 +320,7 @@ export function WorkstreamLifecycleDrawer({
                           render={
                             <button
                               type="button"
-                              className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                              className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                               onClick={() => onOpenReport(row.reportPath!)}
                               aria-label="Open this round's completion report"
                             />

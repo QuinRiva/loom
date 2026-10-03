@@ -25,7 +25,7 @@ export function WorkstreamModelPill({ selection }: { selection: ModelSelection }
       <TooltipTrigger
         render={
           <span
-            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full py-[1.5px] pl-1.5 pr-2 font-mono text-[9.5px] text-white/[0.78]"
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full py-px pl-1.5 pr-2 font-mono text-3xs text-white/[0.78]"
             style={{ border: `1px solid ${tint}66`, background: `${tint}1c` }}
           />
         }
