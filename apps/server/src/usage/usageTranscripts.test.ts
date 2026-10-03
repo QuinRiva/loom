@@ -624,6 +624,7 @@ describe("parsePiLine", () => {
         reasoningTokens: 120,
       },
       reportedCostUsd: 0.242325,
+      fast: false, // loom: pi events are never fast-mode (DL-42)
       dedupeKey: `779be1c0:${Date.parse("2026-09-23T00:43:30.946Z")}:47322`,
     });
     expect(totalTokens(record!.totals)).toBe(47322);

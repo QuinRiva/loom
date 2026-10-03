@@ -1627,7 +1627,10 @@ export const make = Effect.gen(function* () {
     cwd: string,
     details: { branch: string; upstreamRef: string | null; remoteName?: string },
   ) {
-    const remoteName = yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`);
+    // loom: honour the caller's remote override, as upstream does (lost at pull 7, DL-51)
+    const remoteName =
+      details.remoteName ??
+      (yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`));
     const [remoteUrl, originRemoteUrl] = yield* Effect.all(
       [
         remoteName

@@ -418,6 +418,11 @@ export const make = Effect.gen(function* () {
       // transition that makes a root settleable.
       case "thread.plan-lane-set":
         return isTerminalLane(event.payload.planLane) ? finishedWorkWorker.enqueue() : Effect.void;
+      // loom: re-enabling a thread's auto-settle lets a finished root settle now.
+      case "thread.auto-settle-set":
+        return event.payload.autoSettleDisabledAt === null
+          ? finishedWorkWorker.enqueue()
+          : Effect.void;
       case "thread.pull-request-linked":
       case "thread.pull-request-synced":
       case "thread.pull-request-unlinked":

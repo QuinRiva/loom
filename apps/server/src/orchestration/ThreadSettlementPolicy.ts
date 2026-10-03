@@ -166,7 +166,7 @@ export function finishedRootSettlesAt(thread: OrchestrationThreadShell): string 
  *
  * The shell snapshot carries only ACTIVE threads while the decider walks its
  * read model through archived ones, so a live descendant hidden behind an
- * archived parent is admitted here and still refused (with a warning) there.
+ * archived parent is admitted here and still refused (logged at debug, PR-5) there.
  * That residual is the right direction: this filter can never suppress a
  * settle the decider would have allowed.
  */
