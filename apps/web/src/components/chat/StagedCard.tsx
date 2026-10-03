@@ -39,11 +39,7 @@ export const StagedCard = memo(function StagedCard({
     >
       <div className="pointer-events-auto flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
         <header className="flex items-center gap-2 border-border/60 border-b px-4 py-3 sm:px-5">
-          <Badge
-            variant="info"
-            size="sm"
-            className="rounded-md px-1.5 py-0 font-semibold uppercase tracking-wide"
-          >
+          <Badge variant="info" size="sm">
             {badgeIcon}
             {badgeLabel}
           </Badge>

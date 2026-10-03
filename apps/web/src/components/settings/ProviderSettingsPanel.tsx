@@ -84,6 +84,7 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
+import { FailoverSettingsPanel } from "./FailoverSettingsCard"; // loom:
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
@@ -1199,6 +1200,9 @@ export function EnvironmentProviderSettings({
         cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
         readOnly={readOnly}
       />
+
+      {/* loom: cross-provider failover, per environment (its server applies it) */}
+      <FailoverSettingsPanel environmentId={environmentId} readOnly={readOnly} />
 
       <SettingsSection title="Advanced">
         <SettingsRow

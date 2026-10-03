@@ -334,7 +334,7 @@ function DiffLine({
               <span
                 // oxlint-disable-next-line react/no-array-index-key -- static spans; position is identity
                 key={index}
-                className={emphasis ? "rounded-[2px]" : undefined}
+                className={emphasis ? "rounded-xs" : undefined}
                 style={emphasis ? { backgroundColor: EMPHASIS_BG[row.kind] } : undefined}
               >
                 {text}
@@ -377,7 +377,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
       data-plan-block-type="diff"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px]">
+      <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs">
         <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
         <Tooltip>
           <TooltipTrigger
@@ -387,7 +387,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           </TooltipTrigger>
           <TooltipPopup>{data.filename ?? "diff"}</TooltipPopup>
         </Tooltip>
-        <span className="shrink-0 font-mono text-emerald-700 dark:text-emerald-300">+{added}</span>
+        <span className="shrink-0 font-mono text-success-foreground">+{added}</span>
         <span className="shrink-0 font-mono text-destructive">−{removed}</span>
         <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border border-border">
           <ModeButton
@@ -440,7 +440,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="w-full border-t border-border/60 bg-muted/30 px-3 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted/60"
+          className="w-full border-t border-border/60 bg-muted/30 px-3 py-1.5 text-left text-2xs text-muted-foreground hover:bg-muted/60"
         >
           Show all {total} lines
         </button>
@@ -454,7 +454,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
                 key={`${annotation.side ?? "after"}-${annotation.lines}-${annotation.label ?? annotation.note}`}
                 className="flex gap-2 text-xs"
               >
-                <span className="mt-0.5 shrink-0 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
+                <span className="mt-0.5 shrink-0 rounded bg-accent px-1.5 py-0.5 font-mono text-3xs font-semibold text-muted-foreground">
                   {annotation.side === "before" ? "−" : "+"}L
                   {annotation.lines.replace(/\s*-\s*/, "–")}
                 </span>
@@ -490,7 +490,7 @@ function ModeButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+        "flex items-center gap-1 px-1.5 py-0.5 text-3xs font-medium transition-colors",
         active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/80",
       )}
     >

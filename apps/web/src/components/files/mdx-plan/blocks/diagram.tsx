@@ -169,7 +169,7 @@ function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
           return (
             <span
               key={`label-${edge.from}-${edge.to}-${edge.label}`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-card px-1 text-[10px] text-muted-foreground"
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-card px-1 text-3xs text-muted-foreground"
               style={{ left: `${(from.x + to.x) / 2}%`, top: `${(from.y + to.y) / 2}%` }}
             >
               {edge.label}
@@ -186,7 +186,7 @@ function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
           >
             <div className="truncate text-xs font-semibold text-foreground">{node.label}</div>
             {node.detail && (
-              <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{node.detail}</div>
+              <div className="mt-0.5 truncate text-3xs text-muted-foreground">{node.detail}</div>
             )}
           </div>
         ))}
@@ -194,7 +194,7 @@ function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
         {notes.map((note) => (
           <span
             key={note.id}
-            className="absolute max-w-[40%] -translate-x-1/2 -translate-y-1/2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] italic text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
+            className="absolute max-w-[40%] -translate-x-1/2 -translate-y-1/2 rounded bg-warning/16 px-1.5 py-0.5 text-3xs italic text-warning-foreground"
             style={{ left: `${note.x ?? 50}%`, top: `${note.y ?? 90}%` }}
           >
             {note.text}
@@ -202,7 +202,7 @@ function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
         ))}
       </div>
       {data.caption && (
-        <figcaption className="border-t border-border/60 px-3 py-1.5 text-center text-[11px] italic text-muted-foreground">
+        <figcaption className="border-t border-border/60 px-3 py-1.5 text-center text-2xs italic text-muted-foreground">
           {data.caption}
         </figcaption>
       )}

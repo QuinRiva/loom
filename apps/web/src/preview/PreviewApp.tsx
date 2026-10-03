@@ -19,7 +19,7 @@ export function PreviewApp() {
     <div className="flex h-dvh min-h-0 bg-background text-foreground">
       <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-card/40">
         <div className="border-b border-border px-4 py-3">
-          <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          <p className="text-2xs font-semibold tracking-widest text-muted-foreground uppercase">
             Component preview
           </p>
         </div>

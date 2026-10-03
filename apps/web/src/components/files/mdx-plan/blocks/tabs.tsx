@@ -157,7 +157,7 @@ export function TabsRead({ data, blockId, children }: PlanBlockReadProps<TabsDat
     <div
       data-plan-block-id={blockId}
       data-plan-block-type="tabs"
-      className={cn("plan-tabs my-4", orientation === "vertical" && "plan-tabs-vertical")}
+      className={cn("my-4", orientation === "vertical" && "plan-tabs-vertical")}
     >
       <div role="tablist" aria-orientation={orientation} className="plan-tablist">
         {meta.map((m, i) => (

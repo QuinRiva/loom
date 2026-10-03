@@ -87,10 +87,10 @@ function FieldCell({
 }) {
   return (
     <>
-      <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 font-mono text-3xs uppercase tracking-wide text-muted-foreground">
         <span className="min-w-0 break-words">{field.name}</span>
         {field.kept && (
-          <span className="rounded bg-accent px-1 py-px text-[9px] font-semibold normal-case text-muted-foreground">
+          <span className="rounded bg-accent px-1 py-px text-3xs font-semibold normal-case text-muted-foreground">
             unchanged
           </span>
         )}
@@ -98,7 +98,7 @@ function FieldCell({
       <div className="mt-0.5 text-xs">
         <FieldValue value={value} />
       </div>
-      {note && <div className="mt-1 text-[11px] italic text-muted-foreground">{note}</div>}
+      {note && <div className="mt-1 text-2xs italic text-muted-foreground">{note}</div>}
     </>
   );
 }
@@ -115,7 +115,7 @@ export function FieldDiffRead({ data, blockId }: PlanBlockReadProps<FieldDiffDat
       data-plan-block-type="field-diff"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px]">
+      <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs">
         <Tooltip>
           <TooltipTrigger
             render={<span className="min-w-0 flex-1 truncate font-mono text-foreground" />}
@@ -138,7 +138,7 @@ export function FieldDiffRead({ data, blockId }: PlanBlockReadProps<FieldDiffDat
         className="grid grid-cols-1 sm:grid-flow-col sm:grid-cols-2"
         style={{ gridTemplateRows: `repeat(${fields.length + 1}, auto)` }}
       >
-        <div className="border-b border-border/60 bg-destructive/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="border-b border-border/60 bg-destructive/5 px-3 py-1.5 text-3xs font-semibold uppercase tracking-wide text-muted-foreground">
           {beforeLabel}
         </div>
         {fields.map((field) => (
@@ -149,13 +149,13 @@ export function FieldDiffRead({ data, blockId }: PlanBlockReadProps<FieldDiffDat
             <FieldCell field={field} value={field.before} />
           </div>
         ))}
-        <div className="border-b border-border/60 bg-emerald-500/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground max-sm:border-t">
+        <div className="border-b border-border/60 bg-success/5 px-3 py-1.5 text-3xs font-semibold uppercase tracking-wide text-muted-foreground max-sm:border-t">
           {afterLabel}
         </div>
         {fields.map((field) => (
           <div
             key={`after-${field.name}`}
-            className={cn("bg-emerald-500/5 px-3 py-2", field.kept && "opacity-60")}
+            className={cn("bg-success/5 px-3 py-2", field.kept && "opacity-60")}
           >
             <FieldCell field={field} value={field.after} note={field.note} />
           </div>

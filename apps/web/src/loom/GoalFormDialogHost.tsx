@@ -58,7 +58,7 @@ export function GoalFormDialogHost() {
       }}
     >
       <DialogPopup className="max-w-md">
-        <DialogHeader className="gap-1.5">
+        <DialogHeader>
           <DialogTitle>{isCreate ? "Create goal from thread" : "Rename goal"}</DialogTitle>
           <DialogDescription>
             {isCreate
@@ -66,7 +66,7 @@ export function GoalFormDialogHost() {
               : "The title and paragraph shown wherever this goal appears."}
           </DialogDescription>
         </DialogHeader>
-        <DialogPanel className="space-y-4">
+        <DialogPanel>
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-foreground">Title</span>
             <Input

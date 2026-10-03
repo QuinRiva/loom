@@ -94,9 +94,9 @@ function WhyKeptPill({ label, tone }: { label: string; tone: "neutral" | "warn" 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-2xs font-medium",
         tone === "warn"
-          ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
+          ? "border-warning/50 text-warning-foreground"
           : "border-border/70 text-muted-foreground",
       )}
     >
@@ -113,7 +113,7 @@ function OwnerCell({ entry }: { entry: WorkstreamWorktreeEntry }) {
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="min-w-0 truncate text-foreground">{entry.owner.title}</span>
       {entry.owner.role ? (
-        <span className="shrink-0 text-[11px] text-muted-foreground/60">{entry.owner.role}</span>
+        <span className="shrink-0 text-2xs text-muted-foreground/60">{entry.owner.role}</span>
       ) : null}
     </span>
   );
@@ -247,96 +247,94 @@ export function WorktreesSettingsPanel() {
             </div>
           </div>
         ) : null}
-        <ScrollArea
-          chainVerticalScroll
-          scrollFade
-          hideScrollbars
-          className="w-full max-w-full border-t border-border/60"
-        >
-          <table className="w-full min-w-[860px] table-fixed text-left text-xs">
-            <colgroup>
-              <col className="w-[22%]" />
-              <col className="w-[24%]" />
-              <col className="w-[15%]" />
-              <col className="w-[7%]" />
-              <col className="w-[9%]" />
-              <col className="w-[15%]" />
-              <col className="w-[8%]" />
-            </colgroup>
-            <thead className="border-b border-border/60 text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
-              <tr>
-                <th className="px-4 py-2.5 font-semibold sm:pl-5">Worktree</th>
-                <th className="px-3 py-2.5 font-semibold">Owner</th>
-                <th className="px-3 py-2.5 font-semibold">Why kept</th>
-                <th className="px-3 py-2.5 font-semibold">Age</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Size</th>
-                <th className="px-3 py-2.5 font-semibold">Branch state</th>
-                <th className="p-2.5 text-right font-semibold sm:pr-5" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {entries.length === 0 ? (
+        <div className="border-t border-border/60">
+          <ScrollArea chainVerticalScroll scrollFade hideScrollbars className="w-full max-w-full">
+            <table className="w-full min-w-[860px] table-fixed text-left text-xs">
+              <colgroup>
+                <col className="w-[22%]" />
+                <col className="w-[24%]" />
+                <col className="w-[15%]" />
+                <col className="w-[7%]" />
+                <col className="w-[9%]" />
+                <col className="w-[15%]" />
+                <col className="w-[8%]" />
+              </colgroup>
+              <thead className="border-b border-border/60 text-2xs uppercase tracking-widest text-muted-foreground/70">
                 <tr>
-                  <td colSpan={7} className="px-4 py-4 text-xs text-muted-foreground sm:px-5">
-                    {isPending && data === null ? "Scanning worktrees..." : "No worktrees found."}
-                  </td>
+                  <th className="px-4 py-2.5 font-semibold sm:pl-5">Worktree</th>
+                  <th className="px-3 py-2.5 font-semibold">Owner</th>
+                  <th className="px-3 py-2.5 font-semibold">Why kept</th>
+                  <th className="px-3 py-2.5 font-semibold">Age</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Size</th>
+                  <th className="px-3 py-2.5 font-semibold">Branch state</th>
+                  <th className="p-2.5 text-right font-semibold sm:pr-5" />
                 </tr>
-              ) : null}
-              {entries.map((entry) => {
-                const meta = classify(entry);
-                return (
-                  <tr key={entry.worktreePath} className="hover:bg-muted/20">
-                    <td className="px-4 py-2.5 align-middle sm:pl-5">
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <span className="block truncate font-medium text-foreground">
-                              {worktreeName(entry.worktreePath)}
-                              {entry.isMain ? (
-                                <span className="ml-1.5 text-[11px] text-muted-foreground/60">
-                                  main
-                                </span>
-                              ) : null}
-                            </span>
-                          }
-                        />
-                        <TooltipPopup
-                          side="top"
-                          className="max-w-[min(520px,calc(100vw-2rem))] break-all font-mono text-[11px]"
-                        >
-                          {entry.worktreePath}
-                          <div className="mt-1 text-muted-foreground">{entry.projectName}</div>
-                        </TooltipPopup>
-                      </Tooltip>
-                    </td>
-                    <td className="min-w-0 px-3 py-2.5 align-middle">
-                      <OwnerCell entry={entry} />
-                    </td>
-                    <td className="px-3 py-2.5 align-middle">
-                      <WhyKeptPill label={meta.label} tone={meta.tone} />
-                    </td>
-                    <td className="px-3 py-2.5 align-middle font-mono tabular-nums text-muted-foreground">
-                      {formatAge(entry.ageMs)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-muted-foreground">
-                      {entry.sizeBytes === null ? "—" : formatBytes(entry.sizeBytes)}
-                    </td>
-                    <td className="px-3 py-2.5 align-middle text-muted-foreground">
-                      {branchState(entry)}
-                    </td>
-                    <td className="p-2.5 text-right align-middle sm:pr-5">
-                      {meta.removable ? (
-                        <Button size="xs" variant="outline" onClick={() => openRemove(entry)}>
-                          Remove…
-                        </Button>
-                      ) : null}
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {entries.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-4 text-xs text-muted-foreground sm:px-5">
+                      {isPending && data === null ? "Scanning worktrees..." : "No worktrees found."}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </ScrollArea>
+                ) : null}
+                {entries.map((entry) => {
+                  const meta = classify(entry);
+                  return (
+                    <tr key={entry.worktreePath} className="hover:bg-muted/20">
+                      <td className="px-4 py-2.5 align-middle sm:pl-5">
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <span className="block truncate font-medium text-foreground">
+                                {worktreeName(entry.worktreePath)}
+                                {entry.isMain ? (
+                                  <span className="ml-1.5 text-2xs text-muted-foreground/60">
+                                    main
+                                  </span>
+                                ) : null}
+                              </span>
+                            }
+                          />
+                          <TooltipPopup
+                            side="top"
+                            variant="code"
+                            className="max-w-[min(520px,calc(100vw-2rem))] break-all"
+                          >
+                            {entry.worktreePath}
+                            <div className="mt-1 text-muted-foreground">{entry.projectName}</div>
+                          </TooltipPopup>
+                        </Tooltip>
+                      </td>
+                      <td className="min-w-0 px-3 py-2.5 align-middle">
+                        <OwnerCell entry={entry} />
+                      </td>
+                      <td className="px-3 py-2.5 align-middle">
+                        <WhyKeptPill label={meta.label} tone={meta.tone} />
+                      </td>
+                      <td className="px-3 py-2.5 align-middle font-mono tabular-nums text-muted-foreground">
+                        {formatAge(entry.ageMs)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-muted-foreground">
+                        {entry.sizeBytes === null ? "—" : formatBytes(entry.sizeBytes)}
+                      </td>
+                      <td className="px-3 py-2.5 align-middle text-muted-foreground">
+                        {branchState(entry)}
+                      </td>
+                      <td className="p-2.5 text-right align-middle sm:pr-5">
+                        {meta.removable ? (
+                          <Button size="xs" variant="outline" onClick={() => openRemove(entry)}>
+                            Remove…
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </ScrollArea>
+        </div>
       </SettingsSection>
 
       <AlertDialog
@@ -364,7 +362,7 @@ export function WorktreesSettingsPanel() {
                 </span>
               </p>
               {pending.dirty || pendingUnmerged ? (
-                <div className="rounded-md border border-amber-500/50 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+                <div className="rounded-md border border-warning/50 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
                   {pending.dirty ? (
                     <span>Uncommitted changes will be permanently deleted. </span>
                   ) : null}

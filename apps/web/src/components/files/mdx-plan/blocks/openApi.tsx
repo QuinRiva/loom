@@ -431,7 +431,7 @@ const PARAM_IN_BADGE: Record<string, string> = {
   header: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   cookie: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
-const FALLBACK_PILL = "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
+const FALLBACK_PILL = "bg-secondary text-secondary-foreground";
 
 function statusPill(status: string): string {
   const lead = status.trim()[0];
@@ -471,7 +471,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
         )}
         <span
           className={cn(
-            "shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wide",
+            "shrink-0 rounded-md px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-wide",
             METHOD_PILL[operation.method] ?? FALLBACK_PILL,
           )}
         >
@@ -516,7 +516,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                   >
                     <span
                       className={cn(
-                        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                        "shrink-0 rounded px-1.5 py-0.5 text-3xs font-semibold uppercase",
                         PARAM_IN_BADGE[param.in] ?? FALLBACK_PILL,
                       )}
                     >
@@ -526,17 +526,17 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                       {param.name}
                     </span>
                     {param.type && (
-                      <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
                         {param.type}
                       </span>
                     )}
                     {param.required && (
-                      <span className="text-[10px] font-semibold uppercase text-red-600 dark:text-red-300">
+                      <span className="text-3xs font-semibold uppercase text-destructive-foreground">
                         required
                       </span>
                     )}
                     {param.description && (
-                      <span className="text-[11px] italic text-muted-foreground">
+                      <span className="text-2xs italic text-muted-foreground">
                         — {param.description}
                       </span>
                     )}
@@ -551,7 +551,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                 Request{operation.requestContentType ? ` · ${operation.requestContentType}` : ""}
               </div>
               {operation.requestExample && (
-                <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+                <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
                   {operation.requestExample}
                 </pre>
               )}
@@ -568,7 +568,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                     <div className="flex items-center gap-2 text-sm">
                       <span
                         className={cn(
-                          "shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold",
+                          "shrink-0 rounded px-1.5 py-0.5 font-mono text-2xs font-bold",
                           statusPill(response.status),
                         )}
                       >
@@ -581,7 +581,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                       )}
                     </div>
                     {response.example && (
-                      <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+                      <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
                         {response.example}
                       </pre>
                     )}
@@ -613,7 +613,7 @@ function TagGroup({ group, defaultOpen }: { group: NormalizedTagGroup; defaultOp
           )}
         />
         <span className="font-semibold text-foreground">{group.tag}</span>
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+        <span className="rounded-full bg-accent px-2 py-0.5 text-3xs font-medium text-muted-foreground">
           {group.operations.length}
         </span>
         {group.description && (
@@ -649,11 +649,11 @@ function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
                 {data.title || parsed.spec.title || "API reference"}
               </span>
               {parsed.spec.version && (
-                <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
                   v{parsed.spec.version}
                 </span>
               )}
-              <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <span className="rounded-full border border-border px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                 {parsed.spec.format}
               </span>
               <span className="text-xs text-muted-foreground">
@@ -682,7 +682,7 @@ function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
           </div>
           <div className="space-y-2 px-3 py-2.5">
             <p className="text-xs text-destructive">Could not parse spec: {parsed.error}</p>
-            <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+            <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
               {data.spec || "—"}
             </pre>
           </div>

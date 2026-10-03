@@ -5,7 +5,7 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { canSettle, canSnooze, threadWokeAt } from "@t3tools/shared/threadSettled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
+import { canSnooze, threadWokeAt } from "@t3tools/shared/threadSettled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
 import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";

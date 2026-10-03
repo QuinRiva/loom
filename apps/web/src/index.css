@@ -2370,6 +2370,34 @@ code {
 /* loom: everything from here to the end of the file is fork-only UI (ultrathink
    pill, MDX plan surface, artefact viewer, workstream surfaces, …). Upstream's
    file ends at the rule above. */
+
+/* loom: the workstream surfaces (panel, graph, timeline, quick facts) draw on a
+   fixed dark canvas in every theme, so their colours are named here rather than
+   following the theme. Hues mirror lib/workstreamPresentation.ts: running sky,
+   ready cyan, manual spawn violet, stop/error rose, needs-a-human orange. */
+@theme {
+  --color-workstream: #0d1117;
+  --color-workstream-deep: #090d13;
+  --color-workstream-raised: #12171f;
+  --color-workstream-raised-hover: #161c26;
+  --color-workstream-running: var(--color-sky-400);
+  --color-workstream-running-foreground: var(--color-sky-300);
+  --color-workstream-ready: var(--color-cyan-400);
+  --color-workstream-ready-foreground: var(--color-cyan-200);
+  --color-workstream-spawn: var(--color-violet-500);
+  --color-workstream-spawn-hover: var(--color-violet-400);
+  --color-workstream-spawn-foreground: var(--color-violet-300);
+  --color-workstream-danger: var(--color-rose-400);
+  --color-workstream-danger-foreground: var(--color-rose-200);
+  --color-workstream-attention: var(--color-orange-400);
+  --color-workstream-attention-foreground: var(--color-orange-300);
+  /* The timeline drawer slides in from the right, so its shadow casts left. */
+  --shadow-workstream-drawer: -20px 0 50px rgb(0 0 0 / 50%);
+  /* The consult card in the chat timeline keeps the graph's consult-edge teal. */
+  --color-consult: var(--color-teal-400);
+  --color-consult-foreground: var(--color-teal-300);
+}
+
 .ultrathink-pill {
   background:
     linear-gradient(var(--card), var(--card)) padding-box,
@@ -2393,28 +2421,6 @@ code {
   background-clip: text;
   -webkit-background-clip: text;
   animation: ultrathink-rainbow 10s linear infinite;
-}
-
-/* Thin scrollbar for model picker */
-.model-picker-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.model-picker-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 2px;
-}
-
-.model-picker-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.dark .model-picker-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.dark .model-picker-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2972,4 +2978,69 @@ code {
   background-color: Highlight;
   opacity: 0.3;
   pointer-events: none;
+}
+
+/* loom: workstream graph (WorkstreamGraph.tsx). One restrained pulse for
+   human-blocking attention, stilled under prefers-reduced-motion so it never
+   becomes a motion nuisance; the highlight fade is a plain opacity swap. */
+@keyframes wsAttentionPulse {
+  0%,
+  100% {
+    stroke-opacity: 0.95;
+    stroke-width: 1.4;
+  }
+  50% {
+    stroke-opacity: 0.28;
+    stroke-width: 3.4;
+  }
+}
+.ws-attention-pulse {
+  animation: wsAttentionPulse 1.8s ease-in-out infinite;
+}
+@keyframes wsFooterPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.ws-footer-live {
+  animation: wsFooterPulse 1.8s ease-in-out infinite;
+}
+.ws-graph-node,
+.ws-graph-edge,
+.ws-graph-consult-edge {
+  transition: opacity 0.18s;
+}
+/* Visible keyboard focus for every SVG affordance (replaces the removed default
+   outline), plus the graph control buttons. */
+.ws-focus-ring {
+  opacity: 0;
+}
+.ws-graph-open:focus-visible,
+.ws-graph-bridge:focus-visible,
+.ws-graph-consult-edge:focus-visible {
+  outline: none;
+}
+.ws-graph-open:focus-visible .ws-focus-ring,
+.ws-graph-bridge:focus-visible .ws-focus-ring,
+.ws-graph-consult-edge:focus-visible .ws-focus-ring {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-attention-pulse {
+    animation: none;
+    stroke-opacity: 0.9;
+  }
+  .ws-footer-live {
+    animation: none;
+    opacity: 1;
+  }
+  .ws-graph-node,
+  .ws-graph-edge,
+  .ws-graph-consult-edge {
+    transition: none;
+  }
 }

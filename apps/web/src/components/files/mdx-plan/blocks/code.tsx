@@ -74,7 +74,7 @@ function CodeBody({ code, language, wrap }: { code: string; language: string; wr
   }
   return (
     <div
-      className={cn("plan-code-shiki overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
+      className={cn("overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -95,7 +95,7 @@ function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
       data-plan-block-type="code"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
         <div className="flex shrink-0 items-center gap-2">
           {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
@@ -108,7 +108,7 @@ function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
           type="button"
           onClick={() => setExpanded((value) => !value)}
           className={cn(
-            "w-full border-t border-border/60 bg-muted/30 px-3 py-1.5 text-left text-[11px]",
+            "w-full border-t border-border/60 bg-muted/30 px-3 py-1.5 text-left text-2xs",
             "text-muted-foreground hover:bg-muted/60",
           )}
         >
@@ -116,7 +116,7 @@ function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
         </button>
       )}
       {data.caption && (
-        <figcaption className="border-t border-border/60 px-3 py-1.5 text-[11px] italic text-muted-foreground">
+        <figcaption className="border-t border-border/60 px-3 py-1.5 text-2xs italic text-muted-foreground">
           {data.caption}
         </figcaption>
       )}

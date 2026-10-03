@@ -57,7 +57,7 @@ export function ArchivedSearchResultRow(props: {
 
 export function ArchivedBadge() {
   return (
-    <Badge variant="outline" size="sm" className="text-muted-foreground">
+    <Badge variant="outline" size="sm">
       Archived
     </Badge>
   );

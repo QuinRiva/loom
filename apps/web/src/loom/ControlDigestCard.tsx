@@ -73,7 +73,7 @@ export function ControlDigestCardView({
         <button
           type="button"
           className={cn(
-            "focus-visible:ring-ring/70 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] leading-5 transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
+            "focus-visible:ring-ring/70 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs leading-5 transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
             classes.hover,
           )}
           onClick={() => setExpanded((value) => !value)}
@@ -81,7 +81,7 @@ export function ControlDigestCardView({
         >
           <InboxIcon className={cn("size-3.5 shrink-0", classes.kicker)} />
           <span className="text-foreground/82 min-w-0 flex-1 truncate font-medium">{summary}</span>
-          <span className={cn("shrink-0 text-[10px] tracking-wide uppercase", classes.kicker)}>
+          <span className={cn("shrink-0 text-3xs tracking-wide uppercase", classes.kicker)}>
             {label}
           </span>
           <ChevronDownIcon
@@ -115,7 +115,7 @@ export function ControlDigestCardView({
           <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
             <button
               type="button"
-              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-[10.5px] tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-2xs tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
               onClick={() => setShowRaw((value) => !value)}
               aria-expanded={showRaw}
             >
@@ -127,7 +127,7 @@ export function ControlDigestCardView({
           <div className={cn("border-t p-2", classes.divider)}>
             {/* The verbatim bytes the model received — never through markdown, which
                 would reformat the headings, lists and fences it is proof of. */}
-            <pre className="bg-muted/40 text-foreground/80 max-h-[420px] overflow-auto rounded-md p-2 font-mono text-[11px] leading-5 break-words whitespace-pre-wrap">
+            <pre className="bg-muted/40 text-foreground/80 max-h-[420px] overflow-auto rounded-md p-2 font-mono text-2xs leading-5 break-words whitespace-pre-wrap">
               {text}
             </pre>
           </div>
@@ -177,36 +177,36 @@ function ControlDigestItem({
           }
         >
           {item.icon ? (
-            <span className="shrink-0 text-[12px]" aria-hidden>
+            <span className="shrink-0 text-xs" aria-hidden>
               {item.icon}
             </span>
           ) : null}
           {item.role ? (
             <span
               className={cn(
-                "shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]",
+                "shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs",
                 classes.chip,
               )}
             >
               {item.role}
             </span>
           ) : null}
-          <span className="min-w-0 flex-1 truncate text-[12px] leading-5">
+          <span className="min-w-0 flex-1 truncate text-xs leading-5">
             {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
             <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
               {sender ? ` — ${item.title}` : item.title}
             </span>
           </span>
           {item.status ? (
-            <span className="text-muted-foreground/70 shrink-0 text-[10.5px]">{item.status}</span>
+            <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
           ) : null}
           {open ? <ChevronRightIcon className="size-3.5 shrink-0 opacity-50" aria-hidden /> : null}
         </div>
 
         {expanded && (item.reportPath || item.excerpt || item.timestamp) ? (
-          <div className={cn("mt-1 space-y-1 border-l pl-2.5 text-[12px]", classes.divider)}>
+          <div className={cn("mt-1 space-y-1 border-l pl-2.5 text-xs", classes.divider)}>
             {item.timestamp ? (
-              <div className="text-muted-foreground/60 text-[10.5px]">{item.timestamp}</div>
+              <div className="text-muted-foreground/60 text-2xs">{item.timestamp}</div>
             ) : null}
             {item.reportPath ? markdown(`Report: \`${item.reportPath}\``) : null}
             {item.excerpt ? (

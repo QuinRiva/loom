@@ -56,7 +56,7 @@ function ChecklistRead({ data, blockId }: PlanBlockReadProps<ChecklistData>) {
             className={cn(
               "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border",
               item.checked
-                ? "border-emerald-500 bg-emerald-500 text-white dark:bg-emerald-500/80"
+                ? "border-success bg-success text-white dark:bg-success/80"
                 : "border-muted-foreground/40 text-transparent",
             )}
           >
@@ -72,7 +72,7 @@ function ChecklistRead({ data, blockId }: PlanBlockReadProps<ChecklistData>) {
               {item.label}
             </span>
             {item.note && (
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">{item.note}</span>
+              <span className="mt-0.5 block text-2xs text-muted-foreground">{item.note}</span>
             )}
           </span>
         </li>

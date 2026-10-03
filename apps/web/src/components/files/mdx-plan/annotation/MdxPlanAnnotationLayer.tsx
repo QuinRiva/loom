@@ -797,7 +797,7 @@ export function MdxPlanAnnotationLayer({
     >
       {reviewChoiceTotal > 0 ? (
         <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">
-          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
+          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-2xs font-medium text-muted-foreground shadow-sm backdrop-blur">
             {decidedCount} of {reviewChoiceTotal} decided
           </span>
         </div>
@@ -822,8 +822,8 @@ export function MdxPlanAnnotationLayer({
               key={`${overlay.id}:${box.top}:${box.left}:${box.width}:${box.height}`}
               className={
                 overlay.variant === "ring"
-                  ? "absolute rounded-md ring-2 ring-amber-400/70"
-                  : "absolute rounded-sm bg-amber-300/25 ring-1 ring-amber-400/50"
+                  ? "absolute rounded-md ring-2 ring-warning/70"
+                  : "absolute rounded-sm bg-warning/16 ring-1 ring-warning/50"
               }
               style={{ top: box.top, left: box.left, width: box.width, height: box.height }}
             />
@@ -838,7 +838,7 @@ export function MdxPlanAnnotationLayer({
             key={overlay.id}
             type="button"
             aria-label={`Comment ${index + 1}`}
-            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow ring-2 ring-background"
+            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-warning text-3xs font-bold text-white shadow ring-2 ring-background"
             style={{ top: overlay.badge.top, left: overlay.badge.left + 2 }}
             onClick={() => setOpenCardId((current) => (current === overlay.id ? null : overlay.id))}
           >
@@ -855,7 +855,7 @@ export function MdxPlanAnnotationLayer({
           key={`collapsed-${group.key}`}
           type="button"
           aria-label={`Reveal ${group.overlays.length} hidden comment${group.overlays.length > 1 ? "s" : ""}`}
-          className="absolute z-20 flex h-5 -translate-y-1 items-center gap-0.5 rounded-full bg-amber-500/80 px-1.5 text-[10px] font-bold text-white shadow ring-2 ring-background hover:bg-amber-500"
+          className="absolute z-20 flex h-5 -translate-y-1 items-center gap-0.5 rounded-full bg-warning/80 px-1.5 text-3xs font-bold text-white shadow ring-2 ring-background hover:bg-warning"
           style={{ top: group.top, left: group.left }}
           onClick={() => revealCollapsed(group)}
         >
@@ -884,7 +884,7 @@ export function MdxPlanAnnotationLayer({
       {selectionAffordance && !composer ? (
         <button
           type="button"
-          className="absolute z-30 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:text-foreground hover:ring-2 hover:ring-amber-400/60"
+          className="absolute z-30 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:text-foreground hover:ring-2 hover:ring-warning/60"
           style={{ top: selectionAffordance.top, left: selectionAffordance.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={openComposerFromSelection}
@@ -903,7 +903,7 @@ export function MdxPlanAnnotationLayer({
           type="button"
           data-plan-comment-affordance=""
           aria-label="Comment on this block"
-          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground hover:ring-2 hover:ring-amber-400/60"
+          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground hover:ring-2 hover:ring-warning/60"
           style={{ top: hoverBlock.top, left: hoverBlock.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openComposerForBlock(hoverBlock.id)}
@@ -934,10 +934,10 @@ export function MdxPlanAnnotationLayer({
           {detached.map((overlay) => (
             <div
               key={`detached-${overlay.id}`}
-              className="rounded-xl border border-amber-500/40 bg-amber-50/90 p-3 shadow-sm dark:bg-amber-500/10"
+              className="rounded-xl border border-warning/40 bg-card bg-linear-to-b from-warning-surface to-warning-surface p-3 shadow-sm"
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+              <div className="flex items-center gap-2 text-warning-foreground">
                 <Unlink className="size-3.5" />
                 <span className="text-xs font-medium">Detached comment</span>
                 <div className="ml-auto flex items-center gap-1">
@@ -960,7 +960,7 @@ export function MdxPlanAnnotationLayer({
                 </div>
               </div>
               {overlay.comment.quotedText ? (
-                <p className="mt-2 line-clamp-2 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+                <p className="mt-2 line-clamp-2 border-l-2 border-warning/60 pl-2 text-2xs italic text-muted-foreground">
                   {overlay.comment.quotedText}
                 </p>
               ) : null}
@@ -1013,7 +1013,7 @@ function AnnotationCard({
         </div>
       </div>
       {quotedText ? (
-        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+        <p className="mt-2 line-clamp-3 border-l-2 border-warning/60 pl-2 text-2xs italic text-muted-foreground">
           {quotedText}
         </p>
       ) : null}
@@ -1117,7 +1117,7 @@ function AnnotationComposer({
         <span className="text-sm font-medium">Comment on plan</span>
       </div>
       {quotedText ? (
-        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+        <p className="mt-2 line-clamp-3 border-l-2 border-warning/60 pl-2 text-2xs italic text-muted-foreground">
           {quotedText}
         </p>
       ) : null}

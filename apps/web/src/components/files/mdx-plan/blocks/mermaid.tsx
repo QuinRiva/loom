@@ -148,7 +148,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
     >
       {error ? (
         <div className="space-y-2">
-          <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+          <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
             {data.source}
           </pre>
           <p className="text-xs text-muted-foreground">Could not render diagram: {error}</p>
@@ -165,7 +165,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
         </div>
       )}
       {data.caption && (
-        <figcaption className="mt-2 text-center text-[11px] italic text-muted-foreground">
+        <figcaption className="mt-2 text-center text-2xs italic text-muted-foreground">
           {data.caption}
         </figcaption>
       )}

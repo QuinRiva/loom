@@ -196,7 +196,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
           {data.path}
         </span>
         {data.auth && (
-          <span className="ml-auto shrink-0 rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="ml-auto shrink-0 rounded bg-accent px-1.5 py-0.5 text-3xs font-medium text-muted-foreground">
             {data.auth}
           </span>
         )}
@@ -226,7 +226,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                   >
                     <span
                       className={cn(
-                        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                        "shrink-0 rounded px-1.5 py-0.5 text-3xs font-semibold uppercase",
                         LOCATION_PILL[param.in],
                       )}
                     >
@@ -236,17 +236,17 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                       {param.name}
                     </span>
                     {param.type && (
-                      <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                      <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
                         {param.type}
                       </span>
                     )}
                     {param.required && (
-                      <span className="text-[10px] font-semibold uppercase text-red-600 dark:text-red-300">
+                      <span className="text-3xs font-semibold uppercase text-destructive-foreground">
                         required
                       </span>
                     )}
                     {param.description && (
-                      <span className="text-[11px] italic text-muted-foreground">
+                      <span className="text-2xs italic text-muted-foreground">
                         — {param.description}
                       </span>
                     )}
@@ -261,7 +261,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Request{data.request.contentType ? ` · ${data.request.contentType}` : ""}
               </div>
-              <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+              <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
                 {data.request.example}
               </pre>
             </div>
@@ -278,7 +278,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                     <div className="flex items-center gap-2 text-sm">
                       <span
                         className={cn(
-                          "shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold",
+                          "shrink-0 rounded px-1.5 py-0.5 font-mono text-2xs font-bold",
                           statusPill(response.status),
                         )}
                       >
@@ -291,7 +291,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                       )}
                     </div>
                     {response.example && (
-                      <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] text-foreground">
+                      <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
                         {response.example}
                       </pre>
                     )}

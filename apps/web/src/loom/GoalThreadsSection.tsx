@@ -85,13 +85,13 @@ export function GoalThreadsSection({
   return (
     <section className="mt-4">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <h3 className="text-[10px] font-medium tracking-wider text-muted-foreground/70 uppercase">
+        <h3 className="text-3xs font-medium tracking-wider text-muted-foreground/70 uppercase">
           Threads
         </h3>
-        <span className="rounded-full border border-border/60 px-1.5 text-[10px] tabular-nums text-muted-foreground/70">
+        <span className="rounded-full border border-border/60 px-1.5 text-3xs tabular-nums text-muted-foreground/70">
           {rows.length}
         </span>
-        <span className="ml-auto text-[10px] text-muted-foreground/60">handoff order</span>
+        <span className="ml-auto text-3xs text-muted-foreground/60">handoff order</span>
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground/70">No threads under this goal yet.</p>
@@ -125,7 +125,7 @@ export function GoalThreadsSection({
                     }
                   >
                     <span className="truncate text-xs text-foreground/90">{thread.title}</span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                    <span className="flex items-center gap-1.5 text-3xs text-muted-foreground/70">
                       <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-1.5">
                         <span className={cn("size-1.5 rounded-full", chip.dot)} />
                         {chip.label}
