@@ -207,7 +207,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
               selected
                 ? "border-primary bg-primary/10"
                 : option.recommended
-                  ? "border-emerald-400/60 bg-emerald-50 dark:bg-emerald-500/10"
+                  ? "border-success/60 bg-success/8"
                   : "border-border",
               onChange && "cursor-pointer transition-colors hover:border-primary/60",
             );
@@ -216,11 +216,11 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                 <span
                   className={cn(
                     "mt-0.5 grid size-3.5 shrink-0 place-items-center border",
-                    question.mode === "single" ? "rounded-full" : "rounded-[3px]",
+                    question.mode === "single" ? "rounded-full" : "rounded-xs",
                     selected
                       ? "border-primary bg-primary"
                       : option.recommended
-                        ? "border-emerald-500"
+                        ? "border-success"
                         : "border-muted-foreground/50",
                   )}
                 >
@@ -235,7 +235,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   <span className="flex items-center gap-1.5 text-sm text-foreground">
                     {option.label}
                     {option.recommended && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1 py-0.5 text-3xs font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                      <span className="inline-flex items-center gap-0.5 rounded bg-success/16 px-1 py-0.5 text-3xs font-semibold text-success-foreground">
                         <IconCircleCheck className="size-3" />
                         recommended
                       </span>

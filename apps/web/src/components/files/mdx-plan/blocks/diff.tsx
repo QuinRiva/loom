@@ -387,7 +387,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           </TooltipTrigger>
           <TooltipPopup>{data.filename ?? "diff"}</TooltipPopup>
         </Tooltip>
-        <span className="shrink-0 font-mono text-emerald-700 dark:text-emerald-300">+{added}</span>
+        <span className="shrink-0 font-mono text-success-foreground">+{added}</span>
         <span className="shrink-0 font-mono text-destructive">−{removed}</span>
         <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border border-border">
           <ModeButton

@@ -236,7 +236,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
               data-entity-id={entity.id}
               className={cn(
                 "overflow-hidden rounded-xl border bg-card transition-shadow",
-                isHighlighted ? "border-blue-400 ring-2 ring-blue-400/50" : "border-border",
+                isHighlighted ? "border-info ring-2 ring-info/50" : "border-border",
               )}
             >
               <button
@@ -251,7 +251,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                     isOpen && "rotate-90",
                   )}
                 />
-                <IconDatabase className="size-4 shrink-0 text-blue-600 dark:text-blue-300" />
+                <IconDatabase className="size-4 shrink-0 text-info-foreground" />
                 <span
                   className={cn(
                     "min-w-0 truncate font-mono text-sm font-semibold",
@@ -282,7 +282,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                             key={field.name}
                             className={cn(
                               "border-t border-border/70 align-top first:border-t-0",
-                              field.fk && "cursor-pointer hover:bg-blue-500/5",
+                              field.fk && "cursor-pointer hover:bg-info/5",
                               field.change && CHANGE_ROW_ACCENT[field.change],
                             )}
                             onMouseEnter={
@@ -295,12 +295,8 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                           >
                             <td className="w-px whitespace-nowrap py-1.5 pl-4 pr-2">
                               <div className="flex items-center gap-1.5">
-                                {field.pk && (
-                                  <IconKey className="size-3.5 shrink-0 text-amber-500 dark:text-amber-300" />
-                                )}
-                                {field.fk && (
-                                  <IconLink className="size-3.5 shrink-0 text-blue-500 dark:text-blue-300" />
-                                )}
+                                {field.pk && <IconKey className="size-3.5 shrink-0 text-warning" />}
+                                {field.fk && <IconLink className="size-3.5 shrink-0 text-info" />}
                                 <span
                                   className={cn(
                                     "font-mono text-xs",
@@ -340,12 +336,12 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                               <div className="flex flex-wrap items-center justify-end gap-1">
                                 {field.change && <ChangeChip change={field.change} />}
                                 {field.pk && (
-                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+                                  <span className="rounded bg-warning/16 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-warning-foreground">
                                     PK
                                   </span>
                                 )}
                                 {field.fk && (
-                                  <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-3xs font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                                  <span className="inline-flex items-center gap-1 rounded bg-info/16 px-1.5 py-0.5 text-3xs font-semibold text-info-foreground">
                                     FK
                                     <span className="font-mono font-normal opacity-90">
                                       {fkTarget
@@ -415,7 +411,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                   <span className="font-mono text-xs font-semibold text-foreground">
                     {entityLabel(entities, relation.from)}
                   </span>
-                  <span className="flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 font-mono text-3xs font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                  <span className="flex items-center gap-1 rounded bg-info/16 px-1.5 py-0.5 font-mono text-3xs font-bold text-info-foreground">
                     {relationGlyph(relation.kind)}
                     <IconArrowNarrowRight className="size-3" />
                   </span>
@@ -426,9 +422,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                     <span className="text-xs text-muted-foreground">· {relation.label}</span>
                   )}
                   {!fromEntity || !toEntity ? (
-                    <span className="text-3xs text-amber-600 dark:text-amber-300">
-                      (unresolved)
-                    </span>
+                    <span className="text-3xs text-warning-foreground">(unresolved)</span>
                   ) : null}
                 </button>
               );

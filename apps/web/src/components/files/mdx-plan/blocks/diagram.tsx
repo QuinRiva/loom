@@ -194,7 +194,7 @@ function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
         {notes.map((note) => (
           <span
             key={note.id}
-            className="absolute max-w-[40%] -translate-x-1/2 -translate-y-1/2 rounded bg-amber-100 px-1.5 py-0.5 text-3xs italic text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
+            className="absolute max-w-[40%] -translate-x-1/2 -translate-y-1/2 rounded bg-warning/16 px-1.5 py-0.5 text-3xs italic text-warning-foreground"
             style={{ left: `${note.x ?? 50}%`, top: `${note.y ?? 90}%` }}
           >
             {note.text}

@@ -98,7 +98,7 @@ function AnnotatedCodeBody({
   }
   return (
     <div
-      className={cn("plan-code-shiki overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
+      className={cn("overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

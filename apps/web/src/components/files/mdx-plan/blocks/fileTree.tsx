@@ -105,10 +105,7 @@ function Snippet({ code, language }: { code: string; language: string }) {
     return <pre className="overflow-x-auto p-2 font-mono text-2xs">{code}</pre>;
   }
   return (
-    <div
-      className="plan-code-shiki overflow-x-auto p-2 text-2xs"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="overflow-x-auto p-2 text-2xs" dangerouslySetInnerHTML={{ __html: html }} />
   );
 }
 
@@ -132,7 +129,7 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
           className={cn(
             "min-w-0 truncate font-mono text-xs",
             entry.change === "removed"
-              ? "text-red-600 line-through dark:text-red-300"
+              ? "text-destructive-foreground line-through"
               : "text-foreground",
           )}
         >

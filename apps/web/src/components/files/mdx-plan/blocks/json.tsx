@@ -49,12 +49,9 @@ const jsonMdx: BlockMdxConfig<JsonData> = {
 const DEFAULT_COLLAPSED_DEPTH = 2;
 
 function Scalar({ value }: { value: unknown }) {
-  if (typeof value === "string")
-    return <span className="text-emerald-600 dark:text-emerald-300">"{value}"</span>;
-  if (typeof value === "number")
-    return <span className="text-blue-600 dark:text-blue-300">{value}</span>;
-  if (typeof value === "boolean")
-    return <span className="text-violet-600 dark:text-violet-300">{String(value)}</span>;
+  if (typeof value === "string") return <span className="text-success-foreground">"{value}"</span>;
+  if (typeof value === "number") return <span className="text-info-foreground">{value}</span>;
+  if (typeof value === "boolean") return <span className="text-primary">{String(value)}</span>;
   return <span className="text-muted-foreground">null</span>;
 }
 

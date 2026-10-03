@@ -88,7 +88,7 @@ export default function AbsoluteDirectoryPanel({
           <div className="truncate text-xs font-medium text-foreground">
             {rootLabel(normalizedRoot)}
           </div>
-          <div className="truncate text-3xs leading-none text-amber-600 dark:text-amber-400">
+          <div className="truncate text-3xs leading-none text-warning-foreground">
             Outside workspace · read-only
           </div>
         </div>

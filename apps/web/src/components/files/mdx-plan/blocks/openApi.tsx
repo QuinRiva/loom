@@ -431,7 +431,7 @@ const PARAM_IN_BADGE: Record<string, string> = {
   header: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   cookie: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
-const FALLBACK_PILL = "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
+const FALLBACK_PILL = "bg-secondary text-secondary-foreground";
 
 function statusPill(status: string): string {
   const lead = status.trim()[0];
@@ -531,7 +531,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                       </span>
                     )}
                     {param.required && (
-                      <span className="text-3xs font-semibold uppercase text-red-600 dark:text-red-300">
+                      <span className="text-3xs font-semibold uppercase text-destructive-foreground">
                         required
                       </span>
                     )}

@@ -241,7 +241,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                       </span>
                     )}
                     {param.required && (
-                      <span className="text-3xs font-semibold uppercase text-red-600 dark:text-red-300">
+                      <span className="text-3xs font-semibold uppercase text-destructive-foreground">
                         required
                       </span>
                     )}
