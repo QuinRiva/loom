@@ -425,7 +425,7 @@ function AccountRow({
         side="right"
         align="start"
         className="w-64 max-w-none"
-        viewportClassName="p-0"
+        padding="none"
       >
         <RowPopover row={row} pool={pool} now={now} />
       </PopoverPopup>
@@ -562,13 +562,7 @@ export function SubscriptionMeterChipView({
           </>
         ) : null}
       </PopoverTrigger>
-      <PopoverPopup
-        tooltipStyle
-        side="bottom"
-        align="end"
-        className="w-64 max-w-none"
-        viewportClassName="px-2 py-1"
-      >
+      <PopoverPopup tooltipStyle side="bottom" align="end" className="w-64 max-w-none">
         <SubscriptionMeterView view={view} now={now} />
       </PopoverPopup>
     </Popover>

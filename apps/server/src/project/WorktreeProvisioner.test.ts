@@ -23,6 +23,7 @@ import { WorktreeProvisioner, layer as WorktreeProvisionerLive } from "./Worktre
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
@@ -176,6 +177,7 @@ describe("ensureIsolatedChildProvisioned", () => {
       Layer.provide(lockStub),
       Layer.provide(setupStub),
       Layer.provide(vcsStub),
+      Layer.provide(ServerSettingsService.layerTest()),
       // Merged rather than provided: the assertions drive the very tracker and
       // lease the provisioner registers its fibre and its hold with.
       Layer.provideMerge(Layer.mergeAll(WorkspaceLeaseLive, WorktreeSetupTrackerLive)),

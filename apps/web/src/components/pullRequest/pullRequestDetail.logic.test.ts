@@ -7,7 +7,9 @@ import {
   type PullRequestComment,
   type PullRequestDetail,
   type PullRequestDetailView,
+  type PullRequestRef,
   type PullRequestReviewThread,
+  type RepositoryIdentity,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -27,6 +29,7 @@ import {
   stripPullRequestHandoffReferences,
   isPullRequestVerdictStale,
   isStackedPullRequestBase,
+  loadingPullRequestCheckoutCommand,
   pullRequestPanelContext,
   latestPullRequestReviewOutcomes,
   newestPullRequestCommitAt,
@@ -93,6 +96,49 @@ describe("pull request checkout commands", () => {
     ).toBe(
       "git fetch 'https://forgejo.local/maria/repo'\\''$(echo nope)' refs/pull/42/head && git checkout -B pulls/42 FETCH_HEAD",
     );
+  });
+
+  const reference = (host?: string): PullRequestRef => ({
+    projectId: ProjectId.make("project-1"),
+    ...(host === undefined ? {} : { host }),
+    repository: "acme/web",
+    number: 42,
+  });
+  const identity = (provider: string, canonicalKey: string): RepositoryIdentity => ({
+    canonicalKey,
+    locator: {
+      source: "git-remote",
+      remoteName: "origin",
+      remoteUrl: "git@github.com:acme/web.git",
+    },
+    provider,
+  });
+
+  it("uses a public host when no repository identity is available", () => {
+    expect(loadingPullRequestCheckoutCommand(reference("github.com"), undefined)).toBe(
+      "gh pr checkout 42",
+    );
+    expect(loadingPullRequestCheckoutCommand(reference("gitlab.com"), null)).toBe(
+      "glab mr checkout 42",
+    );
+  });
+
+  it("uses a matching enterprise identity and rejects an explicit host mismatch", () => {
+    const enterprise = identity("github", "github.example.test/acme/web");
+    expect(loadingPullRequestCheckoutCommand(reference("github.example.test"), enterprise)).toBe(
+      "gh pr checkout 42",
+    );
+    expect(loadingPullRequestCheckoutCommand(reference("github.com"), enterprise)).toBeNull();
+  });
+
+  it("does not infer a number-only command without a trusted provider", () => {
+    expect(loadingPullRequestCheckoutCommand(reference(), undefined)).toBeNull();
+    expect(
+      loadingPullRequestCheckoutCommand(
+        reference("github.com"),
+        identity("gitlab", "gitlab.com/acme/web"),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -1121,7 +1167,7 @@ describe("asking about a change rather than working on it", () => {
 
   it("puts the reader's request in the composer and the selected lines in chips", () => {
     const comment = {
-      kind: "line" as const,
+      kind: "line" as const, // loom: review contexts are a kind union
       id: "pull-request-selection:page.tsx:12:18",
       sectionId: "pull-request:42",
       sectionTitle: "PR #42 review",
@@ -1150,7 +1196,7 @@ describe("asking about a change rather than working on it", () => {
 
 describe("a second ask into the same composer", () => {
   const chip = (id: string): ReviewCommentContext => ({
-    kind: "line",
+    kind: "line", // loom
     id,
     sectionId: "pull-request:42",
     sectionTitle: "PR #42",

@@ -38,6 +38,9 @@ export interface ShortcutMatchContext {
   previewOpen: boolean;
   isWeb: boolean;
   isDesktop: boolean;
+  /** A text field, textarea, select or rich-text editor owns the keyboard.
+      Optional: only chords that collide with native editing consult it. */
+  editableFocus?: boolean;
   [key: string]: boolean;
 }
 
@@ -151,6 +154,7 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     previewOpen: false,
     isWeb: !isElectron,
     isDesktop: isElectron,
+    editableFocus: false,
     ...options?.context,
   };
 }
@@ -438,7 +442,7 @@ export function isRichTextBoldShortcut(event: ShortcutEventLike): boolean {
     return false;
   }
   return (
-    event.key.toLowerCase() === "b" &&
+    resolveEventKeys(event).has("b") &&
     (event.metaKey || event.ctrlKey) &&
     !event.altKey &&
     !event.shiftKey

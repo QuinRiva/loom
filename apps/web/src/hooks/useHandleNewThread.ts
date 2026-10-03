@@ -8,7 +8,9 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
   type GoalId, // loom: goal-keeping
+  type ProjectId,
   type ScopedProjectRef,
+  type ServerSettings,
   type ThreadId,
 } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
@@ -31,16 +33,15 @@ import {
 } from "../logicalProject";
 import {
   resolveProjectSettings,
-  type ResolvedProjectSettings,
+  type LegacyProjectSettingsFields,
 } from "@t3tools/shared/projectSettings";
-import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
 import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
   resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
-import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
 import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -70,30 +71,29 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
 }
 
 /**
- * The project's default env mode for a brand-new thread: the shared resolver
- * owns the priority order (project setting > checked-in t3.json > global
- * default). The t3.json read is skipped entirely when a higher-priority source
+ * The project's default env mode for a brand-new thread: upstream's resolver
+ * owns the priority order (project > environment > checked-in t3.json >
+ * built-in). The t3.json read is skipped entirely when a higher-priority source
  * decides, and its query atom caches per project after the first call.
  */
 // loom: lifted out of the hook body and exported so the Goal panel's "New
 // session" (apps/web/src/loom/useGoalPanelActions.ts) resolves the default the
 // same way instead of reading the environment's raw settings.
 export async function resolveNewThreadDefaultEnvMode(
-  project: { environmentId: EnvironmentId; workspaceRoot: string } | undefined,
-  projectSettings: ResolvedProjectSettings,
+  settings: ServerSettings,
+  projectId: ProjectId | null,
+  project:
+    | (LegacyProjectSettingsFields & { environmentId: EnvironmentId; workspaceRoot: string })
+    | undefined,
 ): Promise<DraftThreadEnvMode> {
-  const projectSetting =
-    projectSettings.sources.defaultThreadEnvMode === "project"
-      ? projectSettings.settings.defaultThreadEnvMode
-      : undefined;
-  return resolveDefaultThreadEnvMode({
-    projectSetting,
-    projectFile:
-      project !== undefined && projectSetting == null
-        ? await readT3ProjectFileDefaultThreadEnvMode(project.environmentId, project.workspaceRoot)
-        : null,
-    globalDefault: projectSettings.settings.defaultThreadEnvMode,
-  });
+  const consultProjectFile =
+    project !== undefined &&
+    resolveProjectSettings(settings, projectId, project).settings.defaultThreadEnvMode === null;
+  const projectFile = consultProjectFile
+    ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
+    : null;
+  return resolveProjectSettings(settings, projectId, project, projectFile).settings
+    .defaultThreadEnvMode;
 }
 
 export function useNewThreadHandler() {
@@ -188,7 +188,8 @@ export function useNewThreadHandler() {
             currentRouteTarget?.kind === "draft" ? currentRouteTarget.draftId : null,
           destinationDraftId,
         });
-      const resolveDefaultEnvMode = () => resolveNewThreadDefaultEnvMode(project, projectSettings);
+      const resolveDefaultEnvMode = () =>
+        resolveNewThreadDefaultEnvMode(targetServerSettings, project?.id ?? null, project);
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);

@@ -15,6 +15,7 @@ export const TrimmedString = Schema.String.pipe(
 export const TrimmedNonEmptyString = TrimmedString.check(Schema.isNonEmpty());
 
 export const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+// loom: cost/usage amounts
 export const NonNegativeNumber = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0));
 export const PositiveInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 export const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
@@ -83,6 +84,31 @@ export const ForwardCompatibleNullable = <Value extends Schema.Top>(value: Value
   );
 };
 
+/**
+ * A nullable setting whose null is "unset" and never crosses the wire: it
+ * decodes from a missing or unknown key and encodes back to a missing key.
+ * For a field that older clients decode as a required literal, so a null
+ * on the wire would fail their whole settings snapshot.
+ */
+export const OmittedWhenNull = <Value extends Schema.Top>(value: Value) => {
+  const decodeValue = Schema.decodeUnknownOption(value as never);
+  return Schema.optionalKey(Schema.Unknown).pipe(
+    Schema.decodeTo(
+      Schema.NullOr(value),
+      SchemaTransformation.transformOptional<Value["Encoded"] | null, unknown>({
+        decode: (raw) =>
+          Option.some(
+            Option.isSome(raw) && Option.isSome(decodeValue(raw.value))
+              ? (raw.value as Value["Encoded"])
+              : null,
+          ),
+        encode: (raw) =>
+          Option.isSome(raw) && raw.value !== null ? Option.some(raw.value) : Option.none(),
+      }),
+    ),
+  );
+};
+
 export const ForwardCompatibleArray = <Element extends Schema.Top>(element: Element) => {
   const decodeElement = Schema.decodeUnknownOption(element as never);
   return Schema.Array(Schema.Unknown).pipe(
@@ -110,6 +136,7 @@ export const ThreadId = makeEntityId("ThreadId");
 export type ThreadId = typeof ThreadId.Type;
 export const ProjectId = makeEntityId("ProjectId");
 export type ProjectId = typeof ProjectId.Type;
+// loom: goals and their task trees
 export const GoalId = makeEntityId("GoalId");
 export type GoalId = typeof GoalId.Type;
 export const GoalTaskId = makeEntityId("GoalTaskId");

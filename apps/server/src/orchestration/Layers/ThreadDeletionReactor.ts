@@ -71,15 +71,14 @@ export const logCleanupCauseUnlessInterrupted = <R, E>({
   readonly threadId: ThreadId;
 }): Effect.Effect<void, E, R> =>
   effect.pipe(
-    Effect.catchCause((cause) => {
-      if (Cause.hasInterruptsOnly(cause)) {
-        return Effect.failCause(cause);
-      }
-      return Effect.logDebug(message, {
-        threadId,
-        cause: Cause.pretty(cause),
-      });
-    }),
+    Effect.catchCauseIf(
+      (cause) => !Cause.hasInterruptsOnly(cause),
+      (cause) =>
+        Effect.logDebug(message, {
+          threadId,
+          cause: Cause.pretty(cause),
+        }),
+    ),
   );
 
 const make = Effect.gen(function* () {
@@ -124,16 +123,15 @@ const make = Effect.gen(function* () {
 
   const processThreadCleanupSafely = (request: ThreadCleanupRequest) =>
     processThreadCleanup(request).pipe(
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.failCause(cause);
-        }
-        return Effect.logWarning("thread cleanup reactor failed to process event", {
-          reason: request.reason,
-          threadId: request.threadId,
-          cause: Cause.pretty(cause),
-        });
-      }),
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) =>
+          Effect.logWarning("thread cleanup reactor failed to process event", {
+            reason: request.reason,
+            threadId: request.threadId,
+            cause: Cause.pretty(cause),
+          }),
+      ),
     );
 
   const worker = yield* makeDrainableWorker(processThreadCleanupSafely);

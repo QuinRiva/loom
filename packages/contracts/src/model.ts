@@ -174,7 +174,6 @@ export const PI_THINKING_LEVEL_OPTIONS = [
   "xhigh",
 ] as const;
 export type PiThinkingLevel = (typeof PI_THINKING_LEVEL_OPTIONS)[number];
-// loom: rolled from gpt-5.6-luna with the GPT-6 generation.
 export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-6-luna";
 /** Keep the official Antigravity session's current model. Never send this ID to ACP. */
 export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
