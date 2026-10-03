@@ -2776,7 +2776,14 @@ export default function Sidebar() {
       settledThreads: sortSettledThreads(settled),
       snoozeNow: preciseNow,
     };
-  }, [optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads, workingShelfEnabled]);
+  }, [
+    optimisticDrop,
+    scopedProjectKeys,
+    serverConfigs,
+    snoozeWakeTick,
+    threads,
+    workingShelfEnabled,
+  ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");

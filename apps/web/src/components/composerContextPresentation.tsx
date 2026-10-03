@@ -242,7 +242,10 @@ function FileContextChip(props: {
   );
 }
 
-function PullRequestContextChip(props: { record: LineReviewCommentContext; kind: ContextChipKind }) {
+function PullRequestContextChip(props: {
+  record: LineReviewCommentContext;
+  kind: ContextChipKind;
+}) {
   const actions = use(ComposerContextActionsContext);
   const metadata = props.record.pullRequest;
   if (metadata === undefined) return null;

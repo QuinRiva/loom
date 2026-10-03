@@ -19,10 +19,7 @@ export function useProjectDefaultThreadEnvMode(
   projectSettings: ResolvedProjectSettings,
 ): ThreadEnvMode | null {
   const setting = projectSettings.settings.defaultThreadEnvMode;
-  const projectFile = useT3ProjectFileState(
-    environmentId,
-    setting === null ? workspaceRoot : null,
-  );
+  const projectFile = useT3ProjectFileState(environmentId, setting === null ? workspaceRoot : null);
   return workspaceRoot === null || (setting === null && projectFile.status === "loading")
     ? null
     : resolveProjectFileBackedSetting("defaultThreadEnvMode", setting, projectFile.file).value;

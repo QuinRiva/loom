@@ -2,7 +2,9 @@
 // keep the first variant esbuild can parse. Records every dropped side for audit.
 import * as NodeFS from "node:fs";
 // Resolve esbuild from the current worktree's store (run from the repo root).
-const esbuildMain = NodeFS.globSync("node_modules/.pnpm/esbuild@*/node_modules/esbuild/lib/main.js").sort().at(-1);
+const esbuildMain = NodeFS.globSync("node_modules/.pnpm/esbuild@*/node_modules/esbuild/lib/main.js")
+  .sort()
+  .at(-1);
 const esbuild = await import(new URL(esbuildMain, `file://${process.cwd()}/`).href);
 
 const PROTECT =

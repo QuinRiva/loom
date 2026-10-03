@@ -965,7 +965,10 @@ export default function DiffPanel({
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>By coder</DropdownMenuLabel>
-                  <DropdownMenuRadioGroup value={selectedCoderValue} onValueChange={selectCoderValue}>
+                  <DropdownMenuRadioGroup
+                    value={selectedCoderValue}
+                    onValueChange={selectCoderValue}
+                  >
                     {coderDiffOptions.map((option) =>
                       option.orderedCheckpoints.length > 1 ? (
                         <DropdownMenuSub key={option.thread.id}>
@@ -977,7 +980,10 @@ export default function DiffPanel({
                               value={selectedCoderValue}
                               onValueChange={selectCoderValue}
                             >
-                              <DropdownMenuRadioItem value={`coder:${option.thread.id}`} closeOnClick>
+                              <DropdownMenuRadioItem
+                                value={`coder:${option.thread.id}`}
+                                closeOnClick
+                              >
                                 <span>All turns</span>
                               </DropdownMenuRadioItem>
                               {option.orderedCheckpoints.map((summary) => {

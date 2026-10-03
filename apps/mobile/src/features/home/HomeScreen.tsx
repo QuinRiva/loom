@@ -293,7 +293,8 @@ export function HomeScreen(props: HomeScreenProps) {
   const listRef = useRef<LegendListRef>(null);
   const swipeRowActivation = useMemo(() => createSwipeRowActivation(), []);
   const activateVisibleRows = useCallback(
-    (rows: ReadonlyArray<ThreadListV2ListItem | ThreadSearchArchivedItem>) => { // loom: + archived search rows
+    (rows: ReadonlyArray<ThreadListV2ListItem | ThreadSearchArchivedItem>) => {
+      // loom: + archived search rows
       const state = listRef.current?.getState();
       if (state === undefined || !(state.end >= 0)) return;
       swipeRowActivation.activate(
