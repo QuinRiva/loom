@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger"; // loom: PR-5 sweep tests
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
@@ -41,7 +42,10 @@ import {
 } from "../pullRequest/PullRequestService.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import {
+  OrchestrationCommandInvariantError,
+  OrchestrationThreadSettleBlockedError, // loom: PR-5 sweep tests
+} from "./Errors.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
@@ -189,9 +193,10 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
-  readonly onDispatch?: (
-    command: AutoSettleCommand,
-  ) => Effect.Effect<void, OrchestrationCommandInvariantError>;
+  readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<
+    void,
+    OrchestrationCommandInvariantError | OrchestrationThreadSettleBlockedError // loom: PR-5
+  >;
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -995,6 +1000,113 @@ describe("ThreadSettlementReactor", () => {
             ],
           );
         }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  // loom: PR-5 (pull 8). Upstream's `readSweepSnapshot` hands the sweep only
+  // unsettled threads (broad) or exactly one thread (targeted), so the fork's
+  // graph pre-filter is best-effort: whatever it cannot see, the decider
+  // refuses. That refusal is an expected outcome and must log quietly on both
+  // paths — every other settlement fault still warns.
+  const captureWarnings = () => {
+    const warnings: Array<unknown> = [];
+    const layer = Logger.layer(
+      [
+        Logger.make(({ logLevel, message }) => {
+          if (logLevel === "Warn" || logLevel === "Error") warnings.push(message);
+        }),
+      ],
+      { mergeWithExisting: false },
+    );
+    return { warnings, layer };
+  };
+  const refuseAsDecider = (blocked: ReadonlyArray<string>) => (command: AutoSettleCommand) =>
+    blocked.includes(command.threadId)
+      ? Effect.fail(new OrchestrationThreadSettleBlockedError({ threadId: command.threadId }))
+      : Effect.void;
+
+  it.effect("a root with a live child is not settled by either sweep and logs no warning", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const root = makeThread("root");
+        const child = makeThread("live-child", {
+          parentThreadId: root.id,
+          planLane: "in_progress",
+          session: {
+            threadId: ThreadId.make("live-child"),
+            status: "running",
+            providerName: "Pi",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: NOW,
+          },
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([root, child]),
+          onDispatch: refuseAsDecider([root.id]),
+        });
+        const { warnings, layer } = captureWarnings();
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          // Broad sweep: the pre-filter sees the child, so nothing is aimed at the root.
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+
+          // Targeted sweep: a one-thread read cannot see the child, so the
+          // dispatch goes out and the decider refuses it.
+          const idle = { ...child.session!, threadId: root.id, status: "ready" as const };
+          yield* fixture.publishEvent({
+            sequence: 2,
+            eventId: EventId.make("root-session-idle"),
+            aggregateKind: "thread",
+            aggregateId: root.id,
+            occurredAt: NOW,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "thread.session-set",
+            payload: { threadId: root.id, session: idle },
+          });
+          assert.strictEqual(yield* Queue.take(fixture.snapshotReads), root.id);
+          yield* reactor.drain;
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map(({ threadId }) => threadId),
+            [root.id],
+          );
+          assert.deepStrictEqual(warnings, []);
+        }).pipe(Effect.provide(fixture.layer.pipe(Layer.provideMerge(layer))));
+      }),
+    ),
+  );
+
+  it.effect("a root whose quiescent child was settled by hand is refused without a warning", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const root = makeThread("root");
+        // The unsettled-only read excludes the manually settled `yielded`
+        // child, so the broad snapshot holds the root alone; the decider's own
+        // descendant walk still sees the child and refuses.
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([root]),
+          onDispatch: refuseAsDecider([root.id]),
+        });
+        const { warnings, layer } = captureWarnings();
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map(({ threadId }) => threadId),
+            [root.id],
+          );
+          assert.deepStrictEqual(warnings, []);
+        }).pipe(Effect.provide(fixture.layer.pipe(Layer.provideMerge(layer))));
       }),
     ),
   );
