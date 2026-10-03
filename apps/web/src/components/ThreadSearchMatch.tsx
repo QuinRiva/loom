@@ -38,7 +38,7 @@ export function ThreadSearchMatchExcerpt(props: {
         </span>
       ) : null}
       {titleHit ? null : (
-        <span className={isUser ? "text-blue-400" : "text-emerald-400"}>
+        <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>
           {THREAD_SEARCH_SOURCE_LABEL[props.match.source]}{" "}
         </span>
       )}

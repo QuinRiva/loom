@@ -452,8 +452,18 @@ const make = Effect.gen(function* () {
               }),
             ),
           ),
+        // A clean run leaves only an idle prompt behind; its output stays in the
+        // terminal history. A failed run keeps its shell open for a look.
+        // (loom: upstream closes it on its optional observed completion; loom's
+        // completion always exists, so the close rides the detached observer.)
         onSuccess: ({ exitCode }) =>
-          writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "ready", exitCode }),
+          writeWorktreeSetupState(fs, path, cwd, {
+            ...setupStateBase,
+            status: "ready",
+            exitCode,
+          }).pipe(
+            Effect.andThen(terminalManager.closeIdle({ threadId: input.threadId, terminalId })),
+          ),
       }),
       Effect.forkDetach,
     );
