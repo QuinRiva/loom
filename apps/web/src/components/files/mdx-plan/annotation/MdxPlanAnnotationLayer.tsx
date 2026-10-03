@@ -797,7 +797,7 @@ export function MdxPlanAnnotationLayer({
     >
       {reviewChoiceTotal > 0 ? (
         <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">
-          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
+          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-2xs font-medium text-muted-foreground shadow-sm backdrop-blur">
             {decidedCount} of {reviewChoiceTotal} decided
           </span>
         </div>
@@ -838,7 +838,7 @@ export function MdxPlanAnnotationLayer({
             key={overlay.id}
             type="button"
             aria-label={`Comment ${index + 1}`}
-            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow ring-2 ring-background"
+            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-amber-500 text-3xs font-bold text-white shadow ring-2 ring-background"
             style={{ top: overlay.badge.top, left: overlay.badge.left + 2 }}
             onClick={() => setOpenCardId((current) => (current === overlay.id ? null : overlay.id))}
           >
@@ -855,7 +855,7 @@ export function MdxPlanAnnotationLayer({
           key={`collapsed-${group.key}`}
           type="button"
           aria-label={`Reveal ${group.overlays.length} hidden comment${group.overlays.length > 1 ? "s" : ""}`}
-          className="absolute z-20 flex h-5 -translate-y-1 items-center gap-0.5 rounded-full bg-amber-500/80 px-1.5 text-[10px] font-bold text-white shadow ring-2 ring-background hover:bg-amber-500"
+          className="absolute z-20 flex h-5 -translate-y-1 items-center gap-0.5 rounded-full bg-amber-500/80 px-1.5 text-3xs font-bold text-white shadow ring-2 ring-background hover:bg-amber-500"
           style={{ top: group.top, left: group.left }}
           onClick={() => revealCollapsed(group)}
         >
@@ -960,7 +960,7 @@ export function MdxPlanAnnotationLayer({
                 </div>
               </div>
               {overlay.comment.quotedText ? (
-                <p className="mt-2 line-clamp-2 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+                <p className="mt-2 line-clamp-2 border-l-2 border-amber-400/60 pl-2 text-2xs italic text-muted-foreground">
                   {overlay.comment.quotedText}
                 </p>
               ) : null}
@@ -1013,7 +1013,7 @@ function AnnotationCard({
         </div>
       </div>
       {quotedText ? (
-        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-2xs italic text-muted-foreground">
           {quotedText}
         </p>
       ) : null}
@@ -1117,7 +1117,7 @@ function AnnotationComposer({
         <span className="text-sm font-medium">Comment on plan</span>
       </div>
       {quotedText ? (
-        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-[11px] italic text-muted-foreground">
+        <p className="mt-2 line-clamp-3 border-l-2 border-amber-400/60 pl-2 text-2xs italic text-muted-foreground">
           {quotedText}
         </p>
       ) : null}

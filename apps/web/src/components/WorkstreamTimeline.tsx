@@ -186,7 +186,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
                         onClick={() => onOpenReport(thread.reportPath!)}
                       />
                     }
@@ -206,7 +206,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
                         onClick={() => onOpenReport(thread.promptDebugPath!)}
                       />
                     }
@@ -224,7 +224,7 @@ export function WorkstreamLifecycleDrawer({
                   render={
                     <button
                       type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
                       onClick={() => onOpenThread(thread)}
                     />
                   }
@@ -256,14 +256,14 @@ export function WorkstreamLifecycleDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {!thread ? null : state?.status === "loading" ? (
-            <div className="flex items-center gap-2 py-3 text-[11px] text-white/40">
+            <div className="flex items-center gap-2 py-3 text-2xs text-white/40">
               <Loader2Icon className="size-3.5 animate-spin" />
               Loading history…
             </div>
           ) : state?.status === "error" ? (
-            <div className="py-3 text-[11px] text-white/40">Couldn&rsquo;t load history.</div>
+            <div className="py-3 text-2xs text-white/40">Couldn&rsquo;t load history.</div>
           ) : rows.length === 0 ? (
-            <div className="py-3 text-[11px] text-white/35">No lifecycle events recorded yet.</div>
+            <div className="py-3 text-2xs text-white/35">No lifecycle events recorded yet.</div>
           ) : (
             <ol className="flex flex-col">
               {rows.map((row) => {
@@ -274,7 +274,7 @@ export function WorkstreamLifecycleDrawer({
                     <span className="min-w-0 flex-1">
                       <span className={`text-xs font-medium ${tone.textClass}`}>{row.label}</span>
                       {row.detail ? (
-                        <span className="ml-1.5 text-[11px] text-white/45">{row.detail}</span>
+                        <span className="ml-1.5 text-2xs text-white/45">{row.detail}</span>
                       ) : null}
                     </span>
                     {row.deepLink ? (
@@ -283,7 +283,7 @@ export function WorkstreamLifecycleDrawer({
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <span className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-white/35" />
+                          <span className="mt-0.5 shrink-0 font-mono text-3xs tabular-nums text-white/35" />
                         }
                       >
                         {formatRelativeAge(row.at)}

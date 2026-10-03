@@ -350,7 +350,7 @@ export function SearchableModelPopover({
                     {option.name}
                   </span>
                   {option.secondary ? (
-                    <span className="truncate text-[11px] leading-snug text-muted-foreground/70">
+                    <span className="truncate text-2xs leading-snug text-muted-foreground/70">
                       {option.secondary}
                     </span>
                   ) : null}
@@ -363,7 +363,7 @@ export function SearchableModelPopover({
               <div key={value}>
                 <div
                   className={cn(
-                    "mx-2 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70",
+                    "mx-2 mb-1 text-3xs font-medium uppercase tracking-wide text-muted-foreground/70",
                     index === 0 ? "mt-0" : "mt-2 border-t border-border/60 pt-1.5",
                   )}
                 >

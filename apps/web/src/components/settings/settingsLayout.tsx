@@ -137,11 +137,11 @@ export function DiagnosticsLastChecked({ checkedAt }: { checkedAt: DateTime.Utc 
   const relative = checkedAt ? formatRelativeTime(DateTime.formatIso(checkedAt)) : null;
 
   if (!relative) {
-    return <span className="text-[11px] text-muted-foreground/50">Checking</span>;
+    return <span className="text-2xs text-muted-foreground/50">Checking</span>;
   }
 
   return (
-    <span className="text-[11px] text-muted-foreground/60">
+    <span className="text-2xs text-muted-foreground/60">
       {relative.suffix ? (
         <>
           Checked <span className="font-mono tabular-nums">{relative.value}</span> {relative.suffix}

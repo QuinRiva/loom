@@ -1365,7 +1365,7 @@ function ControlChannelPaletteFixture() {
       <div className={cn("relative max-w-[80%] rounded-2xl p-3", CHANNEL_CLASSES[channel].bubble)}>
         <div
           className={cn(
-            "mb-1.5 text-[10px] font-medium tracking-wide uppercase",
+            "mb-1.5 text-3xs font-medium tracking-wide uppercase",
             CHANNEL_CLASSES[channel].kicker,
           )}
         >

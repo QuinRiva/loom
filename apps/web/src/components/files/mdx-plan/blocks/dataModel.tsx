@@ -139,7 +139,7 @@ function ChangeChip({ change }: { change: DataModelChange }) {
     // The label is the chip's own text, so a hover hint would only repeat it.
     <span
       className={cn(
-        "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide",
+        "rounded px-1.5 py-0.5 text-3xs font-semibold uppercase leading-none tracking-wide",
         CHANGE_BADGE[change],
       )}
     >
@@ -261,7 +261,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                   {entity.name}
                 </span>
                 {entity.change && <ChangeChip change={entity.change} />}
-                <span className="ml-auto shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <span className="ml-auto shrink-0 rounded-full bg-accent px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                   {entity.fields.length} {entity.fields.length === 1 ? "field" : "fields"}
                 </span>
               </button>
@@ -318,7 +318,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {field.change === "modified" && field.was && (
                                   <>
-                                    <span className="inline-block rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground line-through">
+                                    <span className="inline-block rounded bg-accent px-1.5 py-0.5 font-mono text-2xs text-muted-foreground line-through">
                                       {field.was}
                                     </span>
                                     <IconArrowNarrowRight className="size-3 shrink-0 text-muted-foreground" />
@@ -327,7 +327,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                                 {field.type && (
                                   <span
                                     className={cn(
-                                      "inline-block rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground",
+                                      "inline-block rounded bg-accent px-1.5 py-0.5 font-mono text-2xs text-muted-foreground",
                                       field.change === "removed" && "line-through",
                                     )}
                                   >
@@ -340,12 +340,12 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                               <div className="flex flex-wrap items-center justify-end gap-1">
                                 {field.change && <ChangeChip change={field.change} />}
                                 {field.pk && (
-                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
                                     PK
                                   </span>
                                 )}
                                 {field.fk && (
-                                  <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                                  <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-3xs font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
                                     FK
                                     <span className="font-mono font-normal opacity-90">
                                       {fkTarget
@@ -359,18 +359,18 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                                   </span>
                                 )}
                                 {field.nullable && (
-                                  <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                  <span className="rounded bg-accent px-1.5 py-0.5 text-3xs font-medium text-muted-foreground">
                                     nullable
                                   </span>
                                 )}
                                 {field.default != null && field.default !== "" && (
-                                  <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                  <span className="rounded bg-accent px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
                                     = {field.default}
                                   </span>
                                 )}
                               </div>
                               {field.note && (
-                                <div className="mt-0.5 text-[11px] italic text-muted-foreground">
+                                <div className="mt-0.5 text-2xs italic text-muted-foreground">
                                   {field.note}
                                 </div>
                               )}
@@ -415,7 +415,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                   <span className="font-mono text-xs font-semibold text-foreground">
                     {entityLabel(entities, relation.from)}
                   </span>
-                  <span className="flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                  <span className="flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 font-mono text-3xs font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
                     {relationGlyph(relation.kind)}
                     <IconArrowNarrowRight className="size-3" />
                   </span>
@@ -426,7 +426,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                     <span className="text-xs text-muted-foreground">· {relation.label}</span>
                   )}
                   {!fromEntity || !toEntity ? (
-                    <span className="text-[10px] text-amber-600 dark:text-amber-300">
+                    <span className="text-3xs text-amber-600 dark:text-amber-300">
                       (unresolved)
                     </span>
                   ) : null}

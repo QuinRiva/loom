@@ -317,7 +317,7 @@ export default function WorkstreamGraph({
 
   return (
     <div className="flex w-full flex-col items-center gap-3">
-      <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
+      <p className="px-2 text-center text-2xs leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
         a wave sit to its right, with dashed steel &ldquo;waits-on&rdquo; cross-edges. Click a node
         to open its thread; middle-click for its history; hover for its facts; right-click for
@@ -486,38 +486,38 @@ export default function WorkstreamGraph({
       </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
         {COLUMN_ORDER.map((column) => (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45" key={column}>
+          <span className="inline-flex items-center gap-1.5 text-2xs text-white/45" key={column}>
             <span className={`size-2 rounded-full ${STATUS_STYLES[column].dotClass}`} />
             {COLUMN_LABELS[column]}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-white/45">
           <span className="inline-block h-0 w-4 border-t" style={{ borderColor: SPINE_STROKE }} />
           dispatch spine
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-white/45">
           <span
             className="inline-block h-0 w-4 border-t border-dashed"
             style={{ borderColor: WAITS_ON_STROKE }}
           />
           waits-on
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-white/45">
           <span
             className="inline-block h-0 w-4 border-t"
             style={{ borderColor: getLoopStroke(1) }}
           />
           review loop ⟲
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-white/45">
           <span
             className="inline-block h-0 w-4 border-t border-dotted"
             style={{ borderColor: CONSULT_STROKE }}
           />
           consult
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
-          <span className="text-[11px]" style={{ color: FORKED_FROM_STROKE }}>
+        <span className="inline-flex items-center gap-1.5 text-2xs text-white/45">
+          <span className="text-2xs" style={{ color: FORKED_FROM_STROKE }}>
             ⑂
           </span>
           forked from

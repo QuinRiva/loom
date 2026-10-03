@@ -68,7 +68,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 // Three pulsing dots — the board's LiveDots motif reused as the "active" glyph.
 function GraphLiveDots() {
   return (
-    <span className="inline-flex items-center gap-[2px]" aria-hidden>
+    <span className="inline-flex items-center gap-0.5" aria-hidden>
       <span className="size-1 animate-pulse rounded-full bg-current" />
       <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
       <span className="size-1 animate-pulse rounded-full bg-current [animation-delay:300ms]" />
@@ -173,7 +173,7 @@ export function WorkstreamGraphIndicator({
           <span
             role="button"
             aria-label={badge.title}
-            className={`inline-flex h-[18px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full border px-1.5 text-[11px] font-semibold leading-none tabular-nums ${
+            className={`inline-flex h-[18px] shrink-0 cursor-pointer items-center gap-1.25 rounded-full border px-1.5 text-2xs font-semibold leading-none tabular-nums ${
               badge.className
             } ${badge.pulse ? "animate-pulse" : ""}`}
           />
@@ -205,10 +205,10 @@ export function WorkstreamGraphIndicator({
                     }`}
                   />
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[11px] text-foreground">
+                    <span className="truncate text-2xs text-foreground">
                       {node.title || "Untitled sub-thread"}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-3xs text-muted-foreground">
                       {node.reason ? ATTENTION_REASON_LABEL[node.reason] : "stuck in deadlock"}
                     </span>
                   </span>
@@ -220,7 +220,7 @@ export function WorkstreamGraphIndicator({
         ) : (
           <div className="px-3 pb-1">
             {lines.map(({ key, label, dotClass }) => (
-              <div className="flex items-center gap-2 py-px text-[11px]" key={key}>
+              <div className="flex items-center gap-2 py-px text-2xs" key={key}>
                 <span className={`size-[7px] shrink-0 rounded-full ${dotClass}`} />
                 <span className="flex-1">{label}</span>
                 <span className="tabular-nums text-foreground">{rollup.breakdown[key]}</span>

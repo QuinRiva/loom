@@ -94,7 +94,7 @@ function WhyKeptPill({ label, tone }: { label: string; tone: "neutral" | "warn" 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-2xs font-medium",
         tone === "warn"
           ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
           : "border-border/70 text-muted-foreground",
@@ -113,7 +113,7 @@ function OwnerCell({ entry }: { entry: WorkstreamWorktreeEntry }) {
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="min-w-0 truncate text-foreground">{entry.owner.title}</span>
       {entry.owner.role ? (
-        <span className="shrink-0 text-[11px] text-muted-foreground/60">{entry.owner.role}</span>
+        <span className="shrink-0 text-2xs text-muted-foreground/60">{entry.owner.role}</span>
       ) : null}
     </span>
   );
@@ -263,7 +263,7 @@ export function WorktreesSettingsPanel() {
               <col className="w-[15%]" />
               <col className="w-[8%]" />
             </colgroup>
-            <thead className="border-b border-border/60 text-[11px] uppercase tracking-[0.08em] text-muted-foreground/70">
+            <thead className="border-b border-border/60 text-2xs uppercase tracking-[0.08em] text-muted-foreground/70">
               <tr>
                 <th className="px-4 py-2.5 font-semibold sm:pl-5">Worktree</th>
                 <th className="px-3 py-2.5 font-semibold">Owner</th>
@@ -293,7 +293,7 @@ export function WorktreesSettingsPanel() {
                             <span className="block truncate font-medium text-foreground">
                               {worktreeName(entry.worktreePath)}
                               {entry.isMain ? (
-                                <span className="ml-1.5 text-[11px] text-muted-foreground/60">
+                                <span className="ml-1.5 text-2xs text-muted-foreground/60">
                                   main
                                 </span>
                               ) : null}
@@ -302,7 +302,7 @@ export function WorktreesSettingsPanel() {
                         />
                         <TooltipPopup
                           side="top"
-                          className="max-w-[min(520px,calc(100vw-2rem))] break-all font-mono text-[11px]"
+                          className="max-w-[min(520px,calc(100vw-2rem))] break-all font-mono text-2xs"
                         >
                           {entry.worktreePath}
                           <div className="mt-1 text-muted-foreground">{entry.projectName}</div>

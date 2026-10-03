@@ -144,7 +144,7 @@ export function QuestionListRead({
         ))}
       </ol>
       {api && questions.length > 0 && (
-        <div className="border-t border-border/60 bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+        <div className="border-t border-border/60 bg-muted/40 px-4 py-2 text-2xs text-muted-foreground">
           {answered} of {questions.length} answered · answers are attached to your next message
         </div>
       )}
@@ -183,13 +183,13 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
           {onChange && !isEmptyQuestionAnswer(answer) && (
             <button
               type="button"
-              className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              className="text-2xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
               onClick={() => onChange(EMPTY_QUESTION_ANSWER)}
             >
               clear
             </button>
           )}
-          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-accent px-2 py-0.5 text-3xs font-medium text-muted-foreground">
             {MODE_LABEL[question.mode]}
           </span>
         </span>
@@ -235,14 +235,14 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   <span className="flex items-center gap-1.5 text-sm text-foreground">
                     {option.label}
                     {option.recommended && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                      <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1 py-0.5 text-3xs font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                         <IconCircleCheck className="size-3" />
                         recommended
                       </span>
                     )}
                   </span>
                   {option.detail && (
-                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    <span className="mt-0.5 block text-2xs text-muted-foreground">
                       {option.detail}
                     </span>
                   )}
@@ -278,7 +278,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
               onCommit={(text) => onChange({ ...answer, other: text })}
             />
           ) : (
-            <div className="rounded-md border border-dashed border-border px-2.5 py-1.5 text-[11px] italic text-muted-foreground">
+            <div className="rounded-md border border-dashed border-border px-2.5 py-1.5 text-2xs italic text-muted-foreground">
               {question.placeholder ?? "Write-in answer…"}
             </div>
           )}

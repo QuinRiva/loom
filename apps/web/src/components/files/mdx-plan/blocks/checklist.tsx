@@ -72,7 +72,7 @@ function ChecklistRead({ data, blockId }: PlanBlockReadProps<ChecklistData>) {
               {item.label}
             </span>
             {item.note && (
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">{item.note}</span>
+              <span className="mt-0.5 block text-2xs text-muted-foreground">{item.note}</span>
             )}
           </span>
         </li>

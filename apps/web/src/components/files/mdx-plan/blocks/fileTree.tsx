@@ -102,11 +102,11 @@ function buildTree(entries: FileTreeEntry[]): TreeNode {
 function Snippet({ code, language }: { code: string; language: string }) {
   const html = useShikiHtml(code, language);
   if (html === null) {
-    return <pre className="overflow-x-auto p-2 font-mono text-[11px]">{code}</pre>;
+    return <pre className="overflow-x-auto p-2 font-mono text-2xs">{code}</pre>;
   }
   return (
     <div
-      className="plan-code-shiki overflow-x-auto p-2 text-[11px]"
+      className="plan-code-shiki overflow-x-auto p-2 text-2xs"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -144,7 +144,7 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
               render={
                 <span
                   className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+                    "flex size-4 shrink-0 items-center justify-center rounded text-3xs font-bold leading-none",
                     CHANGE_BADGE[entry.change],
                   )}
                 />
@@ -156,7 +156,7 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
           </Tooltip>
         )}
         {entry.note && (
-          <span className="truncate text-[11px] italic text-muted-foreground">— {entry.note}</span>
+          <span className="truncate text-2xs italic text-muted-foreground">— {entry.note}</span>
         )}
         {hasSnippet && (
           <IconChevronRight
@@ -217,7 +217,7 @@ function FileTreeRead({ data, blockId }: PlanBlockReadProps<FileTreeData>) {
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
       {data.title && (
-        <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
           {data.title}
         </div>
       )}

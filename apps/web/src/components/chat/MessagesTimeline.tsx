@@ -2188,7 +2188,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         {control ? (
           <div
             className={cn(
-              "mb-1.5 text-[10px] font-medium tracking-wide uppercase",
+              "mb-1.5 text-3xs font-medium tracking-wide uppercase",
               CHANNEL_CLASSES[control.channel].kicker,
             )}
           >

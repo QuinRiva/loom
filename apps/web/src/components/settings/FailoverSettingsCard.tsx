@@ -131,7 +131,7 @@ function ChainTargetRow({
       <span className="min-w-0 flex-1 truncate text-xs text-foreground">
         {describeFailoverTarget(target, nameBySlug)}
       </span>
-      <code className="hidden shrink-0 rounded bg-muted/60 px-1 py-0.5 text-[10px] text-muted-foreground sm:inline">
+      <code className="hidden shrink-0 rounded bg-muted/60 px-1 py-0.5 text-3xs text-muted-foreground sm:inline">
         {target}
       </code>
       <div className="flex shrink-0 items-center">
@@ -203,7 +203,7 @@ function ChainSourceCard({
     <div className="space-y-2 border-t border-border/60 px-4 py-3 sm:px-5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <code className="truncate rounded bg-muted/60 px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+          <code className="truncate rounded bg-muted/60 px-1.5 py-0.5 text-2xs font-medium text-foreground">
             {source}
           </code>
           {isOverridden ? (
@@ -211,7 +211,7 @@ function ChainSourceCard({
               Customised
             </Badge>
           ) : (
-            <span className="shrink-0 text-[11px] text-muted-foreground/60">Default</span>
+            <span className="shrink-0 text-2xs text-muted-foreground/60">Default</span>
           )}
         </div>
         {(isOverridden || !hasDefault) && (
@@ -219,7 +219,7 @@ function ChainSourceCard({
             type="button"
             size="xs"
             variant="ghost"
-            className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            className="h-6 gap-1 px-1.5 text-2xs text-muted-foreground hover:text-foreground"
             onClick={onReset}
           >
             <RotateCcwIcon className="size-3" />
@@ -228,7 +228,7 @@ function ChainSourceCard({
         )}
       </div>
       {targets.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/70">
+        <p className="text-2xs text-muted-foreground/70">
           No fallback targets — exhausted turns on this source will wait for the window to reset.
         </p>
       ) : (
@@ -409,18 +409,18 @@ export function FailoverSettingsPanel() {
                         Paused
                       </Badge>
                     ) : account.state === "exhausted" ? (
-                      <span className="truncate text-[11px] text-destructive">
+                      <span className="truncate text-2xs text-destructive">
                         Limit reached{reset ? ` · resets ${reset}` : ""}
                       </span>
                     ) : (
-                      <span className="text-[11px] text-muted-foreground/70">Available</span>
+                      <span className="text-2xs text-muted-foreground/70">Available</span>
                     )}
                   </div>
                   <Button
                     type="button"
                     size="xs"
                     variant={paused ? "default" : "outline"}
-                    className="h-6 shrink-0 px-2 text-[11px]"
+                    className="h-6 shrink-0 px-2 text-2xs"
                     onClick={() => togglePause(account.key, !paused)}
                   >
                     {paused ? "Unpause" : "Pause"}
@@ -446,7 +446,7 @@ export function FailoverSettingsPanel() {
                   type="button"
                   size="xs"
                   variant="ghost"
-                  className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                  className="h-6 gap-1 px-2 text-2xs text-muted-foreground hover:text-foreground"
                   aria-label="Add a model-specific fallback chain"
                 >
                   <PlusIcon className="size-3" />
@@ -456,7 +456,7 @@ export function FailoverSettingsPanel() {
             />
           )}
         </div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+        <p className="mt-0.5 text-2xs text-muted-foreground/70">
           Ordered targets tried when the source is exhausted. "Same model" keeps the model on
           another provider's pool.
         </p>
