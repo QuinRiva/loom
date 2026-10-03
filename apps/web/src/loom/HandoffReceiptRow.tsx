@@ -83,7 +83,7 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
   return (
     <div
       className={cn(
-        "flex w-full flex-wrap items-start gap-x-2.5 gap-y-1.5 rounded-md border border-border border-l-2 px-2.5 py-2 text-[11.5px] text-muted-foreground",
+        "flex w-full flex-wrap items-start gap-x-2.5 gap-y-1.5 rounded-md border border-border border-l-2 px-2.5 py-2 text-xs text-muted-foreground",
         STATE_CLASSES[state],
       )}
       data-handoff-receipt-state={state}
@@ -97,10 +97,7 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
           <GitBranchIcon className="size-3.5 text-primary" />
         )}
         <span
-          className={cn(
-            "text-[9.5px] font-semibold uppercase tracking-[0.07em]",
-            KICKER_CLASSES[state],
-          )}
+          className={cn("text-3xs font-semibold uppercase tracking-widest", KICKER_CLASSES[state])}
         >
           {KICKERS[state]}
         </span>
@@ -183,7 +180,7 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
       ) : null}
 
       <span className="flex shrink-0 items-center gap-1.5">
-        <span className="text-[10.5px] text-muted-foreground/70 tabular-nums">
+        <span className="text-2xs text-muted-foreground/70 tabular-nums">
           {formatShortTimestamp(row.createdAt, ctx.timestampFormat)}
         </span>
         {/* The copy affordance and the "not in context" chip belong to the
@@ -196,7 +193,7 @@ export const HandoffReceiptRow = memo(function HandoffReceiptRow({
           <Tooltip>
             <TooltipTrigger
               render={
-                <span className="inline-flex cursor-help items-center gap-1 rounded-sm border border-dashed border-foreground/20 px-1 py-px text-[9.5px] font-semibold uppercase tracking-[0.03em]" />
+                <span className="inline-flex cursor-help items-center gap-1 rounded-sm border border-dashed border-foreground/20 px-1 py-px text-3xs font-semibold uppercase tracking-wide" />
               }
             >
               <EyeOffIcon className="size-2.5" />

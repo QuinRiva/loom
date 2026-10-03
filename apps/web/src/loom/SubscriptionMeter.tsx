@@ -387,7 +387,7 @@ function AccountRow({
             aria-label={`${name}: 5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
-            className="block w-full rounded-[4px] text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring"
+            className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring"
           />
         }
       >
@@ -412,7 +412,7 @@ function AccountRow({
           </span>
           <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
             {mark ? (
-              <span className={cn("text-[9px] font-bold", mark.className)}>{mark.glyph}</span>
+              <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
             ) : null}
             <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
               {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
@@ -459,7 +459,7 @@ function PoolBlock({
         </span>
       </div>
       <Grid className="h-3">
-        <span className="text-[9px] text-muted-foreground/45">pool</span>
+        <span className="text-3xs text-muted-foreground/45">pool</span>
         <span className="h-3">
           <TimeBar bar={pool.pool} axis={pool.axis} now={now} height={6} />
         </span>

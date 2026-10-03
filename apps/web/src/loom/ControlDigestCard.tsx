@@ -115,7 +115,7 @@ export function ControlDigestCardView({
           <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
             <button
               type="button"
-              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-[10.5px] tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-2xs tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
               onClick={() => setShowRaw((value) => !value)}
               aria-expanded={showRaw}
             >
@@ -198,7 +198,7 @@ function ControlDigestItem({
             </span>
           </span>
           {item.status ? (
-            <span className="text-muted-foreground/70 shrink-0 text-[10.5px]">{item.status}</span>
+            <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
           ) : null}
           {open ? <ChevronRightIcon className="size-3.5 shrink-0 opacity-50" aria-hidden /> : null}
         </div>
@@ -206,7 +206,7 @@ function ControlDigestItem({
         {expanded && (item.reportPath || item.excerpt || item.timestamp) ? (
           <div className={cn("mt-1 space-y-1 border-l pl-2.5 text-xs", classes.divider)}>
             {item.timestamp ? (
-              <div className="text-muted-foreground/60 text-[10.5px]">{item.timestamp}</div>
+              <div className="text-muted-foreground/60 text-2xs">{item.timestamp}</div>
             ) : null}
             {item.reportPath ? markdown(`Report: \`${item.reportPath}\``) : null}
             {item.excerpt ? (

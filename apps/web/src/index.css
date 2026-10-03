@@ -2391,6 +2391,9 @@ code {
   --color-workstream-danger-foreground: var(--color-rose-200);
   --color-workstream-attention: var(--color-orange-400);
   --color-workstream-attention-foreground: var(--color-orange-300);
+  /* The consult card in the chat timeline keeps the graph's consult-edge teal. */
+  --color-consult: var(--color-teal-400);
+  --color-consult-foreground: var(--color-teal-300);
 }
 
 .ultrathink-pill {

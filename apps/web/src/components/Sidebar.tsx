@@ -2008,7 +2008,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* loom: a briefed-but-unlaunched handoff root is otherwise
                   indistinguishable from an idle one. Same pill as v1. */}
               {isStagedHandoffThread(thread) ? (
-                <span className="shrink-0 rounded-sm bg-muted px-1 py-0 font-medium text-[9px] text-muted-foreground uppercase tracking-wide">
+                <span className="shrink-0 rounded-sm bg-muted px-1 py-0 font-medium text-3xs text-muted-foreground uppercase tracking-wide">
                   Staged
                 </span>
               ) : null}
@@ -2026,7 +2026,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 // loom: except while a question waits — its header then matters
                 // more than the branch, and this is the row's only full-width
                 // line (the top-line pill has no room for it).
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-indigo-600/80 dark:text-indigo-300/80">
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-info-foreground/80">
                   {thread.pendingUserInputHeader}
                 </span>
               ) : thread.branch ? (

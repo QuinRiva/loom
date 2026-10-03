@@ -65,7 +65,7 @@ export function PendingQuestionWaitAge({ since }: { since: string }) {
 
 export function RecommendedBadge() {
   return (
-    <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-px text-[9px] font-semibold uppercase leading-tight tracking-wide text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300">
+    <span className="shrink-0 rounded border border-success/30 bg-success/10 px-1 py-px text-3xs font-semibold uppercase leading-tight tracking-wide text-success-foreground">
       Recommended
     </span>
   );
