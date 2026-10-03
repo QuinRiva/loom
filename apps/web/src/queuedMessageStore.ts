@@ -24,6 +24,8 @@ export interface QueuedMessageSendSettings {
   interactionMode: ProviderInteractionMode;
   /** Effort written into the prompt text, for providers that read it there. */
   promptEffort: string | null;
+  /** loom: the provider's skill names at queue time; `$name` among them sends as `/skill:name`. */
+  skillNames: ReadonlyArray<string>;
 }
 
 /**

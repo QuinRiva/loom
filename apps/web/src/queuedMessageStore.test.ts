@@ -22,6 +22,7 @@ function makeMessage(prompt: string): Omit<QueuedComposerMessage, "id"> {
       runtimeMode: "full-access",
       interactionMode: "default",
       promptEffort: null,
+      skillNames: [], // loom
     },
     queuedAfterToolActivityId: null,
     createdAt: "2026-09-11T00:00:00.000Z",

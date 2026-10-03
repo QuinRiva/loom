@@ -72,6 +72,7 @@ function enqueue(overrides: Partial<QueuedComposerMessage> = {}) {
       runtimeMode: "full-access",
       interactionMode: "default",
       promptEffort: null,
+      skillNames: [], // loom
     },
     queuedAfterToolActivityId: null,
     createdAt: "2026-09-25T00:00:00Z",
@@ -189,6 +190,27 @@ describe("sendQueuedMessage", () => {
     expect(commandsRun()).toEqual(["runtime", "start"]);
     expect(io.run.mock.calls[1]?.[2]).toMatchObject({ input: { runtimeMode: "full-access" } });
     expect(queue()).toBeUndefined();
+  });
+
+  // loom: queued sends expand pi skills like the direct send path does.
+  it("sends a known `$skill` as `/skill:name` and leaves other `$` words alone", async () => {
+    const message = enqueue({
+      prompt: "$review the $HOME diff",
+      sendSettings: {
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        promptEffort: null,
+        skillNames: ["review"],
+      },
+    });
+
+    await sendQueuedMessage(threadRef, message.id);
+
+    expect(commandsRun()).toEqual(["start"]);
+    expect(io.run.mock.calls[0]?.[2]).toMatchObject({
+      input: { message: { text: "/skill:review the $HOME diff" } },
+    });
   });
 
   it("gives a message back to Stop while its upload runs, without starting a turn", async () => {

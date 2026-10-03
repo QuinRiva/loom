@@ -7379,6 +7379,7 @@ export default function ChatView(props: ChatViewProps) {
       ),
       sendCtx.selectedPromptEffort,
     ),
+    skillNames: sendCtx.selectedProviderSkillNames, // loom: queued `$name` expands at send
   });
   // Puts queued messages back into the composer after Stop or Cancel. Prompts
   // join with blank lines; attachments and contexts are added.

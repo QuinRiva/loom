@@ -7,6 +7,7 @@ import {
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
+import { expandSkillTokensToPromptText } from "@t3tools/shared/composerInlineTokens"; // loom
 
 import { buildMessageContext, terminalContextReference } from "../../lib/composerContextRecords";
 import { removeInlineContextReference } from "../../lib/composerContextReferences";
@@ -95,7 +96,9 @@ export async function sendQueuedMessage(
       )
       .trim();
     const text = applyClaudePromptEffortPrefix(
-      prompt || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      // loom: `$name` → the `/skill:name` pi expands, as on the direct send path.
+      expandSkillTokensToPromptText(prompt, sendSettings.skillNames) ||
+        ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
       sendSettings.promptEffort,
     );
 

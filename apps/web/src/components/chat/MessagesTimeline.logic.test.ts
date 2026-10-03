@@ -1107,6 +1107,7 @@ describe("deriveMessagesTimelineRows", () => {
       runtimeMode: "full-access" as const,
       interactionMode: "default" as const,
       promptEffort: null,
+      skillNames: [], // loom
     },
     queuedAfterToolActivityId: null,
     createdAt: "2026-01-01T00:00:01Z",
