@@ -21,10 +21,7 @@ import { type CustomModelDefinition, normalizeCustomModelSlug } from "@t3tools/s
 import { cn } from "../../lib/utils";
 import { sortModelsForProviderInstance } from "../../modelOrdering";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
-import { SearchableModelList } from "../chat/SearchableModelList";
-import { scoreModelPickerSearch } from "../chat/modelPickerSearch";
 import { Button } from "../ui/button";
-import { ComboboxItem } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
