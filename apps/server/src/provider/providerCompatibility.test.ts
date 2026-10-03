@@ -53,7 +53,10 @@ const provider: ServerProvider = {
 
 describe("provider compatibility", () => {
   it("bundles a compatibility policy for every built-in harness", () => {
-    for (const builtIn of BUILT_IN_DRIVERS) {
+    // loom: the registry ships pi only, and pi reports no CLI version (its
+    // package is pinned in the workspace), so a pi policy could only ever
+    // resolve "unknown". Pi carries no policy and therefore no advisory.
+    for (const builtIn of BUILT_IN_DRIVERS.filter((entry) => entry.driverKind !== "pi")) {
       assert.isDefined(
         resolveProviderCompatibility(
           ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
@@ -63,6 +66,14 @@ describe("provider compatibility", () => {
         `Missing bundled compatibility policy for ${builtIn.driverKind}`,
       );
     }
+    // loom: pi is never flagged unknown/broken (PR-12).
+    assert.isUndefined(
+      resolveProviderCompatibility(
+        ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+        ProviderDriverKind.make("pi"),
+        null,
+      ),
+    );
   });
 
   it("compares Cursor build dates without treating semver prereleases as stable", () => {

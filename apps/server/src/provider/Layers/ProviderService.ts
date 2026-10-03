@@ -2883,16 +2883,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     );
     yield* Effect.forEach(bindings, (binding) =>
       Effect.gen(function* () {
-        // loom: already-stopped bindings need no rewrite. This runs as a scope
-        // finalizer after the HTTP grace period is exhausted, and each upsert is
-        // a read-then-write pair on the single serial SQL connection — so
-        // rewriting every historical row cost ~2x(row count) statements on the
-        // shutdown path. It also reset `lastSeenAt` on every stopped row at once
-        // (observed: 1311 of 1326 rows sharing one minute), destroying the only
-        // age signal the runtime table carries.
-        if (binding.status === "stopped") {
-          return;
-        }
         const providerInstanceId = dieOnMissingBindingInstanceId(
           "ProviderService.stopAll",
           binding,
