@@ -121,6 +121,8 @@ import {
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
+import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
+import { joinLoomShellFields, joinLoomThreadShell } from "../loom/projection/loomShellJoin.ts"; // loom:
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -776,6 +778,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const runtimePolicy = yield* RuntimePolicyV2;
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor;
+  const loomStore = yield* LoomStoreV2; // loom: sidecar reads (shell join; A3's arm reuses this binding)
 
   const mapDispatchError =
     (command: OrchestrationV2ServerCommand) =>
@@ -10142,6 +10145,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause }))),
     getShellSnapshot: (options) =>
       projectionStore.getShellSnapshot(options).pipe(
+        Effect.flatMap(joinLoomShellFields(loomStore)), // loom: attach shell.workstream
         Effect.mapError(
           (cause) =>
             new OrchestratorProjectionError({
@@ -10151,9 +10155,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       ),
     getThreadShell: (threadId) =>
-      projectionStore
-        .getThreadShell(threadId)
-        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause }))),
+      projectionStore.getThreadShell(threadId).pipe(
+        Effect.flatMap(joinLoomThreadShell(loomStore)), // loom: attach shell.workstream
+        Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
+      ),
     getThreadEventSequence: (threadId) =>
       eventSink
         .latestSequence({ threadId })
@@ -10198,6 +10203,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 export const layer: Layer.Layer<
   OrchestratorV2,
   never,
+  | LoomStoreV2 // loom:
   | CheckpointServiceV2
   | FileSystem.FileSystem
   | Path.Path

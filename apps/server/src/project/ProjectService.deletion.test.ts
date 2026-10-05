@@ -32,6 +32,7 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
 const eventPersistenceLayer = EventSink.layer.pipe(
@@ -43,6 +44,7 @@ const servicesLayer = Layer.mergeAll(
   ProjectStore.layer,
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
+  LoomStore.layer, // loom: ProjectService soft-deletes the project's goals
   Layer.succeed(WorkspacePaths.WorkspacePaths, {
     normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
     resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>

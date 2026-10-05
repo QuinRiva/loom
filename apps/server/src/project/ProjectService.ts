@@ -30,6 +30,7 @@ import {
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
@@ -153,6 +154,7 @@ export const make = Effect.gen(function* () {
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+  const loomStore = yield* LoomStore.LoomStoreV2; // loom: goal soft-delete on project delete
   // Commands for one project run in order. Commands that claim a workspace root
   // also hold that root, so two projects cannot both claim it.
   const projectLocks = yield* KeyedLock.make<ProjectId>();
@@ -498,6 +500,15 @@ export const make = Effect.gen(function* () {
 
       if (existing.value.deletedAt === null) {
         yield* deleteChildThreads(input);
+        // loom: the project's goals go with its threads (pull 9 Phase 2 hunk inventory)
+        yield* loomStore.goals
+          .softDeleteByProject(projectId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectOperationError({ operation: "delete-thread", projectId, cause }),
+            ),
+          );
       }
       yield* commit({ type: "project.delete", commandId: input.commandId, projectId });
       yield* projectEnrichment.invalidate([existing.value.workspaceRoot]);
@@ -569,4 +580,5 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ProjectService, make).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
+  Layer.provide(LoomStore.layer), // loom:
 );
