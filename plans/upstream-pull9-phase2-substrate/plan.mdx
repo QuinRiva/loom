@@ -1,0 +1,704 @@
+---
+manager_sessions:
+  - id: acf16362-ab78-48e8-ba7b-330f3b4436b8
+    name: Pull-9 Phase 2 substrate plan
+    role: plan
+    authored_at: 2026-10-05T13:58:19.332Z
+---
+
+# Pull 9 Phase 2 — Loom's substrate on upstream's Orchestration V2
+
+Loom is a Pi-first fork of `pingdotgg/t3code` whose product is an orchestration layer — goals, a shared task tree, a workstream graph of durable threads with roles, briefs, dependencies, review gates, attention flags, liveness and reports. Upstream's Orchestration V2 deleted the V1 engine that layer sat on, and the signed strategy (`plans/upstream-pull9-strategy/plan.mdx`, revision 3) decided to re-platform: `upstream/main` becomes the base and Loom's layer is re-expressed on it. Phase 1 (the mechanical merge, running in parallel) leaves V2 Loom booting with the workstream layer absent. **Phase 2 builds the seams that layer attaches to**: the sidecar contract beside upstream's closed unions, a Loom decider arm redesigned for V2's per-thread lock, the two dispatch/receipt-core hunks, the Loom projector and sidecar tables, the goal tables, the `1046+` migrations, and the substrate half of quiescence-as-completion. Phase 3's four tracks (MCP toolkit, dispatcher and rails, driver economics, web re-hang) consume what this plan delivers; Phase 4 imports Loom's historical data into the tables it defines.
+
+**Done** means: the files below exist on the integration branch; `vp run typecheck` and `vp check` are green; the seven tests in *Verification* pass against V2's real orchestrator, event sink and SQL projection (no mocked engine); every hunk in an upstream file carries a `// loom:` marker and appears in the amended hunk inventory; and a Phase 3 coder can wire a tool handler or a dispatcher rail to the arm, the store and the shell join without making a design decision this plan left open.
+
+<Callout tone="info">
+**Authority.** Where this plan is silent, the strategy decides; where the strategy is silent, `consult_manager` with `author_doc` pointing at it before guessing. Decisions the strategy recorded (lane collapse, goals as plain tables, steer-when-steerable with tiers, quiescence adopted, no `delegate_task` for children, Loom data never on `AppThread`) are applied here, not re-opened. Every call this plan makes on its own is in the *Decision log* with the alternative rejected. Upstream code is cited at `upstream/main` `1a3f7ad508`; Loom's V1 code at `HEAD` `3cc6c015ab` is the behavioural spec being re-expressed.
+</Callout>
+
+## What Phase 1 leaves behind
+
+Phase 2 coders start from the integration branch after Phase 1's runbook (`docs/upstream-sync/29-cadence-pull-9-phase1.md`) has run to its gate. Expect — and verify on day one, since the runbook's detach ledger (its Appendix C) is the authority:
+
+- `apps/server/src/orchestration/` is gone. The 86 Loom files git relocated into `orchestration-v2/` sit under `quarantine/<original repo path>` at the repo root, excluded by three marked lines in the root `vite.config.ts`; nothing under `quarantine/` compiles. `packages/contracts/src/orchestration.loom.ts` (1,795 lines, imports the deleted V1 unions) and the `packages/shared` workstream libs (`workstreamGraph.ts`, `workstreamDependencies.ts`, `workstreamIsolation.ts`, `notify.ts`, `consultActivity.loom.ts`) are in quarantine too — Phase 2 retypes the first two and brings them back; the rest wait for their Phase 3 track.
+- `apps/server/src/orchestration-v2/` is upstream's byte-for-byte (plus Phase 1's one sanctioned exception, the foreign-home guard re-seam). `Orchestrator.ts` has no Loom arm, `ProjectionStore.ts` no Loom fold, `packages/contracts/src/orchestrationV2.ts` no Loom splice.
+- `apps/server/src/persistence/LoomMigrations.ts` carries `1001`–`1045` intact and `Sqlite.ts` still calls `runAllMigrations()`; the server boots on `statev2.sqlite`, copied once from `state.sqlite` by upstream's `initializeV2Database`. Migrations `1001`–`1045` have already run against the copy (their ledger rows travelled with it) and still run on a fresh install because upstream keeps the V1 schema migrations for its own lazy importer.
+- `GoalId` / `GoalTaskId` remain in `packages/contracts/src/baseSchemas.ts` as a marked hunk. `apps/server/src/loom/serverLayers.ts` is split; every Loom reactor, sweep and worker is detached (not started). Upstream's recovery runs at its default `continueThreadsAfterServerUpdate = false`.
+- Loom's web modules that read `LoomThreadShellFields` are excluded from the build (not stubbed). `settings.ts` carries upstream's `PiSettings` with two marked Loom hunks.
+
+**Do not touch** in Phase 2: the MCP toolkit and tool handlers (`apps/server/src/mcp/toolkits/workstream/`, Phase 3a); the dispatcher's rails beyond the re-drive planner this plan defines, liveness, exhaustion resume, the handoff drafter (3b); `PiAdapterV2.ts` / `PiRpc.ts` economics, the pi bump and patch regeneration (the strategy's Phase 2 driver items are planned separately — see *Scope and non-goals*); any `apps/web` or `apps/mobile` file (3d). Quarantined files are read as the behavioural spec and otherwise left alone until Phase 4 deletes them.
+
+## The shape in one picture
+
+<Mermaid
+  caption="Where Loom attaches to V2. Solid: Phase 2. Dashed: the Phase 3 consumers that plug into the seams."
+  source={"flowchart LR\n  subgraph upstream[Upstream V2 engine]\n    O[Orchestrator.ts dispatch switch]\n    DM[dispatchMessage]\n    DR[dispatchWithReceiptEffect]\n    ES[EventSink + EventStore]\n    PS[ProjectionStore.apply]\n    SH[getShellSnapshot / getThreadShell]\n  end\n  subgraph loom[Loom substrate - Phase 2]\n    C[orchestrationV2.loom.ts contract]\n    A[Orchestrator.loom.ts decider arm]\n    LP[loom/projection: applyLoomProjectionEvent + LoomStore + shell join]\n    RD[loom/orchestration/redrive.ts planner + reactor]\n    Q[loom/orchestration/quiescence.ts predicate]\n    LM[LoomMigrations 1046-1048 loom_* tables]\n  end\n  T3a[Phase 3a MCP toolkit handlers] -. Loom commands .-> O\n  T3b[Phase 3b dispatcher rails] -. control messages .-> O\n  T3b -. runs each pass .-> RD\n  T3b -. reads .-> Q\n  O -->|isLoomCommand| A\n  A -->|Loom events + nested upstream events| ES\n  ES --> PS\n  PS -->|isLoomDomainEvent| LP\n  DM -->|turn-start rules, start_if_idle, steer clause| A\n  DR -->|deferred pass-through, zero-event accept| A\n  SH -->|join workstream fields| LP\n  RD -->|idempotent per-thread commands| O\n  T3d[Phase 3d web] -. shell workstream fields and goal stream .-> SH\n"}
+/>
+
+Three facts about V2 decide the design, and each is checked against code rather than docs:
+
+1. **One closed command/event union, one decider, one receipt per command id.** `OrchestrationV2DomainEvent` is a `Schema.Union` decoded straight from `orchestration_events.payload_json` (`persistence/Layers/OrchestrationEventStore.ts`, `decodeV2EventJson`), so a Loom event can only live in V2's log if it is a member of that union. `dispatchWithReceiptEffect` (`Orchestrator.ts:9690`) rejects any command producing no events and receipts every rejection; a repeated command id then returns `OrchestratorCommandPreviouslyRejectedError` forever.
+2. **Per-thread lock, one projection per command.** `dispatchWithReceipt` runs under `threadDispatch.withLock(commandThreadId(command))` (`Orchestrator.ts:9878`); the keyed executor is neither re-entrant nor deadlock-aware; upstream nests into another thread only when it has just created it (`dispatchDelegatedTaskRequest` writes child events under the parent lock) and otherwise takes locks *sequentially, never nested* (`handleTerminalRun`, `:9883`).
+3. **Delivery modes are fixed and a notification is only legal on `queue_after_active`.** `message.dispatch` offers `defer_start | steer_active | restart_active | queue_after_active | start_immediately` (`orchestrationV2.ts:2735`); a `notification` on anything but a server/provider-created `queue_after_active` is a receipted rejection (`Orchestrator.ts:4517–4528`); queuing happens only when a blocking run exists (`shouldQueue`, `:4696`); the delegated-completion block converts a queued wake to a steer when the target is `running` with a running provider turn on a session that supports active steering without interrupting tools (`:4570–4605`).
+
+## Files
+
+<FileTree
+  title="Phase 2 change map"
+  entries={[
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "added", note: "The sidecar contract: LoomThreadWorkstream, LoomThreadShellFields, attention/outcome/origin enums, ControlPayload, WorkstreamRoute, command + event member tuples, goal types, narrowing guards. Replaces the quarantined orchestration.loom.ts." },
+    { path: "packages/contracts/src/orchestrationV2.ts", change: "modified", note: "Six marked splices: Loom command members (HEAD of OrchestrationV2Command and OrchestrationV2InternalCommand), Loom event members (HEAD of OrchestrationV2DomainEvent), start_if_idle dispatch mode, loom?: LoomMessageFields on message.dispatch and ConversationMessage, workstream?: LoomThreadShellFields on ThreadShell, goal items on the shell-stream union and goals?: on the shell snapshot." },
+    { path: "packages/shared/src/workstreamGraph.ts", change: "modified", note: "Out of quarantine, retyped on outcome/held/kickoffAt (planLane gone); routeWorkSubmit gains the reserved quiescent outcome; isolation/fan-in predicates removed." },
+    { path: "packages/shared/src/workstreamDependencies.ts", change: "modified", note: "Out of quarantine, retyped: a dependency is satisfied when its outcome is done; waitsForFanIn removed." },
+    { path: "packages/shared/src/workstreamStart.loom.ts", change: "added", note: "isEligibleToStart and dependenciesSatisfied — the one start predicate the arm (first-turn gate), the dispatcher (promotion) and the board (derived columns) share." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.ts", change: "modified", note: "Marked hunks only: commandThreadId guard; dispatchOnce guard arm; dispatchWithReceiptEffect deferred pass-through + zero-event acceptance for Loom types; dispatchMessage cluster (start_if_idle, turn-start rules, Loom-origin steer clause, loom field carried onto the message at four construction sites); run.interrupt human-stop raise; thread.auto-settle blockers; getShellSnapshot/getThreadShell join; LoomStoreV2 yielded in makeOrchestrator; LoomDispatchDeferredError in OrchestratorV2Error." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "added", note: "decideLoomCommand (the arm), makeLoomChildThread, loomTurnStartRules, LoomDispatchDeferredError, loomSettleBlockers, loomHumanStopRaise. Writes only to the commanded thread (and threads it creates)." },
+    { path: "apps/server/src/orchestration-v2/ProjectionStore.ts", change: "modified", note: "Two marked hunks: apply() folds Loom events (and four upstream thread events for Loom threads) via applyLoomProjectionEvent inside the commit transaction; applyToProjection returns base for Loom events." },
+    { path: "apps/server/src/orchestration-v2/runtimeLayer.ts", change: "modified", note: "One marked line: LoomStore.layer in storesLayer." },
+    { path: "apps/server/src/orchestration-v2/testkit/ProviderReplayHarness.ts", change: "modified", note: "One marked line: LoomStore.layer in storesLayer so the replay harness builds the Loom-aware orchestrator." },
+    { path: "apps/server/src/orchestration-v2/ThreadSettlementService.ts", change: "modified", note: "One marked hunk in resolveAutoSettlementAt: a root with a terminal outcome settles at its outcome time." },
+    { path: "apps/server/src/project/ProjectService.ts", change: "modified", note: "One marked line in deleteProject: soft-delete the project's goals after deleteChildThreads (ProjectServiceLayerLive gains LoomStore.layer)." },
+    { path: "apps/server/src/ws.ts", change: "modified", note: "Two marked hunks: goals in loadSnapshot; the Loom goal PubSub merged into the live shell stream." },
+    { path: "apps/server/src/loom/projection/loomProjection.ts", change: "added", note: "applyLoomProjectionEvent(sql, event): the fold of Loom events and mirrored upstream events into loom_thread_workstream, loom_goals, loom_thread_consults, loom_thread_peer_messages." },
+    { path: "apps/server/src/loom/projection/LoomStore.ts", change: "added", note: "LoomStoreV2 service: sidecar reads for the arm and the planner, goal/task CRUD for the Phase 3a handlers, the shell join." },
+    { path: "apps/server/src/loom/projection/loomShellJoin.ts", change: "added", note: "joinLoomShellFields: one query per snapshot, attaches workstream to each OrchestrationV2ThreadShell." },
+    { path: "apps/server/src/loom/projection/LoomGoalBroadcast.ts", change: "added", note: "PubSub of goal.updated / goal.removed shell-stream items; published by handlers after a write and by a reactor after a projector-folded cascade." },
+    { path: "apps/server/src/loom/orchestration/redrive.ts", change: "added", note: "planReDrive (pure: graph snapshot -> episode-keyed per-thread commands), runReDrivePass (receipt-aware runner tolerating deferral), LoomReDriveReactor (event-triggered + startup pass; Phase 3b folds it into the dispatcher)." },
+    { path: "apps/server/src/loom/orchestration/quiescence.ts", change: "added", note: "quiescenceCandidate: the started-idle-unflagged predicate with the grace window keyed on who started the last turn." },
+    { path: "apps/server/src/loom/recovery/loomRecoveryPolicy.ts", change: "added", note: "The not-continued set, the queueHeld rule for Loom threads, continuation default true. Hooked from ProviderRuntimeRecoveryService by one marked call." },
+    { path: "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.ts", change: "modified", note: "One marked call into loomRecoveryPolicy after reconciliation, before continuation." },
+    { path: "packages/contracts/src/settings.ts", change: "modified", note: "continueThreadsAfterServerUpdate decodes to true (marked)." },
+    { path: "apps/server/src/persistence/Migrations/1046_LoomThreadWorkstream.ts", change: "added", note: "The sidecar table and indexes." },
+    { path: "apps/server/src/persistence/Migrations/1047_LoomGoalTables.ts", change: "added", note: "RENAME projection_goals -> loom_goals, projection_goal_tasks -> loom_goal_tasks (data travels; Phase 4 imports nothing for goals)." },
+    { path: "apps/server/src/persistence/Migrations/1048_LoomConsultAndPeerMessageTables.ts", change: "added", note: "RENAME projection_thread_consults / projection_thread_peer_messages to loom_*; thread ids are preserved by upstream's importer so the history stays valid." },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "Three entries appended." },
+    { path: "apps/server/src/loom/testkit/loomOrchestratorLayer.ts", change: "added", note: "Test layer: OrchestrationV2LayerLive + SqlitePersistenceMemory + a stub V2 adapter (the DelegatedCompletionDelivery.test.ts pattern) and helpers to seed a running run through the real EventSink." },
+    { path: "apps/server/src/loom/**/*.test.ts, apps/server/src/orchestration-v2/Orchestrator.loom.*.test.ts, packages/contracts/src/orchestrationV2.loom.test.ts", change: "added", note: "The seven gate tests plus the contract decode tests." },
+  ]}
+/>
+
+## Scope and non-goals
+
+In: everything in the file tree. The strategy's Phase 2 also lists driver-side items — the bundled patched pi, open-session fields to argv, patch 0001 extended to RPC `switch_session`, the pi 1.0.2 bump, `costUsd` on usage, the stuck-launch verification and the two doctrine checks (Pi-default sentinel; deleted-thread provider bindings). Those touch `PiAdapterV2.ts` / `PiRpc.ts` / `ProviderSessionManager.ts` and share nothing with the substrate below except the `loom` open-session field; **they are a separate Phase 2 work item with its own plan** and are deliberately not specified here. The supersede rule (a human message answering an open Loom question as the tool result) has its hunk slot reserved in the `dispatchMessage` cluster but lands with `runtime-request.create` in Phase 3a, because it cannot be exercised before something creates a Loom-marked request.
+
+Out: tool handlers, prompt composition, dispatcher rails other than the re-drive planner, liveness, web, mobile, the importer, and any deletion of quarantined code.
+
+## 1. The sidecar contract — `orchestrationV2.loom.ts`
+
+### The record
+
+One row per Loom thread, keyed by V2's `ThreadId`. It is **not** a field set on `OrchestrationV2AppThread`: V2 thread events are full-row upserts and `makeSubagentChildThread` spreads the parent row into children and forks, so anything on `AppThread` would leak into upstream's child and fork paths.
+
+<DataModel
+  entities={[
+    {
+      "id": "ws", "name": "LoomThreadWorkstream", "change": "added",
+      "note": "Table loom_thread_workstream. Stored fields only; everything derivable from V2 is derived at the read boundary.",
+      "fields": [
+        { "name": "threadId", "type": "ThreadId", "pk": true, "fk": "AppThread.id" },
+        { "name": "projectId", "type": "ProjectId", "note": "mirrors the thread row; lets goal queries skip the V2 join" },
+        { "name": "goalId", "type": "GoalId", "nullable": true, "fk": "Goal.id" },
+        { "name": "anchorTaskId", "type": "GoalTaskId", "nullable": true, "note": "task-tree branch this thread owns; null = unbound" },
+        { "name": "parentThreadId", "type": "ThreadId", "nullable": true, "note": "mirrors lineage.parentThreadId, indexed for graph SQL" },
+        { "name": "rootThreadId", "type": "ThreadId", "note": "mirrors lineage.rootThreadId, indexed" },
+        { "name": "role", "type": "string", "nullable": true },
+        { "name": "purpose", "type": "string", "nullable": true },
+        { "name": "graphKey", "type": "string", "nullable": true, "note": "scaffold key, unique among a parent's children" },
+        { "name": "kickoffBriefPath", "type": "string", "nullable": true, "note": "the one brief mechanism; null = unbriefed, does not start" },
+        { "name": "held", "type": "boolean", "default": "false", "note": "staging hold (strategy decision; retirement pending Carl's form)" },
+        { "name": "heldSince", "type": "IsoDateTime", "nullable": true },
+        { "name": "outcome", "type": "'done' | 'cancelled' | null", "nullable": true, "note": "the plan-terminal fact; done releases dependents" },
+        { "name": "outcomeAt", "type": "IsoDateTime", "nullable": true },
+        { "name": "outcomeEventId", "type": "EventId", "nullable": true, "note": "episode key for cascade re-drives" },
+        { "name": "kickoffAt", "type": "IsoDateTime", "nullable": true, "note": "when the first turn was delivered, by anyone" },
+        { "name": "attention", "type": "LoomAttentionReason[]", "default": "[]", "note": "stored set: error | awaiting_acceptance | needs_guidance | awaiting_orchestrator" },
+        { "name": "blockedBy", "type": "ThreadId[]", "default": "[]" },
+        { "name": "dependenciesSince", "type": "IsoDateTime", "nullable": true },
+        { "name": "spawnGeneration", "type": "string", "nullable": true, "note": "parent's run id at spawn; the join barrier key" },
+        { "name": "forkFromThreadId", "type": "ThreadId", "nullable": true },
+        { "name": "continuesThreadId", "type": "ThreadId", "nullable": true },
+        { "name": "routes", "type": "WorkstreamRoute[]", "default": "[]" },
+        { "name": "gateRounds", "type": "int", "default": "0" },
+        { "name": "pendingRework", "type": "boolean", "default": "false" },
+        { "name": "lastOutcome", "type": "WorkOutcomeRecord", "nullable": true, "note": "{outcome, decision, round, contested?, counts?, eventId, at}" },
+        { "name": "lastRoute", "type": "{to, round, kind, eventId}", "nullable": true, "note": "episode key for gate re-drives" },
+        { "name": "reportPath", "type": "string", "nullable": true },
+        { "name": "handoffDestinations", "type": "HandoffDestination[]", "default": "[]" },
+        { "name": "notifySendLog", "type": "NotifySendLogEntry[]", "default": "[]" },
+        { "name": "archivedAt", "type": "IsoDateTime", "nullable": true, "note": "mirrored from thread.archived / unarchived" },
+        { "name": "unarchivedEventId", "type": "EventId", "nullable": true, "note": "episode key for the unarchive cascade" },
+        { "name": "deletedAt", "type": "IsoDateTime", "nullable": true, "note": "mirrored from thread.deleted" },
+        { "name": "createdAt", "type": "IsoDateTime" },
+        { "name": "updatedAt", "type": "IsoDateTime" }
+      ]
+    },
+    {
+      "id": "goal", "name": "LoomGoal", "change": "renamed",
+      "note": "Table loom_goals — V1's table renamed in place, written by the Phase 3a handlers and the projector's cascades.",
+      "fields": [
+        { "name": "goalId", "type": "GoalId", "pk": true },
+        { "name": "projectId", "type": "ProjectId" },
+        { "name": "slug", "type": "string", "note": "UNIQUE (projectId, slug)" },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string" },
+        { "name": "createdAt", "type": "IsoDateTime" },
+        { "name": "updatedAt", "type": "IsoDateTime" },
+        { "name": "archivedAt", "type": "IsoDateTime", "nullable": true },
+        { "name": "deletedAt", "type": "IsoDateTime", "nullable": true }
+      ]
+    },
+    {
+      "id": "task", "name": "LoomGoalTask", "change": "renamed",
+      "note": "Table loom_goal_tasks — renamed in place.",
+      "fields": [
+        { "name": "taskId", "type": "GoalTaskId", "pk": true },
+        { "name": "goalId", "type": "GoalId", "fk": "LoomGoal.goalId" },
+        { "name": "parentTaskId", "type": "GoalTaskId", "nullable": true },
+        { "name": "position", "type": "int" },
+        { "name": "text", "type": "string", "note": "300-character register cap enforced at the handler" },
+        { "name": "done", "type": "boolean" },
+        { "name": "createdAt", "type": "IsoDateTime" },
+        { "name": "updatedAt", "type": "IsoDateTime" },
+        { "name": "deletedAt", "type": "IsoDateTime", "nullable": true }
+      ]
+    }
+  ]}
+  relations={[
+    { "from": "goal", "to": "ws", "kind": "1-n", "label": "goalId" },
+    { "from": "goal", "to": "task", "kind": "1-n" },
+    { "from": "ws", "to": "ws", "kind": "1-n", "label": "parentThreadId" }
+  ]}
+/>
+
+The **shell fields** a client sees are the stored record plus two derived summaries, attached to upstream's shell as one optional key so upstream's `threadShellFromProjection` never learns about them:
+
+```ts
+// packages/contracts/src/orchestrationV2.loom.ts
+export const LoomThreadShellFields = Schema.Struct({
+  ...LoomThreadWorkstream.fields,
+  consults: Schema.Array(LoomThreadConsultSummary).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  peerMessages: Schema.Array(LoomThreadPeerMessageSummary).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+
+// packages/contracts/src/orchestrationV2.ts — inside OrchestrationV2ThreadShell
+  // loom: sidecar record, present only for threads that have one
+  workstream: Schema.optional(LoomThreadShellFields),
+```
+
+`awaiting_approval` / `awaiting_input` are **not** stored and not joined: they are `shell.pendingRuntimeRequest.kind` read at the consumer. Brief-needed attention on a parent is a dispatcher/board computation (Phase 3b/3d) over the children's `kickoffBriefPath`. The board's columns are derived, never stored: *held* = `held`; *blocked* = not held, some `blockedBy` outcome not `done`; *ready* = not held, deps done, `kickoffAt` null; *in progress* = `kickoffAt` set, `outcome` null; *done*; *cancelled*. `awaiting_orchestrator` is an attention reason, not a column.
+
+### Enums and small types
+
+```ts
+export const LoomAttentionReason = Schema.Literals(["error", "awaiting_acceptance", "needs_guidance", "awaiting_orchestrator"]);
+export const LoomOutcome = Schema.Literals(["done", "cancelled"]);               // stored as NullOr
+export const LoomMessageOrigin = Schema.Literals(["kickoff", "orchestrator", "control_notice", "notify"]); // absent = not Loom-originated
+export const LoomMessageFields = Schema.Struct({ origin: LoomMessageOrigin, controlPayload: Schema.optional(ControlPayload) });
+export const WorkstreamRoute = Schema.Struct({ on: Schema.Array(TrimmedNonEmptyString), kind: Schema.Literals(["loop", "resolve"]), to: Schema.optional(ThreadId), maxRounds: Schema.optional(PositiveInt) });
+export const WorkOutcomeDecision = Schema.Literals(["terminal", "attention", "loop", "resolve", "cap-breach", "yield"]);
+export const RESERVED_OUTCOMES = ["quiescent"] as const; // refused in any route's `on`; accepted only on server: ids
+export const DEFAULT_GATE_MAX_ROUNDS = 2; export const MAX_GATE_MAX_ROUNDS = 10;
+```
+
+`ControlPayload`, `ControlPayloadItem`, `WorkOutcomeCounts`, `HandoffDestination`, `NotifySendLogEntry`, `LoomThreadConsultSummary`, `LoomThreadPeerMessageSummary`, `LoomGoal`, `LoomGoalTask` (recursive `children`), `LoomGoalShell` move from the quarantined file with their shapes unchanged (rename `Orchestration*` to `Loom*`).
+
+### Commands — extended beside upstream's union
+
+Every Loom command is a `Schema.Struct` with `type`, `commandId`, `threadId` (the lock key — see §2) and `createdAt: IsoDateTime`. The members are exported as two tuples and spliced at the **HEAD** of upstream's unions with one marked line each, exactly the V1 pattern: client-dispatchable ones into `OrchestrationV2Command` (so the existing `orchestration.dispatchCommand` ws method and the MCP layer's `stableCommandId` carry them with no new transport), server-only ones into `OrchestrationV2InternalCommand`.
+
+<Table
+  columns={["Command", "Union", "Lock thread (commandThreadId)", "Fields beyond type/commandId/threadId/createdAt"]}
+  rows={[
+    ["thread.spawn", "internal", "parentThreadId ?? threadId", "parentThreadId: NullOr(ThreadId), projectId, title, modelSelection, runtimeMode, interactionMode, branch, worktreePath, role, purpose, goalId: NullOr(GoalId), anchorTaskId?, kickoffBriefPath?, blockedBy?, routes?, held?, spawnGeneration?, forkFromThreadId?, continuesThreadId?, graphKey?, createdBy, creationSource"],
+    ["thread.scaffold", "internal", "parentThreadId (threadId = parentThreadId)", "held?, nodes: Array of {threadId, graphKey, role, title, purpose, blockedBy?, routes?, held?, spawnGeneration?, forkFromThreadId?, anchorTaskId?, modelSelection}"],
+    ["thread.goal.set", "client", "threadId", "goalId: NullOr(GoalId), anchorTaskId?: NullOr(GoalTaskId)"],
+    ["thread.held.set", "client", "threadId", "held: Boolean"],
+    ["thread.outcome.set", "client", "threadId", "outcome: NullOr(LoomOutcome)"],
+    ["thread.attention.raise", "client", "threadId", "reason: LoomAttentionReason"],
+    ["thread.attention.clear", "client", "threadId", "reason?: LoomAttentionReason (absent = clear all stored)"],
+    ["thread.dependencies.set", "client", "threadId", "blockedBy: Array(ThreadId)"],
+    ["thread.kickoff-brief.set", "internal", "threadId", "kickoffBriefPath"],
+    ["thread.work.submit", "internal", "threadId", "reportPath, outcome?, contested?, counts?"],
+    ["thread.gate.rework", "internal", "threadId (the coder)", "sourceThreadId, round, routeEventId, message: {messageId, text, controlPayload}"],
+    ["thread.gate.reverify", "internal", "threadId (the reviewer)", "sourceThreadId, round, routeEventId, message: {messageId, text, controlPayload}"],
+    ["thread.gate.resolve", "internal", "threadId (the counterpart)", "sourceThreadId, routeEventId"],
+    ["thread.consult.record", "internal", "threadId (asker)", "targetThreadId, targetTitle, question, answer, resolved, durationMs, forkSessionPath?"],
+    ["thread.peer-message.record / .mark-delivered / .expire", "internal", "threadId (sender)", "as V1: recordId, targetThreadId, targetTitle, message, framedMessage"],
+    ["thread.handoff.record", "internal", "threadId", "drafterThreadId, destinationGoalId, destinationThreadId"],
+  ]}
+/>
+
+Not carried from V1: `thread.plan-lane.set` (becomes `held.set` + `outcome.set`), `thread.fanin.set` (shared checkout only), `thread.user-input.dismiss` (upstream has it under the same name and accepts message-capability requests), `goal.*` (goals are plain tables written by handlers), `thread.turn-start.fail` and `thread.stuck-launch.recover` (pending the strategy's stuck-launch verification in the driver work item; added later only if that verification keeps them). There is **no kickoff command**: the kickoff is a `message.dispatch` carrying `loom.origin: "kickoff"` (§3), and `kickoffAt` is stamped by the `dispatchMessage` hunk on any first turn.
+
+### Events — extended beside upstream's union
+
+A factory over upstream's non-exported `OrchestrationV2EventBase.fields` (the V1 `makeLoomOrchestrationEventMembers` pattern), spliced at the HEAD of `OrchestrationV2DomainEvent`. Every Loom event has `threadId` = the sidecar row it changes.
+
+<Table
+  columns={["Event", "Payload", "Projector effect on loom_thread_workstream"]}
+  rows={[
+    ["thread.workstream-created", "the initial record: parentThreadId, rootThreadId, projectId, goalId, anchorTaskId, role, purpose, graphKey, kickoffBriefPath, held, blockedBy, routes, spawnGeneration, forkFromThreadId, continuesThreadId", "INSERT (ON CONFLICT DO NOTHING — replay-safe)"],
+    ["thread.goal-set", "goalId, anchorTaskId?", "UPSERT goal_id/anchor_task_id, creating the row for a goal-less root"],
+    ["thread.held-set", "held", "held, held_since"],
+    ["thread.outcome-set", "outcome: NullOr(LoomOutcome), cause: submit | set | cascade | gate-reopen | gate-resolve", "outcome, outcome_at, outcome_event_id"],
+    ["thread.kickoff-recorded", "kickoffAt, messageId, origin: LoomMessageOrigin | 'user' | 'other'", "kickoff_at (first write wins)"],
+    ["thread.attention-raised / thread.attention-cleared", "reason / reason?", "set add / set remove or clear"],
+    ["thread.dependencies-set", "blockedBy", "blocked_by, dependencies_since"],
+    ["thread.kickoff-brief-set", "kickoffBriefPath", "kickoff_brief_path"],
+    ["thread.report-set", "reportPath", "report_path"],
+    ["thread.outcome-recorded", "outcome, decision, round, contested?, counts?, synthesised?", "last_outcome (with the event id)"],
+    ["thread.route-taken", "to, round, kind: loop | loop-back | resolve", "last_route (with the event id); kind loop increments gate_rounds; kind loop-back clears pending_rework"],
+    ["thread.gate-rework-accepted", "sourceThreadId, round", "pending_rework = 1"],
+    ["thread.gate-warning", "kind: reopened-with-started-dependents | target-done-mid-round, detail, threadIds", "none (Phase 3b surfaces it to the parent)"],
+    ["thread.consult-recorded", "as V1", "INSERT loom_thread_consults"],
+    ["thread.peer-message-recorded / -delivered / -expired", "as V1", "loom_thread_peer_messages + notify_send_log append/prune"],
+    ["thread.handoff-recorded", "as V1", "handoff_destinations append"],
+  ]}
+/>
+
+The projector also folds **four upstream events** for threads that have a sidecar row: `thread.archived` (archived_at), `thread.unarchived` (archived_at null, unarchived_event_id), `thread.deleted` (deleted_at), and `thread.metadata-updated` (if the title changed and the thread is the sole live thread of its goal, `loom_goals.title` follows — the sole-thread rename cascade). Goal archive/unarchive cascades are projector folds of the same events: archiving the last active thread of a goal sets `loom_goals.archived_at`; unarchiving a thread of an archived goal clears it. That is why the strategy's `thread.archive | unarchive | delete` and `thread.metadata.update` decider hunks are not needed (decision log D3).
+
+### What dies with V1
+
+<Table
+  columns={["V1 thing", "Fate", "Why"]}
+  rows={[
+    ["planLane (six values), planLaneSince", "gone", "held + outcome + kickoffAt (strategy decision); the former yielded lane is attention awaiting_orchestrator"],
+    ["brief (string column) beside kickoffBriefPath", "gone", "one brief mechanism: the file. Spawn writes the file and sets kickoffBriefPath"],
+    ["isolation, fanInState, faninSince, finalCommitSha", "gone from the schema", "shared checkout is the only mode in pull 9; an opt-in would add them back by migration"],
+    ["cumulativeCostUsd, toolUses, usedTokens, maxTokens, diffAdditions, diffDeletions", "gone from the sidecar", "cost lives in loom_usage_ledger (Phase 3c); context usage is V2's providerThread.contextUsage; diffs are V2 checkpoints"],
+    ["lastActivityPreview", "gone", "V2 shell latestVisibleMessage"],
+    ["pendingUserInputHeader / Since", "gone", "V2 shell pendingRuntimeRequest (strategy)"],
+    ["message origin human and the origin/controlPayload columns", "origin shrinks to the four Loom values on one optional loom message field; columns die", "createdBy: user is upstream's human; the field rides payload_json, no column"],
+    ["LoomSessionFields.lastErrorClass", "gone", "V2 run failure class (lastErrorClass on the shell); the quota_exhausted re-anchoring is the driver work item"],
+    ["titleSource / titleState manual", "gone", "V2 regenerates a title only on titleSeed or a user-authored first message; Loom kickoffs are agent-authored and seed nothing"],
+    ["goal aggregate, goal.* commands and events, LOOM_AGGREGATE_KINDS", "gone", "plain tables (Carl)"],
+    ["thread.status-set legacy remap", "gone", "no Loom event replay under V2"],
+    ["LoomTurnStartFields (requireIdle, setInProgress, reopen)", "gone", "start_if_idle dispatch mode; kickoffAt stamped by the hunk; reopen is thread.gate.rework"],
+  ]}
+/>
+
+### Narrowing guards
+
+`LOOM_COMMAND_TYPES` / `LOOM_EVENT_TYPES` string tuples with the two-direction `AssertNever` checks from V1, exporting `isLoomCommand(command): command is LoomCommand` and `isLoomDomainEvent(event): event is LoomDomainEvent` — the single predicates every guard hunk uses.
+
+## 2. The decider arm — `Orchestrator.loom.ts`
+
+### The rule
+
+The arm **writes only to the commanded thread and to threads it creates in the same command**. Every effect on another thread is recorded as a decision event on the commanded thread and turned into a separate, idempotent, episode-keyed per-thread command by the re-drive planner (§4), which the dispatcher runs on every pass. Nesting into upstream's own dispatchers is allowed when the nested command targets the *same* thread (`dispatchMessage`, `dispatchRunInterrupt`) or a thread the arm is creating (`thread.created`). The arm never takes a second lock.
+
+### The guard
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration-v2/Orchestrator.ts (marked hunks, sketch)"
+  language="ts"
+  code={"function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {\n  if (isLoomCommand(command)) return loomCommandThreadId(command); // loom: spawn/scaffold lock the parent\n  switch (command.type) { /* upstream, unchanged */ }\n}\n\nconst makeOrchestrator = Effect.fn(\"orchestrationV2.Orchestrator.layer\")(function* () {\n  // ...upstream services\n  const loomStore = yield* LoomStoreV2; // loom:\n\n  const dispatchOnce = Effect.fn(\"orchestrationV2.dispatch.once\")(function* (command) {\n    // ...annotate span, make refs\n    // loom: delegation guard arm — every Loom command type decides in the sibling module\n    if (isLoomCommand(command)) {\n      yield* decideLoomCommand({\n        command, events, effects, loomStore, projectionStore, idAllocator, providerAdapters,\n        nested: { dispatchMessage, dispatchRunInterrupt },\n      });\n      return { events: yield* Ref.get(events), effects: yield* Ref.get(effects) };\n    }\n    switch (command.type) { /* upstream, unchanged */ }\n  });\n"}
+  annotations={[
+    { "lines": "2", "label": "lock key", "note": "spawn and scaffold return parentThreadId so concurrent spawns under one parent serialise (graphKey uniqueness, dependency coherence); every other Loom command returns threadId." },
+    { "lines": "8", "label": "one new service", "note": "LoomStoreV2 is yielded like the other stores; the layer gains it in runtimeLayer.ts and the replay harness (one line each)." },
+    { "lines": "12-19", "label": "the arm", "note": "Placed before upstream's switch so TypeScript narrows command to upstream's union inside it. nested exposes exactly the two same-thread upstream dispatchers the arm may call." },
+  ]}
+/>
+
+`decideLoomCommand` reads the commanded thread's sidecar (`loomStore.getWorkstream`), the graph it needs (`loomStore.listWorkstreamTree(rootThreadId)` — the live subtree, archived and deleted rows excluded by the query) and, where it must check runs, the V2 projection via `projectionStore.getThreadRecords(threadId, ["runs", "providerThreads", "providerTurns", "contextTransfers", "messages"], { messageRoles: ["user"] })`. It emits through `emit(events, command)`. Rejections are `OrchestratorDispatchError` (receipted, permanent); not-yet-applicable states are `LoomDispatchDeferredError` (§3, never receipted).
+
+### Case by case
+
+<Table
+  columns={["Command", "Reads", "Refuses (permanent)", "Emits on the commanded thread", "Nested same-thread / created-thread writes"]}
+  rows={[
+    ["thread.spawn", "parent thread row + sidecar, live siblings", "parent archived/deleted; child id already exists; goalId null when the parent has none; a route target that is not a live sibling; a route on-list containing a reserved outcome; blockedBy self/non-sibling/dangling/cycle (findDependencyCycle over siblings + this node); graphKey already used by a sibling", "thread.workstream-created (child)", "thread.created for the child built by makeLoomChildThread (explicit field list, no parent spread: projectId, branch, worktreePath, runtimeMode, interactionMode from the parent; lineage {parentThreadId, relationshipToParent: 'subagent', rootThreadId}; forkedFrom: null; createdBy/creationSource from the command)"],
+    ["thread.scaffold", "as spawn, plus the batch", "any node failing spawn's checks against the union of live siblings and the batch — all-or-nothing", "thread.workstream-created per node", "thread.created per node"],
+    ["thread.goal.set", "sidecar (may be absent)", "goal not found or deleted; goal in another project", "thread.goal-set (creates the row for a root with none)", "—"],
+    ["thread.held.set", "sidecar", "no sidecar; outcome not null", "thread.held-set (zero events if unchanged)", "—"],
+    ["thread.outcome.set", "sidecar, live subtree, V2 runs", "no sidecar; outcome unchanged (zero events, accepted); done while pendingRework (warned, allowed — emits gate-warning target-done-mid-round)", "thread.outcome-set {cause: set}; attention-cleared when terminal and attention non-empty; for cancelled: also attention-cleared", "for cancelled: nested dispatchRunInterrupt on this thread's blocking run (holdQueue false) — the only own-thread interrupt; descendants are re-driven (§4)"],
+    ["thread.attention.raise", "sidecar", "reason error or awaiting_orchestrator without a server: command id; thread outcome not null (a terminal thread cannot be flagged by itself)", "thread.attention-raised (zero events if already set)", "—"],
+    ["thread.attention.clear", "sidecar", "no sidecar", "thread.attention-cleared (zero events if nothing to clear)", "—"],
+    ["thread.dependencies.set", "sidecar, live siblings", "self/non-sibling/dangling/cycle; a gate-implied dependency removed while the gate is unresolved", "thread.dependencies-set (zero events if equal as a set)", "—"],
+    ["thread.kickoff-brief.set", "sidecar", "no sidecar; kickoffAt already set (the brief is a launch parameter)", "thread.kickoff-brief-set", "—"],
+    ["thread.work.submit", "sidecar, live tree (for routeWorkSubmit), the thread's attention", "outcome done/cancelled unless (done ∧ pendingRework ∧ decision loop); outcome quiescent without a server: id; holdErasedByCompletion non-null (raise-then-complete refusal, naming the reason)", "thread.report-set; thread.outcome-recorded; then by decision — terminal: outcome-set done {cause: submit} + attention-cleared · resolve: outcome-set done + attention-cleared + route-taken {kind: resolve, to: counterpart} when the counterpart is non-terminal · loop (source): route-taken {kind: loop, to, round} · loop (intercepted target): route-taken {kind: loop-back, to: source, round} · attention: attention-raised needs_guidance · yield / cap-breach: attention-raised awaiting_orchestrator", "—"],
+    ["thread.gate.rework", "sidecar (coder), V2 projection", "no sidecar; outcome cancelled; routeEventId does not match the source's lastRoute (stale leg); target archived/deleted. DEFERRED (not refused): a blocking run with a pending merge-back transfer", "outcome-set null {cause: gate-reopen} when outcome was done; gate-rework-accepted; gate-warning reopened-with-started-dependents when any live dependent (blockedBy contains this thread) has kickoffAt set", "nested dispatchMessage: queue_after_active, createdBy agent, creationSource server, loom {origin: control_notice, controlPayload}, notification {source: {kind: 'background_task'}, outcome: 'updated', summary}"],
+    ["thread.gate.reverify", "sidecar (reviewer), V2 projection", "as rework (no outcome change)", "—", "nested dispatchMessage, same shape"],
+    ["thread.gate.resolve", "sidecar", "no sidecar; outcome cancelled; stale routeEventId", "outcome-set done {cause: gate-resolve}; attention-cleared", "—"],
+    ["thread.consult.record / peer-message.* / handoff.record", "sidecar", "as V1 (notify cap: the ordered-pair hourly cap against notifySendLog; a terminal or archived target)", "the carried events", "—"],
+  ]}
+/>
+
+Two helpers carry the rules the arm shares with the `dispatchMessage` hunk:
+
+```ts
+// packages/shared/src/workstreamStart.loom.ts
+export interface StartNode { readonly id: ThreadId; readonly parentThreadId: ThreadId | null; readonly held: boolean;
+  readonly outcome: "done" | "cancelled" | null; readonly kickoffAt: string | null; readonly kickoffBriefPath: string | null;
+  readonly blockedBy: ReadonlyArray<ThreadId>; readonly archivedAt: string | null; readonly deletedAt: string | null; }
+
+export const dependenciesSatisfied = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
+  node.blockedBy.every((id) => byId.get(id)?.outcome === "done");
+
+/** The one start rule: dispatcher promotion, first-turn gate and the board's "ready" column all read this. */
+export const isEligibleToStart = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
+  node.parentThreadId !== null && node.archivedAt === null && node.deletedAt === null &&
+  !node.held && node.outcome === null && node.kickoffAt === null &&
+  node.kickoffBriefPath !== null && dependenciesSatisfied(node, byId);
+```
+
+`routeWorkSubmit` in `packages/shared/src/workstreamGraph.ts` is retyped (`planLane` → `outcome`; `isTerminalLane(lane)` → `isTerminal(outcome) = outcome !== null`) and gains exactly one branch, first in the function: `if (outcome === "quiescent") return { ...base, decision: "yield" };` — before the `pendingRework` interception, so a coder that goes quiet mid-rework yields to the orchestrator and is never read as having handed back. `isWaitingInGate`, `isMemberOfUnresolvedGate`, `unresolvedGateSourcesOf`, `requiresSubmitToComplete`, `holdErasedByCompletion` port unchanged in logic; `isHeldForCounterpartFanIn` and `FanInHoldbackNode` are deleted.
+
+### The `dispatchMessage` hunk cluster
+
+Every run start and steer passes through `dispatchMessage` — the `message.dispatch` case, PR-watch sync, `runtime-request.respond`, delegated dispatch and `startNextQueuedRun` call it directly — which is why the turn-start rules live there and nowhere else.
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration-v2/Orchestrator.ts — dispatchMessage (marked hunks, sketch)"
+  language="ts"
+  code={"const modelSelection = command.modelSelection ?? projection.thread.modelSelection;\nlet dispatchMode = resolveMessageDispatchIntent(projection, command.dispatchMode, command.deliveryIntent);\n// loom: start_if_idle — the FYI tier. Busy target: defer WITHOUT a receipt so the same id retries next pass.\nif (dispatchMode.type === \"start_if_idle\") {\n  if (projection.runs.some(isBlockingRun)) {\n    return yield* new LoomDispatchDeferredError({ commandId: command.commandId, commandType: command.type, threadId: command.threadId, reason: \"target busy\" });\n  }\n  dispatchMode = { type: \"queue_after_active\" }; // idle: starts at once and may carry a notification\n}\n// loom: the target thread's own turn-start rules, on start and on steer alike (one thread, this one)\nconst workstream = yield* loomStore.getWorkstream(command.threadId);\nif (workstream !== null) {\n  yield* loomTurnStartRules({ command, workstream, projection, emit: emit(events, command) });\n}\nif (dispatchMode.type === \"steer_active\") { /* upstream: late-steer becomes start_immediately */ }\nif (command.notification !== undefined && (/* upstream check: agent + server|provider + queue_after_active */)) { /* upstream rejection */ }\n// ...upstream delegatedCompletion validation\nif (\n  (delegatedCompletion !== undefined && delegatedCompletion.taskIds.every(/* completionWake always */)) ||\n  command.loom?.origin !== undefined // loom: steered tier — Loom control messages ride upstream's conversion\n) {\n  /* upstream block unchanged: steer_active only into a running run with a running provider turn,\n     on a session with supportsActiveSteering and activeSteeringInterruptsTools !== true, never a maintenance turn */\n}\n"}
+  annotations={[
+    { "lines": "3-9", "label": "start_if_idle", "note": "A blocking run is preparing | starting | running | waiting (upstream's isBlockingRun). Nothing has been emitted yet, so failing here leaves no events and — through the receipt hunk — no receipt." },
+    { "lines": "10-14", "label": "turn-start rules", "note": "Runs before any mode-specific branch so a steer and a start get identical treatment. The rules are listed below; they emit only on this thread." },
+    { "lines": "18-21", "label": "steer clause", "note": "Any Loom-origin message that arrived as queue_after_active is eligible for upstream's steer conversion. The FYI tier never reaches this as queue_after_active with a running target (it was deferred above), so only the steered tier converts." },
+  ]}
+/>
+
+`loomTurnStartRules`, in order, for a thread with a sidecar:
+
+1. **Reject permanently** when `workstream.deletedAt !== null` or `archivedAt !== null` — a message to a dead target fails once (its sender gets the error; a re-drive planner never produces one, §4).
+2. **First-turn dependency gate.** If `parentThreadId !== null && kickoffAt === null && !dependenciesSatisfied(node, siblings)` → `OrchestratorDispatchError` naming the unsatisfied dependency (`describeUnsatisfiedDependency`). Applies to every path including a human send from the composer; the dispatcher's kickoff passes by construction.
+3. **Held release by a human.** If `held && kickoffAt === null && command.createdBy === "user"` → emit `thread.held-set false` (acting on a held node is the release). A control-plane message to a held node (`loom.origin` set) is refused — the dispatcher never sends one, and a stale one must not start a held node.
+4. **Attention clear.** If `command.createdBy === "user" || command.loom?.origin !== undefined`, and the stored attention set is non-empty → emit `thread.attention-cleared` (all). Upstream's own notification-source dispatches (PR-watch wake, a schedule fire) have neither and leave attention alone — a shipper's `awaiting_acceptance` survives a failing-check wake. A steer runs this too, on the *target* only: a child's yield steered into its parent clears nothing on the child.
+5. **Kickoff stamp.** If `kickoffAt === null` → emit `thread.kickoff-recorded { kickoffAt: now, messageId, origin: command.loom?.origin ?? (command.createdBy === "user" ? "user" : "other") }`. The first turn by anyone is the start; the promotion rule then never fires for this thread again.
+6. **Supersede** (slot reserved; implemented in Phase 3a with `runtime-request.create`): a `createdBy: user` message while a Loom-marked `user_input` request is pending resolves it as the tool result and withholds the turn start.
+
+The `loom` field is carried onto the message record at the four construction sites (`...(command.loom === undefined ? {} : { loom: command.loom })`): the queued-run message (`Orchestrator.ts:~4874`), the immediate-start message (`:~5909`), the deferred/prepared path (`:~5217`) and the steer message in `dispatchSteerIntoRun` (`:~3765`, via its `input`). It lives on `OrchestrationV2ConversationMessage` only; the `user_message` turn item is untouched (decision log D8).
+
+### `run.interrupt` and `thread.auto-settle`
+
+- **Human stop raises `needs_guidance`.** In the `run.interrupt` case, after upstream's `dispatchRunInterrupt`: `if (!command.commandId.startsWith("server:")) yield* loomHumanStopRaise(...)` — emits `thread.attention-raised needs_guidance` when the thread has a sidecar, `outcome === null`, and the reason is not already set. `workstream_stop` and cancel cascades use `server:` ids and raise nothing.
+- **Settle blockers.** In the `thread.auto-settle` case, before upstream's `dispatchThreadMutation`: `loomSettleBlockers(threadId)` rejects with `OrchestratorDispatchError` when the sidecar has `awaiting_orchestrator` in attention, or any live descendant (`listWorkstreamTree`) has `outcome === null` and `archivedAt === null`. The sweep uses a fresh `server:auto-settle:<thread>:<uuid>` id per attempt, so the receipted rejection costs nothing. Settle-on-merge goes through the same case. The **finished-root prompt settle** is a marked hunk in `ThreadSettlementService.resolveAutoSettlementAt`: when `thread.workstream?.outcome !== null && thread.workstream.parentThreadId === null`, the candidate settles at `outcomeAt` instead of after the inactivity window. Upstream's un-settle-on-any-dispatch stands (decision log D9).
+
+### Receipts
+
+Loom's set-style commands that change nothing emit nothing and are **accepted with a receipt** — the hunk in `dispatchWithReceiptEffect` is one clause: `planned.events.length > 0 || command.type === "thread.background-work.settle" || isLoomCommand(command)`. Upstream already has the zero-event accepted-receipt path (it inserts the receipt at the thread's latest sequence); Loom reuses it. A re-driven `thread.outcome.set cancelled` on an already-cancelled descendant therefore records success, and a repeated raise of a standing reason costs no dispatcher pass.
+
+## 3. Dispatch modes
+
+The strategy's delivery-mode table made concrete. Every Loom control message is `createdBy: "agent"`, `creationSource: "server"`, carries `loom: { origin, controlPayload? }` and, when it is a wake, `notification: { source: { kind: "background_task" }, outcome, summary }` so upstream's timeline grouping and `workStartedAt` timer apply.
+
+<Table
+  columns={["Tier", "dispatchMode sent", "Target idle", "Target running + steerable", "Target busy, not steerable (preparing, starting, waiting, compacting)", "Rejected?"]}
+  rows={[
+    ["Steered: yield wakes, attention raises reaching the parent, gate legs (rework, reverify), gate resolution, dependency-release kickoff, brief-needed and deadlock advisories", "queue_after_active (+ notification, except the kickoff)", "starts at once (no blocking run → shouldQueue false)", "converted to steer_active by the Loom clause in upstream's block", "a V2 queued run; released after a restart by the Loom recovery policy", "never — the mode is always legal"],
+    ["FYI: terminal-child digests, recovered, slow-tool, stall and spinning advisories", "start_if_idle (+ notification)", "resolves to queue_after_active and starts at once, notification accepted", "LoomDispatchDeferredError — no events, no receipt; the dispatcher recomputes and retries next pass", "same deferral", "never for busy; a dead target is rejected once by rule 1 of the turn-start rules"],
+    ["workstream_prompt, notify_thread (agent-authored, Phase 3a)", "upstream deliveryIntent auto with loom.origin orchestrator | notify and senderThreadId", "start", "steer", "queued", "an archived target: upstream thread_not_sendable at the handler"],
+    ["Human message", "upstream composer behaviour", "start", "steer", "queued", "first-turn dependency gate on a scaffolded child"],
+    ["workstream_stop, cancel cascade", "run.interrupt (server: id, holdQueue false)", "no-op", "aborts", "aborts", "—"],
+  ]}
+/>
+
+### The deferral pass-through and its confinement
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration-v2/Orchestrator.ts — dispatchWithReceiptEffect (marked hunks, sketch)"
+  language="ts"
+  code={"const plan = yield* dispatchOnce(command).pipe(\n  Effect.flatMap((planned) =>\n    planned.events.length > 0 ||\n    command.type === \"thread.background-work.settle\" ||\n    isLoomCommand(command) // loom: unchanged-value guards are accepted, receipted no-ops\n      ? Effect.succeed(planned)\n      : Effect.fail(new OrchestratorDispatchError({ commandId: command.commandId, commandType: command.type, cause: \"Command produced no domain events.\" })),\n  ),\n  Effect.catch((cause) =>\n    Effect.gen(function* () {\n      // loom: a deferral is not a rejection — no receipt, so the deterministic server: id stays redeliverable\n      if (cause._tag === \"LoomDispatchDeferredError\") return yield* cause;\n      const rejectedAt = yield* DateTime.now;\n      const receipt = yield* eventSink.commitRejectedCommand({ /* upstream, unchanged */ });\n      /* upstream, unchanged */\n    }),\n  ),\n);\n"}
+  annotations={[
+    { "lines": "3-5", "label": "zero-event", "note": "Scoped to Loom command types; upstream's invariant is untouched for its own commands. The existing zero-event branch below then writes the accepted receipt." },
+    { "lines": "11-12", "label": "deferral", "note": "The only place a dispatch can fail without a receipt. LoomDispatchDeferredError is raised in exactly two situations, listed next; everything else is rejected and receipted exactly as upstream does." },
+  ]}
+/>
+
+`LoomDispatchDeferredError` is a `Schema.TaggedError` (`commandId`, `commandType`, `threadId`, `reason`) exported from `Orchestrator.loom.ts` and added to the `OrchestratorV2Error` union with one marked member. It is raised **only** when the same command can succeed later without anyone changing the target:
+
+1. `start_if_idle` against a target with a blocking run (it goes idle).
+2. A Loom gate leg (`thread.gate.rework` / `thread.gate.reverify`) whose nested `message.dispatch` would be queued behind a blocking run while the target has a pending merge-back transfer (`pendingMergeBackTransfersForThread(projection).length > 0`) — upstream rejects queued dispatch in that state ("queued merge-back consumption is not implemented yet"); the arm pre-checks and defers instead.
+
+Everything permanently unsatisfiable is a receipted rejection that fails once: an archived or deleted target, a stale `routeEventId`, a cancelled thread, a dependency gate. The dispatcher (Phase 3b) treats `_tag === "LoomDispatchDeferredError"` as "try again next pass" and every other error as "this episode is dead — log it and surface it", which is the reviewer's confinement rule applied.
+
+### Restart-held queued runs
+
+V2's `ProviderRuntimeRecoveryService` marks every un-held queued run `queueHeld: true` on reconciliation (`:279–291`) and only a client `queue.resume` releases them. Loom's recovery policy (`apps/server/src/loom/recovery/loomRecoveryPolicy.ts`), called once per reconciled thread after upstream's reconciliation and before continuation, decides three things from the thread's sidecar and projection:
+
+<Table
+  columns={["Thread state", "Continuation of the cut turn", "Held queued runs", "Why"]}
+  rows={[
+    ["No sidecar (an upstream-only thread)", "upstream's rule", "upstream's rule (held)", "Loom policy applies only to Loom threads"],
+    ["outcome cancelled, or archived/deleted", "not continued", "queued-run.cancel each", "a dead thread does not wake"],
+    ["stored attention contains needs_guidance or awaiting_acceptance, or a pending runtime request", "not continued", "stay held", "a human is already owed an action; their message is the release"],
+    ["otherwise (running or idle Loom thread)", "continued (continueThreadsAfterServerUpdate decodes to true for Loom — marked settings default)", "queue.resume when any held queued run's message carries loom.origin", "a steered-tier wake that queued behind a preparing/starting target must not wait for a human; queue.resume is thread-wide and releases a human's queued follow-ups too, which is the correct reading of 'the thread is alive'"],
+    ["kickoffAt set but no run ever started (kickoff message queued or lost)", "not continued (nothing to continue)", "queue.resume", "a never-delivered kickoff is re-delivered verbatim by the dispatcher's receipt-keyed kickoff, not paraphrased as 'continue where you left off'"],
+  ]}
+/>
+
+The steer stash (a steer pi accepted but had not processed) rides the continuation prompt as in V1; its capture point is the Pi adapter's steer path and belongs to the driver work item.
+
+## 4. Projection, sidecar tables and the re-drive planner
+
+### The projector
+
+One marked hunk at the top of `ProjectionStore.apply` folds Loom events in the same SQL transaction as upstream's projection writes and the receipt, so a tool handler that dispatches then reads sees its own write:
+
+```ts
+// apps/server/src/orchestration-v2/ProjectionStore.ts — inside apply()
+// loom: sidecar tables are written in the commit transaction, beside upstream's projection
+yield* applyLoomProjectionEvent(sql, event);
+switch (event.type) { /* upstream, unchanged */ }
+```
+
+`applyLoomProjectionEvent(sql, event)` (`apps/server/src/loom/projection/loomProjection.ts`) is a plain function over the `SqlClient` already in scope — no new layer in the event sink. For a Loom event it runs the table effect from the §1 event table; for `thread.archived | unarchived | deleted | metadata-updated` it mirrors into `loom_thread_workstream` when a row exists and runs the goal cascades against `loom_goals`; for everything else it returns at once. Loom events fall out of upstream's switch unmatched and reach the trailing "bump `thread.updatedAt`" block, which is wanted: an attention raise or an outcome is activity. The in-memory `applyToProjection` gets a one-line `default: return base;` because the widened union makes its return non-exhaustive; the memory projection store never sees Loom tables and no Phase 2 test uses it.
+
+### The store
+
+`LoomStoreV2` (`apps/server/src/loom/projection/LoomStore.ts`), a `Context.Service` with `layer: Layer<LoomStoreV2, never, SqlClient>`, added to `storesLayer` in `runtimeLayer.ts` and the replay harness.
+
+<Table
+  columns={["Method", "Returns", "Used by"]}
+  rows={[
+    ["getWorkstream(threadId)", "LoomThreadWorkstream | null", "arm, dispatchMessage hunk, auto-settle hunk, run.interrupt hunk"],
+    ["listWorkstreamTree(rootThreadId, { includeArchived?, includeDeleted? })", "LoomThreadWorkstream[] — the subtree by root_thread_id", "arm (routing, cascades), planner, dispatcher (3b)"],
+    ["listChildren(parentThreadId)", "LoomThreadWorkstream[]", "arm (spawn validation), board"],
+    ["listActiveWorkstreams()", "every row with deleted_at null and archived_at null", "planner, dispatcher pass"],
+    ["goals.get / listByProject / upsert / archive / unarchive / softDelete / softDeleteByProject", "LoomGoal", "Phase 3a handlers, ProjectService.delete hunk"],
+    ["tasks.listByGoal / replaceTree(goalId, entries) / upsert(task) / markDeleted", "LoomGoalTask[]", "Phase 3a handlers"],
+    ["shellFields(threadIds)", "Map<ThreadId, LoomThreadShellFields> — one query joining consult and peer-message summaries", "the shell join"],
+    ["consults.listByAsker / peerMessages.listPending(targetThreadId)", "rows", "3a/3b"],
+  ]}
+/>
+
+### The shell join
+
+`joinLoomShellFields(loomStore)(snapshot)` attaches `workstream` to each shell for which a row exists; threads without one carry no key. Two marked hunks in `Orchestrator.ts`'s service record wrap `getShellSnapshot` and `getThreadShell` so every consumer — ws, MCP, settlement, PR services — reads the joined shape. The web (3d) reads `shell.workstream.*`; nothing else on the shell changes.
+
+### Goals: tables, idempotency, broadcast
+
+Goals and tasks are **plain tables written by the Phase 3a tool handlers** through `LoomStoreV2.goals` / `.tasks`. Idempotency needs no ledger: ids are derived from the command id the MCP layer already stabilises per `clientRequestId` (`goalId = GoalId.make("goal:" + hash(commandId))`, `taskId` likewise), and every write is an upsert, so a retried `goal_task_add` lands on the same `task_id` and `goal_tasks_rewrite` is idempotent by construction (the submitted list *is* the tree). The 300-character register cap, round-trip identity and anchor scoping stay in the ported `goalTaskTree.ts` / `goalTaskMarkdown.ts` / `goalTaskAnchor.loom.ts` (3a brings them out of quarantine; their logic is engine-free).
+
+Broadcast: `LoomGoalBroadcast` is a `PubSub<LoomGoalShellStreamItem>`; a handler publishes `goal.updated` / `goal.removed` after its write, and a small reactor on `streamDomainEvents` publishes after a projector-folded cascade (`thread.archived | unarchived | metadata-updated` on a thread whose sidecar names a goal). Each item carries `sequence` = `applicationEvents.latestApplicationSequence` at publish, so the client's cursor logic keys it like any other shell item. Because these items sit outside V2's event sequence, a client resuming from a cursor cannot catch up on goals from the cursor alone: `loadSnapshot` in `ws.ts` includes `goals` (one marked hunk) and Loom's connect-gap-aware subscriptions (3d) refetch the snapshot on reconnect. Contract hunks: two members on `OrchestrationV2ShellStreamItem`, `goals: Schema.optional(Schema.Array(LoomGoalShell))` on `OrchestrationV2ShellSnapshot`.
+
+### The re-drive planner
+
+Multi-thread effects become per-thread commands. `apps/server/src/loom/orchestration/redrive.ts`:
+
+```ts
+/** One episode-keyed command per affected thread. Pure over a graph snapshot. */
+export const planReDrive = (rows: ReadonlyArray<LoomThreadWorkstream>): ReadonlyArray<OrchestrationV2ServerCommand> => [
+  // cancel cascade: root cancelled → every live descendant with outcome null
+  ...rows.filter((r) => r.outcome === "cancelled").flatMap((root) =>
+    descendants(rows, root.threadId).filter((d) => d.outcome === null && d.deletedAt === null)
+      .map((d) => outcomeSet(d.threadId, "cancelled", `server:loom:cascade-cancel:${root.outcomeEventId}:${d.threadId}`))),
+  // wedged dependents: a live, unstarted node blocked on a cancelled same-parent sibling
+  ...rows.filter((r) => r.outcome === null && r.kickoffAt === null && !r.attention.includes("needs_guidance"))
+    .filter((r) => r.blockedBy.some((id) => cancelledSibling(rows, r, id)))
+    .map((r) => attentionRaise(r.threadId, "needs_guidance", `server:loom:wedged:${cancelledDepEventId}:${r.threadId}`)),
+  // archive / delete cascades keyed on the root's stamp; unarchive keyed on its event id
+  ...rows.filter((r) => r.archivedAt !== null).flatMap((root) => descendants(rows, root.threadId)
+    .filter((d) => d.archivedAt === null).map((d) => upstreamArchive(d.threadId, `server:loom:cascade-archive:${root.threadId}:${root.archivedAt}:${d.threadId}`))),
+  ...rows.filter((r) => r.unarchivedEventId !== null && r.archivedAt === null).flatMap((root) => descendants(rows, root.threadId)
+    .filter((d) => d.archivedAt !== null).map((d) => upstreamUnarchive(d.threadId, `server:loom:cascade-unarchive:${root.unarchivedEventId}:${d.threadId}`))),
+  ...rows.filter((r) => r.deletedAt !== null).flatMap((root) => descendants(rows, root.threadId)
+    .filter((d) => d.deletedAt === null).map((d) => upstreamDelete(d.threadId, `server:loom:cascade-delete:${root.threadId}:${root.deletedAt}:${d.threadId}`))),
+  // goal attach down: a child with no goal whose parent has one
+  ...rows.filter((r) => r.goalId === null && parentOf(rows, r)?.goalId).map((r) => goalSet(r.threadId, parentOf(rows, r)!.goalId, `server:loom:goal-attach:${r.threadId}:${parentOf(rows, r)!.goalId}`)),
+  // gate legs from the latest route on a source (loop → rework on the target; loop-back → reverify on the source; resolve → resolve on the counterpart)
+  ...rows.filter((r) => r.lastRoute !== null).map((r) => gateLegFor(r, rows)),
+];
+```
+
+`runReDrivePass(orchestrator, commandReceipts, loomStore)` reads `listActiveWorkstreams()` (plus archived rows for the cascades), plans, skips any command whose id already has a receipt (`commandReceipts.getByCommandId`), dispatches the rest **sequentially** (one lock at a time, never nested), and classifies results: accepted → done; `LoomDispatchDeferredError` → leave for the next pass; any other error → log at warning with the episode key (the episode is receipted dead; Phase 3b's advisory rail surfaces it). The gate-leg text and `controlPayload` come from a `composeGateLeg` the dispatcher owns in 3b; Phase 2 ships it with a minimal fixed template so the test can run, marked for 3b to replace.
+
+`LoomReDriveReactor` subscribes to `streamDomainEvents`, debounces on `thread.outcome-set | thread.route-taken | thread.archived | thread.unarchived | thread.deleted | thread.goal-set`, runs the pass, and runs once at startup. Phase 3b folds it into the dispatcher's pass (first rails, before promotion) and owns the periodic tick; until then the reactor is what keeps cascades and gates moving in the Phase 2 smoke.
+
+The window the strategy accepted is visible here: between a reviewer's `route-taken` and the coder's `gate-rework-accepted` the board reads the coder as done for one pass; dependents cannot start in that window because `isMemberOfUnresolvedGate` (the reviewer is non-terminal and carries the loop route) already holds them, and the promotion predicate excludes gate members.
+
+## 5. Migrations
+
+Three entries appended to `loomMigrationEntries`, run by the existing `runAllMigrations()` from `Sqlite.ts`'s `setup` — upstream's `Migrations.ts` untouched. The copy to `statev2.sqlite` carries `loom_sql_migrations` at `1045`, so on a copied database exactly these three run; on a fresh install `1001`–`1048` run after upstream's `1`–`56`.
+
+```sql
+-- 1046_LoomThreadWorkstream.ts
+CREATE TABLE IF NOT EXISTS loom_thread_workstream (
+  thread_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  goal_id TEXT, anchor_task_id TEXT,
+  parent_thread_id TEXT, root_thread_id TEXT NOT NULL,
+  role TEXT, purpose TEXT, graph_key TEXT, kickoff_brief_path TEXT,
+  held INTEGER NOT NULL DEFAULT 0, held_since TEXT,
+  outcome TEXT, outcome_at TEXT, outcome_event_id TEXT,
+  kickoff_at TEXT,
+  attention TEXT NOT NULL DEFAULT '[]',
+  blocked_by TEXT NOT NULL DEFAULT '[]', dependencies_since TEXT,
+  spawn_generation TEXT, fork_from_thread_id TEXT, continues_thread_id TEXT,
+  routes TEXT NOT NULL DEFAULT '[]', gate_rounds INTEGER NOT NULL DEFAULT 0, pending_rework INTEGER NOT NULL DEFAULT 0,
+  last_outcome TEXT, last_route TEXT,
+  report_path TEXT,
+  handoff_destinations TEXT NOT NULL DEFAULT '[]', notify_send_log TEXT NOT NULL DEFAULT '[]',
+  archived_at TEXT, unarchived_event_id TEXT, deleted_at TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loom_ws_parent ON loom_thread_workstream(parent_thread_id);
+CREATE INDEX IF NOT EXISTS idx_loom_ws_root ON loom_thread_workstream(root_thread_id);
+CREATE INDEX IF NOT EXISTS idx_loom_ws_goal ON loom_thread_workstream(goal_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loom_ws_graph_key ON loom_thread_workstream(parent_thread_id, graph_key) WHERE graph_key IS NOT NULL;
+
+-- 1047_LoomGoalTables.ts (data travels with the rename; SQLite rewrites the FK reference)
+ALTER TABLE projection_goals RENAME TO loom_goals;
+ALTER TABLE projection_goal_tasks RENAME TO loom_goal_tasks;
+
+-- 1048_LoomConsultAndPeerMessageTables.ts
+ALTER TABLE projection_thread_consults RENAME TO loom_thread_consults;
+ALTER TABLE projection_thread_peer_messages RENAME TO loom_thread_peer_messages;
+```
+
+The renames are guarded with `IF EXISTS` semantics via a `sqlite_master` check (the V1 tables exist on every database `1003`/`1016`/`1032` ran on, which is all of them). Heartbeats, the usage ledger and the thread-search index get their `loom_*` migrations in the phase that writes them (3b, 3c); Phase 2 creates only what its projector and the 3a handlers write.
+
+**Import expressibility (Phase 4).** Every V1 fact the strategy maps has a column: `planned → held 1`; `ready / in_progress → held 0, outcome NULL`; `yielded → outcome NULL + attention ['awaiting_orchestrator']`; `done / cancelled → outcome`; `kickoff_at` = the first user-turn time from the copied `projection_turns` (import time if absent) for any thread with a turn; `root_thread_id` from the parent chain; stored attention copies as is; `last_outcome` with a synthetic `eventId` and `report_path` copy across; `blocked_by`, `routes`, `gate_rounds`, `pending_rework`, `spawn_generation`, `fork_from_thread_id`, `continues_thread_id`, `anchor_task_id`, `graph_key`, `kickoff_brief_path`, `handoff_destinations`, `notify_send_log` are one-to-one. Goals, tasks, consults and peer messages need no import at all (renamed in place, thread ids preserved by upstream's importer). The importer writes rows directly — `thread.workstream-created` is never emitted for imported threads, so no Loom event exists for them and no episode-keyed rail fires. Session binding is upstream's `provider-thread.updated` with a strong `nativeThreadRef` (the shape `dispatchThreadCreate` writes for `importedNativeThread`); nothing in this schema constrains it.
+
+## 6. Quiescence as completion — the substrate half
+
+The semantic: a started child that goes quiet without `workstream_submit` is treated as having yielded, not as owing a human. Phase 2 provides the state and the predicate; Phase 3b's rail writes the report and dispatches the synthesised submit.
+
+- **The event and the state.** The dispatcher dispatches `thread.work.submit { threadId, reportPath, outcome: "quiescent" }` with a `server:loom:quiescent:<threadId>:<lastRunId>` id. The arm accepts `quiescent` only on `server:` ids, records `thread.outcome-recorded { outcome: "quiescent", decision: "yield", synthesised: true }` and raises `awaiting_orchestrator`. `routeWorkSubmit` returns `yield` for it before the rework interception (§2), so a gate member that goes quiet also yields and never resolves or loops its gate. Spawn and scaffold refuse `quiescent` in any route's `on` list.
+- **The hook.** V2 run completion as projected: Phase 3b subscribes to `run.updated` with a terminal status on `streamDomainEvents` and re-evaluates on the periodic tick; it never listens to the adapter's `agent_settled`.
+- **The predicate** (`apps/server/src/loom/orchestration/quiescence.ts`):
+
+```ts
+export const quiescenceCandidate = (input: {
+  readonly shell: OrchestrationV2ThreadShell;        // joined: shell.workstream present
+  readonly runs: ReadonlyArray<OrchestrationV2Run>;   // getThreadRecords(threadId, ["runs"]) for the few pre-filtered candidates
+  readonly latestUserMessage: Pick<OrchestrationV2ConversationMessage, "createdBy" | "loom" | "createdAt"> | null;
+  readonly children: ReadonlyArray<LoomThreadWorkstream>;
+  readonly now: DateTime.Utc;
+  readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null }; // null = never for human-started turns
+}): boolean => {
+  const ws = input.shell.workstream;
+  if (ws === undefined || ws.parentThreadId === null || ws.kickoffAt === null || ws.outcome !== null) return false;
+  if (ws.attention.length > 0 || input.shell.pendingRuntimeRequest !== null) return false;
+  if (input.shell.activityRunStatus !== null || input.runs.some((run) => run.status === "queued")) return false; // includes a held queue
+  if (input.children.some((child) => child.outcome === null && child.deletedAt === null && child.archivedAt === null)) return false;
+  const lastRun = latestUnheldRun(input.runs);
+  if (lastRun?.completedAt == null) return false;
+  const humanStarted = input.latestUserMessage?.createdBy === "user";
+  const graceMs = humanStarted ? input.grace.humanStartedMs : input.grace.controlStartedMs;
+  return graceMs !== null && DateTime.toEpochMillis(input.now) - DateTime.toEpochMillis(lastRun.completedAt) >= graceMs;
+};
+```
+
+"Who started the last turn" is the latest user-role message's `createdBy` (a Loom control message is `agent`; the composer is `user`), cross-checked against the shell's `latestUserAuthoredMessageAt`. The grace values are settings owned by 3b; the defaults travel from the V1 idle backstop.
+
+## 7. Verification
+
+Tests use V2's own shapes: the real orchestrator, event sink, SQL projection and receipts under `OrchestrationV2LayerLive` + `SqlitePersistenceMemory` (which runs `runAllMigrations`, so Loom tables exist), with a stub `ProviderAdapterV2Shape` whose `openSession` dies — the `DelegatedCompletionDelivery.test.ts` pattern — and a running run seeded through `EventSinkV2.writeWithEffects` (`run.created`, `run.updated running`, `provider-turn.updated running`). Where a real steer must happen, `PiOrchestratorReplayHarness` + `runOrchestratorV2ProviderReplayScenario` with a `release_replay_gate_after_waiting` step holds a Pi turn open. Nothing mocks the engine, the projection or the policy.
+
+<Checklist
+  items={[
+    { "id": "t-contract", "label": "Contract decode: every upstream fixture payload in testkit/fixtures decodes under the spliced unions; a Loom event round-trips through OrchestrationV2DomainEventJson; a thread shell without workstream decodes; an unknown Loom command type is refused by isLoomCommand", "note": "packages/contracts/src/orchestrationV2.loom.test.ts" },
+    { "id": "t-defer", "label": "Deferral without receipt: start_if_idle with a notification against a seeded running thread fails LoomDispatchDeferredError; commandReceipts.getByCommandId is None; after run.updated completed the SAME command id is accepted, a run starts and the message carries the notification and loom.origin", "note": "Orchestrator.loom.deferral.test.ts" },
+    { "id": "t-redrive-defer", "label": "Re-drive deferral: a thread.gate.rework against a coder with a running run and a pending merge_back context transfer defers with no receipt; the same id succeeds once the run completes", "note": "same file" },
+    { "id": "t-zero", "label": "Zero-event receipt: thread.attention.raise of a standing reason and thread.held.set to the current value both return accepted with storedEvents [] and an accepted receipt at the thread's latest sequence", "note": "Orchestrator.loom.receipts.test.ts" },
+    { "id": "t-lock", "label": "Per-thread re-drive under concurrency: spawn A → B → C with running runs seeded on B and C; dispatch outcome.set cancelled on A concurrently with attention.raise on C and a human message on B; run the re-drive pass twice", "note": "redrive.test.ts — assert every descendant ends cancelled, each live run has an interrupt effect, no command took two locks (ThreadCommandExecutor spans), the second pass dispatches nothing, no rejection receipt exists" },
+    { "id": "t-gate", "label": "Gate reopen: reviewer submits needs_rework → route-taken; pass → coder outcome null, pending_rework 1, a queue_after_active control_notice message on the coder, coder's dependent not eligible; coder submits → loop-back; pass → reverify on the reviewer; reviewer submits clean → resolve; pass → both done", "note": "gate.test.ts" },
+    { "id": "t-quiescence", "label": "Quiescence routing: thread.work.submit outcome quiescent with a server: id records decision yield and raises awaiting_orchestrator even when pendingRework is true; the same with a bare id is rejected; spawn with a route on ['quiescent'] is rejected; quiescenceCandidate is false for a thread with a held queued run and for a human-started last turn under a null human grace", "note": "quiescence.test.ts" },
+    { "id": "t-migrate", "label": "Migration on a copied V1 database: build a state.sqlite with upstream 1–54 + Loom 1001–1045, insert rows into projection_goals / projection_goal_tasks / projection_thread_consults; run initializeV2Database then the live Sqlite layer; assert loom_sql_migrations ends at 1048, loom_goals holds the rows, projection_goals is gone, effect_sql_migrations is byte-identical to upstream's manifest", "note": "LoomMigrations.v1copy.test.ts" },
+    { "id": "t-hunks", "label": "Hygiene: docs/upstream-sync/pull7-tools/unmarkedsweep.sh reports no unmarked hunk; vp run typecheck and vp check green; upstream's Pi replay fixtures (OrchestratorReplayFixtures.integration.test.ts) still pass with the hunks in place", "note": "the Phase 2 gate" },
+  ]}
+/>
+
+The real-workflow smoke that proves the seams compose — orchestrator, gated coder and reviewer, deferral of a digest into a busy parent — needs the Phase 3 tool handlers and dispatcher and is Phase 3's gate; Phase 2's `t-lock` and `t-gate` are its substrate rehearsals.
+
+## Hunk inventory amendments
+
+The strategy's inventory is the surface that conflicts on every future pull; this plan amends it as follows. Everything else in the inventory stands.
+
+<Table
+  columns={["Upstream file", "Change to the inventory", "Reason"]}
+  rows={[
+    ["orchestration-v2/Orchestrator.ts — thread.archive / unarchive / delete cases", "REMOVED", "subtree cascades are re-drive planner output keyed on the root's archivedAt / unarchived event / deletedAt; goal archive/unarchive cascades are projector folds of the same upstream events"],
+    ["orchestration-v2/Orchestrator.ts — thread.metadata.update case", "REMOVED", "sole-thread rename is a projector fold of thread.metadata-updated into loom_goals"],
+    ["orchestration-v2/Orchestrator.ts — commandThreadId; dispatchOnce guard; four message construction sites carrying loom; getShellSnapshot/getThreadShell join; LoomStoreV2 yield; OrchestratorV2Error member", "ADDED (all marked)", "the mechanics of extending a closed decider: lock key, arm entry, field carry, read join"],
+    ["orchestration-v2/ProjectionStore.ts — apply() Loom fold; applyToProjection default", "ADDED", "Loom tables written in the commit transaction"],
+    ["orchestration-v2/runtimeLayer.ts, testkit/ProviderReplayHarness.ts — LoomStore.layer in storesLayer", "ADDED (one line each)", "the one new service"],
+    ["orchestration-v2/ThreadSettlementService.ts — resolveAutoSettlementAt", "ADDED", "finished-root prompt settle (the inventory listed it only under the auto-settle case)"],
+    ["project/ProjectService.ts — deleteProject", "ADDED (one line)", "replaces the 'project deletion path' row: goals are soft-deleted after child threads"],
+    ["ws.ts — loadSnapshot goals; goal PubSub merged into the live shell stream", "ADDED", "the goal broadcast and reconnect refetch (Area E)"],
+    ["packages/contracts/src/orchestrationV2.ts", "AMENDED: adds the command and event union splices, loom?: on message.dispatch / ConversationMessage, workstream?: on ThreadShell, goals?: on ShellSnapshot", "a Loom event can only enter V2's log as a union member; the row previously named start_if_idle, the shell/stream union and controlPayload"],
+    ["orchestration-v2/ProviderRuntimeRecoveryService.ts", "unchanged row; the hunk is one call into loomRecoveryPolicy", "—"],
+  ]}
+/>
+
+## Decision log
+
+Calls this plan made where the strategy was open or silent. Decisions in the strategy's "Decisions recorded" table are applied, not listed.
+
+<Table
+  columns={["#", "Decision", "Alternative rejected", "Why"]}
+  rows={[
+    ["D1", "Loom events are members of OrchestrationV2DomainEvent (HEAD splice); Loom commands are members of OrchestrationV2Command / InternalCommand", "A Loom-owned event table and sink beside V2's", "V2 decodes events from orchestration_events through the union schema and commits events + receipt + projection in one transaction; a sidecar sink could not share that transaction, the receipts or streamDomainEvents. The splice is V1's proven pattern and the strategy's 'sanctioned' one"],
+    ["D2", "The Loom projector runs inside ProjectionStore.apply with the sink's SqlClient; LoomStoreV2 is a separate read service", "A Loom reactor on streamDomainEvents writing the tables asynchronously", "read-your-writes for tool handlers; replay-safety on projection rebuilds; one hunk, no new sink dependency"],
+    ["D3", "Subtree archive/unarchive/delete and cancel cascades are re-drive planner output; goal cascades (last-thread archive, unarchive, sole-thread rename) are projector folds of upstream's thread events", "Decider hunks in the archive/unarchive/delete/metadata cases emitting per-descendant events", "under the per-thread lock those cases cannot write to descendants anyway; deriving from state removes four hunks and makes every cascade idempotent and episode-keyed. Unarchive keeps the episode id (unarchived_event_id) so a child a human re-archives is not re-opened"],
+    ["D4", "kickoffAt is stamped by the dispatchMessage hunk on any first turn; there is no kickoff command", "A Loom thread.kickoff command stamping kickoffAt then nesting message.dispatch; or stamping on the dispatcher's own thread before dispatching (the strategy's wording)", "the stamp and the turn land in one transaction without a new command; a human-started first turn also counts as started, which the promotion predicate needs (otherwise the dispatcher would kick off a thread that already has a transcript)"],
+    ["D5", "spawn and scaffold lock the parent (commandThreadId = parentThreadId) and write child events under it", "Lock the new child id", "upstream's own precedent (dispatchDelegatedTaskRequest); serialises concurrent spawns under one parent so graphKey uniqueness and dependency coherence are not racy"],
+    ["D6", "makeLoomChildThread uses an explicit field list, not a parent spread", "Reuse makeSubagentChildThread", "the spread carries pinnedAt, order keys, limitRecovery, titleRegeneration, rollback state and branchPullRequest into the child; upstream already had to patch one such leak"],
+    ["D7", "forkedFrom: null on Loom children", "forkedFrom: {type: 'node'} like delegated children", "appOwnedSubagentParentThreadId requires forkedFrom.type === 'node'; null is what keeps finalizeAppOwnedSubagent and the task_status wake away from Loom children (strategy: children are not delegated tasks)"],
+    ["D8", "loom {origin, controlPayload} lives on ConversationMessage only", "Also on the user_message turn item", "one optional field, four carry sites; the web resolves the message by messageId from the projection it already holds (3d)"],
+    ["D9", "Accept upstream's un-settle on any message.dispatch", "Hunk to un-settle only on user-authored sends (V1 behaviour)", "a control wake to a settled done root is rare and the finished-root prompt settle re-settles it; not worth a hunk in a hot path"],
+    ["D10", "A human's first message to a held node clears held", "Refuse the message while held; or start while leaving held true", "acting on a node is the release (V1 let the turn run while still 'planned', which lied on the board); refusing would block the composer on a human decision the human is making"],
+    ["D11", "Supersede is specified here but implemented in 3a", "Implement in Phase 2 against a hand-seeded marked request", "it cannot be tested honestly before runtime-request.create exists; the slot and predicate are fixed so 3a adds code, not design"],
+    ["D12", "Goal/task/consult/peer-message tables are renamed in place (1047/1048) rather than imported", "Phase 4 importer copies them into new loom_* tables", "upstream's importer preserves thread ids and the V1 schemas are already right; the rename makes goal history arrive with zero import code. Phase 4's importer shrinks to the workstream sidecar and session binding"],
+    ["D13", "Metric columns (cost, context, diffs) leave the sidecar", "Carry them as before", "V2 provides context usage and checkpoints; cost belongs to the usage ledger 3c writes; the sidecar stays plan state only"],
+    ["D14", "Loom events fall through to upstream's updatedAt bump", "Return early so Loom events do not touch thread.updatedAt", "an attention raise or outcome is activity; the auto-settle 'changed since snapshot' check reading it is correct behaviour"],
+    ["D15", "LoomDispatchDeferredError is raised in exactly two situations (busy start_if_idle; gate leg behind a pending merge-back)", "A general 'defer on any transient rejection' catch", "the reviewer's confinement rule: only rejections that can succeed later without external change may skip the receipt"],
+    ["D16", "Phase 2 ships LoomReDriveReactor (event-triggered + startup) as the seed the 3b dispatcher absorbs", "Planner only; 3b wires it", "the Phase 2 gate tests and the Phase 2 smoke need cascades and gates to move without the dispatcher; the reactor is ~40 lines and 3b replaces its trigger with the pass"],
+    ["D17", "No goal mutation ledger; idempotency via commandId-derived ids + upserts", "A loom_goal_mutations table keyed by command id", "deterministic ids make retries land on the same row; a ledger is clutter"],
+    ["D18", "held stays in the schema and the start rule (strategy's recorded decision)", "Pre-empt the open retirement question by omitting it", "not this plan's call; retirement is a three-line deletion (column, command, one predicate term) listed in Risks"],
+  ]}
+/>
+
+## Work breakdown
+
+Order matters only where stated; a single coder can do it in sequence, or two in parallel after step 2.
+
+<Checklist
+  items={[
+    { "id": "w1", "label": "Contract: orchestrationV2.loom.ts + the six splices in orchestrationV2.ts; contract decode tests; typecheck surfaces every exhaustive switch over the widened unions — each gets a marked Loom branch", "note": "Known sites: Orchestrator.commandThreadId (lock key), ProjectionStore.applyToProjection (return base), client-runtime orchestrationV2Projection.applyOrchestrationV2ProjectionEvent (return base), testkit/OrchestratorScenario.commandThreadIds (the lock thread), ThreadManagementService.existingThreadIdsForCommand (its default returns command.threadId — spawn/scaffold must return the parent so the pre-dispatch V1 hydration does not look up a thread that does not exist yet)." },
+    { "id": "w2", "label": "Shared libs out of quarantine: workstreamGraph.ts, workstreamDependencies.ts retyped; workstreamStart.loom.ts added; their existing tests retyped" },
+    { "id": "w3", "label": "Migrations 1046–1048 + the v1-copy migration test" },
+    { "id": "w4", "label": "loom/projection: applyLoomProjectionEvent, LoomStore (service + layer), loomShellJoin, LoomGoalBroadcast; ProjectionStore.apply hunk; storesLayer lines; Orchestrator shell-join hunks" },
+    { "id": "w5", "label": "Orchestrator.loom.ts arm + the Orchestrator.ts guard, receipt, dispatchMessage, run.interrupt, auto-settle hunks; ThreadSettlementService and ProjectService hunks; deferral + receipt tests" },
+    { "id": "w6", "label": "loom/orchestration/redrive.ts + reactor wiring in the server runtime (one marked line where Phase 1 split serverLayers.ts); lock and gate tests" },
+    { "id": "w7", "label": "loom/orchestration/quiescence.ts + routeWorkSubmit branch + quiescence tests" },
+    { "id": "w8", "label": "loom/recovery/loomRecoveryPolicy.ts + the ProviderRuntimeRecoveryService call + the settings default; a replay-recovery test asserting a Loom thread's held queued control wake is resumed and a needs_guidance thread's is not" },
+    { "id": "w9", "label": "ws.ts goal snapshot + stream hunks; unmarkedsweep clean; vp run typecheck; vp check; upstream Pi replay fixtures green; hand the seam list (LoomStoreV2 methods, Loom command union, start_if_idle, LoomDispatchDeferredError, planReDrive, quiescenceCandidate, LoomGoalBroadcast) to the Phase 3 planners" },
+  ]}
+/>
+
+<Callout tone="risk">
+**Risks.** (1) *A receipted deferral is a dead wake forever* — every new rejection path in Loom code must be either permanent-by-design or `LoomDispatchDeferredError`; the deferral test and the re-drive test exist for this, and a code reviewer should refuse any third raise site without a written reason. (2) *The union splice fans out* — the widened `OrchestrationV2DomainEvent` breaks every exhaustive switch over it; typecheck finds them, but a `default` arm placed in the wrong function (one that should not ignore Loom events) is silent — the two known sites are named above; any other needs a comment saying why ignoring is right. (3) *Lock discipline is a convention, not a type* — the arm's `nested` object exposes only the two same-thread dispatchers; a coder who reaches for `threadDispatch.withLock` inside the arm has broken the design, and `t-lock` asserts no nested lock. (4) *`held` may be retired* by the strategy's open form after this plan is written: drop the column (a migration), `thread.held.set`, the `held` term in `isEligibleToStart`, and rule 3 of the turn-start rules; nothing else changes. (5) *Upstream churn* — `Orchestrator.ts` moved in the days this plan was written; re-anchor the line references at merge time, the symbol names are the stable ones. (6) *The goal rename is irreversible on a copied database* — it runs at first boot of the V2 server on `statev2.sqlite`; Phase 4's QA instance must boot a fresh copy, which it does by design.
+</Callout>
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      "id": "notify-clears-attention",
+      "title": "Should a peer message from another agent (notify_thread) clear the target's stored attention flags when it starts or steers the target's turn, the same way a human message or a parent's prompt does?",
+      "subtitle": "The strategy says any Loom-originated turn start clears stored attention and lists notify among Loom's origins, so this plan clears. The doubt: a child holding awaiting_acceptance for a human could have that hold erased by a sibling's FYI message.",
+      "refs": [{ "label": "The dispatchMessage hunk cluster", "anchor": "the-dispatchmessage-hunk-cluster" }],
+      "mode": "single",
+      "options": [
+        { "id": "clear", "label": "Yes — a notify starts or steers a turn, and a running thread is not halted awaiting a human", "recommended": true, "detail": "Matches the strategy's rule as written and V1's behaviour (every turn start cleared all)." },
+        { "id": "keep", "label": "No — exclude notify from the clearing origins so agent-raised holds survive peer messages", "detail": "One extra term in rule 4; the sender is not the human or the parent the hold was raised for." }
+      ]
+    },
+    {
+      "id": "redrive-home",
+      "title": "Should this substrate phase also ship the small background reactor that runs the re-drive planner whenever a cascade or gate decision is recorded, or deliver only the planner and runner for the later control-plane dispatcher to call?",
+      "subtitle": "The re-drive planner turns one thread's decision (a cancel, a gate verdict, an archive) into idempotent per-thread commands. This phase's own tests call it directly either way; the question is whether cascades and gate legs actually move on the integration branch before the control-plane dispatcher (a later phase) exists.",
+      "refs": [{ "label": "The re-drive planner", "anchor": "the-re-drive-planner" }],
+      "mode": "single",
+      "options": [
+        { "id": "ship-reactor", "label": "Ship the small reactor now; the later dispatcher absorbs it into its own pass", "recommended": true, "detail": "Cascades and gate legs work on the integration branch immediately; about 40 lines whose trigger the dispatcher later replaces." },
+        { "id": "planner-only", "label": "Planner and runner only; nothing moves until the dispatcher exists", "detail": "A smaller substrate with no code the dispatcher must remove; cascades stay inert on the integration branch until the dispatcher lands." }
+      ]
+    }
+  ]}
+/>
