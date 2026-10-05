@@ -4,7 +4,7 @@ import {
   EventId,
   IsoDateTime,
   NonNegativeInt,
-  NonNegativeNumber,
+  NonNegativeNumber, // loom: costUsd
   ProviderItemId,
   PositiveInt,
   RuntimeItemId,
@@ -31,6 +31,7 @@ const RuntimeEventRawSource = Schema.Union([
   Schema.Literal("opencode.sdk.event"),
   Schema.Literal("acp.jsonrpc"),
   Schema.TemplateLiteral(["acp.", Schema.String, ".extension"]),
+  // loom: pi RPC raw sources
   Schema.Literal("pi.rpc.event"),
   Schema.Literal("pi.rpc.response"),
   Schema.Literal("pi.rpc.synthetic"),
@@ -153,6 +154,7 @@ export const CanonicalRequestType = Schema.Literals([
 ]);
 export type CanonicalRequestType = typeof CanonicalRequestType.Type;
 
+// loom: the runtime event type union as one schema (Loom-only consumers).
 const ProviderRuntimeEventType = Schema.Literals([
   "session.started",
   "session.configured",
@@ -214,7 +216,7 @@ const ThreadStartedType = Schema.Literal("thread.started");
 const ThreadStateChangedType = Schema.Literal("thread.state.changed");
 const ThreadMetadataUpdatedType = Schema.Literal("thread.metadata.updated");
 const ThreadTokenUsageUpdatedType = Schema.Literal("thread.token-usage.updated");
-const ThreadQueueUpdatedType = Schema.Literal("thread.queue.updated");
+const ThreadQueueUpdatedType = Schema.Literal("thread.queue.updated"); // loom: pi steering/follow-up queue
 const ThreadRealtimeStartedType = Schema.Literal("thread.realtime.started");
 const ThreadRealtimeItemAddedType = Schema.Literal("thread.realtime.item-added");
 const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta");
@@ -334,6 +336,7 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   toolUses: Schema.optional(NonNegativeInt),
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
+  // loom: usage-ledger fields (costUsd … usesSubscriptionPricing).
   // Dollar cost of this single assistant message, taken verbatim from the
   // provider's own authoritative figure (pi's `usage.cost.total`). A per-message
   // delta — summing across token-usage events reconstructs cumulative spend, so
@@ -377,6 +380,7 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
 
+// loom: pi steering/follow-up queue.
 // Pending messages the provider has queued for the running turn. `steering`
 // folds into the live turn; `followUp` runs after it. Both drain to empty as
 // the provider delivers them, so this is ephemeral live state only.
@@ -947,6 +951,7 @@ const ProviderRuntimeThreadTokenUsageUpdatedEvent = Schema.Struct({
 export type ProviderRuntimeThreadTokenUsageUpdatedEvent =
   typeof ProviderRuntimeThreadTokenUsageUpdatedEvent.Type;
 
+// loom: pi steering/follow-up queue.
 const ProviderRuntimeThreadQueueUpdatedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: ThreadQueueUpdatedType,
@@ -1263,7 +1268,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadStateChangedEvent,
   ProviderRuntimeThreadMetadataUpdatedEvent,
   ProviderRuntimeThreadTokenUsageUpdatedEvent,
-  ProviderRuntimeThreadQueueUpdatedEvent,
+  ProviderRuntimeThreadQueueUpdatedEvent, // loom: pi steering/follow-up queue
   ProviderRuntimeThreadRealtimeStartedEvent,
   ProviderRuntimeThreadRealtimeItemAddedEvent,
   ProviderRuntimeThreadRealtimeAudioDeltaEvent,

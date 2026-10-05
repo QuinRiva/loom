@@ -298,7 +298,7 @@ describe("rightPanelStore", () => {
             {
               id: "file:src/index.ts",
               kind: "file",
-              absolutePath: null,
+              absolutePath: null, // loom: absolute-path-aware file surface
               relativePath: "src/index.ts",
               revealLine: null,
               revealRequestId: 0,
@@ -532,6 +532,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "files",
+      // loom: directory reveal fields
       surfaces: [{ id: "files", kind: "files", revealPath: null, revealRequestId: 0 }],
     });
   });
@@ -695,7 +696,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
-          absolutePath: null,
+          absolutePath: null, // loom: absolute-path-aware file surface
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 2,
@@ -703,7 +704,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:README.md",
           kind: "file",
-          absolutePath: null,
+          absolutePath: null, // loom: absolute-path-aware file surface
           relativePath: "README.md",
           revealLine: null,
           revealRequestId: 1,
@@ -799,7 +800,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
-          absolutePath: null,
+          absolutePath: null, // loom: absolute-path-aware file surface
           relativePath: "src/index.ts",
           revealLine: 87,
           revealRequestId: 2,
@@ -816,7 +817,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
-          absolutePath: null,
+          absolutePath: null, // loom: absolute-path-aware file surface
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 3,
@@ -825,6 +826,7 @@ describe("rightPanelStore", () => {
     });
   });
 
+  // loom: out-of-workspace file chips.
   it("openFileAbsolute opens an out-of-workspace read-only file surface", () => {
     const reportPath = "/home/Carl/.t3/cockpit/userdata/workstream-reports/abc.round-1.md";
     useRightPanelStore.getState().openFileAbsolute(refA, reportPath, 12);
@@ -1171,7 +1173,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
-          absolutePath: null,
+          absolutePath: null, // loom: absolute-path-aware file surface
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 1,
