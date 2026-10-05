@@ -314,24 +314,15 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                       }
                     >
                       <View className="min-w-0 flex-1 gap-0.5">
-                        {/* loom: the agent's pick is badged beside its label. */}
-                        <View className="flex-row flex-wrap items-center gap-1.5">
-                          <Text
-                            className={cn(
-                              "font-t3-bold text-sm",
-                              selected ? "text-foreground" : "text-foreground-secondary",
-                            )}
-                          >
-                            {option.label}
-                          </Text>
-                          {option.recommended ? (
-                            <View className="rounded border border-primary/40 bg-primary/10 px-1 py-px">
-                              <Text className="font-t3-bold text-2xs uppercase tracking-[0.6px] text-primary">
-                                Recommended
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
+                        {/* loom: "Recommended" badge detached in pull 9, ledger DT-84 (V2 options carry no `recommended`). */}
+                        <Text
+                          className={cn(
+                            "font-t3-bold text-sm",
+                            selected ? "text-foreground" : "text-foreground-secondary",
+                          )}
+                        >
+                          {option.label}
+                        </Text>
                         {description ? (
                           <Text className="font-sans text-sm leading-5 text-foreground-muted">
                             {description}
