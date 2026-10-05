@@ -164,7 +164,6 @@ export function SearchableModelList(props: {
                 <ComboboxInput
                   ref={searchInputRef}
                   className="[&_input]:h-6.5 [&_input]:font-sans [&_input]:leading-6.5"
-                  inputClassName="rounded-none bg-transparent text-sm"
                   placeholder={props.placeholder ?? "Search models..."}
                   showTrigger={false}
                   startAddon={
@@ -318,7 +317,7 @@ export function SearchableModelPopover({
       <PopoverPopup
         align={align}
         className="border-0 bg-transparent p-0 shadow-none before:hidden [--viewport-inline-padding:0]"
-        viewportClassName="!overflow-hidden p-0"
+        padding="none"
       >
         <SearchableModelList
           searchQuery={query}
@@ -344,17 +343,18 @@ export function SearchableModelPopover({
                 hideIndicator
                 index={index}
                 value={value}
-                contentClassName="flex w-full flex-col gap-0.5"
                 className="cursor-pointer rounded-md px-2 py-1.5 data-highlighted:bg-muted/56"
               >
-                <span className="truncate text-xs font-medium leading-snug text-foreground">
-                  {option.name}
-                </span>
-                {option.secondary ? (
-                  <span className="truncate text-[11px] leading-snug text-muted-foreground/70">
-                    {option.secondary}
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-xs font-medium leading-snug text-foreground">
+                    {option.name}
                   </span>
-                ) : null}
+                  {option.secondary ? (
+                    <span className="truncate text-[11px] leading-snug text-muted-foreground/70">
+                      {option.secondary}
+                    </span>
+                  ) : null}
+                </div>
               </ComboboxItem>
             );
             // Group headings only in the unfiltered view; searching is a flat rank.

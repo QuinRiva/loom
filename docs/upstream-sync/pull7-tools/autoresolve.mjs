@@ -1,7 +1,11 @@
 // Parser-verified conflict resolver: for each file try union, then ours, then theirs;
 // keep the first variant esbuild can parse. Records every dropped side for audit.
-import * as esbuild from "/home/Carl/.t3/cockpit/worktrees/loom/t3code-ea251a06/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js";
 import * as NodeFS from "node:fs";
+// Resolve esbuild from the current worktree's store (run from the repo root).
+const esbuildMain = NodeFS.globSync("node_modules/.pnpm/esbuild@*/node_modules/esbuild/lib/main.js")
+  .sort()
+  .at(-1);
+const esbuild = await import(new URL(esbuildMain, `file://${process.cwd()}/`).href);
 
 const PROTECT =
   /(src\/ws\.ts|orchestration\/decider\.ts|ProjectionSnapshotQuery|McpSessionRegistry|RpcAuthorization|LoomMigrations|persistence\/Migrations|ChatView|ChatComposer|ChatMarkdown|MessagesTimeline|components\/Sidebar|RightPanelTabs|client-runtime\/src\/state\/shell\.ts|threadActivity|use-selected-thread-requests|ProviderModelsSection|ModelPickerContent|keybindings|serverSettings|rightPanelStore|routeTree)/;

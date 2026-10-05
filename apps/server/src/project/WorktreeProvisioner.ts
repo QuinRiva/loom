@@ -6,6 +6,7 @@ import {
   type ThreadId,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -25,6 +26,7 @@ import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import { WorkspaceLease, type WorkspaceHold } from "../workspace/WorkspaceOccupancyLease.ts";
@@ -152,6 +154,7 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const workspaceLease = yield* WorkspaceLease;
   const setupTracker = yield* WorktreeSetupTracker;
+  const serverSettings = yield* ServerSettingsService;
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -357,6 +360,20 @@ const make = Effect.gen(function* () {
             .commitAll(input.parentCwd, "wip: workstream snapshot", "")
             .pipe(Effect.retry(GIT_LOCK_RETRY));
           yield* setupTracker.stageStatus(threadId, "checkout", "running");
+          // Upstream's project > environment `worktreeSubmodules` setting, as
+          // every upstream worktree creator resolves it; null defers to the
+          // checkout's own t3.json.
+          const submodules = yield* Effect.gen(function* () {
+            const settings = yield* serverSettings.getSettings;
+            const project =
+              input.projectId === undefined
+                ? null
+                : Option.getOrNull(
+                    yield* projectionSnapshotQuery.getProjectShellById(input.projectId),
+                  );
+            return resolveProjectSettings(settings, input.projectId ?? null, project).settings
+              .worktreeSubmodules;
+          }).pipe(Effect.orElseSucceed(() => null));
           return yield* gitWorkflow.createWorktree(
             {
               cwd: input.parentCwd,
@@ -366,6 +383,7 @@ const make = Effect.gen(function* () {
               path: null,
             },
             {
+              submodules,
               progress: {
                 onWorktreeClaimed: (path) =>
                   workspaceLease.hold(path, `worktree-provision:${threadId}`).pipe(

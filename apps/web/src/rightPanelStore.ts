@@ -765,7 +765,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openFile: (ref, relativePath, line) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
-            upsertFileSurface(current, relativePath, line, null),
+            // A workspace-root link opens the explorer, not a file.
+            relativePath === "."
+              ? upsertSurface(current, singletonSurface("files"))
+              : upsertFileSurface(current, relativePath, line, null),
           ),
         ),
       openFileAbsolute: (ref, absolutePath, line) =>

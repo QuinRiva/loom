@@ -24,7 +24,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./Services/ProjectionSnapshotQuery.ts";
-import { pullRequestMatchesProject } from "./ThreadPullRequestReactor.ts";
+import { pullRequestMatchesProject, readSweepSnapshot } from "./ThreadPullRequestReactor.ts";
 import {
   finishedRootSettlesAt, // loom: finished-work trigger
   isAutoSettlementCandidate,
@@ -98,24 +98,24 @@ export const make = Effect.gen(function* () {
     if (!autoSettlementConfigured(settings)) {
       return;
     }
-    const snapshot = yield* snapshots.getShellSnapshot();
+    const snapshot = yield* readSweepSnapshot(snapshots, threadId ?? null);
     const now = DateTime.formatIso(yield* DateTime.now);
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
     // loom: the fork's two auto-settle blockers are pre-filtered here, exactly
-    // where upstream pre-filters its own; the decider still enforces them.
+    // where upstream pre-filters its own; the decider still enforces them. Best
+    // effort only: `readSweepSnapshot` carries unsettled threads (broad sweep)
+    // or one thread (targeted sweep), so a manually settled descendant is not
+    // visible here — the decider's refusal below is the authoritative answer.
     const loomBlocked = loomAutoSettleBlockedThreadIds(snapshot.threads);
     const candidates = snapshot.threads.filter(
-      (thread) =>
-        (threadId === undefined || thread.id === threadId) &&
-        isAutoSettlementCandidate(thread, now) &&
-        !loomBlocked.has(thread.id), // loom: see above
+      (thread) => isAutoSettlementCandidate(thread, now) && !loomBlocked.has(thread.id), // loom: see above
     );
 
     // Return the thread when it still needs a pull request decision. A rejected
     // dispatch skips it for this snapshot instead of retrying through a lookup.
-    const settleThread = Effect.fn("ThreadSettlementReactor.settleThread")(
+    const settleThread = Effect.fnUntraced(
       function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
         const settings = resolveProjectSettings(
           yield* settingsService.getSettings,
@@ -144,13 +144,21 @@ export const make = Effect.gen(function* () {
       },
       (effect, thread) =>
         effect.pipe(
-          Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause)
-              ? Effect.failCause(cause)
-              : Effect.logWarning("automatic thread settlement skipped", {
-                  threadId: thread.id,
-                  cause: Cause.pretty(cause),
-                }).pipe(Effect.as(null)),
+          // loom: a blocked refusal is the expected answer when the best-effort
+          // pre-filter above could not see the blocker (manually settled
+          // descendant, targeted one-thread snapshot); only real faults warn.
+          Effect.catchTag("OrchestrationThreadSettleBlockedError", () =>
+            Effect.logDebug("automatic thread settlement blocked", { threadId: thread.id }).pipe(
+              Effect.as(null),
+            ),
+          ),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("automatic thread settlement skipped", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(null)),
           ),
         ),
     );
@@ -216,9 +224,30 @@ export const make = Effect.gen(function* () {
     };
     const groups = Map.groupBy(lookupCandidates, lookupKey);
 
-    const pullRequestFor = Effect.fn("ThreadSettlementReactor.pullRequestFor")(function* (
-      thread: (typeof candidates)[number],
+    const wouldSettle = Effect.fn("ThreadSettlementReactor.wouldSettle")(function* (
+      group: ReadonlyArray<(typeof candidates)[number]>,
+      pullRequest: SettlementPullRequest,
     ) {
+      const currentSettings = yield* settingsService.getSettings;
+      const decisionNow = DateTime.formatIso(yield* DateTime.now);
+      return group.some((thread) => {
+        const { settings } = resolveProjectSettings(currentSettings, thread.projectId);
+        return (
+          resolveAutoSettlementAt({
+            thread,
+            pullRequest,
+            now: decisionNow,
+            autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
+            autoSettleOnMerge: settings.sidebarAutoSettleOnMerge,
+          }) !== null
+        );
+      });
+    });
+
+    const pullRequestFor = Effect.fn("ThreadSettlementReactor.pullRequestFor")(function* (
+      group: ReadonlyArray<(typeof candidates)[number]>,
+    ) {
+      const thread = group[0]!;
       const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
       if (reference != null) {
         const matchesMerge =
@@ -243,10 +272,21 @@ export const make = Effect.gen(function* () {
               },
               { recoverTransientFailure: false },
             );
+        const terminal = {
+          state: summary.state,
+          closedAt: summary.closedAt ?? null,
+          mergedAt: summary.mergedAt ?? null,
+        } satisfies SettlementPullRequest;
         const cwd = lookupCwdByThreadId.get(thread.id);
         if (summary.state !== "open" && thread.branch !== null && cwd !== undefined) {
           // A reused branch can already have a new open PR while discovery
           // is replacing its old link. Do not let settlement win that race.
+          // Only pay for the uncached lookup when this sweep would otherwise
+          // settle: a terminal link that settles nothing (resumed thread,
+          // settle-on-merge off) would re-query the host every minute. A
+          // group that becomes eligible after this check waits for the next
+          // sweep rather than settling on the unverified link.
+          if (!(yield* wouldSettle(group, terminal))) return undefined;
           const current = yield* git.branchPullRequest(
             { cwd, branch: thread.branch },
             { refresh: true },
@@ -260,11 +300,7 @@ export const make = Effect.gen(function* () {
             return current;
           }
         }
-        return {
-          state: summary.state,
-          closedAt: summary.closedAt ?? null,
-          mergedAt: summary.mergedAt ?? null,
-        } satisfies SettlementPullRequest;
+        return terminal;
       }
       if (thread.branch === null) return null;
       const cwd = lookupCwdByThreadId.get(thread.id);
@@ -278,18 +314,19 @@ export const make = Effect.gen(function* () {
       groups.values(),
       (group) =>
         Effect.gen(function* () {
-          const pullRequest = yield* pullRequestFor(group[0]!);
+          const pullRequest = yield* pullRequestFor(group);
+          if (pullRequest === undefined) return;
           yield* Effect.forEach(group, (thread) => settleThread(thread, pullRequest), {
             discard: true,
           });
         }).pipe(
-          Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause)
-              ? Effect.failCause(cause)
-              : Effect.logWarning("automatic thread settlement skipped", {
-                  threadIds: group.map((thread) => thread.id),
-                  cause: Cause.pretty(cause),
-                }),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("automatic thread settlement skipped", {
+                threadIds: group.map((thread) => thread.id),
+                cause: Cause.pretty(cause),
+              }),
           ),
         ),
       { concurrency: 8, discard: true },
@@ -301,12 +338,12 @@ export const make = Effect.gen(function* () {
     threadId?: ThreadId,
   ) =>
     sweep(mergedPullRequest, threadId).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("automatic thread settlement sweep failed", {
-              cause: Cause.pretty(cause),
-            }),
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) =>
+          Effect.logWarning("automatic thread settlement sweep failed", {
+            cause: Cause.pretty(cause),
+          }),
       ),
     );
   const worker = yield* makeDrainableWorker((threadId: ThreadId | undefined) =>
@@ -381,6 +418,11 @@ export const make = Effect.gen(function* () {
       // transition that makes a root settleable.
       case "thread.plan-lane-set":
         return isTerminalLane(event.payload.planLane) ? finishedWorkWorker.enqueue() : Effect.void;
+      // loom: re-enabling a thread's auto-settle lets a finished root settle now.
+      case "thread.auto-settle-set":
+        return event.payload.autoSettleDisabledAt === null
+          ? finishedWorkWorker.enqueue()
+          : Effect.void;
       case "thread.pull-request-linked":
       case "thread.pull-request-synced":
       case "thread.pull-request-unlinked":

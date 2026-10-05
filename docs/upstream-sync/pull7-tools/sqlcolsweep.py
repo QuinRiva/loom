@@ -31,6 +31,9 @@ OPTIONAL_PREFIXES = ("Schema.optional", "Schema.optionalKey", "Schema.UndefinedO
 
 def strip_comments(src: str) -> str:
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    # Trailing `// loom:` markers after a delimiter (`Request: X, // loom: …`)
+    # would otherwise glue onto the next key and hide it.
+    src = re.sub(r"(?<=[,{(\[])[ \t]*//[^\n]*", "", src)
     return "\n".join(line for line in src.split("\n") if not line.lstrip().startswith("//"))
 
 

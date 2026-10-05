@@ -166,7 +166,7 @@ export function finishedRootSettlesAt(thread: OrchestrationThreadShell): string 
  *
  * The shell snapshot carries only ACTIVE threads while the decider walks its
  * read model through archived ones, so a live descendant hidden behind an
- * archived parent is admitted here and still refused (with a warning) there.
+ * archived parent is admitted here and still refused (logged at debug, PR-5) there.
  * That residual is the right direction: this filter can never suppress a
  * settle the decider would have allowed.
  */
@@ -195,6 +195,7 @@ export function loomAutoSettleBlockedThreadIds(
 /** Cheap checks that run before any source control lookup. */
 export function isAutoSettlementCandidate(thread: OrchestrationThreadShell, now: string): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
+  if (thread.autoSettleDisabledAt != null) return false;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.session?.status === "starting" || thread.session?.status === "running") return false;
   if (thread.backgroundLiveness != null) return false;

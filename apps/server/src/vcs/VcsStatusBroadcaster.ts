@@ -626,10 +626,10 @@ export const make = Effect.gen(function* () {
         // waiting on its first status).
         const policyAllows =
           cycle.poller.initialPending.size > 0 ||
-          (yield* Effect.all(
-            cwds.map((demandCwd) =>
+          (yield* Effect.forEach(
+            cwds,
+            (demandCwd) =>
               backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
-            ),
             { concurrency: "unbounded" },
           )).some(Boolean);
         if (cwds.length > 0 && policyAllows) {

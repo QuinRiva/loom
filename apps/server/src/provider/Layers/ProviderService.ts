@@ -296,6 +296,7 @@ interface TurnAnalyticsMetadata {
   readonly provider: ProviderDriverKind;
   readonly startedAtMs: number;
   readonly mixedModels: boolean;
+  readonly subscriptionSharing?: boolean;
   readonly model?: string;
   readonly effort?: string;
   readonly interactionMode?: string;
@@ -466,6 +467,14 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Stopped rows with no active turn are settled; shutdown leaves them untouched. */
+function isSettledBinding(binding: ProviderSessionDirectory.ProviderRuntimeBinding): boolean {
+  if (binding.status !== "stopped") return false;
+  const payload = binding.runtimePayload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return true;
+  return !("activeTurnId" in payload) || payload.activeTurnId == null;
 }
 
 const dieOnMissingBindingInstanceId = (
@@ -785,6 +794,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
     return {
       ...input.completion.terminalProperties,
+      ...(metadata?.subscriptionSharing ? { subscriptionSharing: true } : {}),
       ...(metadata?.model ? { model: metadata.model } : {}),
       ...(metadata?.effort ? { effort: metadata.effort } : {}),
       ...(metadata?.interactionMode ? { interactionMode: metadata.interactionMode } : {}),
@@ -830,6 +840,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     readonly runtimeMode: string | undefined;
   }) {
     const startedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
+    const settings = yield* serverSettings.getSettings.pipe(Effect.option);
+    const instance = Option.isSome(settings)
+      ? settings.value.providerInstances[input.providerInstanceId]
+      : undefined;
+    const subscriptionSharing =
+      input.provider === "codex" &&
+      (instance
+        ? instance.driver === "codex" &&
+          typeof instance.config === "object" &&
+          instance.config !== null &&
+          "setupMode" in instance.config &&
+          instance.config.setupMode === "managed"
+        : input.providerInstanceId === "codex" &&
+          Option.isSome(settings) &&
+          settings.value.providers.codex.setupMode === "managed");
     turnAnalyticsRequestId += 1;
     const requestId = turnAnalyticsRequestId;
     const effort = turnEffort(input.modelSelection);
@@ -842,6 +867,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       };
       const metadata: TurnAnalyticsMetadata = {
         provider: input.provider,
+        ...(subscriptionSharing ? { subscriptionSharing: true } : {}),
         startedAtMs,
         mixedModels: false,
         requestId,
@@ -1987,10 +2013,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ? `[Pasted text "${attachment.name}" is saved at: ${attachmentPath}. Inspect it as needed.]`
             : `[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`,
       );
-      if (isPastedText && !appended) {
+      // Most adapters see generic files only through this path line, so a file
+      // without one would be silently dropped. Images still go natively.
+      if (!appended && attachment.type === "file") {
         return yield* toValidationError(
           "ProviderService.sendTurn",
-          `Input plus pasted-text attachment context exceeds the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS} character limit`,
+          `Input plus attachment context exceeds the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS} character limit`,
         );
       }
     }
@@ -2082,6 +2110,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
       const analyticsModelSelection =
         input.modelSelection?.instanceId === routed.instanceId ? input.modelSelection : undefined;
+      let subscriptionSharing = false;
       const turn = yield* Effect.acquireUseRelease(
         beginTurnAnalytics({
           providerInstanceId: routed.instanceId,
@@ -2093,7 +2122,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }),
         (turnMetadata) =>
           Effect.gen(function* () {
-            const turn = yield* routed.adapter.sendTurn(input);
+            subscriptionSharing = turnMetadata.subscriptionSharing === true;
+            yield* analytics.record("provider.turn.attempted", {
+              provider: routed.adapter.provider,
+              ...(turnMetadata.subscriptionSharing ? { subscriptionSharing: true } : {}),
+              model: input.modelSelection?.model,
+              runtimeMode: routed.runtimeMode,
+            });
+            const turn = yield* routed.adapter.sendTurn(input).pipe(
+              Effect.tapError((error) =>
+                analytics.record("provider.turn.rejected", {
+                  provider: routed.adapter.provider,
+                  ...(turnMetadata.subscriptionSharing ? { subscriptionSharing: true } : {}),
+                  errorType: error._tag,
+                }),
+              ),
+            );
             yield* associateTurnAnalytics({
               providerInstanceId: routed.instanceId,
               threadId: input.threadId,
@@ -2127,6 +2171,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       });
       yield* analytics.record("provider.turn.sent", {
         provider: routed.adapter.provider,
+        ...(subscriptionSharing ? { subscriptionSharing: true } : {}),
         model: input.modelSelection?.model,
         interactionMode: input.interactionMode,
         // Session-start events alone skew runtime mode toward users who toggle
@@ -2756,7 +2801,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     // Continuation is project-scopable, so decide it per session's project;
     // without orchestration the environment value is all there is.
     const stopSettings = yield* serverSettings.getSettings.pipe(
-      Effect.map(Option.some),
+      Effect.asSome,
       Effect.orElseSucceed(() => Option.none<ServerSettingsValue>()),
     );
     const continueAfterRestartFor = Effect.fn("continueAfterRestartFor")(function* (
@@ -2789,7 +2834,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       return [completed, state] as const;
     });
     yield* recordCompletedTurnProperties(properties);
-    const threadIds = yield* directory.listThreadIds();
     const currentAdapters = yield* getAdapterEntries;
     const activeSessions = yield* Effect.forEach(currentAdapters, ([instanceId, adapter]) =>
       adapter.listSessions().pipe(
@@ -2831,19 +2875,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     );
     yield* McpSessionRegistry.revokeAllActiveMcpCredentials();
     McpProviderSession.clearAllMcpProviderSessions();
-    const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
+    // Stopped rows stay for their resume cursors, so long-lived installs hold
+    // thousands. Only rewrite the ones this shutdown actually stops.
+    const bindings = yield* directory.listBindings().pipe(
+      Effect.map((all) => all.filter((binding) => !isSettledBinding(binding))),
+      Effect.orElseSucceed(() => []),
+    );
     yield* Effect.forEach(bindings, (binding) =>
       Effect.gen(function* () {
-        // loom: already-stopped bindings need no rewrite. This runs as a scope
-        // finalizer after the HTTP grace period is exhausted, and each upsert is
-        // a read-then-write pair on the single serial SQL connection — so
-        // rewriting every historical row cost ~2x(row count) statements on the
-        // shutdown path. It also reset `lastSeenAt` on every stopped row at once
-        // (observed: 1311 of 1326 rows sharing one minute), destroying the only
-        // age signal the runtime table carries.
-        if (binding.status === "stopped") {
-          return;
-        }
         const providerInstanceId = dieOnMissingBindingInstanceId(
           "ProviderService.stopAll",
           binding,
@@ -2861,8 +2900,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         });
       }),
     ).pipe(Effect.asVoid);
+    // Not `sessionCount`: that older property counted every row, so a new name
+    // keeps the two meanings in separate series.
     yield* analytics.record("provider.sessions.stopped_all", {
-      sessionCount: threadIds.length,
+      stoppedSessionCount: bindings.length,
     });
     yield* analytics.flush;
   });

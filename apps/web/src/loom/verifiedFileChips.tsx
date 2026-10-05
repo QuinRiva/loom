@@ -4,11 +4,8 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 
-import {
-  CHAT_FILE_TAG_CHIP_CLASS_NAME,
-  FileTagChipContent,
-  ThreadTagChipContent,
-} from "~/components/chat/FileTagChip";
+import { FileTagChipContent, ThreadTagChipContent } from "~/components/chat/FileTagChip";
+import { ContextChip } from "~/components/ContextChip";
 import {
   refreshPathExistence,
   revalidatePathExistence,
@@ -90,8 +87,9 @@ function MissingFileChip(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <span
-            className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, MISSING_CHIP_CLASS_NAME, props.className)}
+          <ContextChip
+            kind="mention"
+            className={cn(MISSING_CHIP_CLASS_NAME, "select-text", props.className)}
             data-markdown-copy={props.copyMarkdown}
             data-file-missing="true"
             aria-label={`${props.meta.basename} — ${MISSING_CHIP_TITLE}`}
@@ -101,9 +99,8 @@ function MissingFileChip(props: {
               path={props.meta.filePath}
               label={`${props.meta.basename} · missing?`}
               theme={resolvedTheme}
-              selectable
             />
-          </span>
+          </ContextChip>
         }
       />
       <TooltipPopup side="top" className="max-w-[min(40rem,calc(100vw-2rem))] text-[11px]">
@@ -408,8 +405,9 @@ export function ThreadLinkChip({
       <Tooltip>
         <TooltipTrigger
           render={
-            <span
-              className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, "cursor-help opacity-70")}
+            <ContextChip
+              kind="mention"
+              className="cursor-help opacity-70"
               aria-label={`${label} — ${inertTitle}`}
             />
           }
@@ -428,10 +426,11 @@ export function ThreadLinkChip({
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
+          <ContextChip
+            kind="mention"
+            render={<button type="button" />}
             aria-label={`Open ${shell.title}`}
-            className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, "cursor-pointer hover:underline")}
+            className="hover:underline"
             onClick={() =>
               void navigate({
                 to: "/$environmentId/$threadId",

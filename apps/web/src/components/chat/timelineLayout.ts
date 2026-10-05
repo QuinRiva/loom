@@ -14,7 +14,7 @@ export const TIMELINE_AVAILABLE_WIDTH_VAR = "--timeline-available-width";
  * assumes this measure — a `ChatMarkdown` rendered outside it would misreport
  * table layout — so the preview harness reuses the exact same class chain.
  */
-export const TIMELINE_ROW_CLASS_NAME = "mx-auto w-full min-w-0 max-w-3xl";
+export const TIMELINE_ROW_CLASS_NAME = "mx-auto w-full min-w-0 max-w-(--chat-max-width)";
 
 /** Publish the viewport's current content width onto the bleed CSS variable. */
 export function publishTimelineAvailableWidth(element: HTMLElement, viewportWidth: number): void {

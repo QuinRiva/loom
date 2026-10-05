@@ -49,6 +49,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
     getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
     getReferencedWorktreePaths: () => Effect.succeed(new Set()),
+    listThreadsWithPullRequests: () => Effect.die("unused"),
     getArchivedShellSnapshot: () => Effect.die("unused"),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
     getCounts: () => Effect.die("unused"),
@@ -89,7 +90,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
 
 const makeTerminalManagerLayer = (
   overrides: Pick<TerminalManager.TerminalManager["Service"], "open" | "write"> &
-    Partial<Pick<TerminalManager.TerminalManager["Service"], "subscribe">>,
+    Partial<Pick<TerminalManager.TerminalManager["Service"], "subscribe" | "closeIdle">>,
 ) =>
   Layer.succeed(TerminalManager.TerminalManager, {
     attachStream: () => Effect.die(new Error("unused")),
@@ -97,6 +98,7 @@ const makeTerminalManagerLayer = (
     clear: () => Effect.void,
     restart: () => Effect.die(new Error("unused")),
     close: () => Effect.void,
+    closeIdle: overrides.closeIdle ?? (() => Effect.void),
     subscribe: overrides.subscribe ?? (() => Effect.succeed(() => undefined)),
     subscribeMetadata: () => Effect.succeed(() => undefined),
     ...overrides,
