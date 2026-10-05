@@ -88,7 +88,7 @@ export default function AbsoluteDirectoryPanel({
           <div className="truncate text-xs font-medium text-foreground">
             {rootLabel(normalizedRoot)}
           </div>
-          <div className="truncate text-[10px] leading-none text-amber-600 dark:text-amber-400">
+          <div className="truncate text-3xs leading-none text-warning-foreground">
             Outside workspace · read-only
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function AbsoluteDirectoryPanel({
       </div>
       {/* Plain overflow-x row: a ScrollArea's full-size viewport would overlay
           and intercept pointer events on the entry list below it. */}
-      <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-border/60 px-3 text-[11px]">
+      <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-border/60 px-3 text-2xs">
         <Tooltip>
           <TooltipTrigger
             render={

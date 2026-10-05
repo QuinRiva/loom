@@ -191,7 +191,7 @@ function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
         <span className="min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
           {option.thread.title}
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        <span className="shrink-0 font-mono text-3xs text-muted-foreground">
           +{option.additions} -{option.deletions}
         </span>
         {option.thread.isolation === "shared" && <DiffScopeBadge>approximate</DiffScopeBadge>}
@@ -205,7 +205,7 @@ function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
 // loom:
 function DiffScopeBadge({ children }: { readonly children: string }) {
   return (
-    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-3xs font-medium text-muted-foreground">
       {children}
     </span>
   );

@@ -27,6 +27,14 @@ import { useVerifiedFileLinkChip, verifyChipTargetBeforeOpen } from "./verifiedF
 const ENV = "env-1" as EnvironmentId;
 const CWD = "/w";
 
+// The chip renders through ContextChip, so match only the DOM span it renders,
+// not the ContextChip element that carries the same props.
+function findMissingChips(renderer: ReactTestRenderer) {
+  return renderer.root.findAll(
+    (node) => node.type === "span" && node.props["data-file-missing"] === "true",
+  );
+}
+
 function meta(filePath: string): MarkdownFileLinkMeta {
   return {
     filePath,
@@ -89,14 +97,14 @@ describe("useVerifiedFileLinkChip", () => {
   it("keeps upstream's chip for a file that exists", async () => {
     const renderer = await renderHarness([meta(`${CWD}/main.ts`)], { [`${CWD}/main.ts`]: "file" });
     expect(renderer.root.findAllByType("b")).toHaveLength(1);
-    expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(0);
+    expect(findMissingChips(renderer)).toHaveLength(0);
     await act(async () => renderer.unmount());
   });
 
   it("replaces a chip whose file the server reports as gone with a labelled missing state", async () => {
     const renderer = await renderHarness([meta(`${CWD}/gone.ts`)], {});
     expect(renderer.root.findAllByType("b")).toHaveLength(0);
-    const missing = renderer.root.findAllByProps({ "data-file-missing": "true" });
+    const missing = findMissingChips(renderer);
     expect(missing).toHaveLength(1);
     // Clearly labelled, and inert: a span, so there is no dead click.
     expect(String(missing[0]?.props["aria-label"])).toContain("Missing — moved or deleted?");
@@ -107,7 +115,7 @@ describe("useVerifiedFileLinkChip", () => {
   it("keeps upstream's chip while a path is still unverified, so nothing flickers", async () => {
     const renderer = await renderHarness([meta(`${CWD}/pending.ts`)], {}, { settle: false });
     expect(renderer.root.findAllByType("b")).toHaveLength(1);
-    expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(0);
+    expect(findMissingChips(renderer)).toHaveLength(0);
     await act(async () => renderer.unmount());
   });
 
@@ -128,7 +136,7 @@ describe("useVerifiedFileLinkChip", () => {
     });
 
     expect(opened).toBe(false);
-    expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(1);
+    expect(findMissingChips(renderer)).toHaveLength(1);
     expect(String(toastAdd.mock.calls[0]?.[0]?.title)).toBe("moved.ts has moved or been deleted");
     await act(async () => renderer.unmount());
   });
@@ -146,7 +154,7 @@ describe("useVerifiedFileLinkChip", () => {
   it("still reports a missing .html artifact — missing outranks artifact routing", async () => {
     const renderer = await renderHarness([meta(`${CWD}/stale.html`)], {});
     expect(renderer.root.findAllByType("b")).toHaveLength(0);
-    expect(renderer.root.findAllByProps({ "data-file-missing": "true" })).toHaveLength(1);
+    expect(findMissingChips(renderer)).toHaveLength(1);
     await act(async () => renderer.unmount());
   });
 });

@@ -18,7 +18,7 @@ export function WrapToggle({ wrapped, onToggle }: { wrapped: boolean; onToggle: 
       aria-pressed={wrapped}
       aria-label="Toggle text wrapping"
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+        "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-3xs font-medium transition-colors",
         wrapped ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/80",
       )}
     >

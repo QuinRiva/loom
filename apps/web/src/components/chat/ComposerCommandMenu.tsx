@@ -141,7 +141,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             ).map((section) => (
               <CommandGroup key={section.label ?? "items"}>
                 {section.label === null ? null : (
-                  <CommandGroupLabel className="ps-3">{section.label}</CommandGroupLabel>
+                  <CommandGroupLabel className="ms-1">{section.label}</CommandGroupLabel>
                 )}
                 {section.items.map((item) => (
                   <ComposerCommandMenuItem

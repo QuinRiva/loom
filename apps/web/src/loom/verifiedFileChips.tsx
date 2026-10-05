@@ -103,7 +103,7 @@ function MissingFileChip(props: {
           </ContextChip>
         }
       />
-      <TooltipPopup side="top" className="max-w-[min(40rem,calc(100vw-2rem))] text-[11px]">
+      <TooltipPopup side="top" className="max-w-[min(40rem,calc(100vw-2rem))]">
         <div className="font-mono leading-tight wrap-anywhere">{props.meta.targetPath}</div>
         <div className="mt-0.5">{MISSING_CHIP_TITLE}</div>
       </TooltipPopup>
@@ -414,7 +414,7 @@ export function ThreadLinkChip({
         >
           <ThreadTagChipContent label={label} />
         </TooltipTrigger>
-        <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] text-[11px]">
+        <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))]">
           {inertTitle}
         </TooltipPopup>
       </Tooltip>
@@ -442,7 +442,7 @@ export function ThreadLinkChip({
       >
         <ThreadTagChipContent label={label} />
       </TooltipTrigger>
-      <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))] text-[11px]">
+      <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))]">
         {shell.title}
       </TooltipPopup>
     </Tooltip>

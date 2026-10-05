@@ -195,7 +195,7 @@ function SectionRead({ data, children }: PlanBlockReadProps<SectionData>) {
   // nested artboards all position against the DesignBoard surface (global board
   // coordinates), rather than nesting a second positioning context.
   return (
-    <div className="plan-canvas-section" style={{ display: "contents" }}>
+    <div className="contents">
       <div
         data-canvas-item
         className="plan-canvas-section-frame"

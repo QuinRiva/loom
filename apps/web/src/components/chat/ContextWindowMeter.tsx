@@ -157,18 +157,18 @@ export function ContextWindowMeter(props: {
             <div className="mt-1 flex flex-col gap-1 border-border/60 border-t pt-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium text-muted-foreground text-xs">Spend</div>
-                <div className="text-secondary-label text-[11px] tabular-nums">
+                <div className="text-secondary-label text-2xs tabular-nums">
                   {headlineCost ?? "—"}
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+              <div className="flex items-center justify-between gap-3 text-2xs leading-4">
                 <span className="text-secondary-label">This thread</span>
                 <span className="font-medium tabular-nums text-secondary-label">
                   {ownCost ?? "$0.00"}
                 </span>
               </div>
               {cost.hasDescendants ? (
-                <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+                <div className="flex items-center justify-between gap-3 text-2xs leading-4">
                   <span className="text-secondary-label">
                     Subtree ({cost.descendantCount} descendant
                     {cost.descendantCount === 1 ? "" : "s"})
@@ -186,7 +186,7 @@ export function ContextWindowMeter(props: {
                   {cost.children.map((child) => (
                     <div
                       key={child.id}
-                      className="flex items-center justify-between gap-3 text-[11px] leading-4"
+                      className="flex items-center justify-between gap-3 text-2xs leading-4"
                     >
                       <span className="truncate text-secondary-label/70">{child.title}</span>
                       <span className="shrink-0 tabular-nums text-secondary-label/70">
@@ -196,7 +196,7 @@ export function ContextWindowMeter(props: {
                   ))}
                 </div>
               ) : null}
-              <div className="mt-0.5 text-pretty text-secondary-label/70 text-[11px]">
+              <div className="mt-0.5 text-pretty text-secondary-label/70 text-2xs">
                 Metered-equivalent; may not reflect subscription plans.
               </div>
             </div>

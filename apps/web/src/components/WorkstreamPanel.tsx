@@ -343,12 +343,12 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-gradient-to-b from-[#0d1117] to-[#090d13]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-gradient-to-b from-workstream to-workstream-deep">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              <GitBranchIcon className="size-4 text-sky-300" />
+              <GitBranchIcon className="size-4 text-workstream-running-foreground" />
               Workstream
               <span className="text-xs font-normal text-white/35">· {activeThread.title}</span>
             </div>
@@ -368,7 +368,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                   render={
                     <button
                       type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
                       onClick={() => openReport(rootShell.promptDebugPath!)}
                     />
                   }
@@ -385,7 +385,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] tabular-nums text-white/55" />
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-2xs tabular-nums text-white/55" />
                   }
                 >
                   Workstream {workstreamCost}
@@ -393,7 +393,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                 <TooltipPopup>Own spend across the root and every descendant</TooltipPopup>
               </Tooltip>
             ) : null}
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] tabular-nums text-white/55">
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-2xs tabular-nums text-white/55">
               {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
             </span>
           </div>
@@ -482,7 +482,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         <details className="group rounded-lg border border-white/10 bg-white/[0.03]">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-white/80 marker:hidden">
             <span className="inline-flex items-center gap-2">
-              <PlusIcon className="size-3.5 text-violet-300" />
+              <PlusIcon className="size-3.5 text-workstream-spawn-foreground" />
               Manual spawn
             </span>
             <span className="text-xs font-normal text-white/35 group-open:hidden">
@@ -498,7 +498,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             </label>
             <input
               id="workstream-role"
-              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-400/60"
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
               placeholder="Reviewer, implementer, researcher…"
               value={role}
               onChange={(event) => setRole(event.target.value)}
@@ -511,7 +511,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             </label>
             <input
               id="workstream-title"
-              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-400/60"
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
               placeholder="Short label, e.g. Fix spawn title fallback"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -524,15 +524,15 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             </label>
             <textarea
               id="workstream-purpose"
-              className="mt-1 min-h-20 w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-400/60"
+              className="mt-1 min-h-20 w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
               placeholder="What should this sub-thread do?"
               value={purpose}
               onChange={(event) => setPurpose(event.target.value)}
             />
-            {error ? <div className="mt-2 text-xs text-red-300">{error}</div> : null}
+            {error ? <div className="mt-2 text-xs text-workstream-danger">{error}</div> : null}
             <button
               type="button"
-              className="mt-3 inline-flex items-center gap-2 rounded-md bg-violet-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 inline-flex items-center gap-2 rounded-md bg-workstream-spawn px-3 py-1.5 text-sm font-medium text-white transition hover:bg-workstream-spawn-hover disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!purpose.trim() || !title.trim() || isSpawning}
               onClick={() => void spawnChild()}
             >
@@ -584,10 +584,10 @@ function WorkstreamBoard({
           <section className="flex flex-col gap-2" key={column}>
             <div className="flex items-center gap-2 px-1">
               <span className={`size-2.5 rounded-full ${style.dotClass}`} />
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+              <h3 className="text-2xs font-semibold uppercase tracking-widest text-white/55">
                 {COLUMN_LABELS[column]}
               </h3>
-              <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] tabular-nums text-white/35">
+              <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-2xs tabular-nums text-white/35">
                 {items.length}
               </span>
             </div>
@@ -664,7 +664,7 @@ function WorkstreamCard({
   const open = () => onOpenThread(thread);
   return (
     <div
-      className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-[#12171f] p-3 text-left shadow-[0_1px_0_rgba(0,0,0,0.25)] transition hover:border-white/20 hover:bg-[#161c26]`}
+      className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-workstream-raised p-3 text-left shadow-xs/25 transition hover:border-white/20 hover:bg-workstream-raised-hover`}
     >
       <button
         type="button"
@@ -672,11 +672,11 @@ function WorkstreamCard({
         onClick={open}
       >
         <span
-          className={`inline-flex max-w-[9rem] items-center gap-1 rounded-md border px-2 py-1 font-mono text-[10.5px] ${status.borderClass} ${status.bgClass} ${status.textClass}`}
+          className={`inline-flex max-w-[9rem] items-center gap-1 rounded-md border px-2 py-1 font-mono text-2xs ${status.borderClass} ${status.bgClass} ${status.textClass}`}
         >
           <span className="truncate">{getRoleLabel(thread)}</span>
         </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-white/35">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-white/35">
           <Tooltip>
             <TooltipTrigger render={<span className="max-w-[7.5rem] truncate" />}>
               {formatModelLabel(thread.modelSelection)}
@@ -704,7 +704,9 @@ function WorkstreamCard({
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <span className={`tabular-nums ${isContextHot ? "text-rose-400" : ""}`} />
+                    <span
+                      className={`tabular-nums ${isContextHot ? "text-workstream-danger" : ""}`}
+                    />
                   }
                 >
                   {contextPercent}
@@ -723,7 +725,7 @@ function WorkstreamCard({
           {thread.title}
         </div>
         <div className={`mt-2 border-l-2 pl-2 text-xs leading-relaxed ${status.borderClass}`}>
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+          <span className="mr-1 text-3xs font-semibold uppercase tracking-widest text-white/35">
             Goal
           </span>
           <span className="line-clamp-3 text-white/65">{getPurpose(thread)}</span>
@@ -740,7 +742,7 @@ function WorkstreamCard({
           {isRunning ? <LiveDots /> : null}
           {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}
           <span>{activity}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-white/35">
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs tabular-nums text-white/35">
             {diffMetric ? (
               <Tooltip>
                 <TooltipTrigger render={<span />}>{diffMetric}</TooltipTrigger>
@@ -768,7 +770,7 @@ function WorkstreamCard({
               <TooltipTrigger
                 render={
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[11px] ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
+                    className={`rounded-full border px-2 py-0.5 text-2xs ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
                   />
                 }
               >
@@ -784,7 +786,7 @@ function WorkstreamCard({
             return (
               <span
                 key={reason}
-                className={`rounded-full border px-2 py-0.5 text-[11px] ${style.borderClass} ${style.bgClass} ${style.textClass}`}
+                className={`rounded-full border px-2 py-0.5 text-2xs ${style.borderClass} ${style.bgClass} ${style.textClass}`}
               >
                 {label}
               </span>
@@ -795,7 +797,7 @@ function WorkstreamCard({
               <TooltipTrigger
                 render={
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[11px] ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
+                    className={`rounded-full border px-2 py-0.5 text-2xs ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
                   />
                 }
               >
@@ -809,9 +811,9 @@ function WorkstreamCard({
               <TooltipTrigger
                 render={
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                    className={`rounded-full border px-2 py-0.5 text-2xs ${
                       gateWait.active
-                        ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
+                        ? "border-workstream-running/40 bg-workstream-running/10 text-workstream-running-foreground"
                         : "border-white/15 bg-white/[0.04] text-white/55"
                     }`}
                   />
@@ -830,29 +832,29 @@ function WorkstreamCard({
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
-        <label className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/35">
+        <label className="inline-flex items-center gap-1.5 text-3xs uppercase tracking-wide text-white/35">
           Lane
           <select
-            className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[11px] text-white outline-none [color-scheme:dark] focus:border-violet-400/60"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-2xs text-white outline-none [color-scheme:dark] focus:border-workstream-spawn-hover/60"
             value={thread.planLane}
             onChange={(event) => onSetLane(thread.id, event.target.value as ThreadPlanLane)}
           >
             {SETTABLE_LANES.map((lane) => (
-              <option key={lane} value={lane} className="bg-[#12171f] text-white">
+              <option key={lane} value={lane} className="bg-workstream-raised text-white">
                 {COLUMN_SHORT_LABELS[lane]}
               </option>
             ))}
             {thread.planLane === "in_progress" ? (
               // Control-plane-set (kickoff): shown so the select has a matching
               // value, but never user-assignable.
-              <option disabled value="in_progress" className="bg-[#12171f] text-white/50">
+              <option disabled value="in_progress" className="bg-workstream-raised text-white/50">
                 {COLUMN_SHORT_LABELS.in_progress}
               </option>
             ) : null}
             {thread.planLane === "yielded" ? (
               // Control-plane-set (submit routing): shown so the select has a
               // matching value, but never user-assignable — a message resumes it.
-              <option disabled value="yielded" className="bg-[#12171f] text-white/50">
+              <option disabled value="yielded" className="bg-workstream-raised text-white/50">
                 {COLUMN_SHORT_LABELS.yielded}
               </option>
             ) : null}
@@ -864,7 +866,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-200 transition hover:bg-cyan-400/20"
+                  className="rounded-md border border-workstream-ready/40 bg-workstream-ready/10 px-2 py-1 text-2xs text-workstream-ready-foreground transition hover:bg-workstream-ready/20"
                   onClick={() => onSetLane(thread.id, "ready")}
                 />
               }
@@ -883,7 +885,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200 transition hover:bg-rose-400/20"
+                  className="rounded-md border border-workstream-danger/40 bg-workstream-danger/10 px-2 py-1 text-2xs text-workstream-danger-foreground transition hover:bg-workstream-danger/20"
                   onClick={() => onStop(thread.id)}
                 />
               }
@@ -901,7 +903,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
+                  className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/55 transition hover:bg-white/10"
                   onClick={() => onClearAttention(thread.id)}
                 />
               }
@@ -917,7 +919,7 @@ function WorkstreamCard({
               <button
                 type="button"
                 aria-label="Go to where this sub-thread was dispatched"
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/55 transition hover:bg-white/10"
                 onClick={() => onOpenSpawnSite(thread)}
               />
             }
@@ -965,10 +967,10 @@ function DependencyEditor({
   };
   return (
     <details className="mt-2 rounded-md border border-white/10 bg-black/20">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-[11px] text-white/55 marker:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-2xs text-white/55 marker:hidden">
         <span className="shrink-0">Waits on</span>
         {deps.length === 0 ? (
-          <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-[10px] tabular-nums text-white/40">
+          <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-3xs tabular-nums text-white/40">
             0
           </span>
         ) : (
@@ -978,7 +980,7 @@ function DependencyEditor({
               return (
                 <span
                   key={dep.id}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-white/60"
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-3xs text-white/60"
                 >
                   <span className={`size-1.5 rounded-full ${depStatus.dotClass}`} />
                   <span className="max-w-[8rem] truncate">{dep.title}</span>
@@ -990,14 +992,14 @@ function DependencyEditor({
       </summary>
       <div className="flex flex-col gap-1 border-t border-white/10 px-2.5 py-2">
         {options.length === 0 ? (
-          <span className="text-[11px] text-white/30">No sibling sub-threads.</span>
+          <span className="text-2xs text-white/30">No sibling sub-threads.</span>
         ) : (
           options.map((sibling) => {
             const depStatus = getThreadStatus(sibling, childById);
             return (
               <label
                 key={sibling.id}
-                className="flex cursor-pointer items-center gap-2 text-[11px] text-white/70"
+                className="flex cursor-pointer items-center gap-2 text-2xs text-white/70"
               >
                 <input
                   type="checkbox"
@@ -1018,9 +1020,15 @@ function DependencyEditor({
 function LiveDots() {
   return (
     <span className="inline-flex gap-1" aria-label="running">
-      <span className="size-1.5 animate-pulse rounded-full bg-sky-300" />
-      <span className="size-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:150ms]" />
-      <span className="size-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:300ms]" />
+      <span className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground" />
+      <span
+        className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground"
+        style={{ animationDelay: "150ms" }}
+      />
+      <span
+        className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground"
+        style={{ animationDelay: "300ms" }}
+      />
     </span>
   );
 }

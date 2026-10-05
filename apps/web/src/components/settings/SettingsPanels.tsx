@@ -191,7 +191,6 @@ import {
   type ProviderUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { FailoverSettingsPanel } from "./FailoverSettingsCard";
 import { ThreadSearchSettingsSection } from "./ThreadSearchSettings.loom"; // loom:
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {

@@ -10,7 +10,6 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
-import { SearchableModelList } from "./SearchableModelList";
 import { isModelPickerNewModel } from "./modelPickerModelHighlights";
 import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
 
@@ -863,7 +862,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }
       return (
         <div key={modelKey}>
-          <div className="mx-2 mb-1 mt-2 border-t border-border/60 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+          <div className="mx-2 mb-1 mt-2 border-t border-border/60 pt-1.5 text-3xs font-medium uppercase tracking-wide text-muted-foreground/70">
             All models
           </div>
           {row}

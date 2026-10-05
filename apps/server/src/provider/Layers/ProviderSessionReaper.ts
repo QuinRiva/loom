@@ -107,11 +107,12 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       // and UI affordance, so an archived thread can be restored and must keep
       // its provider pointer; there is no undelete counterpart.
       //
-      // Deliberately NOT age-based: `runStopAll` rewrites every binding at
-      // shutdown, which resets `lastSeenAt` on all stopped rows (observed:
-      // 1311 of 1326 rows sharing a single minute). Age measured from
-      // `lastSeenAt` is therefore not a liveness signal at all — it would sit
-      // at ~0 across restarts and then expire the whole table at once.
+      // Deliberately NOT age-based: `runStopAll` rewrites every unsettled
+      // binding at shutdown, which resets their `lastSeenAt` (observed before
+      // upstream's settled-binding filter: 1311 of 1326 rows sharing a single
+      // minute). Age measured from `lastSeenAt` is therefore not a liveness
+      // signal — it would cluster at each shutdown and then expire whole
+      // cohorts at once.
       for (const binding of allBindings) {
         if (binding.status !== "stopped" || !deletedThreadIds.has(binding.threadId)) {
           continue;

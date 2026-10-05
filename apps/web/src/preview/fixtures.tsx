@@ -630,7 +630,7 @@ const workstreamGraphFixture: PreviewFixture = {
   description:
     "The C2 header-band node card across its states: live coder mid-rework, gated reviewer with verdict chip, blocked wave, receded done node with fan-in badge, attention-pulsing yielded node with a wrapped two-line title.",
   render: () => (
-    <div className="h-full overflow-auto bg-[#0a0e13] p-6">
+    <div className="h-full overflow-auto bg-workstream-deep p-6">
       <WorkstreamGraph
         viewKey="preview"
         threads={WS_GRAPH_THREADS}
@@ -1365,7 +1365,7 @@ function ControlChannelPaletteFixture() {
       <div className={cn("relative max-w-[80%] rounded-2xl p-3", CHANNEL_CLASSES[channel].bubble)}>
         <div
           className={cn(
-            "mb-1.5 text-[10px] font-medium tracking-wide uppercase",
+            "mb-1.5 text-3xs font-medium tracking-wide uppercase",
             CHANNEL_CLASSES[channel].kicker,
           )}
         >
@@ -1419,7 +1419,7 @@ function subscriptionMeterFixture(
       const { view, now } = meterFixtureView(state, source);
       return (
         <div className="flex gap-10 p-6">
-          <div className="w-64 border border-border bg-sidebar px-[var(--sidebar-content-inset)] py-1">
+          <div className="w-64 border border-border bg-sidebar px-(--sidebar-content-inset) py-1">
             <div data-testid="subscription-meter-footer">
               <SubscriptionMeterView view={view} now={now} />
             </div>

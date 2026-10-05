@@ -98,7 +98,7 @@ function AnnotatedCodeBody({
   }
   return (
     <div
-      className={cn("plan-code-shiki overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
+      className={cn("overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -121,7 +121,7 @@ function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeDa
       data-plan-block-type="annotated-code"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
         <div className="flex shrink-0 items-center gap-2">
           {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
@@ -137,7 +137,7 @@ function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeDa
                 key={`${annotation.lines}-${annotation.label ?? annotation.note ?? ""}`}
                 className="flex gap-2 text-xs"
               >
-                <span className="mt-0.5 shrink-0 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
+                <span className="mt-0.5 shrink-0 rounded bg-accent px-1.5 py-0.5 font-mono text-3xs font-semibold text-muted-foreground">
                   L{annotation.lines.replace(/\s*-\s*/, "–")}
                 </span>
                 <span className="min-w-0 text-foreground">

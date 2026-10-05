@@ -21,7 +21,7 @@ export function ThreadContextChip(props: { reference: ThreadReferenceDraft }): R
           </ContextChip>
         }
       />
-      <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap leading-tight">
+      <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
         {`Thread\n${props.reference.threadId}`}
       </TooltipPopup>
     </Tooltip>

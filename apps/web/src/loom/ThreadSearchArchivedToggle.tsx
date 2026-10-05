@@ -5,7 +5,6 @@ import { ArchiveIcon, ArchiveXIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
-import { cn } from "../lib/utils";
 
 export function ThreadSearchArchivedToggle() {
   const included = useClientSettings((settings) => settings.threadSearchIncludeArchived);
@@ -17,14 +16,11 @@ export function ThreadSearchArchivedToggle() {
           <Button
             type="button"
             size="icon-micro"
-            variant="ghost"
+            variant={included ? "ghost" : "ghost-muted"}
             aria-pressed={included}
             aria-label="Include archived threads"
             onClick={() => void updateSettings({ threadSearchIncludeArchived: !included })}
-            className={cn(
-              "shrink-0 hover:bg-sidebar-control-surface hover:text-sidebar-foreground",
-              included ? "text-sidebar-foreground" : "text-sidebar-muted-foreground",
-            )}
+            className="shrink-0"
           />
         }
       >
