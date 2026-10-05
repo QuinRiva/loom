@@ -861,7 +861,9 @@ export const PiSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("pi").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the Pi coding agent binary.",
+        // loom: the bundled, patched pi is the default (DT-49)
+        description:
+          'Path to the Pi coding agent binary. Leave empty (or "pi") to run the copy bundled with Loom, which carries Loom\'s patches; set a path only to override it.',
         providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
       }),
     ),

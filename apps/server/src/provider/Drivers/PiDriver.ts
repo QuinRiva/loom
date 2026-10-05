@@ -23,6 +23,7 @@ import {
   type PiAdapterV2DriverEnv,
 } from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
 import { ProviderDriverError } from "../Errors.ts";
+import { resolveLoomPiBinaryPath } from "./Pi/bundledPi.loom.ts"; // loom: bundled patched pi
 import {
   buildInitialPiProviderSnapshot,
   checkPiProviderStatus,
@@ -50,7 +51,8 @@ import {
 const decodePiSettings = Schema.decodeSync(PiSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
-const UPDATE = makePackageManagedProviderMaintenanceResolver({
+// loom: exported so providerMaintenance.loom.test.ts pins the bundled pi as manual-only (DR-11)
+export const UPDATE = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER_KIND,
   npmPackageName: "@earendil-works/pi-coding-agent",
   // Pi's updater covers its own installer and npm, pnpm, yarn, and bun globals.
@@ -110,7 +112,12 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         accentColor,
         continuationGroupKey: continuationIdentity.continuationKey,
       });
-      const effectiveConfig = { ...config, enabled } satisfies PiSettings;
+      const effectiveConfig = {
+        ...config,
+        enabled,
+        // loom: the default 'pi' means the copy bundled with Loom (patched); an explicit path overrides it
+        binaryPath: resolveLoomPiBinaryPath(config.binaryPath),
+      } satisfies PiSettings;
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
         resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
           binaryPath: effectiveConfig.binaryPath,
@@ -128,7 +135,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         accentColor,
         environment,
         enabled,
-        config,
+        config: effectiveConfig, // loom: the adapter spawns the same binary as the probes (bundled pi)
       }).pipe(
         Effect.mapError(
           (cause) =>
