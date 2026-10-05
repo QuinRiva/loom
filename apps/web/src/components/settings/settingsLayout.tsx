@@ -1,26 +1,24 @@
-import { InfoIcon, RefreshCwIcon, Undo2Icon } from "lucide-react";
 import { SettingsGroup } from "./SettingsGroup";
+import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  createContext,
   type ComponentPropsWithoutRef,
   type ReactNode,
-  useEffect,
-  useState,
-  createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useState,
 } from "react";
-import * as DateTime from "effect/DateTime";
 
 import {
   PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
   usePrimarySettingsAvailable,
 } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { formatRelativeTime } from "../../timestampFormat";
 import { WorkspacePageContainer, type WorkspacePageWidth } from "../WorkspacePageContainer";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -45,141 +43,6 @@ declare module "@tanstack/react-router" {
   interface HistoryState {
     settingsTargetHighlight?: boolean;
   }
-}
-
-// loom: stat blocks, stats grid and byte formatting hoisted here so loom's
-// settings pages (worktrees, usage) share them with Diagnostics.
-/** Human-readable bytes (settings stat blocks + tables). */
-export function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"] as const;
-  let unitIndex = -1;
-  let next = value;
-  do {
-    next /= 1024;
-    unitIndex += 1;
-  } while (next >= 1024 && unitIndex < units.length - 1);
-  return `${next.toFixed(next >= 10 ? 1 : 2)} ${units[unitIndex]}`;
-}
-
-export function StatBlock({
-  label,
-  value,
-  tooltip,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tooltip?: ReactNode;
-  tone?: "default" | "warning" | "danger";
-}) {
-  return (
-    <div className="min-w-0 border-border/60 px-4 py-3 sm:px-5">
-      <div className="flex min-w-0 items-center gap-1.5 text-2xs font-medium uppercase tracking-widest text-muted-foreground/70">
-        <span className="min-w-0 truncate">{label}</span>
-        {tooltip ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="cursor-pointer inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm text-muted-foreground/60 hover:text-foreground"
-                  aria-label={`${label} details`}
-                >
-                  <InfoIcon className="size-3" />
-                </button>
-              }
-            />
-            <TooltipPopup side="top">{tooltip}</TooltipPopup>
-          </Tooltip>
-        ) : null}
-      </div>
-      <div
-        className={cn(
-          "mt-1 truncate font-mono text-lg font-semibold tabular-nums text-foreground",
-          tone === "warning" && "text-warning-foreground",
-          tone === "danger" && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-export function StatsGrid({ children }: { children: ReactNode }) {
-  return (
-    <div className="relative grid grid-cols-2 sm:grid-cols-4">
-      <span
-        className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-border/60"
-        aria-hidden
-      />
-      <span
-        className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-border/60 sm:hidden"
-        aria-hidden
-      />
-      <span
-        className="pointer-events-none absolute inset-y-0 left-1/4 hidden w-px bg-border/60 sm:block"
-        aria-hidden
-      />
-      <span
-        className="pointer-events-none absolute inset-y-0 left-3/4 hidden w-px bg-border/60 sm:block"
-        aria-hidden
-      />
-      {children}
-    </div>
-  );
-}
-
-/** "Checked Ns ago" label that re-renders on the shared relative-time tick. */
-export function DiagnosticsLastChecked({ checkedAt }: { checkedAt: DateTime.Utc | null }) {
-  useRelativeTimeTick();
-  const relative = checkedAt ? formatRelativeTime(DateTime.formatIso(checkedAt)) : null;
-
-  if (!relative) {
-    return <span className="text-2xs text-muted-foreground/50">Checking</span>;
-  }
-
-  return (
-    <span className="text-2xs text-muted-foreground/60">
-      {relative.suffix ? (
-        <>
-          Checked <span className="font-mono tabular-nums">{relative.value}</span> {relative.suffix}
-        </>
-      ) : (
-        <>Checked {relative.value}</>
-      )}
-    </span>
-  );
-}
-
-export function DiagnosticsRefreshButton({
-  isPending,
-  label,
-  onClick,
-}: {
-  isPending: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="icon-xs"
-            variant="ghost-muted"
-            disabled={isPending}
-            onClick={onClick}
-            aria-label={label}
-          >
-            <RefreshCwIcon className={cn("size-3", isPending && "animate-spin")} />
-          </Button>
-        }
-      />
-      <TooltipPopup side="top">{label}</TooltipPopup>
-    </Tooltip>
-  );
 }
 
 interface SettingsSearchTargetContextValue {

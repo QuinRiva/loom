@@ -28,6 +28,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../../persistence/Migrations.ts";
 import { makeSqlitePersistenceLive } from "../../persistence/Layers/Sqlite.ts";
+import { loomMigrationsTable } from "../../persistence/LoomMigrations.ts"; // loom: DL-177
 import Migration0042 from "../../persistence/Migrations/042_ProjectionThreadLinkedPullRequest.ts";
 import Migration0043 from "../../persistence/Migrations/043_ProjectionThreadsUnsettledAt.ts";
 import Migration0044 from "../../persistence/Migrations/044_ClearAutomaticProjectModelDefaults.ts";
@@ -129,6 +130,13 @@ const seedV1Database = (fixturePath: string, workspace: string) =>
           VALUES (${id}, ${name})
         `;
       }
+      // loom: Loom's lane split refuses a ledger it cannot place (DL-177); an upstream-shaped
+      // V1 database is marked as already reconciled so the Loom lane runs from 1001.
+      yield* sql`CREATE TABLE ${sql(loomMigrationsTable)} (
+        migration_id integer PRIMARY KEY NOT NULL,
+        created_at datetime NOT NULL DEFAULT current_timestamp,
+        name VARCHAR(255) NOT NULL
+      )`;
 
       yield* sql`
         INSERT INTO projection_projects (

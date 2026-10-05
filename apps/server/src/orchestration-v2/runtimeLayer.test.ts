@@ -2324,7 +2324,8 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* seedProject({
         projectId,
         title: "Watch wake",
-        workspaceRoot: "/workspace/watch",
+        // loom: one active project per root (migration 1018) — seedProject bypasses ProjectService (DL-176)
+        workspaceRoot: `/workspace/watch-${mode}`,
         defaultModelSelection: null,
         createdAt: "2026-10-01T00:00:00.000Z",
       });
@@ -4109,7 +4110,8 @@ it.layer(TestLayer)("usage-limit recovery", (it) => {
         yield* seedProject({
           projectId,
           title: "Resume project",
-          workspaceRoot: process.cwd(),
+          // loom: one active project per root (migration 1018) — seedProject bypasses ProjectService (DL-176)
+          workspaceRoot: `${process.cwd()}/.case-${reason}`,
           defaultModelSelection: modelSelection,
           createdAt,
         });
@@ -4285,7 +4287,8 @@ it.layer(TestLayer)("usage-limit recovery", (it) => {
       yield* seedProject({
         projectId,
         title: "Recovery project",
-        workspaceRoot: process.cwd(),
+        // loom: one active project per root (migration 1018) — seedProject bypasses ProjectService (DL-176)
+        workspaceRoot: `${process.cwd()}/.case-${scenario}`,
         defaultModelSelection: modelSelection,
         createdAt: DateTime.formatIso(yield* DateTime.now),
       });

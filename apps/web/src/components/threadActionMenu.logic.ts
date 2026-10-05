@@ -1,5 +1,5 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
-import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
+import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as

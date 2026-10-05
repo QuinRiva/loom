@@ -528,8 +528,9 @@ describe("makeManagedServerProvider", () => {
           streamSettings: Stream.empty,
           haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
           initialSnapshot: () => Effect.succeed(initialSnapshot),
-          // Stands in for pi's `makePiProvider`: a cheap probe that knows
-          // nothing about the live catalogue or command palette.
+          // Stands in for an enrichment-owning driver (Loom's quarantined pi
+          // driver, DT-23): a cheap probe that knows nothing about the live
+          // catalogue or command palette.
           checkProvider: Deferred.await(releaseInitialCheck).pipe(Effect.as(refreshedSnapshot)),
           enrichSnapshot: ({ snapshot, publishSnapshot }) =>
             snapshot.skills.length > 0

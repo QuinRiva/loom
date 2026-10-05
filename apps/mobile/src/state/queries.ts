@@ -48,7 +48,7 @@ const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
   getSearchAtom: (environmentId, query) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query, limit: 30 }, // loom: 30 ranked roots per environment
+      input: { query },
     }),
   labelPrefix: "mobile:thread-search",
 });

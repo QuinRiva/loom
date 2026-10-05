@@ -29,19 +29,9 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
-// loom: StatBlock/StatsGrid/formatBytes live in settingsLayout so loom's own
-// settings pages share them.
-import {
-  formatBytes,
-  SettingsPageContainer,
-  SettingsSection,
-  StatBlock,
-  StatsGrid,
-  useRelativeTimeTick,
-} from "./settingsLayout";
 import { ExpandableText } from "./ExpandableText";
 import { ResourceTelemetryDiagnostics } from "./ResourceTelemetryDiagnostics";
-
+import { SettingsPageContainer, SettingsSection, useRelativeTimeTick } from "./settingsLayout";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSettingsScope } from "./SettingsScopeContext";
 
@@ -54,6 +44,18 @@ function formatCount(value: number): string {
 function formatDuration(value: number): string {
   if (value < 1_000) return `${Math.round(value)} ms`;
   return `${(value / 1_000).toFixed(value >= 10_000 ? 1 : 2)} s`;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"] as const;
+  let unitIndex = -1;
+  let next = value;
+  do {
+    next /= 1024;
+    unitIndex += 1;
+  } while (next >= 1024 && unitIndex < units.length - 1);
+  return `${next.toFixed(next >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
 function formatRelative(value: DateTime.Utc | null): string {
@@ -72,6 +74,75 @@ function shortenTraceId(traceId: string): string {
 
 function isStaleProcessSignalMessage(message: string | undefined): boolean {
   return message?.includes("not a live descendant") ?? false;
+}
+
+function StatBlock({
+  label,
+  value,
+  tooltip,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tooltip?: ReactNode;
+  tone?: "default" | "warning" | "danger";
+}) {
+  return (
+    <div className="min-w-0 border-border/60 px-4 py-3 sm:px-5">
+      <div className="flex min-w-0 items-center gap-1.5 text-2xs font-medium uppercase tracking-widest text-muted-foreground/70">
+        <span className="min-w-0 truncate">{label}</span>
+        {tooltip ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="cursor-pointer inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm text-muted-foreground/60 hover:text-foreground"
+                  aria-label={`${label} details`}
+                >
+                  <InfoIcon className="size-3" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">{tooltip}</TooltipPopup>
+          </Tooltip>
+        ) : null}
+      </div>
+      <div
+        className={cn(
+          "mt-1 truncate font-mono text-lg font-semibold tabular-nums text-foreground",
+          tone === "warning" && "text-warning-foreground",
+          tone === "danger" && "text-destructive",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatsGrid({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative grid grid-cols-2 sm:grid-cols-4">
+      <span
+        className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-border/60"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-border/60 sm:hidden"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute inset-y-0 left-1/4 hidden w-px bg-border/60 sm:block"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute inset-y-0 left-3/4 hidden w-px bg-border/60 sm:block"
+        aria-hidden
+      />
+      {children}
+    </div>
+  );
 }
 
 function EmptyRows({ label }: { label: string }) {
@@ -633,6 +704,7 @@ function DiagnosticsRefreshButton({
     </Tooltip>
   );
 }
+
 export function DiagnosticsSettingsPanel() {
   const { environment } = useSettingsScope();
   // The boundary only mounts this page when the selection resolves to one

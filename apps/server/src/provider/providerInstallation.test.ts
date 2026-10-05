@@ -168,7 +168,16 @@ describe("provider installation routing", () => {
       const codexId = ProviderInstanceId.make("codex");
       const harness = yield* makeHarness({
         instance: instance(ProviderDriverKind.make("codex"), codexId),
-        settings: { providers: { codex: { setupMode: "managed" } } },
+        // loom: pi is the only built-in driver, so codex has no legacy `providers`
+        // mirror to derive its config from — configure the instance.
+        settings: {
+          providerInstances: {
+            [codexId]: {
+              driver: ProviderDriverKind.make("codex"),
+              config: { setupMode: "managed" },
+            },
+          },
+        },
       });
       assert.equal((yield* harness.router.start({ instanceId: codexId })).driver, "codex");
       yield* harness.router.cancel({ instanceId: codexId, operationId: "operation" });
@@ -184,7 +193,15 @@ describe("provider installation routing", () => {
       const codexId = ProviderInstanceId.make("codex");
       const harness = yield* makeHarness({
         instance: instance(ProviderDriverKind.make("codex"), codexId),
-        settings: { providers: { codex: { setupMode: "existing" } } },
+        // loom: configure the instance (pi-only registry; see the managed case above).
+        settings: {
+          providerInstances: {
+            [codexId]: {
+              driver: ProviderDriverKind.make("codex"),
+              config: { setupMode: "existing" },
+            },
+          },
+        },
       });
       assert.include(
         (yield* Effect.flip(harness.router.start({ instanceId: codexId }))).detail,

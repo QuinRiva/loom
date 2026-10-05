@@ -37,7 +37,6 @@ interface FileBrowserPanelProps {
   /** Workspace-relative directory to reveal/scroll to on `revealRequestId` change. */
   revealPath?: string | null;
   revealRequestId?: number;
-  /** File currently open in the preview pane; revealed and selected in the tree. */
   /** Entry currently open in the surface; revealed and selected in the tree. A directory is expanded. */
   selectedPath: string | null;
   /** Bumped when the same path should be revealed again (e.g. re-opened from search). */
@@ -416,10 +415,6 @@ export default function FileBrowserPanel({
     model.getItem(canonical)?.select();
   }, [model, revealPath, revealRequestId, treePaths]);
 
-  const fileCount = useMemo(
-    () => entries.reduce((count, entry) => count + (entry.kind === "file" ? 1 : 0), 0),
-    [entries],
-  );
   useEffect(() => {
     if (!selectedPath) {
       handledRevealRef.current = null;

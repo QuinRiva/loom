@@ -17,6 +17,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
+import { loomMigrationsTable } from "../persistence/LoomMigrations.ts"; // loom: DL-177
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
@@ -53,6 +54,13 @@ const readSettings = Effect.gen(function* () {
 const seedV1Database = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 54 });
+  // loom: Loom's lane split refuses a ledger it cannot place (DL-177); an upstream-shaped
+  // V1 database is marked as already reconciled so the Loom lane runs from 1001.
+  yield* sql`CREATE TABLE ${sql(loomMigrationsTable)} (
+    migration_id integer PRIMARY KEY NOT NULL,
+    created_at datetime NOT NULL DEFAULT current_timestamp,
+    name VARCHAR(255) NOT NULL
+  )`;
   const events = [
     {
       type: "project.created",

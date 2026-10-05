@@ -62,7 +62,13 @@ type ModelPickerItem = {
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
+  excluded?: boolean | undefined; // loom: excluded by the instance's model preferences (DL-180)
 };
+
+// loom: excluded models (hidden, or unselected in allow-list mode) still match a search
+// but rank below the curated results — the settings-free escape hatch (DL-180).
+const compareExcludedLast = (a: ModelPickerItem, b: ModelPickerItem) =>
+  Number(a.excluded === true) - Number(b.excluded === true);
 
 export function resolveModelPickerSelectedModel(input: {
   driverKind: ProviderDriverKind | undefined;
@@ -387,6 +393,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(model.badge ? { badge: model.badge } : {}),
           ...(model.isLegacy ? { isLegacy: true } : {}),
           ...(model.isUnavailable ? { isUnavailable: true } : {}),
+          ...(model.excluded ? { excluded: true } : {}), // loom: DL-180
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
@@ -492,6 +499,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         }
         return lockedProviderMatches
           .toSorted((a, b) => {
+            const excludedDelta = compareExcludedLast(a.model, b.model); // loom
+            if (excludedDelta !== 0) return excludedDelta;
             const scoreDelta = a.score - b.score;
             if (scoreDelta !== 0) {
               return scoreDelta;
@@ -506,6 +515,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
       return rankedMatches
         .toSorted((a, b) => {
+          const excludedDelta = compareExcludedLast(a.model, b.model); // loom
+          if (excludedDelta !== 0) return excludedDelta;
           const scoreDelta = a.score - b.score;
           if (scoreDelta !== 0) {
             return scoreDelta;
@@ -517,6 +528,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         })
         .map((rankedModel) => rankedModel.model);
     }
+
+    // loom: outside search, models excluded by the instance's preferences (hidden, or
+    // unselected in allow-list mode) never surface (DL-180).
+    result = result.filter((m) => !m.excluded);
 
     if (props.lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));

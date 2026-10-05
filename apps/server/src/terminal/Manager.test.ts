@@ -1988,7 +1988,8 @@ it.layer(
 
       const spawnEnv = ptyAdapter.spawnInputs[0]?.env;
       expect(spawnEnv?.PATH).toBeUndefined();
-      expect(spawnEnv?.Path).toBe(`C:\\Windows\\System32;${installBin}`);
+      // loom: the terminal's own node_modules/.bin is prepended (withLocalNodeModulesBin, DL-178)
+      expect(spawnEnv?.Path?.endsWith(`C:\\Windows\\System32;${installBin}`)).toBe(true);
     }),
   );
 

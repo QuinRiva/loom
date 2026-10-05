@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  EyeIcon,
-  EyeOffIcon,
-  PencilIcon,
-  PlusIcon,
-  StarIcon,
-  XIcon,
-} from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ProviderDriverKind,
@@ -167,13 +158,6 @@ interface ProviderModelsSectionProps {
  * Shared "Models" section rendered on both the built-in default and custom
  * provider-instance cards. Owns its own input + error local state so two
  * cards on screen don't fight over the input value.
- *
- * Catalogues run to hundreds of entries with heavily repeated display names
- * (the same model served by several backends), so the list is the same
- * searchable, virtualized component the composer picker uses, and every row
- * shows its slug + backend label — the only things that tell duplicates
- * apart. Bulk show/hide applies to whatever the current query matches, which
- * makes "hide everything except X" a two-action job.
  *
  * Validation mirrors the pre-consolidation logic in `SettingsPanels`:
  *   - empty / whitespace → "Enter a model slug."

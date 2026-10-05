@@ -521,24 +521,6 @@
     },
     {
       "license": "MIT",
-      "name": "fastdom",
-      "sourceUrl": "https://github.com/wilsonpage/fastdom",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2016 Wilson Page"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "strictdom",
-      "sourceUrl": "https://github.com/wilsonpage/strictdom",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2016 Wilson Page"]
-      }
-    },
-    {
-      "license": "MIT",
       "name": "standardwebhooks",
       "sourceUrl": "https://github.com/standard-webhooks/standard-webhooks",
       "generatedNotice": {
@@ -632,15 +614,6 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "khroma",
-      "sourceUrl": "https://github.com/fabiospampinato/khroma",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
       }
     },
     {

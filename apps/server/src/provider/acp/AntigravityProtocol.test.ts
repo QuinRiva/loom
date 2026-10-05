@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { ProviderUserInputAnswers } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import * as AcpWireSchema from "effect-acp/schema-v1";
@@ -270,11 +269,7 @@ describe("Antigravity permissions and questions", () => {
     "keeps the question open for an unsupported answer: %j",
     (answer) => {
       expect(
-        // loom narrows `ProviderUserInputAnswers` to string | string[]; these are
-        // the off-contract values a wire decode could still hand the adapter.
-        makeAntigravityUserInputResponse(questionRequest, {
-          interaction_9960062f: answer,
-        } as unknown as ProviderUserInputAnswers),
+        makeAntigravityUserInputResponse(questionRequest, { interaction_9960062f: answer }),
       ).toBeUndefined();
     },
   );

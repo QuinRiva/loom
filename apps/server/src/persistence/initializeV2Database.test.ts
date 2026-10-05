@@ -15,6 +15,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "./Layers/Sqlite.ts";
 import { runMigrations } from "./Migrations.ts";
+import { loomMigrationsTable } from "./LoomMigrations.ts"; // loom: DL-177
 import { initializeV2Database } from "./initializeV2Database.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -31,6 +32,13 @@ it.effect(
     const seed = Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 52 });
+      // loom: Loom's lane split refuses a ledger it cannot place (DL-177); an upstream-shaped
+      // V1 database is marked as already reconciled so the Loom lane runs from 1001.
+      yield* sql`CREATE TABLE ${sql(loomMigrationsTable)} (
+        migration_id integer PRIMARY KEY NOT NULL,
+        created_at datetime NOT NULL DEFAULT current_timestamp,
+        name VARCHAR(255) NOT NULL
+      )`;
       yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
       VALUES ('project', 'Project', '/tmp/project', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
       yield* sql`INSERT INTO projection_threads (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, created_at, updated_at)

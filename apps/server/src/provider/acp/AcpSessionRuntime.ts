@@ -26,7 +26,7 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
-import { resolveSpawnCommand, withLocalNodeModulesBin } from "@t3tools/shared/shell";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { signalProcessGroup } from "../../process/processGroup.ts";
@@ -1516,20 +1516,8 @@ export const make = (
         ),
       );
 
-    // loom: prepend the session worktree's node_modules/.bin so the ACP child
-    // (Cursor / Grok) resolves that worktree's workspace binaries before anything
-    // inherited from the server's PATH. The provided env is already the full
-    // merged process env, so prepending wins; when no env is supplied (the
-    // non-worktree capability probe) the child keeps inheriting unchanged.
-    // INVARIANT: real worktree sessions always supply spawn.env, so they take the
-    // prepend branch; the env-less path is the probe only.
-    const platform = yield* HostProcessPlatform;
-    const spawnEnv =
-      options.spawn.env && options.spawn.cwd
-        ? withLocalNodeModulesBin(options.spawn.env, options.spawn.cwd, platform)
-        : options.spawn.env;
     const spawnCommand = yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
-      ...(spawnEnv ? { env: spawnEnv } : {}),
+      ...(options.spawn.env ? { env: options.spawn.env } : {}),
       extendEnv: options.spawn.extendEnv ?? true,
     });
     const linuxCgroupLease =
@@ -1579,12 +1567,11 @@ export const make = (
             ),
             shell: false,
           };
-    // loom: built on `spawnEnv` so the worktree node_modules/.bin prepend survives.
     const spawnEnvironment =
       linuxCgroupLease === undefined
-        ? spawnEnv
+        ? options.spawn.env
         : {
-            ...spawnEnv,
+            ...options.spawn.env,
             ELECTRON_RUN_AS_NODE: "1",
             T3_ACP_CGROUP_WRAPPER: "1",
           };
