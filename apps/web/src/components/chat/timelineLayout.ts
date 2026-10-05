@@ -10,11 +10,12 @@ import { useEffect } from "react";
 export const TIMELINE_AVAILABLE_WIDTH_VAR = "--timeline-available-width";
 
 /**
- * Centred prose column that every timeline row renders inside. The bleed CSS
- * assumes this measure — a `ChatMarkdown` rendered outside it would misreport
- * table layout — so the preview harness reuses the exact same class chain.
+ * Centred prose column that every timeline row renders inside: upstream's
+ * `chat-content-lane` without its `overflow-x-clip`. The bleed CSS assumes this
+ * measure — a `ChatMarkdown` rendered outside it would misreport table layout —
+ * so the preview harness reuses the exact same class chain.
  */
-export const TIMELINE_ROW_CLASS_NAME = "mx-auto w-full min-w-0 max-w-(--chat-max-width)";
+export const TIMELINE_ROW_CLASS_NAME = "chat-content-lane";
 
 /** Publish the viewport's current content width onto the bleed CSS variable. */
 export function publishTimelineAvailableWidth(element: HTMLElement, viewportWidth: number): void {

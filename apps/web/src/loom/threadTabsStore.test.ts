@@ -1,9 +1,7 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { resolveThreadGroupKey } from "./threadTabGroups";
 import {
   THREAD_TABS_CAP,
   migratePersistedThreadTabs,
@@ -299,39 +297,6 @@ describe("threadTabsStore — coalesceGroups (lineage-lag reconciliation)", () =
     const before = state().groups;
     state().coalesceGroups([{ from: gR, to: gR }]);
     expect(state().groups).toBe(before);
-  });
-});
-
-describe("resolveThreadGroupKey", () => {
-  const shell = (id: string, parent: string | null): EnvironmentThreadShell =>
-    ({
-      environmentId: env,
-      id: ThreadId.make(id),
-      title: id,
-      parentThreadId: parent === null ? null : ThreadId.make(parent),
-      archivedAt: null,
-    }) as unknown as EnvironmentThreadShell;
-
-  it("derives the lineage root as the group key", () => {
-    const map = {
-      [ThreadId.make("root")]: shell("root", null),
-      [ThreadId.make("thread-A")]: shell("thread-A", "root"),
-      [ThreadId.make("thread-B")]: shell("thread-B", "thread-A"),
-    };
-    expect(resolveThreadGroupKey(map, refB)).toBe(gR);
-    expect(resolveThreadGroupKey(map, refA)).toBe(gR);
-    expect(resolveThreadGroupKey(map, refR)).toBe(gR);
-  });
-
-  it("uses the topmost reachable ancestor when the root has not replayed (provisional)", () => {
-    // Only A's shell is present, pointing at a not-yet-replayed root.
-    const map = { [ThreadId.make("thread-A")]: shell("thread-A", "root") };
-    // Topmost reachable is the named-but-missing root → provisional key equals R.
-    expect(resolveThreadGroupKey(map, refA)).toBe(gR);
-  });
-
-  it("treats an unknown thread as its own group", () => {
-    expect(resolveThreadGroupKey({}, refA)).toBe(key("thread-A"));
   });
 });
 

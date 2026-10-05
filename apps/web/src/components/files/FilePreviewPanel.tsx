@@ -20,27 +20,19 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  AppWindow,
-  ChevronRight,
-  Code2,
-  Eye,
-  FolderTree,
-  Globe2,
-  LoaderCircle,
-  Table2,
-  WrapTextIcon,
-} from "lucide-react";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
+import { AppWindow, FolderTree, Globe2, WrapTextIcon } from "lucide-react"; // loom: AppWindow
+import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"; // loom: ReactNode (BleedFrame)
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
-import { useTimelineAvailableWidthVar } from "~/components/chat/timelineLayout";
+import { useTimelineAvailableWidthVar } from "~/components/chat/timelineLayout"; // loom: bleed
 import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
 import { MediaActions, type MediaActionSource } from "~/components/media/MediaActions";
+import { MorphIcon } from "~/components/MorphIcon";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -50,6 +42,7 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
+// loom: artifact viewer ("Open preview")
 import { useRightPanelStore } from "~/rightPanelStore";
 import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
@@ -92,10 +85,10 @@ import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
-import { fileBreadcrumbs } from "./filePath";
+import { fileBreadcrumbs } from "./filePath"; // loom:
 import {
   isMarkdownPreviewFile,
-  isMdxPreviewFile,
+  isMdxPreviewFile, // loom: MDX preview
   resolveFilePreviewPath,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
@@ -107,6 +100,7 @@ import {
   LONG_LINE_RENDER_CAP,
   UNBOUNDED_LINE_LENGTH,
 } from "./longLinePreview.loom";
+// loom: MDX plan renderer + debounced save coordinator
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
@@ -115,7 +109,7 @@ import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
-  useProjectAbsoluteFileQuery,
+  useProjectAbsoluteFileQuery, // loom: out-of-workspace file chips
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
@@ -123,6 +117,7 @@ interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
+  // loom: absolute paths (out-of-workspace file chips) and directory reveal.
   /**
    * Workspace-relative, or an absolute path for a file outside the workspace
    * (upstream's host-file path: the server reads an absolute path in place and
@@ -147,6 +142,7 @@ interface FilePreviewPanelProps {
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
+// loom: save debounce and the MDX plan read budget.
 const FILE_SAVE_DEBOUNCE_MS = 500;
 /**
  * Read budget requested for `.mdx` plan previews (8 MiB — the server clamps to
@@ -880,6 +876,7 @@ function EditableFileSurface({
   );
 }
 
+// loom: wide-block bleed in file previews.
 /**
  * Publishes `--timeline-available-width` (from a ResizeObserver on the panel's
  * scroll viewport) around file-preview markdown AND `.mdx` plans, so wide-block
@@ -904,7 +901,7 @@ function RenderedMarkdownSurface({
   relativePath,
   contents,
   threadRef,
-  composerDraftTarget,
+  composerDraftTarget, // loom: MDX annotation drafts reach the rendered surface
   readOnly,
   onPendingChange,
 }: Omit<
@@ -926,7 +923,7 @@ function RenderedMarkdownSurface({
     [relativePath, cwd, threadRef],
   );
 
-  // `.mdx` always goes through the MDX renderer — the plain-markdown surface
+  // loom: `.mdx` always goes through the MDX renderer — the plain-markdown surface
   // escapes every JSX block as raw text, so falling back to it silently presents
   // a healthy document as broken. Read-only (out-of-workspace) previews render
   // the renderer BARE: without the annotation layer's providers the question /
@@ -955,7 +952,7 @@ function RenderedMarkdownSurface({
     );
   }
 
-  // Out-of-workspace `.md` previews are read-only: render the markdown without
+  // loom: out-of-workspace `.md` previews are read-only: render the markdown without
   // the task-toggle write path.
   if (readOnly) {
     return (
@@ -974,6 +971,7 @@ function RenderedMarkdownSurface({
 
   return (
     <ScrollArea className="min-h-0 flex-1">
+      {/* loom: BleedFrame (wide-block bleed) */}
       <BleedFrame>
         <FileMarkdownPreview
           text={contents}
@@ -1030,7 +1028,7 @@ export default function FilePreviewPanel({
   availableEditors,
   revealLine,
   revealRequestId,
-  revealDirectoryPath = null,
+  revealDirectoryPath = null, // loom: directory reveal
   revealDirectoryRequestId = 0,
   onOpenFile,
   onPendingChange,
@@ -1064,7 +1062,7 @@ export default function FilePreviewPanel({
   // separate absolute-read query used to do here.
   const isHostFile =
     attachment !== undefined || (relativePath !== null && isAbsolutePath(relativePath));
-  const isMdx = relativePath !== null && isMdxPreviewFile(relativePath);
+  const isMdx = relativePath !== null && isMdxPreviewFile(relativePath); // loom:
   // loom: request the larger read budget for `.mdx` plans only, so an evidence-
   // heavy decision document reaches the renderer intact instead of being chopped
   // at the 1 MiB default cap. Every other preview keeps the default exposure.
@@ -1077,7 +1075,7 @@ export default function FilePreviewPanel({
     environmentId,
     cwd,
     relativePath,
-    readMaxBytes,
+    readMaxBytes, // loom: MDX read budget
     attachment === undefined && relativePath !== null,
   );
   // A chat link cannot tell a folder from a file, so a folder arrives here as
@@ -1144,6 +1142,7 @@ export default function FilePreviewPanel({
     () => (contents !== null && unboundedLines ? elideLongLines(contents) : null),
     [contents, unboundedLines],
   );
+  // loom: !mdxTruncated
   const renderMarkdown = isMarkdown && !mdxTruncated && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1292,7 +1291,6 @@ export default function FilePreviewPanel({
               availableEditors={availableEditors}
               openInCwd={absolutePath}
               compact
-              enableShortcut={false}
             />
           ) : null}
           {canToggleRendered && renderedMode ? (
@@ -1309,13 +1307,10 @@ export default function FilePreviewPanel({
                 );
               }}
             >
-              {rendered ? (
-                <Code2 className="size-3.5" />
-              ) : renderedMode === "table" ? (
-                <Table2 className="size-3.5" />
-              ) : (
-                <Eye className="size-3.5" />
-              )}
+              <MorphIcon
+                className="size-3.5"
+                icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+              />
             </FileSurfaceAction>
           ) : null}
           {showsRawText ? (
@@ -1341,6 +1336,7 @@ export default function FilePreviewPanel({
               <FolderTree className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
+          {/* loom: web-runtime artifact viewer */}
           {canOpenInViewer && previewPath ? (
             <FileSurfaceAction
               label="Open preview"
@@ -1355,6 +1351,7 @@ export default function FilePreviewPanel({
       attachment === undefined &&
       !isMedia &&
       !renderBrowserFile &&
+      // loom: read-cap + line-cap notices
       previewNotices.length > 0 ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
           {previewNotices.join(" ")}
@@ -1430,6 +1427,7 @@ export default function FilePreviewPanel({
                 cwd={cwd}
                 relativePath={relativePath}
                 threadRef={threadRef}
+                // loom: MDX annotation drafts
                 composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 readOnly={isHostFile}
@@ -1442,9 +1440,11 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile || unboundedLines ? (
+            ) : // loom: unboundedLines renders elided and read-only
+            file.data.truncated || isHostFile || unboundedLines ? (
               <SourceFilePreview
                 name={relativePath}
+                // loom: elided long lines
                 text={elidedContents ?? file.data.contents}
                 cacheKey={projectFileCacheKey(
                   cwd,
@@ -1486,6 +1486,7 @@ export default function FilePreviewPanel({
               environmentId={environmentId}
               cwd={cwd}
               projectName={projectName}
+              // loom: directory reveal
               revealPath={revealDirectoryPath}
               revealRequestId={revealDirectoryRequestId}
               selectedPath={relativePath}

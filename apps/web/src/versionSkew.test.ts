@@ -9,11 +9,13 @@ vi.mock("./branding", () => branding);
 
 import { APP_VERSION } from "./branding";
 import {
+  appendVersionMismatchHint,
   buildVersionMismatchDismissalKey,
   dismissServerUpdateFailure,
   dismissVersionMismatch,
   isServerUpdateFailureDismissed,
   isVersionMismatchDismissed,
+  manualServerUpdateCommand,
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
@@ -25,6 +27,21 @@ const MISMATCH_HINT =
   "Version mismatch. Try syncing the client and server to the same T3 Code version.";
 
 describe("versionSkew", () => {
+  it("updates only the proven npm prefix and safely quotes its path", () => {
+    expect(manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/node" })).toBe(
+      "npm install --global --prefix '/opt/node' t3@0.0.45",
+    );
+    expect(
+      manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/maria's node" }),
+    ).toBe("npm install --global --prefix '/opt/maria'\\''s node' t3@0.0.45");
+  });
+
+  it("keeps runner and unknown commands as relaunches", () => {
+    expect(manualServerUpdateCommand("0.0.45")).toBe("npx t3@0.0.45");
+    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe("npx t3@0.0.45");
+    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe("pnpm dlx t3@0.0.45");
+    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe("bunx t3@0.0.45");
+  });
   beforeEach(() => {
     branding.APP_VERSION = "0.0.34";
   });
@@ -175,6 +192,14 @@ describe("versionSkew", () => {
     ).toBe(false);
   });
 
+  it("appends a hint to connection errors when the server is behind", () => {
+    const mismatch = resolveVersionMismatch("0.0.33");
+
+    expect(appendVersionMismatchHint("Socket closed.", mismatch)).toBe(
+      `Socket closed. Hint: ${MISMATCH_HINT}`,
+    );
+  });
+
   it("reads desktop-managed update capabilities from config descriptors", () => {
     expect(
       resolveServerSelfUpdateCapability({
@@ -214,6 +239,7 @@ describe("versionSkew", () => {
     expect(supportsDesktopAppUpdate(null)).toBe(false);
   });
 
+  // loom: guidance names the server (two-arg serverUpdateGuidance, DL-119)
   it("matches version-drift guidance to the advertised update path", () => {
     expect(serverUpdateGuidance("respawn", "Remote server")).toBe(
       "Update the Remote server so they stay in sync.",

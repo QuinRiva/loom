@@ -1,14 +1,17 @@
 import * as Schema from "effect/Schema";
 
 import {
+  EnvironmentId,
   ForwardCompatibleArray,
   NonNegativeInt,
   PositiveInt,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-// loom: the fork's `thread` record and `mdxAnchor` review payload live in their
-// own module; the import is strictly one-way (see that file's constraint note).
-import { LoomMdxAnchorReviewContext, makeLoomThreadContextRecord } from "./composerContext.loom.ts";
+// loom: the fork's `mdxAnchor` review payload lives in its own module; the import is
+// strictly one-way (see that file's constraint note). Loom's own `thread` record was
+// deleted in pull 9 for upstream's (DL-88).
+import { LoomMdxAnchorReviewContext } from "./composerContext.loom.ts";
 
 /**
  * Inline context records: the typed payload behind every composer chip.
@@ -28,7 +31,7 @@ export const COMPOSER_CONTEXT_KINDS = [
   "review-comment",
   "mention",
   "skill",
-  "thread", // loom:
+  "thread",
 ] as const;
 export type KnownComposerContextKind = (typeof COMPOSER_CONTEXT_KINDS)[number];
 
@@ -227,8 +230,17 @@ export const SkillContextRecord = Schema.Struct({
 });
 export type SkillContextRecord = typeof SkillContextRecord.Type;
 
-// loom: `#`-mentioned threads ride the generic context-reference machinery.
-export const ThreadContextRecord = makeLoomThreadContextRecord(recordBase);
+/**
+ * Another thread on the same server, attached so the agent can read its history through
+ * `t3_thread_read`. Only identity travels; the title is a display snapshot.
+ */
+export const ThreadContextRecord = Schema.Struct({
+  ...recordBase,
+  kind: Schema.Literal("thread"),
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  title: ContextLabel,
+});
 export type ThreadContextRecord = typeof ThreadContextRecord.Type;
 
 /**
@@ -261,7 +273,7 @@ export const KnownComposerContextRecord = Schema.Union([
   ReviewCommentContextRecord,
   MentionContextRecord,
   SkillContextRecord,
-  ThreadContextRecord, // loom:
+  ThreadContextRecord,
 ]);
 export type KnownComposerContextRecord = typeof KnownComposerContextRecord.Type;
 

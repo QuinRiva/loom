@@ -1,8 +1,12 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type * as Schema from "effect/Schema";
-import type { ChatAttachment, ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  BranchNamingOptions,
+  ChatAttachment,
+  ModelSelection,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
@@ -49,6 +53,7 @@ export interface PrContentGenerationResult {
 }
 
 export interface BranchNameGenerationInput {
+  naming?: BranchNamingOptions | undefined;
   cwd: string;
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
@@ -73,29 +78,6 @@ export interface ThreadTitleGenerationInput {
 
 export interface ThreadTitleGenerationResult {
   title: string;
-  needsRefinement?: boolean | undefined;
-}
-
-// loom: generic structured-generation input — the fork's one JSON-in/JSON-out
-// text-generation seam (used by the first-turn goal derivation), instead of a
-// bespoke per-operation method on every driver.
-export interface StructuredGenerationInput<S extends Schema.Top> {
-  /** Fully-built prompt instructing the model to return JSON for `outputSchema`. */
-  readonly prompt: string;
-  /** Effect Schema describing (and decoding) the model's JSON response. */
-  readonly outputSchema: S;
-  /** What model and provider to use for generation. */
-  readonly modelSelection: ModelSelection;
-}
-
-// loom: promise-shaped view of the service, kept for the fork's driver plumbing.
-export interface TextGenerationService {
-  generateCommitMessage(
-    input: CommitMessageGenerationInput,
-  ): Promise<CommitMessageGenerationResult>;
-  generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
-  generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
-  generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
   needsRefinement?: boolean | undefined;
 }
 
@@ -130,31 +112,14 @@ export class TextGeneration extends Context.Service<
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
-
-    // loom: generic structured generation (see StructuredGenerationInput).
-    /**
-     * Generic structured generation: run a caller-built prompt through the
-     * driver's JSON runner and decode the response against `outputSchema`.
-     * New text-generation use cases ride this method instead of adding a
-     * bespoke per-operation method to every driver.
-     */
-    readonly generateStructured: <S extends Schema.Top>(
-      input: StructuredGenerationInput<S>,
-    ) => Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]>;
   }
 >()("t3/textGeneration/TextGeneration") {}
-
-// loom: name the fork's drivers (PiDriver) and tests still import.
-/** @deprecated Use `TextGeneration["Service"]`. */
-export type TextGenerationShape = TextGeneration["Service"];
 
 type TextGenerationOp =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
-  | "generateThreadTitle"
-  // loom: structured-generation op.
-  | "generateStructured";
+  | "generateThreadTitle";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -206,11 +171,6 @@ export const make = Effect.gen(function* () {
             return yield* textGeneration.generateThreadTitle({ ...input, linkedContext });
           }),
         ),
-      ),
-    // loom: structured-generation passthrough.
-    generateStructured: (input) =>
-      resolveInstance(registry, "generateStructured", input.modelSelection.instanceId).pipe(
-        Effect.flatMap((textGeneration) => textGeneration.generateStructured(input)),
       ),
   });
 });

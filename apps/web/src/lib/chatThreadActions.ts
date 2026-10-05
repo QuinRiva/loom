@@ -1,7 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type {
   EnvironmentId,
-  GoalId,
   ModelSelection,
   ProjectId,
   ScopedProjectRef,
@@ -24,7 +23,6 @@ interface NewThreadHandler {
     options?: {
       branch?: string | null;
       worktreePath?: string | null;
-      goalId?: GoalId | null;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
     },

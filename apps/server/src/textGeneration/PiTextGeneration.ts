@@ -1,24 +1,25 @@
 /**
- * PiTextGeneration – text generation through the `pi` CLI.
- *
- * loom-only file: pi is the fork's single driver, so upstream's title, commit
- * message, change-request and branch-name flows all land here. Each operation
- * builds the shared prompt and runs it through one non-interactive
- * `pi --print --mode json` completion, the same way the Claude and Codex arms
- * run theirs through their own CLI. Failures surface as `TextGenerationError`
- * so upstream's callers can retry and fall back — nothing here invents a
- * deterministic placeholder.
- *
- * @module PiTextGeneration
+ * PiTextGeneration — commit messages, PR content, branch names, and thread
+ * titles generated through an ephemeral `pi --mode rpc --no-session` process.
+ * No session file is written; the user's Pi configuration (default model,
+ * auth, custom providers) still applies.
  */
 import * as Effect from "effect/Effect";
-import type * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
-import type { ModelSelection } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { TextGenerationError, type ModelSelection, type PiSettings } from "@t3tools/contracts";
+import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
-import { generatePiStructured } from "../provider/Layers/Pi/OneShotCompletion.ts";
-import type * as TextGeneration from "./TextGeneration.ts";
+import { makePiRpcConnection, parsePiModelSlug } from "../orchestration-v2/Adapters/PiRpc.ts";
+import {
+  buildPiRpcLaunch,
+  resolvePiLaunchArgs,
+} from "../orchestration-v2/Adapters/piT3McpInjection.ts";
+import * as TextGeneration from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
@@ -29,42 +30,163 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-  type TextGenerationOperation,
 } from "./TextGenerationUtils.ts";
 
-export interface PiTextGenerationRuntime {
-  /** `pi` settings binary path; the bundled CLI is resolved from it. */
-  readonly binaryPath: string;
-  readonly platform: NodeJS.Platform;
-  readonly env: NodeJS.ProcessEnv;
-  /** Working directory for operations that do not carry one of their own. */
-  readonly cwd: string;
-}
+const PI_TIMEOUT_MS = 180_000;
 
-export function makePiTextGeneration(
-  runtime: PiTextGenerationRuntime,
-): TextGeneration.TextGeneration["Service"] {
-  const run = <S extends Schema.Top>(input: {
-    readonly operation: TextGenerationOperation;
-    readonly cwd?: string | undefined;
-    readonly prompt: string;
-    readonly outputSchema: S;
-    readonly modelSelection: ModelSelection;
-  }) => generatePiStructured({ ...runtime, ...input, cwd: input.cwd ?? runtime.cwd });
+const isTextGenerationError = Schema.is(TextGenerationError);
 
-  return {
-    generateCommitMessage: Effect.fn("PiTextGeneration.generateCommitMessage")(function* (input) {
-      const generated = yield* run({
+export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* (
+  piSettings: PiSettings,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  const runPiJson = <S extends Schema.Top>({
+    operation,
+    cwd,
+    prompt,
+    outputSchemaJson,
+    modelSelection,
+  }: {
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle";
+    cwd: string;
+    prompt: string;
+    outputSchemaJson: S;
+    modelSelection: ModelSelection;
+  }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
+    Effect.gen(function* () {
+      const resolvedLaunchArgs = resolvePiLaunchArgs(piSettings.launchArgs);
+      if (!resolvedLaunchArgs.ok) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: resolvedLaunchArgs.message,
+        });
+      }
+      const launch = buildPiRpcLaunch({
+        launchArgs: resolvedLaunchArgs.args,
+        environment,
+        mcpSession: undefined,
+        extensionPath: undefined,
+        ephemeral: true,
+        // loom: extensions stay on — extension-registered providers (cliproxy)
+        // carry PI_DEFAULT_MODEL, which fails `set_model` under --no-extensions.
+        // Tools stay off and the session is ephemeral, so nothing mutates the
+        // workspace; dialogs are cancelled below since no user is present.
+        disableExtensions: false,
+        // Background naming/content helpers must never mutate the workspace.
+        disableTools: true,
+      });
+      const connection = yield* makePiRpcConnection({
+        command: piSettings.binaryPath || "pi",
+        args: launch.args,
+        cwd,
+        env: launch.env,
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+
+      if (modelSelection.model !== "default") {
+        // `customModels` accepts arbitrary strings, so an unusable slug is
+        // rejected rather than skipped: running Pi's default model here would
+        // report success for a model the caller never asked for.
+        const parsed = parsePiModelSlug(modelSelection.model);
+        if (parsed === null) {
+          return yield* new TextGenerationError({
+            operation,
+            detail: `Pi model '${modelSelection.model}' must use provider/model format.`,
+          });
+        }
+        yield* connection.request({
+          type: "set_model",
+          provider: parsed.provider,
+          modelId: parsed.modelId,
+        });
+      }
+
+      yield* connection.request({ type: "prompt", message: prompt });
+      yield* Effect.gen(function* () {
+        while (true) {
+          const event = yield* Queue.take(connection.events);
+          if (event["type"] === "agent_settled") return;
+          // loom: cancel extension dialogs (select/confirm/input/editor) rather
+          // than stall to the timeout; fire-and-forget methods carry no reply.
+          if (
+            event["type"] === "extension_ui_request" &&
+            ["select", "confirm", "input", "editor"].includes(String(event["method"]))
+          ) {
+            yield* connection.send({
+              type: "extension_ui_response",
+              id: event["id"],
+              cancelled: true,
+            });
+          }
+        }
+      });
+      const data = yield* connection.request({ type: "get_last_assistant_text" });
+      const text =
+        typeof data === "object" &&
+        data !== null &&
+        typeof (data as { text?: unknown }).text === "string"
+          ? (data as { text: string }).text.trim()
+          : "";
+      if (!text) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: "Pi returned empty output.",
+        });
+      }
+      const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson));
+      return yield* decodeOutput(extractJsonObject(text)).pipe(
+        Effect.catchTags({
+          SchemaError: (cause) =>
+            Effect.fail(
+              new TextGenerationError({
+                operation,
+                detail: "Pi returned invalid structured output.",
+                cause,
+              }),
+            ),
+        }),
+      );
+    }).pipe(
+      Effect.timeoutOption(PI_TIMEOUT_MS),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(new TextGenerationError({ operation, detail: "Pi request timed out." })),
+          onSome: (value) => Effect.succeed(value),
+        }),
+      ),
+      Effect.mapError((cause) =>
+        isTextGenerationError(cause)
+          ? cause
+          : new TextGenerationError({
+              operation,
+              detail: "Pi text generation failed.",
+              cause,
+            }),
+      ),
+      Effect.scoped,
+    );
+
+  const generateCommitMessage: TextGeneration.TextGeneration["Service"]["generateCommitMessage"] =
+    Effect.fn("PiTextGeneration.generateCommitMessage")(function* (input) {
+      const { prompt, outputSchema } = buildCommitMessagePrompt({
+        branch: input.branch,
+        stagedSummary: input.stagedSummary,
+        stagedPatch: input.stagedPatch,
+        includeBranch: input.includeBranch === true,
+        policy: input.policy,
+      });
+      const generated = yield* runPiJson({
         operation: "generateCommitMessage",
         cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
-        ...buildCommitMessagePrompt({
-          branch: input.branch,
-          stagedSummary: input.stagedSummary,
-          stagedPatch: input.stagedPatch,
-          includeBranch: input.includeBranch === true,
-          policy: input.policy,
-        }),
       });
       return {
         subject: sanitizeCommitSubject(generated.subject),
@@ -73,55 +195,74 @@ export function makePiTextGeneration(
           ? { branch: sanitizeFeatureBranchName(generated.branch) }
           : {}),
       };
-    }),
+    });
 
-    generatePrContent: Effect.fn("PiTextGeneration.generatePrContent")(function* (input) {
-      const generated = yield* run({
+  const generatePrContent: TextGeneration.TextGeneration["Service"]["generatePrContent"] =
+    Effect.fn("PiTextGeneration.generatePrContent")(function* (input) {
+      const { prompt, outputSchema } = buildPrContentPrompt({
+        baseBranch: input.baseBranch,
+        headBranch: input.headBranch,
+        commitSummary: input.commitSummary,
+        diffSummary: input.diffSummary,
+        diffPatch: input.diffPatch,
+        policy: input.policy,
+        changeRequestTemplate: input.changeRequestTemplate,
+      });
+      const generated = yield* runPiJson({
         operation: "generatePrContent",
         cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
-        ...buildPrContentPrompt({
-          baseBranch: input.baseBranch,
-          headBranch: input.headBranch,
-          commitSummary: input.commitSummary,
-          diffSummary: input.diffSummary,
-          diffPatch: input.diffPatch,
-          policy: input.policy,
-          changeRequestTemplate: input.changeRequestTemplate,
-        }),
       });
-      return { title: sanitizePrTitle(generated.title), body: generated.body.trim() };
-    }),
+      return {
+        title: sanitizePrTitle(generated.title),
+        body: generated.body.trim(),
+      };
+    });
 
-    generateBranchName: Effect.fn("PiTextGeneration.generateBranchName")(function* (input) {
-      const generated = yield* run({
+  const generateBranchName: TextGeneration.TextGeneration["Service"]["generateBranchName"] =
+    Effect.fn("PiTextGeneration.generateBranchName")(function* (input) {
+      const { prompt, outputSchema } = buildBranchNamePrompt({
+        message: input.message,
+        attachments: input.attachments,
+        naming: input.naming,
+      });
+      const generated = yield* runPiJson({
         operation: "generateBranchName",
         cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
-        ...buildBranchNamePrompt({ message: input.message, attachments: input.attachments }),
       });
-      return { branch: sanitizeBranchFragment(generated.branch) };
-    }),
+      return {
+        branch: formatGeneratedBranchName(generated.branch, input.naming),
+      };
+    });
 
-    generateThreadTitle: Effect.fn("PiTextGeneration.generateThreadTitle")(function* (input) {
-      const generated = yield* run({
+  const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
+    Effect.fn("PiTextGeneration.generateThreadTitle")(function* (input) {
+      const { prompt, outputSchema } = buildThreadTitlePrompt({
+        message: input.message,
+        previousTitle: input.previousTitle,
+        attachments: input.attachments,
+      });
+      const generated = yield* runPiJson({
         operation: "generateThreadTitle",
         cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
         modelSelection: input.modelSelection,
-        ...buildThreadTitlePrompt({
-          message: input.message,
-          previousTitle: input.previousTitle,
-          linkedContext: input.linkedContext,
-          attachments: input.attachments,
-        }),
       });
       return {
         title: sanitizeThreadTitle(generated.title),
-        ...(generated.needsRefinement ? { needsRefinement: true } : {}),
-      };
-    }),
+      } satisfies TextGeneration.ThreadTitleGenerationResult;
+    });
 
-    // loom: generic structured generation — the fork's first-turn goal step.
-    generateStructured: (input) => run({ operation: "generateStructured", ...input }),
-  };
-}
+  return {
+    generateCommitMessage,
+    generatePrContent,
+    generateBranchName,
+    generateThreadTitle,
+  } satisfies TextGeneration.TextGeneration["Service"];
+});

@@ -30,8 +30,6 @@ interface PendingRpcAckRequest {
 const pendingRpcAckRequests = new Map<string, PendingRpcAckRequest>();
 const untrackedRpcAckMethods = new Set<string>([
   WS_METHODS.previewAutomationConnect,
-  // loom: keepalive heartbeats fire ~6x/min/client and must not show up as user requests.
-  WS_METHODS.heartbeat,
   WS_METHODS.serverGetUsageSummary,
 ]);
 const longRunningRpcAckMethods = new Set<string>([

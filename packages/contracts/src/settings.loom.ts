@@ -2,17 +2,17 @@
 // upstream-owned `settings.ts` so upstream merges touch one-line splice points.
 // See `plans/2026-07-07-fork-seam-campaign.md` (Slice A).
 //
-// Unlike `orchestration.loom.ts`, importing `ModelSelection` from
-// `orchestration.ts` here is safe: `settings.ts` already imports it, and there
-// is no value cycle back into `settings.ts` (nothing imports settings.ts from
-// this file). `PiSettings` deliberately stays in `settings.ts` — it is built
+// Unlike `orchestration.loom.ts`, importing `ModelSelection` (from
+// `modelSelection.ts`, its home since upstream's V2) here is safe: `settings.ts`
+// already imports it, and there is no value cycle back into `settings.ts`
+// (nothing imports settings.ts from this file). `PiSettings` deliberately stays in `settings.ts` — it is built
 // with the non-exported `makeBinaryPathSetting`, so moving it would create a
 // value-init cycle.
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection } from "./modelSelection.ts";
 
 // Capability-based model selection (plans/2026-07-13-capability-based-model-selection.md).
 // A parent expresses task SHAPE in one token; the server resolves deterministically

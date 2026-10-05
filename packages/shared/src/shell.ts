@@ -457,8 +457,14 @@ export function withLocalNodeModulesBin(
     "node_modules",
     ".bin",
   );
-  const merged = mergePathValues(localBin, readEnvPath(env), platform);
-  return { ...env, ...(merged ? { PATH: merged } : {}) };
+  // Windows env keys are case-insensitive: write back to the key already present
+  // (e.g. `Path`) rather than adding a second `PATH` (DL-178).
+  const pathKey =
+    platform === "win32"
+      ? (Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH")
+      : "PATH";
+  const merged = mergePathValues(localBin, env[pathKey] ?? readEnvPath(env), platform);
+  return { ...env, ...(merged ? { [pathKey]: merged } : {}) };
 }
 
 function resolvePathEnvironmentVariable(env: NodeJS.ProcessEnv): string {

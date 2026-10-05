@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  collectComposerInlineTokens,
-  expandSkillTokensToPromptText,
-} from "./composerInlineTokens.ts";
+import { collectComposerInlineTokens } from "./composerInlineTokens.ts";
 
 describe("collectComposerInlineTokens", () => {
   it("collects file links, mentions, and skills with source ranges", () => {
@@ -192,32 +189,5 @@ describe("collectComposerInlineTokens", () => {
     const started = performance.now();
     expect(collectComposerInlineTokens(" [[".repeat(40_000))).toEqual([]);
     expect(performance.now() - started).toBeLessThan(1_000);
-  });
-});
-
-// loom: $skill composer tokens expand to /skill: prompt text.
-describe("expandSkillTokensToPromptText", () => {
-  const known = ["review", "pdf-export", "first", "second"];
-
-  it("rewrites recognised skill tokens into /skill: text, including at end-of-string", () => {
-    expect(expandSkillTokensToPromptText("Please $pdf-export the doc", known)).toBe(
-      "Please /skill:pdf-export the doc",
-    );
-    expect(expandSkillTokensToPromptText("run $review", known)).toBe("run /skill:review");
-    expect(expandSkillTokensToPromptText("$first then $second here", known)).toBe(
-      "/skill:first then /skill:second here",
-    );
-  });
-
-  it("leaves unknown alphabetic tokens and non-skill dollar text untouched", () => {
-    // $HOME is a shell-style reference, not an enumerated skill.
-    expect(expandSkillTokensToPromptText("run echo $HOME", known)).toBe("run echo $HOME");
-    expect(expandSkillTokensToPromptText("costs $5 today", known)).toBe("costs $5 today");
-    expect(expandSkillTokensToPromptText("echo price$var", known)).toBe("echo price$var");
-    expect(expandSkillTokensToPromptText("no tokens here", known)).toBe("no tokens here");
-  });
-
-  it("returns the text verbatim when no skills are known", () => {
-    expect(expandSkillTokensToPromptText("run $review", [])).toBe("run $review");
   });
 });

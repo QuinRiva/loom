@@ -3,11 +3,13 @@ import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MigrationError } from "effect/unstable/sql/Migrator"; // loom: see runAllMigrations below
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 // loom: two-lane migration ledger (upstream + loom 1001+).
 import { runAllMigrations } from "../LoomMigrations.ts";
-import { ServerConfig } from "../../config.ts";
+import { initializeV2Database } from "../initializeV2Database.ts";
+import * as ServerConfig from "../../config.ts";
 
 // Size the -wal file is cut back to on the first commit after a WAL reset.
 export const WAL_SIZE_LIMIT_BYTES = 32 * 1024 * 1024;
@@ -15,26 +17,26 @@ export const WAL_SIZE_LIMIT_BYTES = 32 * 1024 * 1024;
 const setup = Layer.effectDiscard(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`PRAGMA journal_mode = WAL;`;
-    // loom: live `t3 goal`/`t3 project` runs route over HTTP and never open this
-    // file; cross-process access remains only for dead-server offline CLI mode
-    // (plus the rare, human-initiated `t3 auth`/`t3 connect` residual — see
-    // docs/plans/db-lane-reader-writer-split.md). SQLite permits one writer at
-    // a time across processes, so the busy timeout is belt-and-braces for the
-    // offline-CLI → server-startup overlap window: wait for the lock instead
-    // of failing on contention.
+    // CLI and server write from separate processes; wait rather than fail with SQLITE_BUSY.
     yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
+    yield* sql`PRAGMA journal_mode = WAL;`;
     // loom: synchronous=NORMAL is durable-enough under WAL (only a crash mid-checkpoint
     // risks the last commits) and stops an fsync on every commit on the main loop.
     yield* sql`PRAGMA synchronous = NORMAL;`;
-    // 128MB page cache (negative = KiB). The DB grew past 2GB; a real cache keeps
+    // loom: 128MB page cache (negative = KiB). The DB grew past 2GB; a real cache keeps
     // hot pages resident so synchronous reads on the event loop avoid disk.
     yield* sql`PRAGMA cache_size = -131072;`;
     // PASSIVE checkpoints never shrink the -wal file, so it otherwise keeps its
     // largest size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
-    yield* runAllMigrations();
+    // loom: both ledgers; the fork ledger's refusal surfaces as upstream's MigrationError so
+    // this layer keeps upstream's error channel (pull 9, DL-148).
+    yield* runAllMigrations().pipe(
+      Effect.catchTag("LoomLedgerReconciliationError", (error) =>
+        Effect.fail(new MigrationError({ kind: "BadState", message: error.message })),
+      ),
+    );
   }),
 );
 
@@ -64,7 +66,8 @@ export const SqlitePersistenceMemory = Layer.provideMerge(
 
 export const layerConfig = Layer.unwrap(
   Effect.gen(function* () {
-    const { dbPath } = yield* ServerConfig;
+    const { dbPath } = yield* ServerConfig.ServerConfig;
+    yield* initializeV2Database(dbPath);
     return makeSqlitePersistenceLive(dbPath);
   }),
 );

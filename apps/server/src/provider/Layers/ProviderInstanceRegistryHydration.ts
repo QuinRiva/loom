@@ -47,16 +47,35 @@ import {
   type ProviderInstanceConfigMap,
   ServerSettings,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause"; // loom: pretty-printed reconcile cause
+import * as Crypto from "effect/Crypto"; // loom: Pi-only env, see below
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { ServerSettingsService } from "../../serverSettings.ts";
+import * as Settings from "../../serverSettings.ts";
+import * as ProviderEventLoggers from "./ProviderEventLoggers.ts"; // loom: Pi-only env
 import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "../builtInDrivers.ts";
-import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
-import { ProviderInstanceRegistryMutator } from "../Services/ProviderInstanceRegistryMutator.ts";
+import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistryMutator from "../Services/ProviderInstanceRegistryMutator.ts";
 import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistryLive.ts";
+import {
+  type ProviderOrchestrationAdapterInfrastructure,
+  ProviderOrchestrationAdapterInfrastructureLive,
+} from "./ProviderOrchestrationAdapterInfrastructure.ts";
+import * as AcpRegistrySupport from "../acp/AcpRegistrySupport.ts";
+import { AcpRegistryCatalogLive } from "./AcpRegistryCatalog.ts";
+
+type ProviderInstanceRegistryHydrationEnv =
+  | Exclude<
+      BuiltInDriversEnv,
+      ProviderOrchestrationAdapterInfrastructure | AcpRegistrySupport.AcpRegistryCatalog
+    >
+  | Settings.ServerSettingsService
+  // loom: the Pi-only registry's `BuiltInDriversEnv` no longer carries what the
+  // adapter infrastructure below needs (upstream's five-driver union did).
+  | Crypto.Crypto
+  | ProviderEventLoggers.ProviderEventLoggers;
 
 /**
  * Synthesize a `ProviderInstanceConfigMap` from a `ServerSettings` snapshot.
@@ -117,13 +136,14 @@ export const deriveProviderInstanceConfigMap = (
  */
 const SettingsWatcherLive = Layer.effectDiscard(
   Effect.gen(function* () {
-    const mutator = yield* ProviderInstanceRegistryMutator;
-    const serverSettings = yield* ServerSettingsService;
+    const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
+    const serverSettings = yield* Settings.ServerSettingsService;
     const settingsChanges = yield* serverSettings.subscribeChanges;
     yield* settingsChanges.pipe(
       Stream.runForEach((next) =>
         mutator.reconcile(deriveProviderInstanceConfigMap(next)).pipe(
           Effect.catchCause((cause) =>
+            // loom: log the pretty cause, not the raw Cause object
             Effect.logError("ProviderInstanceRegistry reconcile failed", {
               cause: Cause.pretty(cause),
             }),
@@ -152,12 +172,12 @@ const SettingsWatcherLive = Layer.effectDiscard(
  * it, so the visibility leak is harmless in practice.
  */
 export const ProviderInstanceRegistryHydrationLive: Layer.Layer<
-  ProviderInstanceRegistry,
+  ProviderInstanceRegistry.ProviderInstanceRegistry,
   never,
-  BuiltInDriversEnv | ServerSettingsService
+  ProviderInstanceRegistryHydrationEnv
 > = Layer.unwrap(
   Effect.gen(function* () {
-    const serverSettings = yield* ServerSettingsService;
+    const serverSettings = yield* Settings.ServerSettingsService;
     const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
       Effect.orElseSucceed(() => undefined),
     );
@@ -169,8 +189,15 @@ export const ProviderInstanceRegistryHydrationLive: Layer.Layer<
     const mutableLayer = ProviderInstanceRegistryMutableLayer({
       drivers: BUILT_IN_DRIVERS,
       configMap: initialConfigMap,
-    });
+    }).pipe(
+      Layer.provide(ProviderOrchestrationAdapterInfrastructureLive),
+      Layer.provide(AcpRegistryCatalogLive),
+    );
 
     return SettingsWatcherLive.pipe(Layer.provideMerge(mutableLayer));
   }),
-) as Layer.Layer<ProviderInstanceRegistry, never, BuiltInDriversEnv | ServerSettingsService>;
+) as Layer.Layer<
+  ProviderInstanceRegistry.ProviderInstanceRegistry,
+  never,
+  ProviderInstanceRegistryHydrationEnv
+>;

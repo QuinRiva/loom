@@ -1,6 +1,6 @@
 import ChatMarkdown from "./ChatMarkdown";
 import { ReadOnlySourcePreview } from "./files/AttachmentFilePreview";
-import type { PreviewAnnotationPayload } from "@t3tools/contracts";
+import type { PreviewAnnotationPayload, ThreadContextRecord } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { videoMimeType } from "@t3tools/shared/video";
 import { MessageCircleIcon, MousePointerClickIcon } from "lucide-react";
@@ -29,11 +29,9 @@ import {
   uploadedAttachmentContextRecord,
 } from "~/lib/composerContextRecords";
 import type { TerminalContextDraft } from "~/lib/terminalContext";
-// loom: `#`-mentioned threads.
-import { threadReferenceContextId, type ThreadReferenceDraft } from "~/loom/threadReference";
-import { ThreadContextChip } from "~/loom/threadReferencePresentation";
-import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
+import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext"; // loom: line | mdx-anchor union
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
+import { ThreadContextChip } from "./ThreadContextChip";
 import {
   createContextPresentationRegistry,
   type ContextPresentationCapability,
@@ -60,7 +58,7 @@ export type ComposerDraftContextRecord =
   | { kind: "preview-annotation"; record: PreviewAnnotationPayload }
   | { kind: "image"; record: ComposerImageAttachment; upload?: AttachmentUploadState | undefined }
   | { kind: "file"; record: ComposerFileAttachment; upload?: AttachmentUploadState | undefined }
-  | { kind: "thread"; record: ThreadReferenceDraft }; // loom:
+  | { kind: "thread"; record: ThreadContextRecord };
 
 /** What a chip can do beyond showing itself; the composer supplies the handlers. */
 export interface ComposerContextActions {
@@ -98,9 +96,9 @@ export function composerContextRecordsFromDraft(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   reviewComments?: ReadonlyArray<ReviewCommentContext>;
   previewAnnotations?: ReadonlyArray<PreviewAnnotationPayload>;
+  threadContexts?: ReadonlyArray<ThreadContextRecord>;
   images?: ReadonlyArray<ComposerImageAttachment>;
   files?: ReadonlyArray<ComposerFileAttachment>;
-  threadReferences?: ReadonlyArray<ThreadReferenceDraft>; // loom:
   uploadsByImageId?: Readonly<Record<string, AttachmentUploadState>>;
 }): ComposerDraftContextRecords {
   const records = new Map<string, ComposerDraftContextRecord>();
@@ -127,9 +125,8 @@ export function composerContextRecordsFromDraft(input: {
   for (const record of input.previewAnnotations ?? []) {
     records.set(previewAnnotationContextId(record.id), { kind: "preview-annotation", record });
   }
-  // loom:
-  for (const record of input.threadReferences ?? []) {
-    records.set(threadReferenceContextId(record.threadId), { kind: "thread", record });
+  for (const record of input.threadContexts ?? []) {
+    records.set(record.contextId, { kind: "thread", record });
   }
   return records;
 }
@@ -243,7 +240,7 @@ function FileContextChip(props: {
 }
 
 function PullRequestContextChip(props: {
-  record: LineReviewCommentContext;
+  record: LineReviewCommentContext; // loom: only the `line` arm carries PR metadata
   kind: ContextChipKind;
 }) {
   const actions = use(ComposerContextActionsContext);
@@ -286,6 +283,7 @@ function ComposerReviewCommentDetails({ comment }: { comment: ReviewCommentConte
         </div>
       </div>
       {comment.text.trim() ? <ChatMarkdown text={comment.text.trim()} cwd={undefined} /> : null}
+      {/* loom: only the `line` arm carries a diff */}
       {comment.kind === "line" && comment.diff.trim() ? (
         <div className="flex h-64 min-h-0 flex-col overflow-hidden rounded-md border border-border">
           <ReadOnlySourcePreview name="review.diff" text={comment.diff} />
@@ -385,7 +383,7 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
         const pullRequestState = pullRequestContextDisplayState(entry.record) ?? "unknown";
         if (
           isPullRequest &&
-          entry.record.kind === "line" &&
+          entry.record.kind === "line" && // loom: mdx-anchor comments carry no PR
           entry.record.pullRequest !== undefined
         ) {
           return (
@@ -424,13 +422,12 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
           <UnresolvedContextChip label={context.label} />
         ),
     },
-    // loom:
     {
       kind: "thread",
       canRender: (entry) => entry.kind === "thread",
       render: (entry, context) =>
         entry.kind === "thread" ? (
-          <ThreadContextChip reference={entry.record} />
+          <ThreadContextChip record={entry.record} />
         ) : (
           <UnresolvedContextChip label={context.label} />
         ),

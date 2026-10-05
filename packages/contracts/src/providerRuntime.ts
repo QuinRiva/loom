@@ -4,7 +4,7 @@ import {
   EventId,
   IsoDateTime,
   NonNegativeInt,
-  NonNegativeNumber,
+  NonNegativeNumber, // loom: costUsd
   ProviderItemId,
   PositiveInt,
   RuntimeItemId,
@@ -16,18 +16,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
-import { ProviderApprovalOption } from "./orchestration.ts";
-// loom: these two are the fork's, but they are declared in `orchestration.loom.ts`
-// (a `baseSchemas`-only leaf) because `orchestration.ts` needs them too and this
-// module already value-imports from `orchestration.ts` — declaring them here
-// closed a load-time import cycle. Re-exported so their public path is unchanged.
-import {
-  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
-  RuntimeErrorClass,
-  UserInputResolvedOutcome,
-} from "./orchestration.loom.ts";
-
-export { DEFAULT_USER_INPUT_RESOLVED_OUTCOME, RuntimeErrorClass, UserInputResolvedOutcome };
+import { ProviderApprovalOption } from "./providerPolicy.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -42,6 +31,7 @@ const RuntimeEventRawSource = Schema.Union([
   Schema.Literal("opencode.sdk.event"),
   Schema.Literal("acp.jsonrpc"),
   Schema.TemplateLiteral(["acp.", Schema.String, ".extension"]),
+  // loom: pi RPC raw sources
   Schema.Literal("pi.rpc.event"),
   Schema.Literal("pi.rpc.response"),
   Schema.Literal("pi.rpc.synthetic"),
@@ -109,6 +99,15 @@ export type RuntimeContentStreamKind = typeof RuntimeContentStreamKind.Type;
 const RuntimeSessionExitKind = Schema.Literals(["graceful", "error"]);
 export type RuntimeSessionExitKind = typeof RuntimeSessionExitKind.Type;
 
+const RuntimeErrorClass = Schema.Literals([
+  "provider_error",
+  "transport_error",
+  "permission_error",
+  "validation_error",
+  "unknown",
+]);
+export type RuntimeErrorClass = typeof RuntimeErrorClass.Type;
+
 const TOOL_LIFECYCLE_ITEM_TYPES = [
   "command_execution",
   "file_change",
@@ -155,6 +154,7 @@ export const CanonicalRequestType = Schema.Literals([
 ]);
 export type CanonicalRequestType = typeof CanonicalRequestType.Type;
 
+// loom: the runtime event type union as one schema (Loom-only consumers).
 const ProviderRuntimeEventType = Schema.Literals([
   "session.started",
   "session.configured",
@@ -216,7 +216,7 @@ const ThreadStartedType = Schema.Literal("thread.started");
 const ThreadStateChangedType = Schema.Literal("thread.state.changed");
 const ThreadMetadataUpdatedType = Schema.Literal("thread.metadata.updated");
 const ThreadTokenUsageUpdatedType = Schema.Literal("thread.token-usage.updated");
-const ThreadQueueUpdatedType = Schema.Literal("thread.queue.updated");
+const ThreadQueueUpdatedType = Schema.Literal("thread.queue.updated"); // loom: pi steering/follow-up queue
 const ThreadRealtimeStartedType = Schema.Literal("thread.realtime.started");
 const ThreadRealtimeItemAddedType = Schema.Literal("thread.realtime.item-added");
 const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta");
@@ -336,6 +336,7 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   toolUses: Schema.optional(NonNegativeInt),
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
+  // loom: usage-ledger fields (costUsd … usesSubscriptionPricing).
   // Dollar cost of this single assistant message, taken verbatim from the
   // provider's own authoritative figure (pi's `usage.cost.total`). A per-message
   // delta — summing across token-usage events reconstructs cumulative spend, so
@@ -365,6 +366,12 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   // unset today; reserved for when a clean signal becomes available.
   usesSubscriptionPricing: Schema.optional(Schema.Boolean),
   autoCompactThreshold: Schema.optional(PositiveInt),
+  cost: Schema.optional(
+    Schema.Struct({
+      amount: Schema.Number.check(Schema.isFinite()),
+      currency: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(32)),
+    }),
+  ),
 });
 export type ThreadTokenUsageSnapshot = typeof ThreadTokenUsageSnapshot.Type;
 
@@ -373,6 +380,7 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
 
+// loom: pi steering/follow-up queue.
 // Pending messages the provider has queued for the running turn. `steering`
 // folds into the live turn; `followUp` runs after it. Both drain to empty as
 // the provider delivers them, so this is ephemeral live state only.
@@ -600,14 +608,9 @@ export const UserInputRequestedPayload = Schema.Struct({
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
-// The default is applied by the CONTRACT, not by each consumer: a decoded
-// `user-input.resolved` payload always carries an explicit outcome, so the
-// documented invariant cannot drift with however many places read it.
 const UserInputResolvedPayload = Schema.Struct({
   answers: UnknownRecordSchema,
-  outcome: UserInputResolvedOutcome.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(DEFAULT_USER_INPUT_RESOLVED_OUTCOME)),
-  ),
+  // loom: detached in pull 9, ledger DT-36 (resolved-outcome field; its type lived in orchestration.loom.ts)
 });
 export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 
@@ -644,43 +647,6 @@ export const TaskRunHandles = Schema.Struct({
 export type TaskRunHandles = typeof TaskRunHandles.Type;
 
 /**
- * Watch-loop task types: Monitor-tool tasks plus background shells (a shell
- * that outlives its turn is in practice a watch loop). Canonical single copy —
- * the server liveness registry, ingestion's agentKind stamp, and the client
- * fold's legacy fallback all classify with these sets.
- */
-export const MONITOR_TASK_TYPES: ReadonlySet<string> = new Set([
-  "monitor",
-  "monitor_mcp",
-  "local_bash",
-  "shell",
-]);
-/** Task types that are neither agents nor watch loops (plan-mode bookkeeping). */
-export const INERT_TASK_TYPES: ReadonlySet<string> = new Set(["plan", "dream"]);
-
-/**
- * Agent-vs-background classification, stamped by ingestion as `agentKind` so
- * persisted rows are self-describing. A deliberate denylist: the SDK's
- * agent-flavored type names drift (subagent, local_agent, local_workflow, …)
- * and an allowlist silently dropped real subagents when "local_agent"
- * appeared. A task launched from inside a subagent (agentId set) is
- * agent-internal background work UNLESS it is itself agent-flavored — a
- * nested agent can outlive its parent and stays in the roster.
- */
-export function classifyTaskAgentKind(input: {
-  readonly taskType?: string | undefined;
-  readonly agentId?: string | undefined;
-}): "agent" | "background" {
-  const { taskType, agentId } = input;
-  const nonAgentType =
-    taskType !== undefined && (MONITOR_TASK_TYPES.has(taskType) || INERT_TASK_TYPES.has(taskType));
-  if (agentId !== undefined && agentId.trim().length > 0) {
-    return taskType === undefined || nonAgentType ? "background" : "agent";
-  }
-  return nonAgentType ? "background" : "agent";
-}
-
-/**
  * Optional agent-identity linkage carried on every task lifecycle payload.
  * Repeated on progress and terminal rows (not just start) so client folds can
  * reconstruct an agent even when its start row aged out of activity retention.
@@ -691,7 +657,7 @@ const taskAgentLinkageFields = {
    * every row so folds can classify without the start row. */
   taskType: Schema.optional(TrimmedNonEmptyStringSchema),
   /**
-   * Server-stamped classification (classifyTaskAgentKind at ingestion).
+   * Server-stamped classification, set at ingestion.
    * Clients trust this stamp outright; rows without it (legacy, pre-stamp)
    * fall back to client-side heuristics.
    */
@@ -985,6 +951,7 @@ const ProviderRuntimeThreadTokenUsageUpdatedEvent = Schema.Struct({
 export type ProviderRuntimeThreadTokenUsageUpdatedEvent =
   typeof ProviderRuntimeThreadTokenUsageUpdatedEvent.Type;
 
+// loom: pi steering/follow-up queue.
 const ProviderRuntimeThreadQueueUpdatedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: ThreadQueueUpdatedType,
@@ -1301,7 +1268,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadStateChangedEvent,
   ProviderRuntimeThreadMetadataUpdatedEvent,
   ProviderRuntimeThreadTokenUsageUpdatedEvent,
-  ProviderRuntimeThreadQueueUpdatedEvent,
+  ProviderRuntimeThreadQueueUpdatedEvent, // loom: pi steering/follow-up queue
   ProviderRuntimeThreadRealtimeStartedEvent,
   ProviderRuntimeThreadRealtimeItemAddedEvent,
   ProviderRuntimeThreadRealtimeAudioDeltaEvent,

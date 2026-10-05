@@ -2,44 +2,16 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import { makeThreadFixture } from "./test-fixtures";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "./worktreeCleanup";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
-  return {
+  return makeThreadFixture({
     id: ThreadId.make("thread-1"),
     environmentId: localEnvironmentId,
     projectId: ProjectId.make("project-1"),
-    // loom: workstream fields on the thread shape.
-    goalId: null,
-    parentThreadId: null,
-    role: null,
-    purpose: null,
-    brief: null,
-    planLane: "planned" as const,
-    attention: [],
-    blockedBy: [],
-    spawnGeneration: null,
-    forkFromThreadId: null,
-    anchorTaskId: null,
-    continuesThreadId: null,
-    reportPath: null,
-    graphKey: null,
-    kickoffBriefPath: null,
-    routes: [],
-    gateRounds: 0,
-    pendingRework: false,
-    lastOutcome: null,
-    isolation: "shared" as const,
-    fanInState: "none" as const,
-    toolUses: null,
-    usedTokens: null,
-    maxTokens: null,
-    diffAdditions: null,
-    diffDeletions: null,
-    handoffDestinations: [],
-    notifySendLog: [],
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
@@ -47,11 +19,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: DEFAULT_INTERACTION_MODE,
-    session: null,
+    runtime: null,
     messages: [],
-    checkpoints: [],
-    pullRequests: [],
-    activities: [],
     proposedPlans: [],
     createdAt: "2026-02-13T00:00:00.000Z",
     updatedAt: "2026-02-13T00:00:00.000Z",
@@ -59,11 +28,11 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     settledOverride: null,
     settledAt: null,
     deletedAt: null,
-    latestTurn: null,
+    latestRun: null,
     branch: null,
     worktreePath: null,
     ...overrides,
-  };
+  });
 }
 
 describe("getOrphanedWorktreePathForThread", () => {
