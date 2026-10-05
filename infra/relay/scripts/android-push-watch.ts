@@ -3,14 +3,14 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
-  ORCHESTRATION_WS_METHODS,
+  ORCHESTRATION_V2_WS_METHODS,
   WS_METHODS,
   WsRpcGroup,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import type { RelayAgentActivityState } from "@t3tools/contracts/relay";
-import { projectThreadAwareness } from "@t3tools/shared/agentAwareness";
+import { projectThreadAwarenessV2 } from "@t3tools/shared/agentAwareness";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
@@ -128,11 +128,11 @@ const main = Effect.gen(function* () {
     const sender = yield* FcmClient.FcmClient;
     const config = yield* rpc[WS_METHODS.serverGetConfig]({});
     const projects = new Map<string, OrchestrationProjectShell>();
-    const threads = new Map<string, OrchestrationThreadShell>();
+    const threads = new Map<string, OrchestrationV2ThreadShell>();
     let states = new Map<string, RelayAgentActivityState>();
     let previouslyActive = false;
     yield* Effect.logInfo("Watching this paired environment for Android push verification.");
-    yield* rpc[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(
+    yield* rpc[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({}).pipe(
       Stream.runForEach(
         Effect.fnUntraced(function* (item) {
           switch (item.kind) {
@@ -144,17 +144,16 @@ const main = Effect.gen(function* () {
               for (const project of item.snapshot.projects) projects.set(project.id, project);
               for (const thread of item.snapshot.threads) threads.set(thread.id, thread);
               break;
-            case "project-upserted":
+            case "project.updated":
               projects.set(item.project.id, item.project);
               break;
-            case "project-removed":
+            case "project.removed":
               projects.delete(item.projectId);
               break;
-            // loom: thread-upserted frames are batched (coalesced thread WS events).
-            case "thread-upserted":
-              for (const thread of item.threads) threads.set(thread.id, thread);
+            case "thread.updated":
+              threads.set(item.thread.id, item.thread);
               break;
-            case "thread-removed":
+            case "thread.removed":
               threads.delete(item.threadId);
               break;
           }
@@ -162,28 +161,21 @@ const main = Effect.gen(function* () {
           for (const thread of threads.values()) {
             const project = projects.get(thread.projectId);
             if (!project || thread.archivedAt) continue;
-            const state = projectThreadAwareness({
+            const state = projectThreadAwarenessV2({
               environmentId: config.environment.environmentId,
               project,
               thread,
             });
             if (state) next.set(thread.id, state);
           }
-          // A thread-upserted frame is batched, so alert on the first thread in it
-          // whose phase actually moved.
-          const state =
-            item.kind === "thread-upserted"
-              ? item.threads
-                  .map((thread) => next.get(thread.id))
-                  .find(
-                    (candidate) =>
-                      candidate !== undefined &&
-                      candidate.phase !== states.get(candidate.threadId)?.phase,
-                  )
-              : undefined;
+          const state = item.kind === "thread.updated" ? next.get(item.thread.id) : undefined;
+          const previous = state ? states.get(state.threadId) : undefined;
           // A fresh subscription restores ongoing work without announcing old completions.
           const now = yield* Clock.currentTimeMillis;
-          const alert = state ? FcmDeliveries.androidAlertForState(state, preferences, now) : null;
+          const alert =
+            state && state.phase !== previous?.phase && item.kind !== "snapshot"
+              ? FcmDeliveries.androidAlertForState(state, preferences, now)
+              : null;
           const aggregate = makeAggregateState({
             activeStates: [...next.values()],
             terminalState: null,

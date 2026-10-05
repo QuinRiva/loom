@@ -8,13 +8,9 @@ import { resolveSelectableModel } from "@t3tools/shared/model";
 import { useAtomValue } from "@effect/atom-react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { ChevronRightIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
-import { isModelPickerNewModel } from "./modelPickerModelHighlights";
-import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
-
-import { ChevronRightIcon } from "lucide-react";
-
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
 import {
   modelPickerLegacySectionKey,
@@ -22,7 +18,7 @@ import {
   parseModelPickerLegacySectionKey,
   parseModelPickerModelKey,
 } from "./modelPickerKeys";
-
+import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
 import {
   Combobox,
   ComboboxEmpty,
@@ -56,18 +52,13 @@ type ModelPickerItem = {
   name: string;
   shortName?: string;
   subProvider?: string;
-  /**
-   * loom: excluded by the instance's model preferences (hidden, or unselected
-   * in allow-list mode). Kept out of the default views but still reachable via
-   * search, where excluded matches render in a separated "All models" section
-   * below the curated results.
-   */
-  excluded?: boolean;
   badge?: "new";
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
   instanceDisplayName: string;
   instanceAccentColor?: string | undefined;
+  acpRegistryAgentId?: string | undefined;
+  acpRegistryIconUrl?: string | undefined;
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
@@ -153,6 +144,7 @@ export function adjacentModelPickerProvider(input: {
 }
 
 const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
+const MODEL_LIST_ESTIMATED_ITEM_SIZE = 52;
 
 function ModelListSeparator() {
   return <div className="h-0.5" />;
@@ -206,6 +198,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const [showBottomScrollFade, setShowBottomScrollFade] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const modelListRef = useRef<LegendListRef | null>(null);
+  const pickerContentRef = useRef<HTMLDivElement>(null);
   const highlightedModelKeyRef = useRef<string | null>(null);
   const favorites = useClientSettings((s) => s.favorites ?? []);
   const activeEntry = props.instanceEntries.find(
@@ -398,6 +391,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
           ...(entry.accentColor ? { instanceAccentColor: entry.accentColor } : {}),
+          ...(entry.acpRegistryAgentId ? { acpRegistryAgentId: entry.acpRegistryAgentId } : {}),
+          ...(entry.acpRegistryIconUrl ? { acpRegistryIconUrl: entry.acpRegistryIconUrl } : {}),
           ...(entry.continuationGroupKey
             ? { continuationGroupKey: entry.continuationGroupKey }
             : {}),
@@ -455,7 +450,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           score: scoreModelPickerSearch(
             {
               name: model.name,
-              slug: model.slug,
+              slug: model.slug, // loom: slug search tells same-named models apart
               ...(model.shortName ? { shortName: model.shortName } : {}),
               ...(model.subProvider ? { subProvider: model.subProvider } : {}),
               driverKind: model.driverKind,
@@ -467,7 +462,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           isFavorite: favoritesSet.has(providerModelKey(model.instanceId, model.slug)),
           tieBreaker: buildModelPickerSearchText({
             name: model.name,
-            slug: model.slug,
+            slug: model.slug, // loom
             ...(model.shortName ? { shortName: model.shortName } : {}),
             ...(model.subProvider ? { subProvider: model.subProvider } : {}),
             driverKind: model.driverKind,
@@ -488,19 +483,29 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       // When searching, we only respect locked provider (by driver kind),
       // ignoring sidebar selection so account-scoped searches can find a
       // model before the user chooses a specific instance rail item.
-      // loom: excluded models (hidden / unselected in allow-list mode) still match
-      // a search, but always rank as a separated block below the curated
-      // results — the settings-free escape hatch for one-off model use.
-      const matches =
-        props.lockedProvider !== null
-          ? rankedMatches.filter((rankedModel) => matchesLockedProvider(rankedModel.model))
-          : rankedMatches;
-      return matches
-        .toSorted((a, b) => {
-          const excludedA = a.model.excluded === true;
-          if (excludedA !== (b.model.excluded === true)) {
-            return excludedA ? 1 : -1;
+      if (props.lockedProvider !== null) {
+        const lockedProviderMatches: Array<(typeof rankedMatches)[number]> = [];
+        for (const rankedModel of rankedMatches) {
+          if (matchesLockedProvider(rankedModel.model)) {
+            lockedProviderMatches.push(rankedModel);
           }
+        }
+        return lockedProviderMatches
+          .toSorted((a, b) => {
+            const scoreDelta = a.score - b.score;
+            if (scoreDelta !== 0) {
+              return scoreDelta;
+            }
+            if (a.isFavorite !== b.isFavorite) {
+              return a.isFavorite ? -1 : 1;
+            }
+            return a.tieBreaker.localeCompare(b.tieBreaker);
+          })
+          .map((rankedModel) => rankedModel.model);
+      }
+
+      return rankedMatches
+        .toSorted((a, b) => {
           const scoreDelta = a.score - b.score;
           if (scoreDelta !== 0) {
             return scoreDelta;
@@ -512,9 +517,6 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         })
         .map((rankedModel) => rankedModel.model);
     }
-
-    // Outside search, excluded models never surface.
-    result = result.filter((m) => !m.excluded);
 
     if (props.lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));
@@ -701,15 +703,17 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       ),
     [visibleModels],
   );
-  // First excluded row in the search results — renders the "All models"
-  // section divider above itself so the escape-hatch block reads separately.
-  const firstExcludedModelKey = useMemo((): string | null => {
-    if (!isSearching) {
-      return null;
-    }
-    const first = filteredModels.find((model) => model.excluded);
-    return first ? modelPickerModelKey(first.instanceId, first.slug) : null;
-  }, [filteredModels, isSearching]);
+  const [modelListContentSize, setModelListContentSize] = useState(
+    () => filteredItemKeys.length * MODEL_LIST_ESTIMATED_ITEM_SIZE,
+  );
+  const [searchHeight, setSearchHeight] = useState(0);
+  useLayoutEffect(
+    () => modelListRef.current?.getState().listen("totalSize", setModelListContentSize),
+    [],
+  );
+  // Fit the list to its rows plus the combobox list `py-1` and LegendList `py-1.5`.
+  const modelListHeight =
+    filteredItemKeys.length === 0 ? 0 : `calc(${modelListContentSize}px + var(--spacing) * 5)`;
   const updateModelListScrollFades = useCallback(() => {
     const scrollElement = modelListRef.current?.getScrollableNode();
     if (!(scrollElement instanceof HTMLElement)) {
@@ -809,84 +813,27 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     sidebarInstanceEntries,
   ]);
 
-  const renderRow = useCallback(
-    (modelKey: string, index: number) => {
-      if (legacySection?.key === modelKey) {
-        return (
-          <ComboboxItem
-            hideIndicator
-            index={index}
-            value={modelKey}
-            aria-expanded={legacySection.isExpanded}
-            className="group w-full cursor-pointer"
-          >
-            <div className="min-w-0 flex-1 text-left">
-              <div className="text-xs font-medium leading-snug">Legacy models</div>
-              <div className="mt-1 text-xs font-normal leading-snug text-muted-foreground/70">
-                {legacySection.legacyModels.length} models
-              </div>
-            </div>
-            <ChevronRightIcon
-              className={cn("size-4 transition-transform", legacySection.isExpanded && "rotate-90")}
-            />
-          </ComboboxItem>
-        );
-      }
-      const model = filteredModelByKey.get(modelKey);
-      if (!model) {
-        return null;
-      }
-      const disabledReason = getModelDisabledReason?.(model.instanceId, model.slug) ?? null;
-      const row = (
-        <ModelListRow
-          key={modelKey}
-          index={index}
-          model={model}
-          instanceId={model.instanceId}
-          driverKind={model.driverKind}
-          providerDisplayName={model.instanceDisplayName}
-          providerAccentColor={model.instanceAccentColor}
-          isFavorite={favoritesSet.has(providerModelKey(model.instanceId, model.slug))}
-          isSelected={modelKey === modelPickerModelKey(props.activeInstanceId, props.model)}
-          showProvider
-          preferShortName={!isLocked}
-          useTriggerLabel={false}
-          showNewBadge={isModelPickerNewModel(model.driverKind, model.slug)}
-          jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
-          disabledReason={disabledReason}
-          onToggleFavorite={() => toggleFavorite(model.instanceId, model.slug)}
-        />
-      );
-      if (modelKey !== firstExcludedModelKey) {
-        return row;
-      }
-      return (
-        <div key={modelKey}>
-          <div className="mx-2 mb-1 mt-2 border-t border-border/60 pt-1.5 text-3xs font-medium uppercase tracking-wide text-muted-foreground/70">
-            All models
-          </div>
-          {row}
-        </div>
-      );
-    },
-    [
-      filteredModelByKey,
-      firstExcludedModelKey,
-      getModelDisabledReason,
-      favoritesSet,
-      isLocked,
-      legacySection,
-      modelJumpLabelByKey,
-      props.activeInstanceId,
-      props.model,
-      toggleFavorite,
-    ],
-  );
+  useLayoutEffect(() => {
+    setShowTopScrollFade(false);
+    setShowBottomScrollFade(filteredItemKeys.length > 5);
+    let nestedFrame = 0;
+    const frame = window.requestAnimationFrame(() => {
+      updateModelListScrollFades();
+      nestedFrame = window.requestAnimationFrame(updateModelListScrollFades);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(nestedFrame);
+    };
+  }, [filteredItemKeys, updateModelListScrollFades]);
 
   return (
     <TooltipProvider delay={0}>
       <div
-        className="relative flex h-screen max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
+        ref={pickerContentRef}
+        className="relative flex max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
+        // Hold the height from when the search started; results scroll instead of resizing.
+        style={isSearching ? { height: searchHeight } : undefined}
         data-model-picker-content="true"
       >
         {/* Sidebar */}
@@ -961,7 +908,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               ref={searchInputRef}
               placeholder="Search models..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                if (!isSearching) setSearchHeight(pickerContentRef.current?.offsetHeight ?? 0);
+                setSearchQuery(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (
                   showSidebar &&
@@ -1015,7 +965,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             />
 
             {/* Model list */}
-            <div className="relative min-h-0 flex-1 overflow-hidden pr-px">
+            <div
+              className="relative min-h-0 overflow-hidden pr-px"
+              style={{ height: modelListHeight }}
+            >
               <ComboboxListVirtualized>
                 <LegendList<string>
                   ref={modelListRef}
@@ -1062,6 +1015,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         driverKind={model.driverKind}
                         providerDisplayName={model.instanceDisplayName}
                         providerAccentColor={model.instanceAccentColor}
+                        acpRegistryAgentId={model.acpRegistryAgentId}
+                        acpRegistryIconUrl={model.acpRegistryIconUrl}
                         isFavorite={favoritesSet.has(
                           providerModelKey(model.instanceId, model.slug),
                         )}
@@ -1082,7 +1037,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                       />
                     );
                   }}
-                  estimatedItemSize={52}
+                  estimatedItemSize={MODEL_LIST_ESTIMATED_ITEM_SIZE}
                   drawDistance={480}
                   recycleItems
                   contentContainerClassName="pl-2 pr-px"

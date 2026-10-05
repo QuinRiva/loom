@@ -14,7 +14,7 @@ import {
   type ServerProviderModel,
   TextGenerationError,
 } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { resolveAttachmentPath } from "../attachmentStore.ts";
@@ -34,7 +34,6 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-  type TextGenerationOperation, // loom: adds the structured-generation operation
 } from "./TextGenerationUtils.ts";
 import { codexModelFamily, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../codexModelOptions.ts";
@@ -80,17 +79,33 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       ),
     );
 
+  const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
+    fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
+
+  const removeTempFileDir = (filePath: string): Effect.Effect<void, never> =>
+    fileSystem
+      .remove(path.dirname(filePath), { recursive: true })
+      .pipe(Effect.catch(() => Effect.void));
+
+  // Deliberately unscoped: text generation runs from background fibers whose
+  // ambient scope may already be closed (a closed scope reaps the temp
+  // directory the moment it is created). Each allocation removes its own
+  // directory on failure; success-path cleanup is explicit in runCodexJson.
   const writeTempFile = (
     operation: string,
     prefix: string,
     content: string,
-  ): Effect.Effect<string, TextGenerationError, Scope.Scope> =>
+  ): Effect.Effect<string, TextGenerationError> =>
     fileSystem
-      .makeTempFileScoped({
+      .makeTempFile({
         prefix: `t3code-${prefix}-${process.pid}-`,
       })
       .pipe(
-        Effect.tap((filePath) => fileSystem.writeFileString(filePath, content)),
+        Effect.tap((filePath) =>
+          fileSystem
+            .writeFileString(filePath, content)
+            .pipe(Effect.onError(() => removeTempFileDir(filePath))),
+        ),
         Effect.mapError(
           (cause) =>
             new TextGenerationError({
@@ -101,11 +116,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         ),
       );
 
-  const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
-    fileSystem.remove(filePath).pipe(Effect.ignore);
-
   const encodeJsonForOperation = (
-    operation: TextGenerationOperation,
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle",
     value: unknown,
   ): Effect.Effect<string, TextGenerationError> =>
     encodeJsonString(value).pipe(
@@ -120,7 +136,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     );
 
   const materializeImageAttachments = Effect.fn("materializeImageAttachments")(function* (
-    _operation: TextGenerationOperation,
+    _operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle",
     attachments: TextGeneration.BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
     if (!attachments || attachments.length === 0) {
@@ -158,7 +178,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     cleanupPaths = [],
     modelSelection,
   }: {
-    operation: TextGenerationOperation;
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -171,7 +195,9 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       toJsonSchemaObject(outputSchemaJson),
     );
     const schemaPath = yield* writeTempFile(operation, "codex-schema", schemaJson);
-    const outputPath = yield* writeTempFile(operation, "codex-output", "");
+    const outputPath = yield* writeTempFile(operation, "codex-output", "").pipe(
+      Effect.onError(() => removeTempFileDir(schemaPath)),
+    );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const resolved = resolveRuntime
@@ -268,9 +294,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       }
     });
 
-    const cleanup = Effect.forEach(
-      [schemaPath, outputPath, ...cleanupPaths],
-      (filePath) => safeUnlink(filePath),
+    const cleanup = Effect.all(
+      [
+        removeTempFileDir(schemaPath),
+        removeTempFileDir(outputPath),
+        ...cleanupPaths.map((filePath) => safeUnlink(filePath)),
+      ],
       {
         concurrency: "unbounded",
       },
@@ -379,6 +408,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
+        naming: input.naming,
       });
 
       const generated = yield* runCodexJson({
@@ -391,7 +421,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       });
 
       return {
-        branch: sanitizeBranchFragment(generated.branch),
+        branch: formatGeneratedBranchName(generated.branch, input.naming),
       };
     });
 
@@ -423,22 +453,10 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
-  const generateStructured: TextGeneration.TextGeneration["Service"]["generateStructured"] = (
-    input,
-  ) =>
-    runCodexJson({
-      operation: "generateStructured",
-      cwd: process.cwd(),
-      prompt: input.prompt,
-      outputSchemaJson: input.outputSchema,
-      modelSelection: input.modelSelection,
-    });
-
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
-    generateStructured,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

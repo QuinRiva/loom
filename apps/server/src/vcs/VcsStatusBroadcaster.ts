@@ -12,7 +12,6 @@ import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
-import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import type {
@@ -24,11 +23,12 @@ import type {
   VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
@@ -171,15 +171,15 @@ export class VcsAutoPullPolicy extends Context.Reference<{
 export const autoPullPolicyLayer = Layer.effect(
   VcsAutoPullPolicy,
   Effect.gen(function* () {
-    const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const projects = yield* ProjectStore.ProjectStoreV2;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     return {
       isEnabled: Effect.fn("VcsAutoPullPolicy.isEnabled")(
         function* (cwd: string) {
-          const project = yield* snapshots.getActiveProjectByWorkspaceRoot(cwd);
+          const project = yield* projects.findActiveByWorkspaceRoot(cwd);
           if (project._tag === "None") return false;
           const settings = yield* serverSettings.getSettings;
-          return resolveProjectSettings(settings, project.value.id).settings.defaultAutoPull;
+          return resolveProjectSettings(settings, project.value.projectId).settings.defaultAutoPull;
         },
         Effect.orElseSucceed(() => false),
       ),
@@ -262,15 +262,9 @@ export const make = Effect.gen(function* () {
   // One permit per cwd for remote reads that write the cache. Without it a
   // periodic poll that started before `gh pr create` can finish after the
   // turn-end refresh and overwrite the fresh PR with its stale `pr: null`.
-  const remoteWriteLocks = new Map<string, Semaphore.Semaphore>();
-  const withRemoteWriteLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) => {
-    let lock = remoteWriteLocks.get(cwd);
-    if (lock === undefined) {
-      lock = Semaphore.makeUnsafe(1);
-      remoteWriteLocks.set(cwd, lock);
-    }
-    return lock.withPermits(1)(effect);
-  };
+  const remoteWriteLocks = yield* KeyedLock.make<string>();
+  const withRemoteWriteLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
+    remoteWriteLocks.withLock(cwd, effect);
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
   const repositoryKeyByCwdRef = yield* Ref.make(new Map<string, string>());
 
@@ -538,8 +532,12 @@ export const make = Effect.gen(function* () {
     yield* Effect.forEach(
       entries,
       (entry, index) =>
+        // loom: the repo batch applies upstream's auto-pull and divergence-driven local
+        // re-read per entry. Not under upstream's per-cwd remote write lock: the explicit
+        // refresh below already holds it for its cwd and the lock is not re-entrant.
         Effect.gen(function* () {
           const remote = remotes[index] ?? null;
+          const previousRemote = (yield* getCachedStatus(entry.cwd))?.remote?.value;
           // loom: upstream auto-pulls inside its per-cwd remote refresh; the repo
           // batch does it per entry, defaulting the policy scope to this
           // repository's subscribers (upstream's demandCwds).
@@ -549,6 +547,15 @@ export const make = Effect.gen(function* () {
             options?.policyCwds ?? [...poller.subscribers.keys()],
           );
           if (pulled !== null) return;
+          if (
+            remote &&
+            (!previousRemote ||
+              previousRemote.aheadCount !== remote.aheadCount ||
+              previousRemote.behindCount !== remote.behindCount ||
+              previousRemote.aheadOfDefaultCount !== remote.aheadOfDefaultCount)
+          ) {
+            yield* refreshLocalStatusCore(entry.cwd);
+          }
           yield* updateCachedRemoteStatus(entry.cwd, remote, { publish: true });
         }),
       { discard: true },

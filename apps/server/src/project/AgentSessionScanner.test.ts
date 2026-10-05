@@ -19,7 +19,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 
@@ -33,18 +33,12 @@ const makeProjectShell = (workspaceRoot: string): OrchestrationProjectShell => (
   updatedAt: "2026-01-01T00:00:00.000Z",
 });
 
-/** Only `getShellSnapshot` is exercised; `Layer.mock` defects on anything else. */
-const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<string>) =>
-  Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-    getShellSnapshot: () =>
-      Effect.succeed({
-        snapshotSequence: 0,
-        goals: [], // loom: goals are part of the fork's shell snapshot
-        projects: importedWorkspaceRoots.map((workspaceRoot) => makeProjectShell(workspaceRoot)),
-        threads: [],
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
-    getImportedAgentSessionSources: () => Effect.succeed([]),
+const makeProjectStoreLayer = (importedWorkspaceRoots: ReadonlyArray<string>) =>
+  Layer.mock(ProjectStore.ProjectStoreV2)({
+    listShells: () =>
+      Effect.succeed(
+        importedWorkspaceRoots.map((workspaceRoot) => makeProjectShell(workspaceRoot)),
+      ),
   });
 
 /**
@@ -77,7 +71,7 @@ const makeScannerTestLayer = (input: ScannerTestInput) =>
           input.claudeHomePath,
           input.configBaseDir ?? { prefix: "t3code-scanner-config-" },
         ),
-        makeProjectionSnapshotQueryLayer(input.importedWorkspaceRoots ?? []),
+        makeProjectStoreLayer(input.importedWorkspaceRoots ?? []),
       ),
     ),
   );

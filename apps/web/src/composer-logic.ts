@@ -1,5 +1,5 @@
 import type { ClientSettings } from "@t3tools/contracts/settings";
-import type { AssistantCitation } from "@t3tools/contracts";
+import type { AssistantCitation, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import {
   serializeAssistantCitation,
   withAssistantCitationComment,
@@ -9,11 +9,10 @@ import {
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
 
-// loom: upstream's `pull-request` trigger becomes `hash` \u2014 one `#` menu with a
-// pull-request section and a thread section (plan D-D).
-export type ComposerTriggerKind = "path" | "hash" | "slash-command" | "skill";
-// loom: `/handoff` and `/retro` are client-side intercepts (loom/composerIntercepts.ts).
-export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff" | "retro";
+import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
+
+export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+export type ComposerSlashCommand = "model" | "plan" | "default";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {
@@ -27,24 +26,48 @@ export function formatAssistantCitationForComposer(citation: AssistantCitation, 
   return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
 }
 
-export function composerSubmissionIntentForEnter(input: {
+function composerRequiresModifier(
+  sendShortcut: ClientSettings["sendShortcut"] | undefined,
+  prompt: string,
+) {
+  return (
+    sendShortcut === "mod-enter" ||
+    (sendShortcut === "mod-enter-multiline" && /[\r\n]/.test(prompt))
+  );
+}
+
+export function composerSubmissionIntentForKey(input: {
+  event: ShortcutEventLike & { isComposing?: boolean; keyCode?: number; repeat?: boolean };
+  keybindings: ResolvedKeybindingsConfig;
+  platform?: string;
   isMobileViewport: boolean;
-  shiftKey: boolean;
-  modifierKey: boolean;
   isDraftThread: boolean;
   isRunning?: boolean;
   sendShortcut?: ClientSettings["sendShortcut"];
   prompt?: string;
 }): ComposerSubmissionIntent | null {
-  const requiresModifier =
-    input.sendShortcut === "mod-enter" ||
-    (input.sendShortcut === "mod-enter-multiline" && /[\r\n]/.test(input.prompt ?? ""));
-  if (input.isMobileViewport || (requiresModifier && !input.modifierKey)) return null;
-  if (input.shiftKey && !(requiresModifier && input.modifierKey && input.isRunning)) return null;
-  if (input.isRunning && input.modifierKey && (!requiresModifier || input.shiftKey)) {
-    return "alternate";
-  }
-  return input.modifierKey && input.isDraftThread ? "background" : "foreground";
+  const { event } = input;
+  if (input.isMobileViewport || event.isComposing || event.keyCode === 229 || event.repeat)
+    return null;
+  const command = resolveShortcutCommand(event, input.keybindings, {
+    ...(input.platform === undefined ? {} : { platform: input.platform }),
+    context: {
+      composerFocus: true,
+      draftThreadRoute: input.isDraftThread,
+      turnRunning: input.isRunning === true,
+    },
+  });
+  if (command === "composer.sendAlternate" && input.isRunning) return "alternate";
+  if (command === "composer.sendBackground" && input.isDraftThread) return "background";
+  if (command === "composer.sendAndNewThread" && !input.isDraftThread) return "background";
+  if (command !== null || event.key !== "Enter" || event.shiftKey || event.altKey) return null;
+  if (
+    composerRequiresModifier(input.sendShortcut, input.prompt ?? "") &&
+    !event.metaKey &&
+    !event.ctrlKey
+  )
+    return null;
+  return "foreground";
 }
 
 const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean => segment.type !== "text";
@@ -64,23 +87,6 @@ function tokenStartForCursor(text: string, cursor: number): number {
     index -= 1;
   }
   return index + 1;
-}
-
-/**
- * loom: locate the `#` that opens the active hash query the cursor sits inside,
- * or null if there is none. Unlike `@`/`$` (single whitespace-delimited
- * tokens), the query spans spaces \u2014 thread titles are multi-word \u2014 so we scan
- * the current line back to the nearest `#` that starts a token (line start or
- * preceded by whitespace). Everything from there to the cursor is the live
- * query; the menu closes once both sections settle empty, so a stray `#` in
- * prose never leaves a menu hanging.
- */
-function hashTriggerStart(text: string, lineStart: number, cursor: number): number | null {
-  for (let index = cursor - 1; index >= lineStart; index -= 1) {
-    if (text[index] !== "#") continue;
-    if (index === lineStart || isWhitespace(text[index - 1] ?? "")) return index;
-  }
-  return null;
 }
 
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
@@ -255,6 +261,15 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
+  const pullRequestMatch = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
+  if (pullRequestMatch) {
+    return {
+      kind: "pull-request",
+      query: pullRequestMatch[1] ?? "",
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
   const skillPrefix = /^\p{Sc}/u.exec(token);
   if (skillPrefix) {
     return {
@@ -264,26 +279,16 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeEnd: cursor,
     };
   }
-  if (token.startsWith("@")) {
-    return {
-      kind: "path",
-      query: token.slice(1),
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
-    };
+  if (!token.startsWith("@")) {
+    return null;
   }
 
-  // loom: the hash scan-back runs LAST so the current token's `$`/`@`/`/`
-  // triggers keep precedence over an earlier `#` on the same line.
-  const hashStart = hashTriggerStart(text, lineStart, cursor);
-  return hashStart === null
-    ? null
-    : {
-        kind: "hash",
-        query: text.slice(hashStart + 1, cursor),
-        rangeStart: hashStart,
-        rangeEnd: cursor,
-      };
+  return {
+    kind: "path",
+    query: token.slice(1),
+    rangeStart: tokenStart,
+    rangeEnd: cursor,
+  };
 }
 
 /** Caret and trigger after replacing composer text and continuing at the end. */
@@ -298,8 +303,9 @@ export function composerStateAtPromptEnd(text: string): {
   };
 }
 
-// loom: explicitly plan/default — `handoff`/`retro` have their own recognisers.
-export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
+export function parseStandaloneComposerSlashCommand(
+  text: string,
+): Exclude<ComposerSlashCommand, "model"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

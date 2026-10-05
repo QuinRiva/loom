@@ -6,6 +6,7 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
+import { makeThreadShellFixture } from "../../test-fixtures";
 
 function makeProject(
   input: Partial<EnvironmentProject> & Pick<EnvironmentProject, "environmentId" | "id" | "title">,
@@ -25,61 +26,21 @@ function makeThread(
   input: Partial<EnvironmentThreadShell> &
     Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "title">,
 ): EnvironmentThreadShell {
-  return {
-    // loom: workstream fields on the thread shell (goal, graph, cost, activity).
-    goalId: null,
-    parentThreadId: null,
-    role: null,
-    purpose: null,
-    brief: null,
-    planLane: "planned" as const,
-    attention: [],
-    blockedBy: [],
-    spawnGeneration: null,
-    forkFromThreadId: null,
-    anchorTaskId: null,
-    continuesThreadId: null,
-    reportPath: null,
-    kickoffBriefPath: null,
-    graphKey: null,
-    planLaneSince: null,
-    dependenciesSince: null,
-    faninSince: null,
-    routes: [],
-    gateRounds: 0,
-    pendingRework: false,
-    lastOutcome: null,
-    isolation: "shared" as const,
-    fanInState: "none" as const,
+  return makeThreadShellFixture({
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
     worktreePath: null,
-    pullRequests: [],
-    latestTurn: null,
-    toolUses: null,
-    usedTokens: null,
-    maxTokens: null,
-    diffAdditions: null,
-    diffDeletions: null,
-    handoffDestinations: [],
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
     archivedAt: null,
-    session: null,
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
-    lastActivityPreview: null,
-    consults: [],
-    peerMessages: [],
-    notifySendLog: [],
     ...input,
-    settledOverride: input.settledOverride ?? null,
-    settledAt: input.settledAt ?? null,
-  };
+  });
 }
 
 describe("home project scopes", () => {

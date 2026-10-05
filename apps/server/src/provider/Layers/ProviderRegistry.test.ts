@@ -1,6 +1,6 @@
-import { CodexInstallation } from "../CodexInstallation.ts";
-import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
-import { ServerEnvironmentIdentity } from "../../environment/ServerEnvironment.ts";
+import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
+import * as CodexInstallation from "../CodexInstallation.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -40,15 +40,18 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
-import { AntigravityInstallation } from "../AntigravityInstallation.ts";
+import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import { applyProviderCompatibility } from "../providerCompatibility.ts";
 import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
+import * as OpenCodeServerLedger from "../OpenCodeServerLedger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
   mergeProviderSnapshot,
+  mergeProviderSnapshots,
+  selectProvidersByKind,
   upsertProviderWorkspaceSnapshot,
   ProviderRegistryLive,
 } from "./ProviderRegistry.ts";
@@ -60,8 +63,7 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache.ts";
 import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
-import type { ProviderInstance } from "../ProviderDriver.ts";
-import { ProviderHealthRegistryLive } from "../Services/ProviderHealthRegistry.ts";
+import type { ProviderInstance, ProviderWorkspaceSnapshot } from "../ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
@@ -347,6 +349,19 @@ function makeMutableServerSettingsService(
           yield* PubSub.publish(changes, next);
           return next;
         }),
+      updateProviderInstance: (mutation, patch = {}) =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(settingsRef);
+          const next = ServerSettingsModule.applyProviderInstanceMutation(
+            applyServerSettingsPatch(current, patch),
+            mutation,
+          );
+          encodeServerSettings(next);
+          yield* Ref.set(settingsRef, next);
+          yield* PubSub.publish(changes, next);
+          return next;
+        }),
+      withSettingsSnapshot: (use) => Ref.get(settingsRef).pipe(Effect.flatMap(use)),
       get streamChanges() {
         return Stream.fromPubSub(changes);
       },
@@ -376,9 +391,11 @@ const awaitPersistedProvider = (
 
 const TestNodeServices = Layer.mergeAll(
   NodeServices.layer,
-  Layer.mock(CodexInstallation)({ managedDirectory: "unused-managed-installation" }),
-  Layer.mock(ServerSecretStore)({}),
-  Layer.succeed(ServerEnvironmentIdentity, {
+  Layer.mock(CodexInstallation.CodexInstallation)({
+    managedDirectory: "unused-managed-installation",
+  }),
+  Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+  Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
     getEnvironmentId: Effect.succeed(EnvironmentId.make("00000000-0000-4000-8000-000000000001")),
   }),
 );
@@ -624,6 +641,34 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             skills: scopedSnapshot.skills,
           },
         ]);
+
+        const pendingSnapshot = {
+          ...scopedSnapshot,
+          slashCommands: [COMPACT_SLASH_COMMAND],
+          slashCommandsPending: true,
+        } satisfies ProviderWorkspaceSnapshot;
+        const partial = upsertProviderWorkspaceSnapshot(result, "/project", pendingSnapshot);
+        assert.deepStrictEqual(partial.workspaceSnapshots?.[0]?.slashCommands, [
+          { name: "project" },
+        ]);
+        assert.strictEqual(partial.workspaceSnapshots?.[0]?.slashCommandsPending, true);
+        const otherProject = upsertProviderWorkspaceSnapshot(
+          partial,
+          "/other-project",
+          pendingSnapshot,
+        );
+        assert.deepStrictEqual(otherProject.workspaceSnapshots?.[1]?.slashCommands, [
+          COMPACT_SLASH_COMMAND,
+        ]);
+        const recovered = upsertProviderWorkspaceSnapshot(partial, "/project", {
+          ...scopedSnapshot,
+          slashCommands: [COMPACT_SLASH_COMMAND, { name: "replacement" }],
+        });
+        assert.deepStrictEqual(recovered.workspaceSnapshots?.[0]?.slashCommands, [
+          COMPACT_SLASH_COMMAND,
+          { name: "replacement" },
+        ]);
+        assert.strictEqual(recovered.workspaceSnapshots?.[0]?.slashCommandsPending, undefined);
       });
 
       it("preserves previously discovered provider models when a refresh returns none", () => {
@@ -719,6 +764,82 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
           ...refreshedProvider.models,
         ]);
+      });
+
+      it("drops stale ACP Registry models missing from a completed discovery probe", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("acpRegistry_codex"),
+          driver: ProviderDriverKind.make("acpRegistry"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-08-13T00:00:00.000Z",
+          version: "1.2.0",
+          models: [
+            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
+            {
+              slug: "gpt-5.6-sol[low]",
+              name: "GPT-5.6-Sol (low)",
+              isCustom: false,
+              capabilities: null,
+            },
+            { slug: "default", name: "Default", isCustom: false, capabilities: null },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          checkedAt: "2026-08-13T00:01:00.000Z",
+          models: [
+            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
+          ],
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          ...refreshedProvider.models,
+        ]);
+      });
+
+      it("retains ACP Registry models while discovery has not completed", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("acpRegistry_codex"),
+          driver: ProviderDriverKind.make("acpRegistry"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-08-13T00:00:00.000Z",
+          version: "1.2.0",
+          models: [
+            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const checkingProvider = {
+          ...previousProvider,
+          checkedAt: "2026-08-13T00:01:00.000Z",
+          auth: { status: "unknown" },
+          models: [{ slug: "default", name: "Default", isCustom: false, capabilities: null }],
+        } satisfies ServerProvider;
+        const failedProbeProvider = {
+          ...checkingProvider,
+          status: "warning",
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, checkingProvider).models, [
+          { slug: "default", name: "Default", isCustom: false, capabilities: null },
+          { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
+        ]);
+        assert.deepStrictEqual(
+          mergeProviderSnapshot(previousProvider, failedProbeProvider).models,
+          [
+            { slug: "default", name: "Default", isCustom: false, capabilities: null },
+            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", isCustom: false, capabilities: null },
+          ],
+        );
       });
 
       it("drops stale OpenCode models missing from a successful refresh", () => {
@@ -1049,7 +1170,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 applyUsageLimits: () => Effect.void,
                 retractUsageLimits: () => Effect.void,
               },
-              adapter: {} as ProviderInstance["adapter"],
+              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
             } satisfies ProviderInstance;
             const instanceRegistryLayer = Layer.succeed(
@@ -1417,7 +1538,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               applyUsageLimits: () => Effect.void,
               retractUsageLimits: () => Effect.void,
             },
-            adapter: {} as ProviderInstance["adapter"],
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
@@ -1482,7 +1603,12 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             slashCommands: [],
           } as const satisfies ServerProvider;
           const snapshotCalls = yield* Ref.make(0);
-          const scopedResult = yield* Ref.make<ServerProvider>(scopedProvider);
+          const scopedResult = yield* Ref.make<ProviderWorkspaceSnapshot>({
+            ...scopedProvider,
+            status: "error",
+            slashCommands: [COMPACT_SLASH_COMMAND],
+            slashCommandsPending: true,
+          });
           const cacheInvalidations = yield* Ref.make(0);
           const scanGate = yield* Ref.make<{
             readonly started: Deferred.Deferred<void>;
@@ -1519,7 +1645,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             },
             snapshotForCwd,
             invalidateCaches: Ref.update(cacheInvalidations, (count) => count + 1),
-            adapter: {} as ProviderInstance["adapter"],
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           });
           const firstInstance = makeInstance(machineProvider, () =>
@@ -1608,8 +1734,27 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               providers[0]?.workspaceSnapshots?.[0]?.skills,
               scopedProvider.skills,
             );
+            assert.deepStrictEqual(providers[0]?.workspaceSnapshots?.[0]?.slashCommands, [
+              COMPACT_SLASH_COMMAND,
+            ]);
+            assert.strictEqual(providers[0]?.workspaceSnapshots?.[0]?.slashCommandsPending, true);
+            yield* Ref.set(scopedResult, {
+              ...scopedProvider,
+              status: "error",
+              slashCommandsPending: false,
+            });
             yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 2);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 3);
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.slashCommands,
+              scopedProvider.slashCommands,
+            );
+            assert.strictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.slashCommandsPending,
+              undefined,
+            );
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 3);
             const newSkills = [
               ...scopedProvider.skills,
               { name: "added", path: "/workspace/added/SKILL.md", enabled: true },
@@ -1620,7 +1765,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               cwd: "/workspace",
               fresh: true,
             });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 3);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 4);
             assert.strictEqual(yield* Ref.get(cacheInvalidations), 1);
             assert.deepStrictEqual(
               (yield* registry.getProviders)[0]?.workspaceSnapshots?.map((s) => s.skills),
@@ -1762,7 +1907,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 applyUsageLimits: () => Effect.void,
                 retractUsageLimits: () => Effect.void,
               },
-              adapter: {} as ProviderInstance["adapter"],
+              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
             },
             {
@@ -1790,7 +1935,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 applyUsageLimits: () => Effect.void,
                 retractUsageLimits: () => Effect.void,
               },
-              adapter: {} as ProviderInstance["adapter"],
+              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
             },
           ] satisfies ReadonlyArray<ProviderInstance>;
@@ -1857,6 +2002,70 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         }),
       );
 
+      it("persists merged provider snapshots for the providers that were refreshed", () => {
+        const previousProviders = [
+          {
+            instanceId: ProviderInstanceId.make("cursor"),
+            driver: ProviderDriverKind.make("cursor"),
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt: "2026-04-14T00:00:00.000Z",
+            version: "2026.04.09-f2b0fcd",
+            models: [
+              {
+                slug: "claude-opus-4-6",
+                name: "Opus 4.6",
+                isCustom: false,
+                capabilities: createModelCapabilities({
+                  optionDescriptors: [
+                    selectDescriptor("reasoning", "Reasoning", [
+                      { id: "high", label: "High", isDefault: true },
+                    ]),
+                    booleanDescriptor("fastMode", "Fast Mode"),
+                    booleanDescriptor("thinking", "Thinking"),
+                  ],
+                }),
+              },
+            ],
+            slashCommands: [],
+            skills: [],
+          },
+          {
+            instanceId: ProviderInstanceId.make("codex"),
+            driver: ProviderDriverKind.make("codex"),
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt: "2026-04-14T00:00:00.000Z",
+            version: "1.0.0",
+            models: [],
+            slashCommands: [],
+            skills: [],
+          },
+        ] as const satisfies ReadonlyArray<ServerProvider>;
+        const refreshedCursor = {
+          ...previousProviders[0],
+          checkedAt: "2026-04-14T00:01:00.000Z",
+          models: [],
+        } satisfies ServerProvider;
+
+        const mergedProviders = mergeProviderSnapshots(previousProviders, [refreshedCursor]);
+        const persistedProviders = selectProvidersByKind(
+          mergedProviders,
+          new Set([ProviderDriverKind.make("cursor")]),
+        );
+
+        assert.deepStrictEqual(persistedProviders, [
+          {
+            ...refreshedCursor,
+            models: [...previousProviders[0].models],
+          },
+        ]);
+      });
+
       it.effect("persists the merged snapshot when a live update has empty models", () =>
         Effect.gen(function* () {
           const cursorDriver = ProviderDriverKind.make("cursor");
@@ -1916,7 +2125,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               applyUsageLimits: () => Effect.void,
               retractUsageLimits: () => Effect.void,
             },
-            adapter: {} as ProviderInstance["adapter"],
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
@@ -2045,7 +2254,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 applyUsageLimits: () => Effect.void,
                 retractUsageLimits: () => Effect.void,
               },
-              adapter: {} as ProviderInstance["adapter"],
+              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
             } satisfies ProviderInstance;
             const instanceRegistryLayer = Layer.succeed(
@@ -2149,7 +2358,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               applyUsageLimits: () => Effect.void,
               retractUsageLimits: () => Effect.void,
             },
-            adapter: {} as ProviderInstance["adapter"],
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
@@ -2251,7 +2460,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               applyUsageLimits: () => Effect.void,
               retractUsageLimits: () => Effect.void,
             },
-            adapter: {} as ProviderInstance["adapter"],
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
           });
           const codexInstance = makeInstance(codexProvider);
@@ -2342,105 +2551,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
       // "unavailable" shadow in `getProviders` — is already covered by the
       // "includes unavailable instance snapshots in getProviders" test below.
 
-      // loom: pi-flavoured rewrite of "re-probes when settings change the codex
-      // binaryPath". The behaviour still live in the pi-only world is the
-      // settings hot-reload pipeline: a `providers.pi.*` change flows through
-      // `SettingsWatcherLive.streamChanges` → `deriveProviderInstanceConfigMap`
-      // → `reconcile`, whose `entryEqual` diff tears down the live pi instance
-      // and rebuilds it, so the rebuilt instance's fresh snapshot (built from the
-      // NEW config) lands in `getProviders` via `syncLiveSources`. Pi has no
-      // spawn-at-probe step to intercept (its snapshot is synchronous and its
-      // enrichment spawns via raw `NodeChildProcess.spawn`, NOT the Effect
-      // `ChildProcessSpawner`), so we assert the rebuild through an observable
-      // config-derived field: `customModels` flows into the snapshot's `models`
-      // (`makePiProvider` → `piCustomModels`). Seeing the new custom model appear
-      // proves the instance was rebuilt from the changed settings.
-      it.effect(
-        "rebuilds the pi instance when settings change so the new config takes effect",
-        () =>
-          Effect.gen(function* () {
-            const customModelSlug = "acme/pi-custom-model";
-            const serverSettings = yield* makeMutableServerSettingsService(
-              decodeServerSettings(
-                deepMerge(encodedDefaultServerSettings, {
-                  providers: {
-                    pi: { enabled: true, customModels: [] },
-                  },
-                }),
-              ),
-            );
-            const scope = yield* Scope.make();
-            yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-            const providerRegistryLayer = ProviderRegistryLive.pipe(
-              Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-              Layer.provideMerge(ProviderHealthRegistryLive),
-              Layer.provideMerge(
-                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-              ),
-              Layer.provideMerge(
-                ServerConfig.layerTest(process.cwd(), {
-                  prefix: "t3-provider-registry-",
-                }),
-              ),
-              Layer.provideMerge(TestHttpClientLive),
-              Layer.provideMerge(
-                Layer.succeed(
-                  ProviderEventLoggers.ProviderEventLoggers,
-                  ProviderEventLoggers.NoOpProviderEventLoggers,
-                ),
-              ),
-              Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-              Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
-              Layer.provideMerge(NodeServices.layer),
-            );
-            const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
-              Scope.provide(scope),
-            );
-
-            yield* Effect.gen(function* () {
-              const registry = yield* ProviderRegistry.ProviderRegistry;
-              const initialProviders = yield* registry.getProviders;
-              const initialPi = initialProviders.find((provider) => provider.instanceId === "pi");
-              assert.strictEqual(initialPi?.status, "ready");
-              assert.strictEqual(
-                initialPi?.models.some((model) => model.slug === customModelSlug),
-                false,
-                "The custom model must not be present before the settings change.",
-              );
-
-              // Settings change: the Hydration layer's `SettingsWatcherLive`
-              // consumes this via `streamChanges`, calls `reconcile`, whose
-              // `entryEqual` diff sees the changed `customModels` envelope, tears
-              // down the live pi instance and rebuilds it. The registry's
-              // `Stream.runForEach(instanceRegistry.streamChanges, () =>
-              // syncLiveSources)` then republishes the rebuilt snapshot.
-              yield* serverSettings.updateSettings({
-                providers: { pi: { customModels: [customModelSlug] } },
-              });
-
-              const refreshed = yield* Effect.gen(function* () {
-                for (let attempts = 0; attempts < 60; attempts += 1) {
-                  const providers = yield* registry.getProviders;
-                  const pi = providers.find((provider) => provider.instanceId === "pi");
-                  if (pi?.models.some((model) => model.slug === customModelSlug)) {
-                    return providers;
-                  }
-                  yield* TestClock.adjust("50 millis");
-                  yield* Effect.yieldNow;
-                }
-                return yield* registry.getProviders;
-              });
-
-              const rebuiltPi = refreshed.find((provider) => provider.instanceId === "pi");
-              assert.strictEqual(rebuiltPi?.status, "ready");
-              assert.strictEqual(
-                rebuiltPi?.models.some((model) => model.slug === customModelSlug),
-                true,
-                "The rebuilt pi instance must expose the newly configured custom model.",
-              );
-            }).pipe(Effect.provide(runtimeServices));
-          }),
-      );
+      // loom: the pi-flavoured rewrite of "re-probes when settings change the codex
+      // binaryPath" was deleted in pull 9: it pinned Loom's quarantined PiDriver
+      // (string `customModels` surfacing as snapshot models); upstream's PiDriver
+      // takes object `customModels` (DL-84). Phase 2 re-expresses it on upstream's
+      // PiProvider if the hot-reload coverage is wanted.
 
       it.effect("includes unavailable instance snapshots in getProviders", () =>
         Effect.gen(function* () {
@@ -2469,11 +2584,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const providerRegistryLayer = ProviderRegistryLive.pipe(
             Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-            Layer.provideMerge(AntigravityInstallation.layer),
-            Layer.provideMerge(ProviderHealthRegistryLive),
+            Layer.provideMerge(AntigravityInstallation.AntigravityInstallation.layer),
             Layer.provideMerge(
               Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
             ),
+            Layer.provideMerge(ServerSecretStore.layer),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
                 prefix: "t3-provider-registry-",
@@ -2488,7 +2603,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             ),
             Layer.provideMerge(ModelManifest.layerTest),
             Layer.provideMerge(ResetCreditCoordinator.layerTest),
-            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+            Layer.provideMerge(
+              OpenCodeRuntime.OpenCodeRuntimeLive.pipe(
+                Layer.provide(OpenCodeServerLedger.layerTest),
+              ),
+            ),
             Layer.provideMerge(NodeServices.layer),
             Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           );
@@ -2540,11 +2659,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const providerRegistryLayer = ProviderRegistryLive.pipe(
             Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-            Layer.provideMerge(AntigravityInstallation.layer),
-            Layer.provideMerge(ProviderHealthRegistryLive),
+            Layer.provideMerge(AntigravityInstallation.AntigravityInstallation.layer),
             Layer.provideMerge(
               Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
             ),
+            Layer.provideMerge(ServerSecretStore.layer),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
                 prefix: "t3-provider-registry-",
@@ -2559,7 +2678,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             ),
             Layer.provideMerge(ModelManifest.layerTest),
             Layer.provideMerge(ResetCreditCoordinator.layerTest),
-            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+            Layer.provideMerge(
+              OpenCodeRuntime.OpenCodeRuntimeLive.pipe(
+                Layer.provide(OpenCodeServerLedger.layerTest),
+              ),
+            ),
             Layer.provideMerge(NodeServices.layer),
             Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           );

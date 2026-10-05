@@ -7,15 +7,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as NodePath from "node:path";
-import * as Path from "effect/Path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { ServerConfig } from "../config.ts";
-import { GitWorkflowService } from "../git/GitWorkflowService.ts";
-import { layer as WorktreeMutationLockLive } from "../git/WorktreeMutationLock.ts";
-import { performWorktreeRemoval } from "../orchestration/worktreeRemoval.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { layer as WorkspaceLeaseLive } from "./WorkspaceOccupancyLease.ts";
 import {
   detectForeignDatabase,
   isForeignDatabase,
@@ -72,51 +67,6 @@ describe("foreign-home guard", () => {
       assert.isFalse(isForeignDatabase());
     }),
   );
-
-  // The location rule, on the remover that acts on RECORDED paths (the reaper and
-  // the maintenance panel both go through it).
-  it.layer(
-    Layer.mergeAll(WorktreeMutationLockLive, WorkspaceLeaseLive, ServerConfigLayer).pipe(
-      Layer.provideMerge(NodeServices.layer),
-    ),
-  )("performWorktreeRemoval", (it) => {
-    it.effect("removes a recorded path this home owns and refuses one it does not", () =>
-      Effect.gen(function* () {
-        setForeignDatabaseForTest(null);
-        const config = yield* ServerConfig;
-        const path = yield* Path.Path;
-        const removals: Array<string> = [];
-        const branches: Array<string> = [];
-        const gitLayer = Layer.succeed(GitWorkflowService, {
-          removeWorktree: (input: { readonly path: string }) =>
-            Effect.sync(() => void removals.push(input.path)),
-          deleteBranch: (input: { readonly branch: string }) =>
-            Effect.sync(() => void branches.push(input.branch)),
-        } as never);
-        const remove = (worktreePath: string) =>
-          performWorktreeRemoval({
-            cwd: "/repo",
-            path: worktreePath,
-            branch: "ws/main/coder-1",
-            forceWorktree: false,
-            deleteBranchWhenMerged: true,
-          }).pipe(Effect.provide(gitLayer));
-
-        const owned = path.join(config.worktreesDir, "repo", "ws-coder-1");
-        assert.isTrue((yield* remove(owned))._tag === "Some");
-        assert.deepStrictEqual(removals, [owned]);
-        assert.deepStrictEqual(branches, ["ws/main/coder-1"]);
-
-        // A path this home never created: another home's live checkout, as a
-        // copied database records it. Neither the checkout nor its branch is touched.
-        assert.isTrue(
-          (yield* remove("/home/someone/.t3/cockpit/worktrees/repo/ws-coder-2"))._tag === "None",
-        );
-        assert.deepStrictEqual(removals, [owned]);
-        assert.deepStrictEqual(branches, ["ws/main/coder-1"]);
-      }),
-    );
-  });
 
   it.layer(TestLayer)("git worktree and branch mutations", (it) => {
     it.effect("refuses every worktree and branch mutation on a foreign database", () =>

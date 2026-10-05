@@ -4,7 +4,7 @@ import {
   localSnoozeDate,
   localSnoozeTime,
   resolveCustomSnooze,
-} from "@t3tools/shared/threadSettled";
+} from "./threadSettled.ts";
 
 const now = new Date(2026, 8, 14, 14, 30);
 

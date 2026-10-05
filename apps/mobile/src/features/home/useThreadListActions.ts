@@ -1,6 +1,6 @@
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { canSettle, canSnooze, effectiveSnoozed } from "@t3tools/shared/threadSettled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
+import { canSettle, canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
 import * as Cause from "effect/Cause";
 import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
@@ -27,6 +27,7 @@ import {
   threadDropLifecycle,
 } from "../threads/threadOrder";
 import { getThreadListV2OrderedSection } from "../threads/threadListV2";
+import { threadCanArchive } from "./threadArchive";
 import { resolveThreadTitleRename } from "../threads/thread-title-rename";
 
 /** Version skew: never send settle/unsettle to a server that predates them
@@ -140,11 +141,7 @@ function useThreadActionExecutor(
         }
         // Archive keeps its original, narrower guard: never interrupt a
         // thread mid-turn.
-        if (
-          action === "archive" &&
-          thread.session?.status === "running" &&
-          thread.session.activeTurnId != null
-        ) {
+        if (action === "archive" && !threadCanArchive(thread.runtime)) {
           Alert.alert(
             actionFailureTitle(action),
             "This thread is working. Interrupt it first, then try again.",

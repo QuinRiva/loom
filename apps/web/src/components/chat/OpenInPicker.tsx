@@ -1,10 +1,11 @@
+import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   buildRemoteOpenUrl,
   EditorId,
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
 import { editorLabelForPlatform } from "../../editorLabels";
@@ -16,7 +17,7 @@ import {
 } from "../../remoteOpen";
 import { useEnvironment } from "../../state/environments";
 import { ChevronDownIcon, FolderClosedIcon, SquareArrowOutUpRightIcon } from "lucide-react";
-import { Button } from "../ui/button";
+
 import { Group, GroupSeparator } from "../ui/group";
 import {
   Menu,
@@ -59,9 +60,15 @@ import {
 import { cn, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useAtomValue } from "@effect/atom-react";
-import { primaryServerConfigAtom } from "~/state/server";
-import { tryClientEditorLaunch } from "~/lib/clientEditorLaunch";
+import { useAtomValue } from "@effect/atom-react"; // loom: remoteEditorSshHost
+import { primaryServerConfigAtom } from "~/state/server"; // loom
+import { tryClientEditorLaunch } from "~/lib/clientEditorLaunch"; // loom: zed-ssh
+import {
+  THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+  THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
+  THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
+} from "./threadDetailsPanelStyles";
 
 type OpenInOption = {
   label: string;
@@ -110,6 +117,7 @@ export const resolveOpenInOptions = (
       value: "zed",
       kind: "brand",
     },
+    // loom: zed over SSH from the viewer's machine (remoteEditorSshHost).
     {
       Icon: Zed,
       value: "zed-remote",
@@ -208,6 +216,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   presentation = "toolbar",
   compact = false,
   enableShortcut = true,
+  displayMode = "toolbar",
 }: {
   environmentId: EnvironmentId;
   keybindings: ResolvedKeybindingsConfig;
@@ -216,7 +225,11 @@ export const OpenInPicker = memo(function OpenInPicker({
   presentation?: "toolbar" | "menu";
   compact?: boolean;
   enableShortcut?: boolean;
+  displayMode?: "toolbar" | "panel";
 }) {
+  const isPanel = displayMode === "panel";
+  const ActionGroup = isPanel ? "div" : Group;
+  const panelAnchorRef = useRef<HTMLDivElement | null>(null);
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
   const remoteEditorSshHost = useAtomValue(primaryServerConfigAtom)?.remoteEditorSshHost ?? null;
   const remote = useRemoteOpenState(environmentId);
@@ -273,11 +286,11 @@ export const OpenInPicker = memo(function OpenInPicker({
     },
     [
       environmentId,
+      markRemoteHintSeen,
       openInCwd,
       openInEditorMutation,
       preferredEditor,
-      remoteEditorSshHost,
-      markRemoteHintSeen,
+      remoteEditorSshHost, // loom
       remote,
       setPreferredEditor,
     ],
@@ -296,13 +309,14 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!preferredEditor) return;
 
       e.preventDefault();
-      // openInEditor already routes the client-launch / remote-links / local-exec
+      // loom: openInEditor already routes the client-launch / remote-links / local-exec
       // cases, so the shortcut just delegates to it.
       void openInEditor(preferredEditor);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [enableShortcut, keybindings, openInCwd, openInEditor, preferredEditor]);
+  const primaryLabel = isPanel ? `Open in ${primaryOption?.label ?? "editor"}` : "Open";
 
   const editorItems = (
     <>
@@ -368,39 +382,77 @@ export const OpenInPicker = memo(function OpenInPicker({
   }
 
   return (
-    <Group aria-label="Open in editor">
-      <Button
-        aria-label={compact ? "Open file in preferred editor" : undefined}
-        size="xs"
-        variant="outline"
+    <ActionGroup
+      aria-label="Open in editor"
+      role="group"
+      {...(isPanel
+        ? { className: THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS, ref: panelAnchorRef }
+        : {})}
+    >
+      <ThreadDetailsControl
+        aria-label={compact ? "Open file in preferred editor" : primaryLabel}
+        size={isPanel ? "sm" : "xs"}
+        variant={isPanel ? "ghost" : "outline"}
+        part="primary"
+        panel={isPanel}
         disabled={!preferredEditor || !openInCwd || remote.mode === "remote-unavailable"}
         onClick={() => openInEditor(preferredEditor)}
       >
-        {primaryOption?.Icon && (
+        {primaryOption?.Icon ? (
           <primaryOption.Icon
             aria-hidden="true"
-            className={cn("size-3.5", getOpenInIconClass(primaryOption.kind))}
+            className={cn(
+              isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3.5",
+              getOpenInIconClass(primaryOption.kind),
+            )}
           />
-        )}
+        ) : isPanel ? (
+          <SquareArrowOutUpRightIcon
+            aria-hidden="true"
+            className={THREAD_DETAILS_PANEL_ICON_CLASS}
+          />
+        ) : null}
         <span
-          className={
+          className={cn(
             compact
               ? "sr-only"
-              : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
-          }
+              : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
+            isPanel && "not-sr-only ml-0 min-w-0 truncate",
+          )}
         >
-          Open
+          {primaryLabel}
         </span>
-      </Button>
-      <GroupSeparator {...(!compact ? { className: "hidden @3xl/header-actions:block" } : {})} />
+      </ThreadDetailsControl>
+      {isPanel ? (
+        <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+      ) : (
+        <GroupSeparator {...(!compact ? { className: "hidden @3xl/header-actions:block" } : {})} />
+      )}
       <Menu>
         <MenuTrigger
-          render={<Button aria-label="Choose editor" size="icon-xs" variant="outline" />}
+          render={
+            <ThreadDetailsControl
+              aria-label="Choose editor"
+              size={isPanel ? "sm" : "icon-xs"}
+              variant={isPanel ? "ghost" : "outline"}
+              part="secondary"
+              panel={isPanel}
+            />
+          }
         >
-          <ChevronDownIcon aria-hidden="true" className="size-4" />
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
+          />
         </MenuTrigger>
-        <MenuPopup align="end">{editorItems}</MenuPopup>
+        <MenuPopup
+          align="end"
+          {...(isPanel ? { anchor: panelAnchorRef } : {})}
+          className={isPanel ? "w-(--anchor-width)" : undefined}
+        >
+          {editorItems}
+        </MenuPopup>
       </Menu>
-    </Group>
+    </ActionGroup>
   );
 });

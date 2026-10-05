@@ -4,7 +4,7 @@ import {
   pinOrderKeyBetween,
   planPinnedReorder,
 } from "@t3tools/client-runtime/state/thread-sort";
-import { effectiveSnoozed } from "@t3tools/shared/threadSettled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
+import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled"; // loom: thread-settled helpers live in @t3tools/shared (pull 7)
 import type { EnvironmentId } from "@t3tools/contracts";
 
 export type ThreadMoveDestination =
