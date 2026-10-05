@@ -39,6 +39,7 @@ import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
 
+import type { LoomOpenSessionFields } from "../loom/prompt/sessionComposer.ts"; // loom: Area G
 import type {
   ProviderSelectionTransitionInput,
   ProviderSelectionTransitionPlan,
@@ -383,6 +384,8 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly initialNativeThreadId?: string;
   /** Preserves provider item identity across eager activation of a persisted thread. */
   readonly initialProviderItemIdentityVersion?: 2;
+  // loom: the composed prompt, skills and extensions (Area G); only the Pi adapter reads it
+  readonly loom?: LoomOpenSessionFields;
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {

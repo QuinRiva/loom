@@ -952,6 +952,8 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   cachedInputTokens: Schema.optional(NonNegativeInt),
   outputTokens: Schema.optional(NonNegativeInt),
   reasoningOutputTokens: Schema.optional(NonNegativeInt),
+  // loom: USD for this provider turn, summed from pi's per-message usage.cost.total; never computed by T3
+  costUsd: Schema.optional(Schema.Number),
   /** ISO timestamp of the provider's report; string so wire encoding is stable. */
   updatedAt: Schema.String,
 });
