@@ -151,7 +151,7 @@ function PeekSection({
         <button
           type="button"
           onClick={goToSection}
-          className="ml-auto shrink-0 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          className="ml-auto shrink-0 text-2xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           Go to section
         </button>
@@ -275,7 +275,7 @@ export function QuestionRefChips({ refs }: { refs: QuestionRef[] }) {
           aria-controls={open === ref.anchor ? popoverId : undefined}
           onClick={(event) => toggle(ref.anchor, event.currentTarget)}
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+            "inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-2xs transition-colors",
             open === ref.anchor
               ? "border-primary bg-primary/10 text-foreground"
               : "border-border bg-muted/40 text-muted-foreground hover:border-primary/60 hover:text-foreground",

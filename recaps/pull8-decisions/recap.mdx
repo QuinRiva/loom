@@ -1,0 +1,1348 @@
+# Pull 8 decision review — upstream `024d49520e` merged into loom
+
+**What happened.** Upstream `pingdotgg/t3code` moved 409 commits past the point loom last synced to (`c14f6015bf`, v0.0.43-nightly). Pull 8 merged the first **364** of them — up to commit `024d49520e`, four commits after the `v0.0.45` tag — into loom on branch `t3code/upstream-sync-20261004`. It deliberately stops one commit short of upstream's next commit, `de34391427`, which replaces the whole orchestration engine ("Orchestration V2": 1,914 files, +381,846/−204,768, `apps/server/src/orchestration/` deleted). Every piece of loom that is not a leaf UI component sits on the engine V2 deletes, so that commit is a re-platforming project, not a merge; it is scoped as a follow-up (see the first item below).
+
+**How the work was done.** Under your rule for this pull, no one asked you anything during the merge. Agents resolved all 91 conflicted files by hand (no mechanical auto-resolver this time), semantically reviewed the 174 files git merged cleanly, repaired what the merge silently broke, and wrote a row in the decision log for every judgement call — 79 rows, DL-0 to DL-78, in `docs/upstream-sync/27-cadence-pull-v0.0.45-pre-orchestration-v2.md` §10. A second-model review gate (GPT-6 Astra) audited every row against the code and reports that each ruling matches what was built. This document is that log, re-ordered by how much each row deserves your attention.
+
+**Where this document is up to.** You have been through Tier A once. Your rulings on six of its cards were implemented, reviewed by the same second model from a fresh install, and stacked as a third pull request; the last seven log rows (DL-72 … DL-78) record them, and the section **What your Tier A review changed** directly below the protocol note walks through each. The six original cards you ruled on are still here, each with a status line pointing at its successor row, so the trail is complete. Tiers B and C, and the approval question, are unchanged and still yours to go through — now against the real three-PR stack.
+
+**Where it sits.** Three open, unmerged pull requests on `QuinRiva/loom`, each stacked on the one before:
+
+<Table
+  columns={["PR", "Branch", "Into", "Contents", "State"]}
+  density="compact"
+  rows={[
+    [
+      "#323",
+      "t3code/upstream-sync-20261004",
+      "main",
+      "the merge commit 5277c9abfd (parents 474c8d755e = loom before the merge, 024d49520e = upstream) plus the repair, audit and record commits",
+      "open, mergeable, not merged",
+    ],
+    [
+      "#324",
+      "t3code/pull8-shadcn-lint",
+      "t3code/upstream-sync-20261004",
+      "conformance of fork web code to upstream's five new shadcn lint rules (516 errors → 0), the restored Failover settings card, and the final gate's fixes; tip 967130fe72",
+      "open, mergeable, stacked on #323, not merged",
+    ],
+    [
+      "#325",
+      "t3code/pull8-review-reversals",
+      "t3code/pull8-shadcn-lint",
+      "your Tier A rulings — DL-72 … DL-78: the project default-model stamps deleted and the resolver bug they hid fixed, upstream's setup-script runner as PR-7 wrote it, the reaper's live-only read with a one-statement prune, the Pi-true Restart toast, one dev CLI kept and one deleted, failover held for pull 9, the recap formatting exception; tip 5d696e7775",
+      "open, mergeable, stacked on #324, not merged",
+    ],
+  ]}
+/>
+
+Nothing was rebased, squashed or stashed. Every gate is green from a fresh install at the stack tip (the full table is under **Gate evidence** near the end). Nothing merges until you have been through this document.
+
+<Callout tone="decision">
+  **Review protocol.** Each decision below is a card with its own **Accept / Reject / Discuss** control. Read them as **agree / reverse / discuss**: _Accept_ means the ruling stands as built; _Reject_ means reverse it (the card says what reversing takes); _Discuss_ means talk before anything merges. **Silence means you agree with the recommendation** — record a choice only on the items you want reversed or discussed. The mechanical tier (C) has one control for the whole tier; annotate a single line there if one row needs pulling out. The cards in **What your Tier A review changed** carry the same control, read as _Accept_ = the reversal stands as built, _Reject_ = reverse the reversal (each card says what that takes). The one genuinely open call — whether to merge the three-PR stack — is the question at the foot of the document; the knip question that used to sit beside it is answered (DL-76).
+</Callout>
+
+## What your Tier A review changed
+
+You ruled on six Tier A cards: delete loom's palette stamp if that makes the project records consistent (DL-62 c); take upstream's setup-script runner if loom's was the same goal over-engineered (DL-12 + 15); explain why loom's reaper approach should survive at all (DL-10); make the Restart toast honest on Pi (DL-59); keep the two knip-flagged dev CLIs only if there is a good reason (DL-69); and, on the Failover card, first remove the whole slice because CLI Proxy owns it, then check whether it does, then judge it against the pull-9 / Orchestration V2 strategy (DL-70). A coder landed the first five as seven commits on `t3code/pull8-review-reversals`; two research threads answered the failover and dev-CLI questions; GPT-6 Astra reviewed the branch from a fresh install and approved it with documentation fixes only (`fixed_inline`). The result is [PR #325](https://github.com/QuinRiva/loom/pull/325), stacked on #324. Everything below was verified against the code, not the reports.
+
+Two things you did not ask for came out of the work and lead this section: the DL-62 (c) ruling rested on a premise that turned out to be **false** — a project with no default model was never landing on `PI_DEFAULT_MODEL`, and upstream's new flows were already affected — so the reversal carries a one-line resolver fix; and the setup-script smoke exposed a **production defect outside this repository** (the cockpit's shell shim keeps every PTY shell from ever being "idle"), recorded as a follow-up. Each card has its own control in case you want to reverse a reversal.
+
+<Card
+  id="dl-72"
+  heading="DL-72 · Both default-model stamps deleted — and the premise behind the ruling was wrong"
+  tone="risk"
+  badge="RULED → BUILT"
+  meta={["from DL-62 (c)", "CommandPalette.tsx, client-runtime projects.ts, modelSelection.ts", "commit 9b0c0eb77e", "reverse: trivial"]}
+>
+  **Your ruling.** "Delete loom's palette hunk if that would make it consistent."
+
+  **What was built.** It does, so both stamps went: the command-palette "Add project" hunk, and the same `{ pi, PI_DEFAULT_MODEL }` stamp in `buildProjectCreateCommand` in `client-runtime` (which mobile also went through). Every project-create path — palette, name-only "New project", the environment Scratch project, the welcome wizard, desktop activation — now writes upstream's `defaultModelSelection: null`; the `buildProjectCreateCommand` test is upstream's again.
+
+  **What was found.** Before deleting, the coder traced what `null` resolves to, expecting `PI_DEFAULT_MODEL`. It did not. With no last-used selection, `resolveAppModelSelectionForInstance` ran loom's own "skip excluded options" hunk (`44518612e7`) ahead of the `isDefault` lookup, so a `null` default landed on **Pi's first catalogue row**, not on `PI_DEFAULT_MODEL` — and that was already the behaviour of upstream's two new null-default flows, which the DL-62 (c) card described as "functionally every flow still lands on Pi". `PiDriver` marks `PI_DEFAULT_MODEL` `isDefault` precisely so this lookup finds it. The fix is one marked line: a visible `isDefault` model now wins first (an excluded or hidden default is still skipped). With it, `null` behaves exactly as the old stamp did, or as the user's last-used Pi model, which wins over both anyway. Mobile already resolved `isDefault` first.
+
+  <FieldDiff
+    title="A new project with no stored default model"
+    beforeLabel="After pull 8, before your review"
+    afterLabel="PR #325"
+    fields={[
+      { "name": "palette Add project", "before": "stamps pi + PI_DEFAULT_MODEL (loom hunk)", "after": "null (upstream)" },
+      { "name": "client-runtime buildProjectCreateCommand", "before": "stamps pi + PI_DEFAULT_MODEL (loom hunk)", "after": "null (upstream)" },
+      { "name": "upstream's name-only / Scratch / wizard / desktop flows", "before": "null", "after": "null", "kept": true },
+      { "name": "what null resolves to with no last-used pick", "before": "Pi's first catalogue row (bug)", "after": "the provider's visible isDefault model — PI_DEFAULT_MODEL on Pi" },
+      { "name": "user's last-used Pi model", "before": "wins", "after": "wins", "kept": true }
+    ]}
+  />
+
+  <Details summary="The resolver fix and the test that pins it">
+    <Code
+      filename="apps/web/src/modelSelection.ts"
+      language="ts"
+      code={"  return (\n    // loom: an excluded option is hidden from the default views, so it must not\n    // become the resolved fallback selection — but the provider's default\n    // (pi: `PI_DEFAULT_MODEL`) still outranks the first visible row.\n    options.find((option) => option.isDefault && !option.excluded)?.slug ??\n    options.find((option) => !option.excluded)?.slug ??\n    options.find((option) => option.isDefault)?.slug ??\n    options[0]?.slug ??\n"}
+    />
+    <Code
+      filename="apps/web/src/modelSelection.test.ts"
+      language="ts"
+      code={"  // loom: a project with no default model (upstream's null) must land on the\n  // provider's default (pi: PI_DEFAULT_MODEL), not the catalogue's first row.\n  it(\"defaults to the provider's visible default model, not the first row\", () => {\n    const base = provider({ instanceId: \"pi\", models: [\"a/first\", \"b/default\"] });\n    const providers = [\n      {\n        ...base,\n        models: base.models.map((model) =>\n          model.slug === \"b/default\" ? { ...model, isDefault: true } : model,\n        ),\n      },\n    ];\n    expect(\n      resolveAppModelSelectionForInstance(\n        ProviderInstanceId.make(\"pi\"),\n        settingsWithProviderInstances(),\n        providers,\n        null,\n      ),\n    ).toBe(\"b/default\");\n  });\n"}
+    />
+  </Details>
+
+  **Evidence.** `modelSelection.test.ts` "defaults to the provider's visible default model" (new); `projects.test.ts` 17/17; the reviewer confirmed explicit selections still win and that mobile's shared create command resolves draft → project → sticky → available default → first available. The reviewer's live smoke created a null-default project on a seeded instance and its composer showed **Claude Opus 5.5 (pooled)** — which is `cliproxy/claude-opus-5-5`, `PI_DEFAULT_MODEL`. The coder did not verify live; the unit test is the coder's evidence.
+
+  **To reverse.** Re-adding the two stamps is two marked hunks from `925341c8c1`. The resolver fix should stay either way — it corrects upstream's flows too, and reverting it would put the first-row bug back.
+
+  <ReviewChoice itemId="dl-72" label="DL-72" placeholder="Why, if reversing the reversal or discussing…" />
+</Card>
+
+<Card
+  id="dl-73"
+  heading="DL-73 · Upstream's setup-script runner, as PR-7 wrote it — loom's breadcrumb rides on it, the timeout stays for one stated reason"
+  tone="warning"
+  badge="RULED → BUILT"
+  meta={["from DL-12 + DL-15", "ProjectSetupScriptRunner.ts + .loom.ts + test, WorktreeProvisioner.ts + test, server.test.ts", "commit 7ac54943f3", "reverse: local"]}
+>
+  **Your ruling.** "Is it possible that upstream and I basically tried to achieve the same goal, and I have over-engineered it?" — yes for completion observation and the idle-shell close; no for the breadcrumb, which agents poll and upstream has no equivalent of. So PR-7 as written.
+
+  **What was built.** Upstream's file at `024d49520e` is the baseline: a completion sentinel per shell, an optional `{ exitCode | null, durationMs }` completion, the idle setup shell closed on exit 0. Loom's pieces ride on it as marked hunks: the foreign-home guard; every run observed (because the breadcrumb is written for every run, not only the ones a caller watches); `pending` written before the command is typed and `failed` if it cannot be typed; the completion forked once, detached, so the breadcrumb and the idle close happen whether or not a caller consumes `completion` (callers join that same run); the settled breadcrumb (`ready` / `failed` with `exitCode`, or `detail` when the terminal vanished). The breadcrumb schema and writer, the `bun install` → pnpm rewrite and the timeout moved to a new `ProjectSetupScriptRunner.loom.ts`. `WorktreeProvisioner` reads `exitCode: null` as the old "terminal gone" warning. Upstream's runner tests were taken verbatim bar two adapted expectations (every run is now wrapped); loom keeps the pnpm test, the breadcrumb ready / failed tests and a new 30-minute-hang test; loom's marker-shape tests went with the marker. `server.test.ts`'s setup stubs are upstream's `async: true` again. This closes DL-15's test gap as well — the idle-shell close is now covered by upstream's own tests, not the smoke alone.
+
+  **The one thing kept against the letter of the ruling, and why.** The 30-minute timeout stays, but **narrowed to the breadcrumb**. Nothing upstream bounds a hung script: the sentinel never arrives, the shell is busy so `closeIdle` leaves it, and `WorktreeSetupTracker` has no timer — so an agent polling `pending` would wait forever. After 30 minutes the breadcrumb says `failed` ("timed out after 30 minutes"); the setup card and `completion` stay upstream's and keep running, because nothing there was loom's to bound. The reviewer checked this claim against upstream's code and confirmed it: upstream awaits a Deferred with no timeout, and its tracker only expires already-finished snapshots.
+
+  <FieldDiff
+    title="Setup-script runner"
+    beforeLabel="DL-12 as built, before your review"
+    afterLabel="PR #325 (DL-73)"
+    fields={[
+      { "name": "baseline file", "before": "loom's runner (marker / Deferred) with upstream's idle close bolted in", "after": "upstream's runner at 024d49520e (sentinel wrapper)" },
+      { "name": "completion type", "before": "required, always present", "after": "optional (upstream) — every run still observed internally for the breadcrumb" },
+      { "name": "breadcrumb t3code-setup-state.json", "before": "pending / ready / failed", "after": "pending / ready / failed", "kept": true, "note": "schema and writer now in ProjectSetupScriptRunner.loom.ts" },
+      { "name": "30-minute timeout", "before": "bounds the run and the completion", "after": "bounds the breadcrumb only; card and completion are upstream's" },
+      { "name": "upstream's runner tests", "before": "not taken (DL-15)", "after": "taken, two expectations adapted; 13/13" },
+      { "name": "bun install → pnpm rewrite, foreign-home guard", "before": "kept", "after": "kept", "kept": true }
+    ]}
+  />
+
+  <Details summary="The hunk that bounds the breadcrumb and nothing else">
+    <Code
+      filename="apps/server/src/project/ProjectSetupScriptRunner.ts"
+      language="ts"
+      code={"    // loom: breadcrumb. The run settles once, detached, so the breadcrumb and the\n    // idle-shell close happen whether or not the caller consumes `completion`;\n    // callers join that same run. The breadcrumb alone gives up after\n    // SETUP_STATE_TIMEOUT — nothing here settles a script that hangs.\n    const run = completion ? yield* Effect.forkDetach(completion) : undefined;\n    if (run) {\n      yield* Fiber.join(run).pipe(\n        Effect.timeoutOption(SETUP_STATE_TIMEOUT),\n        Effect.flatMap((result) =>\n          writeWorktreeSetupState(fs, path, cwd, {\n            ...setupStateBase,\n            ...settledWorktreeSetupState(result),\n          }),\n        ),\n        Effect.forkDetach,\n      );\n    }\n\n    return {\n      status: \"started\",\n      // …\n      ...(run ? { completion: Fiber.join(run) } : {}), // loom: breadcrumb\n    } as const;\n"}
+    />
+    <Code
+      filename="apps/server/src/project/ProjectSetupScriptRunner.loom.ts"
+      language="ts"
+      code={"/** How long the breadcrumb waits for a setup run before declaring it `failed`. */\nexport const SETUP_STATE_TIMEOUT = Duration.minutes(30);\n\n/** The breadcrumb for a settled run, or `None` when `SETUP_STATE_TIMEOUT` elapsed first. */\nexport const settledWorktreeSetupState = (\n  result: Option.Option<{ readonly exitCode: number | null }>,\n): Pick<WorktreeSetupState, \"status\" | \"exitCode\" | \"detail\"> =>\n  Option.match(result, {\n    onNone: () => ({ status: \"failed\", detail: \"Setup script timed out after 30 minutes.\" }),\n    onSome: ({ exitCode }) =>\n      exitCode === 0\n        ? { status: \"ready\", exitCode }\n        : exitCode === null\n          ? {\n              status: \"failed\",\n              detail: \"Setup terminal exited before the setup command completed.\",\n            }\n          : { status: \"failed\", exitCode, detail: `Setup script exited with code ${exitCode}.` },\n  });\n"}
+    />
+  </Details>
+
+  **Evidence.** `ProjectSetupScriptRunner.test.ts` 13/13, `WorktreeProvisioner.test.ts` 8/8, `server.test.ts` 222/222. Two live worktree-setup smokes on upstream's runner, both on a seeded dev-verify instance with a three-stage script: the coder's (breadcrumb `pending` 05:31:40 → `ready` / exit 0 at 05:31:56, card tail `setup-begin` / `setup-middle` / `setup-end`, no setup shell left) and the reviewer's independent one (`pending` 05:56:44.904Z → `ready` / exit 0 at 05:57:00.711Z, persisted setup receipt with both output lines and a done stage, no process left in the smoke worktree).
+
+  <Details summary="The reviewer's breadcrumb, before and after">
+    <Code
+      filename=".artifacts/pull8-review-batch-a/initial-state.json → final-state.json"
+      language="json"
+      code={"{\n  \"status\": \"pending\",\n  \"scriptId\": \"review-setup\",\n  \"scriptName\": \"Review setup\",\n  \"updatedAt\": \"2026-10-05T05:56:44.904Z\"\n}\n\n{\n  \"status\": \"ready\",\n  \"scriptId\": \"review-setup\",\n  \"scriptName\": \"Review setup\",\n  \"updatedAt\": \"2026-10-05T05:57:00.711Z\",\n  \"exitCode\": 0\n}\n"}
+    />
+  </Details>
+
+  **What the smoke exposed — a production defect, not in this repository.** The coder's first run, with the cockpit's real `SHELL` (`loom-slack-bridge/scripts/loom-agent-shell`, which wraps the shell in `systemd-run --scope`), did **not** close the setup shell. `systemd-run` without `--no-ask-password` leaves a `pkttyagent` child in every PTY shell (six on the host at the time), so `closeIdle` — this close and upstream's own settled-thread terminal close — always sees a running subprocess and never closes anything in production. Both passing smokes used `LOOM_AGENT_SLICE_BYPASS=1`. The fix belongs in `loom-agent-shell`; it is a goal task (`57eee20d`) and in the follow-ups below. Until it lands, the idle-shell close you are adopting here is inert on the cockpit.
+
+  **To reverse.** Going back to loom's runner is `925341c8c1`'s versions of the five files — the DL-12 shape. Dropping the breadcrumb timeout alone is deleting `Effect.timeoutOption` and the `onNone` branch; an agent polling a hung setup would then wait indefinitely.
+
+  <ReviewChoice itemId="dl-73" label="DL-73" placeholder="Why, if reversing the reversal or discussing…" />
+</Card>
+
+<Card
+  id="dl-74"
+  heading="DL-74 · The reaper takes upstream's live-only read; the retention prune is one SQL statement per sweep — net −154 lines"
+  tone="info"
+  badge="RULED → BUILT"
+  meta={["from DL-10", "ProviderSessionReaper.ts, ProviderSessionDirectory, ProviderSessionRuntime.ts, ProjectionSnapshotQuery", "commit 11888cd65f", "reverse: trivial"]}
+>
+  **Your ruling.** "Help me understand why we would want to keep loom's approach?" — upstream's read saves the per-sweep cost of thousands of stopped rows but **never deletes one**; no upstream path removes the stopped binding of a deleted thread, so without a prune the table grows forever. Loom's _approach_ (an all-rows read split in memory) was not worth keeping; loom's _retention_ was. The DL-10 card had already named the recovery: a dedicated SQL statement.
+
+  **What was built.** The reaper reads `listBindings({ excludeStopped: true })` exactly as upstream does. The prune is one marked call per sweep — repository `deleteStoppedForDeletedThreads`, surfaced as directory `pruneStoppedForDeletedThreads` — a single atomic `DELETE … RETURNING`. Because the status predicate and the deleted-thread predicate sit in the same statement, the race guard that `removeIfStopped` existed for (a row promoted back to `running` between read and delete) is intrinsic; archived threads stay excluded because unarchive exists and deletion has no undo. `prunedCount` stays in `sweep-complete` and each pruned id logs `binding-pruned`. Removed as now callerless: `getDeletedThreadIds` on the snapshot query, `removeIfStopped` / `deleteStoppedByThreadId` on the directory and repository. The commit is +125 / −279.
+
+  <Details summary="The statement and the sweep">
+    <Code
+      filename="apps/server/src/persistence/ProviderSessionRuntime.ts"
+      language="ts"
+      code={"  // loom: retention — one statement per sweep (see the interface doc).\n  const deleteStoppedRuntimeForDeletedThreads = SqlSchema.findAll({\n    Request: Schema.Void,\n    Result: Schema.Struct({ threadId: ThreadId }),\n    execute: () =>\n      sql`\n        DELETE FROM provider_session_runtime\n        WHERE status = 'stopped'\n          AND thread_id IN (\n            SELECT thread_id FROM projection_threads WHERE deleted_at IS NOT NULL\n          )\n        RETURNING thread_id AS \"threadId\"\n      `,\n  });\n"}
+    />
+    <Code
+      filename="apps/server/src/provider/Layers/ProviderSessionReaper.ts"
+      language="ts"
+      code={"      // Stopped rows stay for their resume cursors and far outnumber live\n      // ones, so the query skips them.\n      const bindings = yield* directory.listBindings({ excludeStopped: true });\n      const now = yield* Clock.currentTimeMillis;\n      let reapedCount = 0;\n\n      // loom: retention. Upstream never removes a stopped binding, so the table\n      // grows forever. Prune only the IRREVERSIBLE class — stopped bindings of\n      // deleted threads — as one SQL statement per sweep. Archived threads are\n      // excluded on purpose: `thread.archive` has `thread.unarchive`, so an\n      // archived thread must keep its provider pointer; deletion has no undo.\n      // Deliberately NOT age-based: `runStopAll` rewrites every unsettled\n      // binding's `lastSeenAt` at shutdown, so age is not a liveness signal.\n      // A failed statement deletes nothing, so it prunes nothing.\n      const pruned = yield* directory.pruneStoppedForDeletedThreads().pipe(\n        Effect.catchCause((cause) =>\n          Effect.logWarning(\"provider.session.reaper.prune-failed\", {\n            cause: Cause.pretty(cause),\n          }).pipe(Effect.as([] as ReadonlyArray<ThreadId>)),\n        ),\n      );\n      const prunedCount = pruned.length;\n"}
+    />
+  </Details>
+
+  **Evidence.** `ProviderSessionReaper.test.ts` 17/17 — the prune test now seeds real `projection_threads` rows (deleted, archived, live) and the race test proves a `running` row of a deleted thread survives; 41 adjacent server files 449/449; `sqlcolsweep.py` 0 / 0. The reviewer confirmed the live-only read is byte-for-byte upstream's and that archived-only and running rows survive the predicate.
+
+  **To reverse.** `git revert 11888cd65f` restores the DL-10 shape. Dropping the prune entirely is deleting the one marked block (the table then grows again).
+
+  <ReviewChoice itemId="dl-74" label="DL-74" placeholder="Why, if reversing the reversal or discussing…" />
+</Card>
+
+<Card
+  id="dl-75"
+  heading="DL-75 · The Restart agent session toast tells the truth on Pi"
+  tone="info"
+  badge="RULED → BUILT"
+  meta={["from DL-59", "CommandPalette.tsx", "commit c8b3ebc07f", "verified live by the reviewer", "reverse: trivial"]}
+>
+  **Your ruling.** You asked whether this is Pi's native restart / reload. It is: a process restart of the same conversation — extensions, skills and prompt templates reload; the session file is resumed — so upstream's toast, "Your next message starts a fresh session.", was false on Pi.
+
+  **What was built.** One marked hunk. When the thread's provider instance (its session's, else its model selection's) resolves to driver kind `pi` in the same `providerEntryByEnvironmentAndInstanceId` map the palette's thread rows already use, the toast reads **"Pi will restart; your next message continues this conversation with freshly loaded extensions and skills."** Non-Pi wording is unchanged. The action itself is untouched — the two DL-59 residuals (the fresh scan does nothing for Pi; the action is offered on running workstream children) still stand.
+
+  <Details summary="The hunk">
+    <Code
+      filename="apps/web/src/components/CommandPalette.tsx"
+      language="tsx"
+      code={"        // loom: on Pi the next message resumes the same conversation from its\n        // session file in a new pi process, so \"fresh session\" would mislead.\n        const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;\n        const isPi =\n          providerEntryByEnvironmentAndInstanceId.get(`${environmentId}:${instanceId}`)\n            ?.driverKind === \"pi\";\n        toastManager.add({\n          type: \"success\",\n          title: \"Agent session will restart\",\n          description: isPi // loom\n            ? \"Pi will restart; your next message continues this conversation with freshly loaded extensions and skills.\"\n            : \"Your next message starts a fresh session.\",\n        });\n"}
+    />
+  </Details>
+
+  **Evidence.** `CommandPalette.logic.test.ts` passes; the coder checked the wording in code only, the reviewer clicked Restart on a real Pi smoke thread and saw the new wording, and confirmed the lookup is per thread instance, not a global provider selection.
+
+  **To reverse.** Delete the hunk; upstream's wording returns. Hiding the action for running workstream children (the DL-59 residual) would be a separate one-predicate change, not done here.
+
+  <ReviewChoice itemId="dl-75" label="DL-75" placeholder="Why, if reversing the reversal or discussing…" />
+</Card>
+
+<Card
+  id="dl-76"
+  heading="DL-76 · The thread-search eval stays as dev:search-eval; the branch-scoping printout is deleted"
+  tone="info"
+  badge="RULED → BUILT"
+  meta={["from DL-69", "root package.json, apps/server/src/dev/, docs/dev-site-testing.md, ProviderCommandReactor.ts", "commit fd3266c5bf", "knip clean, no config change", "reverse: trivial"]}
+>
+  **Your ruling.** "Only keep them if there _is_ a good reason."
+
+  **What was found.** A researcher read both CLIs, ran both on the pull-8 tree, searched every session for their run history and tested the knip route in a scratch copy. **`threadSearchEval.loom.ts` has a good reason:** it is the only measure of thread-search _quality_ — 57 real queries from your database, each with a known correct thread, scored through the real search code against the plan's floor — and the thread-content-search plan names it "the regression check at the next pull". Nobody had run it during pull 8, though pull 8 changed `ProjectionSnapshotQuery.ts` and the search UI; the researcher's run is that check and it **passed** (`--provider none` PASS in 9 s; `--provider local` PASS in 27 s, R@5 70 % exactly at the floor, MRR 0.539). **`verifyBranchScoping.ts` has none:** it prints ten views of the seeded task tree with token counts and checks nothing; it was run on two days in September and never since; the sizes it measured are already written in the plan; and the logic it displays has 17 tests in `goalTaskAnchor.loom.test.ts`.
+
+  **What was built.** `threadSearchEval.loom.ts` kept and registered as the root script `dev:search-eval` beside `dev:seed` / `dev:seed:verify` — knip treats a script-referenced file as an entry, so no knip configuration changed and the "upstream's configuration, no fork exemptions" doctrine is intact. `verifyBranchScoping.ts` deleted (148 lines), with its paragraph in `docs/dev-site-testing.md` and the `export` on `activeGoalContextInstruction` in `ProviderCommandReactor.ts` that existed only for it (that also shrinks a fork hunk in an upstream-shared file). The seed's nested task tree stays; the seed and the goal panel use it.
+
+  <Details summary="The researcher's comparison">
+    <Table
+      density="compact"
+      columns={["File", "Purpose", "Still runs?", "Other coverage", "Outcome"]}
+      rows={[
+        ["apps/server/src/dev/threadSearchEval.loom.ts", "Scores thread search on a copy of your real database: 57 fixed queries with known correct threads through the real search code; exits non-zero below the plan's floor. From PR #317 (semantic thread search), 1 Oct.", "Yes — PASS with --provider none (9 s) and --provider local (27 s; R@5 70 % = the floor, MRR 0.539 ≥ 0.50, exact identifiers R@1 7/8, R@3 8/8). Vertex (your production provider, floor 80 %) not run — needs Google credentials.", "ThreadSearch.loom.test.ts covers mechanics (7 tests); nothing else measures quality.", "Kept as dev:search-eval"],
+        ["apps/server/src/dev/verifyBranchScoping.ts", "Prints the task-tree text agents see (3 prompt variants, 2 list views, 4 tool echoes, a baseline) with character and token counts. Checks nothing. From PR #275 (scoped task-tree branches), 23–25 Sep.", "Yes — exit 0 against a fresh seed in a temp home. Run on 23 Sep (authoring) and 25 Sep (a rebase check), never since.", "goalTaskAnchor.loom.test.ts has 17 tests of the tree logic; the feature runs on every child spawn in production.", "Deleted, with its doc paragraph and the export that served it"],
+      ]}
+    />
+
+    Caveats the researcher flagged on the kept eval: it only works against your database (the answers are thread ids); its `--exclude` default is a hard-coded thread id; the local model scores exactly at the floor, so any small drop fails it; when target threads disappear the plan expects the query file to be refreshed by hand.
+  </Details>
+
+  **Evidence.** `knip --include files,dependencies` exits 0 with no findings at the batch tip and at the reviewer's fresh install. The researcher's control run (script line removed) re-flagged the eval, exit 1 — so the script entry is what silences knip, not chance.
+
+  **To reverse.** `git revert fd3266c5bf` restores the printout, its paragraph and the export; deleting the eval too is removing one file and one `package.json` line.
+
+  <ReviewChoice itemId="dl-76" label="DL-76" placeholder="Why, if reversing the reversal or discussing…" />
+</Card>
+
+<Card
+  id="dl-77"
+  heading="DL-77 · Failover: held untouched in pull 8 — CLI Proxy covers only part of it, and pull 9 / Orchestration V2 is where it is decided"
+  tone="accent"
+  badge="RULED → HELD"
+  meta={["from DL-70", "the whole failover slice", "nothing changed in #325", "researcher 316ae67f, consult of the pull-9 strategy thread", "reverse: n/a"]}
+>
+  **Your ruling, in three steps.** On the restored Failover card you first said "remove all the related code … CLI Proxy now manages that responsibility"; then "check whether I have [implemented it in CLI Proxy] … scope out if it would make more sense to implement there"; then you pointed at the pull-9 / Orchestration V2 strategy as the baseline to judge it against. A coder had started removing the slice on your first instruction; that work was cancelled and is **not** an ancestor of #325 (the reviewer checked).
+
+  **What the check found — CLI Proxy.** It covers the part that matters for **Claude**: five accounts in one pool, a 5h / 7d 429 benches that account, the request rotates to a healthy one inside the same call and the session re-binds (verified live: 132 requests, 9 upstream 429s absorbed, none reached the client); manual pause is `./account off/on`. Your live loom config already turns loom's Claude-side failover off (`"cliproxy/*": []`). It covers **nothing for OpenAI**: Codex traffic bypasses the proxy, and there is exactly one ChatGPT account (`~/.pi/agent/auth.json` and `~/.codex/auth.json` share an `accountId`), so even fronting Codex with the proxy would leave nothing to rotate to — it only helps with a second subscription. And two things cannot live in a proxy at all: moving an exhausted thread onto a **different vendor's** model (the Codex → Claude reroute, the one part of loom's failover that actually fired in the last week — twice, `openai-codex/gpt-6-astra` 5-hour limit → `cliproxy/claude-opus-5-5`), and **parking** an exhausted thread then resuming it when the window resets (`ExhaustionResumeSweep`) — a proxy cannot hold a turn for five hours.
+
+  **What the check found — pull 9 / V2.** Consulting the pull-9 strategy thread: Orchestration V2 has **no exhaustion or parking concept**; its provider switch is user-initiated and summary-based; and pull 9's Area L **retains** quota failover and `ExhaustionResumeSweep` while dropping `PiDriver.ts` wholesale (the file most of the failover slice lives in). So removing failover in pull 8 would be wasted twice over: the code it lives in is rewritten in pull 9 anyway, and the capability has to be re-placed there regardless.
+
+  **What was decided.** Held — failover stays exactly as it is in pull 8, and the DL-70 card restoration stands. Where it should live — the proxy signalling exhaustion plus a fallback hint with loom performing the switch, versus loom-owned as now — is a pull-9 design question and is in the follow-ups. The researcher's recommendation for that design (drop the chain editor, the Anthropic ↔ Vertex ladder, pause and the slow-retry ladder; keep park-and-resume and spawn headroom; your call on the Codex → Claude reroute) is input to it, not something acted on here. One cleanup is parked behind it: the `platform-update` skill's `targets.yaml` still writes the failover chain keys.
+
+  <Details summary="Capability by capability — loom today, CLI Proxy today">
+    <Table
+      density="compact"
+      columns={["Capability", "Loom today", "CLI Proxy today", "Who covers it"]}
+      rows={[
+        ["Rotate to another account of the same vendor at a 5h / 7d limit", "Treats the 5-account pool as one key; exhausted = every account spent", "Yes, Claude only: benches the account, rotates inside the call, re-binds the session", "Proxy (Claude)"],
+        ["401 / 403 / 5xx cooldown and rotation", "—", "Yes, plus request-retry: 3", "Proxy"],
+        ["Token refresh, load spreading, session affinity", "—", "Round-robin, x-session-affinity = loom thread id, 4h TTL", "Proxy"],
+        ["Longer retry when a whole vendor is down", "pi retries 2 / 4 / 8 s, then loom's ladder 15 … 90 s, then the same model on a partner backend", "Rotates on 5xx, never waits (max-retry-interval unset)", "Covered differently — pi's retry.* settings can stand in"],
+        ["Fallback to a different model or vendor (Codex → Claude)", "Fallback chains; history sanitised before landing on Anthropic", "No — no Claude / Codex model-fallback feature", "Loom only — and it fired twice last week"],
+        ["Everything exhausted", "Turn fails quota_exhausted; ExhaustionResumeSweep resumes at reset", "429 model_cooldown with Retry-After; cannot hold a turn", "Loom only"],
+        ["Do not spawn a child onto an exhausted model", "Spawn headroom skips exhausted profiles, demotes ≥ 90 %", "—", "Loom only"],
+        ["Manual pause / reset", "pausedAccounts, the settings card", "./account off/on (Claude pool)", "Proxy (Claude)"],
+        ["Usage metering", "Polls Codex; defers to the proxy for Claude", "Management API per account", "Shared already"],
+      ]}
+    />
+
+    Two defects the researcher found by reading, not reproducing, if the slice is kept: the proxy's pool-wide `429 … are cooling down` with `Retry-After` does not match `PI_QUOTA_ERROR_RE`, so it is classed transient and can end as `provider_error`, which the resume sweep ignores; and best-remaining aggregation takes the minimum per window independently, so account A with the 5h window full plus account B with the weekly window full reads as "healthy". Both belong to the pull-9 design, not to this stack.
+  </Details>
+
+  **To reverse.** Removing the slice now is reverting marked loom code — mechanically a session, but the finding above is that it would be redone in pull 9. Nothing recommended before the design decision.
+
+  <ReviewChoice itemId="dl-77" label="DL-77" placeholder="Why, if you want failover removed in pull 8 after all, or to discuss…" />
+</Card>
+
+<Card
+  id="dl-78"
+  heading="DL-78 · The formatter now ignores recaps/** — so vp check passes without rewrapping this document"
+  tone="neutral"
+  badge="ADDED IN REVIEW"
+  meta={["not a ruling of yours", "vite.config.ts, one line", "commit c12d299144", "reverse: trivial"]}
+>
+  `vp check` failed on `recaps/pull8-decisions/recap.mdx` — this document — a pre-existing formatting failure the coder had not caused. The fmt ignore list's comment already said it covered MDX plans and recaps, but only `plans/**` was listed. Formatting the file would have rewrapped about 1,400 lines of your decision artefact; adding `recaps/**` to the list made the configuration match its own comment. The reviewer recorded it as its own row because it is a repository-wide configuration change made outside your brief: a **formatting** exception for reviewable MDX block attributes, the same treatment plans already had — not a TypeScript or shadcn lint exemption, and not a knip entry. Retained after review.
+
+  <Details summary="The diff">
+    <Code
+      filename="vite.config.ts"
+      language="diff"
+      code={"       // the formatter rewrites (same class as `.macroscope/ignore.md` below).\n       \".plans\",\n       \"plans/**\",\n+      \"recaps/**\",\n       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting\n       // it rewrites `*` as `_` and joins lines.\n       \".macroscope/ignore.md\",\n"}
+    />
+  </Details>
+
+  **To reverse.** Delete the line and format the recap instead (`vp check` would rewrite it; the content survives, the line breaks do not).
+
+  <ReviewChoice itemId="dl-78" label="DL-78" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+## How the tiers were drawn
+
+- **Tier A — needs your eyes (20 rows, 22 cards).** Anything that changed loom behaviour, dropped or restored a loom feature, deviated from one of the 20 pre-rulings written before the merge, adopted upstream's mechanism over a loom workaround, chose between two defensible options with a real evidence gap, or is an open choice only you can make. Card colour is triage only: **red** = you will feel it in daily use or a loom feature was dropped; **amber** = a deviation from a pre-ruling, or a call between defensible options; **blue** = upstream's mechanism adopted over loom's, by doctrine; **purple** = an open choice.
+- **Tier B — notable, likely uncontroversial (18 rows).** Restorations of things lost at pull 7, test adjustments with a behavioural rationale, and the token and look changes you may want to eyeball. Green cards are restorations; grey cards are the rest.
+- **Tier C — mechanical (34 rows).** One line each, collapsed, so the log is complete without costing you time.
+
+The pre-rulings (PR-0 … PR-20 in §6 of the plan) are the decisions written down _before_ the merge; a card that says "as pre-ruled" means the coder did exactly what the plan said. Two pre-rulings that produced no log row because nothing was dropped are worth one line each: **PR-2** — loom's narrower snooze guard (`openBlockingRequests`, which knows loom's dismissed and superseded question outcomes) is still genuinely narrower than upstream's `openRequests`, so loom's predicate stayed with upstream's error syntax; **PR-20** — every one of your post-pull-7 live rulings (consult and control-plane arrivals as cards, the re-engaged root not auto-settling, click-to-scroll on dispatch cards, bare paths as chips, the handoff card linking to its thread, the sidebar usage meter as the primary usage surface) survives and was exercised in the live smokes.
+
+## Every row at a glance
+
+Filter or sort by tier, area or text to find any row. The detail for every row is below in its tier; the seven rows marked **Review** are your Tier A outcomes, detailed in the section above.
+
+<Table
+  filterable
+  density="compact"
+  columns={["Row", "Tier", "Area", "Decision in one line"]}
+  rows={[
+    ["DL-0", "A", "repo", "Merge target is 024d49520e, the last commit before upstream's Orchestration V2 rewrite; V2 becomes its own project"],
+    ["DL-1", "C", "pnpm-workspace.yaml", "loom's global @noble/hashes override replaced by upstream's scoped one for the same reason"],
+    ["DL-2", "C", "pnpm-workspace.yaml", "upstream's Expo 58 override set; expo-modules-core override dropped with upstream"],
+    ["DL-3", "C", "apps/web/package.json", "jsdom at upstream's ^30.0.1 (both sides had added it)"],
+    ["DL-4", "C", "contracts/usage.ts", "upstream's version comments; UsageProviderKind = upstream's six kinds + loom's pi"],
+    ["DL-5", "C", "contracts/model.ts", "identical default text-generation model line on both sides; loom's stale marker comment dropped"],
+    ["DL-6", "B", "shared/usageMerge.test.ts", "upstream's rewrite of the floor test replaces loom's rewrite of the same test"],
+    ["DL-7", "B", "ProjectionSnapshotQuery.ts", "git mis-split upstream's unsettledOnly change across loom's two near-identical SELECTs; re-split by hand"],
+    ["DL-8", "A", "ProjectionSnapshotQuery.ts", "decodeShellSnapshot deleted with upstream's single-decode change — deviates from PR-4's \"keep both decoders\""],
+    ["DL-9", "C", "serverSettings.ts", "bitbucket and loom's embedder-key redaction both returned, on upstream's renamed SECRET_REDACTED"],
+    ["DL-10", "A", "ProviderSessionReaper.ts", "one all-rows read split in memory so loom's retention prune keeps running; upstream's live-only query not adopted"],
+    ["DL-11", "C", "model-manifest.json", "currentModels.codex unioned; upstream's compatibility block taken; no pi entry"],
+    ["DL-12", "A", "ProjectSetupScriptRunner.ts", "loom's runner and required completion kept; upstream's close-idle-shell behaviour re-expressed inside it — deviates from PR-7"],
+    ["DL-13", "C", "GitHubSourceControlProvider.test.ts", "upstream's deleted empty-listing test stays deleted; loom's repo-wide listing test kept"],
+    ["DL-14", "C", "UsageService.test.ts", "identical line on both sides; loom marker dropped"],
+    ["DL-15", "A", "ProjectSetupScriptRunner.test.ts", "loom's tests kept; upstream's sentinel-runner tests not taken (folded into the DL-12 card)"],
+    ["DL-16", "B", "externalLauncher.test.ts", "an upstream test dropped at pull 7 restored beside upstream's new cases"],
+    ["DL-17", "C", "server.test.ts", "loom's split harness with upstream's four edits; sugar-only hunks stay loom's; the absent tests are DL-49"],
+    ["DL-18", "C", "Sidebar.logic.ts", "loom's orphaned copy of sortSettledThreadsForSidebar deleted; upstream's helpers used"],
+    ["DL-19", "B", "Sidebar.logic.ts", "any loom attention flag keeps a thread out of upstream's new Working shelf (PR-8 as pre-ruled)"],
+    ["DL-20", "C", "Sidebar.tsx", "memo deps, context menu and imports composed from both sides"],
+    ["DL-21", "C", "routes/__root.tsx", "loom's hoisted structure kept; upstream's four new coordinators mounted at their upstream positions"],
+    ["DL-22", "A", "useHandleNewThread.ts", "new-thread env-mode default re-expressed on upstream's resolver; the priority order changed"],
+    ["DL-23", "C", "ThreadSearchMatch / ThreadRouteView / _chat.index / NoProjectsHero", "loom's markup with upstream's colour tokens and classes"],
+    ["DL-24", "B", "FileTagChip / composerInlineChip / verifiedFileChips", "loom's #thread and missing-file chips re-homed onto upstream's new ContextChip"],
+    ["DL-25", "C", "ComposerCommandMenu / ChatComposer", "upstream's listbox accessibility ids around loom's sectioned # menu"],
+    ["DL-26", "A", "ChatView / queuedMessageStore", "upstream's new queued-message sender adopted; loom's thread references kept; the $skill gap it opened is DL-37"],
+    ["DL-27", "A", "DiffPanel.tsx", "By-coder re-homed as a third radio group inside upstream's new scope menu (PR-9 as pre-ruled)"],
+    ["DL-28", "C", "DiagnosticsSettings / settingsLayout", "loom's hoisted StatBlock kept; upstream's restyle ported into it"],
+    ["DL-29", "C", "rightPanelStore / terminal-links", "upstream's \".\" → explorer case and two-arg trimmer composed with loom's versions"],
+    ["DL-30", "C", "chat/timelineLayout.ts", "loom's shared row class adopts upstream's chat-width variable"],
+    ["DL-31", "A", "mobile HomeScreen / ThreadNavigationSidebar", "upstream's v2-only thread list; loom's search behaviour re-applied; every v1-path hunk deleted (PR-11)"],
+    ["DL-32", "C", "ChatView.logic.test.ts", "an orphaned loom comment dropped"],
+    ["DL-33", "C", "ComposerPendingReviewComments.tsx", "a loom-only orphan with no importer deleted"],
+    ["DL-34", "A", "model-manifest.json", "both sides added claude-opus-5-5 and git kept both — a startup crash; upstream's providers block taken verbatim, loom's opus alias move dropped"],
+    ["DL-35", "B", "pnpm-workspace.yaml", "loom's astro>esbuild override deleted after proving it no longer changes the resolution"],
+    ["DL-36", "B", "pnpm-workspace.yaml", "loom's @types/hast override kept after proving the web build breaks without it"],
+    ["DL-37", "A", "sendQueuedMessage.ts", "queued messages expand $skill tokens again (skill names ride the queue's send settings)"],
+    ["DL-38", "B", "ThreadStatusIndicators / SearchableModelList / ModelPickerContent / SubscriptionMeter", "loom callers moved to upstream's new popover and combobox props; the model list scrolls where loom clipped"],
+    ["DL-39", "C", "CodexManagedProvider.ts", "loom's generateStructured SPI method added to upstream's new managed driver"],
+    ["DL-40", "C", "AgentAwarenessRelay", "upstream's helper retyped to loom's lean shell; upstream's test re-pointed at the read loom actually makes"],
+    ["DL-41", "C", "GitHubSourceControlProvider.ts", "two imports upstream dropped, still used by loom's repo-wide listing, re-added"],
+    ["DL-42", "C", "usageTranscripts.ts", "pi usage events emit fast: false (upstream made the field required)"],
+    ["DL-43", "C", "dev/seedConfig.ts", "seed config on upstream's per-signal OTLP settings"],
+    ["DL-44", "C", "mobile thread-list-v2-items.tsx", "relativeTime import re-added for loom's pending-question age"],
+    ["DL-45", "C", "13 test files", "upstream fixtures gain loom-required fields and services; no type loosened"],
+    ["DL-46", "C", "pull7-tools/sqlcolsweep.py", "tool fix: a trailing // loom: marker no longer hides the Result key"],
+    ["DL-47", "A", "ProviderService.ts runStopAll", "loom's stopped-row early return deleted; upstream's settled-binding filter alone (the two had stacked into a bug)"],
+    ["DL-48", "A", "providerCompatibility.test.ts", "no pi compatibility policy added; the test skips pi and asserts pi gets no advisory"],
+    ["DL-49", "A", "server.test.ts", "16 of 20 upstream WebSocket subscription tests restored; 4 stay absent, each with a reason"],
+    ["DL-50", "B", "connection/storage.test.ts", "an upstream test lost at pull 7 restored verbatim"],
+    ["DL-51", "B", "GitManager.ts", "upstream's remote-name override restored (lost at pull 7; three upstream tests pass again)"],
+    ["DL-52", "B", "client-runtime persistence.test.ts", "flaky round-trip test fixed by trimming generated strings so loom's wider shell survives"],
+    ["DL-53", "A", "ThreadSettlementReactor", "PR-5 verification tests written; re-enabling a thread's auto-settle now wakes loom's finished-work settle"],
+    ["DL-54", "A", "WorktreeProvisioner.ts", "workstream child worktrees now honour upstream's worktreeSubmodules setting"],
+    ["DL-55", "B", "client-runtime state/server.ts", "upstream's theme strip on cache load restored (lost at pull 7)"],
+    ["DL-56", "C", "27 upstream-owned files", "small unmarked fork hunks marked; client-runtime/package.json added to the sweep allow list (JSON)"],
+    ["DL-57", "C", "usageTranscripts.test.ts", "expectation gains fast: false to match DL-42"],
+    ["DL-58", "B", "dev-verify smoke", "the /handoff and MDX-preview gap was closed by the final gate; the drafter placing a goal is still unproven (credentials)"],
+    ["DL-59", "A", "cmd+k Restart agent session", "works on Pi unchanged; the action is offered on running workstream children too"],
+    ["DL-60", "C", "GitManager / GitVcsDriverCore tests", "12 failures proven environmental (host git 2.30 lacks worktree list -z)"],
+    ["DL-61", "B", "follow-ups", "two pull-7 losses deferred as goal tasks: upstream's session-aware welcome; loom's dead Claude catalogue"],
+    ["DL-62", "A", "behaviour inherited from upstream", "four changes you will feel, accepted as upstream's — split into five cards below"],
+    ["DL-63", "B", "apps/web lint", "516 shadcn lint errors fixed; no allow-list entry, no disable comment, no rule change"],
+    ["DL-64", "B", "workstream surfaces, consult card", "their fixed dark palette declared as named loom theme colours instead of raw hex"],
+    ["DL-65", "C", "8 upstream-owned web files", "29 lint errors, all inside loom hunks, fixed in-hunk"],
+    ["DL-66", "C", "command.tsx / autocomplete.tsx / three others", "consumer-less separators and unused imports deleted"],
+    ["DL-67", "B", "SearchableModelList.tsx", "loom's model list adopts upstream's combobox primitives (only consumer: the Failover card)"],
+    ["DL-68", "C", "MDX plan blocks, ArtifactViewPanel", "four class names no CSS rule selects deleted"],
+    ["DL-69", "A", "knip", "two unused dev CLIs reported; logged, not changed — your call (question at the foot)"],
+    ["DL-70", "A", "FailoverSettingsPanel / verifiedFileChips", "the Failover settings card, unreachable since pull 7, restored and scoped to the displayed environment; a stale test fixed"],
+    ["DL-71", "B", "looks knowingly changed", "sizes, tracking, shadows and button variants moved to the nearest scale step — with screenshots"],
+    ["DL-72", "Review", "CommandPalette / client-runtime projects.ts / modelSelection.ts", "your DL-62 (c) ruling: both default-model stamps deleted; a null default was landing on Pi's first catalogue row, now on PI_DEFAULT_MODEL"],
+    ["DL-73", "Review", "ProjectSetupScriptRunner + .loom.ts, WorktreeProvisioner", "your DL-12/15 ruling: upstream's runner as PR-7 wrote it; the breadcrumb rides on it; the 30-minute timeout bounds the breadcrumb only"],
+    ["DL-74", "Review", "ProviderSessionReaper / ProviderSessionRuntime", "your DL-10 ruling: upstream's live-only read; the retention prune is one SQL delete per sweep; net −154 lines"],
+    ["DL-75", "Review", "CommandPalette.tsx", "your DL-59 ruling: the Restart toast says on Pi that the conversation continues"],
+    ["DL-76", "Review", "dev CLIs / root package.json", "your DL-69 ruling: thread-search eval kept as dev:search-eval; branch-scoping printout deleted; knip clean without a config change"],
+    ["DL-77", "Review", "failover (whole slice)", "your DL-70 ruling, checked: CLI Proxy covers Claude rotation only; V2 has no parking concept; pull 9 keeps failover — held untouched"],
+    ["DL-78", "Review", "vite.config.ts", "recaps/** joins the fmt ignore list its comment already described; vp check passes without rewrapping this document"],
+  ]}
+/>
+
+## Tier A — needs your eyes
+
+<Card
+  id="dl-0"
+  heading="DL-0 · Stop one commit before Orchestration V2"
+  tone="warning"
+  badge="SCOPE"
+  meta={["pre-ruling PR-0", "confidence: high", "reverse: structural"]}
+>
+  **What was at stake.** The brief named upstream's tip `f391794a35` (409 commits). A dry-run merge of the tip produced **348** conflicted files — 169 content, **91** where loom edited a file V2 deleted, **86** where loom's own files sit inside the directory V2 renamed — against **91** for `024d49520e`. The 45 V2 commits delete V1's command and event unions, the decider, projector and reactors loom's workstream engine is written against (206 of loom's 766 fork-only files import something V2 removed), add two migrations and a new `statev2.sqlite`, and bump the protocol so a V1 client is refused with HTTP 426.
+
+  **What was decided.** Merge to `024d49520e` now, advance `UPSTREAM_BASE` to it, and treat V2 as a design project with exactly one upstream delta left to evaluate. The follow-up task is already in the goal tree (scope V2 adoption: map every fork command type, reactor and table to a V2 concept; size re-platform vs stay-on-V1 vs hybrid; bring you a decision document).
+
+  **Why.** Your addendum explicitly licensed "splitting the pull into intermediate upstream tags to shrink each conflict set", and your pull-7 framing — drop loom's approach where upstream's is more rigorously developed — argues for evaluating V2 seriously rather than attempting it as a conflict-resolution exercise with no design. The 364 pre-V2 commits are an ordinary, mostly additive cadence pull; nothing in them is wasted on any V2 path.
+
+  <FieldDiff
+    title="Pull 8 scope"
+    beforeLabel="The brief"
+    afterLabel="As executed"
+    fields={[
+      { "name": "upstream target", "before": "f391794a35 (tip, 409 commits)", "after": "024d49520e (v0.0.45 + 4, 364 commits)" },
+      { "name": "conflicted files", "before": "348 (91 modify/delete, 86 directory-location)", "after": "91 (90 content, 1 modify/delete)" },
+      { "name": "Orchestration V2", "before": "merged as part of the pull", "after": "deferred — follow-up task 487c137f (design project)" },
+      { "name": "UPSTREAM_BASE", "before": "c14f6015bf", "after": "024d49520e" }
+    ]}
+  />
+
+  <Details summary="What V2 would actually mean for loom (from the plan's §12)">
+    Per upstream's `docs/orchestration-v2/README.md`: app ids become primary with provider ids as refs; runs, execution nodes and provider threads form one graph; root-run completion is the only turn-completing event; forks and provider switches are explicit lineage plus context-handoff artefacts. Per `docs/internals/legacy-orchestration-migration.md`: `state.sqlite` is snapshotted to `statev2.sqlite` on first launch, thread shells import eagerly and transcripts lazily, and provider sessions, checkpoints, activities, approvals and plans are **not** migrated — a migrated thread's first continuation starts a fresh provider session with a 32k-character handoff.
+
+    For loom that means `orchestration.loom.ts` (which extends a V1 struct that no longer exists), `decider.loom.ts` / `projector.loom.ts` (24 fork command arms against a deleted decider), the dispatcher, fan-in, liveness, handoff-drafter, worktree-reaper and exhaustion-resume reactors, 45 fork migrations on V1 projection tables, the MCP workstream tools, goals and tasks, and the web and mobile loom surfaces all need a redesign onto V2's graph, plus a data migration beside upstream's importer. Weeks, not sessions. In favour of doing it: V2 explicitly models subagents, forks, handoffs and capability gaps — loom's whole domain — and staying on V1 means every future upstream pull is V2-shaped. Against: you use loom daily and rejected half-baked deploys; V2 was one day old upstream with 44 follow-ups already of the "runs no longer get stuck" class.
+  </Details>
+
+  **To reverse.** Nothing to undo in this stack — merging the tip would still need this merge first. Reversing means starting the V2 project now rather than after the stack lands.
+
+  <ReviewChoice itemId="dl-0" label="DL-0" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Behaviour changes inherited from upstream (DL-62)
+
+The clean-overlap review found these in files git merged without conflict. None conflicts with a loom KEEP, so they were accepted as upstream's; they are listed because you will meet them in daily use.
+
+<Card
+  id="dl-62a"
+  heading="DL-62 (a) · Per-thread auto-settle switch, and what it does to loom's finished-work settle"
+  tone="risk"
+  badge="BEHAVIOUR"
+  meta={["pre-ruling PR-5", "with DL-53 (b)", "reverse: local"]}
+>
+  **What upstream added.** A per-thread "Auto-settle behaviour" switch (`autoSettleDisabledAt`, migration 054, an Enabled/Disabled submenu on the thread menu). Upstream's own settlement sweep skips a thread while it is off.
+
+  **What that does to loom.** Loom's finished-work trigger — the rule that settles a root once its work reaches a terminal lane — gates on the same `isAutoSettlementCandidate` predicate, so **a finished root whose switch is off now stays in the inbox** until you turn it back on. The review judged this the intended composition (PR-5: "the switch is a user opt-out, the blockers are structural"); your two structural blockers (non-terminal descendants, `yielded`) and the re-engaged-root rule are untouched and still enforced by the decider.
+
+  **One loom behaviour was added to make the switch coherent (DL-53 b).** Neither upstream's nor loom's reactor reacted to the switch being turned back **on**; upstream recovers through its one-minute inactivity sweep, but loom's finished-root rule only runs on a terminal lane change or a session going quiet, so a done root you re-enabled would have sat until some unrelated event. One marked hunk now enqueues the finished-work pass when the switch is re-enabled. The review had flagged this as "Carl's call whether it is worth it"; the coder made it, so it is yours to reverse.
+
+  <FieldDiff
+    title="Finished root with auto-settle turned off"
+    beforeLabel="Loom before the pull"
+    afterLabel="After pull 8"
+    fields={[
+      { "name": "per-thread switch", "after": "Enabled / Disabled submenu on the thread menu (upstream)" },
+      { "name": "finished root, switch off", "before": "settles when its lane goes terminal", "after": "stays in the inbox until re-enabled" },
+      { "name": "switch turned back on", "after": "loom's finished-work pass runs immediately (DL-53 b, marked)" },
+      { "name": "structural blockers (live descendants, yielded, re-engaged root)", "before": "enforced by the decider", "after": "enforced by the decider", "kept": true }
+    ]}
+  />
+
+  <Details summary="The DL-53 (b) hunk">
+    <Code
+      filename="apps/server/src/orchestration/ThreadSettlementReactor.ts"
+      language="ts"
+      code={"      case \"thread.plan-lane-set\":\n        return isTerminalLane(event.payload.planLane) ? finishedWorkWorker.enqueue() : Effect.void;\n      // loom: re-enabling a thread's auto-settle lets a finished root settle now.\n      case \"thread.auto-settle-set\":\n        return event.payload.autoSettleDisabledAt === null\n          ? finishedWorkWorker.enqueue()\n          : Effect.void;\n"}
+    />
+  </Details>
+
+  **To reverse.** Deleting the four-line hunk removes the wake-up (a re-enabled root then waits for the next event). Making loom's finished-work rule ignore the switch would mean a marked predicate change in `ThreadSettlementPolicy.ts` — possible, but it would make the switch lie for finished roots.
+
+  <ReviewChoice itemId="dl-62a" label="DL-62 (a) + DL-53 (b)" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-62b"
+  heading="DL-62 (b) · Undo for settle / snooze / archive / unpin, on mod+z"
+  tone="risk"
+  badge="BEHAVIOUR"
+  meta={["clean merge", "PR-14 keybindings checked", "reverse: n/a — upstream's"]}
+>
+  Settle, snooze, archive and unpin now show a grouped **undo notice in the sidebar footer** (rendered above loom's usage meter) instead of the old snooze toast, and `mod+z` triggers it whenever focus is not in an editable field or the terminal. Undoing a settle unsettles with `reason: "user"`, which pins the thread active, then re-pins or re-snoozes it. The review confirmed this composes with loom's server-side blockers and that no loom path bypasses it. Keybindings were checked for collisions: upstream's `mod+[` / `mod+]` (history) and `mod+z` do not collide with loom's `mod+alt+[` / `]`, `mod+w` or the tab chords.
+
+  **To reverse.** This is upstream's feature on upstream's files; removing it would be a standing fork delta against doctrine. Nothing recommended.
+
+  <ReviewChoice itemId="dl-62b" label="DL-62 (b)" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-62c"
+  heading="DL-62 (c) · New project from a name, and threads without a project, create projects with no default model"
+  tone="warning"
+  badge="BEHAVIOUR"
+  meta={["clean merge", "PR-1 Pi-first defaults intact", "reverse: trivial"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-72, see above.** Both stamps deleted; the trace found the "functionally every flow still lands on Pi" premise below was false and fixed the resolver. The text below is the card as you first read it.
+  </Callout>
+
+  Upstream added two flows — "New project" from just a name, and starting a thread with no project (an environment-level Scratch project) — and both create the project with `defaultModelSelection: null`. Loom's command-palette "Add project" hunk, by contrast, stamps Pi and `PI_DEFAULT_MODEL` explicitly. Functionally every flow still lands on Pi (null → first provider, and the registry is Pi-only), but the project records are now inconsistent between the two paths. The review suggested either leaving it, or deleting loom's palette hunk as redundant now that upstream owns the concern. Nothing was changed.
+
+  **To reverse / tidy.** Deleting loom's palette hunk is one marked block in `CommandPalette.tsx`; stamping Pi in upstream's two new flows would be two new marked hunks. Neither is needed for correctness.
+
+  <ReviewChoice itemId="dl-62c" label="DL-62 (c)" placeholder="Superseded by DL-72 — record your verdict there; use this only for a note on the original…" />
+</Card>
+
+<Card
+  id="dl-62d"
+  heading="DL-62 (d) · Attachment caps go from 8 per message to 100"
+  tone="warning"
+  badge="BEHAVIOUR"
+  meta={["clean merge", "contracts", "reverse: n/a — upstream's"]}
+>
+  Upstream raised the cap from 8 attachments per message (each image ≤ 10 MiB) to 100 attachments with images ≤ 80 MiB in total. Pi inlines every image as base64 in the RPC prompt, so the worst-case payload per turn is unchanged (about 80 MiB) but Pi can now receive up to 100 images in one turn. Informational: upstream owns the limit and loom has no KEEP here. No action recommended unless Pi or a model limit bites.
+
+  <ReviewChoice itemId="dl-62d" label="DL-62 (d)" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-62e"
+  heading="DL-62 (e) · Two inherited changes the log row does not list"
+  tone="warning"
+  badge="BEHAVIOUR"
+  meta={["from the clean-overlap review tables", "not in DL-62's text", "reverse: trivial"]}
+>
+  These two appear in the review tables (`docs/upstream-sync/27-clean-overlap-review.md`, slices A and B) as "adapted" or "kept-compatible" with a behavioural side effect, but did not make it into DL-62's list. They are here so you see them.
+
+  1. **Telemetry service name.** Upstream replaced the process-wide OTLP settings with per-signal export settings and hard-coded the service name to `t3code-server`. Loom's server used to report as `t3-server`, and the `T3CODE_OTLP_SERVICE_NAME` environment variable is **no longer honoured**. Nothing in the repository sets it; if a dashboard on the cockpit filters on `t3-server`, it will go quiet after deploy. (DL-43 records only the seed-config side of this change.)
+  2. **Pi file attachments without a path line now fail loudly.** Upstream's `ProviderService` turns any `file` attachment that lacks a path line into a validation error (it used to apply to pasted text only). Pi's generic-file attachments were previously dropped silently in that case; they now error. The review called this upstream's intent.
+
+  <ReviewChoice itemId="dl-62e" label="DL-62 (e)" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Deviations from a pre-ruling
+
+<Card
+  id="dl-8"
+  heading="DL-8 · The full-shell decoder was deleted, against PR-4's literal wording"
+  tone="warning"
+  badge="DEVIATION"
+  meta={["pre-ruling PR-4", "ProjectionSnapshotQuery.ts", "reverse: trivial"]}
+>
+  **What conflicted.** PR-4 said "keep both decoders" (`decodeShellSnapshot` for the full read, `decodeLeanShellSnapshot` for loom's control-plane read). Upstream's `b6eefc926a` meanwhile removed the second decode entirely: the full and archived shell snapshots are now built from schema-decoded rows and type-checked with `satisfies`, with no decoder call.
+
+  **What was decided.** Adopt upstream's single-decode structure (which PR-4 also asked for) — that leaves `decodeShellSnapshot` with no caller, so it was deleted rather than kept as dead code knip would flag. `decodeLeanShellSnapshot` stays; `mapLeanThreadShellRow`, which carries every fork column, stays and now also maps `autoSettleDisabledAt` so the sidebar can show the switch. The column sweep (`sqlcolsweep.py`) reads 0 problems and the lean-read tests pass.
+
+  **To reverse.** Re-adding the decoder is one function with no caller; there is nothing it would protect.
+
+  <ReviewChoice itemId="dl-8" label="DL-8" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-12"
+  heading="DL-12 + DL-15 · Loom's setup-script runner kept whole; upstream's close-the-idle-shell behaviour added inside it"
+  tone="warning"
+  badge="DEVIATION"
+  meta={["pre-ruling PR-7", "ProjectSetupScriptRunner.ts + test", "reverse: local"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-73, see above.** Upstream's runner is the baseline, as PR-7 wrote; the breadcrumb rides on it and the 30-minute timeout now bounds the breadcrumb only. The text below is the card as you first read it.
+  </Callout>
+
+  **What conflicted.** PR-7 ruled "upstream's shape (an optional `completion`, closes the idle setup shell on exit 0) with loom's 30-minute timeout and the `t3code-setup-state.json` breadcrumb re-applied inside it". Upstream's runner wraps the command with a completion sentinel and only observes completion when asked; loom's runner always observes completion because the breadcrumb — which every worktree agent's system prompt tells it to poll — is written on every run.
+
+  **What was decided.** Loom's implementation and its required `completion` type stay; upstream's one behavioural change (close the idle setup shell after a clean exit) is re-expressed in loom's detached observer, right after the `ready` breadcrumb is written. Upstream's `ProjectSetupScriptOutputLine` / `durationMs` shape was not adopted. The reasoning: an optional type would only add undefined-handling in `WorktreeProvisioner` for a value that is always present. **DL-15:** loom's tests stay; upstream's two tests that pin its sentinel-wrapper runner ("closes the idle setup shell after a clean exit", and the `closeIdle` assertion in its failure test) were not taken, and no loom replacement test was written — the behaviour is covered by the live worktree-setup smoke instead (state file reached `ready`, the setup card streamed output, no setup shell survived).
+
+  <FieldDiff
+    title="Setup-script runner"
+    beforeLabel="PR-7 as written"
+    afterLabel="As built"
+    fields={[
+      { "name": "completion field", "before": "optional (upstream's shape)", "after": "required (loom's shape — observed on every run)" },
+      { "name": "idle shell after exit 0", "before": "closed (upstream)", "after": "closed, from loom's observer after the ready breadcrumb" },
+      { "name": "30-minute timeout, breadcrumb, failure fold", "before": "kept", "after": "kept", "kept": true },
+      { "name": "upstream's two runner tests", "before": "n/a", "after": "not taken; idle-shell close covered by the live smoke only" }
+    ]}
+  />
+
+  <Details summary="The hunk that adds the idle-shell close">
+    <Code
+      filename="apps/server/src/project/ProjectSetupScriptRunner.ts"
+      language="ts"
+      code={"        onSuccess: ({ exitCode }) =>\n          writeWorktreeSetupState(fs, path, cwd, {\n            ...setupStateBase,\n            status: \"ready\",\n            exitCode,\n          }).pipe(\n            Effect.andThen(terminalManager.closeIdle({ threadId: input.threadId, terminalId })),\n          ),\n      }),\n      Effect.forkDetach,\n"}
+    />
+  </Details>
+
+  **To reverse.** Adopting upstream's runner wholesale means re-applying the timeout and breadcrumb onto its sentinel design and updating `WorktreeProvisioner` for an optional completion — roughly the work PR-7 described, a session. A cheaper middle: write one loom test for the idle-shell close so DL-15's gap is not smoke-only.
+
+  <ReviewChoice itemId="dl-12" label="DL-12 + DL-15" placeholder="Superseded by DL-73 — record your verdict there; use this only for a note on the original…" />
+</Card>
+
+### Loom features that upstream's refactors would have silently broken
+
+<Card
+  id="dl-10"
+  heading="DL-10 · The session reaper's retention prune — kept alive by giving up upstream's query-side saving"
+  tone="warning"
+  badge="DEFENSIBLE CALL"
+  meta={["pre-ruling PR-13", "ProviderSessionReaper.ts", "reverse: local"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-74, see above.** Upstream's live-only read verbatim; the prune is the one-statement SQL delete this card named as the recovery. The text below is the card as you first read it.
+  </Callout>
+
+  **What conflicted.** Upstream's `8872666957` changed the reaper to read only live bindings (`listBindings({ excludeStopped: true })`) and dropped the in-loop "skip stopped rows" branch. That hunk merged **cleanly** — but loom's retention prune (delete the stopped binding of a thread that has been deleted; archived threads deliberately excluded because they can be unarchived) lived inside that stopped branch. With the clean-merged query it would simply never have run again, and the table would have resumed growing forever — the problem the prune was written for.
+
+  **What was decided.** One all-rows read, split in memory: live rows feed upstream's reap loop, stopped rows of deleted threads feed loom's prune as its own loop. The sweep log carries both `prunedCount` and upstream's `liveBindings`. **The cost:** upstream's perf win (not reading the thousands of stopped rows each sweep) is given up. The row notes the recovery if it ever matters: a dedicated "delete stopped bindings of deleted threads" SQL statement would let the reaper take upstream's live-only read again.
+
+  <Details summary="The merged reaper (both loops)">
+    <Code
+      filename="apps/server/src/provider/Layers/ProviderSessionReaper.ts"
+      language="ts"
+      code={"const sweep = Effect.gen(function* () {\n  // Stopped rows stay for their resume cursors and far outnumber live\n  // ones, so the reap loop skips them.\n  // loom: retention (below) needs the stopped rows that upstream's\n  // `listBindings({ excludeStopped: true })` read leaves out, so read every\n  // binding once and split it rather than issue a second query.\n  const allBindings = yield* directory.listBindings();\n  const bindings = allBindings.filter((binding) => binding.status !== \"stopped\");\n  // …\n  // loom: retention. Prune only the IRREVERSIBLE class: a stopped session\n  // whose thread has been deleted. Archived threads are excluded on purpose.\n  for (const binding of allBindings) {\n    if (binding.status !== \"stopped\" || !deletedThreadIds.has(binding.threadId)) {\n      continue;\n    }\n    const pruned = yield* directory.removeIfStopped(binding.threadId).pipe(/* … */);\n    if (pruned) { prunedCount += 1; /* log provider.session.binding-pruned */ }\n  }\n\n  for (const binding of bindings) {\n    // loom: reaping a LIVE session is age-based, and only this loop needs\n    // the timestamp …\n  }\n  // …\n  yield* Effect.logInfo(\"provider.session.reaper.sweep-complete\", {\n    reapedCount,\n    prunedCount, // loom: retention\n    liveBindings: bindings.length,\n  });\n});\n"}
+    />
+  </Details>
+
+  **To reverse.** Take upstream's live-only read and move the prune to a single SQL `DELETE … WHERE status = 'stopped' AND thread_id IN (deleted)` — a small, local change that recovers the perf win; or drop the prune entirely (the table then grows again).
+
+  <ReviewChoice itemId="dl-10" label="DL-10" placeholder="Superseded by DL-74 — record your verdict there; use this only for a note on the original…" />
+</Card>
+
+<Card
+  id="dl-26"
+  heading="DL-26 + DL-37 · Queued messages now go through upstream's sender — and briefly lost loom's $skill expansion"
+  tone="info"
+  badge="UPSTREAM MECHANISM"
+  meta={["doctrine §5 rule 4", "ChatView / queuedMessageStore / sendQueuedMessage", "reverse: local"]}
+>
+  **What conflicted.** Upstream's `295d7cba09` moved queued sends out of the composer's `onSend` into a `QueuedMessageSender` that can send while the thread is not on screen; queue rows now carry `sendSettings` instead of `submissionIntent`. Loom had two things on that path: `threadReferences` on queued rows (the `#thread` context chips), and the `$name → /skill:name` expansion for Pi, which lived only in `onSend`'s direct path.
+
+  **What was decided.** Upstream's structure. `threadReferences` stays on queued rows and is threaded into `sendQueuedMessage`'s context builder (marked). `/handoff` is still intercepted before enqueue. Session 1 recorded the gap honestly — **queued messages no longer expanded `$skill` tokens** — and Session 2 closed it (DL-37): `QueuedMessageSendSettings` gains `skillNames`, filled by `readComposerSendSettings` (the one function both enqueue sites use), and `sendQueuedMessage` expands with them exactly where upstream applies its own prompt-text setting (`promptEffort`). The queue text itself stays unexpanded, so Stop/restore hands `$name` back to the composer intact. A regression test covers it. Mobile has no `$skill` expansion on either path — pre-existing, not a merge regression.
+
+  <Details summary="The expansion point in upstream's sender">
+    <Code
+      filename="apps/web/src/components/chat/sendQueuedMessage.ts"
+      language="ts"
+      code={"    const text = applyClaudePromptEffortPrefix(\n      // loom: `$name` → the `/skill:name` pi expands, as on the direct send path.\n      expandSkillTokensToPromptText(prompt, sendSettings.skillNames) ||\n        ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,\n      sendSettings.promptEffort,\n    );\n"}
+    />
+  </Details>
+
+  **To reverse.** Restoring loom's own queued path against upstream's sender would be a standing fork mechanism; nothing recommended. If you want mobile to expand `$skill` too, that is a new small feature, not a reversal.
+
+  <ReviewChoice itemId="dl-26" label="DL-26 + DL-37" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-47"
+  heading="DL-47 · Shutdown rewrites of session rows: loom's early return deleted, upstream's filter alone"
+  tone="info"
+  badge="UPSTREAM MECHANISM"
+  meta={["doctrine §5 rule 4", "ProviderService.ts runStopAll", "reverse: trivial"]}
+>
+  **What conflicted.** Both sides had fixed the same problem — shutdown rewriting every historical session row, which reset `lastSeenAt` on 1,311 of 1,326 rows at once. Loom's fix (older) was an early return for any `stopped` row; upstream's `574b180902` is an `isSettledBinding` filter: skip a stopped row **only if it carries no active turn**. Git merged upstream's filter cleanly on top of loom's early return, and the two stacked into a bug: a stopped row that still carried an `activeTurnId` was never rewritten, and the new `stoppedSessionCount` counted rows that were never touched. Upstream's own test ("shutdown leaves settled session rows untouched") caught it.
+
+  **What was decided.** Delete loom's early return; upstream's filter keeps loom's motive (no mass rewrite, `lastSeenAt` preserved on settled rows) and also clears stale turn ids. Restart continuation is unaffected because loom's reconcile already writes `stopped` rows with `activeTurnId: null`.
+
+  <Details summary="The filter that now runs alone">
+    <Code
+      filename="apps/server/src/provider/Layers/ProviderService.ts"
+      language="ts"
+      code={"/** Stopped rows with no active turn are settled; shutdown leaves them untouched. */\nfunction isSettledBinding(binding: ProviderSessionDirectory.ProviderRuntimeBinding): boolean {\n  if (binding.status !== \"stopped\") return false;\n  const payload = binding.runtimePayload;\n  if (!payload || typeof payload !== \"object\" || Array.isArray(payload)) return true;\n  return !(\"activeTurnId\" in payload) || payload.activeTurnId == null;\n}\n// …\n    // Stopped rows stay for their resume cursors, so long-lived installs hold\n    // thousands. Only rewrite the ones this shutdown actually stops.\n    const bindings = yield* directory.listBindings().pipe(\n      Effect.map((all) => all.filter((binding) => !isSettledBinding(binding))),\n      Effect.orElseSucceed(() => []),\n    );\n"}
+    />
+  </Details>
+
+  **To reverse.** Re-adding the early return re-introduces the bug upstream's test catches. Nothing recommended.
+
+  <ReviewChoice itemId="dl-47" label="DL-47" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-22"
+  heading="DL-22 · New-thread env-mode default: upstream's resolver, and a changed priority order"
+  tone="risk"
+  badge="BEHAVIOUR"
+  meta={["pre-ruling PR-17", "useHandleNewThread.ts + two loom hooks", "reverse: local"]}
+>
+  **What conflicted.** Upstream deleted `@t3tools/shared/threadEnvMode`; t3.json's env-mode default is now resolved inside `resolveProjectSettings`. Loom's exported `resolveNewThreadDefaultEnvMode` (shared by the Goal panel's "New session") and its render-time twin `useProjectDefaultThreadEnvMode` used the deleted resolver and would not compile.
+
+  **What was decided.** Both re-expressed on upstream's resolver (PR-17: adopt the replacement, never restore a deleted upstream module). **The behaviour change is in the priority order:** it was project setting > checked-in t3.json > global default; it is now **project > environment > t3.json > built-in**. If you set an environment-level default env mode, it now outranks a project's t3.json where before the t3.json won.
+
+  <FieldDiff
+    title="Default env mode for a brand-new thread"
+    beforeLabel="Loom before the pull"
+    afterLabel="After pull 8"
+    fields={[
+      { "name": "resolver", "before": "@t3tools/shared/threadEnvMode (deleted upstream)", "after": "resolveProjectSettings(settings, projectId, project, t3json)" },
+      { "name": "priority", "before": "project > t3.json > global default", "after": "project > environment > t3.json > built-in" },
+      { "name": "t3.json read", "before": "skipped when the project setting decides", "after": "skipped when project or environment decides", "note": "same query-atom caching per project" }
+    ]}
+  />
+
+  <Details summary="The re-expressed helper">
+    <Code
+      filename="apps/web/src/hooks/useHandleNewThread.ts"
+      language="ts"
+      code={"export async function resolveNewThreadDefaultEnvMode(\n  settings: ServerSettings,\n  projectId: ProjectId | null,\n  project:\n    | (LegacyProjectSettingsFields & { environmentId: EnvironmentId; workspaceRoot: string })\n    | undefined,\n): Promise<DraftThreadEnvMode> {\n  const consultProjectFile =\n    project !== undefined &&\n    resolveProjectSettings(settings, projectId, project).settings.defaultThreadEnvMode === null;\n  const projectFile = consultProjectFile\n    ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)\n    : null;\n  return resolveProjectSettings(settings, projectId, project, projectFile).settings\n    .defaultThreadEnvMode;\n}\n"}
+    />
+  </Details>
+
+  **To reverse.** Restoring the old order means a loom-only resolver again (the module upstream deleted) — against PR-17 and doctrine. Nothing recommended unless you rely on t3.json beating an environment default.
+
+  <ReviewChoice itemId="dl-22" label="DL-22" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Loom features re-homed onto upstream's redesigns
+
+<Card
+  id="dl-27"
+  heading="DL-27 · By-coder diff scope re-homed as a third radio group"
+  tone="info"
+  badge="RE-HOMED"
+  meta={["pre-ruling PR-9", "DiffPanel.tsx", "verified live: Diff → By coder lists both children", "reverse: local"]}
+>
+  Upstream turned the diff panel's scope menu into radio groups. Loom's By-coder group — the one orchestration-specific review affordance you have, which you ruled "keep and repair; mark every hunk" after pull 7 — is now a third radio group keyed `coder:<thread>` (all turns) or `coder:<thread>:<turn>`; sub-menus carry their own radio group, and the top-level scope value is empty while a coder is selected. All hunks are marked. The live smoke selected a child and the diff rendered.
+
+  <Details summary="The keying hunk">
+    <Code
+      filename="apps/web/src/components/DiffPanel.tsx"
+      language="tsx"
+      code={"  // loom: \"By coder\" is a third radio group, keyed `coder:<threadId>` (all turns)\n  // or `coder:<threadId>:<turnId>`.\n  const selectedCoderValue = selectedCoderOption\n    ? selectedCoderTurn\n      ? `coder:${selectedCoderOption.thread.id}:${selectedCoderTurn.turnId}`\n      : `coder:${selectedCoderOption.thread.id}`\n    : \"\";\n  const selectCoderValue = (value: string) => {\n    for (const option of coderDiffOptions) {\n      if (value === `coder:${option.thread.id}`) return selectCoder(option.thread.id);\n      const turn = option.orderedCheckpoints.find(\n        (summary) => value === `coder:${option.thread.id}:${summary.turnId}`,\n      );\n      if (turn) return selectCoder(option.thread.id, turn.turnId);\n    }\n  };\n"}
+    />
+  </Details>
+
+  **To reverse.** Nothing to reverse unless you dislike the radio presentation; the previous highlighted-item menu is upstream's old component, no longer present.
+
+  <ReviewChoice itemId="dl-27" label="DL-27" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-31"
+  heading="DL-31 · Mobile: upstream's v2-only thread list, with loom's search behaviour re-applied"
+  tone="info"
+  badge="RE-HOMED"
+  meta={["pre-ruling PR-11", "HomeScreen / ThreadNavigationSidebar / keyboard shortcuts", "focused tests 94/94, no simulator", "reverse: local"]}
+>
+  Upstream retired the legacy grouped thread list; loom's search ranking and archived-result rows had been wired into both the v1 and v2 paths. Both screens were rebuilt from upstream's v2-only files with loom's v2 hunks re-applied: server-ranked flat results via `rankThreadSearchItems`, `ArchivedSearchResultRow.loom` rows, id-only `onSelectThread`, excerpts from every match source, shelves and paging standing aside during a search. Every v1-path hunk was deleted, `homeListItems.test.ts` stays deleted, and loom's unused imports in the sidebar were not carried. PR-11 was explicit that loom's search behaviour is preserved **unconditionally** on all three mobile consumers (home list, iPad sidebar, command palette — the palette merged clean and was verified unchanged). **Evidence gap:** verification was by focused tests only (a new `threadSearch.loom.test.ts` plus the existing list tests); no simulator run.
+
+  **To reverse.** Nothing to restore — the v1 list no longer exists upstream. If a simulator run finds a regression it is a repair, not a reversal.
+
+  <ReviewChoice itemId="dl-31" label="DL-31" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-70"
+  heading="DL-70 · The Failover settings card, unreachable since pull 7, is back — scoped to the displayed environment"
+  tone="risk"
+  badge="FEATURE RESTORED"
+  meta={["found in the lint session, fixed in the final gate", "ProviderSettingsPanel.tsx, FailoverSettingsCard.tsx", "verified live", "reverse: trivial"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-77, see above.** You first asked for the whole failover slice removed, then for CLI Proxy and the pull-9 / V2 strategy to be checked first; the check says hold, so this restoration stands and failover is a pull-9 design decision. The text below is the card as you first read it.
+  </Callout>
+
+  **What was found.** Nothing had rendered `<FailoverSettingsPanel />` since the pull-7 merge (#190): upstream moved provider settings into `ProviderSettingsPanel.tsx` and only loom's import in `SettingsPanels.tsx` survived, so the cross-provider failover card — fallback chains, pause, reset — could not be reached in the app at all.
+
+  **What was decided (a design choice made without a pre-ruling).** The card is mounted (marked) under Providers after the usage-provider settings, and **scoped to the environment the page is displaying**: `FailoverSettingsPanel` now takes `environmentId` and `readOnly`, reads that environment's settings and provider accounts, and a read-only credential disables every control. Previously it read the primary environment's hooks. The reasoning: each environment's server applies failover from its own settings and accounts, and the host page already edits exactly the environment it displays; gating to the primary would hide a remote environment's failover with no way to edit it. Verified live on a seeded instance: the card renders, reorder / remove / add-target (popover opens, searches, Enter selects) / Pause / Reset all work and persist across a reload.
+
+  **DL-70 (b)** is a test fixed in the same round: `verifiedFileChips.test.tsx` failed 3 of 6 because DL-24 routes the missing-file and thread chips through `ContextChip`, so the test's prop search matched both the component and the span it renders. It now matches only rendered spans — merge-introduced test drift, not a behaviour change.
+
+  <Image
+    src="../../.artifacts/pull8-s4/shots/after/failover-card.png"
+    alt="Settings → Providers showing the restored Cross-provider failover card: subscription accounts with a Pause button, and fallback chains with reorder, remove and Add fallback target controls"
+    caption="The restored card under Settings → Providers (after; it had no before — it did not render)"
+    width={900}
+  />
+
+  <Image
+    src="../../.artifacts/pull8-s4/shots/after/failover-popover-search.png"
+    alt="The Add fallback target popover open with a search query filtering the model list"
+    caption="The add-target popover with the restyled model list (DL-67), filtering on a search"
+    width={900}
+  />
+
+  **To reverse.** Reverting to primary-environment scope is a one-prop change in the mount; removing the card again is deleting one marked line.
+
+  <ReviewChoice itemId="dl-70" label="DL-70" placeholder="Superseded by DL-77 — record your verdict there; use this only for a note on the original…" />
+</Card>
+
+### Calls made where upstream's model and loom's Pi-only registry disagree
+
+<Card
+  id="dl-34"
+  heading="DL-34 · Duplicate claude-opus-5-5 in the model manifest — a startup crash from a clean merge"
+  tone="info"
+  badge="UPSTREAM MECHANISM"
+  meta={["doctrine §5 rule 4", "model-manifest.json", "found by providerCompatibility.test.ts", "reverse: trivial"]}
+>
+  **What happened.** Both sides independently added a `claude-opus-5-5` entry to the bundled model manifest — loom with profile `opus-5`, the `opus` alias moved onto it and `claude-opus-5` demoted to legacy; upstream with profile `opus-5-5`, a `new` badge, `claude-sonnet-5-5` beside it and the `opus` alias left on `claude-opus-5`. At different positions, so git kept both without a conflict. The bundled manifest then **failed its own unique-slug schema check at import** — a server-startup crash that typecheck cannot see, caught only when a test loaded the manifest.
+
+  **What was decided.** Upstream's `providers` block verbatim; DL-11's union of `currentModels.codex` kept. Loom's `opus` alias move and the `claude-opus-5` legacy demotion are dropped with it. Claude is not in loom's Pi-only registry, so the manifest entries matter for the pickers' model lists, not for a driver.
+
+  **To reverse.** Re-apply loom's alias move as a marked edit to upstream's entry — a one-entry JSON change. It was a convenience, not a feature.
+
+  <ReviewChoice itemId="dl-34" label="DL-34" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-48"
+  heading="DL-48 · No compatibility policy for Pi; Pi gets no advisory"
+  tone="warning"
+  badge="DEFENSIBLE CALL"
+  meta={["pre-ruling PR-12", "providerCompatibility.test.ts, model-manifest.json", "reverse: trivial"]}
+>
+  **What conflicted.** Upstream added per-harness compatibility ranges to the manifest, a remote compatibility check, and a test that every built-in harness has a policy. Loom's registry ships Pi only, and the manifest has no `pi` policy. PR-12 left the choice open: add a `pi` entry only if the checker otherwise flags Pi; otherwise make it skip drivers without one.
+
+  **What was decided.** No `pi` policy. Pi reports `version: null` (its package is workspace-pinned), so any honest policy could only ever resolve "unknown" — and with no policy at all `resolveProviderCompatibility` returns `undefined`, so no banner or advisory renders. The test skips `pi` in its loop (marked) and now also asserts Pi resolves to no advisory. In the same pass: one-click provider update is **hidden** for Pi (its maintenance capabilities are manual-only), not broken.
+
+  <Details summary="The marked test hunk">
+    <Code
+      filename="apps/server/src/provider/providerCompatibility.test.ts"
+      language="ts"
+      code={"  it(\"bundles a compatibility policy for every built-in harness\", () => {\n    // loom: the registry ships pi only, and pi reports no CLI version (its\n    // package is pinned in the workspace), so a pi policy could only ever\n    // resolve \"unknown\". Pi carries no policy and therefore no advisory.\n    for (const builtIn of BUILT_IN_DRIVERS.filter((entry) => entry.driverKind !== \"pi\")) {\n      assert.isDefined(\n        resolveProviderCompatibility(\n          ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,\n          builtIn.driverKind,\n          null,\n        ),\n        `Missing bundled compatibility policy for ${builtIn.driverKind}`,\n      );\n    }\n    // loom: pi is never flagged unknown/broken (PR-12).\n    assert.isUndefined(\n      resolveProviderCompatibility(\n        ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,\n        ProviderDriverKind.make(\"pi\"),\n        null,\n      ),\n    );\n  });\n"}
+    />
+  </Details>
+
+  **To reverse.** Add a `pi` block to the manifest's `compatibility` array (it would resolve "unknown" and show an advisory) — one JSON entry plus un-marking the test.
+
+  <ReviewChoice itemId="dl-48" label="DL-48" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-59"
+  heading="DL-59 · cmd+k “Restart agent session” on Pi — works, with two residuals from upstream's semantics"
+  tone="risk"
+  badge="BEHAVIOUR"
+  meta={["pre-ruling PR-12 parity", "CommandPalette.tsx (clean merge)", "verified live", "reverse: trivial"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-75, see above.** The toast now says on Pi that the conversation continues; the action and its two residuals are unchanged. The text below is the card as you first read it.
+  </Callout>
+
+  Upstream's new palette action stops the session, toasts "Your next message starts a fresh session", and asks the provider for a fresh scan. On Pi it **works, unchanged**: the live smoke stopped the session and the next message resumed the same conversation from the session file (the model recalled the previous turn). Two residuals, both upstream's semantics, that you may notice:
+
+  1. The fresh scan does nothing for Pi (no per-cwd snapshot), so the composer's slash and skill menu is refreshed by its interval, not by the action; new pi extensions, prompt templates and skills still load in the next pi process.
+  2. The action is offered on **running** threads, so it will stop a mid-turn Pi session — and in loom that includes running workstream children. Upstream behaves the same.
+
+  **To reverse.** Hiding the action for running workstream children would be one marked predicate in the palette's item list.
+
+  <ReviewChoice itemId="dl-59" label="DL-59" placeholder="Superseded by DL-75 — record your verdict there; use this only for a note on the original…" />
+</Card>
+
+### New loom behaviour added by the review (not pre-ruled)
+
+<Card
+  id="dl-54"
+  heading="DL-54 · Workstream child worktrees now honour the worktreeSubmodules setting"
+  tone="risk"
+  badge="BEHAVIOUR"
+  meta={["pre-ruling PR-7 (adopt upstream's submodule policy)", "WorktreeProvisioner.ts (loom)", "verified live", "reverse: trivial"]}
+>
+  Upstream made `worktreeSubmodules` a project / environment setting and every upstream worktree creator passes it to `createWorktree`. Loom's child-worktree provisioner — the one that cuts a worktree for each workstream child — did not, so children ignored the setting and fell back to the checkout's t3.json or recursive init. The review called this a gap in PR-7's "adopt upstream's submodule-init policy"; the coder closed it: the provisioner resolves `resolveProjectSettings(...).worktreeSubmodules` and passes `submodules` (null defers to the checkout's t3.json, as upstream does). Nobody on the loom repository itself is affected (no `.gitmodules`); it matters for any project where you set `worktreeSubmodules` to `none` or `top-level`. This is the only piece of source behaviour added in the gates session.
+
+  <Details summary="The provisioner hunk">
+    <Code
+      filename="apps/server/src/project/WorktreeProvisioner.ts"
+      language="ts"
+      code={"          // Upstream's project > environment `worktreeSubmodules` setting, as\n          // every upstream worktree creator resolves it; null defers to the\n          // checkout's own t3.json.\n          const submodules = yield* Effect.gen(function* () {\n            const settings = yield* serverSettings.getSettings;\n            const project =\n              input.projectId === undefined\n                ? null\n                : Option.getOrNull(\n                    yield* projectionSnapshotQuery.getProjectShellById(input.projectId),\n                  );\n            return resolveProjectSettings(settings, input.projectId ?? null, project).settings\n              .worktreeSubmodules;\n          }).pipe(Effect.orElseSucceed(() => null));\n          return yield* gitWorkflow.createWorktree(\n            { cwd: input.parentCwd, /* … */ },\n            {\n              submodules,\n              progress: { /* … */ },\n"}
+    />
+  </Details>
+
+  **To reverse.** Delete the resolution block and the `submodules` option — children go back to the checkout's t3.json.
+
+  <ReviewChoice itemId="dl-54" label="DL-54" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-53"
+  heading="DL-53 · The auto-settle sweep's verification tests, and a quieter log line"
+  tone="warning"
+  badge="PRE-RULING COMPLETED"
+  meta={["pre-ruling PR-5", "ThreadSettlementReactor + test, ThreadSettlementPolicy.ts", "mutation-checked", "reverse: trivial"]}
+>
+  PR-5 ruled that loom's graph pre-filter for the two structural blockers becomes best-effort once upstream's sweep reads only unsettled threads (broad sweep) or a single thread (targeted sweep), and that the decider's refusal — `OrchestrationThreadSettleBlockedError` — is therefore an **expected outcome logged at debug, not WARN**, on both sweep paths (the WARN storm in the policy file's history was 198 warnings in 30 minutes). The two tests PR-5 required were unwritten after sessions 1 and 2; session 3 wrote them: (i) a root with a live child is not settled by either sweep and produces no warning; (ii) a root whose quiescent non-terminal child was **manually** settled is likewise refused with no warning. Both were mutation-checked (reverting the debug log to WARN fails both). The policy docblock that still said "with a warning" was reworded. Part (b), the re-enable wake-up, is in the DL-62 (a) card.
+
+  <Details summary="The catch that downgrades the refusal">
+    <Code
+      filename="apps/server/src/orchestration/ThreadSettlementReactor.ts"
+      language="ts"
+      code={"        effect.pipe(\n          // loom: a blocked refusal is the expected answer when the best-effort\n          // pre-filter above could not see the blocker (manually settled\n          // descendant, targeted one-thread snapshot); only real faults warn.\n          Effect.catchTag(\"OrchestrationThreadSettleBlockedError\", () =>\n            Effect.logDebug(\"automatic thread settlement blocked\", { threadId: thread.id }).pipe(\n              Effect.as(null),\n            ),\n          ),\n          Effect.catchCauseIf(\n            (cause) => !Cause.hasInterruptsOnly(cause),\n            (cause) =>\n              Effect.logWarning(\"automatic thread settlement skipped\", {\n                threadId: thread.id,\n                cause: Cause.pretty(cause),\n              }).pipe(Effect.as(null)),\n          ),\n        ),\n"}
+    />
+  </Details>
+
+  <ReviewChoice itemId="dl-53" label="DL-53" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Tests that could not come back
+
+<Card
+  id="dl-49"
+  heading="DL-49 · Four upstream WebSocket subscription tests stay absent — one of them points at a real question about loom's shell stream"
+  tone="warning"
+  badge="DEFENSIBLE CALL"
+  meta={["pre-ruling PR-18", "server.test.ts", "16 of 20 restored; 222/222 pass", "reverse: n/a"]}
+>
+  Twenty upstream `server.test.ts` subscription tests (21 instances) had been missing since the pull-7 merge. Sixteen are back: nine verbatim (plus loom's `goals` on snapshot fixtures) and seven with the live-event mock re-pointed from upstream's lazy `streamDomainEvents` to loom's eager `subscribeDomainEvents` (the fail-loud catch-up from #115). Four stay absent, each for a reason you should know:
+
+  - **"stops an overflowing shell producer without an ACK and replays the missing events"** — pins upstream's lazy-stream detach hook. The **thread** twin of this test passes 5/5 against loom's eager attach; the shell version was re-tried with the same re-pointing and **hangs to the 120 s timeout**. The row's reading: loom's shell leg does not detach without an ACK. That is either a test-harness mismatch or a genuine backpressure gap on loom's shell subscription — the log asks for a loom-native overflow test to settle it, and does not pre-judge.
+  - Two **`subscribeShell` coalescing** cases — they assert upstream's single-`thread` upsert; loom's coalescer (PR #191) emits batched `threads`, by design.
+  - **"retries a transient shell projection refetch failure"** — pins upstream's retrying refetch, which the protected-file rule for `ws.ts` forbids (loom's catch-up fails loud on purpose; doc 25, session 2).
+
+  **What it would take.** A loom-native shell-overflow test is the one open piece of work; it belongs with the broader sweep of upstream tests still missing since pull 7 (follow-ups, below).
+
+  <ReviewChoice itemId="dl-49" label="DL-49" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### An open choice
+
+<Card
+  id="dl-69"
+  heading="DL-69 · knip reports two unused dev CLIs — your call"
+  tone="accent"
+  badge="OPEN CHOICE"
+  meta={["lint session", "apps/server/src/dev/threadSearchEval.loom.ts, verifyBranchScoping.ts", "was: answer at the foot"]}
+>
+  <Callout tone="decision">
+    **Ruled by Carl → DL-76, see above.** The thread-search eval is kept as the root script `dev:search-eval` (the third route below); the branch-scoping printout is deleted. The knip question has left the foot of the document. The text below is the card as you first read it.
+  </Callout>
+
+  `knip --include files,dependencies` — part of the lint session's definition of done — reports two unused files: `apps/server/src/dev/threadSearchEval.loom.ts` (the thread-search acceptance harness from `plans/thread-content-search`) and `apps/server/src/dev/verifyBranchScoping.ts` (documented in `docs/dev-site-testing.md`). Both are manual-run dev CLIs, present unchanged on `main`; this is not merge damage and not web lint. The coder logged it and changed nothing, because the two obvious resolutions are both yours: delete both CLIs, or add a knip `entry` for them — which the "upstream's configuration, no fork exemptions" doctrine forbids, so keeping them that way is an explicit doctrine exception. A third route exists that touches no knip configuration: register each as a root `package.json` script beside the existing `dev:seed` / `dev:seed:verify` scripts (knip already treats those two script-referenced dev files as entries and is silent about them). That would need a quick knip run to confirm. **Record your choice in the question at the foot of the document**, not here.
+</Card>
+
+## Tier B — notable, likely uncontroversial
+
+<Card
+  id="dl-7"
+  heading="DL-7 · ProjectionSnapshotQuery: git mis-aligned upstream's change across loom's two SELECTs"
+  tone="neutral"
+  badge="AS PRE-RULED"
+  meta={["pre-ruling PR-4", "protected file (lost columns twice in earlier pulls)", "sqlcolsweep 0/0"]}
+>
+  Upstream's `unsettledOnly` filter, `auto_settle_disabled_at` column and `threads` alias were meant for one `listActiveThreadRows`; git landed the request header on loom's full read and the column, alias and filter on loom's **lean** read (conflicting with its role filter). Re-split by hand exactly as PR-4 ruled: the full read gets upstream's column, alias and filter; the lean read keeps loom's `RoleFilterInput` and gains the column (so `autoSettleDisabledAt` rides the lean row for the sidebar); the sessions and latest-turn reads take a composed `{ unsettledOnly, role }` request with both predicates in SQL. Recorded because the clean-merged text was silently wrong, not just the conflicted lines.
+
+  <ReviewChoice itemId="dl-7" label="DL-7" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-19"
+  heading="DL-19 · Loom's attention flags keep a thread out of upstream's Working shelf"
+  tone="neutral"
+  badge="AS PRE-RULED"
+  meta={["pre-ruling PR-8", "Sidebar.logic.ts", "one marked hunk + a test"]}
+>
+  Upstream's opt-in "Working section (beta)" folds working and monitoring threads into a collapsed shelf and returns a thread to the top when it finishes, fails or needs you. Its predicate did not know loom's attention flags; now any flag (`needs_guidance`, `awaiting_acceptance`, the derived brief-needed parent flag) counts as "needs you", so the thread stays in the inbox and leaving the shelf counts as a return. This is the feature your buried-thread problem was meant to be solved by (pull 7: "auto-settle + collapsed shelves + drag-to-settle"); it is **off by default**.
+
+  <Details summary="The predicate">
+    <Code
+      filename="apps/web/src/components/Sidebar.logic.ts"
+      language="ts"
+      code={"export function isSidebarThreadWorking(\n  thread: ThreadStatusInput & Pick<SidebarThreadSummary, \"attention\">, // loom: attention\n): boolean {\n  // loom: any attention flag (needs_guidance, awaiting_acceptance, the derived\n  // brief-needed parent flag) is the thread needing the user, so it stays in the\n  // inbox and leaving the shelf counts as a return.\n  if (thread.attention.length > 0) return false;\n  const status = resolveSidebarThreadStatus(thread);\n  if (status !== \"working\" && status !== \"monitoring\") return false;\n  // A plan prompt outranks lingering background work, as in the status pill.\n  return resolveThreadStatusPill({ thread })?.label !== \"Plan Ready\";\n}\n"}
+    />
+  </Details>
+
+  <ReviewChoice itemId="dl-19" label="DL-19" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-24"
+  heading="DL-24 · The #thread and missing-file chips ride upstream's new ContextChip"
+  tone="neutral"
+  badge="RE-HOMED"
+  meta={["§7 chat-surface row, PR-17", "FileTagChip / composerInlineChip / verifiedFileChips / threadReferencePresentation"]}
+>
+  Upstream's `ContextChip` component replaced the chip class-name constants loom's `#thread` chip, missing-file chip and inline dismiss button were built on. All three now render through `<ContextChip kind="mention">` (the thread chip's hand-drawn icon SVG replaced by lucide's `MessagesSquareIcon`); `select-text` replaces the removed `selectable` prop. No constants were restored. One knock-on test (DL-70 b) was fixed later.
+
+  <ReviewChoice itemId="dl-24" label="DL-24" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-38"
+  heading="DL-38 · Loom callers moved to upstream's new popover and combobox props; the model list scrolls where loom clipped"
+  tone="neutral"
+  badge="API DRIFT"
+  meta={["PR-15, PR-17", "ThreadStatusIndicators, SearchableModelList, ModelPickerContent, SubscriptionMeter", "verified live"]}
+>
+  Upstream's restyle series removed `PopoverPopup viewportClassName` (now `padding`), `ComboboxItem contentClassName` and `ComboboxInput inputClassName` (now `unstyled`). Six loom call sites were re-expressed on the new props; nothing was restored. The one visible delta: the model search popover's viewport is now `overflow-y-auto` where loom had forced `overflow-hidden` — the live smoke confirmed it is a real scroll container with padded, unclipped rows.
+
+  <ReviewChoice itemId="dl-38" label="DL-38" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-35"
+  heading="DL-35 · The astro>esbuild override is gone — proven no longer load-bearing"
+  tone="neutral"
+  badge="PROVED BY REVERT"
+  meta={["pre-ruling PR-16", "pnpm-workspace.yaml"]}
+>
+  Pull 7's method: prove each loom override by reverting it. Because pull 8's settled lockfile already unified both packages, a plain revert proved nothing, so the test ran from upstream's own lockfile: without the override, `vp i` resolves esbuild `0.28.2` once for astro and vite-plus-core (plus upstream's own `0.25.12` for drizzle-kit), there is no vite `Plugin` type split, and typecheck is 15/15. Deleted. The tell if a future esbuild 0.28.x splits the graph again is the `apps/web` vite.config typecheck — re-add then.
+
+  <ReviewChoice itemId="dl-35" label="DL-35" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-36"
+  heading="DL-36 · The @types/hast override stays — proven load-bearing"
+  tone="neutral"
+  badge="PROVED BY REVERT"
+  meta={["pre-ruling PR-16", "pnpm-workspace.yaml"]}
+>
+  From upstream's lockfile without it, `@types/hast` 3.0.4 sits beside loom's MDX chain's 3.0.5 and `apps/web` fails with 11 errors (`ChatMarkdown.tsx`, `HighlightedCodeLines.tsx`, `incrementalHighlighting.test.ts`: `Root` not assignable to `Nodes`). Kept; its comment no longer cross-refers to the deleted esbuild pin.
+
+  <ReviewChoice itemId="dl-36" label="DL-36" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Things lost at pull 7, found and restored by the review
+
+<Card
+  id="dl-51"
+  heading="DL-51 · GitManager honours the caller's remote name again"
+  tone="success"
+  badge="PULL-7 LOSS RESTORED"
+  meta={["clean-overlap slice B", "GitManager.ts, one line", "3 upstream tests pass"]}
+>
+  Pull 7 kept loom's branch-head-context resolver over upstream's, and loom's version ignored the caller's `details.remoteName`. Effect: the deleted-fork-branch and own-name-ref recovery passed a remote override that the identity check honoured but the head-context resolver dropped, so the lookup failed with "Repository identity … changed during pull request lookup" or returned null. Three upstream tests failed at the loom parent and at the merge tip; upstream's `details.remoteName ?? branch.<b>.remote` is restored (marked) and they pass.
+
+  <ReviewChoice itemId="dl-51" label="DL-51" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-55"
+  heading="DL-55 · Published themes are stripped from a cached config on load again"
+  tone="success"
+  badge="PULL-7 LOSS RESTORED"
+  meta={["clean-overlap slice D", "client-runtime state/server.ts, two lines"]}
+>
+  Pull 7 resolved this file "ours" and lost upstream's `withoutEnvironmentThemes(cached)` on cache load ("a cache written by an earlier build can still carry published themes"). Both calls restored.
+
+  <ReviewChoice itemId="dl-55" label="DL-55" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-16"
+  heading="DL-16 · externalLauncher test restored"
+  tone="success"
+  badge="PULL-7 LOSS RESTORED"
+  meta={["pre-ruling PR-18", "externalLauncher.test.ts"]}
+>
+  Upstream's "ignores unusable app bundles and keeps PATH launchers first" test had been dropped at the pull-7 merge (no loom commit removes it). Restored at upstream's current text, beside upstream's new `agy` CLI cases and loom's two `zed-remote` tests.
+
+  <ReviewChoice itemId="dl-16" label="DL-16" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-50"
+  heading="DL-50 · Browser GitHub routing-permissions test restored"
+  tone="success"
+  badge="PULL-7 LOSS RESTORED"
+  meta={["pre-ruling PR-18", "connection/storage.test.ts"]}
+>
+  The whole `describe("browser GitHub routing permissions", …)` block existed at upstream and was absent from loom since the pull-7 merge; the code it tests still exists. Restored verbatim (marked). No source change.
+
+  <ReviewChoice itemId="dl-50" label="DL-50" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Test adjustments with a behavioural rationale
+
+<Card
+  id="dl-6"
+  heading="DL-6 · usageMerge: upstream's rewrite of the floor test replaces loom's"
+  tone="neutral"
+  badge="TESTS FOLLOW SOURCE"
+  meta={["pre-ruling PR-18", "shared/usageMerge.test.ts"]}
+>
+  Both sides had rewritten the same test against `USAGE_MERGE_COMPATIBLE_SINCE`. Upstream's source now returns `contractMismatches`, and its "keeps new cells…" case already merges an environment at the floor, so loom's case was deleted and upstream's file taken verbatim, including three new partial-scan tests.
+
+  <ReviewChoice itemId="dl-6" label="DL-6" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-52"
+  heading="DL-52 · A flaky round-trip test made deterministic"
+  tone="neutral"
+  badge="TESTS FOLLOW SOURCE"
+  meta={["pre-ruling PR-18", "client-runtime platform/persistence.test.ts", "10/10 green"]}
+>
+  Upstream's new round-trip test samples generated thread shells and drops any that fail encode → decode. Loom's shell adds about twenty trimmed-non-empty string fields, so almost no sample survived and the test failed about six runs in seven. Generated strings are now trimmed (blank → `"x"`) before decoding (marked). The source under test is unchanged.
+
+  <ReviewChoice itemId="dl-52" label="DL-52" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Gates and deferrals
+
+<Card
+  id="dl-58"
+  heading="DL-58 · The dev smoke's gap was closed by the final gate; one path stays unproven"
+  tone="neutral"
+  badge="GAP CLOSED"
+  meta={["§9 smoke, gap-eligible", "final review gate (GPT-6 Astra)"]}
+>
+  Session 3's real-Pi smoke ran everything except `/handoff` and opening an MDX plan in the file preview. The final gate exercised both live on a seeded instance: `/handoff` with no text shows the inline error and keeps the draft; with text it creates the drafter thread, shows the receipt row and toast, and surfaces the drafter's failure as "needs you"; the MDX preview rendered three real plans and recaps, including every review block. **Still unproven:** the drafter actually placing a goal end to end — every Pi turn in the scratch home failed at the provider (`OAuth refresh failed … invalid_grant`), an environment limit, not a code defect. It needs working credentials or a run on the cockpit. A pre-existing fork race the gate noticed in passing is a follow-up (below).
+
+  <ReviewChoice itemId="dl-58" label="DL-58" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-61"
+  heading="DL-61 · Two pull-7 losses deferred to a follow-up task"
+  tone="neutral"
+  badge="DEFERRED"
+  meta={["clean-overlap slices B and D", "goal task aa4dbdd0"]}
+>
+  Outside the pull-8 delta, each its own small change: upstream's **session-aware server welcome** (`welcomeStateFamily`, which returns no welcome while the payload belongs to a superseded connection — loom's plain subscription keeps the last payload; upstream's machinery is in the file but dead), and loom's **dead Claude model catalogue** in `ClaudeProvider.ts` (the TypeScript twin of DL-34: it duplicates `claude-opus-5-5` and does not know `claude-sonnet-5-5`; nothing outside tests uses it).
+
+  <ReviewChoice itemId="dl-61" label="DL-61" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+### Looks and tokens — eyeball these
+
+<Card
+  id="dl-63"
+  heading="DL-63 · 516 shadcn lint errors on fork web code → 0, with zero exemptions"
+  tone="neutral"
+  badge="DOCTRINE"
+  meta={["pre-ruling PR-15", "62 files, +555 −583", "vite.config.ts untouched"]}
+>
+  Upstream added five rules over all of `apps/web/src` (`no-arbitrary-values` 269 findings, `no-raw-colors` 156, `no-restyle` 72, `no-unknown-classes` 19 — 487 in loom-only files, 29 in loom hunks inside 8 upstream-owned files). All fixed: 203 were same-value scale tokens (`text-[11px]` → `text-2xs`, and so on); off-scale values went to the nearest step (DL-71); raw status colours map to upstream's status tokens the way upstream's own conversion did; restyled primitives now pick a variant or size; no allow-list entry, no `oxlint-disable`, no rule-config change, no new `components/ui` variant. Verified: every new token class is present in the built CSS.
+
+  <ReviewChoice itemId="dl-63" label="DL-63" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-64"
+  heading="DL-64 · The workstream panel keeps its always-dark palette, now as named loom theme colours"
+  tone="neutral"
+  badge="LOOK PRESERVED"
+  meta={["lint session", "WorkstreamPanel / Graph / Timeline / QuickFacts / ActiveStrip, ConsultCardRow, index.css loom tail"]}
+>
+  These surfaces hard-coded a fixed dark palette (`#0d1117`, `#12171f`, sky / violet / cyan / rose / orange / teal) that no upstream token holds. The decision was **not** to map them onto the nearest upstream tokens (`card`, `info`, `primary`), which would have made the panel follow the light theme — a far larger change than the lint asks for — but to declare them once as `--color-workstream*` / `--color-consult*` theme colours (plus a drawer shadow) in the loom-only tail of `index.css`, which reproduces every value exactly. The graph's inline `<style>` moved to `index.css` so its classes are declared. Pixel comparison: graph, board and panel effectively identical (card borders sample the same `#363e6d`); the card shadow is a touch lighter (DL-71 item 4) and rows about 1 px tighter (line-height tokens).
+
+  <Image
+    src="../../.artifacts/pull8-s5/ui/s4cmp/workstream-panel-panel-crop.png"
+    alt="The workstream panel header, Active-now strip and graph legend before (left) and after (right) the lint changes, visually identical"
+    caption="Workstream panel — before (left) and after (right), cropped by the final gate's pixel comparison"
+    width={900}
+  />
+
+  <ReviewChoice itemId="dl-64" label="DL-64" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-67"
+  heading="DL-67 · Loom's searchable model list adopts upstream's combobox primitives"
+  tone="neutral"
+  badge="UPSTREAM PRIMITIVES"
+  meta={["lint session", "SearchableModelList.tsx, index.css", "only consumer: the Failover card's add-target popover"]}
+>
+  Loom's list restyled the `ui/` primitives (input font, item padding and highlight, empty-state type, a transparent popover around a self-drawn frame, custom scrollbar CSS, arbitrary mask fades). It now uses upstream's `ComboboxSearchInput`, default items and empty state, the virtualised list and its scroll-fade helper; the popover draws the frame as `ProviderModelPicker` does; the `.model-picker-list` CSS is deleted. Its only consumer is the Failover card's add-target popover (DL-70), which was checked live after the card came back — the second screenshot in the DL-70 card shows it.
+
+  <ReviewChoice itemId="dl-67" label="DL-67" placeholder="Why, if reversing or discussing…" />
+</Card>
+
+<Card
+  id="dl-71"
+  heading="DL-71 · Looks knowingly changed — the complete list, with screenshots"
+  tone="neutral"
+  badge="EYEBALL"
+  meta={["lint session", "arbitrary values with no exact token", "before/after in .artifacts/pull8-s4/shots/"]}
+>
+  Rule: the token that reproduces the look where one exists, else the nearest scale step — as upstream did in its own conversions.
+
+  1. **Line height.** Every `text-[11px]` / `text-[10px]` → `text-2xs` / `text-3xs`: same size, but the tokens carry their own line-height (16 / 14 px) where the arbitrary size inherited the parent's — rows about 0.5 px tighter per line (the FYI digest card about 3 px shorter).
+  2. **Off-scale sizes rounded:** 10.5 → 11 px, 9.5 and 9 → 10 px, 8.5 → 8 px, 11.5 → 12 px, 13 → 14 px (workstream panel, Active strip, quick-facts title, timeline, model pill, thread-status popover, control digest card, handoff receipt row, subscription meter — footer still 128 px — Recommended badge, sidebar staged pill, MDX field-diff).
+  3. **Tracking** 0.07–0.18 em → `tracking-widest` (0.1 em); 0.03 em → `tracking-wide`.
+  4. **Shadows:** workstream card → `shadow-xs/25`; quick-facts popover → `shadow-2xl/55`.
+  5. **Radii:** question-form checkbox 3 → 2 px; meter row hover 4 → 6 px.
+  6. **Settings buttons on variants:** Failover reorder / remove → `icon-micro` ghost-muted / ghost-destructive; Reset and Add model → `xs` ghost-muted; "Add fallback target" → `outline` `xs` (12 px; foreground medium text instead of muted normal); Pause → `xs`; the settings-layout refresh → `icon-xs` ghost-muted (exactly upstream's Diagnostics page). Worktrees "warn" chip and notice → `warning` tokens. The Failover reorder buttons' disabled opacity 30 % → the variant's 64 %.
+  7. **MDX plan colours → theme tones:** emerald → `success`, amber → `warning`, blue → `info`, red → `destructive`, violet JSON booleans → `primary`, slate fallback pill → `secondary`; detached-comment card → `bg-card` + `warning-surface`.
+  8. **Small components:** `StagedCard` badge uses Badge `info` / `sm` as-is (no forced uppercase or semibold); `ArchivedBadge` takes outline's foreground; the `#` menu label `ps-3` → `ms-1`; the Goal dialog uses the default header and panel gaps; `ThreadSearchArchivedToggle` → ghost / ghost-muted (hover is now `bg-accent`, colour no longer from the sidebar tokens); tooltip type 11 → 12 px in the missing-file and thread-link chips; the Worktrees path tooltip uses the `code` variant.
+
+  **Evidence gap, stated openly:** the `before/cold-reader.png` shot is actually the meter fixture (a racing capture) and `pending-input` has no before shot, so those two have no baseline; the Recommended badge's change is a same-value swap (emerald-700 → `success-foreground`, which is emerald-700 in light). The final gate diffed every pair pixel by pixel and checked the receipt row, digest card and Settings → Worktrees live; it found no non-cosmetic change anywhere.
+
+  <Image
+    src="../../.artifacts/pull8-s5/ui/s4cmp/control-cards-side-by-side.png"
+    alt="Control-plane digest card before (left) and after (right): identical layout, the after card marginally shorter"
+    caption="Control-plane digest card — before (left) and after (right); item 1 is the ~3 px height difference"
+    width={900}
+  />
+
+  <Image
+    src="../../.artifacts/pull8-s5/ui/s4cmp/meter-side-by-side.png"
+    alt="Sidebar subscription meter before (left) and after (right), footer height unchanged at 128 px"
+    caption="Sidebar usage meter — before (left) and after (right); footer 128 px on both"
+    width={900}
+  />
+
+  <Image
+    src="../../.artifacts/pull8-s5/ui/s4cmp/model-picker-side-by-side.png"
+    alt="Composer model picker before (left) and after (right), pixel-identical"
+    caption="Composer model picker — pixel-identical (it is upstream's own picker path)"
+    width={900}
+  />
+
+  <Image
+    src="../../.artifacts/pull8-s5/ui/s4cmp/graph-legend-before-after.png"
+    alt="Workstream graph legend before and after at 2× zoom, matching"
+    caption="Workstream graph legend at 2× — before and after"
+    width={900}
+  />
+
+  <ReviewChoice itemId="dl-71" label="DL-71" placeholder="Which item, if any, you want changed back…" />
+</Card>
+
+## Tier C — mechanical
+
+Thirty-four rows where both sides' changes were composed, a line no longer differed from upstream, a dropped import was re-added, or a fixture gained a field loom requires. Expand to read them; the single control below covers the tier, and annotating one line pulls that row out for discussion.
+
+<Details summary="The 34 mechanical rows">
+  <Table
+    density="compact"
+    columns={["Row", "Zone / file", "What conflicted", "Ruling"]}
+    rows={[
+      ["DL-1", "pnpm-workspace.yaml", "loom's global @noble/hashes 1.8.0 override vs upstream's scoped @exodus/bytes>@noble/hashes for the same jsdom-peer reason", "upstream's override; loom's deleted (same concern twice → upstream's mechanism)"],
+      ["DL-2", "pnpm-workspace.yaml", "Expo 57 override set (incl. expo-modules-core) vs Expo 58", "upstream's Expo 58 set; expo-modules-core dropped with upstream; loom's two overrides kept pending the revert proof (DL-35/36)"],
+      ["DL-3", "apps/web/package.json", "jsdom ^29.1.1 (loom-added) vs ^30.0.1 (upstream-added)", "upstream's ^30.0.1"],
+      ["DL-4", "contracts/usage.ts", "module doc wording: loom's \"v6 only adds pi\" vs upstream's generic text; both landed on contract version 6", "upstream's comments; UsageProviderKind = upstream's six + pi (marked)"],
+      ["DL-5", "contracts/model.ts", "DEFAULT_TEXT_GENERATION_MODEL = gpt-6-luna on both sides", "identical line; loom's \"rolled from gpt-5.6-luna\" marker comment deleted. PI_DEFAULT_MODEL and thinking levels unchanged (PR-1)"],
+      ["DL-9", "serverSettings.ts", "upstream renamed the redaction constant to SECRET_REDACTED and added bitbucket secrets beside loom's embedder-key redaction", "union; loom's hunk re-pointed at the new constant"],
+      ["DL-11", "model-manifest.json", "currentModels.codex lists differ; new compatibility block; updatedAt", "codex union (gpt-6.1-sol, gpt-6-luna, gpt-5.6-terra, gpt-6-sol); upstream's claudeAgent, compatibility, updatedAt; no pi entry (DL-48)"],
+      ["DL-13", "GitHubSourceControlProvider.test.ts", "upstream deleted the empty-listing test (the gh pr list path moved to batched GraphQL); loom's repo-wide listing test sat beside it", "loom's test kept (its source survives); upstream's deletion stands"],
+      ["DL-14", "UsageService.test.ts", "loom's marked HOME line vs upstream's identical line", "upstream's line; marker dropped"],
+      ["DL-17", "server.test.ts", "(a) loom's two-pipe harness vs upstream's single pipe with four new members; (b) git spliced loom's handshake assertions onto upstream's new name-only project test; (c) 19 sugar-only hunks on mocks loom had rewritten", "(a) loom's split with upstream's four edits by hand; (b) upstream's test intact, loom's assertions moved back; (c) loom's side. The absent tests are DL-49"],
+      ["DL-18", "Sidebar.logic.ts + test", "upstream moved settled ordering to client-runtime and deleted two helpers; loom kept a copy of one beside its own helper", "upstream's helpers; loom's orphan copy deleted (no caller); loom's shouldNavigateAfterProjectRemoval kept"],
+      ["DL-20", "Sidebar.tsx", "memo deps, context-menu splice and imports touched on both sides", "composed: loom's deps + workingShelfEnabled; loom's goal-menu splice with upstream's two auto-settle fields; loom's import paths with upstream's narrowed snooze import"],
+      ["DL-21", "routes/__root.tsx", "loom hoisted dialogs and the app shell above FirstRunGate; upstream added four coordinators around it", "loom's structure; upstream's four mounts at their upstream positions relative to the gate"],
+      ["DL-23", "ThreadSearchMatch / ThreadRouteView / _chat.index / NoProjectsHero", "upstream's colour-token restyle and electron header vs loom's richer search labels and thread-tabs strip", "loom's markup with upstream's tokens; loom's tabs strip after upstream's titlebar"],
+      ["DL-25", "ComposerCommandMenu / ChatComposer", "upstream's listbox a11y ids keyed on a \"pull-request\" trigger vs loom's unified # menu keyed \"hash\"", "composed; label map and status keyed on loom's \"hash\" (marked). Loom's unified # trigger is a KEEP (pull 7)"],
+      ["DL-28", "DiagnosticsSettings / settingsLayout", "loom hoisted StatBlock/StatsGrid into a shared file; upstream restyled them in place", "loom's hoist; upstream's restyle ported into it"],
+      ["DL-29", "rightPanelStore / terminal-links", "upstream's openFile(\".\") → explorer and two-arg delimiter trimmer vs loom's versions", "loom's openFile keeps its surface logic with upstream's \".\" case; upstream's two-arg trimmer exported (marked), loom's path scan passes \"path\""],
+      ["DL-30", "chat/timelineLayout.ts (loom)", "upstream's chat-width setting replaced max-w-3xl on timeline rows; loom's shared row class hard-coded it", "loom's class adopts max-w-(--chat-max-width); still no overflow clip, for table bleed"],
+      ["DL-32", "ChatView.logic.test.ts", "upstream dropped an import; loom's stray comment sat on that line", "upstream's import; orphaned comment dropped"],
+      ["DL-33", "ComposerPendingReviewComments.tsx + test", "loom-only orphan of an upstream file deleted before the sync base; imports the deleted chip constants; no importer", "deleted in a repair commit (could not be deleted inside the merge commit without breaking the deletion-subset check)"],
+      ["DL-39", "CodexManagedProvider.ts (new upstream file)", "upstream's managed-ChatGPT driver lacks loom's generateStructured SPI method", "method added (marked); its protect helper generalised over the effect context. Not in loom's registry but must compile"],
+      ["DL-40", "AgentAwarenessRelay.ts + test", "upstream typed a new helper on the full shell; loom's relay reads lean shells. Upstream's test mocked a read loom never makes", "helper retyped to the lean shell (marked); test re-pointed at getLeanShellSnapshot with loom's shell defaults"],
+      ["DL-41", "GitHubSourceControlProvider.ts", "upstream's GraphQL refactor removed two imports loom's kept repo-wide listing still uses", "both re-imported (marked); comment updated. Merge damage in a clean region"],
+      ["DL-42", "usageTranscripts.ts parsePiLine", "upstream made fast: boolean required on usage events", "pi events emit fast: false (pi session files carry no fast-mode marker)"],
+      ["DL-43", "dev/seedConfig.ts (loom)", "upstream replaced process-wide OTLP settings with per-signal export config", "seed config uses the default signal export ×3 and no OTel environment (the seeder never exports). See DL-62 (e) for the service-name side effect"],
+      ["DL-44", "mobile thread-list-v2-items.tsx", "upstream dropped the relativeTime import (its row time is precomputed); loom's pending-question age still calls it", "import re-added (marked)"],
+      ["DL-45", "13 test files", "upstream fixtures lacked loom-required fields and services (goals, attention, ServerConfig for the two-lane migrator, WorkspaceLease, retractUsageLimits, …)", "fixtures gain them; no type loosened"],
+      ["DL-46", "pull7-tools/sqlcolsweep.py", "the sweep misread two queries because a trailing // loom: marker glued onto the Result key", "comment stripper also drops a // comment after , { ( [ ; sweep reads 0 problems / 0 unreadable"],
+      ["DL-56", "27 upstream-owned files + unmarkedsweep.allow", "the marker gate flagged small unmarked fork hunks the merge carried (fixture fields, import moves, loom props)", "each hunk marked; client-runtime/package.json allow-listed beside shared/package.json (JSON export maps)"],
+      ["DL-57", "usageTranscripts.test.ts", "loom's parsePiLine expectation lacked fast: false after DL-42", "added"],
+      ["DL-60", "GitVcsDriverCore / GitManager tests", "one newline-path test and 11 PR-worktree reuse cases fail on this host", "proven environmental: git 2.30.2 rejects worktree list -z (git 2.36+); all 12 pass with git 2.56 at both upstream and the merge tip"],
+      ["DL-65", "8 upstream-owned web files", "29 lint errors", "all inside loom hunks — upstream's versions of the same files lint 0 under the same config; fixed in-hunk, markers kept"],
+      ["DL-66", "ui/command.tsx, ui/autocomplete.tsx, useThreadActions, ProviderModelsSection, ModelPickerContent", "consumer-less separators and unused imports (review nits)", "deleted; the two ui/ files are byte-identical to upstream again"],
+      ["DL-68", "MDX plan blocks, ArtifactViewPanel", "four class names with no CSS rule anywhere", "deleted or replaced with the shared subheader recipe / contents"],
+    ]}
+  />
+</Details>
+
+<ReviewChoice itemId="tier-c" label="Tier C — all 34 mechanical rows" placeholder="Name the row, if one needs discussing…" />
+
+## Gate evidence
+
+Every gate from the plan's §9, with where it was last run. "Reversal review" is the GPT-6 Astra fresh-install review of #325 (`925341c8c1..bc37b34586`, the stack tip less its own documentation commit); "final gate" is the same model's review of #323 + #324 at `967130fe72`; "gates session" is session 3 at the merge PR's tip; the merge topology was re-checked while writing this document.
+
+<Table
+  density="compact"
+  columns={["Gate", "Result", "Run by / at"]}
+  rows={[
+    ["Merge topology", "merge commit 5277c9abfd: first parent 474c8d755e (loom before the merge), second parent 024d49520e (upstream). One merge; every other commit single-parent; no rebase, squash or stash", "every session; re-verified for this document"],
+    ["Parse sweep (all tracked .ts/.tsx)", "18,778 files, 0 damaged, 0 conflicted; no conflict markers in any tracked file", "gates session"],
+    ["Typecheck", "15/15 packages from a fresh vp i with every tsbuildinfo deleted — at 967130fe72 and again over #325", "final gate; reversal review"],
+    ["vp check (lint + format)", "0 errors (951 warnings over #325, 960 at 967130fe72 — the pre-existing react-hooks class); formatting clean once recaps/** joined the fmt ignore list (DL-78)", "final gate; reversal review"],
+    ["Builds", "web, server, marketing and desktop all green; every new token class present in the built CSS; web, server and desktop rebuilt green over #325", "gates session; lint session (web); reversal review"],
+    ["knip (files, dependencies)", "exit 0, no findings, no configuration change (DL-76)", "coder at the batch tip; reversal review"],
+    ["Lost-declaration / SQL column / alias sweeps", "zero loom-side loss of a name upstream still has; sqlcolsweep 0 problems / 0 unreadable; aliascheck only its documented false positive and one pre-existing entry", "typecheck session"],
+    ["Structural composition audit", "no loom-added identifier missing from server.ts, bin.ts, startup, decider/projector, ws/rpc maps, contracts, routes, client-runtime state; 24 loom command types = 24 decider arms; contracts import cleanly under plain node", "gates session"],
+    ["Lost-feature audit", "deletions = upstream's 31 paths + the two DL-33 orphans; loom markers across the 265 overlap files 1,084 → 1,121, every lost marker covered by a log row", "gates session"],
+    ["Clean-overlap semantic review (174 files)", "n/a 90 · kept-compatible 67 · adapted 13 · defect or behaviour change 4; every defect fixed (DL-47, 50, 57) or restored (DL-51, 55); tables in docs/upstream-sync/27-clean-overlap-review.md", "gates session, four read-only reviewers"],
+    ["Unmarked-hunk sweep", "gate clean vs main (131166c11d); report clean vs 024d49520e; both clean again over #325 (advisory thin-marker entries only)", "final gate; reversal review"],
+    ["Restart continuation (live)", "server killed mid-turn on a real Pi session; exactly one continuation turn on relaunch, no duplicate, no false settlement, browser caught up without reload; exclusions covered by focused tests", "gates session"],
+    ["Migration smoke", "VACUUM INTO copy of the 6 GB cockpit DB: upstream 054 applied once, loom ledger max still 1045, relaunch applies zero, schema equals a fresh DB", "gates session"],
+    ["PiDriver parity", "ProviderAdapter unchanged in range; Restart session works on Pi (DL-59); no compatibility advisory for Pi (DL-48); one-click update hidden for Pi", "gates session"],
+    ["Worktree-setup smoke", "setup state file reached ready, setup card streamed output, idle shell closed on exit 0 — on loom's runner (gates session) and twice on upstream's runner after DL-73 (coder, reviewer), both with the cockpit shell shim bypassed; see the DL-73 card", "gates session; reversal review"],
+    ["Mobile search (PR-11)", "focused tests 94/94 incl. a new threadSearch.loom.test.ts; no simulator run", "gates session"],
+    ["Real Pi session smoke", "streamed turn + reasoning, question card, dispatch / consult / digest cards, roll-up badge, Diff → By coder, model popover, Working shelf toggle, usage meter; /handoff and MDX preview added by the final gate; drafter goal placement unproven (credentials)", "gates session + final gate"],
+    ["Targeted tests", "server.test.ts 222/222 and projector + server 242/242 (incl. the 16 restored ws tests); verifiedFileChips 6/6; web tests beside changed files all green after DL-70 b; conflict-list suites green bar the environmental DL-60 set. Over #325: runner 13/13, WorktreeProvisioner 8/8, reaper 17/17, 41 adjacent server files 449/449, web 216/216, and the reviewer's 1,029 across 21 touched and adjacent files incl. mobile model resolution. Two pre-existing environmental failures unchanged: GitManager.test.ts's 11 PR-worktree cases (DL-60), NewProject.test.ts 'Git cannot commit' (host has a global git identity)", "final gate; reversal review"],
+    ["Independent audit of the log", "every ruling DL-0 … DL-71 matches the code; standing drops stayed dropped, standing keeps present; no compatibility shim came in. DL-72 … DL-76 each verified against the implementation and upstream 024d49520e; failover confirmed untouched; the cancelled failover WIP confirmed not an ancestor of the tip", "final gate; reversal review (fixed_inline — documentation only)"],
+    ["UPSTREAM_BASE", "advanced to 024d49520e (commit 4d18b65ed5)", "gates session"],
+    ["Pull requests", "#323, #324 and #325 open, mergeable, same-repository, not merged; #325 tip 5d696e7775 pushed", "re-verified for this document"],
+  ]}
+/>
+
+## Follow-ups that do not block the stack
+
+All recorded as goal tasks under "Follow-ups after pull 8" unless noted.
+
+- **Scope Orchestration V2 adoption** as its own design project (task `487c137f`): map every fork command type, reactor and table to a V2 concept; size re-platform vs stay-on-V1 vs hybrid; a decision document for you. See DL-0.
+- **Restore upstream's session-aware server welcome and delete loom's dead Claude catalogue** (task `aa4dbdd0`). See DL-61.
+- **The `/handoff` drafter fork race** (task `c768c993`): creating the drafter triggers a dispatcher pass that can start an FYI-digest turn on the source thread about 130 ms later, and the fork guard then refuses "mid-turn". Pre-existing; the fork guard is unchanged by pull 8.
+- **Sweep the upstream test cases still missing since pull 7** (task `be16b04b`): the final gate's list names 49 cases (48 deleted at the pull-7 merge, one new upstream case); the parent's task says "about 40". Includes the loom-native shell-overflow test DL-49 asks for.
+- **Prove the drafter places a goal end to end** on an instance with working provider credentials — the credential-bound gap in DL-58. Recorded as a new task alongside the four above while writing this document.
+- **Make cockpit PTY shells closable** (task `57eee20d`, repository `loom-slack-bridge`): `scripts/loom-agent-shell` runs `systemd-run` without `--no-ask-password`, which leaves a `pkttyagent` child in every shell, so `closeIdle` never closes a setup shell or a settled thread's terminal in production. Found by the DL-73 smoke; until it lands the idle-shell close is inert on the cockpit.
+- **Decide where failover lives, as part of pull 9 / Orchestration V2** — proxy signals exhaustion plus a fallback hint and loom performs the switch, versus loom-owned as now; and which parts (the Codex → Claude reroute, park-and-resume, spawn headroom) survive. See DL-77; the researcher's capability table there is the input.
+- **Remove the failover chain targets from the `platform-update` skill's `targets.yaml`** — it still writes `providerFailover.chains.openai-codex/*[0]` and the chain keys. Parked behind the failover decision above.
+
+## Where the sources disagree or are unclear
+
+Small, none affecting a ruling, listed so you are not surprised reading the plan document:
+
+- The plan's header still says "Status: PLANNED, not started"; its four session records and §10 say otherwise.
+- §0 and §12 say loom has 25 fork command types; the gates session's audit counted 24 types and 24 decider arms.
+- DL-62's text lists four inherited changes; the review tables carry two more (the telemetry service name, and Pi file attachments without a path line) — surfaced here as DL-62 (e).
+- The missing-upstream-tests count is "about 40" in the task tree and 49 in the final gate's list.
+- The final gate's summary says the credential-bound drafter path was recorded as a goal task; it had not been until this document added one.
+- The §10 rows for DL-10, DL-12, DL-15, DL-59, DL-62 and DL-69 carry a "ruled by Carl → DL-7x" status; **DL-70's row does not** point at DL-77, although DL-77's own row names DL-70 as its origin. The DL-70 card above carries the pointer regardless.
+- The "Review reversals — batch A" record at the end of the plan document says "Rows DL-72…DL-76"; the branch also carries DL-77 (held) and DL-78 (added by the reviewer), which the §10 table has but the record's heading line does not.
+- Your DL-12 question read as "take upstream's shape wholesale"; DL-73 keeps one loom bound (the 30-minute breadcrumb timeout) with a stated reason the reviewer independently confirmed. It is called out on the card rather than folded in silently.
+
+## Your approval
+
+<QuestionForm
+  questions={[
+    {
+      "id": "merge",
+      "title": "Merge the pull-8 stack — all three pull requests?",
+      "subtitle": "#323 is the upstream merge into main; #324 is the lint-conformance branch stacked on it; #325 is your Tier A rulings stacked on that. All three are open and mergeable. Merging #323, then #324, then #325 lands the stack in order via the repo's ship procedure; nothing is deployed to the cockpit by merging. The knip question that used to sit here is answered — DL-76.",
+      "mode": "single",
+      "options": [
+        {
+          "id": "as-is",
+          "label": "Merge #323, then #324, then #325, as they stand",
+          "recommended": true,
+          "detail": "Every gate is green from a fresh install over the stack tip; the independent audit found no ruling in DL-0 … DL-78 that disagrees with the code. Any card you marked Discuss is handled as a follow-up after the merge."
+        },
+        {
+          "id": "after-reversals",
+          "label": "Merge after the reversals I marked above are applied to the branch",
+          "detail": "Each Reject above — in Tier B or C, or a reversal of a reversal in the review section — becomes a coder round on the reversal branch (or the branch where it belongs), then the gates re-run, then merge."
+        },
+        {
+          "id": "hold",
+          "label": "Hold — do not merge yet",
+          "detail": "Say why in a note; the branches stay open and nothing else changes."
+        }
+      ]
+    }
+  ]}
+/>

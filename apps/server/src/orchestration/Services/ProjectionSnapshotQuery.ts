@@ -268,6 +268,12 @@ export interface ProjectionFullThreadDiffContext {
   readonly toCheckpointRef: CheckpointRef | null;
 }
 
+/** The thread fields pull request sync reads, for a thread with at least one link. */
+export type ProjectionThreadPullRequests = Pick<
+  OrchestrationThreadShell,
+  "id" | "projectId" | "settledOverride" | "settledAt" | "pullRequests"
+>;
+
 export interface ProjectionThreadDetailQuery {
   /**
    * Limit activities before SQLite returns and decodes their payloads.
@@ -330,11 +336,15 @@ export interface ProjectionSnapshotQueryShape {
    *
    * Returns only projects and thread shell summaries so clients can bootstrap
    * lightweight navigation state without hydrating every thread body.
+   *
+   * `unsettledOnly` is for background sweeps, not clients. It skips settled
+   * threads and their sessions, PR links, and turns, and its `updatedAt`
+   * ignores those rows. It still resolves every project, which keeps
+   * repository identities cached for client connects.
    */
-  readonly getShellSnapshot: () => Effect.Effect<
-    OrchestrationShellSnapshot,
-    ProjectionRepositoryError
-  >;
+  readonly getShellSnapshot: (options?: {
+    readonly unsettledOnly?: boolean;
+  }) => Effect.Effect<OrchestrationShellSnapshot, ProjectionRepositoryError>;
 
   /**
    * The control-plane read: the SAME active thread rows as `getShellSnapshot`,
@@ -401,6 +411,16 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getArchivedShellSnapshot: () => Effect.Effect<
     OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read active (not deleted, not archived) threads that have at least one pull
+   * request link, in shell snapshot order. Skips repository identity, so no
+   * legacy `linkedPullRequest` is derived.
+   */
+  readonly listThreadsWithPullRequests: () => Effect.Effect<
+    ReadonlyArray<ProjectionThreadPullRequests>,
     ProjectionRepositoryError
   >;
 
@@ -618,23 +638,6 @@ export interface ProjectionSnapshotQueryShape {
    * excluded — it cannot be awaiting a turn, so it must not wedge the gate.
    */
   readonly getPendingTurnStartThreadIds: () => Effect.Effect<
-    ReadonlySet<ThreadId>,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * loom: ids of threads that are DELETED (not merely archived), for the
-   * provider-session retention sweep.
-   *
-   * One query for the whole set, because the sweep must classify every
-   * persisted binding: doing it per binding cost six statements each on the
-   * single serial SQL connection, which is a periodic global stall.
-   *
-   * Deletion is the only irreversible thread lifecycle state — `thread.archive`
-   * has a matching `thread.unarchive` command, so an archived thread can come
-   * back and must keep its provider binding.
-   */
-  readonly getDeletedThreadIds: () => Effect.Effect<
     ReadonlySet<ThreadId>,
     ProjectionRepositoryError
   >;

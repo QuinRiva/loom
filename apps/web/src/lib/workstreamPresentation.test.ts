@@ -477,7 +477,7 @@ describe("palette steel drift-guard", () => {
     expect(STATUS_STYLES.blocked.graphStroke).toBe("#6d86a6");
     expect(STATUS_STYLES.blocked.graphFill).toBe("rgba(109, 134, 166, 0.16)");
     expect(STATUS_STYLES.blocked.dotClass).toBe("bg-[#6d86a6]");
-    expect(STATUS_STYLES.blocked.textClass).toBe("text-[#9fb4cf]");
+    expect(STATUS_STYLES.blocked.textClass).toBe("text-[#4f6789] dark:text-[#9fb4cf]");
     expect(WAITS_ON_STROKE).toBe("#6d86a6");
   });
 });

@@ -1,57 +1,37 @@
 import { ProjectId } from "@t3tools/contracts";
-import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import * as NodeCrypto from "node:crypto";
-import * as Cause from "effect/Cause";
-import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   projectScriptRuntimeEnv,
   resolveProjectScripts,
   setupProjectScript,
 } from "@t3tools/shared/projectScripts";
+import * as NodeCrypto from "node:crypto";
 
 import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber"; // loom: breadcrumb
+import * as FileSystem from "effect/FileSystem"; // loom: breadcrumb
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
+import * as Path from "effect/Path"; // loom: breadcrumb
 import * as Schema from "effect/Schema";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
-import { refuseForeignHomeSideEffect } from "../workspace/foreignHomeGuard.loom.ts";
+import { refuseForeignHomeSideEffect } from "../workspace/foreignHomeGuard.loom.ts"; // loom
+import {
+  SETUP_STATE_TIMEOUT,
+  settledWorktreeSetupState,
+  setupInstallCommand,
+  writeWorktreeSetupState,
+} from "./ProjectSetupScriptRunner.loom.ts"; // loom: breadcrumb
 
 export interface ProjectSetupScriptRunnerResultNoScript {
   readonly status: "no-script";
 }
-
-export interface ProjectSetupScriptCompletion {
-  readonly exitCode: number;
-}
-
-/**
- * Environment-readiness breadcrumb written into the worktree's private git
- * directory (`$(git rev-parse --git-dir)/t3code-setup-state.json`) so agents
- * can check setup state without the file showing up as a source change.
- */
-export const WORKTREE_SETUP_STATE_FILE = "t3code-setup-state.json";
-
-export const WorktreeSetupState = Schema.Struct({
-  status: Schema.Literals(["pending", "ready", "failed"]),
-  scriptId: Schema.String,
-  scriptName: Schema.String,
-  updatedAt: Schema.String,
-  exitCode: Schema.optional(Schema.Number),
-  detail: Schema.optional(Schema.String),
-});
-export type WorktreeSetupState = typeof WorktreeSetupState.Type;
-
-const encodeWorktreeSetupState = Schema.encodeEffect(fromJsonStringPretty(WorktreeSetupState));
 
 export interface ProjectSetupScriptRunnerResultStarted {
   readonly status: "started";
@@ -62,7 +42,22 @@ export interface ProjectSetupScriptRunnerResultStarted {
   readonly cwd: string;
   /** False when the script's `async` flag asks the agent to wait for it. */
   readonly async: boolean;
-  readonly completion: Effect.Effect<ProjectSetupScriptCompletion, ProjectSetupScriptRunnerError>;
+  /**
+   * Resolves when the script's shell prints the completion sentinel. The
+   * exit code is null when the terminal exited or was closed before the
+   * sentinel arrived. Only present when `observeCompletion` was requested.
+   * An exit code of 0 closes the setup shell if it has nothing left running.
+   */
+  readonly completion?: Effect.Effect<ProjectSetupScriptCompletion>;
+}
+
+export interface ProjectSetupScriptCompletion {
+  readonly exitCode: number | null;
+  readonly durationMs: number;
+}
+
+export interface ProjectSetupScriptOutputLine {
+  readonly line: string;
 }
 
 export type ProjectSetupScriptRunnerResult =
@@ -92,13 +87,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedError<Project
     projectId: Schema.optional(Schema.String),
     projectCwd: Schema.optional(Schema.String),
     worktreePath: Schema.String,
-    operation: Schema.Literals([
-      "resolveProject",
-      "readSettings",
-      "openTerminal",
-      "writeCommand",
-      "waitForCommand",
-    ]),
+    operation: Schema.Literals(["resolveProject", "readSettings", "openTerminal", "writeCommand"]),
     cause: Schema.Defect(),
   },
 ) {
@@ -136,11 +125,24 @@ export class ProjectSetupScriptRunner extends Context.Service<
   }
 >()("t3/project/ProjectSetupScriptRunner") {}
 
-const SETUP_COMMAND_TIMEOUT = Duration.minutes(30);
-
+/** @public Service construction is part of the canonical Effect module API. */
+/**
+ * Marker the wrapped setup command echoes so the exit code can be read from
+ * the PTY stream. Each run gets its own random token so script output cannot
+ * spoof completion, and the sentinel pattern is built per run from it.
+ */
+const COMPLETION_SENTINEL_PREFIX = "__T3_SETUP_DONE__";
 const OUTPUT_LINE_MAX_LENGTH = 400;
 /** A partial line longer than this is a byte stream, not a line. Keep only the tail. */
 const PARTIAL_LINE_MAX_LENGTH = 4_096;
+
+function completionSentinel(token: string): string {
+  return `${COMPLETION_SENTINEL_PREFIX}_${token}:`;
+}
+
+function completionSentinelPattern(token: string): RegExp {
+  return new RegExp(`${COMPLETION_SENTINEL_PREFIX}_${token}:(-?\\d+)`);
+}
 
 /** Removes ANSI escape sequences and cursor controls so lines can be shown as plain text. */
 function stripTerminalControl(text: string): string {
@@ -156,80 +158,145 @@ function stripTerminalControl(text: string): string {
   );
 }
 
-function setupCompletionCommand(platform: NodeJS.Platform, marker: string): string {
-  if (platform === "win32") {
-    return [
-      `if ($global:LASTEXITCODE -eq $null) { if ($?) { Write-Output "${marker}0" } else { Write-Output "${marker}1" } } else { Write-Output "${marker}$global:LASTEXITCODE" }`,
-      `echo ${marker}%ERRORLEVEL%`,
-    ].join("\r");
-  }
-  return `printf '\\n${marker}%s\\n' "$?"`;
+type CompletionShell = "posix" | "fish" | "powershell";
+
+/**
+ * Predicts the shell TerminalManager will spawn for the setup terminal. The
+ * manager takes `$SHELL` on POSIX and PowerShell on Windows, falling back to
+ * other shells only when that one fails to spawn.
+ */
+function resolveCompletionShell(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): CompletionShell {
+  if (platform === "win32") return "powershell";
+  const shell = env.SHELL ?? "";
+  const name = shell.split("/").at(-1) ?? shell;
+  if (name === "fish") return "fish";
+  if (name === "pwsh" || name === "powershell") return "powershell";
+  return "posix";
 }
 
-const setupFailureDetail = (error: ProjectSetupScriptRunnerError) =>
-  error._tag === "ProjectSetupScriptOperationError" && error.cause instanceof Error
-    ? error.cause.message
-    : error.message;
-
-const worktreeSetupStatePath = Effect.fn("ProjectSetupScriptRunner.worktreeSetupStatePath")(
-  function* (fs: FileSystem.FileSystem, path: Path.Path, worktreePath: string) {
-    const dotGit = path.join(worktreePath, ".git");
-    if ((yield* fs.stat(dotGit)).type === "Directory") {
-      return path.join(dotGit, WORKTREE_SETUP_STATE_FILE);
-    }
-    const gitDir = (yield* fs.readFileString(dotGit)).match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
-    if (!gitDir) {
-      return yield* Effect.die(new Error(`Unrecognised .git file at '${dotGit}'.`));
-    }
-    return path.join(
-      path.isAbsolute(gitDir) ? gitDir : path.resolve(worktreePath, gitDir),
-      WORKTREE_SETUP_STATE_FILE,
-    );
-  },
-);
-
-const writeWorktreeSetupState = (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  worktreePath: string,
-  state: Omit<WorktreeSetupState, "updatedAt">,
-) =>
-  Effect.gen(function* () {
-    const statePath = yield* worktreeSetupStatePath(fs, path, worktreePath);
-    const updatedAt = DateTime.formatIso(yield* DateTime.now);
-    yield* fs.writeFileString(
-      statePath,
-      `${yield* encodeWorktreeSetupState({ ...state, updatedAt })}\n`,
-    );
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
-        worktreePath,
-        status: state.status,
-        cause: Cause.pretty(cause),
-      }),
-    ),
-  );
-
-const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallCommand")(function* (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  cwd: string,
+/**
+ * Builds the shell input for the setup script. The command runs inside a
+ * block and the block closes on its own line, so a trailing `# comment` or a
+ * heredoc terminator in the command cannot swallow the sentinel. The shell
+ * reads the whole block before running any of it, so a script that reads
+ * stdin cannot consume the sentinel line either. Lines are separated by `\r`
+ * because that is the Enter key for every shell's line editor.
+ */
+function wrapCommandForCompletion(
   command: string,
-) {
-  return command.trim() === "bun install" &&
-    (yield* fs.exists(path.join(cwd, "pnpm-lock.yaml")).pipe(Effect.orElseSucceed(() => false)))
-    ? "pnpm install --frozen-lockfile"
-    : command;
-});
+  shell: CompletionShell,
+  sentinel: string,
+): string {
+  const body = command.replace(/\r?\n/g, "\r");
+  switch (shell) {
+    case "powershell":
+      return `$global:LASTEXITCODE = $null; & {\r${body}\r}; if ($null -ne $LASTEXITCODE) { $__t3c = $LASTEXITCODE } elseif ($?) { $__t3c = 0 } else { $__t3c = 1 }; Write-Host "${sentinel}$__t3c"`;
+    case "fish":
+      return `begin\r${body}\rend; printf '\\n${sentinel}%s\\n' $status`;
+    case "posix":
+      return `( ${body}\r); printf '\\n${sentinel}%s\\n' "$?"`;
+  }
+}
 
-const make = Effect.gen(function* () {
+/** @public Service construction is part of the canonical Effect module API. */
+export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;
-  const platform = yield* HostProcessPlatform;
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const completionShell = resolveCompletionShell(
+    yield* HostProcessPlatform,
+    yield* HostProcessEnvironment,
+  );
+  const fs = yield* FileSystem.FileSystem; // loom: breadcrumb
+  const path = yield* Path.Path; // loom: breadcrumb
+
+  /**
+   * Watches the setup terminal for the completion sentinel. Terminal output is
+   * a byte stream, so partial lines are buffered until a newline. The
+   * subscription is torn down once the sentinel, an exit, or a close arrives.
+   */
+  const observeTerminalCompletion = (input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+    /** Per-run sentinel, so only this run's wrapper can settle completion. */
+    readonly sentinel: string;
+    readonly sentinelPattern: RegExp;
+    /** The shell echoes typed input; lines ending with these are the wrapper, not output. */
+    readonly echoedWrapperLines: ReadonlyArray<string>;
+    readonly onOutputLine: ((line: string) => Effect.Effect<void>) | undefined;
+  }) =>
+    Effect.gen(function* () {
+      const startedAtMs = yield* Clock.currentTimeMillis;
+      const done = yield* Deferred.make<ProjectSetupScriptCompletion>();
+      let lineBuffer = "";
+      let settled = false;
+
+      const settle = (exitCode: number | null) =>
+        Effect.suspend(() => {
+          if (settled) return Effect.void;
+          settled = true;
+          return Clock.currentTimeMillis.pipe(
+            Effect.flatMap((nowMs) =>
+              Deferred.succeed(done, { exitCode, durationMs: nowMs - startedAtMs }),
+            ),
+            Effect.asVoid,
+          );
+        });
+
+      const handleLine = (rawLine: string) =>
+        Effect.suspend(() => {
+          const sentinel = input.sentinelPattern.exec(rawLine);
+          if (sentinel) {
+            const parsed = Number(sentinel[1]);
+            return settle(Number.isFinite(parsed) ? parsed : null);
+          }
+          const cleaned = stripTerminalControl(rawLine).trimEnd();
+          if (
+            cleaned.length === 0 ||
+            cleaned.includes(input.sentinel) ||
+            input.echoedWrapperLines.some((echoed) => cleaned.endsWith(echoed)) ||
+            input.onOutputLine === undefined
+          ) {
+            return Effect.void;
+          }
+          return input.onOutputLine(cleaned.slice(0, OUTPUT_LINE_MAX_LENGTH));
+        });
+
+      const unsubscribe = yield* terminalManager.subscribe((event) => {
+        if (event.threadId !== input.threadId || event.terminalId !== input.terminalId) {
+          return Effect.void;
+        }
+        if (event.type === "output") {
+          lineBuffer += event.data;
+          // A bare carriage return is how installers redraw a progress line in
+          // place; each redraw becomes a short line of its own instead of
+          // being glued into one long one. The wrapper echo is filtered per
+          // segment too, which is why `echoedWrapperLines` is split on the
+          // same `\r`: a line editor repainting the typed command yields the
+          // same segments.
+          const lines = lineBuffer.split(/\r\n|\r|\n/);
+          lineBuffer = lines.pop() ?? "";
+          // A script that never prints a newline must not grow this forever.
+          // The sentinel is always on its own line, so keeping the tail is safe.
+          if (lineBuffer.length > PARTIAL_LINE_MAX_LENGTH) {
+            lineBuffer = lineBuffer.slice(-PARTIAL_LINE_MAX_LENGTH);
+          }
+          return Effect.forEach(lines, handleLine, { discard: true });
+        }
+        if (event.type === "exited" || event.type === "closed") {
+          return settle(null);
+        }
+        return Effect.void;
+      });
+
+      const completion = Deferred.await(done).pipe(
+        Effect.ensuring(Effect.sync(() => unsubscribe())),
+      );
+      return { completion, unsubscribe };
+    });
 
   const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = Effect.fn(
     "ProjectSetupScriptRunner.runForThread",
@@ -308,43 +375,18 @@ const make = Effect.gen(function* () {
       project: { cwd: project.workspaceRoot },
       worktreePath: input.worktreePath,
     });
-    const marker = `__T3CODE_SETUP_DONE_${NodeCrypto.randomBytes(8).toString("hex")}__:`;
-    const completion = yield* Deferred.make<
-      ProjectSetupScriptCompletion,
-      ProjectSetupScriptRunnerError
-    >();
-    let outputTail = "";
-    // Upstream's live setup-output forwarding: the worktree setup card renders
-    // these lines while the script runs. Terminal output is a byte stream, so
-    // partial lines are buffered until a newline; a bare carriage return is how
-    // installers redraw a progress line in place, so each redraw becomes its own
-    // line rather than being glued into one long one.
-    const onOutputLine = input.observeCompletion?.onOutputLine;
-    let lineBuffer = "";
-    const forwardOutputLines = (data: string) => {
-      if (!onOutputLine) return Effect.void;
-      lineBuffer += data;
-      const lines = lineBuffer.split(/\r\n|\r|\n/);
-      // A script that never prints a newline must not grow this forever.
-      lineBuffer = (lines.pop() ?? "").slice(-PARTIAL_LINE_MAX_LENGTH);
-      return Effect.forEach(
-        lines
-          .map((line) => stripTerminalControl(line).trimEnd())
-          .filter((line) => line.length > 0 && !line.includes(marker)),
-        (line) => onOutputLine(line.slice(0, OUTPUT_LINE_MAX_LENGTH)),
-        { discard: true },
-      );
-    };
-    let unsubscribe: (() => void) | null = null;
-    const failCompletion = (cause: unknown) =>
-      Deferred.fail(
-        completion,
-        new ProjectSetupScriptOperationError({
-          ...errorContext,
-          operation: "waitForCommand",
-          cause,
-        }),
-      ).pipe(Effect.asVoid);
+    // loom: every run is observed, not only the ones a caller watches, because
+    // the worktree-readiness breadcrumb is written for every run.
+    const observe = input.observeCompletion ?? {};
+    const completionToken = observe ? NodeCrypto.randomUUID().replaceAll("-", "") : null;
+    const commandLine =
+      observe && completionToken
+        ? wrapCommandForCompletion(
+            yield* setupInstallCommand(fs, path, cwd, script.command), // loom
+            completionShell,
+            completionSentinel(completionToken),
+          )
+        : script.command;
 
     yield* terminalManager
       .open({
@@ -365,40 +407,26 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-    unsubscribe = yield* terminalManager.subscribe((event) => {
-      if (event.threadId !== input.threadId || event.terminalId !== terminalId) {
-        return Effect.void;
-      }
-      if (event.type === "output") {
-        outputTail = (outputTail + event.data).slice(-4096);
-        const match = outputTail.match(new RegExp(`${marker}(-?\\d+)`));
-        if (!match) return forwardOutputLines(event.data);
-        const exitCode = Number(match[1]);
-        return forwardOutputLines(event.data).pipe(
-          Effect.flatMap(() =>
-            exitCode === 0
-              ? Deferred.succeed(completion, { exitCode }).pipe(Effect.asVoid)
-              : failCompletion(new Error(`Setup script exited with code ${exitCode}.`)),
-          ),
-        );
-      }
-      if (event.type === "exited" || event.type === "closed") {
-        return failCompletion(
-          new Error("Setup terminal exited before the setup command completed."),
-        );
-      }
-      if (event.type === "error") {
-        return failCompletion(new Error(event.message));
-      }
-      return Effect.void;
-    });
-    const setupStateBase = { scriptId: script.id, scriptName: script.name };
-    yield* writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "pending" });
+    // Subscribe before writing so the sentinel cannot race past the listener.
+    const observed =
+      observe && completionToken
+        ? yield* observeTerminalCompletion({
+            threadId: input.threadId,
+            terminalId,
+            sentinel: completionSentinel(completionToken),
+            sentinelPattern: completionSentinelPattern(completionToken),
+            echoedWrapperLines: commandLine.split("\r").filter((line) => line.length > 0),
+            onOutputLine: observe.onOutputLine,
+          })
+        : undefined;
+
+    const setupStateBase = { scriptId: script.id, scriptName: script.name }; // loom: breadcrumb
+    yield* writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "pending" }); // loom
     yield* terminalManager
       .write({
         threadId: input.threadId,
         terminalId,
-        data: `${(yield* setupInstallCommand(fs, path, cwd, script.command)).trimEnd()}\r${setupCompletionCommand(platform, marker)}\r`,
+        data: `${commandLine}\r`,
       })
       .pipe(
         Effect.mapError(
@@ -409,54 +437,44 @@ const make = Effect.gen(function* () {
               cause,
             }),
         ),
+        // Nothing will ever settle the completion if the command never ran.
+        Effect.tapError(() => Effect.sync(() => observed?.unsubscribe())),
+        // loom: breadcrumb
         Effect.tapError((error) =>
-          Effect.sync(() => unsubscribe?.()).pipe(
-            Effect.flatMap(() =>
-              writeWorktreeSetupState(fs, path, cwd, {
-                ...setupStateBase,
-                status: "failed",
-                detail: setupFailureDetail(error),
-              }),
-            ),
-          ),
+          writeWorktreeSetupState(fs, path, cwd, {
+            ...setupStateBase,
+            status: "failed",
+            detail: error.message,
+          }),
         ),
       );
 
-    const awaitCompletion = Deferred.await(completion).pipe(
-      Effect.timeoutOption(SETUP_COMMAND_TIMEOUT),
-      Effect.flatMap((result) =>
-        Option.isSome(result)
-          ? Effect.succeed(result.value)
-          : failCompletion(new Error("Setup script timed out after 30 minutes.")).pipe(
-              Effect.flatMap(() => Deferred.await(completion)),
-            ),
+    // A clean run leaves only an idle prompt behind; its output stays in the
+    // terminal history. A failed run keeps its shell open for a look.
+    const completion = observed?.completion.pipe(
+      Effect.tap(({ exitCode }) =>
+        exitCode === 0
+          ? terminalManager.closeIdle({ threadId: input.threadId, terminalId })
+          : Effect.void,
       ),
-      Effect.ensuring(Effect.sync(() => unsubscribe?.())),
     );
-
-    // Observe completion in a detached fiber so callers never have to block on
-    // it: the breadcrumb flips to ready/failed asynchronously.
-    yield* awaitCompletion.pipe(
-      Effect.matchEffect({
-        onFailure: (error) =>
-          Effect.logWarning("ProjectSetupScriptRunner setup script failed", {
-            threadId: input.threadId,
-            worktreePath: input.worktreePath,
-            detail: setupFailureDetail(error),
-          }).pipe(
-            Effect.flatMap(() =>
-              writeWorktreeSetupState(fs, path, cwd, {
-                ...setupStateBase,
-                status: "failed",
-                detail: setupFailureDetail(error),
-              }),
-            ),
-          ),
-        onSuccess: ({ exitCode }) =>
-          writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "ready", exitCode }),
-      }),
-      Effect.forkDetach,
-    );
+    // loom: breadcrumb. The run settles once, detached, so the breadcrumb and the
+    // idle-shell close happen whether or not the caller consumes `completion`;
+    // callers join that same run. The breadcrumb alone gives up after
+    // SETUP_STATE_TIMEOUT — nothing here settles a script that hangs.
+    const run = completion ? yield* Effect.forkDetach(completion) : undefined;
+    if (run) {
+      yield* Fiber.join(run).pipe(
+        Effect.timeoutOption(SETUP_STATE_TIMEOUT),
+        Effect.flatMap((result) =>
+          writeWorktreeSetupState(fs, path, cwd, {
+            ...setupStateBase,
+            ...settledWorktreeSetupState(result),
+          }),
+        ),
+        Effect.forkDetach,
+      );
+    }
 
     return {
       status: "started",
@@ -466,7 +484,7 @@ const make = Effect.gen(function* () {
       terminalId,
       cwd,
       async: script.async !== false,
-      completion: awaitCompletion,
+      ...(run ? { completion: Fiber.join(run) } : {}), // loom: breadcrumb
     } as const;
   });
 

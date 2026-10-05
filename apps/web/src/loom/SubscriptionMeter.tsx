@@ -239,7 +239,7 @@ function Identity({ row, name }: { readonly row: MeterRow; readonly name: string
       style={{ backgroundColor: `oklch(0.78 0.12 ${accountHue(key)})` }}
     />
   ) : (
-    <span className="size-1.5 shrink-0 rounded-[2px] bg-muted-foreground" aria-label={name} />
+    <span className="size-1.5 shrink-0 rounded-xs bg-muted-foreground" aria-label={name} />
   );
 }
 
@@ -259,7 +259,7 @@ function PopoverWindow({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between text-[11px]">
+      <div className="flex items-baseline justify-between text-2xs">
         <span className="text-muted-foreground/75">{name}</span>
         <span className={cn("font-medium tabular-nums", TEXT[toneOf(used)])}>
           {Math.round(used)}% used
@@ -268,8 +268,8 @@ function PopoverWindow({
       <span className="block h-2">
         <PaceBar used={used} elapsed={elapsed} height={5} />
       </span>
-      {reset ? <span className="text-[10px] text-muted-foreground/45">{reset}</span> : null}
-      {note ? <span className={cn("text-[10px]", note.className)}>{note.text}</span> : null}
+      {reset ? <span className="text-3xs text-muted-foreground/45">{reset}</span> : null}
+      {note ? <span className={cn("text-3xs", note.className)}>{note.text}</span> : null}
     </div>
   );
 }
@@ -293,7 +293,7 @@ function RowPopover({
           {name}
         </span>
         {row.email ? (
-          <span className="truncate text-[10px] text-muted-foreground/45">{row.email}</span>
+          <span className="truncate text-3xs text-muted-foreground/45">{row.email}</span>
         ) : null}
       </div>
       {bar ? (
@@ -353,7 +353,7 @@ function RowPopover({
           }
         />
       ))}
-      <span className="border-t border-border/60 pt-2 text-[10px] text-muted-foreground/45">
+      <span className="border-t border-border/60 pt-2 text-3xs text-muted-foreground/45">
         Pin a thread here from the model picker.
       </span>
     </div>
@@ -387,7 +387,7 @@ function AccountRow({
             aria-label={`${name}: 5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
-            className="block w-full rounded-[4px] text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring"
+            className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring"
           />
         }
       >
@@ -396,7 +396,7 @@ function AccountRow({
             <Identity row={row} name={name} />
             <span
               className={cn(
-                "truncate text-[10px]",
+                "truncate text-3xs",
                 row.exhausted
                   ? "font-medium text-destructive"
                   : mark
@@ -410,9 +410,9 @@ function AccountRow({
           <span className="h-3">
             {bar ? <TimeBar bar={bar} axis={pool.axis} now={now} height={4} /> : null}
           </span>
-          <span className="flex items-center justify-end gap-[3px] whitespace-nowrap text-[10px]">
+          <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
             {mark ? (
-              <span className={cn("text-[9px] font-bold", mark.className)}>{mark.glyph}</span>
+              <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
             ) : null}
             <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
               {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
@@ -425,7 +425,7 @@ function AccountRow({
         side="right"
         align="start"
         className="w-64 max-w-none"
-        viewportClassName="p-0"
+        padding="none"
       >
         <RowPopover row={row} pool={pool} now={now} />
       </PopoverPopup>
@@ -450,16 +450,16 @@ function PoolBlock({
   if (!pool.pool) return <div className={cn(stale && "opacity-50")}>{rows}</div>;
   return (
     <div className={cn("flex flex-col gap-px", stale && "opacity-50")}>
-      <div className="flex h-3 items-center gap-1 text-[11px] tabular-nums">
+      <div className="flex h-3 items-center gap-1 text-2xs tabular-nums">
         <span className="font-medium text-foreground">5-hour</span>
         <span className="text-muted-foreground">{Math.round(pool.pool.used)}%</span>
         <span className="flex-1" />
-        <span className="text-[10px]">
+        <span className="text-3xs">
           <ResetText bar={pool.pool} now={now} />
         </span>
       </div>
       <Grid className="h-3">
-        <span className="text-[9px] text-muted-foreground/45">pool</span>
+        <span className="text-3xs text-muted-foreground/45">pool</span>
         <span className="h-3">
           <TimeBar bar={pool.pool} axis={pool.axis} now={now} height={6} />
         </span>
@@ -467,13 +467,11 @@ function PoolBlock({
       </Grid>
       {pool.carveOut ? (
         <Grid className="mt-0.5 h-3">
-          <span className="truncate text-[10px] text-muted-foreground">
-            {pool.carveOut.scope} wk
-          </span>
+          <span className="truncate text-3xs text-muted-foreground">{pool.carveOut.scope} wk</span>
           <span className="h-3">
             <PaceBar used={pool.carveOut.used} elapsed={pool.carveOut.elapsed} height={4} />
           </span>
-          <span className="text-right text-[10px] text-muted-foreground tabular-nums">
+          <span className="text-right text-3xs text-muted-foreground tabular-nums">
             {Math.round(pool.carveOut.used)}%
           </span>
         </Grid>
@@ -496,7 +494,7 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
   readonly now: number;
 }) {
   return (
-    <div className="flex w-full flex-col gap-px py-[3px] tabular-nums leading-none">
+    <div className="flex w-full flex-col gap-px py-0.75 tabular-nums leading-none">
       {view.pools.map((pool, index) => (
         <div key={pool.driver}>
           {index > 0 ? <div className="my-0.5 h-px bg-border/60" /> : null}
@@ -541,7 +539,7 @@ export function SubscriptionMeterChipView({
             onClick={() => void navigate({ to: "/usage" })}
             aria-label={`Subscription usage: 5-hour ${Math.round(bar.used)}% used`}
             className={cn(
-              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-[7px] text-[10px] tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
               pool.stale && "opacity-50",
             )}
           />
@@ -562,13 +560,7 @@ export function SubscriptionMeterChipView({
           </>
         ) : null}
       </PopoverTrigger>
-      <PopoverPopup
-        tooltipStyle
-        side="bottom"
-        align="end"
-        className="w-64 max-w-none"
-        viewportClassName="px-2 py-1"
-      >
+      <PopoverPopup tooltipStyle side="bottom" align="end" className="w-64 max-w-none">
         <SubscriptionMeterView view={view} now={now} />
       </PopoverPopup>
     </Popover>

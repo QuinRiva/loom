@@ -47,7 +47,7 @@ export function matchTextPathSpans(text: string): TextPathSpan[] {
     // Skip anything overlapping a URL match (e.g. the `//host/path` tail).
     if (urlRanges.some(([us, ue]) => rawStart < ue && us < rawStart + raw.length)) continue;
 
-    const trimmed = trimClosingDelimiters(raw);
+    const trimmed = trimClosingDelimiters(raw, "path");
     if (trimmed.length === 0) continue;
     if (!isLinkablePathText(trimmed)) continue;
 

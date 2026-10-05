@@ -87,7 +87,7 @@ function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
         {data.badge && (
           <span
             className={cn(
-              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              "shrink-0 rounded-full px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide",
               tone.badge,
             )}
           >
@@ -97,7 +97,7 @@ function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
         {data.meta?.map((chip) => (
           <span
             key={chip}
-            className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+            className="shrink-0 rounded-full border border-border px-2 py-0.5 text-3xs text-muted-foreground"
           >
             {chip}
           </span>

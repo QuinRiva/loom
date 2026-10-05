@@ -9,15 +9,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { SearchIcon } from "lucide-react";
 import {
   Combobox,
   ComboboxEmpty,
-  ComboboxInput,
   ComboboxItem,
   ComboboxListVirtualized,
+  ComboboxSearchInput,
 } from "../ui/combobox";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { TooltipProvider } from "../ui/tooltip";
 import { scoreModelPickerSearch } from "./modelPickerSearch";
 import { cn } from "~/lib/utils";
@@ -124,10 +124,7 @@ export function SearchableModelList(props: {
   return (
     <TooltipProvider delay={0}>
       <div
-        className={cn(
-          "relative flex flex-row overflow-hidden rounded-lg border bg-popover not-dark:bg-clip-padding text-popover-foreground shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
-          props.className,
-        )}
+        className={cn("relative flex flex-row overflow-hidden", props.className)}
         data-model-picker-content="true"
       >
         {props.sidebar}
@@ -159,47 +156,33 @@ export function SearchableModelList(props: {
               hasSidebar && "border-l",
             )}
           >
-            <div className="px-4 pt-2.5">
-              <div className="-translate-y-px border-b border-border/70 pb-2.5 transition-colors focus-within:border-ring">
-                <ComboboxInput
-                  ref={searchInputRef}
-                  className="[&_input]:h-6.5 [&_input]:font-sans [&_input]:leading-6.5"
-                  inputClassName="rounded-none bg-transparent text-sm"
-                  placeholder={props.placeholder ?? "Search models..."}
-                  showTrigger={false}
-                  startAddon={
-                    <SearchIcon className="-translate-x-0.5 size-4 shrink-0 text-muted-foreground/55" />
-                  }
-                  value={props.searchQuery}
-                  onChange={(e) => onSearchQueryChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onRequestClose?.();
-                      return;
-                    }
-                    if (e.key === "Enter" && highlightedKeyRef.current) {
-                      (
-                        e as typeof e & { preventBaseUIHandler?: () => void }
-                      ).preventBaseUIHandler?.();
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onSelect(highlightedKeyRef.current);
-                      return;
-                    }
-                    e.stopPropagation();
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  size="sm"
-                  unstyled
-                />
-              </div>
-            </div>
+            <ComboboxSearchInput
+              ref={searchInputRef}
+              placeholder={props.placeholder ?? "Search models..."}
+              value={props.searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRequestClose?.();
+                  return;
+                }
+                if (e.key === "Enter" && highlightedKeyRef.current) {
+                  (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelect(highlightedKeyRef.current);
+                  return;
+                }
+                e.stopPropagation();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            />
 
             <div className="relative min-h-0 flex-1 overflow-hidden">
-              <ComboboxListVirtualized className="model-picker-list size-full min-w-0 p-0">
+              <ComboboxListVirtualized>
                 <LegendList<string>
                   ref={listRef}
                   data={visibleKeys as string[]}
@@ -212,14 +195,16 @@ export function SearchableModelList(props: {
                   onLayout={updateScrollFades}
                   onScroll={updateScrollFades}
                   className={cn(
-                    "scrollbar-gutter-both h-full overflow-x-hidden overscroll-y-contain py-1.5 [--fade-size:1.5rem]",
-                    showTopScrollFade && "mask-t-from-[calc(100%-var(--fade-size))]",
-                    showBottomScrollFade && "mask-b-from-[calc(100%-var(--fade-size))]",
+                    "scrollbar-gutter-both h-full overflow-x-hidden overscroll-y-contain py-1.5",
+                    getVirtualizedScrollFadeClassName({
+                      top: showTopScrollFade,
+                      bottom: showBottomScrollFade,
+                    }),
                   )}
                 />
               </ComboboxListVirtualized>
             </div>
-            <ComboboxEmpty className="not-empty:py-6 empty:h-0 text-xs font-normal leading-snug">
+            <ComboboxEmpty className="empty:h-0">
               {props.emptyLabel ?? "No models found"}
             </ComboboxEmpty>
           </div>
@@ -315,11 +300,7 @@ export function SearchableModelPopover({
       }}
     >
       <PopoverTrigger render={trigger} />
-      <PopoverPopup
-        align={align}
-        className="border-0 bg-transparent p-0 shadow-none before:hidden [--viewport-inline-padding:0]"
-        viewportClassName="!overflow-hidden p-0"
-      >
+      <PopoverPopup align={align} className="before:hidden" padding="none">
         <SearchableModelList
           searchQuery={query}
           onSearchQueryChange={setQuery}
@@ -344,17 +325,18 @@ export function SearchableModelPopover({
                 hideIndicator
                 index={index}
                 value={value}
-                contentClassName="flex w-full flex-col gap-0.5"
-                className="cursor-pointer rounded-md px-2 py-1.5 data-highlighted:bg-muted/56"
+                className="cursor-pointer"
               >
-                <span className="truncate text-xs font-medium leading-snug text-foreground">
-                  {option.name}
-                </span>
-                {option.secondary ? (
-                  <span className="truncate text-[11px] leading-snug text-muted-foreground/70">
-                    {option.secondary}
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-xs font-medium leading-snug text-foreground">
+                    {option.name}
                   </span>
-                ) : null}
+                  {option.secondary ? (
+                    <span className="truncate text-2xs leading-snug text-muted-foreground/70">
+                      {option.secondary}
+                    </span>
+                  ) : null}
+                </div>
               </ComboboxItem>
             );
             // Group headings only in the unfiltered view; searching is a flat rank.
@@ -363,7 +345,7 @@ export function SearchableModelPopover({
               <div key={value}>
                 <div
                   className={cn(
-                    "mx-2 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70",
+                    "mx-2 mb-1 text-3xs font-medium uppercase tracking-wide text-muted-foreground/70",
                     index === 0 ? "mt-0" : "mt-2 border-t border-border/60 pt-1.5",
                   )}
                 >

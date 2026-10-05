@@ -92,7 +92,7 @@ export const COLUMN_SHORT_LABELS = {
 
 export const STATUS_STYLES = {
   planned: {
-    textClass: "text-slate-300",
+    textClass: "text-slate-700 dark:text-slate-300",
     borderClass: "border-slate-400/25",
     bgClass: "bg-slate-400/10",
     dotClass: "bg-slate-400",
@@ -104,7 +104,7 @@ export const STATUS_STYLES = {
   // brief: distinct from slate `planned` (deliberately held) and cyan `ready`
   // (briefed, about to run), signalling "needs a brief before it can dispatch".
   awaiting_brief: {
-    textClass: "text-indigo-300",
+    textClass: "text-indigo-700 dark:text-indigo-300",
     borderClass: "border-indigo-400/35",
     bgClass: "bg-indigo-400/10",
     dotClass: "bg-indigo-400",
@@ -113,7 +113,7 @@ export const STATUS_STYLES = {
     graphFill: "rgba(129, 140, 248, 0.15)",
   },
   ready: {
-    textClass: "text-cyan-300",
+    textClass: "text-cyan-700 dark:text-cyan-300",
     borderClass: "border-cyan-400/30",
     bgClass: "bg-cyan-400/10",
     dotClass: "bg-cyan-400",
@@ -123,12 +123,12 @@ export const STATUS_STYLES = {
   },
   // v2 palette (plans/graph-view-metadata-enhancement.md §7): a passive
   // dependency wait reads COOL steel, not warm amber — warm hues are now
-  // reserved for the human-attention overlay. `#9fb4cf` is the lighter steel
-  // TEXT tint (legibility on dark); `#6d86a6` the stroke/fill/dot hue, bluer
+  // reserved for the human-attention overlay. `#9fb4cf` / `#4f6789` are the
+  // steel TEXT tints for dark / light; `#6d86a6` the stroke/fill/dot hue, bluer
   // than planned-slate `#94a3b8` and darker than ready-cyan so the three cool
   // states stay separable. The board card inherits this through STATUS_STYLES.
   blocked: {
-    textClass: "text-[#9fb4cf]",
+    textClass: "text-[#4f6789] dark:text-[#9fb4cf]",
     borderClass: "border-[#6d86a6]/40",
     bgClass: "bg-[#6d86a6]/10",
     dotClass: "bg-[#6d86a6]",
@@ -137,7 +137,7 @@ export const STATUS_STYLES = {
     graphFill: "rgba(109, 134, 166, 0.16)",
   },
   in_progress: {
-    textClass: "text-sky-300",
+    textClass: "text-sky-700 dark:text-sky-300",
     borderClass: "border-sky-400/40",
     bgClass: "bg-sky-400/10",
     dotClass: "bg-sky-400",
@@ -148,7 +148,7 @@ export const STATUS_STYLES = {
   // Violet family (review-gates design §10) — distinct from amber `blocked`
   // and sky `in_progress`: the thread yielded its turn to the orchestrator.
   yielded: {
-    textClass: "text-violet-300",
+    textClass: "text-violet-700 dark:text-violet-300",
     borderClass: "border-violet-400/40",
     bgClass: "bg-violet-400/10",
     dotClass: "bg-violet-400",
@@ -157,7 +157,7 @@ export const STATUS_STYLES = {
     graphFill: "rgba(167, 139, 250, 0.16)",
   },
   done: {
-    textClass: "text-emerald-300",
+    textClass: "text-emerald-700 dark:text-emerald-300",
     borderClass: "border-emerald-400/40",
     bgClass: "bg-emerald-400/10",
     dotClass: "bg-emerald-400",
@@ -189,32 +189,32 @@ const ATTENTION_LABELS = {
 
 export const ATTENTION_STYLES = {
   error: {
-    textClass: "text-rose-300",
+    textClass: "text-rose-700 dark:text-rose-300",
     borderClass: "border-rose-500/45",
     bgClass: "bg-rose-500/12",
   },
   awaiting_approval: {
-    textClass: "text-amber-300",
+    textClass: "text-amber-700 dark:text-amber-300",
     borderClass: "border-amber-400/45",
     bgClass: "bg-amber-400/12",
   },
   awaiting_input: {
-    textClass: "text-amber-300",
+    textClass: "text-amber-700 dark:text-amber-300",
     borderClass: "border-amber-400/45",
     bgClass: "bg-amber-400/12",
   },
   awaiting_acceptance: {
-    textClass: "text-violet-300",
+    textClass: "text-violet-700 dark:text-violet-300",
     borderClass: "border-violet-400/45",
     bgClass: "bg-violet-400/12",
   },
   needs_guidance: {
-    textClass: "text-orange-300",
+    textClass: "text-orange-700 dark:text-orange-300",
     borderClass: "border-orange-400/45",
     bgClass: "bg-orange-400/12",
   },
   proposed_plan: {
-    textClass: "text-violet-300",
+    textClass: "text-violet-700 dark:text-violet-300",
     borderClass: "border-violet-400/40",
     bgClass: "bg-violet-400/10",
   },
@@ -225,10 +225,14 @@ export const ATTENTION_STYLES = {
 // read this constant, so they recolour automatically.
 export const WAITS_ON_STROKE = "#6d86a6";
 
-// consult_thread observability: the neutral/informational tint shared by the
-// in-chat consult card and the graph's dotted consult cross-edge. Teal is
-// deliberately distinct from the spawn/gate violet and the amber waits-on edge.
+// consult_thread observability: the graph's dotted consult cross-edge. Teal is
+// deliberately distinct from the spawn/gate violet and the steel waits-on edge.
+// (The in-chat consult card takes the inter-thread `info` tint instead.)
 export const CONSULT_STROKE = "#2dd4bf";
+
+/** A status hue pulled toward the theme foreground, for hue-coded text and
+ * glyphs (SVG fills, inline colours) that must read on light and dark canvases. */
+export const legibleHue = (hue: string) => `color-mix(in srgb, ${hue} 60%, var(--foreground))`;
 
 // ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §10) — the loop-edge
@@ -276,32 +280,32 @@ export interface GateVerdictChip {
 export type LifecycleTone = "neutral" | "sky" | "violet" | "amber" | "emerald" | "rose" | "cyan";
 
 const CHIP_EMERALD = {
-  textClass: "text-emerald-300",
+  textClass: "text-emerald-700 dark:text-emerald-300",
   borderClass: "border-emerald-400/45",
   bgClass: "bg-emerald-400/15",
   stroke: "#34d399",
-  fill: "#173533",
+  fill: "color-mix(in srgb, #34d399 18%, var(--background))",
 };
 const CHIP_EMERALD_OUTLINE = {
-  textClass: "text-emerald-300",
+  textClass: "text-emerald-700 dark:text-emerald-300",
   borderClass: "border-emerald-400/60",
   bgClass: "bg-transparent",
   stroke: "#34d399",
-  fill: "#0d1117",
+  fill: "var(--background)",
 };
 const CHIP_AMBER = {
-  textClass: "text-amber-300",
+  textClass: "text-amber-700 dark:text-amber-300",
   borderClass: "border-amber-400/45",
   bgClass: "bg-amber-400/15",
   stroke: "#f59e0b",
-  fill: "#362d1c",
+  fill: "color-mix(in srgb, #f59e0b 18%, var(--background))",
 };
 const CHIP_VIOLET = {
-  textClass: "text-violet-300",
+  textClass: "text-violet-700 dark:text-violet-300",
   borderClass: "border-violet-400/45",
   bgClass: "bg-violet-400/15",
   stroke: "#a78bfa",
-  fill: "#2a2a42",
+  fill: "color-mix(in srgb, #a78bfa 18%, var(--background))",
 };
 
 /**
@@ -524,9 +528,9 @@ export type FanInChip = {
 // Fan-in chip palette: conflict is amber and must not read as success; merged is
 // a subtle green; merging is a neutral in-flight grey.
 export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
-  merging: "border-white/15 bg-white/[0.04] text-white/55",
-  merged: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200/80",
-  conflict: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+  merging: "border-border bg-muted text-muted-foreground",
+  merged: "border-emerald-400/30 bg-emerald-400/10 text-emerald-700/80 dark:text-emerald-200/80",
+  conflict: "border-amber-400/40 bg-amber-400/10 text-amber-700 dark:text-amber-200",
 };
 
 // THE single source of the settled fan-in vocabulary (label + chip tone +
@@ -568,7 +572,7 @@ export function getFanInChip(thread: SidebarThreadSummary): FanInChip | null {
 // `FAN_IN_CHIP_STYLES`: a warning glyph for an amber merge conflict, a tick for
 // a subtle merged confirmation, and an ellipsis for an in-flight merge.
 const FAN_IN_BADGE: Record<FanInChip["tone"], { glyph: string; stroke: string }> = {
-  merging: { glyph: "⋯", stroke: "rgba(255,255,255,0.5)" },
+  merging: { glyph: "⋯", stroke: "color-mix(in srgb, var(--foreground) 50%, transparent)" },
   merged: { glyph: "✓", stroke: "#34d399" },
   conflict: { glyph: "!", stroke: "#f59e0b" },
 };
@@ -880,13 +884,13 @@ export const LIFECYCLE_TONE_STYLES: Record<
   LifecycleTone,
   { readonly dotClass: string; readonly textClass: string }
 > = {
-  neutral: { dotClass: "bg-white/40", textClass: "text-white/70" },
-  sky: { dotClass: "bg-sky-400", textClass: "text-sky-300" },
-  violet: { dotClass: "bg-violet-400", textClass: "text-violet-300" },
-  amber: { dotClass: "bg-amber-400", textClass: "text-amber-300" },
-  emerald: { dotClass: "bg-emerald-400", textClass: "text-emerald-300" },
-  rose: { dotClass: "bg-rose-400", textClass: "text-rose-300" },
-  cyan: { dotClass: "bg-cyan-400", textClass: "text-cyan-300" },
+  neutral: { dotClass: "bg-muted-foreground", textClass: "text-foreground/70" },
+  sky: { dotClass: "bg-sky-400", textClass: "text-sky-700 dark:text-sky-300" },
+  violet: { dotClass: "bg-violet-400", textClass: "text-violet-700 dark:text-violet-300" },
+  amber: { dotClass: "bg-amber-400", textClass: "text-amber-700 dark:text-amber-300" },
+  emerald: { dotClass: "bg-emerald-400", textClass: "text-emerald-700 dark:text-emerald-300" },
+  rose: { dotClass: "bg-rose-400", textClass: "text-rose-700 dark:text-rose-300" },
+  cyan: { dotClass: "bg-cyan-400", textClass: "text-cyan-700 dark:text-cyan-300" },
 };
 
 const ATTENTION_TONES: Record<AttentionReason, LifecycleTone> = {

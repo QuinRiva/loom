@@ -51,7 +51,7 @@ function useMinuteAge(iso: string): string | null | undefined {
 export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
   const age = useMinuteAge(createdAt);
   return age === undefined ? null : (
-    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+    <span className="shrink-0 text-3xs text-muted-foreground tabular-nums">
       asked {age === null ? "just now" : `${age} ago`}
     </span>
   );
@@ -65,7 +65,7 @@ export function PendingQuestionWaitAge({ since }: { since: string }) {
 
 export function RecommendedBadge() {
   return (
-    <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-px text-[9px] font-semibold uppercase leading-[1.25] tracking-wide text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300">
+    <span className="shrink-0 rounded border border-success/30 bg-success/10 px-1 py-px text-3xs font-semibold uppercase leading-tight tracking-wide text-success-foreground">
       Recommended
     </span>
   );
@@ -93,7 +93,7 @@ export function PendingQuestionSetStrip(props: {
             onClick={() => props.onSelect(index)}
             aria-current={index === props.activeIndex ? "step" : undefined}
             className={cn(
-              "flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors",
+              "flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs transition-colors",
               index === props.activeIndex
                 ? "border-primary/40 bg-muted/55 text-foreground"
                 : "border-border/60 text-muted-foreground hover:bg-muted/30",
@@ -121,7 +121,7 @@ export function ReplyInChatInsteadButton(props: {
 }) {
   const scope = props.questionCount > 1 ? `all ${props.questionCount} questions` : "the question";
   return (
-    <div className="mt-2 flex items-center justify-end gap-2 text-[11px] text-muted-foreground">
+    <div className="mt-2 flex items-center justify-end gap-2 text-2xs text-muted-foreground">
       <span>
         {props.hasText
           ? `Sends the composer text as a message that settles ${scope}`

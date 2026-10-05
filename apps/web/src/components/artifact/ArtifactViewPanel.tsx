@@ -11,6 +11,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl } from "~/state/environments";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
+import { FILE_SURFACE_SUBHEADER_CLASS } from "../files/fileSurfaceChrome";
 
 interface ArtifactViewPanelProps {
   environmentId: EnvironmentId;
@@ -109,7 +110,7 @@ export default function ArtifactViewPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="surface-subheader gap-2 px-3" data-surface-subheader>
+      <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
         <Tooltip>
           <TooltipTrigger
             render={

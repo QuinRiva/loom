@@ -32,7 +32,7 @@ import {
 
 import {
   inferReviewCommentFenceLanguage,
-  type LineReviewCommentContext,
+  type LineReviewCommentContext, // loom: review contexts are a kind union
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 import { reviewCommentContextId } from "~/lib/composerContextRecords";
@@ -142,6 +142,22 @@ export function pullRequestCheckoutCommand(
     case "unknown":
       return null;
   }
+}
+
+/** Build a checkout command from identity metadata while the detail request is still pending. */
+export function loadingPullRequestCheckoutCommand(
+  reference: PullRequestRef,
+  identity: RepositoryIdentity | null | undefined,
+): string | null {
+  const host = reference.host?.trim().toLowerCase();
+  const provider =
+    identity?.provider ??
+    (host === "github.com" ? "github" : host === "gitlab.com" ? "gitlab" : null);
+  if (provider !== "github" && provider !== "gitlab" && provider !== "azure-devops") return null;
+  if (identity?.provider !== undefined && host && pullRequestHostOf(identity, provider) !== host) {
+    return null;
+  }
+  return pullRequestCheckoutCommand(provider, reference.number, "");
 }
 
 /** Activity changes only when the same host resource reports a newer revision. */
@@ -587,7 +603,7 @@ function reviewThreadContext(
 ): LineReviewCommentContext {
   const lineIndex = Math.max(0, (thread.line ?? 1) - 1);
   return {
-    kind: "line",
+    kind: "line", // loom
     id: `pull-request-finding:${thread.id}`,
     sectionId: `pull-request:${pullRequestNumber}`,
     sectionTitle: `PR #${pullRequestNumber} review`,
@@ -919,7 +935,7 @@ function pullRequestContextComment(
   instructions: ReadonlyArray<string>,
 ): LineReviewCommentContext {
   return {
-    kind: "line",
+    kind: "line", // loom
     id: `pull-request-context:${input.number}`,
     sectionId: `pull-request:${input.number}`,
     sectionTitle: `PR #${input.number}`,

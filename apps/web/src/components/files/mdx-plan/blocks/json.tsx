@@ -49,12 +49,9 @@ const jsonMdx: BlockMdxConfig<JsonData> = {
 const DEFAULT_COLLAPSED_DEPTH = 2;
 
 function Scalar({ value }: { value: unknown }) {
-  if (typeof value === "string")
-    return <span className="text-emerald-600 dark:text-emerald-300">"{value}"</span>;
-  if (typeof value === "number")
-    return <span className="text-blue-600 dark:text-blue-300">{value}</span>;
-  if (typeof value === "boolean")
-    return <span className="text-violet-600 dark:text-violet-300">{String(value)}</span>;
+  if (typeof value === "string") return <span className="text-success-foreground">"{value}"</span>;
+  if (typeof value === "number") return <span className="text-info-foreground">{value}</span>;
+  if (typeof value === "boolean") return <span className="text-primary">{String(value)}</span>;
   return <span className="text-muted-foreground">null</span>;
 }
 
@@ -163,7 +160,7 @@ function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
       data-plan-block-type="json-explorer"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">{data.title ?? ""}</span>
         <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
       </div>
@@ -180,7 +177,7 @@ function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
       ) : (
         <div className="p-3 text-xs">
           <div className="mb-1 text-destructive">Invalid JSON: {parsed.error}</div>
-          <pre className="overflow-x-auto font-mono text-[11px] text-muted-foreground">
+          <pre className="overflow-x-auto font-mono text-2xs text-muted-foreground">
             {data.json}
           </pre>
         </div>

@@ -88,7 +88,7 @@ export function TaskThreadChip({ thread }: { thread: SidebarThreadSummary }) {
               })
             }
             className={cn(
-              "ml-1.5 inline-flex max-w-[11rem] translate-y-px items-center gap-1 rounded-full border border-border/60 px-1.5 align-middle text-[10px] text-muted-foreground no-underline hover:bg-accent hover:text-foreground",
+              "ml-1.5 inline-flex max-w-[11rem] translate-y-px items-center gap-1 rounded-full border border-border/60 px-1.5 align-middle text-3xs text-muted-foreground no-underline hover:bg-accent hover:text-foreground",
               // Cancelled is not archived: dimmed, never hidden.
               cancelled && "opacity-60 hover:opacity-100",
             )}

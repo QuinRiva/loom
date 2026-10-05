@@ -23,6 +23,7 @@ import { WorktreeProvisioner, layer as WorktreeProvisionerLive } from "./Worktre
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
@@ -34,12 +35,6 @@ import { WorktreeSetupTracker, layer as WorktreeSetupTrackerLive } from "./Workt
 
 const CHILD_WORKTREE = "/tmp/child-worktree";
 const CHILD_BRANCH = "ws/main/coder-child-is";
-
-/** The shape `describeSetupFailure` reads off a setup-script completion failure. */
-interface SetupError {
-  readonly _tag: string;
-  readonly cause: Error;
-}
 
 const setupSnapshots = (commands: ReadonlyArray<OrchestrationCommand>) =>
   commands.flatMap((command) =>
@@ -70,7 +65,7 @@ describe("ensureIsolatedChildProvisioned", () => {
     /** Completed once `createWorktree` has claimed the directory. */
     readonly checkoutStarted?: Deferred.Deferred<void>;
     /** Keeps a started setup script running until this settles. */
-    readonly scriptCompletion?: Deferred.Deferred<{ readonly exitCode: number | null }, SetupError>;
+    readonly scriptCompletion?: Deferred.Deferred<{ readonly exitCode: number | null }>;
     /** Completed once the setup card's record settles (the detached fibre's receipt). */
     readonly settled?: Deferred.Deferred<void>;
   }) => {
@@ -176,6 +171,7 @@ describe("ensureIsolatedChildProvisioned", () => {
       Layer.provide(lockStub),
       Layer.provide(setupStub),
       Layer.provide(vcsStub),
+      Layer.provide(ServerSettingsService.layerTest()),
       // Merged rather than provided: the assertions drive the very tracker and
       // lease the provisioner registers its fibre and its hold with.
       Layer.provideMerge(Layer.mergeAll(WorkspaceLeaseLive, WorktreeSetupTrackerLive)),
@@ -352,10 +348,7 @@ describe("ensureIsolatedChildProvisioned", () => {
   // stages and a Cancel button whose cancel has already been refused.
   it.effect("publishes the handed-off record while an async setup script still runs", () =>
     Effect.gen(function* () {
-      const scriptCompletion = yield* Deferred.make<
-        { readonly exitCode: number | null },
-        SetupError
-      >();
+      const scriptCompletion = yield* Deferred.make<{ readonly exitCode: number | null }>();
       const { dispatched, layer } = harness({ scriptCompletion });
 
       const cancelled = yield* Effect.gen(function* () {
@@ -386,15 +379,11 @@ describe("ensureIsolatedChildProvisioned", () => {
   );
 
   // A child that finishes before its setup script does has its terminals torn
-  // down with it; the runner then reports the vanished terminal as a failure,
-  // which used to end the card on "setup script failed" for a perfectly
-  // healthy child.
+  // down with it; the runner then reports exit `null`, which used to end the
+  // card on "setup script failed" for a perfectly healthy child.
   it.effect("records a torn-down setup terminal as a warning, not a failed script", () =>
     Effect.gen(function* () {
-      const scriptCompletion = yield* Deferred.make<
-        { readonly exitCode: number | null },
-        SetupError
-      >();
+      const scriptCompletion = yield* Deferred.make<{ readonly exitCode: number | null }>();
       const settled = yield* Deferred.make<void>();
       const { dispatched, layer } = harness({ scriptCompletion, settled });
 
@@ -407,10 +396,7 @@ describe("ensureIsolatedChildProvisioned", () => {
           branch: "main",
           worktreePath: "/tmp/parent-worktree",
         });
-        yield* Deferred.fail(scriptCompletion, {
-          _tag: "ProjectSetupScriptOperationError",
-          cause: new Error("Setup terminal exited before the setup command completed."),
-        });
+        yield* Deferred.succeed(scriptCompletion, { exitCode: null });
         yield* Deferred.await(settled);
       }).pipe(Effect.provide(layer));
 

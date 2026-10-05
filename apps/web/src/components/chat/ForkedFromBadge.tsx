@@ -42,7 +42,7 @@ export const ForkedFromBadge = memo(function ForkedFromBadge({
           <button
             type="button"
             aria-label={`Forked from ${sourceTitle}`}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-transparent bg-accent/40 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-transparent bg-accent/40 px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={() => onNavigateToThread(forkFromThreadId)}
           >
             <GitForkIcon className="size-3" />

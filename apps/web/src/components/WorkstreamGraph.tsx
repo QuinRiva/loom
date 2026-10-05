@@ -58,6 +58,7 @@ import {
   getRoleLabel,
   getThreadStatus,
   getVerdictChip,
+  legibleHue,
   CONSULT_STROKE,
   STATUS_STYLES,
   truncateLabel,
@@ -68,12 +69,12 @@ import type { SidebarThreadSummary } from "../types";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamQuickFacts } from "./WorkstreamQuickFacts";
 
-const SPINE_STROKE = "rgba(255,255,255,0.30)";
+const SPINE_STROKE = "color-mix(in srgb, var(--foreground) 30%, transparent)";
 // Thread fork (forkFromThreadId): a distinct violet for the “forked from”
 // lineage glyph, not conflated with the fork-join spine (FORK_STROKE below),
 // consult (teal), loop, or waits-on (steel).
 const FORKED_FROM_STROKE = "#c084fc";
-const FORK_STROKE = "rgba(255,255,255,0.26)";
+const FORK_STROKE = "color-mix(in srgb, var(--foreground) 26%, transparent)";
 // Done/cancelled cards recede to this opacity so the live front reads first
 // (matches the approved mockup's ~0.42). Overridden by the hover highlight.
 const RECEDE_OPACITY = 0.42;
@@ -317,7 +318,7 @@ export default function WorkstreamGraph({
 
   return (
     <div className="flex w-full flex-col items-center gap-3">
-      <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
+      <p className="px-2 text-center text-2xs leading-relaxed text-muted-foreground">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
         a wave sit to its right, with dashed steel &ldquo;waits-on&rdquo; cross-edges. Click a node
         to open its thread; middle-click for its history; hover for its facts; right-click for
@@ -337,7 +338,7 @@ export default function WorkstreamGraph({
         </div>
         <svg
           ref={svgRef}
-          className="w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
+          className="w-full touch-none cursor-grab rounded-xl border border-border bg-muted active:cursor-grabbing"
           // Fit-to-content: the SVG's box mirrors the laid-out content's aspect
           // ratio (capped), so a small graph is compact instead of floating in a
           // tall dead canvas. Zoom/pan preserve the ratio, so this stays correct.
@@ -352,32 +353,6 @@ export default function WorkstreamGraph({
           onPointerCancel={endPan}
         >
           <defs>
-            {/* One restrained pulse for human-blocking attention; stilled under
-                prefers-reduced-motion so it never becomes a motion nuisance. The
-                highlight fade is likewise a plain opacity swap. */}
-            <style>{`
-              @keyframes wsAttentionPulse {
-                0%, 100% { stroke-opacity: 0.95; stroke-width: 1.4; }
-                50% { stroke-opacity: 0.28; stroke-width: 3.4; }
-              }
-              .ws-attention-pulse { animation: wsAttentionPulse 1.8s ease-in-out infinite; }
-              @keyframes wsFooterPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-              .ws-footer-live { animation: wsFooterPulse 1.8s ease-in-out infinite; }
-              .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: opacity 0.18s; }
-              /* Visible keyboard focus for every SVG affordance (replaces the
-                 removed default outline), plus the graph control buttons. */
-              .ws-focus-ring { opacity: 0; }
-              .ws-graph-open:focus-visible,
-              .ws-graph-bridge:focus-visible, .ws-graph-consult-edge:focus-visible { outline: none; }
-              .ws-graph-open:focus-visible .ws-focus-ring,
-              .ws-graph-bridge:focus-visible .ws-focus-ring,
-              .ws-graph-consult-edge:focus-visible .ws-focus-ring { opacity: 1; }
-              @media (prefers-reduced-motion: reduce) {
-                .ws-attention-pulse { animation: none; stroke-opacity: 0.9; }
-                .ws-footer-live { animation: none; opacity: 1; }
-                .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: none; }
-              }
-            `}</style>
             <marker
               id="workstream-arrow"
               markerHeight="8"
@@ -470,7 +445,13 @@ export default function WorkstreamGraph({
             ),
           )}
           {nodes.length === 0 ? (
-            <text fill="rgba(255,255,255,0.38)" fontSize="13" textAnchor="middle" x={160} y={120}>
+            <text
+              className="fill-muted-foreground"
+              fontSize="13"
+              textAnchor="middle"
+              x={160}
+              y={120}
+            >
               No sub-threads yet.
             </text>
           ) : null}
@@ -486,38 +467,41 @@ export default function WorkstreamGraph({
       </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
         {COLUMN_ORDER.map((column) => (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45" key={column}>
+          <span
+            className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground"
+            key={column}
+          >
             <span className={`size-2 rounded-full ${STATUS_STYLES[column].dotClass}`} />
             {COLUMN_LABELS[column]}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
           <span className="inline-block h-0 w-4 border-t" style={{ borderColor: SPINE_STROKE }} />
           dispatch spine
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
           <span
             className="inline-block h-0 w-4 border-t border-dashed"
             style={{ borderColor: WAITS_ON_STROKE }}
           />
           waits-on
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
           <span
             className="inline-block h-0 w-4 border-t"
             style={{ borderColor: getLoopStroke(1) }}
           />
           review loop ⟲
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+        <span className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
           <span
             className="inline-block h-0 w-4 border-t border-dotted"
             style={{ borderColor: CONSULT_STROKE }}
           />
           consult
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
-          <span className="text-[11px]" style={{ color: FORKED_FROM_STROKE }}>
+        <span className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span className="text-2xs" style={{ color: legibleHue(FORKED_FROM_STROKE) }}>
             ⑂
           </span>
           forked from
@@ -570,7 +554,7 @@ function GraphEdge({
         <g>
           <title>{`Review loop — ${rounds} of ${cap} rework rounds used${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
           <rect
-            fill="#0d1117"
+            fill="var(--background)"
             height={15}
             rx="7"
             stroke={stroke}
@@ -579,7 +563,13 @@ function GraphEdge({
             x={badge.x - 20}
             y={badge.y - 7.5}
           />
-          <text fill={stroke} fontSize="9" textAnchor="middle" x={badge.x} y={badge.y + 3}>
+          <text
+            fill={legibleHue(stroke)}
+            fontSize="9"
+            textAnchor="middle"
+            x={badge.x}
+            y={badge.y + 3}
+          >
             {`⟲ ${rounds}/${cap}`}
           </text>
         </g>
@@ -679,7 +669,7 @@ function ConsultGraphEdge({
         className="ws-focus-ring"
         d={d}
         fill="none"
-        stroke="#38bdf8"
+        stroke="var(--ring)"
         strokeWidth="3"
         strokeOpacity="0.8"
       />
@@ -694,7 +684,7 @@ function ConsultGraphEdge({
       {edge.count > 1 ? (
         <g>
           <rect
-            fill="#0d1117"
+            fill="var(--background)"
             height={15}
             rx="7"
             stroke={CONSULT_STROKE}
@@ -703,7 +693,13 @@ function ConsultGraphEdge({
             x={badge.x - 17}
             y={badge.y - 7.5}
           />
-          <text fill={CONSULT_STROKE} fontSize="9" textAnchor="middle" x={badge.x} y={badge.y + 3}>
+          <text
+            fill={legibleHue(CONSULT_STROKE)}
+            fontSize="9"
+            textAnchor="middle"
+            x={badge.x}
+            y={badge.y + 3}
+          >
             {`×${edge.count}`}
           </text>
         </g>
@@ -739,17 +735,16 @@ function BridgeNode({
     >
       <title>{`Jump to where wave ${node.waveIndex} was dispatched`}</title>
       <rect
-        fill="rgba(255,255,255,0.07)"
+        className="fill-foreground/7 stroke-foreground/18"
         height={node.h}
         rx="11"
-        stroke="rgba(255,255,255,0.18)"
         width={node.w}
         x={node.x}
         y={node.y}
       />
       <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={11} />
       <text
-        fill="rgba(255,255,255,0.82)"
+        className="fill-foreground/82"
         fontSize="12"
         fontWeight="600"
         textAnchor="middle"
@@ -759,7 +754,7 @@ function BridgeNode({
         {truncateLabel(node.label, 22)}
       </text>
       <text
-        fill="rgba(255,255,255,0.4)"
+        className="fill-muted-foreground"
         fontSize="9.5"
         textAnchor="middle"
         x={node.x + node.w / 2}
@@ -935,7 +930,7 @@ function GraphNode({
             fillOpacity="0.16"
           />
           <text
-            fill={status.graphStroke}
+            fill={legibleHue(status.graphStroke)}
             fontSize="8"
             fontWeight="600"
             letterSpacing="0.06em"
@@ -954,7 +949,7 @@ function GraphNode({
             />
           ) : null}
           <text
-            fill={status.graphStroke}
+            fill={legibleHue(status.graphStroke)}
             fontSize="8"
             textAnchor="end"
             x={node.x + node.w - 10}
@@ -963,7 +958,7 @@ function GraphNode({
             {truncateLabel(stateWord, 20)}
           </text>
           {/* Two-line wrapped title — the identity signal gets the whole body. */}
-          <text fill="rgba(255,255,255,0.92)" fontSize="11" fontWeight="600">
+          <text className="fill-foreground" fontSize="11" fontWeight="600">
             <tspan x={node.x + 10} y={node.y + 35}>
               {titleLines[0] ?? ""}
             </tspan>
@@ -993,13 +988,13 @@ function GraphNode({
               <circle
                 cx={node.x + node.w - 12}
                 cy={node.y + node.h - 12}
-                fill="#0d1117"
+                fill="var(--background)"
                 r="8"
                 stroke={FORKED_FROM_STROKE}
                 strokeWidth="1"
               />
               <text
-                fill={FORKED_FROM_STROKE}
+                fill={legibleHue(FORKED_FROM_STROKE)}
                 fontSize="10"
                 textAnchor="middle"
                 x={forkBadgeX}
@@ -1018,13 +1013,13 @@ function GraphNode({
               <circle
                 cx={fanInBadgeX}
                 cy={node.y + node.h - 12}
-                fill="#0d1117"
+                fill="var(--background)"
                 r="8"
                 stroke={fanInBadge.stroke}
                 strokeWidth="1"
               />
               <text
-                fill={fanInBadge.stroke}
+                fill={legibleHue(fanInBadge.stroke)}
                 fontSize="9"
                 textAnchor="middle"
                 x={fanInBadgeX}
@@ -1042,13 +1037,13 @@ function GraphNode({
               <circle
                 cx={consultBadgeX}
                 cy={node.y + node.h - 12}
-                fill="#0d1117"
+                fill="var(--background)"
                 r="8"
                 stroke={CONSULT_STROKE}
                 strokeWidth="1"
               />
               <text
-                fill={CONSULT_STROKE}
+                fill={legibleHue(CONSULT_STROKE)}
                 fontSize="9"
                 textAnchor="middle"
                 x={consultBadgeX}
@@ -1063,7 +1058,7 @@ function GraphNode({
             <text
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fontSize={8.5}
-              fill="rgba(255,255,255,0.55)"
+              className="fill-muted-foreground"
               pointerEvents="none"
               x={node.x + 10}
               y={node.y + node.h - 8}
@@ -1071,7 +1066,7 @@ function GraphNode({
               {footer.toolLabel ? (
                 <>
                   <tspan>{`⚒ ${footer.toolLabel} `}</tspan>
-                  <tspan fill="rgba(255,255,255,0.25)">· </tspan>
+                  <tspan className="fill-muted-foreground/70">· </tspan>
                 </>
               ) : null}
               <tspan>{footer.age}</tspan>
@@ -1084,7 +1079,7 @@ function GraphNode({
 }
 
 /** A keyboard-focus outline for an SVG affordance, shown only on `:focus-visible`
- * (driven by the `.ws-focus-ring` rules in the graph style block). */
+ * (driven by the `.ws-focus-ring` rules in index.css). */
 function FocusRing({
   x,
   y,
@@ -1107,7 +1102,7 @@ function FocusRing({
       height={h + 6}
       rx={rx + 2}
       fill="none"
-      stroke="#38bdf8"
+      stroke="var(--ring)"
       strokeWidth="2"
       pointerEvents="none"
     />
@@ -1141,7 +1136,13 @@ function GatePill({
         x={xEnd - width}
         y={yCenter - 6.5}
       />
-      <text fill={stroke} fontSize="8" textAnchor="middle" x={xEnd - width / 2} y={yCenter + 2.5}>
+      <text
+        fill={legibleHue(stroke)}
+        fontSize="8"
+        textAnchor="middle"
+        x={xEnd - width / 2}
+        y={yCenter + 2.5}
+      >
         {label}
       </text>
     </g>
@@ -1165,7 +1166,7 @@ function GraphControlButton({
             type="button"
             aria-label={label}
             onClick={onClick}
-            className="rounded-md border border-white/10 bg-black/40 p-1.5 text-white/55 outline-none backdrop-blur transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+            className="rounded-md border border-border bg-background/60 p-1.5 text-muted-foreground outline-none backdrop-blur transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
           />
         }
       >

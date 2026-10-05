@@ -1,6 +1,10 @@
 // Parse-damage sweep (doc 24 method note, rebuilt on esbuild: TS7's JS API is gone).
-import * as esbuild from "/home/Carl/.t3/cockpit/worktrees/loom/t3code-ea251a06/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js";
 import * as NodeFS from "node:fs";
+// Resolve esbuild from the current worktree's store (run from the repo root).
+const esbuildMain = NodeFS.globSync("node_modules/.pnpm/esbuild@*/node_modules/esbuild/lib/main.js")
+  .sort()
+  .at(-1);
+const esbuild = await import(new URL(esbuildMain, `file://${process.cwd()}/`).href);
 const files = process.argv.slice(2);
 let bad = 0,
   conflicted = 0;

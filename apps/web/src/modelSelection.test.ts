@@ -420,6 +420,28 @@ describe("instance-scoped model selection", () => {
     ).toBe("claude-opus-4-6");
   });
 
+  // loom: a project with no default model (upstream's null) must land on the
+  // provider's default (pi: PI_DEFAULT_MODEL), not the catalogue's first row.
+  it("defaults to the provider's visible default model, not the first row", () => {
+    const base = provider({ instanceId: "pi", models: ["a/first", "b/default"] });
+    const providers = [
+      {
+        ...base,
+        models: base.models.map((model) =>
+          model.slug === "b/default" ? { ...model, isDefault: true } : model,
+        ),
+      },
+    ];
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("pi"),
+        settingsWithProviderInstances(),
+        providers,
+        null,
+      ),
+    ).toBe("b/default");
+  });
+
   it("falls back instead of resolving a custom slug against the wrong instance", () => {
     const providers = [
       provider({

@@ -21,10 +21,7 @@ import { type CustomModelDefinition, normalizeCustomModelSlug } from "@t3tools/s
 import { cn } from "../../lib/utils";
 import { sortModelsForProviderInstance } from "../../modelOrdering";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
-import { SearchableModelList } from "../chat/SearchableModelList";
-import { scoreModelPickerSearch } from "../chat/modelPickerSearch";
 import { Button } from "../ui/button";
-import { ComboboxItem } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -377,13 +374,7 @@ export function ProviderModelsSection({
         render={
           <Button
             size="icon-micro"
-            variant="ghost"
-            className={cn(
-              "[--control-icon-color:currentColor]",
-              isFavorite
-                ? "text-yellow-500 hover:text-yellow-600"
-                : "text-muted-foreground/40 hover:text-muted-foreground",
-            )}
+            variant="ghost-muted"
             onClick={() => handleToggleFavorite(model.slug)}
             aria-label={`${isFavorite ? "Remove" : "Add"} ${model.name} ${
               isFavorite ? "from" : "to"
@@ -391,7 +382,7 @@ export function ProviderModelsSection({
           />
         }
       >
-        <StarIcon className={cn("size-3", isFavorite && "fill-current")} />
+        <StarIcon className={cn("size-3", isFavorite && "fill-current text-warning")} />
       </TooltipTrigger>
       <TooltipPopup side="top">
         {isFavorite ? "Remove from favorites" : "Add to favorites"}
@@ -541,19 +532,19 @@ export function ProviderModelsSection({
         <span className="flex min-w-0 items-baseline gap-2">
           <span className={cn(nameClassName, "truncate")}>{model.name}</span>
           {model.name !== model.slug ? (
-            <code className="truncate font-mono text-[11px] text-muted-foreground/70">
+            <code className="truncate font-mono text-2xs text-muted-foreground/70">
               {model.slug}
             </code>
           ) : null}
           {model.isCustom ? (
-            <span className="text-[11px] text-muted-foreground/70">custom</span>
+            <span className="text-2xs text-muted-foreground/70">custom</span>
           ) : null}
         </span>
         {/*
           Always a grid item so the columns line up across rows; the text
           itself drops out on phone widths where it would starve the name.
         */}
-        <span className="text-[11px] text-muted-foreground/70">
+        <span className="text-2xs text-muted-foreground/70">
           {capLabels.length > 0 ? (
             <span className="hidden sm:inline">{capLabels.join(" · ")}</span>
           ) : null}
@@ -565,7 +556,7 @@ export function ProviderModelsSection({
   };
 
   const groupLabel = (label: string, isFirst: boolean) => (
-    <div className={cn("px-2 pb-1.5 text-[11px] text-muted-foreground", isFirst ? "pt-1" : "pt-5")}>
+    <div className={cn("px-2 pb-1.5 text-2xs text-muted-foreground", isFirst ? "pt-1" : "pt-5")}>
       {label}
     </div>
   );

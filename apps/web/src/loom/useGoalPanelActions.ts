@@ -52,7 +52,11 @@ export function useGoalPanelActions(input: {
     );
     const seed = resolveSidebarNewThreadSeedContext({
       projectId: goal.projectId,
-      defaultEnvMode: await resolveNewThreadDefaultEnvMode(project, projectSettings),
+      defaultEnvMode: await resolveNewThreadDefaultEnvMode(
+        serverConfigs.get(environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+        goal.projectId,
+        project,
+      ),
       newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
       goalWorktree: resolveGoalWorktreeSeed({ goalId: goal.id, threads: allShells }),
       activeThread,

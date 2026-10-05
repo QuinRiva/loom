@@ -139,7 +139,7 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
             aria-label="Filter table rows"
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:italic placeholder:text-muted-foreground focus:outline-none"
           />
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
             {visibleRows.length} of {rows.length}
           </span>
         </div>
@@ -152,7 +152,7 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
                 {withKeys(columns, (column) => column).map(({ key, item: column }, index) => {
                   const active = sort?.col === index;
                   const headerClass = cn(
-                    "font-semibold uppercase tracking-wide text-[11px] text-muted-foreground",
+                    "font-semibold uppercase tracking-wide text-2xs text-muted-foreground",
                     pad,
                   );
                   if (!filterable) {

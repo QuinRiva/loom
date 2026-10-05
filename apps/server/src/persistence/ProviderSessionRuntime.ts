@@ -102,11 +102,14 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
     >;
 
     /**
-     * List all provider runtime rows.
+     * List provider runtime rows.
      *
-     * Returned in ascending last-seen order.
+     * Returned in ascending last-seen order. `excludeStopped` filters stopped
+     * rows in SQL. Long-lived installs keep thousands for their resume cursors.
      */
-    readonly list: () => Effect.Effect<
+    readonly list: (options?: {
+      readonly excludeStopped?: boolean;
+    }) => Effect.Effect<
       ReadonlyArray<ProviderSessionRuntime>,
       ProviderSessionRuntimeRepositoryError
     >;
@@ -120,18 +123,18 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
 
     // loom: retention support for stopped runtime rows.
     /**
-     * Retention support (see `ProviderSessionDirectory.removeIfStopped`).
+     * Delete every `stopped` row whose thread has been deleted, in one
+     * statement, returning the pruned thread ids.
      *
-     * Delete a runtime row only while it is still `stopped`.
-     *
-     * Retention sweeps decide from a list snapshot, so a concurrent start or
-     * recovery may have promoted the row back to `running` in between. The
-     * status predicate lives in the DELETE's WHERE clause so the check and the
-     * delete are one atomic statement. Reports whether a row was removed.
+     * Deletion is the only irreversible thread lifecycle state (archive has
+     * unarchive), so archived threads keep their resume pointer. The status
+     * predicate sits in the same statement, so a row a concurrent start or
+     * recovery promoted back to `running` is never removed.
      */
-    readonly deleteStoppedByThreadId: (
-      input: DeleteProviderSessionRuntimeInput,
-    ) => Effect.Effect<boolean, ProviderSessionRuntimeRepositoryError>;
+    readonly deleteStoppedForDeletedThreads: () => Effect.Effect<
+      ReadonlyArray<ThreadId>,
+      ProviderSessionRuntimeRepositoryError
+    >;
   }
 >()("t3/persistence/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
 
@@ -351,9 +354,9 @@ export const make = Effect.gen(function* () {
   });
 
   const listRuntimeRows = SqlSchema.findAll({
-    Request: Schema.Void,
+    Request: Schema.Struct({ excludeStopped: Schema.Boolean }),
     Result: ProviderSessionRuntimeRawDbRowSchema,
-    execute: () =>
+    execute: ({ excludeStopped }) =>
       sql`
         SELECT
           thread_id AS "threadId",
@@ -366,6 +369,7 @@ export const make = Effect.gen(function* () {
           resume_cursor_json AS "resumeCursor",
           runtime_payload_json AS "runtimePayload"
         FROM provider_session_runtime
+        ${excludeStopped ? sql`WHERE status != 'stopped'` : sql``}
         ORDER BY last_seen_at ASC, thread_id ASC
       `,
   });
@@ -379,17 +383,17 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  // RETURNING makes the outcome observable: an empty result means the row was
-  // no longer `stopped` (a concurrent start/recovery won the race) and nothing
-  // was deleted, so the caller must not treat it as pruned.
-  const deleteStoppedRuntimeByThreadId = SqlSchema.findAll({
-    Request: DeleteRuntimeRequestSchema,
-    Result: Schema.Struct({ threadId: Schema.String }),
-    execute: ({ threadId }) =>
+  // loom: retention — one statement per sweep (see the interface doc).
+  const deleteStoppedRuntimeForDeletedThreads = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ threadId: ThreadId }),
+    execute: () =>
       sql`
         DELETE FROM provider_session_runtime
-        WHERE thread_id = ${threadId}
-          AND status = 'stopped'
+        WHERE status = 'stopped'
+          AND thread_id IN (
+            SELECT thread_id FROM projection_threads WHERE deleted_at IS NOT NULL
+          )
         RETURNING thread_id AS "threadId"
       `,
   });
@@ -428,7 +432,7 @@ export const make = Effect.gen(function* () {
       ),
       Effect.flatMap((runtimeRowOption) =>
         Option.match(runtimeRowOption, {
-          onNone: () => Effect.succeed(Option.none()),
+          onNone: () => Effect.succeedNone,
           onSome: (row) =>
             decodeRuntimeRow(row).pipe(
               Effect.mapError((cause) =>
@@ -438,14 +442,14 @@ export const make = Effect.gen(function* () {
                   { threadId: input.threadId },
                 ),
               ),
-              Effect.map((runtime) => Option.some(runtime)),
+              Effect.asSome,
             ),
         }),
       ),
     );
 
-  const list: ProviderSessionRuntimeRepository["Service"]["list"] = () =>
-    listRuntimeRows(undefined).pipe(
+  const list: ProviderSessionRuntimeRepository["Service"]["list"] = (options) =>
+    listRuntimeRows({ excludeStopped: options?.excludeStopped === true }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProviderSessionRuntimeRepository.list:query",
@@ -458,7 +462,7 @@ export const make = Effect.gen(function* () {
         // every consumer that enumerates sessions, such as the reaper.
         Effect.forEach(rows, (row) =>
           decodeRuntimeRow(row).pipe(
-            Effect.map(Option.some),
+            Effect.asSome,
             Effect.catch((cause) =>
               Effect.logWarning("provider.session.runtime.row-skipped", {
                 threadId: row.threadId,
@@ -493,18 +497,17 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const deleteStoppedByThreadId: ProviderSessionRuntimeRepository["Service"]["deleteStoppedByThreadId"] =
-    (input) =>
-      deleteStoppedRuntimeByThreadId(input).pipe(
+  // loom: retention
+  const deleteStoppedForDeletedThreads: ProviderSessionRuntimeRepository["Service"]["deleteStoppedForDeletedThreads"] =
+    () =>
+      deleteStoppedRuntimeForDeletedThreads(undefined).pipe(
         Effect.mapError(
-          (cause) =>
-            new PersistenceSqlError({
-              operation: "ProviderSessionRuntimeRepository.deleteStoppedByThreadId:query",
-              correlation: { threadId: input.threadId },
-              cause,
-            }),
+          toPersistenceSqlOrDecodeError(
+            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:query",
+            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:decodeRows",
+          ),
         ),
-        Effect.map((rows) => rows.length > 0),
+        Effect.map((rows) => rows.map((row) => row.threadId)),
       );
 
   return {
@@ -513,7 +516,7 @@ export const make = Effect.gen(function* () {
     getByThreadId,
     list,
     deleteByThreadId,
-    deleteStoppedByThreadId,
+    deleteStoppedForDeletedThreads, // loom: retention
   } satisfies ProviderSessionRuntimeRepository["Service"];
 });
 

@@ -70,26 +70,25 @@ export interface ProviderSessionDirectoryShape {
     ProviderSessionDirectoryPersistenceError
   >;
 
-  readonly listBindings: () => Effect.Effect<
+  /** `excludeStopped` skips stopped rows in the query, not after decoding. */
+  readonly listBindings: (options?: {
+    readonly excludeStopped?: boolean;
+  }) => Effect.Effect<
     ReadonlyArray<ProviderRuntimeBindingWithMetadata>,
     ProviderSessionDirectoryPersistenceError
   >;
 
   // loom: retention support for stopped runtime bindings.
   /**
-   * Retention support — the fork's long-running workstream accumulates
-   * stopped bindings indefinitely, and nothing upstream ever removed them.
-   *
-   * Drop a persisted binding, but only while it is still `stopped`.
-   *
-   * Used by retention sweeps to bound the runtime table. The status predicate
-   * is evaluated atomically with the delete so a sweep that decided from a
-   * stale listing cannot remove a binding that a concurrent start or recovery
-   * has since promoted back to `running`. Reports whether a row was removed.
+   * Stopped bindings are kept so a session can resume from its persisted
+   * provider pointer, but upstream never removes them, so the table grows
+   * forever. Drop the irreversible class only — stopped bindings of deleted
+   * threads — in one atomic statement; returns the pruned thread ids.
    */
-  readonly removeIfStopped: (
-    threadId: ThreadId,
-  ) => Effect.Effect<boolean, ProviderSessionDirectoryPersistenceError>;
+  readonly pruneStoppedForDeletedThreads: () => Effect.Effect<
+    ReadonlyArray<ThreadId>,
+    ProviderSessionDirectoryPersistenceError
+  >;
 }
 
 export class ProviderSessionDirectory extends Context.Service<

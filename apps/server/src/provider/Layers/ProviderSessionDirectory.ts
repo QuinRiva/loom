@@ -93,9 +93,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
         Option.match(runtime, {
           onNone: () => Effect.succeed(Option.none<ProviderRuntimeBinding>()),
           onSome: (value) =>
-            toRuntimeBinding(value, "ProviderSessionDirectory.getBinding").pipe(
-              Effect.map((binding) => Option.some(binding)),
-            ),
+            toRuntimeBinding(value, "ProviderSessionDirectory.getBinding").pipe(Effect.asSome),
         }),
       ),
     );
@@ -184,8 +182,8 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       Effect.map((rows) => rows.map((row) => row.threadId)),
     );
 
-  const listBindings: ProviderSessionDirectoryShape["listBindings"] = () =>
-    repository.list().pipe(
+  const listBindings: ProviderSessionDirectoryShape["listBindings"] = (options) =>
+    repository.list(options).pipe(
       Effect.mapError(toPersistenceError("ProviderSessionDirectory.listBindings:list")),
       Effect.flatMap((rows) =>
         // loom: skip rows whose persisted provider is unknown to this build instead of
@@ -208,14 +206,18 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
-  const removeIfStopped: ProviderSessionDirectoryShape["removeIfStopped"] = (threadId) =>
-    repository
-      .deleteStoppedByThreadId({ threadId })
-      .pipe(
-        Effect.mapError(
-          toPersistenceError("ProviderSessionDirectory.removeIfStopped:deleteStoppedByThreadId"),
-        ),
-      );
+  // loom: retention
+  const pruneStoppedForDeletedThreads: ProviderSessionDirectoryShape["pruneStoppedForDeletedThreads"] =
+    () =>
+      repository
+        .deleteStoppedForDeletedThreads()
+        .pipe(
+          Effect.mapError(
+            toPersistenceError(
+              "ProviderSessionDirectory.pruneStoppedForDeletedThreads:deleteStoppedForDeletedThreads",
+            ),
+          ),
+        );
 
   return {
     upsert,
@@ -224,7 +226,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     getBinding,
     listThreadIds,
     listBindings,
-    removeIfStopped,
+    pruneStoppedForDeletedThreads, // loom: retention
   } satisfies ProviderSessionDirectoryShape;
 });
 

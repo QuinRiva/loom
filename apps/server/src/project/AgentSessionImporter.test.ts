@@ -59,6 +59,7 @@ import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistr
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import { TextGeneration } from "../textGeneration/TextGeneration.ts";
+import { TerminalManager } from "../terminal/Manager.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import { importRecentAgentThreads } from "./AgentSessionImporter.ts";
@@ -235,11 +236,11 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
-          removeIfStopped: () => Effect.die("unused"),
+          pruneStoppedForDeletedThreads: () => Effect.die("unused"),
           upsert: (binding) => Effect.sync(() => void bindings.push(binding)),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.void,
-          getBinding: () => Effect.succeed(Option.none()),
+          getBinding: () => Effect.succeedNone,
           listThreadIds: () => Effect.die("unused"),
           listBindings: () => Effect.die("unused"),
         });
@@ -342,7 +343,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
-          removeIfStopped: () => Effect.die("unused"),
+          pruneStoppedForDeletedThreads: () => Effect.die("unused"),
           upsert: () => Effect.die("must not bind a scanner skip"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.die("unused"),
@@ -409,7 +410,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
-          removeIfStopped: () => Effect.die("unused"),
+          pruneStoppedForDeletedThreads: () => Effect.die("unused"),
           upsert: (binding) => {
             bindingAttemptCount += 1;
             if (bindingAttemptCount === 1) {
@@ -464,11 +465,11 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           resumeCursor: { threadId: "newer-codex-session" },
         };
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
-          removeIfStopped: () => Effect.die("unused"),
+          pruneStoppedForDeletedThreads: () => Effect.die("unused"),
           upsert: () => Effect.die("must not replace an active binding"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.void,
-          getBinding: () => Effect.succeed(Option.some(runningBinding)),
+          getBinding: () => Effect.succeedSome(runningBinding),
           listThreadIds: () => Effect.die("unused"),
           listBindings: () => Effect.die("unused"),
         });
@@ -522,11 +523,11 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           latestSequence: Effect.succeed(0),
         });
         const directory = ProviderSessionDirectory.ProviderSessionDirectory.of({
-          removeIfStopped: () => Effect.die("unused"),
+          pruneStoppedForDeletedThreads: () => Effect.die("unused"),
           upsert: () => Effect.die("must not bind malformed or wrong-project sessions"),
           getProvider: () => Effect.die("unused"),
           recordImportedTranscript: () => Effect.die("unused"),
-          getBinding: () => Effect.succeed(Option.none()),
+          getBinding: () => Effect.succeedNone,
           listThreadIds: () => Effect.die("unused"),
           listBindings: () => Effect.die("unused"),
         });
@@ -946,6 +947,7 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
           Layer.provide(Layer.mock(GitWorkflowService)({})),
           Layer.provide(Layer.mock(VcsStatusBroadcaster)({})),
           Layer.provide(Layer.mock(TextGeneration)({})),
+          Layer.provide(Layer.mock(TerminalManager)({ closeIdle: () => Effect.void })),
           Layer.provide(ServerSettingsService.layerTest()),
           // loom: the reactor holds launch claims and a worktree lease around a
           // launch; imported threads never provision, so the provisioner defects.
