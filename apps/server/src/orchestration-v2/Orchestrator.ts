@@ -9543,7 +9543,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       | undefined;
     // loom: delegation guard arm — every Loom command decides in Orchestrator.loom.ts; `nested`
-    // is exactly the two same-thread upstream dispatchers, and the arm takes no lock
+    // is exactly three same-thread upstream dispatchers (DL-246), and the arm takes no lock
     if (isLoomCommand(command)) {
       const decided = yield* decideLoomCommand({
         command,
@@ -9556,6 +9556,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         nested: {
           dispatchMessage: (nested) => dispatchMessage(nested, events, effects),
           dispatchRunInterrupt: (nested) => dispatchRunInterrupt(nested, events, effects),
+          dispatchQueuedRunCancel: (nested) => dispatchQueuedRunCancel(nested, events), // loom: DL-246
         },
       });
       return {

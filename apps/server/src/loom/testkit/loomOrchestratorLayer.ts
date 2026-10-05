@@ -3,7 +3,8 @@
  * §7): V2's real orchestrator, event sink, SQL projection (with the Loom fold)
  * and receipts over `SqlitePersistenceMemory` — which runs every migration, so
  * the `loom_*` tables exist — with a stub provider adapter whose `openSession`
- * dies (the `DelegatedCompletionDelivery.test.ts` pattern). Nothing mocks the
+ * opens an inert session (nothing runs; an interrupt is accepted) only when a
+ * test asks for one (`seedRunningRun({ live: true })`). Nothing mocks the
  * engine; a "running" thread is seeded through the real `EventSinkV2`.
  *
  * Usage: `it.layer(LoomOrchestratorTestLayer)("…", (it) => …)`, then the
@@ -23,6 +24,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
   RunAttemptId,
@@ -43,6 +45,7 @@ import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/Cod
 import * as EventSink from "../../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
+import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
 import { worktreeRepairDependenciesTestLayer } from "../../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import {
@@ -88,7 +91,35 @@ const orchestrationAdapter = {
   driver: testDriver,
   getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
-  openSession: () => Effect.die("Loom substrate tests never open a provider session"),
+  // An inert live session: tests that need upstream's real interrupt path open one; nothing runs.
+  openSession: (input) =>
+    Effect.map(DateTime.now, (now) => ({
+      instanceId: testModelSelection.instanceId,
+      driver: testDriver,
+      providerSessionId: input.providerSessionId,
+      providerSession: {
+        id: input.providerSessionId,
+        driver: testDriver,
+        providerInstanceId: testModelSelection.instanceId,
+        status: "ready" as const,
+        cwd: "/workspace/loom-test",
+        model: testModelSelection.model,
+        capabilities: CodexProviderCapabilitiesV2,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      },
+      events: Stream.never,
+      ensureThread: () => Effect.die("inert Loom test session"),
+      resumeThread: () => Effect.die("inert Loom test session"),
+      startTurn: () => Effect.die("inert Loom test session"),
+      steerTurn: () => Effect.die("inert Loom test session"),
+      interruptTurn: () => Effect.void,
+      respondToRuntimeRequest: () => Effect.die("inert Loom test session"),
+      readThreadSnapshot: () => Effect.die("inert Loom test session"),
+      rollbackThread: () => Effect.die("inert Loom test session"),
+      forkThread: () => Effect.die("inert Loom test session"),
+    })),
 } as ProviderAdapterV2Shape;
 const providerInstance = {
   instanceId: testModelSelection.instanceId,
@@ -197,19 +228,34 @@ export const seededRunIds = (threadId: ThreadId, ordinal = 1) => ({
 });
 
 /**
- * A running run (provider thread, run, attempt, running provider turn and its
- * user message) written through the real `EventSinkV2.writeWithEffects`, so the
- * thread has a blocking run exactly as a live turn would leave it.
+ * A running run (provider thread, run, attempt, root node, running provider turn
+ * and its user message) written through the real `EventSinkV2.writeWithEffects`,
+ * so the thread has a blocking run exactly as a live turn would leave it. With
+ * `live`, the provider thread is bound to an open (inert) provider session, so
+ * upstream's `run.interrupt` takes its real path and enqueues
+ * `provider-turn.interrupt`; without it upstream refuses the interrupt.
  */
 export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function* (input: {
   readonly threadId: ThreadId;
   readonly ordinal?: number;
+  readonly live?: boolean;
 }) {
   const sink = yield* EventSink.EventSinkV2;
   const now = yield* DateTime.now;
   const ordinal = input.ordinal ?? 1;
   const ids = seededRunIds(input.threadId, ordinal);
   const { threadId } = input;
+  const providerSessionId = input.live
+    ? ProviderSessionId.make(`provider-session:${threadId}`)
+    : null;
+  if (providerSessionId !== null) {
+    yield* (yield* ProviderSessionManagerV2).open({
+      threadId,
+      providerSessionId,
+      modelSelection: testModelSelection,
+      runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+    });
+  }
   const providerInstanceId = testModelSelection.instanceId;
   const base = { threadId, occurredAt: now };
   yield* sink.writeWithEffects({
@@ -223,7 +269,7 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
           id: ids.providerThreadId,
           driver: testDriver,
           providerInstanceId,
-          providerSessionId: null,
+          providerSessionId,
           appThreadId: threadId,
           ownerNodeId: null,
           nativeThreadRef: {
@@ -279,6 +325,30 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
           providerTurnId: ids.providerTurnId,
           reason: "initial",
           status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      },
+      {
+        ...base,
+        id: EventId.make(`event:seed-node:${threadId}:${ordinal}`),
+        type: "node.updated",
+        runId: ids.runId,
+        nodeId: ids.nodeId,
+        payload: {
+          id: ids.nodeId,
+          threadId,
+          runId: ids.runId,
+          parentNodeId: null,
+          rootNodeId: ids.nodeId,
+          kind: "root_turn",
+          status: "running",
+          countsForRun: true,
+          providerThreadId: ids.providerThreadId,
+          providerTurnId: ids.providerTurnId,
+          nativeItemRef: null,
+          runtimeRequestId: null,
+          checkpointScopeId: null,
           startedAt: now,
           completedAt: null,
         },

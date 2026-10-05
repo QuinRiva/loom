@@ -367,6 +367,51 @@ it.layer(TestLayer)("Loom projector", (it) => {
       }),
   );
 
+  it.effect("deleting a goal's last undeleted thread soft-deletes the goal and broadcasts it", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const subscription = yield* (yield* LoomGoalBroadcast.LoomGoalBroadcast).subscribe;
+      const goalId = GoalId.make("goal:delete-cascade");
+      yield* store.goals.upsert({
+        id: goalId,
+        projectId,
+        slug: "gone",
+        title: "Gone",
+        description: "",
+      });
+      const first = ThreadId.make("delete-cascade-first");
+      const last = ThreadId.make("delete-cascade-last");
+      yield* seedThread({ threadId: first });
+      yield* seedThread({ threadId: last });
+      yield* writeEvents([yield* created(first, null, goalId), yield* created(last, null, goalId)]);
+      const deleteThread = (threadId: ThreadId) =>
+        tick.pipe(
+          Effect.andThen(
+            dispatch({
+              type: "thread.delete",
+              commandId: CommandId.make(`delete:${threadId}`),
+              threadId,
+            }),
+          ),
+        );
+
+      yield* deleteThread(first);
+      assert.isNull((yield* store.goals.get(goalId))?.deletedAt);
+      yield* deleteThread(last);
+      const deleted = (yield* store.goals.get(goalId))!;
+      assert.equal(deleted.deletedAt, (yield* store.getWorkstream(last))?.deletedAt);
+      const removed = yield* Stream.fromSubscription(subscription).pipe(
+        Stream.filter((item) => item.kind === "goal.removed"),
+        Stream.runHead,
+      );
+      assert.isTrue(
+        removed._tag === "Some" &&
+          removed.value.kind === "goal.removed" &&
+          removed.value.goalId === goalId,
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("joins shell.workstream onto Loom threads only", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
