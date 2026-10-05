@@ -78,9 +78,16 @@ and resumed it after a restart.
   Appendix B before cutting).
 - The merge: `git -c rerere.enabled=false -c merge.renameLimit=30000 merge
 --no-ff --no-commit upstream/main` after `git fetch upstream main`, with
-  `upstream/main` verified to be `1a3f7ad508` (if upstream moved, stop and
-  re-run `docs/upstream-sync/pull9-tools/remeasure.sh` first — the strategy
-  pins this tip and the hunk inventory was written against it). **The
+  `upstream/main` verified to be `1a3f7ad508` — or, if upstream moved, the
+  tip `remeasure.sh` was re-run against in S0. (While this plan was being
+  written upstream gained `1604ccc9d7`, "fix(mobile): back from a finished
+  subagent in the feed returns to its parent", one file
+  `apps/mobile/src/features/threads/thread-work-log.tsx`, no overlap; every
+  count in this document is identical at both tips.) S0 records the pinned
+  tip as `theirs_oid`; every `1a3f7ad508` below reads as `${theirs_oid}`.
+  The strategy's hunk inventory was written against `1a3f7ad508`; a larger
+  move (anything touching `orchestration-v2/`, `mcp/`, `provider/` or the
+  web chat surface) is a stop-and-re-measure, not a note. **The
   `renameLimit` is mandatory**: without it git does not detect the
   `orchestration/` → `orchestration-v2/` directory rename, the 86 Loom files
   are left in place as plain additions instead of AU relocations, and
