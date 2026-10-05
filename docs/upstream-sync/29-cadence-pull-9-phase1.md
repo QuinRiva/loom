@@ -936,7 +936,7 @@ missed. Run `lostdecls.py ${pre_merge_oid} 1a3f7ad508` and adjudicate every
 hit (the 8 pre-ruled in §7 plus whatever the resolution produced);
 `aliascheck.py`; `sqlcolsweep.py` (Loom's surviving SQL: usage ledger
 reader if kept, foreign-home query); `dangling.py .artifacts/pull9-remeasure
---exclude quarantine/` → **0 files**; the `ChatMarkdown.tsx` and
+--exclude quarantine/` → **0 files** (three known false positives in upstream's own tree are expected and not counted: `apps/web/src/bundledDev.test.ts` and `apps/web/src/components/pullRequest/pullRequestFileOrder.logic.test.ts` carry import-shaped string fixtures, `packages/effect-codex-app-server/scripts/generate.ts` imports a generated file); the `ChatMarkdown.tsx` and
 `pullRequestList.logic.ts` eye reviews (§7); PR-16's override-revert proof.
 _DoD:_ typecheck green for every package from a fresh install;
 `dangling.py` 0 outside quarantine; every quarantined path and every dropped
@@ -1037,7 +1037,7 @@ marked **(not gap-eligible)** cannot be gapped.
 - [ ] `vp check` 0 errors (fmt + lint), no new allow-list entries
 - [ ] `pnpm build` — web, server, marketing, desktop green
 - [ ] **Quarantine excluded, provably** (not gap-eligible): `vite.config.ts` carries the three marked entries; no `tsconfig*.json` names `quarantine`; `vp test run --config vite.config.ts quarantine` finds no tests; `quarantine/` is non-empty and every path in it is an Appendix B Q row or an Appendix C _quarantined_ row at its original path
-- [ ] **Detach ledger complete** (not gap-eligible): `dangling.py --exclude quarantine/` reports 0 files; every Appendix B X row is resolved by an Appendix C row or by "compiles as-is" in §10; every `// loom: detached … DT-nn` marker in the tree has its row
+- [ ] **Detach ledger complete** (not gap-eligible): `dangling.py --exclude quarantine/` reports 0 files beyond the three upstream false positives of §8 S3; every Appendix B X row is resolved by an Appendix C row or by "compiles as-is" in §10; every `// loom: detached … DT-nn` marker in the tree has its row
 - [ ] `lostdecls.py ${pre_merge_oid} 1a3f7ad508` adjudicated (the 8 of §7 plus any new); `aliascheck.py` only its documented false positive; `sqlcolsweep.py` 0/0
 - [ ] `Migrations.ts` byte-identical to `git show 1a3f7ad508:apps/server/src/persistence/Migrations.ts` (or differs only by the PR-6 `export`, recorded); `LoomMigrations.ts` untouched; `UPSTREAM_BASE` = `1a3f7ad508`
 - [ ] `unmarkedsweep.sh --report` clean vs `1a3f7ad508`; gate scope clean
