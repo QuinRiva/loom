@@ -305,9 +305,21 @@ const applyMirroredThreadEvent = (
               AND updated_at <= ${at}`;
         }
         return;
-      case "thread.deleted":
+      case "thread.deleted": {
         yield* writeWorkstream(sql, { ...row, deletedAt: at, updatedAt: at });
+        if (row.goalId === null) return;
+        // Deleting the last undeleted thread of a goal deletes the goal (V1's goal cascade),
+        // judged at the event's time like the archive cascade.
+        const [others] = yield* sql<{ readonly n: number }>`
+          SELECT COUNT(*) AS n FROM loom_thread_workstream
+          WHERE goal_id = ${row.goalId} AND thread_id <> ${row.threadId} AND created_at <= ${at}
+            AND (deleted_at IS NULL OR deleted_at > ${at})`;
+        if ((others?.n ?? 0) === 0) {
+          yield* sql`UPDATE loom_goals SET deleted_at = ${at}, updated_at = ${at}
+            WHERE goal_id = ${row.goalId} AND deleted_at IS NULL AND updated_at <= ${at}`;
+        }
         return;
+      }
       case "thread.metadata-updated": {
         // Runs before upstream's upsert, so the projection still holds the old title.
         const [previous] = yield* sql<{ readonly title: string }>`

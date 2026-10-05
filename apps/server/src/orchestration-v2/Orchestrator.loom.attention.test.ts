@@ -12,6 +12,7 @@ import {
   type LoomAttentionReason,
   MessageId,
   RunId,
+  ScheduledTaskId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -83,6 +84,14 @@ describe("pure predicates", () => {
     );
     assert.isFalse(
       isHumanAuthored({ createdBy: "agent", usageLimitContinuationOfRunId: undefined }),
+    );
+    // DL-245: a scheduled-task fire carries the task's createdBy (normally user) and is automation.
+    assert.isFalse(
+      isHumanAuthored({
+        createdBy: "user",
+        usageLimitContinuationOfRunId: undefined,
+        scheduledTaskId: ScheduledTaskId.make("scheduled-task:nightly"),
+      }),
     );
   });
 
@@ -275,6 +284,35 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         const live = yield* child("restart-live");
         yield* cutTurn(live);
         assert.equal((yield* orchestrator.getThreadProjection(live)).runs.length, 2);
+      }),
+  );
+  it.effect(
+    "DL-245: a scheduled-task fire into a held, flagged thread keeps the hold, stays held, and starts as `other`",
+    () =>
+      Effect.gen(function* () {
+        const scheduled = ThreadId.make("attention-scheduled");
+        yield* spawnChild({
+          parentThreadId: parent,
+          threadId: scheduled,
+          graphKey: "scheduled",
+          held: true,
+        });
+        yield* raise(scheduled);
+        const fired = yield* message(scheduled, {
+          createdBy: "user",
+          creationSource: "web",
+          scheduledTaskId: ScheduledTaskId.make("scheduled-task:nightly"),
+        });
+        const row = (yield* (yield* LoomStoreV2).getWorkstream(scheduled))!;
+        assert.deepEqual(row.attention, ["awaiting_acceptance"]);
+        assert.isTrue(row.held);
+        const kickoff = fired.storedEvents.find(
+          (stored) => stored.event.type === "thread.kickoff-recorded",
+        )?.event;
+        assert.equal(
+          kickoff?.type === "thread.kickoff-recorded" && kickoff.payload.origin,
+          "other",
+        );
       }),
   );
 });

@@ -5,8 +5,8 @@
  * `goal.updated` / `goal.removed` shell-stream items instead: Phase 3a's
  * handlers publish after their write, and the reactor below publishes after a
  * projector-folded cascade (last-thread archive, unarchive, sole-thread
- * rename). `ws.ts` merges the items — and puts `goals` on the authoritative
- * snapshot — only for subscribers that pass `loom: true`.
+ * rename, last-thread delete). `ws.ts` merges the items — and puts `goals` on
+ * the authoritative snapshot — only for subscribers that pass `loom: true`.
  *
  * @module loom/projection/LoomGoalBroadcast
  */
@@ -64,6 +64,7 @@ const goalCascadeReactor = Effect.gen(function* () {
       if (
         event.type !== "thread.archived" &&
         event.type !== "thread.unarchived" &&
+        event.type !== "thread.deleted" &&
         event.type !== "thread.metadata-updated"
       ) {
         return Effect.void;

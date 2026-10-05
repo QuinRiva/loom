@@ -7,16 +7,20 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   type LoomAttentionReason,
+  MessageId,
   type OrchestrationV2StoredEvent,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import * as Orchestrator from "./Orchestrator.ts";
 import {
   dispatch,
   LoomOrchestratorTestLayer,
   loomEvent,
+  seededRunIds,
   seedRunningRun,
   seedThread,
   spawnChild,
@@ -182,6 +186,61 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
           ["thread.outcome-set", "cancelled"],
           ["thread.attention-cleared"],
         ]);
+      }),
+  );
+  it.effect(
+    "DL-246: outcome.set cancelled interrupts the running run and cancels every queued run in one command",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const cancelled = ThreadId.make("submit-cancelled-queue");
+        yield* spawnChild({ parentThreadId: parent, threadId: cancelled, graphKey: "queue" });
+        yield* seedRunningRun({ threadId: cancelled, live: true });
+        for (const n of [1, 2]) {
+          yield* dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`queue-behind:${n}`),
+            threadId: cancelled,
+            messageId: MessageId.make(`message:queue-behind:${n}`),
+            text: `Queued ${n}`,
+            attachments: [],
+            createdBy: "agent",
+            creationSource: "server",
+            dispatchMode: { type: "queue_after_active" },
+          });
+        }
+        const queuedIds = (yield* orchestrator.getThreadProjection(cancelled)).runs
+          .filter((run) => run.status === "queued")
+          .map((run) => run.id);
+        assert.lengthOf(queuedIds, 2);
+
+        const commandId = CommandId.make("server:test-cancel-queue");
+        yield* dispatch({
+          type: "thread.outcome.set",
+          commandId,
+          threadId: cancelled,
+          createdAt,
+          outcome: "cancelled",
+        });
+        const effects = yield* sql<{ readonly effectType: string }>`
+          SELECT effect_type AS "effectType" FROM orchestration_v2_effect_outbox
+          WHERE command_id = ${commandId}`;
+        assert.deepEqual(
+          effects.map((effect) => effect.effectType),
+          ["provider-turn.interrupt"],
+        );
+        const runs = (yield* orchestrator.getThreadProjection(cancelled)).runs;
+        assert.deepEqual(
+          runs.filter((run) => queuedIds.includes(run.id)).map((run) => run.status),
+          ["cancelled", "cancelled"],
+        );
+        // Nothing is left to start when the interrupted turn ends.
+        assert.isFalse(runs.some((run) => run.status === "queued" || run.status === "starting"));
+        assert.equal(
+          runs.find((run) => run.id === seededRunIds(cancelled).runId)?.status,
+          "running",
+        );
       }),
   );
 });

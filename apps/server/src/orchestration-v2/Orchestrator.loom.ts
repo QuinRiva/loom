@@ -7,7 +7,7 @@
  * creates in the same command (sibling-graph edits under the parent's lock,
  * DL-202, write their children's sidecar rows). Every effect on another thread
  * is a decision event on the commanded thread that the re-drive planner turns
- * into its own per-thread command. `nested` exposes exactly the two same-thread
+ * into its own per-thread command. `nested` exposes exactly three same-thread
  * upstream dispatchers; the arm never takes a lock.
  *
  * MODULE CYCLE. `Orchestrator.ts` value-imports this file (its error union
@@ -80,6 +80,7 @@ export class LoomDispatchDeferredError extends Schema.TaggedError<LoomDispatchDe
 
 type MessageDispatch = Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>;
 type RunInterrupt = Extract<OrchestrationV2Command, { readonly type: "run.interrupt" }>;
+type QueuedRunCancel = Extract<OrchestrationV2Command, { readonly type: "queued-run.cancel" }>;
 type CommandOf<T extends LoomCommand["type"]> = Extract<LoomCommand, { readonly type: T }>;
 type LoomEventOf<T extends LoomEventType> = Extract<LoomDomainEvent, { readonly type: T }>;
 type CancelUnsettledEffects = {
@@ -111,6 +112,9 @@ export interface LoomArmContext {
     readonly dispatchRunInterrupt: (
       command: RunInterrupt,
     ) => Effect.Effect<CancelUnsettledEffects | undefined, OrchestratorV2Error>;
+    readonly dispatchQueuedRunCancel: (
+      command: QueuedRunCancel,
+    ) => Effect.Effect<void, OrchestratorV2Error>;
   };
 }
 
@@ -131,6 +135,9 @@ const isBlockingRun = (run: Pick<OrchestrationV2Run, "status">) =>
 const isServerCommand = (command: { readonly commandId: string }) =>
   command.commandId.startsWith("server:");
 
+/** The re-drive planner's cancel-cascade id prefix; its outcome writes carry cause `cascade`. */
+export const LOOM_CASCADE_CANCEL_PREFIX = "server:loom:cascade-cancel:";
+
 const asNode = (row: LoomThreadWorkstream) => ({ ...row, id: row.threadId });
 const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
   new Set(left).size === new Set(right).size && left.every((entry) => right.includes(entry));
@@ -145,10 +152,17 @@ const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 // The dispatchMessage helpers (DL-194, DL-195, §2 rules 1–5)
 // ---------------------------------------------------------------------------
 
-/** DL-194: the one human predicate. Upstream's `limit-resume` (createdBy user + continuation) is not human. */
+/**
+ * DL-194, DL-245: the one human predicate. Upstream's `limit-resume` (createdBy
+ * user + continuation) and a scheduled-task fire (the task's `createdBy`) are
+ * automation, not a person.
+ */
 export const isHumanAuthored = (
-  command: Pick<MessageDispatch, "createdBy" | "usageLimitContinuationOfRunId">,
-) => command.createdBy === "user" && command.usageLimitContinuationOfRunId === undefined;
+  command: Pick<MessageDispatch, "createdBy" | "usageLimitContinuationOfRunId" | "scheduledTaskId">,
+) =>
+  command.createdBy === "user" &&
+  command.usageLimitContinuationOfRunId === undefined &&
+  command.scheduledTaskId === undefined;
 
 /**
  * The `loom` field carried onto the message record: the client's fields with
@@ -156,7 +170,10 @@ export const isHumanAuthored = (
  * forge a human turn. Computed once per `dispatchMessage`.
  */
 export const loomMessageFields = (
-  command: Pick<MessageDispatch, "createdBy" | "usageLimitContinuationOfRunId" | "loom">,
+  command: Pick<
+    MessageDispatch,
+    "createdBy" | "usageLimitContinuationOfRunId" | "scheduledTaskId" | "loom"
+  >,
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
 /** Rule 4's clearing origins: a human, or the parent's `workstream_prompt`. */
@@ -960,7 +977,11 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     case "thread.outcome.set": {
       const row = yield* requireWorkstream(command.threadId);
       if (row.outcome === command.outcome) return {};
-      yield* setOutcome(command.threadId, command.outcome, "set");
+      yield* setOutcome(
+        command.threadId,
+        command.outcome,
+        command.commandId.startsWith(LOOM_CASCADE_CANCEL_PREFIX) ? "cascade" : "set",
+      );
       yield* clearAttention(row);
       if (command.outcome === "done" && row.pendingRework) {
         const tree = (yield* read(loomStore.listWorkstreamTree(row.rootThreadId))).map(asNode);
@@ -973,28 +994,39 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       }
       if (command.outcome === null) yield* warnStartedDependents(row);
       if (command.outcome !== "cancelled") return {};
-      // The thread's own blocking run stops; descendants are re-driven (§4).
+      // The thread's own blocking run stops and its queued runs never start (DL-246);
+      // descendants are re-driven (§4).
       const { runs } = yield* read(projectionStore.getThreadRecords(command.threadId, ["runs"]));
       const run = runs.find(isBlockingRun);
-      if (run === undefined) return {};
-      const cancelUnsettledEffects = yield* ctx.nested
-        .dispatchRunInterrupt({
-          type: "run.interrupt",
+      const cancelUnsettledEffects =
+        run === undefined
+          ? undefined
+          : yield* ctx.nested
+              .dispatchRunInterrupt({
+                type: "run.interrupt",
+                commandId: command.commandId,
+                threadId: command.threadId,
+                runId: run.id,
+                reason: "Workstream thread cancelled.",
+                holdQueue: false,
+              })
+              .pipe(
+                // Upstream rejects a run it cannot interrupt before emitting anything: skip, not fail.
+                Effect.catchIf(
+                  (error) =>
+                    error._tag === "OrchestratorDispatchError" ||
+                    error._tag === "OrchestratorProviderAdapterError",
+                  () => Effect.succeed(undefined),
+                ),
+              );
+      for (const queued of runs.filter((candidate) => candidate.status === "queued")) {
+        yield* ctx.nested.dispatchQueuedRunCancel({
+          type: "queued-run.cancel",
           commandId: command.commandId,
           threadId: command.threadId,
-          runId: run.id,
-          reason: "Workstream thread cancelled.",
-          holdQueue: false,
-        })
-        .pipe(
-          // Upstream rejects a run it cannot interrupt before emitting anything: skip, not fail.
-          Effect.catchIf(
-            (error) =>
-              error._tag === "OrchestratorDispatchError" ||
-              error._tag === "OrchestratorProviderAdapterError",
-            () => Effect.succeed(undefined),
-          ),
-        );
+          runId: queued.id,
+        });
+      }
       return cancelUnsettledEffects === undefined ? {} : { cancelUnsettledEffects };
     }
 

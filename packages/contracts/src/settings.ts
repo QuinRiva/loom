@@ -1240,7 +1240,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // loom: deployctl/systemd writes no continuation marker, so redeploys resume by default.
+  // loom: on for every thread — deployctl/systemd writes no continuation marker, and Loom's
+  // rule 0 (Orchestrator.loom.ts loomContinuationVetoed) vetoes it per Loom thread (pull 9 §3).
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
