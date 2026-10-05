@@ -25,7 +25,6 @@ import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { listThreadPullRequests, PullRequestsToolkitHandlersLive } from "./handlers.ts";
 import { PullRequestLinkFailedError, PullRequestsToolkit } from "./tools.ts";
-import { loomThreadShellFixtureDefaults } from "../../../orchestration/deciderTestThread.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
@@ -78,7 +77,6 @@ function makeProject(
 
 function makeThread(pullRequests: ReadonlyArray<ThreadPullRequestLink>): PullRequestTestThread {
   return {
-    ...loomThreadShellFixtureDefaults,
     id: THREAD_ID,
     projectId: PROJECT_ID,
     title: "Thread",

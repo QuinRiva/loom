@@ -93,31 +93,29 @@ function makeLink(
   snapshot: Partial<ThreadPullRequestSnapshot> | null = null,
   overrides: Partial<ThreadPullRequestLink> = {},
 ): ThreadPullRequestLink {
-  return Object.assign(
-    {
-      host: "github.com",
-      repository: "owner/repository",
-      number,
-      url: `https://github.com/owner/repository/pull/${number}`,
-      source: "manual",
-      linkedAt: "2026-08-10T00:00:00.000Z",
-      snapshot:
-        snapshot === null
-          ? null
-          : {
-              state: "open",
-              title: "Pull request",
-              headBranch: "feature",
-              baseBranch: "main",
-              isDraft: false,
-              updatedAt: "2026-08-27T00:00:00.000Z",
-              syncedAt: "2026-08-27T00:00:00.000Z",
-              ...snapshot,
-            },
-      stack: null,
-    },
-    overrides,
-  );
+  return {
+    host: "github.com",
+    repository: "owner/repository",
+    number,
+    url: `https://github.com/owner/repository/pull/${number}`,
+    source: "manual",
+    linkedAt: "2026-08-10T00:00:00.000Z",
+    snapshot:
+      snapshot === null
+        ? null
+        : {
+            state: "open",
+            title: "Pull request",
+            headBranch: "feature",
+            baseBranch: "main",
+            isDraft: false,
+            updatedAt: "2026-08-27T00:00:00.000Z",
+            syncedAt: "2026-08-27T00:00:00.000Z",
+            ...snapshot,
+          },
+    stack: null,
+    ...overrides,
+  };
 }
 
 /** The shell the fake projection store serves: one project and its threads. */
@@ -137,7 +135,6 @@ function makeSnapshot(
     projects: [makeProject()],
     threads,
     updatedAt: NOW,
-    goals: [],
   };
 }
 
@@ -145,21 +142,19 @@ function makeSummary(
   input: PullRequestRef,
   overrides: Partial<PullRequestSummary> = {},
 ): PullRequestSummary {
-  return Object.assign(
-    {
-      provider: "github",
-      projectId: input.projectId,
-      repository: input.repository,
-      number: input.number,
-      title: "Pull request",
-      url: `https://github.com/${input.repository}/pull/${input.number}`,
-      state: "open",
-      headBranch: "feature",
-      baseBranch: "main",
-      updatedAt: "2026-08-27T00:00:00.000Z",
-    },
-    overrides,
-  );
+  return {
+    provider: "github",
+    projectId: input.projectId,
+    repository: input.repository,
+    number: input.number,
+    title: "Pull request",
+    url: `https://github.com/${input.repository}/pull/${input.number}`,
+    state: "open",
+    headBranch: "feature",
+    baseBranch: "main",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    ...overrides,
+  };
 }
 
 interface HarnessOptions {
