@@ -1187,7 +1187,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
         }),
       listThreadIds: () => Effect.succeed([]),
       listBindings: () => Effect.succeed([]),
-      removeIfStopped: () => Effect.succeed(true),
+      pruneStoppedForDeletedThreads: () => Effect.succeed([]),
     });
 
     const providerLayer = makeProviderServiceLive().pipe(
@@ -1255,7 +1255,7 @@ it.effect(
             : Effect.succeed(Option.none()),
         listThreadIds: () => Effect.succeed([]),
         listBindings: () => Effect.succeed([]),
-        removeIfStopped: () => Effect.succeed(true),
+        pruneStoppedForDeletedThreads: () => Effect.succeed([]),
       });
 
       const providerLayer = makeProviderServiceLive().pipe(
@@ -1324,7 +1324,7 @@ it.effect(
           ),
         listThreadIds: () => Effect.succeed([]),
         listBindings: () => Effect.succeed([]),
-        removeIfStopped: () => Effect.succeed(true),
+        pruneStoppedForDeletedThreads: () => Effect.succeed([]),
       });
 
       const providerLayer = makeProviderServiceLive().pipe(
@@ -1562,7 +1562,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
           listBindingsCalls += 1;
           return [...bindings.values()];
         }),
-      removeIfStopped: () => Effect.succeed(true),
+      pruneStoppedForDeletedThreads: () => Effect.succeed([]),
     });
 
     const providerLayer = makeProviderServiceLive().pipe(
@@ -5801,7 +5801,7 @@ const boundedListing = makeProviderServiceLayer({
     getBinding,
     listThreadIds,
     listBindings,
-    removeIfStopped: () => Effect.die("unused"),
+    pruneStoppedForDeletedThreads: () => Effect.die("unused"),
   },
 });
 

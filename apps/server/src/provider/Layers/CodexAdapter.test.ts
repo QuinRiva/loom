@@ -240,7 +240,7 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
   getBinding: () => Effect.succeedNone,
   listThreadIds: () => Effect.succeed([]),
   listBindings: () => Effect.succeed([]),
-  removeIfStopped: () => Effect.succeed(true),
+  pruneStoppedForDeletedThreads: () => Effect.succeed([]),
 });
 
 const validationRuntimeFactory = makeRuntimeFactory();

@@ -206,14 +206,18 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
-  const removeIfStopped: ProviderSessionDirectoryShape["removeIfStopped"] = (threadId) =>
-    repository
-      .deleteStoppedByThreadId({ threadId })
-      .pipe(
-        Effect.mapError(
-          toPersistenceError("ProviderSessionDirectory.removeIfStopped:deleteStoppedByThreadId"),
-        ),
-      );
+  // loom: retention
+  const pruneStoppedForDeletedThreads: ProviderSessionDirectoryShape["pruneStoppedForDeletedThreads"] =
+    () =>
+      repository
+        .deleteStoppedForDeletedThreads()
+        .pipe(
+          Effect.mapError(
+            toPersistenceError(
+              "ProviderSessionDirectory.pruneStoppedForDeletedThreads:deleteStoppedForDeletedThreads",
+            ),
+          ),
+        );
 
   return {
     upsert,
@@ -222,7 +226,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     getBinding,
     listThreadIds,
     listBindings,
-    removeIfStopped,
+    pruneStoppedForDeletedThreads, // loom: retention
   } satisfies ProviderSessionDirectoryShape;
 });
 

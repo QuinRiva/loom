@@ -325,7 +325,6 @@ describe("OrchestrationEngine", () => {
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
           getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-          getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
