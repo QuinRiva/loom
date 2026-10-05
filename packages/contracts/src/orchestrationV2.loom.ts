@@ -163,6 +163,8 @@ export const WorkOutcomeRecord = Schema.Struct({
   round: NonNegativeInt,
   contested: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   counts: Schema.optional(WorkOutcomeCounts),
+  /** True for the dispatcher's quiescence submit (plan §6; seam 8 renders it). */
+  synthesised: Schema.optional(Schema.Boolean),
   eventId: Schema.NullOr(EventId),
   at: IsoDateTime,
 });

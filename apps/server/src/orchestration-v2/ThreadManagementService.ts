@@ -67,6 +67,8 @@ export function existingThreadIdsForCommand(
   if (command.type === "thread.spawn") {
     return command.parentThreadId === null ? [] : [command.parentThreadId];
   }
+  // loom: a fork prepare reads the source's provider thread, like upstream's thread.fork
+  if (command.type === "thread.fork.prepare") return [command.threadId, command.sourceThreadId];
   switch (command.type) {
     case "thread.create":
       return [];
