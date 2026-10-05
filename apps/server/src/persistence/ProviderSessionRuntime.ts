@@ -123,18 +123,18 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
 
     // loom: retention support for stopped runtime rows.
     /**
-     * Retention support (see `ProviderSessionDirectory.removeIfStopped`).
+     * Delete every `stopped` row whose thread has been deleted, in one
+     * statement, returning the pruned thread ids.
      *
-     * Delete a runtime row only while it is still `stopped`.
-     *
-     * Retention sweeps decide from a list snapshot, so a concurrent start or
-     * recovery may have promoted the row back to `running` in between. The
-     * status predicate lives in the DELETE's WHERE clause so the check and the
-     * delete are one atomic statement. Reports whether a row was removed.
+     * Deletion is the only irreversible thread lifecycle state (archive has
+     * unarchive), so archived threads keep their resume pointer. The status
+     * predicate sits in the same statement, so a row a concurrent start or
+     * recovery promoted back to `running` is never removed.
      */
-    readonly deleteStoppedByThreadId: (
-      input: DeleteProviderSessionRuntimeInput,
-    ) => Effect.Effect<boolean, ProviderSessionRuntimeRepositoryError>;
+    readonly deleteStoppedForDeletedThreads: () => Effect.Effect<
+      ReadonlyArray<ThreadId>,
+      ProviderSessionRuntimeRepositoryError
+    >;
   }
 >()("t3/persistence/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
 
@@ -383,17 +383,17 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  // RETURNING makes the outcome observable: an empty result means the row was
-  // no longer `stopped` (a concurrent start/recovery won the race) and nothing
-  // was deleted, so the caller must not treat it as pruned.
-  const deleteStoppedRuntimeByThreadId = SqlSchema.findAll({
-    Request: DeleteRuntimeRequestSchema,
-    Result: Schema.Struct({ threadId: Schema.String }),
-    execute: ({ threadId }) =>
+  // loom: retention — one statement per sweep (see the interface doc).
+  const deleteStoppedRuntimeForDeletedThreads = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ threadId: ThreadId }),
+    execute: () =>
       sql`
         DELETE FROM provider_session_runtime
-        WHERE thread_id = ${threadId}
-          AND status = 'stopped'
+        WHERE status = 'stopped'
+          AND thread_id IN (
+            SELECT thread_id FROM projection_threads WHERE deleted_at IS NOT NULL
+          )
         RETURNING thread_id AS "threadId"
       `,
   });
@@ -497,18 +497,17 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const deleteStoppedByThreadId: ProviderSessionRuntimeRepository["Service"]["deleteStoppedByThreadId"] =
-    (input) =>
-      deleteStoppedRuntimeByThreadId(input).pipe(
+  // loom: retention
+  const deleteStoppedForDeletedThreads: ProviderSessionRuntimeRepository["Service"]["deleteStoppedForDeletedThreads"] =
+    () =>
+      deleteStoppedRuntimeForDeletedThreads(undefined).pipe(
         Effect.mapError(
-          (cause) =>
-            new PersistenceSqlError({
-              operation: "ProviderSessionRuntimeRepository.deleteStoppedByThreadId:query",
-              correlation: { threadId: input.threadId },
-              cause,
-            }),
+          toPersistenceSqlOrDecodeError(
+            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:query",
+            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:decodeRows",
+          ),
         ),
-        Effect.map((rows) => rows.length > 0),
+        Effect.map((rows) => rows.map((row) => row.threadId)),
       );
 
   return {
@@ -517,7 +516,7 @@ export const make = Effect.gen(function* () {
     getByThreadId,
     list,
     deleteByThreadId,
-    deleteStoppedByThreadId,
+    deleteStoppedForDeletedThreads, // loom: retention
   } satisfies ProviderSessionRuntimeRepository["Service"];
 });
 

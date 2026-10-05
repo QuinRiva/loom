@@ -370,6 +370,43 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(2),
   });
 
+  // A `consult_thread` exchange, so the consult card (question, target chip,
+  // markdown answer) has a live fixture too. The payload is the shape pi's
+  // dynamic tool call records; the server projects it to the card's fields.
+  yield* dispatch({
+    type: "thread.activity.append",
+    commandId: nextCommandId("orchestrator-consult"),
+    threadId: ORCHESTRATOR_ID,
+    activity: {
+      id: nextEventId("orchestrator-consult"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "consult_thread",
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "completed",
+        title: "consult_thread",
+        toolCallId: "seed-consult-call",
+        data: {
+          rawInput: {
+            threadId: CODER_BETA_ID,
+            question: "Did the loader contract change land before or after your routing work?",
+          },
+          details: {
+            resolved: true,
+            threadId: CODER_BETA_ID,
+            title: "Wire HTTP routes",
+            answer:
+              "After. The `{ ready: boolean }` shape landed in `apps/server/src/bootstrap.ts` once routing was up, so the three call sites I listed still destructure the old shape.",
+          },
+        },
+      },
+      turnId: null,
+      createdAt: iso(2),
+    },
+    createdAt: iso(2),
+  });
+
   // File-chip fixture: inline-code references of every shape against files that
   // exist in, and are missing from, the orchestrator's worktree. Anchored ones
   // (absolute) chip at once and say "missing?" when gone; unanchored ones (bare,

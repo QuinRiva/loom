@@ -582,7 +582,7 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
   getBinding: () => Effect.succeedNone,
   listThreadIds: () => Effect.succeed([]),
   listBindings: () => Effect.succeed([]),
-  removeIfStopped: () => Effect.succeed(true), // loom: fork directory method
+  pruneStoppedForDeletedThreads: () => Effect.succeed([]), // loom: fork directory method
 });
 
 // The adapter now receives its settings as a plain argument (the old design

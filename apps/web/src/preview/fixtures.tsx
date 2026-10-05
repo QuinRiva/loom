@@ -630,7 +630,7 @@ const workstreamGraphFixture: PreviewFixture = {
   description:
     "The C2 header-band node card across its states: live coder mid-rework, gated reviewer with verdict chip, blocked wave, receded done node with fan-in badge, attention-pulsing yielded node with a wrapped two-line title.",
   render: () => (
-    <div className="h-full overflow-auto bg-workstream-deep p-6">
+    <div className="h-full overflow-auto bg-background p-6">
       <WorkstreamGraph
         viewKey="preview"
         threads={WS_GRAPH_THREADS}

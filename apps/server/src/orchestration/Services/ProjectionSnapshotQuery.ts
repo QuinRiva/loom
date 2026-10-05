@@ -643,23 +643,6 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
-   * loom: ids of threads that are DELETED (not merely archived), for the
-   * provider-session retention sweep.
-   *
-   * One query for the whole set, because the sweep must classify every
-   * persisted binding: doing it per binding cost six statements each on the
-   * single serial SQL connection, which is a periodic global stall.
-   *
-   * Deletion is the only irreversible thread lifecycle state — `thread.archive`
-   * has a matching `thread.unarchive` command, so an archived thread can come
-   * back and must keep its provider binding.
-   */
-  readonly getDeletedThreadIds: () => Effect.Effect<
-    ReadonlySet<ThreadId>,
-    ProjectionRepositoryError
-  >;
-
-  /**
    * loom: fanned-in isolated children that are ARCHIVED but not deleted and
    * still point at their own worktree — the fan-in reactor's deferred-removal
    * blind spot.

@@ -153,7 +153,7 @@ export function WorkstreamLifecycleDrawer({
       {/* Backdrop: dims the graph and captures the click-outside dismiss. */}
       <div
         aria-hidden
-        className={`absolute inset-0 z-20 bg-black/45 transition-opacity duration-200 motion-reduce:transition-none ${
+        className={`absolute inset-0 z-20 bg-background/60 transition-opacity duration-200 motion-reduce:transition-none ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={onClose}
@@ -167,14 +167,16 @@ export function WorkstreamLifecycleDrawer({
         aria-modal={open}
         role="dialog"
         aria-label="Lifecycle history"
-        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-workstream to-workstream-deep shadow-workstream-drawer transition-transform duration-260 ease-in-out motion-reduce:transition-none ${
+        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-border bg-popover text-popover-foreground shadow-2xl transition-transform duration-260 ease-in-out motion-reduce:transition-none ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <div className="min-w-0">
-            <div className="truncate text-xs font-semibold text-white">{thread?.title ?? "—"}</div>
-            <div className="truncate text-2xs text-white/40">
+            <div className="truncate text-xs font-semibold text-foreground">
+              {thread?.title ?? "—"}
+            </div>
+            <div className="truncate text-2xs text-muted-foreground">
               {thread ? getRoleLabel(thread) : "sub-thread"} · lifecycle
             </div>
           </div>
@@ -186,7 +188,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-foreground/70 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/70"
                         onClick={() => onOpenReport(thread.reportPath!)}
                       />
                     }
@@ -206,7 +208,7 @@ export function WorkstreamLifecycleDrawer({
                     render={
                       <button
                         type="button"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring/70"
                         onClick={() => onOpenReport(thread.promptDebugPath!)}
                       />
                     }
@@ -224,7 +226,7 @@ export function WorkstreamLifecycleDrawer({
                   render={
                     <button
                       type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-foreground/70 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/70"
                       onClick={() => onOpenThread(thread)}
                     />
                   }
@@ -242,7 +244,7 @@ export function WorkstreamLifecycleDrawer({
                 <button
                   ref={closeRef}
                   type="button"
-                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
                   onClick={onClose}
                   aria-label="Close lifecycle history"
                 />
@@ -256,14 +258,16 @@ export function WorkstreamLifecycleDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {!thread ? null : state?.status === "loading" ? (
-            <div className="flex items-center gap-2 py-3 text-2xs text-white/40">
+            <div className="flex items-center gap-2 py-3 text-2xs text-muted-foreground">
               <Loader2Icon className="size-3.5 animate-spin" />
               Loading history…
             </div>
           ) : state?.status === "error" ? (
-            <div className="py-3 text-2xs text-white/40">Couldn&rsquo;t load history.</div>
+            <div className="py-3 text-2xs text-muted-foreground">Couldn&rsquo;t load history.</div>
           ) : rows.length === 0 ? (
-            <div className="py-3 text-2xs text-white/35">No lifecycle events recorded yet.</div>
+            <div className="py-3 text-2xs text-muted-foreground">
+              No lifecycle events recorded yet.
+            </div>
           ) : (
             <ol className="flex flex-col">
               {rows.map((row) => {
@@ -274,16 +278,16 @@ export function WorkstreamLifecycleDrawer({
                     <span className="min-w-0 flex-1">
                       <span className={`text-xs font-medium ${tone.textClass}`}>{row.label}</span>
                       {row.detail ? (
-                        <span className="ml-1.5 text-2xs text-white/45">{row.detail}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">{row.detail}</span>
                       ) : null}
                     </span>
                     {row.deepLink ? (
-                      <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-white/30 group-hover:text-white/60" />
+                      <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground/70 group-hover:text-foreground/60" />
                     ) : null}
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <span className="mt-0.5 shrink-0 font-mono text-3xs tabular-nums text-white/35" />
+                          <span className="mt-0.5 shrink-0 font-mono text-3xs tabular-nums text-muted-foreground" />
                         }
                       >
                         {formatRelativeAge(row.at)}
@@ -293,13 +297,13 @@ export function WorkstreamLifecycleDrawer({
                   </>
                 );
                 return (
-                  <li key={row.key} className="flex items-stretch border-l border-white/10 pl-3">
+                  <li key={row.key} className="flex items-stretch border-l border-border pl-3">
                     <Tooltip>
                       <TooltipTrigger
                         render={
                           <button
                             type="button"
-                            className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                            className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
                             onClick={() =>
                               onOpenDispatch(thread.id, row.deepLink ? row.at : undefined)
                             }
@@ -320,7 +324,7 @@ export function WorkstreamLifecycleDrawer({
                           render={
                             <button
                               type="button"
-                              className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                              className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-border bg-muted text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
                               onClick={() => onOpenReport(row.reportPath!)}
                               aria-label="Open this round's completion report"
                             />
