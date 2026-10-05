@@ -9,7 +9,7 @@ manager_sessions:
 # 29 — Cadence pull 9, Phase 1 (`024d49520e` → `upstream/main` `1a3f7ad508`): the mechanical merge, upstream wins on structure
 
 **Status: PLAN — gated by a reviewer against `plans/upstream-pull9-strategy/plan.mdx` before any coder starts.**
-**Progress: the merge is committed (S2b) — `merge_oid` = `f0f00022358c6c234ed0d7f3367cddddbf5b663e`, parents `d32a760dd2` + `1a3f7ad508`; S1/S2a/S2b records are at the end of this note, their rows in §10 and Appendix C. S3 (typecheck) is next.**
+**Progress: the merge is committed (S2b) — `merge_oid` = `f0f00022358c6c234ed0d7f3367cddddbf5b663e`, parents `d32a760dd2` + `1a3f7ad508`; S1/S2a/S2b/S3 records are at the end of this note, their rows in §10 and Appendix C. S3 is done (typecheck 15/15 from a fresh install); S4 (gates, audits, boot smoke, PR) is next.**
 This is the runbook for **Phase 1 only** of the strategy Carl signed
 (`plans/upstream-pull9-strategy/plan.mdx`, revision 3): take `upstream/main`
 as the base, let upstream win on structure, remove Loom's V1-welded surfaces
@@ -1222,6 +1222,28 @@ DT row when the two coincide.
 | DL-145 | web / `preview/fixtures.tsx`                                                                                                                                                                                                                                                                        | fixtures for quarantined components; V1 pending-input shapes                                                                                                                                                                                        | graph + control-card fixtures removed; pending-input fixtures adapted to `ThreadPendingUserInput`; cold-reader fixture removed                                                                                                                                                                                                                                                            | Loom-only dev harness; fixtures follow source (PR-18)                                                                                                                                                                                                                                                                                                                                                                                                                    | DT-82                                                                                                                                                                                                         | trivial                                                                                             |
 | DL-146 | web / `ThreadStatusIndicators.tsx`, `ThreadStatusIndicators.logic.ts`, `WorkstreamModelPill.tsx`                                                                                                                                                                                                    | rollup badge popover                                                                                                                                                                                                                                | upstream verbatim; logic + pill quarantined                                                                                                                                                                                                                                                                                                                                               | they read the quarantined `workstreamRollup`/`workstreamPresentation`                                                                                                                                                                                                                                                                                                                                                                                                    | DT-81                                                                                                                                                                                                         | local (3d)                                                                                          |
 | DL-147 | web / `useHandleNewThread.ts` (+ test), `lib/chatThreadActions.ts`, `lib/utils.ts`, `state/shell.ts`, `state/threads.ts`                                                                                                                                                                            | goal-keeping (`goalId`, goal draft bucket, `newGoalId`, `goalsAtom`, `goalEnvironment`)                                                                                                                                                             | upstream verbatim each                                                                                                                                                                                                                                                                                                                                                                    | goal shells/atoms are gone from V2 (DT-38)                                                                                                                                                                                                                                                                                                                                                                                                                               | §5.4 item 16; DT-76                                                                                                                                                                                           | local (3d)                                                                                          |
+| DL-148 | server / `persistence/Layers/Sqlite.ts`; `LoomMigrations.test.ts` | Loom's `runAllMigrations` adds `LoomLedgerReconciliationError` to the persistence layer's error channel; upstream's V2 tests and testkits pin `Layer<SqlClient, MigrationError \| PlatformError \| SqlError>` (14 errors) | the ledger refusal is re-raised as upstream's `MigrationError` (`kind: "BadState"`, message kept) inside the marked `runAllMigrations` call; `LoomMigrations.ts` untouched (its tests still see the Loom tag); the test's historical-ledger annotation widened to `SqlError \| Schema.SchemaError` (upstream's migrations now decode) | genuine merge defect (§5.3 c): both behaviours kept, upstream's error type restored at the boundary | `tsc` before/after | trivial |
+| DL-149 | server / `config.ts` | five Loom `workstream{Reports,Briefs,LaunchIdentity,PromptDebug,Consults}Dir` derived paths (unmarked) broke every upstream testkit that builds a `ServerConfig` literal | upstream verbatim | no consumer outside quarantine (control plane, PiDriver, consult forks); DT-86 | `rg` over the live tree | trivial (3b) |
+| DL-150 | server tests / `orchestration-v2/PullRequestSyncReactor.test.ts`, `mcp/toolkits/pullRequests/handlers.test.ts` | Loom fixture residue (`loomThreadShellFixtureDefaults`, `goals: []`, `Object.assign` overrides) that S1 recorded as "upstream verbatim" / the X H row | upstream verbatim, both | PR-18: fixtures follow the fields | — | trivial |
+| DL-151 | server tests / `provider/Drivers/PiDriver.test.ts`, `textGeneration/PiTextGeneration.test.ts` | Loom-only tests of Loom's quarantined driver sitting at upstream's paths (import `piTurnRetryPolicy`, Loom-only exports) | quarantined (DT-87) | §5.3 a; they test the code in `quarantine/` | — | trivial (2) |
+| DL-152 | server / `diagnostics/{RuntimePerformanceMonitor,ProviderRuntimeIngestionTelemetry}.ts` | import `piStdoutBackpressure` from quarantined `provider/Layers/Pi/RpcProcess.ts` | the import and every pi-stdout field dropped behind a `DT-83` marker (§5.1 item 2's first option); both files stay — the monitor's heap/event-loop sampling is live, the ingestion telemetry is orphaned (DT-90) | they compile without it; `NodeSqliteWorkerClient.ts` still calls `timeIngestionWait` | §5.1 item 2 | trivial |
+| DL-153 | server / `provider/Layers/ProviderInstanceRegistryHydration.ts` | with the Pi-only `BuiltInDriversEnv` the layer's `as` assertion narrowed away `Crypto \| ProviderEventLoggers` that upstream's adapter infrastructure needs (`unsafeEffectTypeAssertion`) | the hydration env names both, marked; Loom's pretty-cause log hunk newly marked | genuine merge defect of PR-12's Pi-only registry; the requirements are real and `server.ts` already provides them | `tsc` with the assertion removed listed exactly these two | trivial |
+| DL-154 | server / `usage/usageTranscripts.ts` `parsePiLine` | upstream renamed `UsageRecord.fast: boolean` → `speed: UsageSpeed` | `speed: "standard"`, marked | PR-17 repoint of a renamed field, not a port | upstream `e8545b293b`, `56914128c1` | trivial |
+| DL-155 | server tests / `project/ProjectSetupScriptRunner.test.ts`; new `ProjectSetupScriptRunner.loom.test.ts` | upstream's runner case lacked `FileSystem \| Path` (Loom's breadcrumb) and asserted an unwrapped command; DL-97's breadcrumb coverage was quarantined | upstream's case: `NodeServices.layer` + `deepInclude`/wrapped-command/last-listener adaptations, each marked; **closes DL-97**: the pnpm-rewrite and three breadcrumb cases re-hung verbatim on upstream's `ProjectService` harness in a Loom-only file (DT-52 re-hung) | DL-73 survives and is Carl's; `vp test run` both files: 5/5 | targeted test run | trivial |
+| DL-156 | mobile / `features/home/useThreadListActions.ts`, `features/threads/PendingUserInputCard.tsx` | Loom's `canSettle` import (unused) against upstream's `thread-settled`; Loom's "Recommended" badge reads `option.recommended`, absent from V2's pending-input options | `useThreadListActions` upstream verbatim (PR-4); badge dropped behind a `DT-84` marker; "Asked N ago" kept (reads V2's `createdAt`) | §5.3 b | — | trivial (3a/I) |
+| DL-157 | server / `persistence/{Layers,Services}/Projection{Goals,ThreadConsults,ThreadHeartbeats,ThreadPeerMessages,UsageLedger}.ts` | compile, no importer outside themselves; read/write the inert V1 Loom tables | quarantined, all five pairs (DT-85); §5.1's "compiles ⇒ stays" read as non-orchestration-only | DL-82's data-seam test; DT-12/Area K move them to `loom_*` in phase 2 | consult_manager (runbook author 83266288…, **medium**): option 2 | trivial |
+| DL-158 | server / `vcs/VcsStatusBroadcaster.ts` | **closes DL-99**: the poller's repo batch wrote the cache outside upstream's per-cwd `KeyedLock`; separately, upstream's "an explicit refresh reads local totals after the fetch" test failed on Loom's paths (S1 ran local ∥ remote) | the poller wraps the batch in `withRemoteWriteLocks(cwds)` (every cwd's lock, sorted); `refreshStatus` (already holding its cwd) calls the batch directly; explicit refresh reads local after the fetch on both paths (upstream's order on the no-repository path) | a defect fix, not a redesign: single-key holders never wait on a second key and multi-key acquisition is ordered, so no deadlock and no re-entry; upstream's stale-poll race is closed on the batch path | `vp test run src/vcs/VcsStatusBroadcaster.test.ts`: 22/23 before (same failure without the change), 23/23 after | local |
+| DL-159 | server/web orphans | Loom files with no live importer whose consumers are quarantined engine: `provider/Services/ProviderLaunchClaims.ts` (DT-61), `provider/failover{Routing,Chains}.ts` + test (DL-77 slice), `git/Utils.ts` (PiDriver resume-launch helpers), `web/components/chat/StagedCard.tsx` (DT-31 recorded it quarantined; it was still in the tree) | quarantined (DT-88) | same data-seam/consumer reasoning as DL-157; §5.1 item 2 for the Pi helper | knip "unused files" | trivial |
+| DL-160 | repo / `lostdecls.py d32a760dd2 1a3f7ad508` | 41 files report lost names | adjudicated: **0** upstream names lost, **0** base-and-both-sides names lost; names upstream itself removed are upstream's deletion; 23 files lose **Loom-added** names, every one already ruled (DT-23/24/30/31/38/44/51/56/68/71/76/81, DL-96/108/110/113/118/125/126/138/147) plus three new: `launchStartupHeartbeat` (upstream calls `recordStartupHeartbeat` inline), `getAutoBootstrapDefaultModelSelection` (re-applied inside upstream's `getAutoBootstrapThreadModelSelection`, DL-85), `TextGenerationService`/`TextGenerationShape`/`toHydratedThreadDraft` exports (no importer); the 8 §7 rulings hold (each is now an upstream-private local or gone; no importer) | — | `.artifacts/pull9-s3/lostclass.txt` | — |
+| DL-161 | repo / `aliascheck.py`, `sqlcolsweep.py`; X H row `persistence/ProviderSessionRuntime.ts` | sweeps over every live file with Loom SQL (`foreignHomeGuard.loom.ts`, `ProviderSessionRuntime.ts`, `serverSettings.ts`, `threadSearchIndex.loom.ts`, `loom/referenceLinks.ts`, `LoomMigrations.ts`, `Layers/Sqlite.ts`) | aliascheck 0 narrower; sqlcolsweep 0 real / 0 unreadable — its one flag is doc 27's documented `DELETE … RETURNING` false positive; `ProviderSessionRuntime.ts`'s DL-74 prune hunk compiles and is kept marked, orphaned (DT-89) | §5.1 "marked hunks that still compile stay" | doc 27 clean-overlap review | — |
+| DL-162 | server / DL-81 boot query | does the foreign-home query match V2's schema? | yes: `orchestration_v2_projection_threads` (migration 055) has no worktree column; `json_extract(payload_json, '$.worktreePath')` matches the contract's thread `worktreePath`; nothing in `loom/` imports `orchestration-v2/`; the only `orchestration-v2/` delta vs upstream is DL-98's 13-line refusal | — | `Migrations/055_OrchestrationV2.ts`, `contracts/orchestrationV2.ts` | — |
+| DL-163 | config / `pnpm-workspace.yaml` PR-16 override-revert proof | is Loom's `"@types/hast": 3.0.5` override still load-bearing? | **kept**: from upstream's lockfile without it, 3.0.4 resolves beside the mdx chain's 3.0.5 and `apps/web` fails (`incrementalHighlighting.ts` TS2883, `Root` from 3.0.4); it is Loom's only `overrides:` entry (the pi line is `patchedDependencies`, DL-83; `allowBuilds`/`minimumReleaseAge` are policy) | pull 7's method | `.artifacts/pull9-s3/pr16-web-without-hast-override.log` | trivial |
+| DL-164 | web / §7 eye reviews | `ChatMarkdown.tsx`, `pullRequestList.logic.ts`, `preview/TimelineLayoutFrame.tsx` | `ChatMarkdown.tsx`: Loom's delta vs upstream is **byte-identical** to its delta at `pre_merge_oid` (+267/−19, all 33 markers) — kept-compatible; `pullRequestList.logic.ts`: Loom's `Set` lookup in `matchesPullRequestFilters` is disjoint from `7ffa2184a7`'s `applyPullRequestOverrides` change — kept-compatible; `TimelineLayoutFrame.tsx` gains the `messages-timeline-row-frame` wrapper so it mirrors `MessagesTimeline`'s `renderItem` chain (DL-114) | the preview-harness render is S4's (no dev server in S3) | `diff` of the two deltas | trivial |
+| DL-165 | web/contracts / `FilePreviewPanel.tsx`, `rightPanelStore.test.ts`, `providerRuntime.ts` | S2b's unmarked pre-existing Loom hunks | marked hunk by hunk (no code change) | `// loom:` on every retained hunk | — | trivial |
+| DL-166 | web / `routeTree.gen.ts` | S2b hand-trimmed it | `@tanstack/router-generator` 1.167.12 (the plugin's) regenerates it **byte-identical** | — | generator run | — |
+| DL-167 | tests / `ProviderRegistry.test.ts`, `ProviderSettingsPanel.environment.test.tsx` | Loom comments described the quarantined driver (`makePiProvider`, `enrichPiSnapshot`); upstream's "hides untouched disabled provider slots" case assumes pi defaults disabled | comments rewritten; pi moved to the visible list, marked (DL-84) | kept pi case passes on upstream's `PiDriver`; DL-139's fixture lines pass (18/18) | targeted test runs | trivial |
+| DL-168 | lockfile / fresh install | `vp i` from upstream's lockfile | `CI=true vp i --no-frozen-lockfile` (no TTY for the modules purge; the frozen install refuses Loom's override); a second install leaves the lockfile unchanged; regenerated lockfile committed | pull 8's "second `vp i`" | — | trivial |
+| DL-169 | knip orphans | `knip --include files,dependencies` after S3 | left, each with its row: `git/WorktreeMutationLock.ts` (DT-45), `persistence/Layers/SqliteRead.ts`, `dev/seedConfig.ts` (DT-55), `web/loom/useProjectDefaultThreadEnvMode.ts` (DT-67), `web/loom/costFormat.ts` (DT-30), `web/components/chat/modelPickerModelHighlights.ts` (DT-91); unused deps `@huggingface/transformers`, `google-auth-library` (embedder, DL-82) and `@earendil-works/pi-coding-agent` (DL-83) — prune decision is S4's; orphan contract names (`server.ts` `ThreadSpend*`/`WorkstreamWorktree*`/`HandoffDraft*`/`RetroDraft*`, `settings.loom.ts` fields) left marked | §5.1 orphans are rows, not moves; knip is upstream CI, not Loom's gate | `.artifacts/pull9-s3/knip-files.txt` | trivial |
 
 ---
 
@@ -1928,7 +1950,17 @@ import dropped · hunk dropped · renders nothing · orphaned. `phase` ∈ 2 · 
 | DT-81  | `ThreadStatusIndicators.tsx` `WorkstreamGraphIndicator`; `components/ThreadStatusIndicators.logic.ts`, `components/WorkstreamModelPill.tsx` (quarantined); `index.css` `ws-*` rules                                                                                                                                                                                                                                                                                                                                                                                                                                                              | orchestrator rollup badge + popover, provider/model pill, graph animations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `workstreamRollup`, `workstreamPresentation` (quarantined)                                                                                                                                    | quarantined / hunk dropped (extends DT-31, DT-35)                                                                                             | 3d                                                                                                                                                                                                                  |
 | DT-82  | `apps/web/src/preview/fixtures.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | workstream-graph, control-plane-card and cold-reader pending-input preview fixtures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | quarantined components; V1 `ControlPayload`, `ApprovalRequestId`, Loom panel props                                                                                                            | hunk dropped (extends DT-31, DT-32, DT-65)                                                                                                    | 3d                                                                                                                                                                                                                  |
 
-_(S3 appends from DT-83.)_
+| DT-83  | `diagnostics/RuntimePerformanceMonitor.ts`, `diagnostics/ProviderRuntimeIngestionTelemetry.ts` pi-stdout fields | pi stdout backpressure counters in the runtime interval log and in the ingestion stall watchdog | `piStdoutBackpressure` (Loom's quarantined `provider/Layers/Pi/RpcProcess.ts`) | hunk dropped (marker) | 2 (if upstream's `PiAdapterV2` grows a backpressure signal) |
+| DT-84  | mobile `features/threads/PendingUserInputCard.tsx` "Recommended" badge | the agent's recommended option badged beside its label | `option.recommended` (Loom's contract field; no V2 producer) | hunk dropped (marker) | 3a/I |
+| DT-85  | `persistence/{Layers,Services}/Projection{Goals,ThreadConsults,ThreadHeartbeats,ThreadPeerMessages,UsageLedger}.ts` | Loom's V1 projection repositories (goals, consult records, heartbeats, peer messages, usage ledger) | V1 Loom tables (inert under V2); consumers quarantined | quarantined (DL-157) | 2 (`loom_*` sidecar tables, Area K) |
+| DT-86  | `config.ts` `workstream{Reports,Briefs,LaunchIdentity,PromptDebug,Consults}Dir` | durable dirs for child reports, kickoff briefs, fork launch identity, prompt-debug sidecars, consult forks | control plane + PiDriver (quarantined) | hunk dropped (upstream verbatim) | 3b |
+| DT-87  | `provider/Drivers/PiDriver.test.ts`, `textGeneration/PiTextGeneration.test.ts` | tests of Loom's Pi driver and one-shot generation | Loom's quarantined `PiDriver.ts`/`PiTextGeneration.ts` | quarantined (extends DT-23) | 2 |
+| DT-88  | `provider/Services/ProviderLaunchClaims.ts`, `provider/failover{Routing,Chains}.ts` + test, `git/Utils.ts`, `web/components/chat/StagedCard.tsx` | launch-claims guard; failover chain resolution; PiDriver resume-launch fs helpers; staged-card shell | stuck-launch recovery, exhaustion sweep, PiDriver, staged cards (all quarantined) | quarantined (DL-159) | 3b (claims), 3c (failover), 2 (Pi helpers), 3d (StagedCard) |
+| DT-89  | `persistence/ProviderSessionRuntime.ts` `deleteStoppedForDeletedThreads` | DL-74's one-statement prune of stopped bindings of deleted threads | V1 `ProviderSessionReaper` caller (deleted, DT-10); reads V1 `projection_threads.deleted_at` | orphaned (compiles, no caller; marked) | 2 (DT-48: re-point at V2's bindings if V2 never prunes) |
+| DT-90  | `diagnostics/ProviderRuntimeIngestionTelemetry.ts` | interval log + stall watchdog for the bounded V1 provider-runtime ingestion pipeline | V1 `ProviderRuntimeIngestion`/`ProviderService` (deleted) — `makeIngestionTelemetry`, `trackRuntimeEventPublish`, `registerEngineEventPubSubSize` have no caller | orphaned (`timeIngestionWait` still wraps `NodeSqliteWorkerClient` reads, now a passthrough) | 2/3c |
+| DT-91  | `web/components/chat/modelPickerModelHighlights.ts` | "NEW" chip set for the model picker | Loom's picker hunks (DL-113 took upstream's picker) | orphaned | 4 |
+
+_(S4 appends from DT-92.)_
 
 ---
 
@@ -2497,3 +2529,119 @@ Path coverage of S2b moves: `TurnFailureToastCoordinator.tsx` → DT-74; `GoalFo
    fixture lines (DL-139); the `diffPanelStore` v3 reset (DL-134) and the flat tab strip (DL-140) in the smoke;
    DL-99's batch-path race in the clean-overlap review; DL-86's continuation (upstream's comment hints at an
    environment-level opt-in).
+
+---
+
+## Session S3 — fresh install, typecheck green for every package, detach ledger completed
+
+Thread `a9ed74f0-c3ba-4a9a-91ec-6c13afcb31d7`. Same worktree/branch. Fix-up commits on top of `4003d8364d`, all
+`--no-verify`, single-parent; the merge commit is untouched (`f0f0002235^1` = `d32a760dd2`, `^2` = `1a3f7ad508`;
+`git rerere status` empty).
+
+### Install and typecheck
+
+- Setup breadcrumb `ready`. `vp i` needs `CI=true` (the modules-dir purge aborts without a TTY) and
+  `--no-frozen-lockfile` (the frozen install refuses Loom's `@types/hast` override, pi patch and Loom deps);
+  a second install leaves the lockfile unchanged (DL-168). Every `*.tsbuildinfo` deleted before each count.
+  Harmless install noise: "Failed to create bin … vite/vitest" for the aliased `vite` package (tests run fine).
+- **`vp run typecheck` enumerates 15 packages** (as pull 8): `oxlint-plugin-t3code`, `contracts`, `effect-acp`,
+  `shared`, `marketing` (astro check), `client-runtime`, `ssh`, `tailscale`, `effect-codex-app-server`, `mobile`,
+  `infra/relay`, `scripts`, `web`, `desktop`, `server`.
+- First fresh-install run: contracts, shared, client-runtime, web, desktop and the small packages were already
+  green (S2a/S2b's work held); **server 70 errors in 20 files, mobile 2**. After the fixes below:
+  **15/15 green** (re-run after every later change; final run after the last commit).
+
+### Server (70 → 0)
+
+- `config.ts` → upstream verbatim (DL-149, DT-86): the unmarked Loom derived-path fields broke every upstream
+  testkit `ServerConfig` literal (`CodexAdapterV2.testkit`, `CursorAdapterV2.testkit`, `ProviderReplayHarness`).
+- `Layers/Sqlite.ts` (DL-148): `LoomLedgerReconciliationError` → `MigrationError` at the marked call; clears the
+  14 `missingEffectError` errors across upstream's V2 tests. `LoomMigrations.test.ts` annotation widened.
+- `PullRequestSyncReactor.test.ts`, `handlers.test.ts` → upstream verbatim (DL-150).
+- `PiDriver.test.ts`, `PiTextGeneration.test.ts` → quarantine (DL-151, DT-87).
+- `diagnostics/*` pi-stdout import dropped behind markers (DL-152, DT-83, DT-90).
+- `ProviderInstanceRegistryHydration.ts` env gains `Crypto | ProviderEventLoggers` (DL-153).
+- `usageTranscripts.ts` `fast` → `speed` (DL-154). `ProjectSetupScriptRunner.test.ts` gains `NodeServices` (DL-155).
+
+### Mobile (2 → 0)
+
+`useThreadListActions.ts` upstream verbatim; `PendingUserInputCard.tsx` "Recommended" badge detached (DL-156, DT-84).
+
+### Beyond typecheck
+
+- **Quarantined in S3** (`git mv` to `quarantine/<path>`, 18 files): `apps/server/src/provider/Drivers/PiDriver.test.ts`,
+  `apps/server/src/textGeneration/PiTextGeneration.test.ts`;
+  `apps/server/src/persistence/{Layers,Services}/Projection{Goals,ThreadConsults,ThreadHeartbeats,ThreadPeerMessages,UsageLedger}.ts` (10);
+  `apps/server/src/provider/Services/ProviderLaunchClaims.ts`, `apps/server/src/provider/failoverRouting.ts`,
+  `apps/server/src/provider/failoverChains.ts` + `.test.ts`, `apps/server/src/git/Utils.ts`,
+  `apps/web/src/components/chat/StagedCard.tsx`. `quarantine/` now holds 250 `.ts`/`.tsx` files.
+- **DL-99 closed (DL-158)**: the repo batch now goes through upstream's write lock without re-entering it — the
+  poller takes every batched cwd's lock in sorted order, `refreshStatus` (already holding its cwd) runs the batch
+  directly. Also fixed: explicit refresh reads local status after the fetch (upstream's test was failing on Loom's
+  paths before the change). `VcsStatusBroadcaster.test.ts` 23/23.
+- **DL-97 closed (DL-155)**: `ProjectSetupScriptRunner.loom.test.ts` re-hangs the pnpm-rewrite and three breadcrumb
+  cases on upstream's harness; upstream's runner case adapted to every-run-observed. 5/5.
+- Unmarked Loom hunks marked in `FilePreviewPanel.tsx`, `rightPanelStore.test.ts`, `providerRuntime.ts` (DL-165).
+- Targeted test runs (proof for resolutions made here, not S4's suite): `VcsStatusBroadcaster.test.ts` 23/23,
+  `ProjectSetupScriptRunner{,.loom}.test.ts` 5/5, `ProviderRegistry.test.ts -t "pi provider as disabled"` 1/1,
+  `ProviderSettingsPanel.environment.test.tsx` 18/18 (DL-139's fixture lines; one upstream case adapted, DL-167).
+
+### Sweeps
+
+- `dangling.py .artifacts/pull9-remeasure --exclude quarantine/` → **3 files**, exactly §8's upstream false
+  positives (`bundledDev.test.ts`, `pullRequestFileOrder.logic.test.ts`, `effect-codex-app-server/scripts/generate.ts`).
+- `lostdecls.py d32a760dd2 1a3f7ad508` → adjudicated (DL-160): 0 upstream-lost, 0 base-and-both-lost; 23 files of
+  Loom-added names, all ruled; the 8 §7 pre-rulings verified.
+- `aliascheck.py` 0 narrower; `sqlcolsweep.py` 0 real / 0 unreadable (one documented false positive) over every
+  live file with Loom SQL (DL-161).
+- `parsesweep.mjs` over quarantine + every file S3 touched: 270 swept, 0/0.
+- `Migrations.ts` byte-identical to `1a3f7ad508`; `LoomMigrations.ts` unchanged since `pre_merge_oid`;
+  `git diff --stat 1a3f7ad508 HEAD -- apps/server/src/orchestration-v2/` = only `ProviderSessionManager.ts` +13
+  (DL-98's refusal); nothing in `apps/server/src/loom/` imports `orchestration-v2/`.
+- PR-16 override-revert proof: `@types/hast` still load-bearing (DL-163). `routeTree.gen.ts` regenerates
+  byte-identical (DL-166). §7 eye reviews (DL-164).
+
+### Consult
+
+- Five orphaned V1 projection repositories: runbook author `83266288-08b6-4ca2-a984-c8e3068f1584`, confidence
+  **medium** — quarantine (option 2); escalate only if one had a live importer (none did).
+
+### §9 rows S3 owns
+
+- [x] `vp i` from upstream's lockfile; every `*.tsbuildinfo` deleted; `vp run typecheck` green for **15/15** packages
+- [x] Detach ledger complete: `dangling.py --exclude quarantine/` 0 beyond the three false positives; every Appendix B X
+      row resolved (H rows: `thread-list-v2-items.tsx` DL-142, `handlers.test.ts` DL-150, `ProviderSessionRuntime.ts`
+      DL-161/DT-89, `CommandPalette.logic.test.ts` DL-130, `ThreadStatusIndicators.test.ts`/`threadSort.test.ts`/
+      `worktreeCleanup.test.ts` DL-144; `threadRelationships{,.test}.ts` compile as-is — upstream-identical); every
+      `DT-nn` marker in the tree (DT-24/36/45/50/71/83/84) has its row
+- [x] `lostdecls.py` adjudicated; `aliascheck.py` clean; `sqlcolsweep.py` 0/0 (documented false positive only)
+- [x] `Migrations.ts` byte-identical; `LoomMigrations.ts` untouched (`UPSTREAM_BASE` is S4's)
+- [x] Nothing ported (S3's half): `orchestration-v2/` delta = DL-98's hunk only; no `loom/` → `orchestration-v2/` import;
+      no `orchestrationV2.loom.ts`
+- [x] `ChatMarkdown.tsx` and `pullRequestList.logic.ts` eyeballed (the preview-harness render is S4's)
+
+### Commits
+
+`42a5c577bd` lockfile · `ad83178bdc` server typecheck · `4630682686` mobile typecheck · `0df9eeeedb` V1 projection
+repos quarantined · `fe3d43f1f3` DL-99 · `2089b13ab4` markers + preview frame · `42c69a6343` DL-97 re-hang ·
+`5b17a3022c` ProviderRegistry comments · `3b3962c90d` provider-slot test · `dde818fb91` orphan quarantine ·
+this record.
+
+### What S4 looks at first
+
+1. **Tests are S4's**: S3 ran only the targeted files above. Expect upstream tests that assume pi is disabled by
+   default (DL-84) or that a setup run is unobserved (DL-73) — adapt, marked, as DL-155/DL-167 did.
+2. **Unmarked sweep** (`unmarkedsweep.sh --report` vs `1a3f7ad508`): S2b's three files are now marked; the rest of the
+   backlog is S4's audit. `ProviderInstanceRegistryHydration.ts`'s pretty-cause hunk is marked too.
+3. **knip** (upstream CI runs `knip:check`; Loom's gate does not): orphans left with rows (DL-169) and three unused server
+   deps (`@huggingface/transformers`, `google-auth-library` — the quarantined embedder's — and the DL-83 pi pin).
+   Pruning the two embedder deps means a lockfile change plus `cli-external-packages.ts`/test and the
+   `onnxruntime-node`/`protobufjs`/`@google/genai` `allowBuilds` lines — S4 decides.
+4. **DL-81 boot query fails open**: on any SQL error it logs a warning and the guard stays off. Smoke (A) must see the
+   "foreign-home guard engaged" line; if absent, that path is why.
+5. From S2b's item 9: `ProviderSettingsPanel.environment.test.tsx`'s Loom fixture lines (DL-139) now pass; the
+   `diffPanelStore` v3 reset (DL-134) and the flat tab strip (DL-140) belong in the smoke; DL-86's continuation
+   (upstream's comment hints at an environment-level opt-in) is smoke (B)'s question; DL-99 is closed (DL-158) — the
+   clean-overlap review should still read the batch path once.
+6. §7: render the `ChatMarkdown` preview fixture once (DL-164 shows the Loom delta is byte-identical, so this is a
+   confirmation, not an investigation); `TimelineLayoutFrame.tsx` now mirrors the V2 row chain.
