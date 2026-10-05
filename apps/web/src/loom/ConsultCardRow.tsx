@@ -41,7 +41,7 @@ export const ConsultCardRow = memo(function ConsultCardRow({
       aria-label={`Consult — ${consult.targetTitle ?? "another thread"}, ${status.label}`}
     >
       <div
-        className="rounded-lg border border-consult/25 bg-consult/6"
+        className="rounded-lg border border-info/25 bg-info/6"
         data-consult-card={consult.status}
       >
         <div
@@ -54,9 +54,9 @@ export const ConsultCardRow = memo(function ConsultCardRow({
             event.preventDefault();
             toggle();
           }}
-          className="focus-visible:ring-ring/70 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs leading-5 transition-colors hover:bg-consult/10 focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+          className="focus-visible:ring-ring/70 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs leading-5 transition-colors hover:bg-info/10 focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
         >
-          <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-consult-foreground" />
+          <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
           <span className="text-foreground/82 shrink-0">Consulted</span>
           {/* The chip navigates on click and goes inert when the thread is gone;
               the card must not also toggle when it is used. */}
@@ -91,9 +91,9 @@ export const ConsultCardRow = memo(function ConsultCardRow({
         </div>
 
         {expanded ? (
-          <div className="space-y-2 border-t border-consult/15 px-2.5 py-2">
+          <div className="space-y-2 border-t border-info/15 px-2.5 py-2">
             {consult.question ? (
-              <blockquote className="text-foreground/70 border-l-2 border-consult/40 pl-2.5 text-xs leading-5 whitespace-pre-wrap">
+              <blockquote className="text-foreground/70 border-l-2 border-info/40 pl-2.5 text-xs leading-5 whitespace-pre-wrap">
                 {consult.question}
               </blockquote>
             ) : null}
@@ -113,7 +113,7 @@ export const ConsultCardRow = memo(function ConsultCardRow({
                 {answer.length > ANSWER_CLAMP_CHARS ? (
                   <button
                     type="button"
-                    className="mt-1 text-2xs font-medium text-consult-foreground hover:underline focus-visible:underline focus-visible:outline-none"
+                    className="mt-1 text-2xs font-medium text-info-foreground hover:underline focus-visible:underline focus-visible:outline-none"
                     onClick={() => setShowFullAnswer((value) => !value)}
                   >
                     {showFullAnswer ? "Show less" : "Show full answer"}
@@ -142,8 +142,8 @@ export const ConsultCardRow = memo(function ConsultCardRow({
 const ANSWER_CLAMP_CHARS = 600;
 
 const STATUS: Record<ConsultStatus, { label: string; tone: string }> = {
-  pending: { label: "waiting", tone: "text-amber-300/80" },
-  answered: { label: "answered", tone: "text-consult-foreground/80" },
+  pending: { label: "waiting", tone: "text-warning-foreground/80" },
+  answered: { label: "answered", tone: "text-info-foreground/80" },
   unresolved: { label: "no match", tone: "text-muted-foreground/70" },
-  failed: { label: "failed", tone: "text-rose-300/80" },
+  failed: { label: "failed", tone: "text-destructive-foreground/80" },
 };

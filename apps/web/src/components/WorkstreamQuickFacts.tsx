@@ -61,16 +61,18 @@ export const WorkstreamQuickFacts = forwardRef<
   return (
     <div
       ref={ref}
-      className="pointer-events-none absolute z-20 max-h-[40vh] w-[256px] overflow-hidden rounded-xl border border-white/20 bg-workstream/95 p-3 shadow-2xl/55 backdrop-blur"
+      className="pointer-events-none absolute z-20 max-h-[40vh] w-[256px] overflow-hidden rounded-xl border border-border bg-popover/95 p-3 text-popover-foreground shadow-lg backdrop-blur"
     >
-      <div className="text-3xs uppercase tracking-widest text-white/30">{getRoleLabel(thread)}</div>
-      <div className="mt-0.5 line-clamp-2 text-sm font-semibold leading-snug text-white">
+      <div className="text-3xs uppercase tracking-widest text-muted-foreground/70">
+        {getRoleLabel(thread)}
+      </div>
+      <div className="mt-0.5 line-clamp-2 text-sm font-semibold leading-snug text-foreground">
         {thread.title}
       </div>
       {/* The goal used to live in a native <title> tooltip on the node, which
           fought this card (two simultaneous tooltips); it belongs here — shown in
           full (purposes are 1–3 sentences), bounded only by the card's max-h. */}
-      <div className="mt-1 text-2xs leading-snug text-white/55">{getPurpose(thread)}</div>
+      <div className="mt-1 text-2xs leading-snug text-muted-foreground">{getPurpose(thread)}</div>
 
       <dl className="mt-2 flex flex-col gap-1">
         <FactRow label="Status">
@@ -78,11 +80,11 @@ export const WorkstreamQuickFacts = forwardRef<
         </FactRow>
         <FactRow label="Tool calls">
           {notStarted ? (
-            <span className="italic text-white/30">not started yet</span>
+            <span className="italic text-muted-foreground/70">not started yet</span>
           ) : thread.toolUses !== null ? (
             <span className="font-mono">⚒ {thread.toolUses}</span>
           ) : (
-            <span className="text-white/40">—</span>
+            <span className="text-muted-foreground">—</span>
           )}
         </FactRow>
         <FactRow label="Model">
@@ -108,23 +110,23 @@ export const WorkstreamQuickFacts = forwardRef<
           replaces the old generic getActivity() phrase). Degrades honestly per
           plan §3.3: starting… only while actually running, no turns yet before
           the first run, — for an idle non-pi narration gap. */}
-      <div className="mt-2 flex gap-1.5 border-t border-white/10 pt-2 text-2xs leading-snug text-white/60">
-        <span aria-hidden className="shrink-0 text-white/30">
+      <div className="mt-2 flex gap-1.5 border-t border-border pt-2 text-2xs leading-snug text-foreground/60">
+        <span aria-hidden className="shrink-0 text-muted-foreground/70">
           ›
         </span>
         {preview ? (
           <span className="min-w-0">
             <span className="italic">{preview}</span>
-            <span className="ml-1 not-italic text-white/[0.32]">
+            <span className="ml-1 not-italic text-muted-foreground/70">
               · {formatRelativeAge(getLastActivityAt(thread))}
             </span>
           </span>
         ) : running ? (
-          <span className="italic text-white/30">starting…</span>
+          <span className="italic text-muted-foreground/70">starting…</span>
         ) : notStarted ? (
-          <span className="italic text-white/30">no turns yet</span>
+          <span className="italic text-muted-foreground/70">no turns yet</span>
         ) : (
-          <span className="text-white/30">—</span>
+          <span className="text-muted-foreground/70">—</span>
         )}
       </div>
 
@@ -140,7 +142,7 @@ export const WorkstreamQuickFacts = forwardRef<
           {badges.map(({ reason, label }) => (
             <span
               key={reason}
-              className="rounded-full border border-workstream-attention/50 bg-workstream-attention/10 px-2 py-0.5 text-2xs text-workstream-attention-foreground"
+              className="rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-2xs text-warning-foreground"
             >
               {label}
             </span>
@@ -149,8 +151,8 @@ export const WorkstreamQuickFacts = forwardRef<
             <span
               className={`rounded-full border px-2 py-0.5 text-2xs ${
                 gateWait.active
-                  ? "border-workstream-running/40 bg-workstream-running/10 text-workstream-running-foreground"
-                  : "border-white/15 bg-white/[0.04] text-white/55"
+                  ? "border-info/40 bg-info/10 text-info-foreground"
+                  : "border-border bg-muted text-muted-foreground"
               }`}
             >
               {gateWait.label}
@@ -159,7 +161,7 @@ export const WorkstreamQuickFacts = forwardRef<
         </div>
       ) : null}
 
-      <div className="mt-2 text-2xs text-workstream-running-foreground/80">
+      <div className="mt-2 text-2xs text-info-foreground/80">
         click to enter · right-click for actions
       </div>
     </div>
@@ -169,8 +171,8 @@ export const WorkstreamQuickFacts = forwardRef<
 function FactRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 text-xs">
-      <dt className="w-[74px] shrink-0 text-white/30">{label}</dt>
-      <dd className="min-w-0 flex-1 truncate text-white/80">{children}</dd>
+      <dt className="w-[74px] shrink-0 text-muted-foreground/70">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate text-foreground/80">{children}</dd>
     </div>
   );
 }
