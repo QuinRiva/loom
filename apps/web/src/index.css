@@ -2371,33 +2371,6 @@ code {
    pill, MDX plan surface, artefact viewer, workstream surfaces, …). Upstream's
    file ends at the rule above. */
 
-/* loom: the workstream surfaces (panel, graph, timeline, quick facts) draw on a
-   fixed dark canvas in every theme, so their colours are named here rather than
-   following the theme. Hues mirror lib/workstreamPresentation.ts: running sky,
-   ready cyan, manual spawn violet, stop/error rose, needs-a-human orange. */
-@theme {
-  --color-workstream: #0d1117;
-  --color-workstream-deep: #090d13;
-  --color-workstream-raised: #12171f;
-  --color-workstream-raised-hover: #161c26;
-  --color-workstream-running: var(--color-sky-400);
-  --color-workstream-running-foreground: var(--color-sky-300);
-  --color-workstream-ready: var(--color-cyan-400);
-  --color-workstream-ready-foreground: var(--color-cyan-200);
-  --color-workstream-spawn: var(--color-violet-500);
-  --color-workstream-spawn-hover: var(--color-violet-400);
-  --color-workstream-spawn-foreground: var(--color-violet-300);
-  --color-workstream-danger: var(--color-rose-400);
-  --color-workstream-danger-foreground: var(--color-rose-200);
-  --color-workstream-attention: var(--color-orange-400);
-  --color-workstream-attention-foreground: var(--color-orange-300);
-  /* The timeline drawer slides in from the right, so its shadow casts left. */
-  --shadow-workstream-drawer: -20px 0 50px rgb(0 0 0 / 50%);
-  /* The consult card in the chat timeline keeps the graph's consult-edge teal. */
-  --color-consult: var(--color-teal-400);
-  --color-consult-foreground: var(--color-teal-300);
-}
-
 .ultrathink-pill {
   background:
     linear-gradient(var(--card), var(--card)) padding-box,

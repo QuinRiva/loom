@@ -183,7 +183,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
 
   if (!activeThread || !activeProjectId) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/50">
+      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
         Open a thread to manage its workstream.
       </div>
     );
@@ -343,16 +343,18 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-gradient-to-b from-workstream to-workstream-deep">
-      <div className="border-b border-white/10 px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              <GitBranchIcon className="size-4 text-workstream-running-foreground" />
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <GitBranchIcon className="size-4 text-info-foreground" />
               Workstream
-              <span className="text-xs font-normal text-white/35">· {activeThread.title}</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                · {activeThread.title}
+              </span>
             </div>
-            <p className="mt-1 text-xs text-white/45">
+            <p className="mt-1 text-xs text-muted-foreground">
               Sub-threads stay out of the sidebar and live here.
             </p>
           </div>
@@ -368,7 +370,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                   render={
                     <button
                       type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-workstream-running/70"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring/70"
                       onClick={() => openReport(rootShell.promptDebugPath!)}
                     />
                   }
@@ -385,7 +387,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-2xs tabular-nums text-white/55" />
+                    <span className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-2xs tabular-nums text-muted-foreground" />
                   }
                 >
                   Workstream {workstreamCost}
@@ -393,17 +395,19 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                 <TooltipPopup>Own spend across the root and every descendant</TooltipPopup>
               </Tooltip>
             ) : null}
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-2xs tabular-nums text-white/55">
+            <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-2xs tabular-nums text-muted-foreground">
               {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
             </span>
           </div>
         </div>
 
-        <div className="mt-3 inline-flex rounded-lg border border-white/10 bg-black/25 p-1">
+        <div className="mt-3 inline-flex rounded-lg border border-border bg-muted p-1">
           <button
             type="button"
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition ${
-              view === "board" ? "bg-white/10 text-white" : "text-white/45 hover:text-white/70"
+              view === "board"
+                ? "bg-background text-foreground shadow-xs dark:bg-input"
+                : "text-muted-foreground hover:text-foreground/70"
             }`}
             onClick={() => setView("board")}
           >
@@ -413,7 +417,9 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
           <button
             type="button"
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition ${
-              view === "graph" ? "bg-white/10 text-white" : "text-white/45 hover:text-white/70"
+              view === "graph"
+                ? "bg-background text-foreground shadow-xs dark:bg-input"
+                : "text-muted-foreground hover:text-foreground/70"
             }`}
             onClick={() => setView("graph")}
           >
@@ -446,7 +452,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               />
               <Suspense
                 fallback={
-                  <div className="flex h-40 items-center justify-center text-xs text-white/40">
+                  <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
                     <Loader2Icon className="size-4 animate-spin" />
                   </div>
                 }
@@ -478,61 +484,61 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         ) : null}
       </div>
 
-      <div className="border-t border-white/10 bg-black/20 px-3 py-3">
-        <details className="group rounded-lg border border-white/10 bg-white/[0.03]">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-white/80 marker:hidden">
+      <div className="border-t border-border bg-muted px-3 py-3">
+        <details className="group rounded-lg border border-border bg-muted">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-foreground/80 marker:hidden">
             <span className="inline-flex items-center gap-2">
-              <PlusIcon className="size-3.5 text-workstream-spawn-foreground" />
+              <PlusIcon className="size-3.5 text-primary" />
               Manual spawn
             </span>
-            <span className="text-xs font-normal text-white/35 group-open:hidden">
+            <span className="text-xs font-normal text-muted-foreground group-open:hidden">
               role + title + purpose
             </span>
           </summary>
-          <div className="border-t border-white/10 p-3">
+          <div className="border-t border-border p-3">
             <label
-              className="text-xs font-medium uppercase tracking-wide text-white/40"
+              className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
               htmlFor="workstream-role"
             >
               Role
             </label>
             <input
               id="workstream-role"
-              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
+              className="mt-1 w-full rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
               placeholder="Reviewer, implementer, researcher…"
               value={role}
               onChange={(event) => setRole(event.target.value)}
             />
             <label
-              className="mt-3 block text-xs font-medium uppercase tracking-wide text-white/40"
+              className="mt-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
               htmlFor="workstream-title"
             >
               Title
             </label>
             <input
               id="workstream-title"
-              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
+              className="mt-1 w-full rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
               placeholder="Short label, e.g. Fix spawn title fallback"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
             <label
-              className="mt-3 block text-xs font-medium uppercase tracking-wide text-white/40"
+              className="mt-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
               htmlFor="workstream-purpose"
             >
               Purpose
             </label>
             <textarea
               id="workstream-purpose"
-              className="mt-1 min-h-20 w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-workstream-spawn-hover/60"
+              className="mt-1 min-h-20 w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
               placeholder="What should this sub-thread do?"
               value={purpose}
               onChange={(event) => setPurpose(event.target.value)}
             />
-            {error ? <div className="mt-2 text-xs text-workstream-danger">{error}</div> : null}
+            {error ? <div className="mt-2 text-xs text-destructive-foreground">{error}</div> : null}
             <button
               type="button"
-              className="mt-3 inline-flex items-center gap-2 rounded-md bg-workstream-spawn px-3 py-1.5 text-sm font-medium text-white transition hover:bg-workstream-spawn-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!purpose.trim() || !title.trim() || isSpawning}
               onClick={() => void spawnChild()}
             >
@@ -584,10 +590,10 @@ function WorkstreamBoard({
           <section className="flex flex-col gap-2" key={column}>
             <div className="flex items-center gap-2 px-1">
               <span className={`size-2.5 rounded-full ${style.dotClass}`} />
-              <h3 className="text-2xs font-semibold uppercase tracking-widest text-white/55">
+              <h3 className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
                 {COLUMN_LABELS[column]}
               </h3>
-              <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-2xs tabular-nums text-white/35">
+              <span className="ml-auto rounded-full border border-border bg-muted px-2 py-0.5 text-2xs tabular-nums text-muted-foreground">
                 {items.length}
               </span>
             </div>
@@ -664,7 +670,7 @@ function WorkstreamCard({
   const open = () => onOpenThread(thread);
   return (
     <div
-      className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-workstream-raised p-3 text-left shadow-xs/25 transition hover:border-white/20 hover:bg-workstream-raised-hover`}
+      className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-card p-3 text-left shadow-xs/25 transition hover:border-input hover:bg-accent`}
     >
       <button
         type="button"
@@ -676,7 +682,7 @@ function WorkstreamCard({
         >
           <span className="truncate">{getRoleLabel(thread)}</span>
         </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-white/35">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-muted-foreground">
           <Tooltip>
             <TooltipTrigger render={<span className="max-w-[7.5rem] truncate" />}>
               {formatModelLabel(thread.modelSelection)}
@@ -685,7 +691,7 @@ function WorkstreamCard({
           </Tooltip>
           {ownCost || subtreeCost ? (
             <>
-              <span className="text-white/20">·</span>
+              <span className="text-muted-foreground/70">·</span>
               <Tooltip>
                 <TooltipTrigger render={<span className="tabular-nums" />}>
                   {subtreeCost ? `own ${ownCost ?? "—"} · subtree ${subtreeCost}` : ownCost}
@@ -700,12 +706,12 @@ function WorkstreamCard({
           ) : null}
           {contextPercent ? (
             <>
-              <span className="text-white/20">·</span>
+              <span className="text-muted-foreground/70">·</span>
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <span
-                      className={`tabular-nums ${isContextHot ? "text-workstream-danger" : ""}`}
+                      className={`tabular-nums ${isContextHot ? "text-destructive-foreground" : ""}`}
                     />
                   }
                 >
@@ -715,34 +721,34 @@ function WorkstreamCard({
               </Tooltip>
             </>
           ) : null}
-          <span className="text-white/20">·</span>
+          <span className="text-muted-foreground/70">·</span>
           <span>{formatRelativeAge(getLastActivityAt(thread))}</span>
         </div>
       </button>
 
       <button type="button" className="mt-2 block w-full text-left outline-none" onClick={open}>
-        <div className="line-clamp-2 text-sm font-semibold leading-snug text-white">
+        <div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
           {thread.title}
         </div>
         <div className={`mt-2 border-l-2 pl-2 text-xs leading-relaxed ${status.borderClass}`}>
-          <span className="mr-1 text-3xs font-semibold uppercase tracking-widest text-white/35">
+          <span className="mr-1 text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
             Goal
           </span>
-          <span className="line-clamp-3 text-white/65">{getPurpose(thread)}</span>
+          <span className="line-clamp-3 text-foreground/65">{getPurpose(thread)}</span>
         </div>
         {thread.lastActivityPreview ? (
-          <div className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-white/45">
-            <span aria-hidden className="mt-px shrink-0 text-white/30">
+          <div className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+            <span aria-hidden className="mt-px shrink-0 text-muted-foreground/70">
               ›
             </span>
             <span className="line-clamp-1 italic">{thread.lastActivityPreview}</span>
           </div>
         ) : null}
-        <div className="mt-2 flex items-center gap-2 text-xs text-white/50">
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
           {isRunning ? <LiveDots /> : null}
           {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}
           <span>{activity}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs tabular-nums text-white/35">
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
             {diffMetric ? (
               <Tooltip>
                 <TooltipTrigger render={<span />}>{diffMetric}</TooltipTrigger>
@@ -752,7 +758,7 @@ function WorkstreamCard({
               </Tooltip>
             ) : null}
             {diffMetric && thread.toolUses && thread.toolUses > 0 ? (
-              <span className="text-white/20">·</span>
+              <span className="text-muted-foreground/70">·</span>
             ) : null}
             {thread.toolUses && thread.toolUses > 0 ? (
               <span>
@@ -813,8 +819,8 @@ function WorkstreamCard({
                   <span
                     className={`rounded-full border px-2 py-0.5 text-2xs ${
                       gateWait.active
-                        ? "border-workstream-running/40 bg-workstream-running/10 text-workstream-running-foreground"
-                        : "border-white/15 bg-white/[0.04] text-white/55"
+                        ? "border-info/40 bg-info/10 text-info-foreground"
+                        : "border-border bg-muted text-muted-foreground"
                     }`}
                   />
                 }
@@ -831,30 +837,30 @@ function WorkstreamCard({
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
-        <label className="inline-flex items-center gap-1.5 text-3xs uppercase tracking-wide text-white/35">
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <label className="inline-flex items-center gap-1.5 text-3xs uppercase tracking-wide text-muted-foreground">
           Lane
           <select
-            className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-2xs text-white outline-none [color-scheme:dark] focus:border-workstream-spawn-hover/60"
+            className="rounded-md border border-border bg-muted px-1.5 py-1 text-2xs text-foreground outline-none focus:border-ring"
             value={thread.planLane}
             onChange={(event) => onSetLane(thread.id, event.target.value as ThreadPlanLane)}
           >
             {SETTABLE_LANES.map((lane) => (
-              <option key={lane} value={lane} className="bg-workstream-raised text-white">
+              <option key={lane} value={lane} className="bg-card text-foreground">
                 {COLUMN_SHORT_LABELS[lane]}
               </option>
             ))}
             {thread.planLane === "in_progress" ? (
               // Control-plane-set (kickoff): shown so the select has a matching
               // value, but never user-assignable.
-              <option disabled value="in_progress" className="bg-workstream-raised text-white/50">
+              <option disabled value="in_progress" className="bg-card text-muted-foreground">
                 {COLUMN_SHORT_LABELS.in_progress}
               </option>
             ) : null}
             {thread.planLane === "yielded" ? (
               // Control-plane-set (submit routing): shown so the select has a
               // matching value, but never user-assignable — a message resumes it.
-              <option disabled value="yielded" className="bg-workstream-raised text-white/50">
+              <option disabled value="yielded" className="bg-card text-muted-foreground">
                 {COLUMN_SHORT_LABELS.yielded}
               </option>
             ) : null}
@@ -866,7 +872,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-workstream-ready/40 bg-workstream-ready/10 px-2 py-1 text-2xs text-workstream-ready-foreground transition hover:bg-workstream-ready/20"
+                  className="rounded-md border border-info/40 bg-info/10 px-2 py-1 text-2xs text-info-foreground transition hover:bg-info/20"
                   onClick={() => onSetLane(thread.id, "ready")}
                 />
               }
@@ -885,7 +891,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-workstream-danger/40 bg-workstream-danger/10 px-2 py-1 text-2xs text-workstream-danger-foreground transition hover:bg-workstream-danger/20"
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-2xs text-destructive-foreground transition hover:bg-destructive/20"
                   onClick={() => onStop(thread.id)}
                 />
               }
@@ -903,7 +909,7 @@ function WorkstreamCard({
               render={
                 <button
                   type="button"
-                  className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/55 transition hover:bg-white/10"
+                  className="rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground transition hover:bg-accent"
                   onClick={() => onClearAttention(thread.id)}
                 />
               }
@@ -919,7 +925,7 @@ function WorkstreamCard({
               <button
                 type="button"
                 aria-label="Go to where this sub-thread was dispatched"
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-2xs text-white/55 transition hover:bg-white/10"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground transition hover:bg-accent"
                 onClick={() => onOpenSpawnSite(thread)}
               />
             }
@@ -966,11 +972,11 @@ function DependencyEditor({
     onSetDependencies(thread.id, [...next]);
   };
   return (
-    <details className="mt-2 rounded-md border border-white/10 bg-black/20">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-2xs text-white/55 marker:hidden">
+    <details className="mt-2 rounded-md border border-border bg-muted">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-2xs text-muted-foreground marker:hidden">
         <span className="shrink-0">Waits on</span>
         {deps.length === 0 ? (
-          <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-3xs tabular-nums text-white/40">
+          <span className="ml-auto rounded-full border border-border bg-muted px-1.5 text-3xs tabular-nums text-muted-foreground">
             0
           </span>
         ) : (
@@ -980,7 +986,7 @@ function DependencyEditor({
               return (
                 <span
                   key={dep.id}
-                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-3xs text-white/60"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-3xs text-foreground/60"
                 >
                   <span className={`size-1.5 rounded-full ${depStatus.dotClass}`} />
                   <span className="max-w-[8rem] truncate">{dep.title}</span>
@@ -990,16 +996,16 @@ function DependencyEditor({
           </span>
         )}
       </summary>
-      <div className="flex flex-col gap-1 border-t border-white/10 px-2.5 py-2">
+      <div className="flex flex-col gap-1 border-t border-border px-2.5 py-2">
         {options.length === 0 ? (
-          <span className="text-2xs text-white/30">No sibling sub-threads.</span>
+          <span className="text-2xs text-muted-foreground/70">No sibling sub-threads.</span>
         ) : (
           options.map((sibling) => {
             const depStatus = getThreadStatus(sibling, childById);
             return (
               <label
                 key={sibling.id}
-                className="flex cursor-pointer items-center gap-2 text-2xs text-white/70"
+                className="flex cursor-pointer items-center gap-2 text-2xs text-foreground/70"
               >
                 <input
                   type="checkbox"
@@ -1020,13 +1026,13 @@ function DependencyEditor({
 function LiveDots() {
   return (
     <span className="inline-flex gap-1" aria-label="running">
-      <span className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground" />
+      <span className="size-1.5 animate-pulse rounded-full bg-info-foreground" />
       <span
-        className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground"
+        className="size-1.5 animate-pulse rounded-full bg-info-foreground"
         style={{ animationDelay: "150ms" }}
       />
       <span
-        className="size-1.5 animate-pulse rounded-full bg-workstream-running-foreground"
+        className="size-1.5 animate-pulse rounded-full bg-info-foreground"
         style={{ animationDelay: "300ms" }}
       />
     </span>
