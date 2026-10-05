@@ -331,6 +331,10 @@ The strategy's inventory row *"orchestration-v2/Adapters/PiAdapterV2.ts + PiRpc.
     ["provider/Layers/PiProvider.ts — parseDiscoveredModels", "ADDED (one marked line + one marked import): isDefault on contracts' PI_DEFAULT_MODEL", "Area H verdict (§5a)"],
     ["packages/contracts/src/orchestrationV2.ts", "AMENDED: costUsd on OrchestrationV2ProviderTurnTokenUsage (the row already named it)", "—"],
     ["packages/contracts/src/settings.ts", "AMENDED: + PiSettings.binaryPath description (DT-49)", "the bundled copy is real again"],
+    ["orchestration-v2/testkit/fixtures/{provider_thread_resume,thread_rollback,thread_rollback_after_stop}/pi_transcript.ndjson", "ADDED (session 2): \"cwdOverride\":\"<any>\" on each recorded switch_session frame; listed in unmarkedsweep.allow (NDJSON has no comment syntax)", "\u00a72's 'pi_compaction is the one Pi fixture' was wrong: eight Pi fixtures, three with a resume (doc 30 DL-251)"],
+    ["orchestration-v2/testkit/fixtures/simple/pi_output.ts \u2014 assertPiSettledTokenUsage", "ADDED (session 2, marked): costUsd stripped before the deep-equal against the recorded stats", "simple and multi_turn compare the whole settled tokenUsage; costUsd is asserted in PiAdapterV2.loom.test.ts"],
+    ["orchestration-v2/ThreadDeletion.test.ts", "ADDED (session 2, marked): the stopped/error sessions no longer survive the delete (expectation [])", "DL-74 changes upstream's asserted behaviour"],
+    ["orchestration-v2/ProviderSessionManager.loom.test.ts", "ADDED (Loom-only file): the \u00a74 hook tests (default, provided composer, failing composer)", "\u00a74 names them; not in the Files map"],
     ["apps/server/package.json, pnpm-workspace.yaml, patches/", "fork-only dependency surface, marked where YAML allows a comment; not an upstream-file hunk", "listed so the sweep knows"],
   ]}
 />
