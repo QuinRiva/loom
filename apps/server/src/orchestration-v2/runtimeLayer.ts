@@ -1,6 +1,7 @@
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as OrchestrationCommandReceipts from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import * as OrchestrationEventStore from "../persistence/Layers/OrchestrationEventStore.ts";
 import { layer as providerSessionRuntimeLayer } from "../persistence/ProviderSessionRuntime.ts";
@@ -77,6 +78,7 @@ const storesLayer = Layer.mergeAll(
   commandReceiptStoreProvided,
   effectOutboxLayer,
   turnItemPositionStoreLayer,
+  LoomStore.layer, // loom: the sidecar store the Loom arm and shell join read
 );
 
 export const OrchestrationV2EventSinkLayerLive = eventSinkLayer.pipe(Layer.provide(storesLayer));

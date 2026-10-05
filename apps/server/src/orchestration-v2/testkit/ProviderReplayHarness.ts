@@ -30,6 +30,7 @@ import * as EffectWorker from "../EffectWorker.ts";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";
 import * as IdAllocator from "../IdAllocator.ts";
+import * as LoomStore from "../../loom/projection/LoomStore.ts"; // loom:
 import * as Orchestrator from "../Orchestrator.ts";
 import * as ProjectionStore from "../ProjectionStore.ts";
 import * as ProjectStore from "../ProjectStore.ts";
@@ -296,6 +297,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     CommandReceiptStore.layer,
     EffectOutbox.layer,
     TurnItemPositionStore.layer,
+    LoomStore.layer, // loom: the replay harness builds the Loom-aware orchestrator
   ).pipe(Layer.provide(databaseLayer));
   const eventSinkProvided = EventSink.layerFromStores.pipe(
     Layer.provide(Layer.mergeAll(storesLayer, databaseLayer)),

@@ -47,6 +47,8 @@ import * as ProjectEnrichmentService from "../src/project/ProjectEnrichmentServi
 import { orchestrationHttpApiLayer } from "../src/orchestration-v2/http.ts";
 import { httpCompressionLayer } from "../src/http.ts";
 import { subscribeOrchestrationV2Thread, subscribeOrchestrationV2Shell } from "../src/ws.ts";
+import * as LoomGoalBroadcast from "../src/loom/projection/LoomGoalBroadcast.ts"; // loom:
+import * as LoomStore from "../src/loom/projection/LoomStore.ts"; // loom:
 import {
   measureHttpGet,
   openMeasuredWsClient,
@@ -111,6 +113,7 @@ const enrichment = Layer.unwrap(
 const services = management.pipe(
   Layer.provideMerge(ProjectStore.layer),
   Layer.provideMerge(Layer.mock(ProjectService.ProjectService)({})),
+  Layer.provideMerge(Layer.merge(LoomGoalBroadcast.layer, LoomStore.layer)), // loom: ws goal surface
   Layer.provideMerge(enrichment),
   Layer.provideMerge(persistence),
 );

@@ -147,7 +147,11 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
-import { LoomProviderHealthLive, LoomProviderRuntimeLive } from "./loom/serverLayers.ts"; // loom:
+import {
+  LoomGoalBroadcastLive,
+  LoomProviderHealthLive,
+  LoomProviderRuntimeLive,
+} from "./loom/serverLayers.ts"; // loom:
 import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
 import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClient.ts";
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
@@ -540,6 +544,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
   LoomProviderRuntimeLive, // loom: SubscriptionUsagePoller (the sidebar usage meter's feeder)
+  LoomGoalBroadcastLive, // loom: LoomStoreV2 + goal shell-item PubSub and its cascade reactor
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
 ).pipe(

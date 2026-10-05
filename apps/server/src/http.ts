@@ -442,8 +442,13 @@ export const assetRouteLayer = HttpRouter.add(
       request.method === "HEAD" ? "HEAD" : "GET",
     ).pipe(
       // loom: mutable workspace-backed assets must revalidate so the artefact
-      // viewer's reload refetches changed subresources.
-      Effect.map(HttpServerResponse.setHeader("Cache-Control", assetCacheControl(asset.mutable))),
+      // viewer's reload refetches changed subresources. Only the default long cache
+      // is replaced: media keeps upstream's `private, no-store`.
+      Effect.map((response) =>
+        asset.mutable && response.headers["cache-control"] === assetCacheControl(false)
+          ? HttpServerResponse.setHeader(response, "Cache-Control", assetCacheControl(true))
+          : response,
+      ),
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
     );
   }),
