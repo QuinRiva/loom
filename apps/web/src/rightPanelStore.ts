@@ -277,7 +277,8 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
   popoverOpen: false,
 };
 
-const singletonSurface = (kind: SingletonSurfaceKind): RightPanelSurface => { // loom: SingletonSurfaceKind
+// loom: SingletonSurfaceKind
+const singletonSurface = (kind: SingletonSurfaceKind): RightPanelSurface => {
   switch (kind) {
     case "diff":
       return { id: "diff", kind };

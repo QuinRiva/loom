@@ -98,7 +98,11 @@ describe("ProjectSetupScriptRunner (loom)", () => {
         { open: () => Effect.succeed(terminalSession(worktreePath)), write },
         Effect.gen(function* () {
           const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-          yield* runner.runForThread({ threadId: "thread-1", projectCwd: worktreePath, worktreePath });
+          yield* runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: worktreePath,
+            worktreePath,
+          });
         }),
       );
 

@@ -473,7 +473,10 @@ const make = (options?: StartupOptions) =>
 
     const startup = Effect.gen(function* () {
       // loom: decide home provenance before recovery, auto-pull or any provider launch (DL-81).
-      yield* runStartupPhase("home.provenance", detectForeignDatabaseAtBoot(serverConfig.worktreesDir));
+      yield* runStartupPhase(
+        "home.provenance",
+        detectForeignDatabaseAtBoot(serverConfig.worktreesDir),
+      );
 
       yield* Effect.logDebug("startup phase: starting keybindings runtime");
       yield* runStartupPhase(

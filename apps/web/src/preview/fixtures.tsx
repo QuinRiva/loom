@@ -1,10 +1,6 @@
 import { type ReactNode, useState } from "react";
 
-import {
-  EnvironmentId,
-  ThreadId,
-  type ProjectPathKind,
-} from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type ProjectPathKind } from "@t3tools/contracts";
 import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
   derivePendingUserInputProgress,

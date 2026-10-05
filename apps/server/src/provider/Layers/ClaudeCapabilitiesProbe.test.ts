@@ -343,7 +343,6 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       assert.equal(invocation.mcpConfig, undefined);
 
       assert.equal(invocation.args.includes("--setting-sources=user,project,local"), true);
-
     }).pipe(Effect.scoped),
   );
 

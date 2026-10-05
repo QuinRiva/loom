@@ -1695,7 +1695,12 @@ export const layerWithOptions = (
               const cwd = input.runtimePolicy.cwd;
               // loom: foreign-home guard (DL-81) — a server booted on a copy of another
               // home's database never launches a provider; the one session-open choke point.
-              if (yield* refuseForeignHomeSideEffect("ProviderSessionManager.open", cwd ?? input.threadId)) {
+              if (
+                yield* refuseForeignHomeSideEffect(
+                  "ProviderSessionManager.open",
+                  cwd ?? input.threadId,
+                )
+              ) {
                 return yield* new ProviderSessionOpenError({
                   instanceId: input.modelSelection.instanceId,
                   providerSessionId: input.providerSessionId,
