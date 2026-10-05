@@ -2543,9 +2543,9 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
       // error snapshot) failed to propagate into `getProviders` at boot via the
       // aggregator's `syncLiveSources`. In the pi-only fork that behaviour is no
       // longer representable: codex is not in `BUILT_IN_DRIVERS`, and the only
-      // shipped driver (pi) never probes at snapshot time — `makePiProvider`
-      // reports `status: "ready"` unconditionally and `enrichPiSnapshot` failures
-      // are swallowed by design, so there is no probe-failure state to aggregate.
+      // shipped driver is pi (upstream's `PiDriver`/`PiProvider` since pull 9;
+      // Loom's never-probing driver is quarantined), whose probe-failure path is
+      // upstream's to test.
       // The only residue that still has a live behaviour behind it — an explicit
       // `providerInstances` entry for an unshipped driver surfacing as an
       // "unavailable" shadow in `getProviders` — is already covered by the
@@ -2637,13 +2637,9 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
       // `PiDriver.create` → `buildServerProvider` (which forces `status:
       // "disabled"` when `enabled` is false) and surfaces in `getProviders`.
       //
-      // The "skips probing" half is not registry-observable for pi: pi has no
-      // spawn-at-probe step, and its snapshot-enrichment (`enrichPiSnapshot`,
-      // which DOES early-return `if (!settings.enabled)`) spawns via raw
-      // `NodeChildProcess.spawn` rather than the Effect `ChildProcessSpawner`,
-      // so a spawner mock can neither see nor gate it. We therefore assert the
-      // observable contract — the disabled snapshot — and leave the "no spawn"
-      // guarantee to the enrichment early-return it depends on.
+      // The "skips probing" half is not asserted here: this test predates
+      // upstream's `PiProvider` (pull 9) and only pins the observable contract —
+      // the disabled snapshot.
       it.effect("surfaces the pi provider as disabled when its setting is disabled", () =>
         Effect.gen(function* () {
           const serverSettings = yield* makeMutableServerSettingsService(
