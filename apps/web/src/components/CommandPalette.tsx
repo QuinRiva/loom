@@ -30,8 +30,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  PI_DEFAULT_MODEL,
-  ProviderInstanceId,
   type DesktopWslState,
   type EnvironmentId,
   type EnvironmentMachineKind,
@@ -2501,11 +2499,7 @@ function OpenCommandPaletteDialog(props: {
           title: inferProjectTitleFromPath(cwd),
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: true,
-          // loom: pi is the default provider; new projects default to pi/PI_DEFAULT_MODEL.
-          defaultModelSelection: {
-            instanceId: ProviderInstanceId.make("pi"),
-            model: PI_DEFAULT_MODEL,
-          },
+          defaultModelSelection: null,
         },
       });
       if (createResult._tag === "Failure") {

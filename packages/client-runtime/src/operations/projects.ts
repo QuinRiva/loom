@@ -8,7 +8,6 @@ import type {
   SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
-import { PI_DEFAULT_MODEL, ProviderInstanceId } from "@t3tools/contracts";
 import { newProjectFolderName } from "@t3tools/shared/path";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
@@ -350,11 +349,7 @@ export function buildProjectCreateCommand(input: {
     title: inferProjectTitleFromPath(input.workspaceRoot),
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
-    // loom: new projects default to pi/PI_DEFAULT_MODEL.
-    defaultModelSelection: {
-      instanceId: ProviderInstanceId.make("pi"),
-      model: PI_DEFAULT_MODEL,
-    },
+    defaultModelSelection: null,
     createdAt: input.createdAt,
   };
 }
