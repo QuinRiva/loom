@@ -240,7 +240,7 @@ export const shouldReprovisionIsolatedChild = (input: {
 // keeps the full shaping guidance, since it owns the tree's structure. Every
 // variant keeps the pointer that this is a snapshot and `goal_task_list` reads
 // the tree live.
-export const activeGoalContextInstruction = (
+const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
   opts?: {
     readonly asChildBackground?: boolean;

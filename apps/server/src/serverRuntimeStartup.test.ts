@@ -210,7 +210,6 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
             getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
             getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-            getDeletedThreadIds: () => Effect.succeed(new Set()),
             listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -312,7 +311,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
             getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
             getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-            getDeletedThreadIds: () => Effect.succeed(new Set()),
             listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -472,7 +470,6 @@ it.effect.each([
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
             getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
             getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-            getDeletedThreadIds: () => Effect.succeed(new Set()),
             listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -644,7 +641,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
             getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
             getReferencedWorktreePaths: () => Effect.succeed(new Set()),
-            getDeletedThreadIds: () => Effect.succeed(new Set()),
             listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),

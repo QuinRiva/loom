@@ -76,75 +76,35 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
     const sweep = Effect.gen(function* () {
       // Stopped rows stay for their resume cursors and far outnumber live
-      // ones, so the reap loop skips them.
-      // loom: retention (below) needs the stopped rows that upstream's
-      // `listBindings({ excludeStopped: true })` read leaves out, so read every
-      // binding once and split it rather than issue a second query.
-      const allBindings = yield* directory.listBindings();
-      const bindings = allBindings.filter((binding) => binding.status !== "stopped");
+      // ones, so the query skips them.
+      const bindings = yield* directory.listBindings({ excludeStopped: true });
       const now = yield* Clock.currentTimeMillis;
-      // loom: one query for the whole deleted-thread set. Classifying each
-      // stopped binding with `getThreadShellById` instead would cost six
-      // statements per row on the single serial SQL connection, every sweep —
-      // a periodic global stall of exactly the kind this work exists to remove.
-      // A failed read yields an empty set, which prunes nothing.
-      const deletedThreadIds = yield* projectionSnapshotQuery.getDeletedThreadIds().pipe(
+      let reapedCount = 0;
+
+      // loom: retention. Upstream never removes a stopped binding, so the table
+      // grows forever. Prune only the IRREVERSIBLE class — stopped bindings of
+      // deleted threads — as one SQL statement per sweep. Archived threads are
+      // excluded on purpose: `thread.archive` has `thread.unarchive`, so an
+      // archived thread must keep its provider pointer; deletion has no undo.
+      // Deliberately NOT age-based: `runStopAll` rewrites every unsettled
+      // binding's `lastSeenAt` at shutdown, so age is not a liveness signal.
+      // A failed statement deletes nothing, so it prunes nothing.
+      const pruned = yield* directory.pruneStoppedForDeletedThreads().pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("provider.session.reaper.deleted-threads-read-failed", {
+          Effect.logWarning("provider.session.reaper.prune-failed", {
             cause: Cause.pretty(cause),
-          }).pipe(Effect.as(new Set<ThreadId>())),
+          }).pipe(Effect.as([] as ReadonlyArray<ThreadId>)),
         ),
       );
-      let reapedCount = 0;
-      let prunedCount = 0;
-
-      // loom: retention. Stopped bindings are deliberately kept so a session can be
-      // resumed from its persisted provider pointer after a restart, but they
-      // were never removed either, so the table grew forever and every read of
-      // it got slower. Prune only the IRREVERSIBLE class: a stopped session
-      // whose thread has been deleted. Archived threads are excluded on
-      // purpose — `thread.archive` has a matching `thread.unarchive` command
-      // and UI affordance, so an archived thread can be restored and must keep
-      // its provider pointer; there is no undelete counterpart.
-      //
-      // Deliberately NOT age-based: `runStopAll` rewrites every unsettled
-      // binding at shutdown, which resets their `lastSeenAt` (observed before
-      // upstream's settled-binding filter: 1311 of 1326 rows sharing a single
-      // minute). Age measured from `lastSeenAt` is therefore not a liveness
-      // signal — it would cluster at each shutdown and then expire whole
-      // cohorts at once.
-      for (const binding of allBindings) {
-        if (binding.status !== "stopped" || !deletedThreadIds.has(binding.threadId)) {
-          continue;
-        }
-        // Conditional delete: the decision above is made from a `listBindings`
-        // snapshot, so a concurrent start/recovery may have re-upserted this
-        // row to `running` since. Deleting by thread id alone would drop a
-        // live session's routing binding and strand the next command with
-        // "no persisted provider binding exists".
-        const pruned = yield* directory.removeIfStopped(binding.threadId).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("provider.session.reaper.prune-failed", {
-              threadId: binding.threadId,
-              provider: binding.provider,
-              cause: Cause.pretty(cause),
-            }).pipe(Effect.as(false)),
-          ),
-        );
-        if (pruned) {
-          prunedCount += 1;
-          yield* Effect.logInfo("provider.session.binding-pruned", {
-            threadId: binding.threadId,
-            provider: binding.provider,
-            reason: "thread_deleted",
-          });
-        }
+      const prunedCount = pruned.length;
+      for (const threadId of pruned) {
+        yield* Effect.logInfo("provider.session.binding-pruned", {
+          threadId,
+          reason: "thread_deleted",
+        });
       }
 
       for (const binding of bindings) {
-        // loom: reaping a LIVE session is age-based, and only this loop needs
-        // the timestamp (retention above is judged from thread deletion instead,
-        // so a corrupt timestamp must not keep a deleted thread's row forever).
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -267,6 +227,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       }
 
       if (reapedCount > 0 || prunedCount > 0) {
+        // loom: retention
         yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
           reapedCount,
           prunedCount, // loom: retention

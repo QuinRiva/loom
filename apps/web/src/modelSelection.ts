@@ -335,7 +335,9 @@ export function resolveAppModelSelectionForInstance(
   }
   return (
     // loom: an excluded option is hidden from the default views, so it must not
-    // become the resolved fallback selection.
+    // become the resolved fallback selection — but the provider's default
+    // (pi: `PI_DEFAULT_MODEL`) still outranks the first visible row.
+    options.find((option) => option.isDefault && !option.excluded)?.slug ??
     options.find((option) => !option.excluded)?.slug ??
     options.find((option) => option.isDefault)?.slug ??
     options[0]?.slug ??

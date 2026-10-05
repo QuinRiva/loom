@@ -3375,20 +3375,6 @@ pending_approval_requests AS (
         }),
       );
 
-  // loom: retention support for the provider-session reaper. Deleted only —
-  // archived threads are restorable via `thread.unarchive`, so their bindings
-  // must survive.
-  const listDeletedThreadRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionThreadIdLookupRowSchema,
-    execute: () =>
-      sql`
-        SELECT thread_id AS "threadId"
-        FROM projection_threads
-        WHERE deleted_at IS NOT NULL
-      `,
-  });
-
   // loom: the fan-in reactor's deferred-removal blind spot. `getShellSnapshot()`
   // filters `archived_at IS NULL`, so an archived child never gets its worktree
   // reclaimed; this is the orphan shape as a predicate, so the result set is tiny.
@@ -3453,17 +3439,6 @@ pending_approval_requests AS (
         ),
         Effect.map((rows) => new Set(rows.map((row) => row.worktreePath))),
       );
-
-  const getDeletedThreadIds: ProjectionSnapshotQueryShape["getDeletedThreadIds"] = () =>
-    listDeletedThreadRows(undefined).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.getDeletedThreadIds:query",
-          "ProjectionSnapshotQuery.getDeletedThreadIds:decodeRows",
-        ),
-      ),
-      Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
-    );
 
   const getPendingTurnStartThreadIds: ProjectionSnapshotQueryShape["getPendingTurnStartThreadIds"] =
     () =>
@@ -6273,7 +6248,6 @@ pending_approval_requests AS (
     getLiveSubtreeSessionLiveness,
     getThreadObligations,
     getPendingTurnStartThreadIds,
-    getDeletedThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
     hasToolActivityReferencingThread, // loom:

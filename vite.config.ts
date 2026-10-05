@@ -87,6 +87,7 @@ export default defineConfig({
       // the formatter rewrites (same class as `.macroscope/ignore.md` below).
       ".plans",
       "plans/**",
+      "recaps/**",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
       // it rewrites `*` as `_` and joins lines.
       ".macroscope/ignore.md",
