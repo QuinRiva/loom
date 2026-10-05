@@ -3,6 +3,8 @@ import type {
   OrchestrationV2ShellSnapshot,
   OrchestrationV2ShellStreamItem,
 } from "@t3tools/contracts";
+import { isLoomGoalShellStreamItem } from "@t3tools/contracts"; // loom:
+import { applyLoomGoalItem } from "./shellGoals.loom.ts"; // loom:
 
 function upsertById<T extends { readonly id: unknown }>(
   items: ReadonlyArray<T>,
@@ -100,6 +102,8 @@ export function applyShellStreamEvent(
     { readonly kind: "snapshot" } | { readonly kind: "synchronized" }
   >,
 ): OrchestrationV2ShellSnapshot {
+  // loom: goal items are unsequenced and apply before the sequence gate
+  if (isLoomGoalShellStreamItem(event)) return applyLoomGoalItem(snapshot, event);
   if (event.sequence <= snapshot.snapshotSequence) return snapshot;
 
   switch (event.kind) {
