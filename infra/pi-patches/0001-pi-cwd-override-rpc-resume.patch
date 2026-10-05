@@ -8,9 +8,9 @@
 +            result.cwdOverride = args[++i];
 +        }
          else if (arg === "--models" && i + 1 < args.length) {
-             result.models = args[++i].split(",").map((s) => s.trim());
-         }
-@@ -290,6 +293,8 @@
+             result.models = args[++i]
+                 .split(",")
+@@ -293,6 +296,8 @@
    --session-id <id>              Use exact project session ID, creating it if missing
    --fork <path|id>               Fork specific session file or partial UUID into a new session
    --session-dir <dir>            Directory for session storage and lookup
@@ -104,7 +104,7 @@
          switch (resolved.type) {
              case "path":
              case "local":
-@@ -520,6 +557,7 @@
+@@ -526,6 +563,7 @@
      }
      validateForkFlags(parsed);
      validateSessionIdFlags(parsed);
@@ -112,7 +112,7 @@
      // Run migrations (pass cwd for project-local migrations)
      const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
      time("runMigrations");
-@@ -543,7 +581,7 @@
+@@ -549,7 +587,7 @@
      const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
          (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
          startupSettingsManager.getSessionDir();
@@ -121,3 +121,51 @@
      const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
      if (missingSessionCwdIssue) {
          if (appMode === "interactive") {
+--- a/dist/modes/rpc/rpc-mode.js
++++ b/dist/modes/rpc/rpc-mode.js
+@@ -16,6 +16,25 @@
+ import { theme } from "../interactive/theme/theme.js";
+ import { toJsonEvent } from "../json-event.js";
+ import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
++import { existsSync, statSync } from "node:fs";
++import { resolvePath } from "../../utils/paths.js";
++/**
++ * LOOM PATCH (0001): `cwdOverride` on `switch_session` — resume a session whose
++ * recorded cwd is gone, or run it somewhere else, without touching the file.
++ * The runtime host already accepts the option; only the RPC command lacked it.
++ * Resolved against this process's cwd with pi's own resolvePath, as `--cwd` is;
++ * a missing or non-directory target throws, which the command loop turns into an
++ * error response for this command while the current session stays untouched.
++ */
++function resolveRpcCwdOverride(cwdOverride) {
++    if (cwdOverride === undefined)
++        return undefined;
++    const resolved = resolvePath(cwdOverride, process.cwd());
++    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
++        throw new Error(`cwdOverride directory does not exist: ${resolved}`);
++    }
++    return { cwdOverride: resolved };
++}
+ /**
+  * Run in RPC mode.
+  * Listens for JSON commands on stdin, outputs events and responses on stdout.
+@@ -472,7 +491,7 @@
+                 return success(id, "export_html", { path });
+             }
+             case "switch_session": {
+-                const result = await runtimeHost.switchSession(command.sessionPath);
++                const result = await runtimeHost.switchSession(command.sessionPath, resolveRpcCwdOverride(command.cwdOverride));
+                 if (!result.cancelled) {
+                     await rebindSession();
+                 }
+--- a/dist/modes/rpc/rpc-types.d.ts
++++ b/dist/modes/rpc/rpc-types.d.ts
+@@ -103,6 +103,8 @@
+     id?: string;
+     type: "switch_session";
+     sessionPath: string;
++    /** Working directory to resume in instead of the session's recorded cwd (Loom patch 0001). */
++    cwdOverride?: string;
+ } | {
+     id?: string;
+     type: "fork";
