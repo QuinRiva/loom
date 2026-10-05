@@ -1,0 +1,580 @@
+---
+manager_sessions:
+  - id: f939a37c-bc4a-47d3-8dbd-0c5e1c3abeb8
+    name: Pull-9 Phase 4 import and QA-world plan
+    role: plan
+    authored_at: 2026-10-05T14:58:38.880Z
+---
+
+# Pull 9 Phase 4 — import Loom's history into V2 and stand up a QA world
+
+Loom is a Pi-first fork of `pingdotgg/t3code` whose product is an orchestration layer — goals, a shared task tree, a workstream graph of durable threads with roles, briefs, dependencies, review gates, attention flags and reports. The signed strategy (`plans/upstream-pull9-strategy/plan.mdx`) re-platforms that layer onto upstream's Orchestration V2; Phase 2 (`plans/upstream-pull9-phase2-substrate/plan.mdx`) defines the sidecar table it lives in; Phases 1–3 leave a branch where Loom works on V2 against an **empty** workstream layer. **Phase 4 brings Carl's history across** — the workstream fields of his threads, each thread's binding to its existing pi session, and the lineage that keeps children out of the sidebar — and stands up a **QA instance** he can test for days without touching production. Carl's scope: *work through to phase 4 including data import, but not deletions and cut-over*; *run this without overwriting the local DB … ensure that we can still roll back to this version of Loom*.
+
+**Done** means: the importer in this plan runs at the first V2 boot of a copied database and is idempotent on every later boot; the fixture test in *Gates* passes; a QA home built by the procedure below runs the pull-9 build against a relocated copy of production, with the foreign-home guard **off** because nothing recorded points at production; an imported orchestrator and an imported child each remember their transcript when continued, in a QA working directory; the first dispatcher pass after import sends no kickoff and no digest; `vp run typecheck` and `vp check` are green; and `docs/upstream-sync/30-pull9-phase4-qa-guide.md` exists for Carl to walk. Nothing in Phase 4 deletes V1 code, merges to `main`, or deploys.
+
+<Callout tone="info">
+**Authority.** Where this plan is silent, the Phase 2 plan decides; where that is silent, the strategy; where the strategy is silent, `consult_manager` with `author_doc` pointing at it. Decisions already recorded there — import scope (*all goals and task trees; workstream fields for non-archived threads only; session binding mandatory*), the lane collapse to `held` / `outcome` / `kickoffAt`, goals renamed in place by migrations 1047/1048, episode columns null on imported rows — are applied, not re-opened. Upstream code is cited at `upstream/main` `1604ccc9d7`; Loom's V1 code and data shapes at `HEAD` `332848dcb5`. Three facts this plan found that the strategy did not know are in the next section, because each changes a step.
+</Callout>
+
+## Three facts that change the procedure
+
+<Callout tone="risk">
+**1. Production does not live at `~/.t3/userdata`.** The cockpit unit runs with `T3CODE_HOME=/home/Carl/.t3/cockpit` (`~/loom-releases/RUNBOOK.md`, `systemctl --user cat loom-cockpit`); the live database is `~/.t3/cockpit/userdata/state.sqlite` (6.1 GB plus WAL), and `~/.t3/userdata/state.sqlite` is **0 bytes**. Every snapshot in this plan reads the cockpit home. The hard rule is restated accordingly: **nothing in Phase 4 writes to `~/.t3/cockpit`, `~/.t3/userdata` or `~/loom-releases`** — the cockpit home is the one that matters, and the Phase 4 worktree itself sits under `~/.t3/cockpit/worktrees/`, which is the one place inside that home Phase 4 legitimately writes (its own checkout).
+
+**2. A raw copy of production cannot drive an agent.** Loom's foreign-home guard (`apps/server/src/workspace/foreignHomeGuard.loom.ts`, carried into pull 9 as DL-81) engages whenever a database records worktree paths and none sits inside the running home's `worktrees/` directory — which is every `VACUUM INTO` copy of the cockpit — and an engaged guard refuses provider session open, worktree create, checkpoint capture and setup scripts. `docs/dev-site-testing.md` says it outright: a copy-DB instance "is deliberately incapable of" driving an agent, and the Phase 1 runbook split its smoke into a read-only copy (A) and an agent-driving empty home (B) for exactly this reason. The strategy's Phase 4 gate — *continue an imported orchestrator and an imported child and confirm each remembers* — therefore cannot run on a raw copy. And even with the guard forced off it must not: pi's RPC `switch_session` resumes **into the session's recorded working directory** (`agent-session-runtime.js`: `createRuntime({ cwd: sessionManager.getCwd() })`) unless the adapter passes a `cwdOverride`, so an imported thread continued on a raw copy would run its tools in production's live worktree and append to the very session file production's pull-8 server is driving. The resolution is a **relocated QA world** (§2): the copy is rewritten before its first V2 boot so that every recorded path — project roots, worktrees, report and brief files, pi session files — lives under the QA home, and the importer binds sessions through a parameterised root. The strategy's author (consulted, medium confidence) endorsed this with three conditions, all adopted: the relocation is a QA-only script the cut-over runbook names as **must not run**; session files are byte copies, never hard links; and the gate checks that the copy records no production prefix *before* the first boot, so an unrelocated copy fails loudly instead of engaging the guard silently.
+
+**3. `planned` is not "never started" in V1 data.** V1 roots created through `goal_handoff` or `thread_fork` are born `planned`, and a turn start deliberately leaves `planned` untouched ("it is a deliberate hold" — `apps/server/src/orchestration/decider.ts:2171`), so a root can carry hundreds of turns at `plan_lane = 'planned'`. Mapping `planned → held: true` unqualified would hold most of Carl's goal-handoff roots forever (an imported root has `kickoffAt`, so the human-release rule never fires). The six-lane mapping below qualifies `planned` by whether the thread has ever had a turn.
+</Callout>
+
+## The homes, and what writes where
+
+<Mermaid
+  caption="Solid arrows are writes; dashed arrows are reads. Production is never on the receiving end of an arrow from the QA side."
+  source={"flowchart LR\n  subgraph prod[Production - pull-8 Loom, live, untouched]\n    PDB[(~/.t3/cockpit/userdata/state.sqlite)]\n    PWT[~/.t3/cockpit/worktrees/*]\n    PREL[~/loom-releases/current]\n    PREP[/home/Carl/loom and other project repos/]\n  end\n  subgraph pi[pi home - machine-global]\n    PSESS[~/.pi/agent/sessions/slug/ts_threadId.jsonl]\n    PAUTH[~/.pi/agent/auth.json, skills, extensions]\n  end\n  subgraph qa[QA world - ~/.t3/qa-pull9]\n    QV1[(userdata/state.sqlite - relocated V1 copy)]\n    QV2[(userdata/statev2.sqlite - created at first boot)]\n    QFILES[userdata/workstream-reports, -briefs, -launch-identity]\n    QSESS[pi-sessions/slug/ts_threadId.jsonl - byte copies]\n    QREPO[repos/loom - git clone, push disabled]\n    QWT[worktrees/loom/t3code-xxxx - materialised on demand]\n    QBUILD[build/loom - pull-9 checkout, pnpm build]\n    QSRV((serve --base-dir ~/.t3/qa-pull9 --port 13940))\n  end\n  PDB -. VACUUM INTO .-> QV1\n  PSESS -. rsync copy .-> QSESS\n  PREP -. git clone .-> QREPO\n  QV1 -->|initializeV2Database copies once| QV2\n  QSRV --> QV2\n  QSRV --> QFILES\n  QSRV -->|resume appends| QSESS\n  QSRV -->|new QA sessions| PAUTH\n  QSRV --> QWT\n  QREPO --> QWT\n  QBUILD --> QSRV\n"}
+/>
+
+The one arrow that touches the pi home from the QA side is pi writing **new** session files for threads created in QA (under slugs derived from QA working directories, e.g. `--home-Carl-.t3-qa-pull9-worktrees-loom-…--`) and reading the shared `auth.json`, skills and extensions — the same global resources production's pi uses. QA token spend is real spend against Carl's accounts.
+
+## Files
+
+<FileTree
+  title="Phase 4 change map"
+  entries={[
+    { path: "apps/server/src/loom/legacy/LoomV1WorkstreamImporter.ts", change: "added", note: "The importer service: reconcile (startup phase), the pure mapLegacyThread, the pi session index, the lineage re-emit and the session binding. The last consumer of the deterministic *_<threadId>.jsonl name — it dies with the V1 tables." },
+    { path: "apps/server/src/loom/legacy/LoomV1WorkstreamImporter.test.ts", change: "added", note: "Fixture-database test: every lane × root/child, archived, deleted, planned-with-turns, dangling dependency, duplicate graph key, missing/corrupt/present session files; run twice." },
+    { path: "apps/server/src/persistence/Migrations/1049_LoomLegacyImports.ts", change: "added", note: "The import ledger loom_legacy_imports." },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "One entry appended." },
+    { path: "apps/server/src/serverRuntimeStartup.ts", change: "modified", note: "One marked pipe: upstream's importLegacyShells phase continues into loomImporter.reconcile, before recovery runs." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.ts", change: "modified", note: "One marked clause in shouldPrepareLegacyImportHandoff (a strong native ref needs no legacy handoff) and the flag passed at its two call sites." },
+    { path: "scripts/pull9-qa/build-home.sh", change: "added", note: "QA-ONLY. Snapshot, relocate, copy files and sessions, clone repos, pre-boot checks. The cut-over runbook names this script as must-not-run." },
+    { path: "scripts/pull9-qa/materialise-worktree.sh", change: "added", note: "git worktree add from the QA clone at an imported thread's recorded path and branch." },
+    { path: "scripts/pull9-qa/start.sh, stop.sh", change: "added", note: "systemd-run transient unit loom-qa-pull9 on port 13940; journalctl is the log." },
+    { path: "scripts/pull9-qa/preview.sql, verify.sql", change: "added", note: "Pre-boot review queries against the relocated V1 copy; post-import verification queries against statev2.sqlite." },
+    { path: "docs/upstream-sync/30-pull9-phase4-qa-guide.md", change: "added", note: "Carl's hand-off: how to reach the instance, the smoke checklist from §5, how to restart and tear down." },
+  ]}
+/>
+
+## 1. The importer
+
+### Where it runs, and when
+
+`LoomV1WorkstreamImporter.reconcile` is a **startup phase**, not a migration and not a CLI: it needs `EventSinkV2` (the lineage and binding are V2 events) and `LoomStoreV2`, which exist only in the running layer, and it must run **after** upstream's `reconcileShells` (every V1 thread then has a V2 `thread.created`, including the parents the lineage re-emit points at) and **before** `providerRuntimeRecovery.recover` and the Loom reactors (so the dispatcher's first pass sees complete sidecars). Upstream sequences those as `runOrderedV2StartupPhases({ importLegacyShells, recover, … })` in `serverRuntimeStartup.ts`; the Loom hunk is one marked line that pipes the import phase on:
+
+```ts
+// apps/server/src/serverRuntimeStartup.ts — inside runOrderedV2StartupPhases({...})
+importLegacyShells: runStartupPhase(
+  "orchestration-v2.legacy-v1.import-shells",
+  legacyV1ThreadImporter.reconcileShells.pipe(
+    Effect.tap(/* upstream's log */),
+    Effect.andThen(loomV1WorkstreamImporter.reconcile), // loom: workstream sidecar, lineage, session binding
+  ),
+),
+```
+
+It runs on **every** boot and is idempotent: its pending query is `projection_threads` rows that upstream has imported (`orchestration_v2_legacy_imports`) and that have no row in Loom's own ledger `loom_legacy_imports`. On a fresh install both are empty; after cut-over the ledger covers every V1 row, so the phase costs one indexed query. It records that it ran, per thread, in the ledger (§1 *The ledger*). **Re-running** is deleting ledger rows with the server stopped: `DELETE FROM loom_legacy_imports WHERE thread_id = ?` re-processes one thread; deleting all rows re-processes everything — safe, because the sidecar insert is `ON CONFLICT DO NOTHING`, the lineage re-emit is skipped when the V2 row already carries `subagent` lineage, and the binding is skipped when the thread already has a provider thread with a strong `nativeThreadRef`. There is no retry loop for missing session files: a file that appears later is re-bound by deleting that thread's ledger row.
+
+Two parameters, both read from the environment because a startup phase has no argv: `LOOM_LEGACY_IMPORT_PI_SESSIONS_ROOT` (default `~/.pi/agent/sessions`, pi's own root — the cut-over value; the QA world sets its copy root) and nothing else. Path rebasing of reports, briefs and worktrees is **not** an importer concern: the QA relocation rewrites the V1 copy before boot (§2), and at cut-over the paths are already right.
+
+### Scope, thread by thread
+
+<Table
+  columns={["V1 row", "Sidecar row", "Lineage re-emit", "Session binding", "Ledger status", "What Carl sees afterwards"]}
+  rows={[
+    ["deleted_at set", "no", "no", "no", "skipped: deleted", "Nothing — upstream imports it as a deleted V2 thread, unreachable in the UI"],
+    ["archived, has a V1 parent", "no (out of scope)", "yes — subagent lineage", "yes, if a pi session exists", "archived-child", "Not on the board, hidden from the sidebar by upstream's lineage filter, reachable by URL and search; unarchive + continue remembers its transcript"],
+    ["archived root", "no", "no (it is a root)", "yes, if a pi session exists", "archived-root", "In the sidebar's archived list; opening shows the transcript; unarchive + continue remembers. Its goal stays in loom_goals exactly as V1 left it (archived if V1's cascade archived it)"],
+    ["live, with a V1 parent", "yes", "yes", "yes, if a pi session exists", "imported", "On the board under its root with role, dependencies, routes, outcome; hidden from the sidebar; continuable"],
+    ["live root with a goal, role or any workstream field", "yes", "no", "yes, if a pi session exists", "imported", "On the board as a root; in the sidebar; its goal and task tree are in the goal panel"],
+    ["live root with no goal, no parent, no role (a plain chat)", "no", "no", "yes, if a pi session exists", "skipped: not-workstream", "An ordinary V2 thread that remembers its transcript"],
+    ["any row whose provider is not pi and no pi session exists", "as above", "as above", "no", "…, session: not-pi", "Upstream's behaviour: first continuation opens a fresh session with a 32,000-character transcript handoff"],
+  ]}
+/>
+
+*Workstream field* for the scope test means `parent_thread_id`, `goal_id` or `role` non-null. Lineage and binding are **thread facts**, not workstream fields, so they apply to archived threads too: an archived child without `subagent` lineage would flood the sidebar's archived list and receive thread notifications, and an archived root without a binding would forget everything the moment Carl unarchived it — both silent, both the class of failure the strategy's risk (8) exists for.
+
+### Column mapping — `projection_threads` → `loom_thread_workstream`
+
+<Table
+  columns={["Sidecar column (Phase 2 §5)", "Source", "Rule"]}
+  rows={[
+    ["thread_id, project_id, created_at, updated_at", "thread_id, project_id, created_at, updated_at", "verbatim"],
+    ["parent_thread_id", "parent_thread_id", "verbatim (a deleted parent is kept and warned — the chain still has a root)"],
+    ["root_thread_id", "walk parent_thread_id to the top", "the top of the V1 parent chain; a root is its own root"],
+    ["goal_id", "goal_id", "kept if the id exists in loom_goals (renamed by 1047) and belongs to the same project; otherwise NULL + warning"],
+    ["anchor_task_id", "anchor_task_id", "kept if the id exists in loom_goal_tasks under that goal; otherwise NULL + warning"],
+    ["role, purpose, graph_key, spawn_generation, fork_from_thread_id, continues_thread_id", "same-named columns", "verbatim; a graph_key that duplicates a live sibling's (the 1046 unique index) is NULLed on the later-created row + warning"],
+    ["kickoff_brief_path", "kickoff_brief_path, brief", "verbatim when the file exists. Missing file: NULL for an unstarted thread (it is, in truth, unbriefed) + warning; kept for a started thread. Unstarted child with brief text and no path: the text is written to <stateDir>/workstream-briefs/<threadId>.md and the path set (V1 pre-1026 spawns)"],
+    ["held, held_since", "plan_lane, plan_lane_since", "see the six-lane mapping"],
+    ["outcome, outcome_at", "plan_lane, plan_lane_since", "see the six-lane mapping; outcome_at = plan_lane_since (when the lane last changed)"],
+    ["outcome_event_id, unarchived_event_id, last_route", "—", "NULL — the episode stamps that keep every re-drive and digest rail silent for history (Phase 2 §5)"],
+    ["kickoff_at", "projection_turns, projection_thread_messages", "MIN(turns.requested_at) for the thread; else MIN(created_at) of its user-role messages; NULL only when it has neither (never started)"],
+    ["attention", "attention", "the stored set filtered to error | awaiting_acceptance | needs_guidance; plus awaiting_orchestrator when plan_lane = yielded; emptied when outcome is terminal (V1's own rule — a terminal lane clears attention — re-asserted so no imported row violates 'no attention on a terminal outcome')"],
+    ["blocked_by, dependencies_since", "blocked_by, dependencies_since", "each id kept only if that thread also gets a sidecar row (same parent, live); others dropped + warning — a dependency on a thread outside the live graph can never release and would wedge the dependent silently"],
+    ["routes, gate_rounds, pending_rework", "routes, gate_rounds, pending_rework", "routes kept only where to names a sidecar-bearing live sibling (others dropped + warning); gate_rounds and pending_rework verbatim"],
+    ["last_outcome", "last_outcome", "the record with recordedByEventId renamed to eventId and set NULL (requires WorkOutcomeRecord.eventId to be NullOr in the Phase 2 contract — see Decision log D7)"],
+    ["report_path", "report_path", "verbatim; a missing file is a warning, never a NULL (the path is the record)"],
+    ["handoff_destinations", "handoff_destinations", "verbatim"],
+    ["notify_send_log", "—", "[] — the hourly ordered-pair cap starts fresh at import; the durable peer-message record travelled with the 1048 rename"],
+    ["archived_at, deleted_at", "—", "NULL by construction (only live rows get a sidecar)"],
+  ]}
+/>
+
+### The six-lane mapping
+
+`started` below means `kickoff_at` resolved non-null (the thread has a turn or a user message). `child` means `parent_thread_id` non-null.
+
+<Table
+  columns={["V1 plan_lane", "held", "outcome", "attention delta", "Note"]}
+  rows={[
+    ["planned, child, not started", "true (or, if the staging hold is retired before Phase 4: false — the node is simply unstarted and starts when its brief and dependencies allow)", "null", "—", "The only genuine hold in the data. Listed for Carl before the first boot (preview.sql) — review these few before cut-over, as the strategy asks"],
+    ["planned, started (any root created by goal_handoff / thread_fork, or a child that ran anyway)", "false", "null", "—", "The hold was never real: the thread has a transcript. On the board it reads in progress"],
+    ["planned, root, not started", "false", "null", "—", "A root is never held — isEligibleToStart requires a parent; it starts when a human writes to it"],
+    ["ready", "false", "null", "—", "Not started: eligible once its brief and dependencies allow — the pre-boot list shows it (expected: the dispatcher kicks it off, which is correct). Started (a V1 reopen): reads in progress; the parent re-prompts it"],
+    ["in_progress", "false", "null", "—", "—"],
+    ["yielded", "false", "null", "+ awaiting_orchestrator", "The strategy's rule: the former lane is the attention reason whose audience is the orchestrator"],
+    ["done", "false", "done", "cleared", "A terminal outcome is never held and never flagged"],
+    ["cancelled", "false", "cancelled", "cleared", "—"],
+  ]}
+/>
+
+Independently of lane, `kickoff_at` is set for **every** started thread. That is what keeps the dispatcher's promotion predicate (`isEligibleToStart`: not held ∧ outcome null ∧ `kickoffAt` null ∧ brief present ∧ dependencies done) false for everything with a transcript: a `done` coder reopened by a gate at cut-over is re-prompted by the gate leg, never re-kicked-off.
+
+### The lineage re-emit
+
+Upstream's importer writes every imported thread with `lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId }` (`legacy/LegacyV1ThreadImporter.ts`, `importedThread`), so an imported Loom child would surface as a top-level sidebar thread and receive thread notifications. Lineage lives only in `orchestration_v2_projection_threads.payload_json`, and every upstream thread mutation is a full-row `thread.metadata-updated` — so the importer reads the current V2 row and re-emits it with lineage set, exactly as upstream's own metadata-repair path does:
+
+<AnnotatedCode
+  filename="apps/server/src/loom/legacy/LoomV1WorkstreamImporter.ts (sketch)"
+  language="ts"
+  code={"const current = yield* projectionStore.getThread(threadId);            // the row upstream's importer wrote\nif (current.lineage.relationshipToParent !== \"subagent\") {\n  yield* eventSink.write({ events: [{\n    id: EventId.make(`loom-import:v1:thread:${threadId}:lineage`),\n    type: \"thread.metadata-updated\",\n    threadId,\n    providerInstanceId: current.providerInstanceId,\n    occurredAt: now,\n    payload: {\n      ...current,                                                       // keeps activeProviderThreadId, pins, order keys, historyOrigin\n      lineage: { parentThreadId, relationshipToParent: \"subagent\", rootThreadId },\n      ...(providerFix ?? {}),                                           // see the binding: pi instance when V1 had no model selection\n    },\n  }] });\n}\n"}
+  annotations={[
+    { "lines": "1", "label": "read, then write", "note": "The payload is the whole thread; writing anything but the current row would null activeProviderThreadId (the projector copies it from the payload) or revert pins and order keys. updatedAt is left as it was so the sidebar does not reorder." },
+    { "lines": "4", "label": "deterministic id", "note": "The same scheme upstream uses (migration:v1:thread:<id>:created); a re-run is skipped by the lineage check above it, not by relying on a duplicate-id error." },
+    { "lines": "10", "label": "subagent, not fork", "note": "A Loom forkFrom child is still a workstream child (strategy Area A; Phase 2 D7 keeps forkedFrom null). rootThreadId is the top of the V1 parent chain. Deleted threads are never re-emitted; archived children are." },
+  ]}
+/>
+
+What `subagent` lineage buys, per the strategy's accepted list: hidden from the sidebar (`filterSidebarV2VisibleThreads`), thread notifications suppressed, dropped from navigation shells, silenced in the awareness relay. The title-reformat hunk (Loom titles are manual) is Phase 3d's. Loom's board reads `loom_thread_workstream.parent_thread_id`; the two agree because both come from the same V1 column.
+
+### The session binding
+
+Every imported thread that is not deleted and has a pi session on disk is bound to it. The binding is upstream's own shape for an imported native thread — the `provider-thread.updated` event `dispatchThreadCreate` emits for `importedNativeThread`, and `AgentSessionImporter.ts` writes for sessions discovered on disk — written directly through the event sink because the thread already exists:
+
+<AnnotatedCode
+  filename="apps/server/src/loom/legacy/LoomV1WorkstreamImporter.ts (sketch)"
+  language="ts"
+  code={"const sessionPath = sessionIndex.get(piSessionIdForThread(threadId));     // Map<headerId, absolutePath>, built once per boot\nif (sessionPath === undefined) return { session: \"missing\" };\nif (readSessionHeaderId(sessionPath) !== piSessionIdForThread(threadId)) return { session: \"corrupt\" };\nconst instanceId = current.providerInstanceId;                             // after the provider fix: always a pi instance here\nconst providerThreadId = idAllocator.derive.providerThread({ driver: \"pi\", nativeThreadId: sessionPath });\nyield* eventSink.write({ events: [{\n  id: EventId.make(`loom-import:v1:provider-thread:${threadId}`),\n  type: \"provider-thread.updated\",\n  threadId, driver: \"pi\", providerInstanceId: instanceId, occurredAt: now,\n  payload: {\n    id: providerThreadId, driver: \"pi\", providerInstanceId: instanceId, providerSessionId: null,\n    appThreadId: threadId, ownerNodeId: null,\n    nativeThreadRef: { driver: \"pi\", nativeId: sessionPath, strength: \"strong\" },\n    nativeConversationHeadRef: null, status: \"idle\", firstRunOrdinal: null, lastRunOrdinal: null,\n    handoffIds: [], forkedFrom: null, pendingBackgroundTasks: [], contextUsage: null, nativeMetadata: null,\n    createdAt: current.createdAt, updatedAt: current.updatedAt,\n  },\n}] });\n"}
+  annotations={[
+    { "lines": "1", "label": "the index", "note": "One readdir of the sessions root and of each slug directory, keyed by the file's _<id>.jsonl suffix; newest mtime wins on a duplicate (Loom's resolveSessionFilePath semantics). Never a per-thread scan — thousands of threads × 1,758 slug directories." },
+    { "lines": "3", "label": "validate", "note": "pi's acceptance rule: the first parseable JSONL line is a session header whose id equals the deterministic id. A corrupt or foreign file is not bound; pi would otherwise open it as an empty conversation (Loom's resolveResumableSessionFile comment)." },
+    { "lines": "5", "label": "same derivation as the adapter", "note": "PiAdapterV2.registerThread derives the provider thread id from {driver, nativeThreadId: sessionFile}; using the same inputs means the adapter's first update lands on this row, not a second one." },
+    { "lines": "13", "label": "nativeId is the absolute path", "note": "switch_session accepts a file path, not pi's display UUID (PiAdapterV2.ts: the sessionFile comment). The path is whatever the sessions root held — pi's root at cut-over, the QA copy root in QA." },
+  ]}
+/>
+
+What the projector then does: `provider-thread.updated` with `appThreadId` set and a non-placeholder id writes `activeProviderThreadId` onto the thread row (`ProjectionStore.ts`, both the memory and SQL folds), so the next `message.dispatch` finds `activeProviderThread.nativeThreadRef !== null`, `needsFullContext` is false, and `ProviderTurnStartService` calls `session.resumeThread` → `PiAdapterV2.registerThread` → RPC `switch_session { sessionPath }`. Two conditions on the driver work item this depends on: the adapter must pass the thread's working directory as `cwdOverride` on `switch_session` (patch 0001 extended to RPC, a Phase 2 driver item — without it pi resumes into the session's recorded cwd), and the Pi default-model sentinel must not reset the model on resume. The QA gate verifies the first directly (§6).
+
+**Provider fix.** Upstream's `modelSelectionFor` falls back to `{ instanceId: "codex", model: DEFAULT_MODEL }` when a V1 row has no decodable `model_selection_json`. A Loom thread with a pi session on disk is a pi thread whatever its row says, so when the binding finds a session and `current.providerInstanceId` is not the pi instance, the lineage re-emit's payload also sets `providerInstanceId` and `modelSelection` to the pi instance (model: Loom's default pi model). The binding's `providerInstanceId` must equal the thread's or `rootProviderThreadsForProvider` filters it out.
+
+**Missing session.** No binding, ledger `session: missing`; the thread's first continuation gets upstream's designed fallback — a fresh pi session with a 32,000-character transcript handoff — and the `missing` list is part of the pre-boot report, because in production that list should be near-empty (every Loom thread was launched with `--session-id`), and a long list means the sessions root is wrong.
+
+**Resume failure is silent — the gate reads the log.** If `switch_session` fails, `ProviderTurnStartService` logs `Provider resume failed; attempting a fresh native session` and continues with a `full_thread_summary` handoff — amnesia with a warning nobody reads. The remember-check (§6) therefore also asserts that line appears zero times for imported threads.
+
+### No legacy handoff for a bound thread — one upstream hunk
+
+Upstream prepares a legacy-import handoff on an imported thread's first run whenever `historyOrigin === "v1_import"`, the thread has no completed run and its imported transcript items exist (`shouldPrepareLegacyImportHandoff`, `Orchestrator.ts`; called from the immediate-start and queued-start paths). It never looks at the native ref. For a bound Loom thread that means the resumed pi session — which already holds the whole conversation — receives a `Context handoff (legacy_import)` block plus up to 32,000 characters of its own transcript prefixed to Carl's first message, permanently, in every imported thread. The pure helper gains one argument:
+
+```ts
+// apps/server/src/orchestration-v2/Orchestrator.ts — marked hunk
+export function shouldPrepareLegacyImportHandoff(input: {
+  readonly hasCompletedRun: boolean;
+  readonly historyOrigin: OrchestrationV2AppThread["historyOrigin"];
+  readonly legacyImportItemCount: number;
+  readonly hasStrongNativeRef: boolean; // loom: a thread bound to its native session already has its history
+}): boolean {
+  return input.historyOrigin === "v1_import" && !input.hasCompletedRun &&
+    input.legacyImportItemCount > 0 && !input.hasStrongNativeRef;
+}
+// both call sites: hasStrongNativeRef: activeProviderThread?.nativeThreadRef?.strength === "strong"
+```
+
+`historyOrigin` stays `v1_import` (it is what makes the imported transcript count as pre-run history for fork boundaries, item windows and the awareness relay). Unbound threads keep upstream's handoff by construction. Upstream's own `AgentSessionImporter` path has the same redundancy, so this hunk is a candidate to upstream.
+
+### The ledger — migration 1049
+
+<DataModel
+  entities={[
+    {
+      "id": "ledger", "name": "loom_legacy_imports", "change": "added",
+      "note": "One row per V1 thread the Loom importer has considered. Written in the same transaction as that thread's sidecar row and events.",
+      "fields": [
+        { "name": "thread_id", "type": "TEXT", "pk": true },
+        { "name": "imported_at", "type": "TEXT", "note": "ISO time of the boot that processed it" },
+        { "name": "status", "type": "TEXT", "note": "imported | archived-child | archived-root | skipped:deleted | skipped:not-workstream" },
+        { "name": "sidecar_written", "type": "INTEGER", "note": "1 when a loom_thread_workstream row was inserted by this run" },
+        { "name": "lineage_reemitted", "type": "INTEGER", "note": "1 when the subagent lineage event was written by this run" },
+        { "name": "session_status", "type": "TEXT", "note": "bound | missing | corrupt | not-pi | deleted | already-bound" },
+        { "name": "session_path", "type": "TEXT", "nullable": true, "note": "the absolute path bound, when bound" },
+        { "name": "warnings_json", "type": "TEXT", "note": "JSON array: dropped dependency ids, dropped routes, nulled goal/anchor/graph_key, missing brief or report file, parent deleted, provider fixed" }
+      ]
+    }
+  ]}
+/>
+
+```sql
+-- 1049_LoomLegacyImports.ts
+CREATE TABLE IF NOT EXISTS loom_legacy_imports (
+  thread_id TEXT PRIMARY KEY,
+  imported_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  sidecar_written INTEGER NOT NULL DEFAULT 0,
+  lineage_reemitted INTEGER NOT NULL DEFAULT 0,
+  session_status TEXT NOT NULL,
+  session_path TEXT,
+  warnings_json TEXT NOT NULL DEFAULT '[]'
+);
+```
+
+Per thread, one `sql.withTransaction`: the sidecar `INSERT … ON CONFLICT(thread_id) DO NOTHING`; `eventSink.write` of the lineage and/or binding events (the projector folds them in the same transaction — Phase 2 D2); the ledger row. A failure rolls the thread back and is logged with the thread id; the phase continues with the next thread and the boot completes (upstream's importer has the same per-thread posture). The pending query is ordered by `created_at` so parents precede children, which the lineage re-emit does not need but a reader of the log will appreciate.
+
+### Verification queries
+
+Run against `statev2.sqlite` with the QA server stopped, or read-only (`sqlite3 'file:…/statev2.sqlite?mode=ro'`; `bun:sqlite` with `readonly: true` as the AGENTS.md recipe does). `scripts/pull9-qa/verify.sql` carries them; every row below must come back **0** unless stated.
+
+<Details summary="verify.sql — the post-import assertions (expected values in comments)">
+
+```sql
+-- A. Counts in = counts out. Left: V1 rows in sidecar scope. Right: sidecar rows. Must be equal.
+SELECT COUNT(*) FROM projection_threads
+ WHERE deleted_at IS NULL AND archived_at IS NULL
+   AND (parent_thread_id IS NOT NULL OR goal_id IS NOT NULL OR role IS NOT NULL);
+SELECT COUNT(*) FROM loom_thread_workstream;
+
+-- B. Per-lane equalities (each pair must match).
+SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id) WHERE t.plan_lane = 'done';
+SELECT COUNT(*) FROM loom_thread_workstream WHERE outcome = 'done';
+SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id) WHERE t.plan_lane = 'cancelled';
+SELECT COUNT(*) FROM loom_thread_workstream WHERE outcome = 'cancelled';
+SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id) WHERE t.plan_lane = 'yielded';
+SELECT COUNT(*) FROM loom_thread_workstream WHERE EXISTS (SELECT 1 FROM json_each(attention) WHERE value = 'awaiting_orchestrator');
+SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id)
+ WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND w.kickoff_at IS NULL;
+SELECT COUNT(*) FROM loom_thread_workstream WHERE held = 1;              -- equals the row above (0 if the hold is retired)
+
+-- C. Invariants — all 0.
+SELECT COUNT(*) FROM loom_thread_workstream WHERE outcome IS NOT NULL AND (held = 1 OR attention != '[]');
+SELECT COUNT(*) FROM loom_thread_workstream WHERE outcome_event_id IS NOT NULL OR unarchived_event_id IS NOT NULL OR last_route IS NOT NULL
+   OR json_extract(last_outcome, '$.eventId') IS NOT NULL;
+SELECT COUNT(*) FROM loom_thread_workstream w
+ WHERE kickoff_at IS NULL AND EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = w.thread_id);
+SELECT COUNT(*) FROM loom_thread_workstream w, json_each(w.blocked_by) d
+ WHERE NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = d.value);
+SELECT COUNT(*) FROM loom_thread_workstream w, json_each(w.routes) r
+ WHERE json_extract(r.value, '$.to') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = json_extract(r.value, '$.to'));
+
+-- D. Kickoff candidates after import — expected 0, or exactly the never-started briefed nodes preview.sql listed.
+SELECT thread_id, role, parent_thread_id FROM loom_thread_workstream
+ WHERE parent_thread_id IS NOT NULL AND held = 0 AND outcome IS NULL AND kickoff_at IS NULL AND kickoff_brief_path IS NOT NULL;
+
+-- E. Lineage: every sidecar child's V2 row says subagent with the same parent — 0 mismatches.
+SELECT COUNT(*) FROM loom_thread_workstream w JOIN orchestration_v2_projection_threads p USING (thread_id)
+ WHERE w.parent_thread_id IS NOT NULL
+   AND (json_extract(p.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
+     OR json_extract(p.payload_json, '$.lineage.parentThreadId') IS NOT w.parent_thread_id);
+-- …and every archived child too (lineage is a thread fact): 0.
+SELECT COUNT(*) FROM projection_threads t JOIN orchestration_v2_projection_threads p USING (thread_id)
+ WHERE t.deleted_at IS NULL AND t.parent_thread_id IS NOT NULL
+   AND json_extract(p.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent';
+
+-- F. Binding: every non-deleted thread with a ledger 'bound' row has a strong pi ref and activeProviderThreadId set — 0 mismatches.
+SELECT COUNT(*) FROM loom_legacy_imports l JOIN orchestration_v2_projection_threads p USING (thread_id)
+ WHERE l.session_status = 'bound' AND (
+   json_extract(p.payload_json, '$.activeProviderThreadId') IS NULL
+   OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_threads pt
+                   WHERE pt.thread_id = l.thread_id AND pt.driver = 'pi'
+                     AND json_extract(pt.payload_json, '$.nativeThreadRef.strength') = 'strong'
+                     AND json_extract(pt.payload_json, '$.nativeThreadRef.nativeId') = l.session_path));
+SELECT session_status, COUNT(*) FROM loom_legacy_imports GROUP BY session_status;   -- 'missing' and 'corrupt' should be a short, explained list
+SELECT COUNT(*) FROM loom_legacy_imports l JOIN orchestration_v2_projection_threads p USING (thread_id)
+ WHERE l.session_status = 'bound' AND p.provider_instance_id != 'pi';                -- 0: the provider fix applied
+
+-- G. Ledger covers every imported V1 row — 0 pending.
+SELECT COUNT(*) FROM orchestration_v2_legacy_imports li LEFT JOIN loom_legacy_imports l USING (thread_id) WHERE l.thread_id IS NULL;
+
+-- H. Ledgers and goals.
+SELECT MAX(migration_id) FROM loom_sql_migrations;        -- 1049
+SELECT COUNT(*) FROM loom_goals; SELECT COUNT(*) FROM loom_goal_tasks;   -- equal to projection_goals / projection_goal_tasks counts taken on state.sqlite before boot
+SELECT g.goal_id, g.title FROM loom_goals g WHERE g.archived_at IS NULL AND g.deleted_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM loom_thread_workstream w WHERE w.goal_id = g.goal_id);  -- active goals with no live thread: a review list for Carl, expected short
+
+-- I. First pass after import wrote no control message to an imported thread — 0 (run after the server has been up a minute).
+SELECT COUNT(*) FROM orchestration_v2_projection_messages m JOIN loom_legacy_imports l USING (thread_id)
+ WHERE json_extract(m.payload_json, '$.loom.origin') IS NOT NULL AND m.created_at > (SELECT MIN(imported_at) FROM loom_legacy_imports);
+```
+
+</Details>
+
+<Details summary="preview.sql — what to review on the relocated V1 copy BEFORE the first V2 boot">
+
+```sql
+-- Relocation complete? Every count must be 0 before boot (the gate's loud-failure check).
+SELECT COUNT(*) FROM projection_threads WHERE worktree_path LIKE '%/.t3/cockpit/%' OR report_path LIKE '%/.t3/cockpit/%' OR kickoff_brief_path LIKE '%/.t3/cockpit/%';
+SELECT COUNT(*) FROM projection_projects WHERE workspace_root NOT LIKE '/home/Carl/.t3/qa-pull9/%';
+-- Lane distribution in scope (for the counts-in side of verify.sql B).
+SELECT plan_lane, parent_thread_id IS NOT NULL AS is_child, COUNT(*) FROM projection_threads
+ WHERE deleted_at IS NULL AND archived_at IS NULL AND (parent_thread_id IS NOT NULL OR goal_id IS NOT NULL OR role IS NOT NULL)
+ GROUP BY 1, 2;
+-- The genuine holds: planned children with no turn and no user message (Carl reviews these).
+SELECT t.thread_id, t.title, t.role FROM projection_threads t
+ WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = t.thread_id)
+   AND NOT EXISTS (SELECT 1 FROM projection_thread_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user');
+-- Would-be kickoffs: ready/planned children, never started, briefed (the dispatcher will start these after import).
+SELECT t.thread_id, t.title, t.plan_lane, t.blocked_by FROM projection_threads t
+ WHERE t.parent_thread_id IS NOT NULL AND t.plan_lane IN ('ready','planned') AND t.kickoff_brief_path IS NOT NULL
+   AND t.deleted_at IS NULL AND t.archived_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = t.thread_id);
+-- Dependencies and routes pointing outside the live graph (will be dropped with a warning).
+SELECT t.thread_id, d.value AS dep FROM projection_threads t, json_each(t.blocked_by) d
+ WHERE t.deleted_at IS NULL AND t.archived_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM projection_threads x WHERE x.thread_id = d.value AND x.deleted_at IS NULL AND x.archived_at IS NULL);
+-- Goals and tasks: the counts-in for verify.sql H.
+SELECT COUNT(*) FROM projection_goals; SELECT COUNT(*) FROM projection_goal_tasks;
+```
+
+</Details>
+
+## 2. The QA instance — building the relocated world
+
+### The home
+
+`~/.t3/qa-pull9/` is the `--base-dir`. It cannot be confused with `userdata` (upstream's default), `dev` (the dev runner's), `cockpit` (production) or a worktree's `.t3` (reaped when the thread settles — Carl will use this for days). With an explicit `--base-dir` the server's state directory is `<base>/userdata` and its worktrees directory `<base>/worktrees` (`config.ts` `deriveServerPaths`), which is what the guard compares recorded paths against.
+
+<FileTree
+  title="~/.t3/qa-pull9 — the QA world"
+  entries={[
+    { path: "userdata/state.sqlite", change: "added", note: "VACUUM INTO snapshot of ~/.t3/cockpit/userdata/state.sqlite, then relocated by UPDATE before any boot. The V1 source upstream copies and reads." },
+    { path: "userdata/statev2.sqlite", change: "added", note: "Created by initializeV2Database at the first boot (hard link to a backup of state.sqlite). Everything V2 and Loom write lands here." },
+    { path: "userdata/settings.json", change: "added", note: "Copied from the cockpit: model presets, provider instance (binaryPath 'pi' = the QA build's bundled patched pi), usage sources, project overrides. Needed for the smoke's spawns and quota pollers." },
+    { path: "userdata/secrets/usage-limit-source-*.bin", change: "added", note: "The ONLY secret copied: the cliproxy quota poller credential. Never server-signing-key, cli-token, asset-access or cloud-link-ed25519 — those are instance identity; a copied cloud-link pair would let QA impersonate production." },
+    { path: "userdata/workstream-reports/, workstream-briefs/, workstream-launch-identity/", change: "added", note: "Copied (29 + 17 + 69 MB). report_path / kickoff_brief_path are rebased to here; launch identity is keyed by thread id and read by forkFrom." },
+    { path: "userdata/attachments/", change: "added", note: "Optional (1.9 GB): copy if imported timelines should show their images. Skipping leaves broken image chips, nothing else." },
+    { path: "pi-sessions/<slug>/<timestamp>_<threadId>.jsonl", change: "added", note: "Byte copies (rsync, never cp -l / hard links) of every non-deleted thread's pi session. LOOM_LEGACY_IMPORT_PI_SESSIONS_ROOT points here, so bindings name these files." },
+    { path: "repos/loom/ (and any other project Carl will exercise)", change: "added", note: "git clone of the production repo (local clone, hard-linked objects — cheap); origin re-pointed at GitHub for fetch and DISABLED for push. projection_projects.workspace_root is rewritten here." },
+    { path: "worktrees/<project>/<name>", change: "added", note: "Recorded worktree paths are rewritten under here; directories exist only for threads materialised with materialise-worktree.sh. The guard sees its own worktreesDir and stays off." },
+    { path: "build/loom/", change: "added", note: "A clone of the integration branch at the Phase 3 gate commit, pnpm install + pnpm build. The QA server runs from here, not from a thread's worktree (which is reaped when the thread settles)." },
+    { path: "qa/", change: "added", note: "build-home.sh output: session manifest, preview report, pre-boot check results, the boot log symlink." },
+  ]}
+/>
+
+What is **not** copied, and why: `environment-id` (a fresh one is minted; sharing it would alias QA with production to cloud and relay surfaces); `server-runtime.json` (the runtime lock — a copied one would make the first boot refuse); `keybindings.json`, `themes/` (cosmetic; copy if wanted); `logs/`, `prompt-debug/`, `workstream-consults/` (761 MB of retained consult forks nothing resumes); `pi-extensions/` (regenerated per instance with the QA credential); `~/.pi/agent/*` other than sessions is **referenced**, not copied — pi's auth, skills and extensions are machine-global and QA uses them as production does.
+
+### The relocation — QA only, never at cut-over
+
+`scripts/pull9-qa/build-home.sh` does, in order, with every path explicit and `~/.t3/cockpit/userdata/state.sqlite` opened **read-only**:
+
+<Checklist
+  items={[
+    { "id": "r0", "label": "Preconditions: ~/.t3/qa-pull9 does not exist (a refresh is a rebuild — delete first, §3); 25 GB free (6 GB snapshot + 6 GB statev2 + sessions + clones); port 13940 free; the pull-9 build commit recorded", "note": "df -h ~/.t3; (exec 3<>/dev/tcp/127.0.0.1/13940) 2>/dev/null && echo busy" },
+    { "id": "r1", "label": "Snapshot: VACUUM INTO ~/.t3/qa-pull9/userdata/state.sqlite from the cockpit database, read-only (the AGENTS.md recipe, pointed at the cockpit home)", "note": "# eta: 5m — 6 GB. VACUUM INTO is safe while the cockpit has the file open and yields one consistent file; a plain cp of a live database is a corrupt copy" },
+    { "id": "r2", "label": "Record the counts-in: projection_goals, projection_goal_tasks, in-scope thread counts per lane (preview.sql) into qa/preview.txt", "note": "verify.sql compares against these after import" },
+    { "id": "r3", "label": "Relocate paths in the V1 copy (UPDATE statements below): projection_projects.workspace_root → ~/.t3/qa-pull9/repos/<basename>; projection_threads.worktree_path, report_path, kickoff_brief_path prefixes → the QA home", "note": "Also any other column that stores an absolute path under the cockpit home — the script greps the schema for TEXT columns and asserts the LIKE '%/.t3/cockpit/%' count is 0 across projection_threads, projection_projects and projection_thread_messages afterwards" },
+    { "id": "r4", "label": "Copy files: rsync -a of workstream-reports, workstream-briefs, workstream-launch-identity (and attachments if chosen); settings.json; secrets/usage-limit-source-*.bin only", "note": "Copy in, never symlink; the server writes new reports and briefs into these same directories" },
+    { "id": "r5", "label": "Session manifest and copy: list non-deleted thread ids from the copy; one find over ~/.pi/agent/sessions (maxdepth 2, *.jsonl) filtered by the _<threadId>.jsonl suffix → qa/session-manifest.txt; rsync -a --files-from into ~/.t3/qa-pull9/pi-sessions/ preserving <slug>/<file>", "note": "# eta: 5–15m depending on size. Byte copies: a hard link would make QA append to production's file. Record the count and the ids with no session file (expected near zero)" },
+    { "id": "r6", "label": "Clone project repos: git clone /home/Carl/loom ~/.t3/qa-pull9/repos/loom; git remote set-url origin https://github.com/QuinRiva/loom.git; git remote set-url --push origin DISABLED; repeat for any other project to be exercised", "note": "Local clone = hard-linked objects, all local branches present as origin/<branch>. Push disabled so a QA shipper cannot push or merge to the real repository — pnpm ship fails loudly in QA" },
+    { "id": "r7", "label": "Pre-boot gate: preview.sql relocation counts are 0; no statev2.sqlite exists; the planned-children, would-be-kickoff, dangling-dependency and missing-session lists are written to qa/preview.txt for review", "note": "If any relocation count is non-zero: STOP — a boot now would either engage the guard (read-only QA) or, worse, act on a production path" },
+    { "id": "r8", "label": "Build: git clone /home/Carl/loom ~/.t3/qa-pull9/build/loom; checkout the integration branch at the Phase 3 gate commit; vp i; pnpm build", "note": "# eta: 10m. The release store (~/loom-releases, deployctl deploy --build-only) is production's and is NOT used" },
+  ]}
+/>
+
+```sql
+-- build-home.sh step r3, run on ~/.t3/qa-pull9/userdata/state.sqlite (the copy — never the source)
+UPDATE projection_projects
+   SET workspace_root = '/home/Carl/.t3/qa-pull9/repos/' || replace(workspace_root, rtrim(workspace_root, replace(workspace_root, '/', '')), '');
+UPDATE projection_threads
+   SET worktree_path      = replace(worktree_path,      '/home/Carl/.t3/cockpit/worktrees/', '/home/Carl/.t3/qa-pull9/worktrees/'),
+       report_path        = replace(report_path,        '/home/Carl/.t3/cockpit/userdata/',  '/home/Carl/.t3/qa-pull9/userdata/'),
+       kickoff_brief_path = replace(kickoff_brief_path, '/home/Carl/.t3/cockpit/userdata/',  '/home/Carl/.t3/qa-pull9/userdata/');
+-- then the assertion: SELECT COUNT(*) … LIKE '%/.t3/cockpit/%' must be 0 (preview.sql, first query)
+```
+
+Why the whole world and not just the worktree paths: the guard keys on worktree paths alone, so rewriting only those would switch it off while `workspace_root` still named `/home/Carl/loom` — a QA agent on a thread without a worktree, the boot's `projects.auto-pull`, and every new root would then act on Carl's real checkout, and QA checkpoint refs would land in the `.git` every production worktree shares. A project whose repo is not cloned has a `workspace_root` that does not exist: its threads open and read fine, its agents cannot run, and auto-pull logs one error for it at boot — read-only by construction, which is the right default for everything Carl is not testing.
+
+### Boot, observe, import, verify
+
+<Checklist
+  items={[
+    { "id": "b1", "label": "Start: scripts/pull9-qa/start.sh — systemd-run --user --unit=loom-qa-pull9 with T3CODE_HOME=~/.t3/qa-pull9, T3CODE_NO_BROWSER=1, T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=false, LOOM_LEGACY_IMPORT_PI_SESSIONS_ROOT=~/.t3/qa-pull9/pi-sessions, WorkingDirectory=~/.t3/qa-pull9/build/loom, ExecStart node apps/server/dist/bin.mjs serve --base-dir ~/.t3/qa-pull9 --port 13940", "note": "A transient unit survives the agent's shell and Carl's SSH sessions; journalctl --user -u loom-qa-pull9 -f is the log. Never 13900. The explicit --base-dir outranks any ambient T3CODE_HOME (AGENTS.md)" },
+    { "id": "b2", "label": "Observe the one-time copy: statev2.sqlite appears beside state.sqlite (size ≈ the copy); state.sqlite's mtime and size do not change from here on", "note": "initializeV2Database runs before migrations; it never refreshes" },
+    { "id": "b3", "label": "Observe both ledgers in statev2.sqlite: effect_sql_migrations max = upstream's manifest max; loom_sql_migrations max = 1049; loom_goals and loom_goal_tasks exist (1047 renamed them) with the counts-in from qa/preview.txt", "note": "sqlite3 'file:…/statev2.sqlite?mode=ro'" },
+    { "id": "b4", "label": "Observe the log, in order: the home rule line naming --base-dir; NO 'foreign-home guard' line; 'Imported legacy v1 thread shells' (upstream); the Loom import phase summary (threads considered, sidecars, lineage re-emits, bindings, missing); 'V2 orchestration recovery completed'", "note": "A guard line means the relocation missed a path — stop, tear down, fix build-home.sh, rebuild. Upstream's lazy transcript hydration runs in the background afterwards; it is DB-only and may take minutes" },
+    { "id": "b5", "label": "Run verify.sql; every assertion as commented; file the review lists (held children, active goals without threads, missing sessions) into the hand-off doc", "note": "With the server stopped (stop.sh) or read-only" },
+    { "id": "b6", "label": "Materialise the worktrees of the imported threads the remember-check will continue: an orchestrator and one of its children (the coder/reviewer pair of a recent finished workstream is ideal) — scripts/pull9-qa/materialise-worktree.sh <threadId> reads branch and worktree_path from the copy and runs git -C ~/.t3/qa-pull9/repos/<project> worktree add -b <branch> <path> origin/<branch>", "note": "Setup scripts (t3.json) run on the new worktree inside the QA home — vp i, .env link — as they would for a new thread" },
+    { "id": "b7", "label": "Remember-check (§6 gate): open the imported orchestrator; send 'Without using any tool, say in two sentences what this thread's goal was and name the last report you received; then run pwd and paste the output.' The reply must name real goal content and a real report path, and pwd must start with /home/Carl/.t3/qa-pull9/. Repeat on the child", "note": "Then: journalctl shows zero 'Provider resume failed' lines; /proc/<pi pid>/cwd is under the QA home; the last user entry in the QA copy of the session file is exactly the message sent (no 'Context handoff' prefix); the production copy of the same session file has not changed (stat)" },
+    { "id": "b8", "label": "Idempotence: stop.sh; start.sh; the Loom import summary reports 0 considered; statev2.sqlite is not re-copied; zero migrations run; verify.sql unchanged", "note": "The same relaunch check the Phase 1 smoke (A) performs" },
+    { "id": "b9", "label": "Hand over: write docs/upstream-sync/30-pull9-phase4-qa-guide.md — the pairing URL procedure (node apps/server/dist/bin.mjs pair --base-dir ~/.t3/qa-pull9 mints a fresh one-time token; the port is reached the way Carl reaches 13900 — SSH forward or tailnet), the §5 checklist, restart (stop.sh; start.sh), teardown (§3), and the review lists from b5", "note": "This document is the Phase 4 hand-off artefact" },
+  ]}
+/>
+
+<Callout tone="risk">
+**Hard rule, restated for the orchestrator.** Nothing in Phase 4 opens `~/.t3/cockpit/userdata/state.sqlite` other than read-only for `VACUUM INTO` and the counts-in; nothing writes under `~/.t3/cockpit` except the Phase 4 thread's own worktree; nothing touches `~/loom-releases` (not `deployctl`, not `--build-only`); nothing writes to `~/.t3/userdata`. The QA server is started only through `start.sh` with its explicit `--base-dir`, and stopped only by `stop.sh` (the unit), never by killing a PID found by name — the cockpit's own server and this machine's other dev servers carry similar argv.
+</Callout>
+
+### Keeping it running, and tearing it down
+
+Restart: `scripts/pull9-qa/stop.sh && scripts/pull9-qa/start.sh` (stop waits for the unit; start refuses if `~/.t3/qa-pull9/userdata/server-runtime.json` names a live pid). Logs: `journalctl --user -u loom-qa-pull9`. A new pairing token: `node apps/server/dist/bin.mjs pair --base-dir ~/.t3/qa-pull9` from `build/loom`. Updating the build (a Phase 3 fix lands): `git -C ~/.t3/qa-pull9/build/loom pull && vp i && pnpm build`, then restart — the database is untouched by a rebuild, and Loom migrations above 1049, if any, run at the next boot as on production. Teardown: `stop.sh`, then `rm -rf ~/.t3/qa-pull9` — the clones and their worktrees are inside it, so nothing is left in production's repositories; pi session files QA created under `~/.pi/agent/sessions/--home-Carl-.t3-qa-pull9-*--/` can be removed by that prefix.
+
+## 3. Rollback
+
+<Table
+  columns={["Moment", "What 'roll back' means", "What is lost", "How"]}
+  rows={[
+    ["During QA (this phase)", "Nothing to roll back: production never received a write. Proof: `ls -l /proc/<qa server pid>/fd | grep cockpit` is empty; the cockpit's state.sqlite is opened only by the cockpit's pid (`fuser`); the production copies of the two session files continued in QA have unchanged mtimes", "Nothing", "Tear the QA home down and rebuild it whenever wanted"],
+    ["Refreshing QA from a newer production snapshot", "Rebuild, never re-point: a second boot against a home that already has statev2.sqlite does not re-copy (initializeV2Database returns when the destination exists), so dropping a fresh state.sqlite into the old home silently keeps the old V2 world", "Everything done in the old QA world (by design)", "stop.sh; rm -rf ~/.t3/qa-pull9; build-home.sh again. The script's precondition refuses to run into an existing home"],
+    ["At a future cut-over (not this phase)", "state.sqlite is left exactly as the V1 server wrote it — V2 opens only statev2.sqlite — so the pull-8 release reopened on it resumes where V1 stopped. deployctl's pre-promotion snapshot of state.sqlite (+wal/+shm) is a second copy of the same point", "Everything written under V2 after cut-over: new threads and turns, goal and task edits, outcomes. pi session files are shared across versions: a session continued under V2 has extra entries V1 simply resumes after; a session rolled back under V2 (fork → new file) is invisible to V1's by-name lookup, which resumes the pre-fork file", "deployctl rollback (+ --restore-snapshot if wanted) per the RUNBOOK — a human act"],
+    ["Re-cutting over after a rollback", "The trap the strategy names: statev2.sqlite still exists from the first cut-over, so the second boot resumes the stale first snapshot and loses everything V1 wrote in between", "Everything V1 wrote between rollback and re-cut, silently", "Delete statev2.sqlite (and its -wal / -shm) before the second cut-over. The runbook line is proposed in §4 for Carl to add; Phase 4 does not edit ~/loom-releases"],
+  ]}
+/>
+
+## 4. Explicitly not in Phase 4
+
+The strategy's Phase 4 also scheduled deletions and the cut-over; Carl has scoped them out. The Phase 4 orchestrator does **none** of these, and the plan lists them so nobody does them by momentum:
+
+<Table
+  columns={["Deferred item", "Why it waits", "What Carl decides first"]}
+  rows={[
+    ["Delete quarantine/ (the 86 relocated V1 files), Loom's V1 Pi driver, the REST /provider-tools routes, the dead readers of obsolete columns and migrations", "Until the QA soak passes, the quarantine is the behavioural spec and the rollback reference", "That the QA instance has no regression he will not accept"],
+    ["Retire the staging hold (held, workstream_release, the staged spawn parameter) and its import branch", "Open question in the strategy's form; the importer carries both mappings", "The strategy form's first question"],
+    ["Per-child worktree isolation and fan-in: port as opt-in or drop", "Open question in the strategy's form", "The strategy form's second question"],
+    ["Stuck-launch modules (stuckLaunchRecovery.ts, turn-start.fail): keep or drop", "Pending the Phase 2 driver item's verification under V2", "Nothing — the verification's recorded verdict decides"],
+    ["Update the ~50 tracked references to state.sqlite (scripts, the AGENTS.md test-data recipe, the test-t3-app skill)", "Several are correct as written until cut-over (the recipe still produces the V1 file V2 copies)", "Cut-over date"],
+    ["Production cut-over: deployctl deploy of the integration branch, the first boot's one-time copy on the cockpit home", "A human-initiated act per ~/loom-releases/RUNBOOK.md; the integration branch is not merged to main in this phase", "Window, acceptance of QA, and whether to run the importer's preview on a fresh production snapshot first"],
+    ["Runbook addition to ~/loom-releases/RUNBOOK.md: 'If production is ever rolled back to a pre-V2 release and later re-cut, delete ~/.t3/cockpit/userdata/statev2.sqlite* first — a second boot does not re-copy state.sqlite'; and 'scripts/pull9-qa/build-home.sh is QA-only: never run it against the cockpit home'", "Phase 4 must not write to ~/loom-releases", "Carl pastes the two lines"],
+    ["Imported Loom control messages (kickoffs, digests, gate legs stored as role='user' in V1) render as human messages", "They are imported lazily by upstream's transcript importer with createdBy user; carrying V1's origin column needs a hunk in that importer's message mapping", "Whether the cosmetic matters enough for a hunk; it has one functional edge — the shell's latestUserAuthoredMessageAt reads them as human — which only affects the optional 'human engaged' cue"],
+    ["After cut-over items: the recurring-work wrapper, the three read tools", "The strategy orders them after cut-over", "—"],
+  ]}
+/>
+
+## 5. Smoke-test guide for Carl
+
+This section becomes the body of `docs/upstream-sync/30-pull9-phase4-qa-guide.md`. Each row: what to do in the QA instance, what you should see, where to look when you do not. Everything here runs in `~/.t3/qa-pull9/repos/loom` or its worktrees; nothing reaches GitHub except reads (push is disabled) and nothing reaches production.
+
+<Table
+  columns={["Scenario", "Do", "Observable", "If it fails, look at"]}
+  rows={[
+    ["Imported graph on the board", "Open the workstream board; pick a finished workstream and an unfinished one", "Roots with their children, roles, done/cancelled columns, dependencies and gate routes as they were; yielded children carry the orchestrator-attention flag; archived workstreams absent", "verify.sql A/B/E; loom_legacy_imports warnings_json for that root's children"],
+    ["Goals and task trees", "Open the goal panel for an imported root; open its task tree", "The goal, its description and the task tree with done ticks exactly as in production", "loom_goals / loom_goal_tasks counts (verify.sql H); the 1047 rename in the boot log"],
+    ["Imported orchestrator remembers", "Open an imported orchestrator; ask it, without tools, what its goal was and what the last report it received said; then ask it to run pwd", "A specific, correct answer; pwd under ~/.t3/qa-pull9/", "journalctl for 'Provider resume failed'; loom_legacy_imports.session_status for the thread; the session file's header id"],
+    ["Imported child remembers and keeps its place", "Open one of that orchestrator's children; ask the same; send it a real follow-up", "Correct answer; its board position unchanged (a done child stays done); its parent is NOT woken by the follow-up (no episode stamp)", "verify.sql I; the dispatcher log for the child id"],
+    ["Spawn a child", "In a new QA root (project loom, QA clone), ask the orchestrator to spawn a coder with a small brief", "A child appears on the board, hidden from the sidebar, kicked off once with the brief; it runs in the parent's checkout", "Dispatcher pass log; loom_thread_workstream row for the child (kickoff_at set once)"],
+    ["Dependency release", "Spawn two children, the second blocked by the first; let the first submit", "The second starts only after the first's outcome is done; the board shows blocked → ready → in progress", "isEligibleToStart inputs in the sidecar rows; the re-drive pass log"],
+    ["Gated review round", "Scaffold a coder and a reviewer with a loop route; have the coder submit; have the reviewer return needs_rework, then clean", "Coder reopened and re-prompted without the orchestrator waking; both end done; per-round report files under userdata/workstream-reports", "gate.test.ts behaviour vs the log; thread.route-taken / gate-rework-accepted events for the pair"],
+    ["notify_thread", "From one child, notify a busy sibling and an idle sibling", "The busy one has the message steered into its running turn; the idle one starts a turn; neither loses a standing hold", "The peer-message record; the dispatchMessage steer clause in the log"],
+    ["ask_user_question on a root", "Ask a root to ask you a structured question; answer it from the panel", "The agent receives the answer exactly once and continues; a child asked to do the same is refused with a pointer to consult_thread", "runtime-request rows; the respond hunk's log line"],
+    ["Consult an imported thread", "From a new root, consult_thread one of the imported children by title", "An answer grounded in that child's transcript (the frozen fork opens the QA copy of its session)", "The consult card; the fork's session path in the log (must be under ~/.t3/qa-pull9/pi-sessions or a QA slug)"],
+    ["PR watch", "In a shipper-role thread, link an existing open PR on QuinRiva/loom and watch it", "The watch row appears; a wake arrives if the PR changes during the QA window; attention raised by the shipper survives the wake; pnpm ship / git push fail loudly (push disabled)", "PR toolkit rows; the shipper's attention after a wake"],
+    ["Quota park and resume", "Usage page: pollers read the cliproxy accounts; if an account exhausts during the window, a thread on it parks and resumes when the window resets; spawning onto an exhausted shape is refused", "Usage page state; a parked thread shows the quota reason and resumes without a human", "ExhaustionResumeSweep log; usage-limit-source secret present"],
+    ["Restart mid-run", "stop.sh while a child is mid-turn; start.sh", "The child continues with its pending steer; a child holding needs_guidance is NOT continued; imported threads are untouched (no runs to recover)", "The recovery policy's startup log; releaseHeldQueues summary"],
+    ["Archived import", "Unarchive an archived imported root; send it a message", "It remembers its transcript (bound at import); re-archive afterwards", "loom_legacy_imports status archived-root / session_status bound"],
+    ["Rebuild check", "After the soak: tear down and rebuild from a fresh snapshot", "A fresh world with today's production threads; the old world gone", "build-home.sh precondition (refuses an existing home)"],
+  ]}
+/>
+
+## 6. Gates
+
+<Checklist
+  items={[
+    { "id": "g-fixture", "label": "Importer fixture test green: a V1 state.sqlite carrying every lane × root/child plus the edge rows, run through initializeV2Database → migrations → upstream reconcileShells → Loom reconcile; the mapping asserted row by row; a second reconcile writes nothing", "note": "Fixture rows: an archived child, a deleted child, a planned root with turns, a planned child without, a ready briefed child, a child blocked on an archived sibling, two siblings sharing a graph_key, rows with and without model_selection_json; projection_turns and user messages for the started ones; a temp sessions root with a valid header for most, a corrupt file for one, none for one. Asserts: lineage on every non-deleted child, binding only on valid files, provider fixed on the codex-fallback row, episode columns null, isEligibleToStart false for every started row, ledger complete. apps/server/src/loom/legacy/LoomV1WorkstreamImporter.test.ts on the Phase 2 test layer or a temp-file SQLite layer so initializeV2Database can run" },
+    { "id": "g-precondition", "label": "Driver precondition verified before any imported thread is continued: the pull-9 build's pi adapter passes the thread's cwd as cwdOverride on switch_session (the ported PiCwdOverride contract test is green), and the bundled pi is the patched 1.0.2", "note": "If not: STOP. Continuing an imported thread would run pi in the session's recorded production worktree. Escalate to Carl rather than stub" },
+    { "id": "g-relocation", "label": "Pre-boot: preview.sql relocation counts are 0; the boot log has no foreign-home guard line", "note": "The loud-failure check the strategy author asked for" },
+    { "id": "g-verify", "label": "verify.sql: every assertion as commented; counts in = counts out per lane; every bound thread has a strong pi ref and activeProviderThreadId; no held or attention on a terminal outcome; no started row without kickoff_at; no dangling dependency or route; lineage on every child; ledger complete", "note": "scripts/pull9-qa/verify.sql" },
+    { "id": "g-remember", "label": "The strategy's Phase 4 gate: an imported orchestrator and an imported child each remember their transcript when continued; pwd under the QA home; zero 'Provider resume failed' lines; no legacy handoff prefix in the session file; production's copies of those session files unchanged", "note": "§2 step b7" },
+    { "id": "g-first-pass", "label": "The first dispatcher pass after import sends no kickoff and no digest to any imported thread (verify.sql I = 0 after one minute of uptime), and the would-be-kickoff list from preview.sql was reviewed", "note": "A non-empty list is a decision, not a failure: a never-started briefed child is supposed to start" },
+    { "id": "g-idempotent", "label": "Relaunch: 0 threads considered, no re-copy, no migrations; verify.sql unchanged", "note": "§2 step b8" },
+    { "id": "g-checks", "label": "vp run typecheck and vp check green; docs/upstream-sync/pull7-tools/unmarkedsweep.sh reports no unmarked hunk (the two Orchestrator.ts and serverRuntimeStartup.ts hunks are marked)", "note": "Loom's task-completion requirement" },
+    { "id": "g-handoff", "label": "docs/upstream-sync/30-pull9-phase4-qa-guide.md written with the §5 checklist, the review lists, the pairing procedure, restart and teardown; the QA unit running and reachable when the orchestrator reports", "note": "The hand-off artefact" },
+  ]}
+/>
+
+## Hunk inventory amendments
+
+The strategy's inventory is the surface that conflicts on every future pull; this plan adds two rows and names one Loom-lane item that is not a hunk.
+
+<Table
+  columns={["Upstream file", "Change", "Reason"]}
+  rows={[
+    ["serverRuntimeStartup.ts — importLegacyShells phase", "ADDED (one marked pipe)", "Loom's importer must run after upstream's shell import and before recovery; piping onto upstream's phase needs no change to runOrderedV2StartupPhases"],
+    ["orchestration-v2/Orchestrator.ts — shouldPrepareLegacyImportHandoff + two call sites", "ADDED (marked)", "a thread bound to its native session must not receive a 32,000-character copy of its own transcript on its first turn; scoped to strong refs so unbound imports keep upstream's fallback"],
+    ["persistence/Migrations/1049_LoomLegacyImports.ts", "not a hunk — Loom lane", "the import ledger"],
+  ]}
+/>
+
+## Decision log
+
+<Table
+  columns={["#", "Decision", "Alternative rejected", "Why"]}
+  rows={[
+    ["D1", "The QA instance is a relocated world: project roots, worktree paths, report/brief paths and pi session files all rewritten or copied under ~/.t3/qa-pull9 before the first boot; the guard stays off because nothing recorded is foreign", "Force the guard off on a raw copy; or a read-only QA with the agent smoke on an empty home", "a raw copy with the guard off acts on production's checkouts and session files (it has happened twice); a read-only QA cannot run the strategy's mandatory remember-check. Endorsed by the strategy author (medium confidence) with the three conditions this plan adopts"],
+    ["D2", "The importer is a startup phase piped onto upstream's importLegacyShells, idempotent every boot, ledgered per thread; re-run by deleting ledger rows", "A Loom migration (1049) doing it in SQL; a CLI subcommand", "a migration cannot write V2 events (no EventSink) and cannot be re-run; a CLI duplicates the layer wiring and adds a 'did you run it' step to cut-over. Upstream's own importer is a startup phase"],
+    ["D3", "Lineage re-emit and session binding apply to archived threads too; only the sidecar row is scoped to non-archived", "Apply all three only to non-archived threads", "lineage and binding are thread facts: without them an archived child floods the archived sidebar list and an unarchived root forgets everything — both silent"],
+    ["D4", "planned maps to held only for a child that has never started; a started planned thread (goal_handoff and thread_fork roots, or a child that ran) is not held", "The strategy's and Phase 2's bare planned → held 1", "V1 leaves planned untouched on turn start by design, so most goal-handoff roots are planned with hundreds of turns; an imported root with kickoffAt can never be released by the human rule"],
+    ["D5", "A dependency or route whose target gets no sidecar row is dropped with a ledger warning and a pre-boot list", "Keep it and let the brief-needed / deadlock advisory surface it", "an unsatisfiable dependency wedges its dependent silently until someone reads an advisory; the pre-boot list gives Carl the same information before anything can wedge"],
+    ["D6", "Attention is emptied on terminal outcomes at import", "Copy stored attention verbatim as the strategy says", "V1's own rule clears attention on a terminal lane and the V2 arm forbids flagging a terminal thread; re-asserting it costs nothing and makes verify.sql C hold"],
+    ["D7", "last_outcome is carried with eventId null; the Phase 2 WorkOutcomeRecord.eventId must be NullOr(EventId)", "Mint a synthetic eventId", "the digest rail keys on the stamp; a synthetic one would make imported terminal children look like news. Phase 2 §5 already says the stamp is null; its type must say so too — a one-line contract change for the Phase 2 or 3b coder"],
+    ["D8", "One upstream hunk suppresses the legacy-import handoff when the native ref is strong", "Accept the duplicate transcript prefix once per imported thread", "a silent, permanent 32,000-character duplicate on every imported thread's next turn is exactly the class of waste nobody notices; the hunk is a pure-function clause and improves upstream's own AgentSessionImporter path"],
+    ["D9", "The importer fixes the provider instance to pi when a pi session file exists and upstream's codex fallback applied", "Leave the thread as codex and let the binding be skipped as not-pi", "a Loom thread with a pi session is a pi thread; leaving it would make its next turn spawn Codex"],
+    ["D10", "Session files are byte copies into ~/.t3/qa-pull9/pi-sessions keyed by the same slug/file names; bindings name those absolute paths; new QA sessions go to pi's default root under QA slugs", "Override pi's agent directory for the QA server; or copy sessions into ~/.pi/agent/sessions under new names", "an agent-dir override loses Carl's global skills, extensions and auth unless they are copied too; new names in the global root pollute every /resume list and usage scan. switch_session takes an absolute path, so the copy can live anywhere"],
+    ["D11", "QA clones have push disabled (origin push URL = DISABLED) and fetch from GitHub", "Leave origin at the local clone source (/home/Carl/loom) or at GitHub with push", "a QA shipper has agent merge authority; with push to the local source it would push into Carl's main checkout, with push to GitHub it could merge a QA PR into main"],
+    ["D12", "No secrets are copied except the cliproxy usage-limit source credential", "Copy the secrets directory", "server-signing-key, cli-token and the cloud-link key pair are instance identity; a QA holding production's cloud-link pair impersonates it"],
+    ["D13", "The server runs from a dedicated build clone under the QA home, as a transient systemd user unit", "Run from the Phase 4 orchestrator's worktree with pnpm dev", "a thread's worktree is reaped when it settles and Carl will use QA for days; the dev runner's port-scoped homes and ambient env are for agent verification, not a soak"],
+    ["D14", "notify_send_log is reset to [] at import", "Rebuild it from loom_thread_peer_messages", "the hourly cap is a rate limit, not history; resetting it once is harmless"],
+    ["D15", "An unstarted child whose brief file is missing is imported unbriefed (kickoff_brief_path null); one with brief text and no path gets its brief written to a file", "Keep the dangling path", "the dispatcher would kick off a thread and fail to read its brief; writing the text to the new home's briefs directory is the one file write the importer makes, and only into its own state directory"],
+  ]}
+/>
+
+## Work breakdown
+
+<Checklist
+  items={[
+    { "id": "w1", "label": "Migration 1049 + the importer module: scope rules, mapLegacyThread (pure), the session index, lineage re-emit, binding, provider fix, ledger; the startup pipe hunk; the shouldPrepareLegacyImportHandoff hunk; the WorkOutcomeRecord.eventId NullOr change if Phase 2/3b has not made it", "note": "apps/server/src/loom/legacy/, serverRuntimeStartup.ts, Orchestrator.ts, packages/contracts" },
+    { "id": "w2", "label": "Fixture test (gate g-fixture); typecheck; unmarkedsweep" },
+    { "id": "w3", "label": "scripts/pull9-qa: build-home.sh (snapshot, counts-in, relocate, copy, session manifest + rsync, clones with push disabled, pre-boot gate, build), materialise-worktree.sh, start.sh, stop.sh, preview.sql, verify.sql", "note": "Every production path opened read-only; the script refuses an existing QA home and refuses to run if its target path is under ~/.t3/cockpit" },
+    { "id": "w4", "label": "Build the QA world; boot; observe copy and ledgers; verify.sql; materialise two worktrees; the remember-check with the cwd and resume-log assertions; idempotent relaunch", "note": "§2, gates g-precondition through g-idempotent. Browser use for the remember-check is authorised by this plan's purpose (the dev-verify recipe's pairing path)" },
+    { "id": "w5", "label": "Walk §5 once as a dry run (spawn, dependency, gate, notify, question, consult, restart) so Carl's first walk is not the first time the instance meets a new workstream; record what the orchestrator saw in the hand-off doc", "note": "Anything that fails here is a Phase 3 defect to report to the parent, not something to patch in Phase 4" },
+    { "id": "w6", "label": "Write docs/upstream-sync/30-pull9-phase4-qa-guide.md; leave the unit running; report with the review lists, the gate evidence and the two runbook lines for Carl to paste" },
+  ]}
+/>
+
+<Callout tone="risk">
+**Risks.** (1) *The cwd override is the one precondition that fails dangerously*: without it, continuing an imported thread runs pi in production's live worktree; gate g-precondition is checked before step b7, and the `pwd` observable confirms it on the real path. (2) *Relocation misses a path column* — the schema grep and the `LIKE '%/.t3/cockpit/%'` assertion across all TEXT columns are the net; a guard line at boot is the second net; both mean stop. (3) *Session copy size and time* — the manifest copy is bounded by the number of non-deleted threads, not the 7.6 GB sessions root, but could still be gigabytes; the script reports before copying. (4) *Upstream's lazy transcript hydration* runs for minutes in the background on a 6 GB copy; opening an imported thread before its transcript is hydrated shows a partial timeline — wait for the hydration log line before the remember-check. (5) *`held` retirement* lands between this plan and the build: the importer's `planned` branch collapses to "not held" and verify.sql B's held pair becomes 0 = 0; nothing else changes. (6) *Imported control messages read as human* — cosmetic now; listed in §4 for a decision. (7) *QA spends real quota* through the same cliproxy accounts as production; a long soak competes with Carl's live work.
+</Callout>
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "qa-projects",
+      title: "Which project repositories should the QA world clone so their threads can run agents?",
+      subtitle: "The QA instance rewrites every project's root to a clone under the QA home; a project that is not cloned stays read-only there (its threads open and show history, but no agent can run in it). Cloning is cheap (a local clone hard-links objects) but each clone is a repository Carl's QA agents can modify.",
+      refs: [{ label: "The relocation — QA only, never at cut-over", anchor: "the-relocation-qa-only-never-at-cut-over" }],
+      mode: "single",
+      options: [
+        { id: "loom-only", label: "Only the loom repository — every smoke scenario runs there", recommended: true, detail: "Smallest QA world; fathom and the other projects are browsable but inert." },
+        { id: "loom-fathom", label: "loom and fathom-platform", detail: "Lets Carl exercise an imported fathom workstream too; fathom's worktree setup script (ensure_worktree_ready.sh, a Poetry bootstrap) runs on materialised worktrees." },
+        { id: "all", label: "Every project that has a live thread", detail: "Maximum fidelity; ~11 clones; more surfaces an agent can touch inside the QA home." },
+      ],
+    },
+    {
+      id: "attachments",
+      title: "Copy the 1.9 GB attachments directory into the QA world so imported timelines show their images?",
+      subtitle: "Attachments are referenced by imported messages and read from the state directory; without the copy, image chips in imported threads render broken, and nothing else changes.",
+      mode: "single",
+      options: [
+        { id: "skip", label: "No — accept broken image chips in imported threads", recommended: true, detail: "Saves 1.9 GB and copy time; no scenario in the smoke depends on an attachment." },
+        { id: "copy", label: "Yes — copy attachments too", detail: "Imported timelines look exactly as in production." },
+      ],
+    },
+  ]}
+/>
