@@ -632,6 +632,7 @@ describe("rightPanelStore", () => {
           ],
         },
       },
+      threadPanelVisibilityByThreadKey: {}, // loom: upstream's persisted visibility map (DL-175)
     });
   });
 
@@ -662,6 +663,7 @@ describe("rightPanelStore", () => {
           surfaces: [],
         },
       },
+      threadPanelVisibilityByThreadKey: {}, // loom: upstream's persisted visibility map (DL-175)
     });
   });
 

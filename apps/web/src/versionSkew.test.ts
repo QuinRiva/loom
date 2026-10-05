@@ -239,6 +239,7 @@ describe("versionSkew", () => {
     expect(supportsDesktopAppUpdate(null)).toBe(false);
   });
 
+  // loom: guidance names the server (two-arg serverUpdateGuidance, DL-119)
   it("matches version-drift guidance to the advertised update path", () => {
     expect(serverUpdateGuidance("respawn", "Remote server")).toBe(
       "Update the Remote server so they stay in sync.",

@@ -21,6 +21,7 @@ const clientSettings: ClientSettings = {
   notificationMode: "notifications-and-sound",
   inAppNotificationsEnabled: true,
   appearanceContrast: 100,
+  // loom: Loom client settings (settings.loom.ts) — no reader in Phase 1 (DL-169)
   autoOpenGoalTasksPanel: true,
   autoOpenWorkstreamPanel: true,
   browserDefaultViewport: { _tag: "preset", width: 1024, height: 600, presetId: "nest-hub" },

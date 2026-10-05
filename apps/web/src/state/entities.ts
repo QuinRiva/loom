@@ -275,8 +275,9 @@ export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
 }
 
+// loom: thread-detail sync error surface (DL-118)
 /**
- * loom: the diagnostic from the thread-detail subscription's last failed
+ * The diagnostic from the thread-detail subscription's last failed
  * attempt, or null. Upstream exposes the atom but renders it nowhere, so a
  * failed subscription sits behind "Loading messages..." with no explanation.
  */

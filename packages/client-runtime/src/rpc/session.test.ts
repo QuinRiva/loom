@@ -144,7 +144,7 @@ const SERVER_CONFIG: ServerConfigType = {
   issues: [],
   providers: [],
   availableEditors: [],
-  remoteEditorSshHost: null,
+  remoteEditorSshHost: null, // loom: remote editor SSH host on ServerConfig
   observability: {
     logsDirectoryPath: "/tmp/logs",
     localTracingEnabled: false,

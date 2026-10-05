@@ -25,7 +25,7 @@ import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
 import * as ServerConfig from "./config.ts";
 
 import {
-  assetCacheControl,
+  assetCacheControl, // loom: artefact-viewer cache control
   assetResponseHeaders,
   browserApiCorsLayer,
   assetFileResponse,
@@ -600,6 +600,7 @@ describe("http dev routing", () => {
   });
 });
 
+// loom: artefact-viewer reload revalidates mutable workspace assets (assetCacheControl)
 describe("asset cache control", () => {
   it("forces revalidation for mutable workspace-backed assets", () => {
     // Guarantees an artefact-viewer reload refetches changed subresources

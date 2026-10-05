@@ -3,7 +3,7 @@ export type ModelEsque = {
   name: string;
   shortName?: string | undefined;
   subProvider?: string | undefined;
-  /** loom: excluded by the instance's model preferences — see `AppModelOption.excluded`. */
+  // loom: excluded by the instance's model preferences — see `AppModelOption.excluded`.
   excluded?: boolean | undefined;
   aliases?: ReadonlyArray<string> | undefined;
   isDefault?: boolean | undefined;

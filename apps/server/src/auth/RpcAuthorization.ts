@@ -139,10 +139,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeProjectClones]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
-  [WS_METHODS.projectsReadAbsoluteFile]: AuthOrchestrationReadScope, // loom
-  [WS_METHODS.projectsListAbsoluteDirectory]: AuthOrchestrationReadScope, // loom
-  [WS_METHODS.projectsStatPaths]: AuthOrchestrationReadScope, // loom
-  [WS_METHODS.projectsLocateFiles]: AuthOrchestrationReadScope, // loom
+  // loom: out-of-workspace file chips (DL-89)
+  [WS_METHODS.projectsReadAbsoluteFile]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectsListAbsoluteDirectory]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectsStatPaths]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectsLocateFiles]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsWriteFile]: AuthOrchestrationOperateScope,
