@@ -63,6 +63,10 @@ export function withCreationProvenance(
 export function existingThreadIdsForCommand(
   command: OrchestrationV2ServerCommand,
 ): ReadonlyArray<ThreadId> {
+  // loom: a spawn's child does not exist yet — hydrate its parent (none for a staged root)
+  if (command.type === "thread.spawn") {
+    return command.parentThreadId === null ? [] : [command.parentThreadId];
+  }
   switch (command.type) {
     case "thread.create":
       return [];

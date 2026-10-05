@@ -6,6 +6,7 @@ import type {
   Project,
   ThreadId,
 } from "@t3tools/contracts";
+import { isLoomEventType } from "@t3tools/contracts"; // loom:
 import {
   RelayApi,
   type RelayAgentActivityPublishProofPayload,
@@ -87,6 +88,8 @@ export function shouldPublishAgentAwarenessEvent(
   ) {
     return false;
   }
+  // loom: Loom events change only the sidecar, which agent awareness does not read
+  if (isLoomEventType(event.type)) return false;
   // projectThreadAwarenessV2 reads thread metadata, run status, pending requests,
   // and pending background work (a finished subagent, a cleared roster, or an
   // ended background item can release a held completion). Message bodies and

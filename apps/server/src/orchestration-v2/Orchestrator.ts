@@ -50,6 +50,8 @@ import {
   ThreadLinkedPullRequest,
   ThreadId,
   type TurnItemId,
+  isLoomCommand, // loom:
+  loomCommandThreadId, // loom:
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
@@ -372,6 +374,7 @@ export function isNativeMaintenanceCommand(message: {
 const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
 
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
+  if (isLoomCommand(command)) return loomCommandThreadId(command); // loom: spawn/scaffold/dependencies.set lock the parent
   switch (command.type) {
     case "thread.create":
     case "thread.archive":
@@ -4506,6 +4509,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.dispatchMode,
         command.deliveryIntent,
       );
+      // loom: start_if_idle placeholder until A3's dispatchMessage hunk defers or resolves it
+      if (dispatchMode.type === "start_if_idle") {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "start_if_idle not yet wired (A3)",
+        });
+      }
       if (dispatchMode.type === "steer_active") {
         const targetRunId = dispatchMode.targetRunId;
         const target = projection.runs.find((run) => run.id === targetRunId);
@@ -9449,6 +9460,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           readonly reason: string;
         }
       | undefined;
+    // loom: delegation guard arm — every Loom command decides in Orchestrator.loom.ts (A3 wires it)
+    if (isLoomCommand(command)) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Loom decider not yet wired (A3)",
+      });
+    }
     switch (command.type) {
       case "thread.create":
         yield* dispatchThreadCreate(command, events);

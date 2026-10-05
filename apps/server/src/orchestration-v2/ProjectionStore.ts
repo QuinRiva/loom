@@ -54,6 +54,7 @@ import {
   ThreadId,
   TurnItemId,
   NodeId,
+  isLoomDomainEvent, // loom:
 } from "@t3tools/contracts";
 import {
   createOrchestrationV2TurnItemVisibility,
@@ -647,6 +648,8 @@ export function applyToProjection(
     updatedAt: event.occurredAt,
   };
 
+  // loom: Loom events change only the sidecar tables, never this projection
+  if (isLoomDomainEvent(event)) return base;
   switch (event.type) {
     case "thread.created":
     case "thread.archived":
