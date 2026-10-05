@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
+import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 
 /** Provider sweeps merged into the provider runtime layer. */
@@ -39,3 +40,10 @@ export const LoomProviderHealthLive = ProviderHealthRegistryLive;
 export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
   Layer.provideMerge(LoomStore.layer),
 );
+
+/**
+ * The open-session composer `ProviderSessionManager` asks for each thread's
+ * prompt, skills and extensions (driver plan §4). Empty until Phase 3a re-points
+ * this one export at the real composer.
+ */
+export const LoomSessionComposerLive = LoomSessionComposerDefaultLive;

@@ -52,6 +52,7 @@ import {
   FOREIGN_HOME_REFUSAL_DETAIL,
   refuseForeignHomeSideEffect,
 } from "../workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-81)
+import { LoomSessionComposer } from "../loom/prompt/sessionComposer.ts"; // loom: Area G
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -327,6 +328,7 @@ export const layerWithOptions = (
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const sessionComposer = yield* LoomSessionComposer; // loom: Phase 3a's composer, empty by default
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
           if (Option.isNone(serverSettings)) return { browser: true, device: false };
@@ -1751,6 +1753,18 @@ export const layerWithOptions = (
                     }),
                 ),
               );
+              // loom: compose before the MCP credential reservation and the session scope exist, so a
+              // composer failure has nothing to release (DL-201: one call, no LoomStoreV2 reads here)
+              const loom = yield* sessionComposer.compose(input.threadId).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSessionOpenError({
+                      instanceId: input.modelSelection.instanceId,
+                      providerSessionId: input.providerSessionId,
+                      cause,
+                    }),
+                ),
+              );
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
@@ -1774,6 +1788,7 @@ export const layerWithOptions = (
                   providerSessionId: input.providerSessionId,
                   modelSelection: input.modelSelection,
                   runtimePolicy: input.runtimePolicy,
+                  loom, // loom: the composed prompt, skills and extensions ride the open input (Area G)
                   ...(input.resumeFromSession === undefined
                     ? {}
                     : { resumeFromSession: input.resumeFromSession }),
