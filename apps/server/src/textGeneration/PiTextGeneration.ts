@@ -73,16 +73,16 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,
-        // No user is present to answer a text-generation extension dialog.
-        disableExtensions: true,
+        // loom: extensions stay on — extension-registered providers (cliproxy)
+        // carry PI_DEFAULT_MODEL, which fails `set_model` under --no-extensions.
+        // Tools stay off and the session is ephemeral, so nothing mutates the
+        // workspace; dialogs are cancelled below since no user is present.
+        disableExtensions: false,
         // Background naming/content helpers must never mutate the workspace.
         disableTools: true,
       });
       const connection = yield* makePiRpcConnection({
         command: piSettings.binaryPath || "pi",
-        // Extensions and tools are disabled because no user is present to
-        // answer a dialog and background text generation is read-only. User
-        // model config and auth still apply.
         args: launch.args,
         cwd,
         env: launch.env,
@@ -111,6 +111,18 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         while (true) {
           const event = yield* Queue.take(connection.events);
           if (event["type"] === "agent_settled") return;
+          // loom: cancel extension dialogs (select/confirm/input/editor) rather
+          // than stall to the timeout; fire-and-forget methods carry no reply.
+          if (
+            event["type"] === "extension_ui_request" &&
+            ["select", "confirm", "input", "editor"].includes(String(event["method"]))
+          ) {
+            yield* connection.send({
+              type: "extension_ui_response",
+              id: event["id"],
+              cancelled: true,
+            });
+          }
         }
       });
       const data = yield* connection.request({ type: "get_last_assistant_text" });

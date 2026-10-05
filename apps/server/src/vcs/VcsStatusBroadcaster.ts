@@ -30,6 +30,7 @@ import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { refuseForeignHomeSideEffect } from "../workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-191)
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
 // Spread the steady-state poll cadence so pollers for different worktrees whose
@@ -446,6 +447,11 @@ export const make = Effect.gen(function* () {
         remote.behindCount <= 0 ||
         !autoPullEnabled
       ) {
+        return null;
+      }
+      // loom: a status-poll pull rewrites a checkout this home may not own when
+      // the server booted on another home's database copy (DL-188/DL-191).
+      if (yield* refuseForeignHomeSideEffect("VcsStatusBroadcaster.maybeAutoPull", cwd)) {
         return null;
       }
 

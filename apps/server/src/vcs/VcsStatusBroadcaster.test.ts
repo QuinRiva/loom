@@ -28,6 +28,7 @@ import * as VcsStatusBroadcaster from "./VcsStatusBroadcaster.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
+import { setForeignDatabaseForTest } from "../workspace/foreignHomeGuard.loom.ts"; // loom: DL-191
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
@@ -213,6 +214,54 @@ describe("VcsStatusBroadcaster", () => {
       }).pipe(Effect.provide(testLayer));
     },
   );
+
+  // loom: a server booted on another home's database copy must not pull that
+  // home's live checkout from the status poll (DL-188/DL-191).
+  it.effect("refuses the automatic pull when the foreign-home guard is engaged", () => {
+    let pullCalls = 0;
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
+      Layer.provide(
+        Layer.succeed(VcsStatusBroadcaster.VcsAutoPullPolicy, {
+          isEnabled: () => Effect.succeed(true),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
+          localStatus: () =>
+            Effect.succeed({ ...baseLocalStatus, isDefaultRef: true, refName: "main" }),
+          remoteStatus: () => Effect.succeed({ ...baseRemoteStatus, behindCount: 2 }),
+          invalidateLocalStatus: () => Effect.void,
+          invalidateRemoteStatus: () => Effect.void,
+          invalidateStatus: () => Effect.void,
+          pullCurrentBranch: () =>
+            Effect.sync(() => {
+              pullCalls += 1;
+              return { status: "pulled" as const, refName: "main", upstreamRef: "origin/main" };
+            }),
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          setForeignDatabaseForTest({
+            worktreesDir: "/this-home/worktrees",
+            recordedExample: "/other-home/worktrees/repo",
+          }),
+        ),
+        () => Effect.sync(() => setForeignDatabaseForTest(null)),
+      );
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const status = yield* broadcaster.refreshStatus("/repo");
+
+      assert.equal(pullCalls, 0);
+      assert.equal(status.behindCount, 2);
+    }).pipe(Effect.scoped, Effect.provide(testLayer));
+  });
 
   it.effect("reuses the cached VCS status across repeated reads", () => {
     const state = {
