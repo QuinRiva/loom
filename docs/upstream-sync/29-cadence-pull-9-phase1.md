@@ -1023,7 +1023,9 @@ mkdir -p .t3/smoke-a/userdata && rm -f .t3/smoke-a/userdata/state*.sqlite*
 # eta: 5m — 6 GB VACUUM INTO
 bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/cockpit/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '.t3/smoke-a/userdata/state.sqlite'\")"
 # do NOT copy settings.json or secrets into (A): nothing here needs them, and the cockpit's
-# settings carry defaultAutoPull: true for a live project (the refusal below must fire regardless)
+# settings carry defaultAutoPull: true for a live project. With no settings, upstream's autoPullProjects
+# filters every project out BEFORE the guard call, so (A) cannot exercise the refusal without aiming a
+# real pull at a live checkout; the refusal hunk is checked in code instead (evidence below)
 ls -la .t3/smoke-a/userdata/    # state.sqlite present, NO statev2.sqlite yet
 # 2. build and boot on a spare port; capture the PID
 pnpm build
@@ -1036,10 +1038,14 @@ SMOKE_A_PID=$!
 
 Evidence, in order: the startup log names the home rule and the
 **foreign-home guard engaged** line (DL-81 — the copy records the cockpit's
-worktree paths); the guard's **`autoPullProjects.pullCurrentBranch` refusal
-warning** appears (MF-2 of the review: the only guard on `git pull`; if it
-does not appear, stop — either the re-applied hunk is missing or auto-pull
-did not run, and the log must say which); **no provider session was opened**
+worktree paths); **no `git pull` ran** (auto-pull selects no project: no settings were
+copied, so `defaultAutoPull` resolves `false` for every project and upstream's
+`autoPullProjects` filters them out before the guard is consulted — no
+refusal line is expected, and its absence is not a failure); the re-applied
+refusal is proven in code instead: `rg -n 'autoPullProjects.pullCurrentBranch'
+apps/server/src/serverRuntimeStartup.ts` hits inside upstream's relocated
+`autoPullProjects`, ahead of `git.statusDetails`, marked `// loom:` (MF-2 of the
+review: the only guard on `git pull`; if the hit is missing, stop); **no provider session was opened**
 (`grep -c` of the session-open refusal or of any pi spawn = 0);
 `initializeV2Database` created `statev2.sqlite` next to `state.sqlite`
 (size ≈ the copy); `effect_sql_migrations` max = 056 and
@@ -1123,7 +1129,7 @@ marked **(not gap-eligible)** cannot be gapped.
 - [ ] **Structural composition audit** vs upstream: `server.ts` layer roots = upstream's + the surviving Loom provider layers + nothing else; `ws.ts` RPC handler map = upstream's V2 map; `bin.ts` subcommands = upstream's; contracts barrel = upstream's; every workspace `package.json` dependency line; plain-node `import('@t3tools/contracts')`
 - [ ] **Lost-feature audit**: every `// loom:` marker present at `pre_merge_oid` in any overlap file is present at HEAD, in `quarantine/`, or in an Appendix C / §10 row; `git diff --name-only --diff-filter=D ${pre_merge_oid}..HEAD` ⊆ upstream's 176 deletions ∪ Appendix C _deleted with upstream_ / PR-4
 - [ ] **Clean-overlap semantic review** (not gap-eligible): all 116 auto-merged both-modified files classified in `29-clean-overlap-review.md` (doc 27's format); `ChatMarkdown.tsx` and `pullRequestList.logic.ts` eyeballed
-- [ ] **Boot smoke (A) — copy of the live database, read-only** (not gap-eligible; §8 S4): foreign-home guard engaged; the `autoPullProjects.pullCurrentBranch` refusal logged; no provider session opened; `statev2.sqlite` created once from `state.sqlite`; both migration ledgers at their maxima in the new file; legacy-import rows present; sidebar browses read-only; relaunch idempotent (zero migrations, no re-copy); `state.sqlite` unmodified; only captured PIDs killed
+- [ ] **Boot smoke (A) — copy of the live database, read-only** (not gap-eligible; §8 S4): foreign-home guard engaged; no `git pull` ran and the `autoPullProjects.pullCurrentBranch` refusal is present in upstream's relocated `autoPullProjects` (checked in code — with no settings copied, auto-pull selects no project); no provider session opened; `statev2.sqlite` created once from `state.sqlite`; both migration ledgers at their maxima in the new file; legacy-import rows present; sidebar browses read-only; relaunch idempotent (zero migrations, no re-copy); `state.sqlite` unmodified; only captured PIDs killed
 - [ ] **Boot smoke (B) — fresh empty home, the adapter** (not gap-eligible; §8 S4): guard off; a scratch project + Pi thread; one turn completes through `PiAdapterV2` with `pi` 0.99.2 from `PATH`; a kill mid-turn produces exactly one automatic continuation (DL-86) with no duplicate; a later message continues the same pi session; rollback works; only captured PIDs killed
 - [ ] **Worktree-setup smoke** (DL-73 survives; on instance B): a thread created in a worktree of the scratch repository writes `t3code-setup-state.json` → `ready`; the idle shell closes on exit 0
 - [ ] `vp test` for touched packages: upstream's suites green; Loom suites that moved to quarantine are not run; no Loom test faked green
