@@ -334,8 +334,11 @@ export interface StartNode { readonly id: ThreadId; readonly parentThreadId: Thr
   readonly outcome: "done" | "cancelled" | null; readonly kickoffAt: string | null; readonly kickoffBriefPath: string | null;
   readonly blockedBy: ReadonlyArray<ThreadId>; readonly archivedAt: string | null; readonly deletedAt: string | null; }
 
+// DL-211: delegates to workstreamDependencies' V1 rule — only a known same-parent sibling whose outcome
+// is not done gates; self, dangling and non-sibling ids never do. Callers pass a sibling map that
+// INCLUDES archived rows (an archived done dependency still releases); deleted rows are excluded.
 export const dependenciesSatisfied = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
-  node.blockedBy.every((id) => byId.get(id)?.outcome === "done");
+  areDependenciesSatisfied(node, byId);
 
 /** The one start rule: dispatcher promotion, first-turn gate and the board's "ready" column all read this. */
 export const isEligibleToStart = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
@@ -673,6 +676,7 @@ The strategy's inventory is the surface that conflicts on every future pull; thi
     ["project/ProjectService.ts — deleteProject", "ADDED (one line)", "replaces the 'project deletion path' row: goals are soft-deleted after child threads"],
     ["ws.ts — loadSnapshot goals; goal PubSub merged into the live shell stream; Loom events filtered out of the per-thread client event stream", "ADDED", "the goal broadcast and reconnect refetch (Area E); older and store-built mobile clients decode the thread stream with a closed union and would fail on a Loom event — the web reads shell.workstream and needs none of them (3d may lift the filter for a card that does)"],
     ["serverRuntimeStartup.ts — one call to loomRecoveryPolicy.releaseHeldQueues after upstream's reconciliation", "ADDED", "the held-queue release for Loom threads (beside Phase 1's foreign-home-guard line)"],
+    ["packages/contracts/src/index.ts; packages/shared/package.json", "ADDED (A1)", "index.ts re-exports orchestrationV2.loom.ts (one marked line); package.json gains the workstreamGraph / workstreamDependencies / workstreamStart.loom subpath exports (JSON carries no marker; below the sweep threshold)"],
     ["packages/contracts/src/orchestrationV2.ts", "AMENDED: adds the command and event union splices (OrchestrationV2DomainEvent AND the hand-written OrchestrationV2DomainEventJson at :2333 — both event bases are non-exported, so both are factory splices), loom?: on message.dispatch / ConversationMessage, workstream?: on ThreadShell, goals?: on ShellSnapshot", "a Loom event can only enter V2's log as a union member; the row previously named start_if_idle, the shell/stream union and controlPayload"],
     ["orchestration-v2/ProviderRuntimeRecoveryService.ts / RestartContinuation.ts", "REMOVED", "no seam exists between reconciliation and continuation (one commitCommand carries both); the not-continued veto is rule 0 of the dispatchMessage hunk on restartContinuationOfRunId, and the held-queue release is a startup pass"],
     ["orchestration-v2/Orchestrator.ts — runtime-request.respond case", "unchanged row, but lands in Phase 3a with runtime-request.create", "the live-waiter hunk has nothing to route to before the Loom question tool exists"],

@@ -7,6 +7,7 @@ import {
   createOrchestrationV2TurnItemVisibility,
   isOrchestrationV2TurnItemVisible,
 } from "@t3tools/shared/orchestrationV2Timeline";
+import { isLoomDomainEvent } from "@t3tools/contracts"; // loom:
 
 export type ApplyOrchestrationV2ProjectionEventOptions = {
   readonly partialTimeline?: boolean;
@@ -160,6 +161,9 @@ export function applyOrchestrationV2ProjectionEvent(
   const partialTimeline = options?.partialTimeline === true;
   const latestLocalTurnOrdinal = options?.latestLocalTurnOrdinal;
   const base = { ...projection, updatedAt: event.occurredAt };
+  // loom: Loom events change only the server's sidecar, never this projection;
+  // they still count as thread activity, like the server's updatedAt bump.
+  if (isLoomDomainEvent(event)) return base;
   switch (event.type) {
     case "thread.created":
     case "thread.archived":
