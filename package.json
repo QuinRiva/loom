@@ -12,6 +12,7 @@
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
     "dev:seed": "node apps/server/src/dev/seedWorkstream.ts",
     "dev:seed:verify": "node apps/server/src/dev/verifySeed.ts",
+    "dev:search-eval": "node apps/server/src/dev/threadSearchEval.loom.ts",
     "migrate-dev-db": "node apps/server/scripts/migrate-dev-db.ts",
     "start": "vp run --filter t3 start",
     "cockpit": "T3CODE_HOME=\"${T3CODE_HOME:-$HOME/.t3/cockpit}\" T3CODE_PORT=\"${T3CODE_PORT:-13900}\" node apps/server/dist/bin.mjs",
