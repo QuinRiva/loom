@@ -2041,10 +2041,18 @@ function OpenCommandPaletteDialog(props: {
         }
         // The server stops the process after accepting the command. A failed
         // stop shows in the thread.
+        // loom: on Pi the next message resumes the same conversation from its
+        // session file in a new pi process, so "fresh session" would mislead.
+        const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+        const isPi =
+          providerEntryByEnvironmentAndInstanceId.get(`${environmentId}:${instanceId}`)
+            ?.driverKind === "pi";
         toastManager.add({
           type: "success",
           title: "Agent session will restart",
-          description: "Your next message starts a fresh session.",
+          description: isPi // loom
+            ? "Pi will restart; your next message continues this conversation with freshly loaded extensions and skills."
+            : "Your next message starts a fresh session.",
         });
         const project = projectByKey.get(`${environmentId}:${thread.projectId}`);
         if (!project) return;
