@@ -3117,6 +3117,7 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        // loom: out-of-workspace file chips (DL-89): read, list, stat, locate.
         [WS_METHODS.projectsReadAbsoluteFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsReadAbsoluteFile,
@@ -3459,7 +3460,7 @@ const makeWsRpcLayer = (
             gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
-        // loom: detached in pull 9, ledger DT-45 (the workspace-lease gate on this remover).
+        // loom: detached in pull 9, ledger DT-59 (the workspace-lease gate on this remover).
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,

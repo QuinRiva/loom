@@ -87,7 +87,6 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
-import { FailoverSettingsPanel } from "./FailoverSettingsCard"; // loom:
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
@@ -1330,8 +1329,7 @@ export function EnvironmentProviderSettings({
         readOnly={readOnly}
       />
 
-      {/* loom: cross-provider failover, per environment (its server applies it) */}
-      <FailoverSettingsPanel environmentId={environmentId} readOnly={readOnly} />
+      {/* loom: cross-provider failover panel detached in pull 9, ledger DT-92 (nothing routes on it) */}
 
       <SettingsSection title="Advanced">
         <SettingsRow

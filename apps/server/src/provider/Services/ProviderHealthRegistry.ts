@@ -39,7 +39,6 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   type AccountUsageSnapshot,
   type AccountUsageWindow,
@@ -260,7 +259,6 @@ export const activeMarks = (
 export const ProviderHealthRegistryLive = Layer.effect(
   ProviderHealthRegistry,
   Effect.gen(function* () {
-    const settings = yield* ServerSettingsService;
 
     const usageRef = yield* Ref.make<ReadonlyMap<string, AccountUsageSnapshot>>(new Map());
     const telemetryRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
@@ -361,29 +359,10 @@ export const ProviderHealthRegistryLive = Layer.effect(
         yield* publish;
       });
 
-    // Settings subscription: track paused accounts (initial + on change).
-    // Unpausing an account drops its error-sourced marks so the manual escape
-    // hatch works as documented (§4.4): "pause + unpause forces re-derivation
-    // from current telemetry". Telemetry marks are already live (rebuilt every
-    // stream tick), so clearing the error marks is what makes a wrong automatic
-    // mark disappear immediately instead of lingering until its TTL.
-    const applyPaused = (pausedAccounts: ReadonlyArray<string>) =>
-      Effect.gen(function* () {
-        const next = new Set(pausedAccounts);
-        const prev = yield* Ref.get(pausedRef);
-        yield* Ref.update(errorRef, (marks) => dropUnpausedErrorMarks(marks, prev, next));
-        yield* Ref.set(pausedRef, next);
-        yield* publish;
-      });
-    yield* settings.getSettings.pipe(
-      Effect.flatMap((s) => applyPaused(s.providerFailover.pausedAccounts)),
-      Effect.ignore,
-    );
-    yield* Effect.forkScoped(
-      settings.streamChanges.pipe(
-        Stream.runForEach((s) => applyPaused(s.providerFailover.pausedAccounts)),
-      ),
-    );
+    // Pull 9 (ledger DT-92): the `providerFailover.pausedAccounts` subscription is
+    // detached. Nothing routes on a manual mark once the failover consumers are
+    // quarantined, and the settings card that set and cleared it is gone too, so
+    // a stored pause would be a warning nobody could lift. `pausedRef` stays empty.
 
     return {
       applyUsage,

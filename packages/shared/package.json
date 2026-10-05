@@ -159,10 +159,6 @@
       "types": "./src/orchestrationTiming.ts",
       "import": "./src/orchestrationTiming.ts"
     },
-    "./notify": {
-      "types": "./src/notify.ts",
-      "import": "./src/notify.ts"
-    },
     "./remote": {
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
@@ -255,10 +251,6 @@
       "types": "./src/planCommentAnchor.loom.ts",
       "import": "./src/planCommentAnchor.loom.ts"
     },
-    "./consultActivity.loom": {
-      "types": "./src/consultActivity.loom.ts",
-      "import": "./src/consultActivity.loom.ts"
-    },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
       "import": "./src/composerContextLegacy.ts"
@@ -331,17 +323,9 @@
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
     },
-    "./providerFailover": {
-      "types": "./src/providerFailover.ts",
-      "import": "./src/providerFailover.ts"
-    },
     "./userInputQuestions": {
       "types": "./src/userInputQuestions.ts",
       "import": "./src/userInputQuestions.ts"
-    },
-    "./openRequests": {
-      "types": "./src/openRequests.ts",
-      "import": "./src/openRequests.ts"
     },
     "./devHome": {
       "types": "./src/devHome.ts",
