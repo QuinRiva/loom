@@ -330,6 +330,14 @@ For each future fork change, ask: _is this generally useful, or Pi-specific?_
 - **Pi-specific (delegation, goals/tasks, multi-session)** → **isolate it** in Pi-owned
   modules behind a minimal seam, per §4.2.
 
+And at every pull, for each loom hunk that differs from upstream's approach, ask
+**who decided the difference**. Carl decides _functionality_; an agent often chose the
+_mechanism_ (a palette, a retry ladder, a runner shape) incidentally while delivering it.
+Preserve the intent, not the incidental choice: where upstream now expresses the same
+functionality, upstream's mechanism is the baseline and loom's variant is deleted, however
+much work it represented. Pull 8's DL-73 (setup runner) and DL-79 (an agent-chosen
+always-dark palette that left light theme broken for months) are the worked examples.
+
 ### 4.4 Migrations need no special handling (since the lane split)
 
 **Take upstream's `Migrations.ts` and its migration files verbatim. Do not

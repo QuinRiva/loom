@@ -106,6 +106,11 @@ run `pnpm ship -m "<summary>" --merge-only`. In order, the script:
   `main` checked out elsewhere, so `--delete-branch` fails mid-way and leaves the
   remote branch undeleted. Delete the remote branch explicitly _after_ a
   confirmed merge, which is what the script does.
+- **Stacked PRs: retarget before you delete the base.** After merging the
+  bottom PR of a stack, run `gh pr edit <next> --base main` _before_ deleting
+  the merged branch. GitHub does not reliably retarget a dependent PR when its
+  base branch disappears — it closed #324 during pull 8, and a closed PR's base
+  cannot be changed (recovery meant re-pushing the deleted head temporarily).
 - **`gh repo set-default QuinRiva/loom` is mandatory.** This clone has an
   `upstream` remote (`pingdotgg/t3code`). Without the `set-default` (or an
   explicit `--repo QuinRiva/loom` on every `gh pr` call), `gh` resolves the PR
