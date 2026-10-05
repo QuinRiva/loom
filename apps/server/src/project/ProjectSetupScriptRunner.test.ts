@@ -77,7 +77,8 @@ it.effect("resolves setup scripts through the standalone project service", () =>
       projectId,
       worktreePath: "/repo-worktree",
     });
-    assert.deepEqual(result, {
+    // loom: deepInclude — every run is observed (the breadcrumb), so `completion` is present too.
+    assert.deepInclude(result, {
       status: "started",
       async: true,
       scriptId: "setup",
@@ -94,7 +95,11 @@ it.effect("resolves setup scripts through the standalone project service", () =>
       NO_COLOR: "1",
       FORCE_COLOR: "0",
     });
-    assert.equal(write.mock.calls[0]?.[0].data, "vp install\r");
+    // loom: every run is observed (the breadcrumb), so the command is wrapped.
+    assert.match(
+      write.mock.calls[0]?.[0].data ?? "",
+      /^\( vp install\r\); printf '\\n__T3_SETUP_DONE___[0-9a-f]{32}:%s\\n' "\$\?"\r$/,
+    );
     const lines: string[] = [];
     const observed = yield* runner.runForThread({
       threadId: "thread-1",
@@ -108,7 +113,7 @@ it.effect("resolves setup scripts through the standalone project service", () =>
       },
     });
     assert.equal(observed.status, "started");
-    const listener = listeners[0]!;
+    const listener = listeners.at(-1)!; // loom: the first (also observed) run subscribed too
     yield* listener({
       type: "output",
       threadId: "thread-1",
