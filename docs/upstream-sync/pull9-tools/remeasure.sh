@@ -5,7 +5,7 @@
 # the invocation because the shared rr-cache holds unresolved preimages from the
 # earlier trials and recording more is noise.
 #
-# Usage: remeasure.sh [out-dir]   (default .artifacts/pull9-remeasure, gitignored)
+# Usage: [THEIRS=<oid>] remeasure.sh [out-dir]   (default THEIRS=upstream/main; out .artifacts/pull9-remeasure, gitignored)
 # Requires a clean worktree (no unstaged or staged changes).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -15,12 +15,13 @@ tools=docs/upstream-sync/pull9-tools
 mkdir -p "$O"
 git fetch upstream main
 git rev-parse HEAD > "$O/ours.txt"
-git rev-parse upstream/main > "$O/theirs.txt"
-git merge-base HEAD upstream/main > "$O/base.txt"
+THEIRS=${THEIRS:-upstream/main}
+git rev-parse "$THEIRS" > "$O/theirs.txt"
+git merge-base HEAD "$THEIRS" > "$O/base.txt"
 base=$(cat "$O/base.txt")
-git -c diff.renameLimit=30000 diff --name-status "$base" upstream/main > "$O/upstream-namestatus.txt"
+git -c diff.renameLimit=30000 diff --name-status "$base" "$THEIRS" > "$O/upstream-namestatus.txt"
 git -c diff.renameLimit=30000 diff --name-status "$base" HEAD > "$O/loom-namestatus.txt"
-git -c rerere.enabled=false -c merge.renameLimit=30000 merge --no-commit --no-ff upstream/main \
+git -c rerere.enabled=false -c merge.renameLimit=30000 merge --no-commit --no-ff "$THEIRS" \
   > "$O/merge-output.txt" 2>&1 || true
 git status --porcelain=v2 > "$O/status-v2.txt"
 git ls-files -u > "$O/ls-files-u.txt"
