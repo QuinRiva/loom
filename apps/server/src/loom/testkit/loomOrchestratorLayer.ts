@@ -28,10 +28,12 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  type WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
@@ -42,7 +44,9 @@ import * as EventSink from "../../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
 import { worktreeRepairDependenciesTestLayer } from "../../orchestration-v2/ProviderTurnStartService.testkit.ts";
+import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import {
+  OrchestrationEventInfrastructureLayerLive,
   OrchestrationV2EventSinkLayerLive,
   OrchestrationV2LayerLive,
   ProjectServiceLayerLive,
@@ -97,11 +101,14 @@ const providerInstance = {
   textGeneration: {} as ProviderInstance["textGeneration"],
 } satisfies ProviderInstance;
 
-/** Orchestrator + event sink + project service + LoomStoreV2 on one in-memory database. */
+/** Orchestrator + event sink + project service + LoomStoreV2 + command receipts on one in-memory database. */
 export const LoomOrchestratorTestLayer = Layer.mergeAll(
   OrchestrationV2LayerLive,
   OrchestrationV2EventSinkLayerLive,
   LoomStore.layer,
+  CommandReceiptStore.layerFromApplicationReceipts.pipe(
+    Layer.provide(OrchestrationEventInfrastructureLayerLive),
+  ),
 ).pipe(
   Layer.provideMerge(ProjectServiceLayerLive),
   Layer.provide(
@@ -389,4 +396,68 @@ export const writeEvents = Effect.fn("loom.testkit.writeEvents")(function* (
 ) {
   const sink = yield* EventSink.EventSinkV2;
   return yield* sink.write({ events });
+});
+
+/** Dispatches through the real orchestrator (receipt, lock, commit). */
+export const dispatch = Effect.fn("loom.testkit.dispatch")(function* (
+  command: Parameters<Orchestrator.OrchestratorV2["Service"]["dispatch"]>[0],
+) {
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  return yield* orchestrator.dispatch(command);
+});
+
+/** Spawns a Loom child through the arm (`thread.spawn`, locked on the parent). */
+export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input: {
+  readonly parentThreadId: ThreadId | null;
+  readonly threadId: ThreadId;
+  readonly projectId?: ProjectId;
+  readonly graphKey?: string;
+  readonly blockedBy?: ReadonlyArray<ThreadId>;
+  readonly routes?: ReadonlyArray<WorkstreamRoute>;
+  readonly held?: boolean;
+  readonly role?: string;
+}) {
+  return yield* dispatch({
+    type: "thread.spawn",
+    commandId: CommandId.make(`server:test-spawn:${input.threadId}`),
+    threadId: input.threadId,
+    createdAt: DateTime.formatIso(yield* DateTime.now),
+    createdBy: "agent",
+    creationSource: "mcp",
+    parentThreadId: input.parentThreadId,
+    projectId: input.projectId ?? ProjectId.make("project:loom-test"),
+    title: `Child ${input.threadId}`,
+    modelSelection: testModelSelection,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    role: input.role ?? "coder",
+    purpose: "Loom substrate test child",
+    goalId: null,
+    ...(input.graphKey === undefined ? {} : { graphKey: input.graphKey }),
+    ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
+    ...(input.routes === undefined ? {} : { routes: input.routes }),
+    ...(input.held === undefined ? {} : { held: input.held }),
+  });
+});
+
+/** The first stored event after `afterSequence` matching `predicate` (tails live; no sleeps). */
+export const awaitStoredEvent = Effect.fn("loom.testkit.awaitStoredEvent")(function* (input: {
+  readonly afterSequence: number;
+  readonly threadId?: ThreadId;
+  readonly predicate: (event: OrchestrationV2DomainEvent) => boolean;
+}) {
+  const sink = yield* EventSink.EventSinkV2;
+  const found = yield* sink
+    .stream({
+      afterSequence: input.afterSequence,
+      ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+    })
+    .pipe(
+      Stream.filter((stored) => input.predicate(stored.event)),
+      Stream.take(1),
+      Stream.runHead,
+    );
+  return Option.getOrThrow(found).event;
 });

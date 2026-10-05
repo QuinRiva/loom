@@ -27,6 +27,8 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
+import { loomSettleBlockers } from "./Orchestrator.loom.ts"; // loom:
 
 export interface SettlementPullRequest {
   readonly state: "open" | "closed" | "merged";
@@ -168,6 +170,8 @@ export function resolveAutoSettlementAt(input: {
   readonly nowMs: number;
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
+  /** loom: a Loom root with an outcome settles at its outcome time (`loomSettleBlockers`). */
+  readonly loomFinishedRootAt?: DateTime.Utc | null;
 }): DateTime.Utc | null {
   const { thread } = input;
   let pullRequest = input.pullRequest;
@@ -193,6 +197,7 @@ export function resolveAutoSettlementAt(input: {
           };
   }
   if (!isAutoSettlementCandidate(thread, input.nowMs)) return null;
+  if (input.loomFinishedRootAt != null) return input.loomFinishedRootAt; // loom: finished root
   const activityAtMs = latestMillis([
     toMillis(thread.latestUserMessageAt),
     toMillis(thread.latestRunRequestedAt),
@@ -265,6 +270,7 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const terminals = yield* TerminalManager.TerminalManager;
+  const loomStore = yield* LoomStore.LoomStoreV2; // loom:
 
   const sweep = Effect.fn("ThreadSettlementServiceV2.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
@@ -284,7 +290,22 @@ export const make = Effect.gen(function* () {
     // the merged pull request: most threads carry no link and settle from
     // their branch lookup, which would otherwise wait for the next minute's
     // sweep on a possibly stale cached answer.
-    const candidates = threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs));
+    // loom: a Loom thread its parent owes a turn, or with unfinished sub-threads, is no candidate
+    // (no rejected receipt every minute); a finished Loom root settles at its outcome time
+    const loomSettlement = new Map(
+      yield* Effect.forEach(
+        threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs)),
+        (thread) =>
+          loomSettleBlockers(loomStore, thread.id).pipe(
+            Effect.map((view) => [thread.id, view] as const),
+          ),
+        { concurrency: 8 },
+      ),
+    );
+    const candidates = threads.filter(
+      (thread) =>
+        isAutoSettlementCandidate(thread, nowMs) && loomSettlement.get(thread.id)?.blocker == null, // loom:
+    );
 
     const settleThread = Effect.fn("ThreadSettlementServiceV2.settleThread")(
       function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
@@ -299,6 +320,7 @@ export const make = Effect.gen(function* () {
           nowMs: DateTime.toEpochMillis(decisionNow),
           autoSettleAfterDays: currentSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: currentSettings.sidebarAutoSettleOnMerge,
+          loomFinishedRootAt: loomSettlement.get(thread.id)?.finishedRootAt ?? null, // loom:
         });
         if (settledAt === null) return thread;
         const uuid = yield* crypto.randomUUIDv4;
@@ -401,6 +423,7 @@ export const make = Effect.gen(function* () {
             nowMs: DateTime.toEpochMillis(decisionNow),
             autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
             autoSettleOnMerge: settings.sidebarAutoSettleOnMerge,
+            loomFinishedRootAt: loomSettlement.get(thread.id)?.finishedRootAt ?? null, // loom:
           }) !== null
         );
       });
