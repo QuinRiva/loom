@@ -12713,8 +12713,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               scriptCommand: "npm install",
               terminalId: "setup-setup",
               cwd: "/tmp/bootstrap-worktree",
-              async: false,
-              completion: Effect.succeed({ exitCode: 0 }),
+              async: true,
             }),
         );
 
@@ -13430,8 +13429,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             scriptCommand: "npm install",
             terminalId: "setup-setup",
             cwd: "/tmp/bootstrap-worktree",
-            async: false,
-            completion: Effect.succeed({ exitCode: 0 }),
+            async: true,
           }),
       );
       let setupActivityAppendAttempt = 0;
@@ -13754,7 +13752,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             terminalId: "setup-setup",
             cwd: "/tmp/bootstrap-worktree",
             async: false,
-            completion: Deferred.await(scriptExit).pipe(Effect.as({ exitCode: 0 })),
+            completion: Deferred.await(scriptExit).pipe(Effect.as({ exitCode: 0, durationMs: 1 })),
           }),
       );
 

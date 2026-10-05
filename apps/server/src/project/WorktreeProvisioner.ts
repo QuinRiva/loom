@@ -485,7 +485,7 @@ const make = Effect.gen(function* () {
       // The card outlives the handoff: the kickoff turn starts now and the
       // snapshot settles when the script exits, so the setup row sits next to
       // the child's first work instead of vanishing.
-      if (setupScript) {
+      if (setupScript?.completion) {
         // Re-record at the handoff, because from here the projection is the
         // only truth a client has: clients attach the live stream only while
         // the thread still has no turn, and the kickoff turn starts on this
@@ -497,36 +497,23 @@ const make = Effect.gen(function* () {
         // the stages moved and that cancelling is over.
         const handedOff = yield* setupTracker.get(threadId);
         if (handedOff) yield* recordSetup(handedOff);
+        // Exit `null` is a vanished terminal, not a failed script: a child that
+        // finishes before its setup script does has its terminals torn down with
+        // it, so the outcome is unknown — warn rather than accuse a healthy child
+        // of a broken setup.
         yield* setupScript.completion.pipe(
-          Effect.matchEffect({
-            onFailure: (error) => {
-              // A vanished terminal is not a failed script. A child that
-              // finishes before its setup script does has its terminals torn
-              // down with it, and the runner reports that as "Setup terminal
-              // exited before the setup command completed." — the script's
-              // outcome is then unknown, so warn rather than accuse a healthy
-              // child of a broken setup.
-              const detail = describeSetupFailure(error);
-              const terminalGone = detail.startsWith("Setup terminal exited");
-              return setupTracker.stageStatus(
-                threadId,
-                "setup-script",
-                terminalGone ? "warning" : "failed",
-                terminalGone ? "terminal closed before the script finished" : detail,
-              );
-            },
-            onSuccess: (completion) =>
-              setupTracker.stageStatus(
-                threadId,
-                "setup-script",
-                completion.exitCode === 0 ? "done" : "failed",
-                completion.exitCode === 0
-                  ? undefined
-                  : completion.exitCode === null
-                    ? "terminal closed before the script finished"
-                    : `exit ${completion.exitCode}`,
-              ),
-          }),
+          Effect.flatMap(({ exitCode }) =>
+            setupTracker.stageStatus(
+              threadId,
+              "setup-script",
+              exitCode === 0 ? "done" : exitCode === null ? "warning" : "failed",
+              exitCode === 0
+                ? undefined
+                : exitCode === null
+                  ? "terminal closed before the script finished"
+                  : `exit ${exitCode}`,
+            ),
+          ),
           Effect.andThen(settleSetup(threadId, "done")),
           Effect.forkDetach,
         );

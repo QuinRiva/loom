@@ -226,7 +226,8 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
       }
 
-      if (reapedCount > 0 || prunedCount > 0) { // loom: retention
+      if (reapedCount > 0 || prunedCount > 0) {
+        // loom: retention
         yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
           reapedCount,
           prunedCount, // loom: retention
