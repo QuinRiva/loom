@@ -1,0 +1,602 @@
+---
+manager_sessions:
+  - id: 0ae40d78-3680-4a90-8e3b-cf561b096e66
+    name: Pull-9 Phase 3 tracks plan
+    role: plan
+    authored_at: 2026-10-05T14:54:40.050Z
+---
+
+# Pull 9 Phase 3 — Loom's layer on V2, in four parallel tracks
+
+Loom is a Pi-first fork of `pingdotgg/t3code` whose product is an orchestration layer: goals, a shared task tree, and a workstream graph of durable threads with roles, briefs, dependencies, review gates, attention flags, liveness and reports. The signed strategy (`plans/upstream-pull9-strategy/plan.mdx`, revision 3) re-platforms that layer onto upstream's Orchestration V2. Phase 1 (the mechanical merge) leaves V2 Loom booting with the workstream layer absent; Phase 2 (`plans/upstream-pull9-phase2-substrate/plan.mdx`) builds the substrate it attaches to — the sidecar contract, the decider arm under per-thread locking, the dispatch modes, `LoomStoreV2`, the re-drive planner, migrations 1046–1048, the quiescence predicate. **Phase 3 is everything that makes the layer work end to end on that substrate**, built as four tracks by parallel coders under one Phase 3 orchestrator: **3a** the agent tool surface and every text that names a tool; **3b** the control plane; **3c** the Pi adapter's economics; **3d** the web. The tracks meet at an integration reviewer and a real Pi workstream smoke test.
+
+This document is one plan with a shared front section and four track sections. **The front section is the integration contract**: every interface two tracks share, who owns it, its shape, which track lands it first and what the other stubs until then — so the four coders can build without re-deciding anything. **Done** for Phase 3 means: the integration smoke scenario below passes on a copied database with the dev-verify recipe; `vp check` and `vp run typecheck` are green on the integration branch; every hunk in an upstream file carries a `// loom:` marker and appears in the amended hunk inventory; the name sweep's gate passes; and the Phase 4 obligations at the end are met.
+
+<Callout tone="info">
+**Authority.** Decisions the strategy recorded and Phase 2 settled are applied here, not reopened — notably: `mcp__t3-code__*` names; `PullRequestsToolkit` on by default for orchestrator and shipper; pending-request tools closed; `set_thread_title` kept; no upstream orchestration tools exposed; shared checkout is the only spawn path (isolation and fan-in are **not ported**); steer-when-steerable with Carl's tiers; quiescence as completion; children consult their parent instead of asking the human; and Phase 2's D19 (only a human message or the parent's `workstream_prompt` clears a stored hold, at start time). Where this plan makes its own call, it is in the decision log with the alternative rejected. Upstream code is cited at `upstream/main` `1604ccc9d7` (one mobile commit past Phase 2's `1a3f7ad508`; every line reference in Phase 2 stands). Loom's V1 code at `HEAD` `332848dcb5` is the behavioural spec being re-expressed; after Phase 1 it lives under `quarantine/` and is read, never compiled.
+</Callout>
+
+## What the tracks start from
+
+Phase 2's deliverables are the inputs. A coder on any track reads these first and codes against their signatures; none is re-specified here.
+
+<Table
+  density="compact"
+  columns={["Phase 2 seam", "Where", "Consumed by"]}
+  rows={[
+    ["LoomThreadWorkstream, LoomThreadShellFields, LoomAttentionReason, LoomOutcome, LoomMessageOrigin, LoomMessageFields, ControlPayload, WorkstreamRoute, RESERVED_OUTCOMES", "packages/contracts/src/orchestrationV2.loom.ts", "3a (handlers, render), 3b (rails), 3d (board, cards)"],
+    ["Loom commands — thread.spawn / scaffold / goal.set / held.set / outcome.set / attention.raise / attention.clear / dependencies.set / kickoff-brief.set / work.submit / gate.rework / gate.reverify / gate.resolve / consult.record / peer-message.* / handoff.record — spliced into OrchestrationV2Command / InternalCommand", "orchestrationV2.loom.ts; decided in orchestration-v2/Orchestrator.loom.ts", "3a dispatches the client-visible ones from tool handlers; 3b dispatches work.submit (quiescent) and the gate legs through the re-drive planner"],
+    ["message.dispatch with loom: { origin, controlPayload } and dispatchMode start_if_idle; LoomDispatchDeferredError (no receipt)", "orchestrationV2.ts splices; Orchestrator.ts dispatchMessage and dispatchWithReceiptEffect hunks", "3b (every wake), 3a (workstream_prompt, notify_thread, kickoff via the dispatcher)"],
+    ["LoomStoreV2: getWorkstream, listWorkstreamTree, listChildren, listActiveWorkstreams, listReDriveInput, listThreadsWithHeldQueue, goals.*, tasks.*, shellFields, consults.listByAsker, peerMessages.listPending", "apps/server/src/loom/projection/LoomStore.ts", "3a (goal/task handlers, authorisation reads), 3b (pass input), 3d via the shell join only"],
+    ["planReDrive + runReDrivePass + LoomReDriveReactor (gate legs, cascades, goal attach)", "apps/server/src/loom/orchestration/redrive.ts", "3b absorbs the reactor into the dispatcher pass and supplies the real gate-leg composer"],
+    ["quiescenceCandidate(shell, runs, latestUserMessage, children, now, grace)", "apps/server/src/loom/orchestration/quiescence.ts", "3b's quiescence rail"],
+    ["isEligibleToStart / dependenciesSatisfied", "packages/shared/src/workstreamStart.loom.ts", "3b promotion, 3d derived board columns"],
+    ["routeWorkSubmit with the reserved quiescent outcome; isWaitingInGate, isMemberOfUnresolvedGate, holdErasedByCompletion", "packages/shared/src/workstreamGraph.ts", "3a (submit echo), 3b (rails)"],
+    ["LoomGoalBroadcast PubSub; goal.updated / goal.removed shell-stream items; goals on the snapshot (ws.ts hunks)", "apps/server/src/loom/projection/LoomGoalBroadcast.ts; ws.ts", "3a publishes after goal writes; 3d consumes (with the subscribe flag this plan adds)"],
+    ["loomRecoveryPolicy: rule 0 veto, releaseHeldQueues", "apps/server/src/loom/recovery/loomRecoveryPolicy.ts", "3b's recovery startup pass extends it"],
+    ["The driver work item's open-session field loom?: { appendSystemPrompt, skills, extensions, forkFrom } on ProviderAdapterV2OpenSessionInput, the ProviderSessionManager composition hook, bundled-pi lookup, costUsd on tokenUsage, patch 0001 → RPC switch_session, pi 1.0.2", "Phase 2 driver work item (planned separately)", "3a provides the composer the hook calls; 3c builds on the adapter it leaves"],
+  ]}
+/>
+
+<Callout tone="warning">
+**Assumption about the driver work item.** The strategy's Phase 2 lists driver-side items that the Phase 2 substrate plan deliberately excluded and called "a separate Phase 2 work item with its own plan". This plan assumes that item delivers, before 3c starts: upstream's `PiAdapterV2` with the bundled-patched-pi resolution hunk, the `loom` open-session field threaded to `--append-system-prompt` / `--skill` / `--extension` in `buildPiRpcLaunch`, `costUsd` on `tokenUsage`, patch 0001 extended to RPC `switch_session`, pi bumped to 1.0.2 with both patches regenerated. If that plan does not exist when the Phase 3 orchestrator starts, **3c absorbs those items as its first session** (they are listed in 3c's breakdown as "3c-0, conditional") and 3a stubs the composer hook with a one-line default until then. Either way the seams in the table below are unchanged.
+</Callout>
+
+## The track map
+
+<Mermaid
+  caption="Four tracks off the integration branch after Phase 2; they meet at an integration reviewer and the real Pi smoke."
+  source={"flowchart LR\n  P2[Phase 2 substrate landed] --> A[3a toolkit, extension, names, prompts]\n  P2 --> B[3b dispatcher, liveness, recovery, baseline]\n  P2 --> C[3c adapter economics]\n  P2 --> D[3d web re-hang]\n  A --> R[integration reviewer: seams + hunk inventory]\n  B --> R\n  C --> R\n  D --> R\n  R --> S[real Pi workstream smoke on a copied database]\n  S --> P4[Phase 4 import and cut-over]\n"}
+/>
+
+Each track works in its own worktree cut from the integration branch and merges back through a PR the integration reviewer gates. Shared files are few and each track owns a marked block in them: `apps/server/src/loom/serverLayers.ts` (Loom-only; each track adds one layer line), `packages/contracts/src/settings.ts` (Loom defaults; 3c adds one), `apps/server/src/server.ts` (the one `Layer.mergeAll` line Phase 1 kept). **No Phase 3 track edits `orchestration-v2/Orchestrator.ts`** except one token in 3b (seam 14 below); the decider stays Phase 2's.
+
+## The seams
+
+Every interface two tracks share. "Lands first" names the track whose PR must merge before the other's work is exercisable end to end; "until then" says what the other track does so it is never blocked.
+
+<Table
+  columns={["#", "Seam", "Owner", "Shape", "Lands first", "The other side until then"]}
+  rows={[
+    ["1", "Tool handlers → LoomStoreV2 reads and Loom commands", "Phase 2 (store, commands); 3a (handlers)", "OrchestratorV2.dispatch(loomCommand); loomStore.getWorkstream / listChildren / listWorkstreamTree / goals / tasks; engine.getShellSnapshot() joined", "Phase 2", "3a codes against Phase 2's signatures and tests on loomOrchestratorLayer (Phase 2's testkit)"],
+    ["2", "The workstream capability and Loom's credential", "3a", "McpCapability gains 'workstream'; McpSessionRegistry.issue issues exactly the requested set; ProviderSessionManager.prepareMcp passes ['workstream','pull-requests'] (+ preview, device)", "3a", "3b/3c need no credential; the smoke needs 3a"],
+    ["3", "Loom's pi extension file", "3a (assembler, writer, profile, enable_toolset, ask_user_question parts); 3c (search-guard and prompt-debug parts)", "assembleLoomExtensionSource(parts: ReadonlyArray<LoomExtensionPart>) and materializeLoomExtension(cacheDir) → path in apps/server/src/provider/Drivers/Pi/loomExtension.ts; a part is { name, source } whose source is a function body receiving (pi, ctx) where ctx = { profile(): Promise<SessionProfile>, endpoint, token }", "3a", "3c writes its two parts as standalone modules with their own string-build tests; registration is two array entries once 3a's assembler exists"],
+    ["4", "Session composer → the driver item's hook", "3a (LoomSessionComposer); driver item (field, hook, argv)", "LoomSessionComposer.compose(threadId) → Effect<{ appendSystemPrompt: string; skills: string[]; extensions: string[]; forkFrom?: { threadId; identityPath } }>; a Context.Service with a default layer returning empty strings/arrays", "driver item lands the hook calling the service; 3a lands the real layer", "3a's composer is unit-tested standalone (byte-identical output across two calls is the test); the hook's default layer keeps pi launching"],
+    ["5", "Session profile endpoint", "3a", "GET /loom/agent/session-profile (bearer = the MCP credential) → { activeTools: string[]; families: Record<family, string[]>; humanEngaged: boolean; denyList: string[]; promptDebugPath: string | null }", "3a", "3c's prompt-debug part reads promptDebugPath from ctx.profile() and is a no-op when null"],
+    ["6", "Control messages: ids, modes, origins, payload kinds", "3b", "The id and tier table in 3b; ControlPayload.kind values fixed in this plan: kickoff | digest | yield | gate-rework | gate-reverify | gate-resolution | brief-needed | deadlock | stall-nudge | advisory (spinning, slow-tool, recovered) | quiescent | notify", "3b", "3d renders every kind listed here and falls back to the raw text for an unknown one; 3a's gate-leg text lives in 3b, not the toolkit"],
+    ["7", "Report files", "3a (module); 3b (reads, writes synthesised)", "apps/server/src/loom/workstream/report.ts: writeWorkstreamReport(threadId, markdown, round?) → absolute path under serverConfig.workstreamReportsDir as <threadId>[.round-<n>].md; writeSynthesisedReport(threadId, runId, lastAssistantText) → <threadId>.quiescent-<runId>.md with the fixed header in 3b", "3a (ported from V1 unchanged, minus the search-index call)", "the module is 60 lines; whichever track needs it first lands it to this spec and the other imports it"],
+    ["8", "workstream_list render ↔ dispatcher state", "3a renders; 3b produces", "No new seam: the render reads LoomThreadShellFields + the V2 shell. One marker 3b writes that 3a shows: lastOutcome.synthesised === true renders as 'went quiet; report synthesised'", "either", "—"],
+    ["9", "Attention reasons and advisories → the web", "Phase 2 (enum), 3b (emits), 3d (reads)", "shell.workstream.attention (stored); derived awaiting_input / awaiting_approval from shell.pendingRuntimeRequest.kind; brief-needed derived by 3d from children's kickoffBriefPath; advisories are messages with controlPayload.kind (seam 6), never attention", "Phase 2", "3d builds against the enum; the smoke proves the emits"],
+    ["10", "Liveness", "3b", "Nothing persisted: heartbeats are an in-memory map fed from streamDomainEvents; stall nudges are control messages; a dead child raises attention error (server: id)", "3b", "3d shows error attention and the stall-nudge card like any other"],
+    ["11", "Usage and cost", "driver item (costUsd on tokenUsage); 3c (ledger + queries); 3d (RPC + UI)", "Migration 1049 renames projection_usage_ledger → loom_usage_ledger (+ run_id, provider_turn_id columns); LoomUsageLedger.threadSpend(threadIds) → Map<ThreadId, { costUsd, inputTokens, outputTokens, cachedTokens }> and topSpend(limit, since); the writer is a reactor on terminal provider-turn.updated", "3c", "3d builds the Cost tab and chips against the two query signatures with a fixture layer"],
+    ["12", "Reroute record", "3c", "Migration 1050 loom_thread_reroute(thread_id PK, intended_selection JSON, rerouted_selection JSON, rerouted_at, window_label, reset_at); web shows nothing new (the thread's modelSelection already shows the model it runs on)", "3c", "—"],
+    ["13", "PR toolkit on Loom threads", "3a (family + role profiles); Phase 2 (holds survive a watch wake by D19; settle-on-merge passes the auto-settle blockers); 3b (tests both)", "pull-requests is a dormant family of five prefixed names, resident for orchestrator and shipper via toolsets:; no hunk needed for the two port items — 3b adds the two tests", "3a", "—"],
+    ["14", "Who counts as a human (Phase 2 rule 4 refinement)", "3b lands it (one token in loomTurnStartRules)", "Clearing origins are createdBy === 'user' && creationSource !== 'server', or loom.origin === 'orchestrator'. Upstream's own server-synthesised 'user' messages (usage-limit resume, restart continuation) therefore do not erase a hold", "3b (or Phase 2 if still open when 3b starts)", "—"],
+    ["15", "Shell stream goal items and the subscribe flag", "Phase 2 (broadcast); 3d (flag + reducer)", "OrchestrationV2SubscribeShellInput gains loom?: boolean (marked); ws.ts merges the goal PubSub and sends goals on the snapshot only when loom === true; the web passes it, the store mobile app never does", "3d", "Phase 2's ws hunk ships unflagged; 3d narrows it in the same hunk"],
+    ["16", "Dev seed and the smoke", "3d (seedWorkstream.ts re-hung); the Phase 3 orchestrator runs the smoke", "node apps/server/src/dev/seedWorkstream.ts writes V2 threads via OrchestratorV2 commands and sidecar rows via Loom commands (never direct SQL) so the seed exercises the arm", "3d", "3a/3b/3c tests do not need the seed"],
+    ["17", "Migration numbers", "this plan", "1049 usage ledger (3c), 1050 reroute (3c); 3a, 3b and 3d add none", "—", "a track that discovers it needs a table takes 1051+ and records it in its PR"],
+    ["18", "Right-panel surface kinds", "3d only", "rightPanelStore.ts regains tasks | workstream | graph (marked); RightPanelTabs.tsx and ChatView.tsx mount arms", "3d", "—"],
+    ["19", "Layer wiring", "each track", "LoomAgentHttpLive (3a), LoomControlPlaneLive (3b), LoomDriverEconomicsLive (3c), one line each in loom/serverLayers.ts; server.ts's existing merge line is untouched", "—", "—"],
+  ]}
+/>
+
+### The extension and the profile, in one picture
+
+Three parties touch pi's process: upstream's bridge extension (tools from `/mcp`, the permission hook, the orchestration instructions), Loom's extension (profile, `enable_toolset`, `ask_user_question`, search guard, prompt debug) and the composer's argv. Who provides what, and in which order it binds:
+
+<Mermaid
+  caption="Session open for a Loom thread. Solid arrows are 3a's; dashed are the driver item's and 3c's."
+  source={"sequenceDiagram\n  participant PSM as ProviderSessionManager (hook)\n  participant C as LoomSessionComposer (3a)\n  participant AD as PiAdapterV2 + buildPiRpcLaunch\n  participant PI as pi process\n  participant UP as upstream bridge ext\n  participant LX as Loom ext (3a + 3c parts)\n  participant S as server /mcp + /loom/agent\n  PSM->>C: compose(threadId)\n  C-->>PSM: appendSystemPrompt, skills, extensions=[loomExt]\n  PSM-->>AD: openSession(input.loom)\n  AD-->>PI: argv: --append-system-prompt --skill... --extension bridge --extension loomExt, env T3_MCP_URL and BEARER\n  PI->>UP: load (top-level await)\n  UP->>S: initialize + tools/list\n  S-->>UP: 72 upstream tools + Loom toolkit (with _meta loom/promptSnippet)\n  UP->>PI: registerTool mcp__t3-code__* (Loom snippet/guidelines from _meta)\n  PI->>LX: load, registers mcp__t3-code__enable_toolset and ask_user_question\n  PI->>UP: session_start (retry connect if first failed)\n  PI->>LX: session_start\n  LX->>S: GET /loom/agent/session-profile\n  S-->>LX: activeTools, families, humanEngaged, denyList, promptDebugPath\n  LX->>PI: setActiveTools(profile)\n  PI->>LX: before_agent_start (every turn)\n  LX->>PI: setActiveTools(profile ∪ enabled families) re-asserted, prompt-debug sidecar written\n  PI->>UP: before_agent_start → appends ORCHESTRATION_INSTRUCTIONS (empty in Loom's build)\n"}
+/>
+
+The ordering hazard the strategy flagged — upstream's bridge re-registering tools on `session_start` after a failed first connection, after Loom's profile was applied — is closed by re-asserting the active set on every `before_agent_start` (profile ∪ families the agent enabled this session), not only on `session_start`. The `enable_toolset all` deny-list remains as the second line.
+
+## The integration smoke scenario
+
+The strategy's Phase 3 gate, made executable. It runs on a `VACUUM INTO` copy of the cockpit database under the dev-verify recipe (`docs/dev-site-testing.md`), with real pi 1.0.2 and real models, driven by a human or an agent typing into the root thread's composer. Each step names the actor's action, what the control plane must do, and the observable on the board and in the thread. A step without its observable fails the gate.
+
+<Mermaid
+  caption="The smoke's thread graph and message flow. R = root orchestrator, C = coder, V = gated reviewer, X = a second child whose dependent D waits on it, S = shipper."
+  source={"sequenceDiagram\n  participant H as human (composer)\n  participant R as root orchestrator\n  participant CP as control plane (3b)\n  participant C as coder\n  participant V as reviewer (gate on C)\n  participant X as child X\n  participant D as dependent of X\n  participant S as shipper\n  H->>R: brief: scaffold C, V(gate C), X, D(blockedBy X)\n  R->>CP: workstream_scaffold + workstream_brief ×4\n  CP->>C: kickoff (queue_after_active, origin kickoff)\n  CP->>X: kickoff\n  Note over D: blocked (board column) until X done\n  C->>CP: workstream_submit (done)\n  CP->>V: kickoff (gate: C is done)\n  V->>CP: workstream_submit needs_rework\n  CP->>C: gate-rework (outcome null, steered or started)\n  C->>CP: workstream_submit\n  CP->>V: gate-reverify\n  V->>CP: workstream_submit clean\n  CP->>CP: resolve: C and V done — R never woken\n  X->>X: ends turn WITHOUT submitting\n  CP->>X: (grace) synthesised report, outcome quiescent → yield\n  CP->>R: yield steered into R's running turn\n  R->>CP: workstream_set_outcome X done\n  CP->>D: kickoff\n  D->>CP: workstream_request_attention needs_guidance\n  H->>D: message (clears hold at start)\n  R->>CP: notify_thread D (busy → steered) and S (idle → started)\n  R->>H: ask_user_question → panel → answer once\n  S->>CP: watch_pull_request + awaiting_acceptance\n  CP->>S: PR-watch wake (hold survives)\n  Note over C: quota exhausted → parked (usage_limit) → resumed on reset\n"}
+/>
+
+<Table
+  density="compact"
+  columns={["#", "Step", "Control plane", "Board / rollup", "Thread"]}
+  rows={[
+    ["1", "Human sends the root a brief naming four children: C (coder), V (reviewer gated on C), X (researcher), D (coder blockedBy X)", "Root spawns via mcp__t3-code__workstream_scaffold then workstream_brief ×4 (unprompted prefixed names — the sweep gate)", "Four cards: C and X ready→in progress within one pass; V blocked (gate-implied dep on C); D blocked", "Root's timeline shows the four tool calls; each child's first user message carries loom.origin kickoff"],
+    ["2", "C submits done", "work.submit → outcome done; V's dependency satisfied → kickoff", "C done; V in progress", "V's kickoff names gate membership"],
+    ["3", "V submits needs_rework", "route-taken loop; re-drive pass: gate.rework on C (outcome null, pending_rework) + gate-rework message", "C in progress with round badge 1; V waiting-in-gate badge; root NOT woken (no root message)", "C receives the gate-rework card with V's report path"],
+    ["4", "C submits; V submits clean", "loop-back → reverify; resolve → both done in two passes", "C done, V done; root still not woken for the gate", "Both threads show the round-1 report files"],
+    ["5", "Root is mid-turn (a long bash sleep) when C and V finish", "Terminal-child digest is start_if_idle → LoomDispatchDeferredError, no receipt; delivered once when the root goes idle", "—", "Exactly ONE digest card on the root naming both report paths, arriving after its turn ends"],
+    ["6", "X ends its turn without workstream_submit", "After the control-started grace (default 10 min; set to 60 s for the smoke via the setting) the quiescence rail writes <X>.quiescent-<runId>.md and submits outcome quiescent → yield; attention awaiting_orchestrator", "X in progress with attention awaiting_orchestrator; D still blocked", "Root receives the yield card (steered if running) saying 'went quiet; report synthesised'"],
+    ["7", "Root sets X done via workstream_set_outcome", "outcome done clears X's attention; D eligible → kickoff", "X done; D in progress", "D's kickoff"],
+    ["8", "D raises needs_guidance and ends its turn", "attention raise; dependents (none) would hold; the root is steered the attention notice", "D needs_guidance chip; sidebar attention rollup on the root", "Root sees the attention card"],
+    ["9", "Human writes to D from the composer", "Rule 4: the hold clears when the turn starts", "D's chip clears", "D's reply"],
+    ["10", "Root calls notify_thread to busy D and to idle S", "Busy → steer_active into D's running turn; idle → starts S", "—", "D's running turn shows the notify card mid-turn; S's first message is the notify"],
+    ["11", "Root calls ask_user_question", "runtime-request.create → V2 pending request; answered from the panel → respond hunk hands the answer to the live waiter, emits no message", "Root shows awaiting_input (derived)", "Root's tool result carries the answer once; no duplicate user message"],
+    ["12", "A child calls enable_toolset human-input", "Refused with the consult_thread pointer (humanEngaged false)", "—", "Tool error text names consult_thread"],
+    ["13", "A child calls enable_toolset all then mcp__t3-code__delegate_task", "delegate_task is on the deny-list (not activated); if forced, capability_denied", "—", "No child created outside the workstream"],
+    ["14", "S opens a PR, calls watch_pull_request, raises awaiting_acceptance, ends its turn; a check fails", "PR-watch wake is queue_after_active with a notification; rule 4 does not clear (createdBy agent / no Loom origin)", "S keeps awaiting_acceptance through the wake", "S runs the wake turn and still shows the hold"],
+    ["15", "The PR merges", "Settle-on-merge passes Loom's blockers: S settles; the root does NOT settle while any child's outcome is null", "Root remains unsettled until every child is terminal", "—"],
+    ["16", "Root cancels a subtree with a running grandchild (workstream_set_outcome cancelled on X's branch)", "Cascade re-drive: every live descendant outcome cancelled and its run interrupted within one pass", "Every descendant cancelled", "Interrupted turns show as interrupted, no needs_guidance (server: ids)"],
+    ["17", "Server restarted mid-run with a pending steer on C", "Recovery: live threads continued; held queued Loom wakes released; flagged threads not continued", "No column changes from the restart", "C resumes with its pending steer delivered"],
+    ["18", "A child's heartbeat is frozen (a tool call that produces no output for 10+ min)", "State C: one informed stall nudge steered in; escalation to error only if still frozen after the nudge grace", "—", "The child shows the stall-nudge card"],
+    ["19", "A child sleeps inside a tool call that prints every minute", "No stall: turn items keep updating the heartbeat; in-flight tool suppresses State C", "—", "No nudge"],
+    ["20", "consult_thread against a child whose worktree was reaped", "Throwaway pi --fork of the nativeThreadRef file in the server cwd answers", "—", "Consult card on the asker"],
+    ["21", "C's model hits a quota limit mid-turn", "Adapter classifies usage_limit with resetAt; upstream's limit recovery arms (autoResume true in Loom); if a cross-vendor fallback is healthy, 3c's reroute moves C onto it and continues", "C shows the usage-limit banner, then resumes", "C's next run records the fallback model; the ledger row attributes cost to it"],
+    ["22", "goal_handoff from the root", "ThreadLaunchService.launch with a worktree strategy; the new root starts at once with its goal set", "The new goal appears in the goal panel; its root is in progress", "The new root's first message is the brief, cwd = its own worktree"],
+    ["23", "Open the Diff panel 'By coder' for C while V edited the same tree", "C's turn diff spans its start-of-turn baseline to its end checkpoint and excludes V's edits", "—", "—"],
+  ]}
+/>
+
+The smoke is run by the Phase 3 orchestrator (or a dedicated smoke child) after the integration reviewer passes; its evidence is the dev instance's `statev2.sqlite` plus screenshots under `.artifacts/pull9-smoke/`. Steps 21 and 22 may run on a second, shorter pass because they need a quota event and a second project.
+
+## Track 3a — Toolkit, extension, names and prompts
+
+**Outcome.** Every Loom agent tool reaches pi through upstream's MCP bridge under its `mcp__t3-code__` name with Loom's own prose; the two tools that cannot (`ask_user_question`, `enable_toolset`) are registered by Loom's extension under the same prefix; Loom threads hold a credential that denies upstream's orchestration and worktree toolkits and grants the PR toolkit; upstream's orchestration instructions are empty in Loom's build; the REST `/provider-tools/*` routes are gone; every role, skill, memory and doc names tools in the prefixed form; children are told the brief is agent-authored and consult their parent before raising to a human.
+
+### Files
+
+<FileTree
+  title="3a change map"
+  entries={[
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "added", note: "The tool-def tables (today's providerToolDefs.ts, 1,003 lines) retyped: name, label, description, promptSnippet, promptGuidelines, parameters (JSON schema), errorMode throw|soft. Prose authored in session 3a-T (below). set_lane becomes workstream_set_outcome { outcome: done|cancelled|none }." },
+    { path: "apps/server/src/mcp/toolkits/workstream/families.ts", change: "added", note: "Constants leaf replacing mcp/toolPaths.ts: agentToolName(name) = `mcp__t3-code__${name}`; LEAF_CORE, DELEGATION, HUMAN_INPUT, PULL_REQUESTS families (prefixed); UPSTREAM_WITHHELD_TOOLS deny-list derived from upstream's toolkit exports (compiler-connected); the partition test." },
+    { path: "apps/server/src/mcp/toolkits/workstream/registration.ts", change: "added", note: "registerLoomToolkit: hand-registers each def with McpServer.addTool so the result is a text content block (the server render) with isError for errorMode throw, and _meta { 'loom/promptSnippet', 'loom/promptGuidelines' }. LoomToolkitRegistrationLive layer." },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/*.ts", change: "added", note: "spawn.ts, scaffold.ts, brief.ts, outcome.ts, attention.ts, release.ts (while held exists), stop.ts, prompt.ts, dependencies.ts, submit.ts, list.ts, consult.ts, notify.ts, title.ts, fork.ts, goalTasks.ts, goalUpdate.ts, goalHandoff.ts, goalContinue.ts — ported from WorkstreamSpawnHttp.ts / GoalTaskHttp.ts / GoalHandoffHttp.ts / ThreadForkHttp.ts with engine.dispatch → OrchestratorV2.dispatch and snapshot reads → LoomStoreV2 + getShellSnapshot." },
+    { path: "apps/server/src/mcp/toolkits/workstream/authorisation.ts", change: "added", note: "requireWorkstreamCaller(): scope from McpInvocationContext.requireMcpCapability('workstream'); own-thread-or-direct-child rule; anchored branch scoping for goal tools." },
+    { path: "apps/server/src/mcp/toolkits/workstream/render.ts", change: "added", note: "workstreamRender.ts ported: list, submit echo, scaffold errors, digest excerpt (trimmed to 400 chars per Carl's follow-up)." },
+    { path: "apps/server/src/mcp/toolkits/workstream/modelSelection.ts", change: "added", note: "resolveSpawnModelSelection + headroomBucketFor ported; reads ProviderHealthRegistry.snapshot and the usage poller; writes V2 thread modelSelection." },
+    { path: "apps/server/src/loom/http/loomAgentRoutes.ts", change: "added", note: "The two REST survivors on upstream's HttpRouter beside /mcp, bearer resolved via McpSessionRegistry.resolve: GET /loom/agent/session-profile; POST /loom/agent/user-input/ask; GET /loom/agent/user-input/:requestId/wait (long-poll, 25 s slices)." },
+    { path: "apps/server/src/loom/userInput/askUserQuestion.ts", change: "added", note: "Validates questions, dispatches runtime-request.create (Loom command, added here), registers the live waiter; the respond hunk hands the answer to it." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "runtime-request.create case (emits runtime-request.updated kind user_input with a loom marker); supersede rule 6 of loomTurnStartRules. Phase 2 reserved both slots." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.ts", change: "modified", note: "ONE marked hunk in the runtime-request.respond case: a Loom-marked request with a live waiter hands the answer to the waiter and emits no message (strategy inventory row, deferred from Phase 2 to here)." },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtension.ts", change: "added", note: "assembleLoomExtensionSource(parts), materializeLoomExtension(cacheDir); parts: toolProfile (session_start + before_agent_start re-assert, enable_toolset with deny-list and the human-input rule), askUserQuestion (POST ask, long-poll wait with reconnect, same prefix). 3c appends searchGuard and promptDebug." },
+    { path: "apps/server/src/loom/prompt/sessionComposer.ts", change: "added", note: "LoomSessionComposer service: work-model addendum + identity clause + role overlay + ship policy + role catalogue + goal context + relocation clause → appendSystemPrompt; role skills → skills; [loomExtensionPath] → extensions; forkFrom identity when set. Ported from ProviderCommandReactor.startProviderSession with the Area G content changes." },
+    { path: "apps/server/src/loom/prompt/{roleOverlay,workstreamChildPrompt,shipPolicy}.ts", change: "added", note: "Out of quarantine, unchanged logic; roleOverlay's lifeline union uses prefixed names; toolsets: gains pull-requests." },
+    { path: "apps/server/src/loom/workstream/{report,brief,launchIdentity}.ts", change: "added", note: "workstreamReport.ts, workstreamBrief.ts, workstreamLaunchIdentity.ts out of quarantine; the report module is seam 7." },
+    { path: "apps/server/src/loom/workstream/consult.ts", change: "added", note: "workstreamAsk.ts re-seamed on upstream's makePiRpcConnection and the bundled-pi resolver; the target file comes from the V2 provider thread's nativeThreadRef, never a name." },
+    { path: "apps/server/src/mcp/McpSessionRegistry.ts", change: "modified", note: "Marked hunk: issue() no longer force-adds orchestration/worktree/pull-requests; it issues the request's set." },
+    { path: "apps/server/src/orchestration-v2/ProviderSessionManager.ts", change: "modified", note: "Marked hunk in prepareMcp: capabilities = ['workstream', 'pull-requests'] (+ preview, device)." },
+    { path: "apps/server/src/mcp/McpInvocationContext.ts", change: "modified", note: "Marked: 'workstream' in ALL_MCP_CAPABILITIES." },
+    { path: "apps/server/src/orchestration-v2/Adapters/piT3McpExtensionSource.ts", change: "modified", note: "Two marked hunks: ORCHESTRATION_INSTRUCTIONS constant empty in Loom's build; registerTool reads _meta['loom/promptSnippet'] / ['loom/promptGuidelines'] before the generic fallback." },
+    { path: "apps/server/src/mcp/McpHttpServer.ts", change: "modified", note: "One marked line: LoomToolkitRegistrationLive in the merged layer (or via serverLayers.ts if the layer order allows — coder's call, recorded in the PR)." },
+    { path: "roles/*.md, .t3code/roles/*.md, skills/**, AGENTS.md, docs/architecture/tool-def-authoring.md", change: "modified", note: "The name sweep and the doctrine rewrite (session 3a-T)." },
+    { path: "docs/upstream-sync/pull9-tools/barenames.sh", change: "added", note: "The sweep gate: greps the 24 bare names across this repo, ~/pi-craft/plugins/pi-craft/skills and the memory export, allowing only docs/upstream-sync/ and plans/." },
+    { path: "quarantine/apps/server/src/mcp/*, quarantine/apps/server/src/provider/Drivers/Pi/{providerToolDefs,providerToolExtension}.ts", change: "removed", note: "Deleted in Phase 4 with the rest of quarantine; 3a leaves them as the reference." },
+  ]}
+/>
+
+### Registration: text results, not JSON
+
+`McpServer.toolkit` serialises every success as `JSON.stringify(result)` into one text block (`effect/unstable/ai/McpServer.js`, `registerToolkit`). Loom's tools return server-rendered markdown that the model reads directly, and `errorMode: throw` must reach pi as a failed call. So Loom registers by hand, the way upstream registers its image tools:
+
+<AnnotatedCode
+  filename="apps/server/src/mcp/toolkits/workstream/registration.ts (sketch)"
+  language="ts"
+  code={"export const registerLoomToolkit = Effect.fn(\"LoomToolkit.register\")(function* (defs: ReadonlyArray<LoomToolDef>, handlers: LoomToolHandlers) {\n  const server = yield* McpServer.McpServer;\n  for (const def of defs) {\n    yield* server.addTool({\n      tool: new McpSchema.Tool({\n        name: def.name,                      // bare on the wire; the bridge prefixes mcp__t3-code__\n        description: def.description,\n        inputSchema: def.parameters,\n        annotations: { readOnlyHint: def.readOnly, destructiveHint: false, idempotentHint: def.idempotent, openWorldHint: false },\n        _meta: { \"loom/promptSnippet\": def.promptSnippet, \"loom/promptGuidelines\": def.promptGuidelines },\n      }),\n      annotations: Context.empty(),\n      handle: (payload) => handlers[def.name](payload).pipe(\n        Effect.map((rendered) => new McpSchema.CallToolResult({ isError: false, content: [{ type: \"text\", text: rendered }] })),\n        Effect.catch((error) => Effect.succeed(new McpSchema.CallToolResult({\n          isError: def.errorMode === \"throw\",\n          content: [{ type: \"text\", text: renderToolError(error) }],\n        }))),\n      ),\n    });\n  }\n});\n"}
+  annotations={[
+    { "lines": "6", "label": "names", "note": "The MCP tool name is bare (workstream_submit); upstream's bridge registers it in pi as mcp__t3-code__workstream_submit. No naming hunk anywhere." },
+    { "lines": "10", "label": "_meta", "note": "McpSchema.Tool carries _meta and tools/list returns it. The bridge hunk reads these two keys; every other MCP client ignores them." },
+    { "lines": "13-19", "label": "render is the truth", "note": "Success is the rendered markdown as one text block; a decider rejection becomes isError: true for throw-mode tools (pi shows a failed call) and plain text for soft-mode goal tools — today's errorMode semantics exactly." },
+  ]}
+/>
+
+Handlers decode their own input with the def's schema (`Schema.decodeUnknown` over a schema built from the JSON schema, or hand-written Effect schemas per tool — the coder picks one and applies it to all 22). Idempotency: upstream's MCP layer gives every call a `requestNamespace`; handlers that create things (spawn, scaffold, goal_task_add, goal_handoff, goal_continue, thread_fork) derive their command id from `clientRequestId` when present, exactly as upstream's `stableCommandId` does.
+
+### Capabilities and the withhold
+
+Two marked hunks and one literal. `McpInvocationContext.ALL_MCP_CAPABILITIES` gains `"workstream"`. `McpSessionRegistry.issue` stops force-adding `orchestration`, `worktree` and `pull-requests` and issues exactly `request.capabilities` (plus `preview` when browser tools are allowed and the request names nothing). `ProviderSessionManager.prepareMcp` builds `["workstream", "pull-requests"]` (+ `preview`, `device` per settings). Every tool in `OrchestratorToolkit`, `ThreadToolkit`, `ProjectToolkit`, `AttachmentToolkit`, `EnvironmentToolkit` and `WorktreeToolkit` then fails `capability_denied` for a Loom thread, and `PullRequestsToolkit` works. The tools are still listed (upstream lists to every credential), so Loom's profile keeps them out of the prompt and `UPSTREAM_WITHHELD_TOOLS` keeps `enable_toolset all` from activating them. That constant is built from upstream's own exports — `Object.keys(OrchestratorToolkit.tools)` and the others — so a new upstream tool is withheld by construction and a test fails if the PR, preview or device toolkits ever land in it.
+
+### The Loom extension
+
+One file, assembled from parts, written to `serverConfig.providerStatusCacheDir/pi-loom-extension.ts` when its content changes (upstream's `materializePiT3McpExtension` pattern), loaded as the second `--extension` by the composer's `extensions`. It reads `T3_MCP_URL` and `T3_MCP_BEARER_TOKEN` — no Loom env variables remain. Its parts and rules:
+
+- **Profile** (3a). On `session_start`: `GET /loom/agent/session-profile`; `pi.setActiveTools(profile.activeTools)`. On every `before_agent_start`: re-fetch (cheap, local) and re-assert `activeTools ∪ enabledThisSession`; refresh `humanEngaged`; if `humanEngaged` and `ask_user_question` is not active, activate it (its snippet says it is available because a person has written to this thread — that *is* the human-engaged cue; nothing is injected into the system prompt). A fetch failure leaves pi's default surface and notifies once.
+- **`mcp__t3-code__enable_toolset`** (3a). Families `delegation | human-input | pull-requests | browser | studio | all`. `human-input` on a thread with `humanEngaged === false` and a parent is refused with the text: *this thread has no human reader; consult your parent with `mcp__t3-code__consult_thread`; raise `needs_guidance` only if that does not settle it*. `all` = every registered tool minus `profile.denyList`. `browser` = `browser_*` ∪ `mcp__t3-code__preview_*` ∪ `mcp__t3-code__t3_preview_*`. Verified against pi's post-set list as today; the delegation digest text is rewritten in 3a-T.
+- **`mcp__t3-code__ask_user_question`** (3a). `POST /loom/agent/user-input/ask` → `{ requestId }`; then `GET …/wait` in 25-second slices with the reconnect loop today's shim has; the answer returns as the tool result. The server side: `runtime-request.create` (Loom command, Phase 2 reserved the slot) emits `runtime-request.updated { kind: user_input, loom: true }` so V2's panel, mobile card and `pendingRuntimeRequest` all work; the `runtime-request.respond` hunk hands the answer to the live waiter and emits no message; with no waiter (pi died) it falls through to upstream's message delivery; a plain human message while the request is pending resolves it `superseded` and is delivered as the tool result (rule 6 of `loomTurnStartRules`, specified in Phase 2). Loom's three-layer settlement module stays quarantined and dies in Phase 4.
+- **Search guard** and **prompt debug** (3c) — see 3c; they consume `ctx.profile().promptDebugPath`.
+
+### The session composer
+
+`LoomSessionComposer.compose(threadId)` reproduces today's `startProviderSession` composition from `LoomStoreV2.getWorkstream`, `goals.get`, `tasks.listByGoal`, the role overlay loader, `.t3code/ship.json` and the relocation clause (now keyed on the V2 provider thread's recorded cwd versus the thread's `worktreePath`). Byte-stable across calls for the same inputs (the `forkFrom` cache-prefix property); a unit test calls it twice and asserts identity. Content changes Carl decided, all authored in 3a-T: the work-model addendum and every child-role overlay say **the brief was written by an agent and no human reads this thread unless one sends a message**; an unsettled question goes to the parent via `mcp__t3-code__consult_thread` first, `needs_guidance` only when that fails or the parent is terminal; the "session jsonl" sentence points at `$PI_SESSION_FILE` only (no `*_<threadId>.jsonl`); the staging vocabulary is removed if Carl retires the hold.
+
+### The name sweep
+
+Three places, one gate. This repository: `roles/`, `.t3code/roles/`, `skills/` (`workstream-review-gate`, `ship`, `mdx-visual-plan`, `mdx-visual-recap`, `report-loom-issue`, `t3code-dev-instance`), the work-model addendum, `AGENTS.md`, `docs/architecture/tool-def-authoring.md`, the tool descriptions' cross-references. The pi-craft repository: `~/pi-craft/plugins/pi-craft/skills/` (`handoff`, `authored-document`, `seek-manager-guidance` and any other that names a Loom tool) — a separate PR there, opened by 3a-T. Carl's persistent memory: a `memory_search` for each bare name and `memory_remember` rewrites (listed in 3a-T's report so Carl can veto). Two descriptions change meaning: `notify_thread` (steer-or-start, never aborts, never re-engages a terminal target; the hourly cap stays) and `workstream_set_outcome` (replaces `set_lane`); `workstream_submit`'s refusal text per D19: *refused while an attention flag you raised stands — this turn or an earlier one — because completing would clear it*. The gate: `barenames.sh` exits 0 (hits only under `docs/upstream-sync/` and `plans/`), and a Pi smoke in which a fresh child reads its tool list and calls `mcp__t3-code__workstream_submit` unprompted (smoke step 1 covers the orchestrator side).
+
+### Tests
+
+- `registration.test.ts`: a def with `errorMode: throw` yields `isError: true` and the rendered text; `soft` yields text only; `_meta` carries the snippet; the tool list contains exactly the 22 defs.
+- `families.test.ts`: the three families + PR family partition the defs with no overlap; `UPSTREAM_WITHHELD_TOOLS` equals upstream's orchestration/thread/project/attachment/environment/worktree tool names, prefixed, and contains none of PR/preview/device.
+- `handlers/*.test.ts` on Phase 2's `loomOrchestratorLayer`: spawn → sidecar row and `thread.created`; scaffold all-or-nothing; submit routing echo for terminal / loop / resolve / needs_human / yield; `workstream_set_outcome done` refused with `pendingRework`; goal tools branch scoping; `notify_thread` to an archived target refused; `consult_thread` resolves the file from `nativeThreadRef` (stubbed adapter).
+- `capabilities.test.ts`: a credential issued through `prepareMcp` for a Loom thread has `workstream` and `pull-requests`, not `orchestration` or `worktree`; `delegate_task` returns `capability_denied`; `link_pull_request` succeeds.
+- `loomExtension.test.ts`: build → import → drive with a stub `pi` and stub fetch — `session_start` applies the profile; `before_agent_start` re-asserts after a simulated late registration; `enable_toolset all` excludes the deny-list; `human-input` refused when `humanEngaged` false and allowed when true; `ask_user_question` survives a dropped poll.
+- `sessionComposer.test.ts`: identical bytes across two calls; the human-not-reading sentence present for child roles and absent for roots.
+- `askUserQuestion.test.ts` on the real orchestrator: create → pending request on the shell; respond with a live waiter → waiter receives, no message; respond without → one user message; supersede by a human message → resolved `superseded`, no turn started.
+
+### Definition of done
+
+All 22 tools callable from a real pi 1.0.2 session as `mcp__t3-code__*` with Loom's descriptions visible in pi's prompt (checked in the prompt-debug sidecar); `ask_user_question` answered from the web panel exactly once; a child's `enable_toolset human-input` refused; `delegate_task` denied; the sweep gate green; `vp check` and `vp run typecheck` green; the hunk inventory amended.
+
+### Work breakdown
+
+<Checklist
+  items={[
+    { "id": "3a-T", "label": "3a-T (planner preset, text only): author every tool description, snippet and guideline for the 22 defs and the two extension tools; rewrite roles/*.md and .t3code/roles/*.md, the work-model addendum, the delegation digest, the kickoff wrapper, AGENTS.md and tool-def-authoring.md; open the pi-craft skills PR; list the memory rewrites.", "note": "Prefixed names, PR family for orchestrator/shipper, human-not-reading, consult-parent-first, D19 submit wording, steer-or-start notify, set_outcome. Output: defs.ts prose fields, the markdown files, a memo of memory edits. Coders review for schema fit only. Runs first, in parallel with 3a-1." },
+    { "id": "3a-1", "label": "3a-1: families.ts, defs.ts (schemas, errorMode), registration.ts, authorisation.ts, render.ts; the capability hunks; LoomAgentHttpLive wiring; registration and capability tests. Handoff: tools listed on /mcp, every handler a stub returning 'not ported'." },
+    { "id": "3a-2", "label": "3a-2: handlers — spawn/scaffold/brief/outcome/attention/release/stop/prompt/dependencies/submit/list/stop + modelSelection.ts; report and brief modules; handler tests. Handoff: the workstream family works end to end against the arm." },
+    { "id": "3a-3", "label": "3a-3: handlers — goal tasks/update/handoff (ThreadLaunchService.launch with a worktree strategy, then thread.goal.set + handoff.record)/continue, thread_fork (V2 thread.fork + goal.set), set_thread_title, consult_thread (nativeThreadRef + makePiRpcConnection), notify_thread (ThreadManagementService.sendToThread auto + peer-message record); LoomGoalBroadcast publishes after goal writes." },
+    { "id": "3a-4", "label": "3a-4: loomExtension.ts assembler + profile/enable_toolset/ask parts; loomAgentRoutes.ts; askUserQuestion.ts + runtime-request.create + the respond hunk + supersede rule 6; the piT3McpExtensionSource hunks; extension and ask tests." },
+    { "id": "3a-5", "label": "3a-5: sessionComposer.ts + roleOverlay/shipPolicy/childPrompt out of quarantine; wire into the driver item's hook; barenames.sh; run the sweep gate; the unprompted-prefixed-call pi smoke." },
+  ]}
+/>
+
+## Track 3b — Control plane
+
+**Outcome.** The dispatcher, liveness sweep, recovery pass, handoff drafter and turn-baseline run on `OrchestratorV2.dispatch` / `streamDomainEvents` / `getShellSnapshot` / `LoomStoreV2`, with Carl's wake tiers, the quiescence rail, the re-drive pass absorbed, and nothing of isolation or fan-in. Stall detection ignores a thread sleeping inside a tool call that produces periodic output.
+
+### Files
+
+<FileTree
+  title="3b change map"
+  entries={[
+    { path: "apps/server/src/loom/orchestration/dispatcher/WorkstreamDispatcher.ts", change: "added", note: "The pass: runReDrivePass → promote → quiescence → terminal deltas → per-child rails → yields → brief-needed → deadlock → digest flush → notify delivery → deferred-wake surfacing. Coalescing worker + 60 s tick + startup pass. Triggers: Loom events (workstream-created, outcome-set, attention-raised, outcome-recorded, route-taken, dependencies-set, kickoff-brief-set, peer-message-recorded), run.updated terminal, runtime-request.updated." },
+    { path: "apps/server/src/loom/orchestration/dispatcher/{wakes,digest,gateLegs,yield,briefNeeded,deadlock}.ts", change: "added", note: "The pure composers from today's WorkstreamDispatcher.ts lines 139–1812, retyped on LoomThreadShellFields and the V2 shell; gateLeg is the input planReDrive takes." },
+    { path: "apps/server/src/loom/orchestration/dispatcher/controlMessage.ts", change: "added", note: "controlMessage({ threadId, id, tier, origin, kind, text, payload, notification }) → the message.dispatch command: createdBy agent, creationSource server, loom { origin, controlPayload }, dispatchMode by tier." },
+    { path: "apps/server/src/loom/orchestration/dispatcher/quiescenceRail.ts", change: "added", note: "quiescenceCandidate over the joined shell + getThreadRecords(['runs','messages']); writes the synthesised report; dispatches thread.work.submit outcome quiescent with server:loom:quiescent:<threadId>:<runId>." },
+    { path: "apps/server/src/loom/orchestration/liveness/WorkstreamLivenessSweep.ts", change: "added", note: "classifyLiveness, decideStallAction, State D fingerprint — logic unchanged; inputs from the V2 shell (activityRunStatus, runs) and the in-memory heartbeat; stuck-launch code removed pending the verification below." },
+    { path: "apps/server/src/loom/orchestration/liveness/heartbeat.ts", change: "added", note: "In-memory Map<ThreadId, ms> fed by streamDomainEvents (turn-item.updated, provider-turn.updated, run-attempt.updated) for threads with a sidecar; floored at process start." },
+    { path: "apps/server/src/loom/orchestration/liveness/inFlightTool.ts", change: "added", note: "hasInFlightTool(threadId): any turn item of kind command_execution | dynamic_tool | file_change with status running on the active attempt (getThreadRecords(['turnItems'])). The suppression that keeps a sleeping-but-printing tool from reading as a stall." },
+    { path: "apps/server/src/loom/orchestration/baseline/TurnBaselineReactor.ts", change: "added", note: "On run.updated → running for a thread with a sidecar: capture refs/t3code/loom-baseline/<threadId>/<runOrdinal> of the worktree (git stash-free tree snapshot via the checkpoint store's capture primitive)." },
+    { path: "apps/server/src/orchestration-v2/CheckpointCaptureService.ts", change: "modified", note: "One marked hunk: prefer the Loom baseline ref as the diff base when one exists for this run (today's CheckpointReactor hunk, re-seamed)." },
+    { path: "apps/server/src/orchestration-v2/CheckpointRollbackService.ts", change: "modified", note: "One marked hunk: refuse a rollback when another live Loom thread shares the worktree path (another occupant)." },
+    { path: "apps/server/src/loom/recovery/loomRecoveryPolicy.ts", change: "modified", note: "Startup pass extended: after releaseHeldQueues, run one dispatcher pass; re-deliver any kickoff with no receipt (promotion does this by construction — the pass is the mechanism)." },
+    { path: "apps/server/src/loom/orchestration/EmergentGoalReactor.ts", change: "added", note: "On run.updated completed for a goal-less root with ≤ 2 runs: TextGeneration.generate with the goal prompt; write loom_goals with goalId goal:emergent:<threadId> + thread.goal.set; at-most-once by the deterministic id." },
+    { path: "apps/server/src/loom/handoff/{HandoffDrafterReactor,handoffDraft,retroDraft}.ts", change: "added", note: "Out of quarantine on V2 thread.fork (sourcePoint latest_stable; the drafter is hidden via archived-after-handoff) and the Loom overlay; the ws methods loom.handoffDraft / loom.retroDraft in loom/wsMethods.ts." },
+    { path: "apps/server/src/loom/orchestration/StuckLaunchVerification.md", change: "added", note: "The recorded verdict of the two failure-mode experiments (below), with the test transcripts." },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "Seam 14: rule 4's human predicate gains && creationSource !== 'server'." },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "LoomControlPlaneLive: dispatcher, liveness, baseline, emergent goal, handoff drafter, LoomReDriveReactor removed (absorbed)." },
+    { path: "quarantine/apps/server/src/orchestration/Layers/{WorkstreamFanInReactor,WorktreeReaper}.ts, orphanWorktreeSweep.ts, worktreeClassification.ts, WorkstreamWorktreeStatus.ts, project/WorktreeProvisioner.ts, workstreamIsolation.ts", change: "removed", note: "NOT ported. Shared checkout is the only spawn path; these die with quarantine in Phase 4." },
+  ]}
+/>
+
+### Wake tiers, ids and modes
+
+Every control message goes through `controlMessage()`; the tier decides the mode. Ids are deterministic so receipts make each episode exactly-once; episode keys come from the Loom event ids Phase 2 stamps. The tiers are the strategy's and Phase 2's: `start_if_idle` is the FYI tier **only**; every decision-bearing wake — kickoff, gate legs, yields, attention, brief-needed, deadlock — dispatches `queue_after_active` and is converted to a steer by upstream's delegated-completion block when the target is running and steerable. (A kickoff's target is idle by construction, so for it the two modes are indistinguishable; the gate legs are nested inside the Loom gate commands and never dispatched bare.)
+
+<Table
+  density="compact"
+  columns={["Wake", "Command id", "Tier → mode", "origin", "controlPayload.kind", "Clears target's hold?"]}
+  rows={[
+    ["Kickoff (promotion)", "server:workstream-kickoff:<childId>", "steered → queue_after_active, no notification", "kickoff", "kickoff", "no (D19)"],
+    ["Gate rework / reverify / resolve", "server:workstream-gate:<reviewerId>:<round>:<leg> (Phase 2's planner)", "steered → nested in the Loom gate command", "control_notice", "gate-rework / gate-reverify / gate-resolution", "no"],
+    ["Yield to parent (incl. quiescent)", "server:workstream-yield:<childId>:<outcomeEventId>", "steered → queue_after_active + notification; converted to steer_active when running and steerable", "control_notice", "yield (payload item flags synthesised)", "no"],
+    ["Attention reaching the parent (needs_guidance, awaiting_acceptance, error on a child)", "server:workstream-attention:<childId>:<reason>:<attentionEventId>", "steered", "control_notice", "advisory", "no"],
+    ["Brief-needed rung; deadlock", "server:workstream-brief-needed:<parentId>:<rung>; server:workstream-deadlock:<parentId>:<episode>", "steered", "control_notice", "brief-needed / deadlock", "no"],
+    ["Terminal-child digest; recovered; slow-tool; spinning advisory", "server:workstream-digest:<parentId>:<episodeHash>", "FYI → start_if_idle + notification (deferred without receipt while busy)", "control_notice", "digest (items carry kind)", "no"],
+    ["Stall nudge (State C)", "server:workstream-stall-nudge:<childId>:<episodeMs>", "steered (the target is running by definition; a non-steerable target → escalate instead of queue)", "control_notice", "stall-nudge", "no"],
+    ["Notify delivery (deferred record)", "server:workstream-notify:<recordId>", "upstream auto via sendToThread", "notify", "notify", "no"],
+    ["workstream_prompt (3a's handler)", "server:workstream-prompt:<childId>:<uuid>", "upstream auto", "orchestrator", "—", "YES — the parent acting on the child"],
+    ["Quiescent submit", "server:loom:quiescent:<threadId>:<runId>", "Loom command, not a message", "—", "—", "—"],
+    ["Cancel cascade / interrupt", "server:loom:cascade-cancel:… (planner); run.interrupt with server: id, holdQueue false", "—", "—", "—", "—"],
+  ]}
+/>
+
+The dispatcher treats a `LoomDispatchDeferredError` as "next pass" and records it in `deferredWakes` for the surfacing step; every other error on a `server:` id is logged at warning with the episode key and surfaced to the parent as an `advisory` item on its next digest (the episode is receipted dead). The deferred-wake visibility logic (`surfaceDeferredWakes`) ports as is.
+
+### The quiescence rail
+
+Candidates come from Phase 2's `quiescenceCandidate` over the joined shell, the thread's runs and messages, its children, and two settings (`loom.quiescenceGraceMs`, default 600,000; `loom.quiescenceHumanGraceMs`, default null = never for a human-started turn) under `packages/contracts/src/settings.loom.ts`. For a candidate: read the latest `assistant_message` turn item of its last completed run; write `<threadId>.quiescent-<runId>.md` with the header:
+
+```markdown
+> **Synthesised report.** This thread ended its turn without calling `mcp__t3-code__workstream_submit`.
+> The control plane wrote this file from its last assistant message after <grace> of silence
+> and yielded it to the parent. Nothing below was written as a hand-back.
+```
+
+then dispatch `thread.work.submit { reportPath, outcome: "quiescent" }`. The arm raises `awaiting_orchestrator`; the yield rail wakes the parent with the report and a decision menu (accept as done with `workstream_set_outcome done`; re-prompt with `workstream_prompt`; cancel). A gate member that goes quiet yields too (Phase 2's `routeWorkSubmit` branch) and the yield card says the gate is parked. The rail replaces V1's idle "forgot to finish" `needs_guidance` raise; `isWaitingInGate` still exempts a party waiting for its counterpart.
+
+### Liveness
+
+`classifyLiveness` and the stall ladder port unchanged in logic. Inputs under V2: *dead* = the thread's provider session has read `error` for `failureCap` consecutive sweeps (shell `lastErrorClass` non-null and the latest run `failed`, excluding `usage_limit` which belongs to 3c); *waiting* = `shell.pendingRuntimeRequest?.kind === "approval"`; *stall* = `activityRunStatus` running, no in-flight tool, heartbeat frozen past `staleActivityWindowMs` (10 min), after the 2-minute startup grace; *spinning* (State D) = heartbeat advancing, work-product fingerprint over the last N tool items flat for `noProgressWindowMs`. **The heartbeat advances on `turn-item.updated` for the thread**, which is how a tool call that prints periodically (today's heartbeat pattern — a `sleep 60 && echo` loop, or a long test run) stays alive: each output chunk is a turn-item update, and `hasInFlightTool` suppresses State C entirely while the tool runs. A stall nudge is one steered control message per frozen episode; escalation raises `error` with a `server:` id and wakes the parent through the attention rail. State D stays behind its one boolean.
+
+### Stuck-launch verification
+
+The two V1 failure modes are reproduced under V2 on a copied database before any code is kept: (1) pi killed at spawn — `openSession` fails; (2) the `provider-turn.start` effect failing before any provider turn event. For each, the question is whether V2's effect outbox retries and run-attempt failure recover the run to a terminal state within the retry budget, leaving the thread idle in the shell. **Expected verdict: both recover** (V2 fails the attempt and the run; `isBlockingRun` becomes false), in which case `stuckLaunchRecovery.ts` and `thread.turn-start.fail` are **deleted**, not ported. If either leaves a run wedged in `preparing`/`starting` with no provider turn, 3b adds one rule to the liveness sweep — a run in `starting` for longer than `stuckLaunchGraceMs` (15 min) with no provider turn → `run.interrupt` (server: id) and let promotion/recovery re-deliver — not a CAS command. The verdict and transcripts go in `StuckLaunchVerification.md`.
+
+### Recovery, settlement and the PR toolkit tests
+
+Phase 2 owns the mechanisms; 3b owns three tests on the real orchestrator: a restart with a held queued Loom wake on a live thread resumes it and a `needs_guidance` thread's continuation is a no-op; a PR-watch wake (`thread.pull-request-watch.sync` path) on a thread holding `awaiting_acceptance` leaves the flag; settle-on-merge (`thread.pull-request.sync` with a merged state) settles a childless shipper and does not settle a root with a live descendant. Seam 14's one-token refinement lands here with its test (an upstream `limit-resume` message on a thread holding `awaiting_acceptance` keeps the flag).
+
+### What is simply not built
+
+Fan-in, the reaper, the provisioner, `isolation`, `fanInState`, `workstreamIsolation.ts`, the worktrees maintenance panel's server side, the occupancy lease and mutation lock (DT-45, orphaned → Phase 4 deletes). The strategy's bottom form asked Carl whether to port isolation as an opt-in; this plan takes the recommended answer (shared only). If Carl answers otherwise, it is a separate track after Phase 3, not a change to 3b.
+
+### Tests
+
+- `dispatcher.pass.test.ts` (real orchestrator, stub adapter, seeded runs): promotion kicks off exactly once and never for a thread with `kickoffAt`; FYI digest to a busy parent leaves no receipt and lands once when idle with both items coalesced; a yield to a running steerable parent converts to a steer (replay harness holding a Pi turn open); the gate loop from Phase 2's `t-gate` driven by the pass rather than the reactor; cancel cascade via the pass.
+- `quiescenceRail.test.ts`: a started idle unflagged child past grace yields with a synthesised file; a human-started last turn under null human grace does not; a child with a live child does not; a gate coder in `pendingRework` yields and is not looped to the reviewer.
+- `liveness.test.ts`: frozen heartbeat → nudge then escalate; in-flight tool with periodic turn-item updates → no verdict; approval-waiting exempt; State D flat fingerprint → advisory.
+- `baseline.test.ts`: two threads sharing a worktree; thread A's run diff excludes a file B edited during A's run.
+- `recovery.test.ts`, `prToolkit.test.ts`, `humanPredicate.test.ts` as above.
+
+### Definition of done
+
+Smoke steps 1–9, 14–19 and 23 pass; the re-drive reactor is gone and the pass owns its trigger set; no `loom_thread_heartbeats` table exists; the stuck-launch verdict is recorded; `vp check` and `vp run typecheck` green.
+
+### Work breakdown
+
+<Checklist
+  items={[
+    { "id": "3b-1", "label": "3b-1: controlMessage.ts, the pure composers out of quarantine (wakes, digest, gateLegs, yield, briefNeeded, deadlock) retyped; the dispatcher skeleton with runReDrivePass first and promotion; coalescing worker + tick + startup; LoomReDriveReactor removed. Tests: promotion, deferral, gate via pass." },
+    { "id": "3b-2", "label": "3b-2: terminal deltas, per-child rails, yield, brief-needed, deadlock, digest flush, notify delivery, deferred-wake surfacing; the quiescence rail + report header + settings. Tests: coalescing, yield steer, quiescence." },
+    { "id": "3b-3", "label": "3b-3: liveness sweep + heartbeat + inFlightTool; the stuck-launch experiments and verdict; delete or add the starting-run rule. Tests: liveness." },
+    { "id": "3b-4", "label": "3b-4: TurnBaselineReactor + the two checkpoint hunks; EmergentGoalReactor; recovery startup pass extension; seam 14; the three PR/recovery tests." },
+    { "id": "3b-5", "label": "3b-5: HandoffDrafterReactor + handoffDraft/retroDraft on V2 thread.fork + loom ws methods; LoomControlPlaneLive wiring; hunk inventory amendment; vp check." },
+  ]}
+/>
+
+## Track 3c — Pi adapter economics
+
+**Outcome.** On upstream's `PiAdapterV2`/`PiRpc` (as left by the driver work item): quota exhaustion classified as V2's `usage_limit` with a reset time, so upstream's limit recovery parks and resumes the thread; a cross-vendor reroute when the intended vendor has no healthy account; spawn-time headroom data; cost attribution into a usage ledger; the codex→Anthropic tool-id sanitiser on resume; the search guard and prompt-debug capture as Loom extension parts; the unsolicited-run guard kept with an audit of run-starting extensions. The chain editor, Anthropic↔Vertex ladder, pause, slow-retry ladder and `--session-id` first-launch hunk do not come back.
+
+### Files
+
+<FileTree
+  title="3c change map"
+  entries={[
+    { path: "apps/server/src/provider/Drivers/Pi/piQuotaClassifier.loom.ts", change: "added", note: "classifyPiFailure(errorText, modelSlug, healthRegistrySnapshot) → { usageLimit: boolean; resetAt?: IsoDateTime; retryAfterMs?: number; windowLabel? }. PI_QUOTA_ERROR_RE + the proxy's pool-wide 'cooling down' 429 with Retry-After (DL-77 defect 1) + the account window from the registry when pi's text names none." },
+    { path: "apps/server/src/orchestration-v2/Adapters/PiAdapterV2.ts", change: "modified", note: "Marked hunks: (a) message_end / extension_error failure classification calls classifyPiFailure and emits class usage_limit with resetAt; (b) pre-switch_session sanitiser call in the resume path when the thread's model is Anthropic-family; (c) adapter options gain loom: { classifier, sanitiser } injected by the Loom layer. The driver item's hunks (bundled pi, argv, costUsd, pi update --self disabled) are assumed present." },
+    { path: "apps/server/src/provider/Drivers/Pi/SessionIdSanitiser.loom.ts", change: "added", note: "SessionIdSanitiser.ts out of quarantine: rewrites codex-shaped tool ids in a session file to the Anthropic pattern; takes the file path (nativeThreadRef), never a thread name." },
+    { path: "apps/server/src/loom/economics/RerouteSweep.ts", change: "added", note: "60 s sweep + run.updated failed trigger: for a pi thread whose latest run failed usage_limit, not archived, no pending request, no stored attention — if a healthy fallback target of another vendor exists (resolveFailoverTarget with the single fallbackTarget setting), dispatch thread.model-selection.set(fallback) + provider-session.detach + a Loom control resume message; record loom_thread_reroute. Second clause: an idle rerouted thread whose intended account is healthy again is moved back and the record deleted. Third clause: a usage_limit failure with no resetAt resumes when the registry's mark clears (upstream cannot arm without a reset time)." },
+    { path: "apps/server/src/loom/economics/UsageLedgerReactor.ts", change: "added", note: "On provider-turn.updated with status completed|failed and tokenUsage: insert loom_usage_ledger(thread_id, run_id, provider_turn_id, provider_id, model, input/cached/output tokens, cost_usd, at) — idempotent on provider_turn_id." },
+    { path: "apps/server/src/loom/economics/LoomUsageLedger.ts", change: "added", note: "threadSpend(threadIds), topSpend(limit, since) — seam 11's two queries." },
+    { path: "apps/server/src/persistence/Migrations/1049_LoomUsageLedger.ts", change: "added", note: "RENAME projection_usage_ledger → loom_usage_ledger; ADD run_id, provider_turn_id; UNIQUE(provider_turn_id)." },
+    { path: "apps/server/src/persistence/Migrations/1050_LoomThreadReroute.ts", change: "added", note: "CREATE TABLE loom_thread_reroute (seam 12)." },
+    { path: "apps/server/src/provider/{failoverChains,failoverRouting,exhaustionMapping,providerExhaustionOverlay,accountUsage.loom}.ts, Services/ProviderHealthRegistry.ts, Layers/SubscriptionUsagePoller.ts, quotas/piQuotas.ts", change: "modified", note: "Survivors (Phase 1 kept the provider-health half). failoverChains shrinks to resolveFailoverTarget over ONE fallbackTarget setting; the chain editor's settings shape and FailoverSettingsPanel go. DL-77 defect 2: best-remaining aggregation per window (a full 5-hour window on one account and a full weekly window on another is not 'healthy')." },
+    { path: "packages/contracts/src/settings.loom.ts", change: "modified", note: "ProviderFailoverSettings → { enabled, fallbackTarget: string | null }; a Loom migration rewrites stored chains to the first cross-vendor target or null." },
+    { path: "packages/contracts/src/settings.ts", change: "modified", note: "Marked default: autoResumeLimitedThreads decodes to true in Loom's build." },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/{searchGuard,promptDebug}.ts", change: "added", note: "searchGuardExtension.ts (377 lines, unchanged) and the prompt-debug capture from providerToolExtension.ts as LoomExtensionParts; promptDebug writes to ctx.profile().promptDebugPath." },
+    { path: "docs/operations/pi-extensions-audit.md", change: "added", note: "The unsolicited-run audit: every extension in Carl's pi installs that can start a run (pi-intercom first), what it does, and how Loom-launched pi excludes it." },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "LoomDriverEconomicsLive: RerouteSweep, UsageLedgerReactor, the adapter's loom options." },
+  ]}
+/>
+
+### Park-and-resume on upstream's mechanism
+
+Upstream already has what Carl asked for in the common case: a run that fails with `class: "usage_limit"` and a `resetAt` arms `thread.limitRecovery`; `UsageLimitRecoveryWorker` dispatches a resume when the window passes if `autoResumeLimitedThreads` is on (`UsageLimitRecoveryWorker.ts:12–71`); the web shows `UsageLimitRecoveryBanner`. Loom's V1 adapter did the same with its own sweep. Under the doctrine, upstream's is the baseline: the adapter hunk's job is to make pi's quota errors *look like* a `usage_limit` failure with a reset time, which pi's error text often lacks — so `classifyPiFailure` fills `resetAt` from Loom's `ProviderHealthRegistry` account window (the pollers Phase 1 kept) or a `Retry-After`. Loom's build defaults `autoResumeLimitedThreads` to `true`. What Loom still owns because upstream cannot do it: the **cross-vendor reroute** (a healthy fallback of another vendor before the window resets), the **move back** once the intended account is healthy and the thread is idle, and the rare **no-reset-time** resume off the registry's mark. All three live in `RerouteSweep.ts`. The resume message is a Loom control message (`origin: control_notice`, `queue_after_active` — the target is idle), never `createdBy: user`, so no hold is erased; seam 14 protects holds from upstream's own `limit-resume` message as well.
+
+**Re-anchored on `agent_settled`.** V1 classified errors in its `agent_end` handler mid-turn-loop. Under V2 the classification happens where upstream already builds `turn.failure` (`PiAdapterV2.ts:1611–1620` and the `extension_error` path) and the failure is emitted at `finalizeTurn` on `agent_settled`. Nothing else of V1's turn loop comes across: no T3-level retry tier (`piTurnRetryPolicy.ts` stays quarantined — pi's own `retry.*` settings and the proxy's rotation stand in), no backend fallback mid-turn, no pause.
+
+### The reroute, step by step
+
+<Mermaid
+  caption="A quota failure on a pi thread whose vendor has no healthy account."
+  source={"sequenceDiagram\n  participant PI as pi\n  participant AD as PiAdapterV2 (hunk)\n  participant O as OrchestratorV2\n  participant RS as RerouteSweep (3c)\n  participant HR as ProviderHealthRegistry\n  PI->>AD: message_end stopReason error (quota text)\n  AD->>AD: classifyPiFailure → usage_limit, resetAt from HR\n  AD->>O: provider_turn.updated failed {class usage_limit, resetAt}\n  O->>O: run failed, limitRecovery armable\n  RS->>HR: intended healthy? fallback healthy?\n  alt fallback of another vendor healthy\n    RS->>O: thread.model-selection.set(fallback)\n    RS->>O: provider-session.detach\n    RS->>O: message.dispatch (Loom resume, control_notice)\n    O->>AD: openSession → resume (sanitise file if Anthropic-family) → switch_session\n  else no fallback\n    Note over O: upstream UsageLimitRecoveryWorker resumes at resetAt (autoResume true)\n  end\n"}
+/>
+
+The sanitiser runs **before `switch_session`** on the file `nativeThreadRef` names, because a live pi process holds the poisoned history in memory and cannot be rewritten in place; `provider-session.detach` is what guarantees a fresh process. Codex-shaped tool ids only matter in the codex→Anthropic direction (Anthropic enforces `^[a-zA-Z0-9_-]+$`); moving back needs nothing.
+
+### Spawn headroom and the DL-77 defects
+
+Spawn-time headroom is 3a's handler reading `ProviderHealthRegistry.snapshot` and the usage poller (`headroomBucketFor`); 3c owns that the numbers are right: defect 1 (the proxy's pool-wide `Retry-After` 429 read as transient) is fixed in `classifyPiFailure`; defect 2 (best-remaining aggregation across accounts reading two different windows as healthy) is fixed in `accountUsage.loom.ts` by aggregating per window label before taking the best.
+
+### The extension parts and the unsolicited-run audit
+
+The search guard is unchanged (377 lines) and the prompt-debug capture is today's `before_agent_start` handler with the path from the session profile; both are `LoomExtensionPart`s registered in 3a's assembler. Upstream's guard terminates pi when `agent_start` fires with no T3 turn (`PI_UNSOLICITED_ACTIVITY_ERROR`); Carl keeps it. The audit enumerates every extension in `~/.pi/agent` installs that can start a run outside a turn — `pi-intercom` is the known one — and for each records the opt-out Loom-launched pi uses: an environment variable in the pi provider instance's env if the extension honours one, else a `--no-extension <name>` launch arg if pi 1.0.2 has it, else a Loom-maintained note that the extension must not be installed globally on a Loom host. The instance env is per instance, so a static opt-out works without a per-thread carrier.
+
+### Tests
+
+- `piQuotaClassifier.test.ts`: the recorded quota error texts (from V1's tests), the proxy `Retry-After` body, an unrelated 400 → `usageLimit false`; `resetAt` from the registry when the text has none.
+- `PiAdapterV2.loom.test.ts` on the replay harness: a scripted quota `message_end` → `provider_turn.updated failed` with `class usage_limit` and `resetAt`; a resume of a codex-history file under an Anthropic model rewrites the file before `switch_session` (the sanitiser's fixture).
+- `RerouteSweep.test.ts` on the real orchestrator: failed `usage_limit` + healthy fallback → model-selection set, session detached, one resume message with `loom.origin control_notice`, a reroute row; intended healthy again + idle → moved back, row deleted; a thread holding `awaiting_acceptance` is left alone.
+- `UsageLedger.test.ts`: two terminal provider turns → two rows, a replayed event → no duplicate; `threadSpend` sums.
+- `accountUsage.test.ts`: the two-window aggregation case.
+- `1049/1050` migration tests on a copied V1 database (the `projection_usage_ledger` rows travel).
+
+### Definition of done
+
+Smoke step 21 passes on a real quota event (or a replay fixture when none can be provoked); upstream's Pi replay fixtures stay green with the hunks; the chain editor and retry ladder are absent from settings and UI; the audit is written; `vp check` and `vp run typecheck` green.
+
+### Work breakdown
+
+<Checklist
+  items={[
+    { "id": "3c-0", "label": "3c-0 (conditional): if the driver work item has not landed, do its items first — bundled-pi resolution in the three spawn sites, the loom open-session field → argv in buildPiRpcLaunch, costUsd on tokenUsage, pi 1.0.2 + both patches regenerated with patch 0001 extended to RPC switch_session, pi update --self disabled, the PiCwdOverride contract test through switch_session." },
+    { "id": "3c-1", "label": "3c-1: piQuotaClassifier + the adapter classification hunk + adapter loom options; replay-harness test; autoResumeLimitedThreads default." },
+    { "id": "3c-2", "label": "3c-2: failover shrink (fallbackTarget setting + migration, chain editor and panel deleted), accountUsage defect 2, RerouteSweep with the sanitiser hunk on resume; tests." },
+    { "id": "3c-3", "label": "3c-3: UsageLedgerReactor + LoomUsageLedger + migrations 1049/1050; the two extension parts registered in 3a's assembler; the extensions audit; LoomDriverEconomicsLive; hunk inventory amendment." },
+  ]}
+/>
+
+## Track 3d — Web re-hang
+
+**Outcome.** Loom's board, workstream graph, goal panel, control cards, consult rows, handoff receipts, rollups, thread tabs, usage views and the MDX plan/recap renderer run on upstream's V2 web shell and `client-runtime` state, reading `shell.workstream.*` and the goal stream, on upstream's theme tokens with no Loom CSS. Every row of Phase 1's detach ledger is re-attached or dropped with a reason. Verified live.
+
+### Files
+
+<FileTree
+  title="3d change map"
+  entries={[
+    { path: "packages/contracts/src/orchestrationV2.ts", change: "modified", note: "Seam 15: loom?: Schema.optionalKey(Schema.Boolean) on OrchestrationV2SubscribeShellInput (marked)." },
+    { path: "apps/server/src/ws.ts", change: "modified", note: "Phase 2's goal hunk narrowed: merge the goal PubSub and attach goals to the snapshot only when input.loom === true." },
+    { path: "packages/client-runtime/src/state/shell.ts, shellReducer.ts", change: "modified", note: "Marked hunks: subscribeShell passes loom: true; goal.updated / goal.removed applied ungated before the sequence check (Phase 2 D21), last write wins by updatedAt; goals on the snapshot folded into state; reconnect refetch resynchronises goals." },
+    { path: "packages/client-runtime/src/state/loom/{goals,workstream}.ts", change: "added", note: "Selectors: goalsAtom, goalForThread(threadId), workstreamOf(thread) = thread.workstream ?? null, childrenOf(parentId), deriveBoardColumn(ws, byId) using isEligibleToStart — held | blocked | ready | in_progress | done | cancelled." },
+    { path: "packages/client-runtime/src/state/loom/rollup.ts", change: "added", note: "workstreamRollup.ts retyped: plan rollup from derived columns; activity rollup from shell.activityRunStatus; attention rollup from workstream.attention ∪ derived (pendingRuntimeRequest.kind, brief-needed from children's kickoffBriefPath). Three rollups, never fused." },
+    { path: "apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, components/ChatView.tsx", change: "modified", note: "Marked hunks: surface kinds tasks | workstream | graph; tab titles; mount arms; the seed-not-override auto-open rules from docs/architecture/loom-ui-state-tiers.md." },
+    { path: "apps/web/src/components/Workstream{Panel,Graph,Timeline,QuickFacts,ActiveStrip}.tsx, lib/{workstreamPresentation,forkJoinLayout}.ts", change: "added", note: "Out of quarantine; field mapping below; no lane controls (replaced by outcome controls: accept done, cancel, reopen) and no isolation/fan-in UI; dependency editing stays." },
+    { path: "apps/web/src/components/GoalTasksPanel.tsx, loom/{GoalThreadsSection,TaskThreadChips,goalThreadChain,useGoalPanelActions,GoalFormDialogHost}.*", change: "added", note: "Out of quarantine on the goals selectors; UI mutations go through ws methods 3d adds in loom/wsMethods.ts (loom.goal.update / archive / unarchive / task.rewrite), which write LoomStoreV2 and publish on LoomGoalBroadcast exactly as the tool handlers do." },
+    { path: "apps/web/src/loom/{ControlDigestCard,ControlDigestRow,controlMessages,ConsultCardRow,HandoffReceiptRow,handoffReceipts.logic,composerIntercepts}.*; components/chat/MessagesTimeline.tsx", change: "modified", note: "Control cards read message.loom.controlPayload from the thread projection's messages by messageId (Phase 2 D8); kinds per seam 6 with a raw-text fallback; consult rows from shell.workstream.consults; /handoff and /retro intercepts call loom.handoffDraft / loom.retroDraft (3b)." },
+    { path: "apps/web/src/components/Sidebar.tsx, Sidebar.logic.ts, Sidebar.logic.loom.ts, ThreadNotificationCoordinator.tsx", change: "modified", note: "Attention-outranks-state ordering, sub-thread rollup badge and goal menu entries re-attached as marked hunks; the root-only inbox filter is upstream's subagent filter (accepted); the pending-question header/age reads shell.pendingRuntimeRequest." },
+    { path: "apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts", change: "modified", note: "'By coder' scope re-attached: children from workstreamOf + lineage; per-child diff is the child's own checkpoint scope (3b's baseline makes it honest)." },
+    { path: "apps/web/src/loom/{TopThreadSpend,contextCost,threadSpend}.*, components/settings Usage Cost tab", change: "modified", note: "Re-attached on seam 11: ws method loom.threadSpend / loom.topSpend (added to loom/wsMethods.ts and rpc.loom.ts with a marked splice in contracts/rpc.ts); context chips from providerThread.contextUsage." },
+    { path: "apps/web/src/lib/models.ts", change: "modified", note: "Marked hunk: Loom children keep manual titles (no subagent title reformatting)." },
+    { path: "apps/web/src/loom/pendingUserInput.tsx, mobile thread-list-v2-items.tsx", change: "removed", note: "Dropped: V2 already renders pending requests on the sidebar and the mobile list; the Loom header/age badge is redundant." },
+    { path: "apps/web/src/components/chat/StagedCard.tsx, StagedBriefPreviewCard.tsx, StagedKickoffCard.tsx", change: "modified", note: "Kept only while held exists: an unstarted child shows its brief preview and a one-send launch (which clears held per Phase 2 D10). Deleted with the hold if Carl retires it." },
+    { path: "apps/web/src/components/settings/WorktreesSettings.tsx, ThreadSearchSettings.loom.tsx, loom/threadSearch.ts archived hits", change: "removed", note: "Dropped: worktrees panel is isolation machinery (not ported); semantic search deferred (open question)." },
+    { path: "apps/server/src/dev/seedWorkstream.ts, verifySeed.ts; docs/dev-site-testing.md", change: "modified", note: "Seed re-hung on V2 commands + Loom commands: an orchestrator, a done coder, a gated pair mid-round, a blocked dependent, a quiescent child, a cancelled subtree, a goal with a tree. Step 1 of the recipe works again." },
+    { path: "apps/web/src/preview/fixtures.tsx", change: "modified", note: "Fixtures for ControlDigestCard (every kind), WorkstreamPanel (every column), GoalTasksPanel." },
+  ]}
+/>
+
+### Field mapping
+
+What the quarantined surfaces read from the V1 thread, and where it comes from now. Counts are references across the board, graph, timeline, strip, rollup and layout modules.
+
+<Table
+  density="compact"
+  columns={["V1 read", "Refs", "V2 / sidecar source", "Note"]}
+  rows={[
+    ["thread.planLane", "11", "deriveBoardColumn(thread.workstream, byId)", "six derived columns; yielded is attention awaiting_orchestrator"],
+    ["thread.parentThreadId", "9", "thread.lineage.parentThreadId (V2) — equals workstream.parentThreadId", "lineage is authoritative"],
+    ["thread.attention", "6", "thread.workstream.attention ∪ derived", "awaiting_input / awaiting_approval from pendingRuntimeRequest.kind"],
+    ["thread.reportPath, routes, gateRounds, blockedBy, forkFromThreadId, role, purpose, kickoffBriefPath, lastOutcome", "~20", "thread.workstream.*", "one-to-one"],
+    ["thread.fanInState, isolation", "6", "gone", "shared checkout; no badge"],
+    ["thread.toolUses, usedTokens, maxTokens", "17", "providerThread.contextUsage (tokens / contextWindow); tool count from turnItems length or dropped", "tool count: drop (no consumer asked for it)"],
+    ["thread.cumulativeCostUsd, diffAdditions, diffDeletions", "5", "loom.threadSpend RPC; checkpoint diff stats from V2 checkpoints", "cost is a batched lookup, not a shell field"],
+    ["thread.latestTurn, session", "5", "shell.activityRunStatus, latestRun fields", "runtime axis"],
+    ["thread.lastActivityPreview", "3", "shell.latestVisibleMessage", "—"],
+    ["thread.pendingUserInputHeader/Since", "2", "shell.pendingRuntimeRequest", "—"],
+  ]}
+/>
+
+### Mobile
+
+The store-built mobile app connects to a Loom server and decodes the shell stream with a closed union, so **no Loom item may reach it**: seam 15's `loom` flag is the guarantee (the mobile app never sets it); `workstream?:` on thread shells and `goals?:` on the snapshot are excess keys that Effect's decoder strips by default (`SchemaAST` `onExcessProperty: "ignore"`), so they are safe; the per-thread stream already filters Loom events (Phase 2). **In pull 9 mobile renders no workstream surface** — it never did; the one Loom mobile hunk (pending-question age) is dropped as redundant with V2's own pending-request rendering. The Loom-built mobile app (if Carl builds one) gets nothing new in Phase 3; a mobile board is a post-cut-over item.
+
+### Detach-ledger disposition
+
+Every row Phase 1 wrote (`docs/upstream-sync/29-cadence-pull-9-phase1.md`, Appendix C) is either re-attached above or dropped here with its reason; 3d's PR carries the completed table. Dropped in Phase 3: DT-35's pending-question badge (redundant), DT-42 (isolation), DT-43 (semantic search — deferred, open question), DT-41 relay metadata (no consumer renders it; 3b confirms), DT-15 queued-send `threadReferences`/`skillNames` (V2 queues server-side; the draft chips survive on PR-9's path). Everything else in DT-31–DT-39 is re-attached.
+
+### Verification
+
+Static: `vp check`, `vp run typecheck`, the preview-harness fixtures for cards and panels. Live, via the dev-verify recipe with the re-hung seed: the board shows every derived column with the right threads; the graph renders the gated pair with a round badge; the goal panel shows the seeded tree and an anchor chip; a digest card and a quiescent yield card render from `controlPayload`; the attention rollup badge on the root; the Diff panel "By coder" lists the children; the Cost tab shows the seeded ledger; `/handoff` opens the drafter. Then the smoke's observables (the board and thread columns of the scenario table) are 3d's acceptance. Hit-every-surface: entry points (right-panel tabs, command palette entries for the Loom surfaces, keybindings), clients (web; desktop wraps it; mobile explicitly out), reverse states (accept done ↔ reopen; cancel ↔ reopen; dependency add ↔ remove), connection modes (reconnect refetch resynchronises goals).
+
+### Work breakdown
+
+<Checklist
+  items={[
+    { "id": "3d-1", "label": "3d-1: seam 15 flag + ws narrowing; client-runtime goals/workstream/rollup selectors and reducer hunks; seedWorkstream.ts on V2; the preview fixtures. Handoff: state is populated in the browser with the seed." },
+    { "id": "3d-2", "label": "3d-2: right-panel kinds; WorkstreamPanel/Graph/Timeline/QuickFacts/ActiveStrip on the mapping; outcome controls; dependency editing." },
+    { "id": "3d-3", "label": "3d-3: GoalTasksPanel and goal surfaces; control cards, consult rows, handoff receipts and composer intercepts; sidebar hunks; models.ts titles." },
+    { "id": "3d-4", "label": "3d-4: Diff panel By-coder; usage views on seam 11 (loom.threadSpend / topSpend RPC); the detach-ledger disposition table; live verification run and screenshots under .artifacts/pull9-3d/." },
+  ]}
+/>
+
+## Hunk inventory amendments
+
+Phase 2's amended inventory stands; Phase 3 changes it as follows. Every row is a marked hunk a future pull will conflict on.
+
+<Table
+  density="compact"
+  columns={["Upstream file", "Change", "Track", "Reason"]}
+  rows={[
+    ["mcp/McpInvocationContext.ts — ALL_MCP_CAPABILITIES", "ADDED: 'workstream' literal", "3a", "the capability Loom's toolkit requires"],
+    ["mcp/McpSessionRegistry.ts — issue", "AMENDED: issues the requested set instead of force-adding orchestration/worktree/pull-requests", "3a", "the withhold"],
+    ["orchestration-v2/ProviderSessionManager.ts — prepareMcp capabilities", "ADDED", "3a", "Loom threads get workstream + pull-requests (the inventory had this on the registry only)"],
+    ["Adapters/piT3McpExtensionSource.ts", "AMENDED: instructions constant empty; _meta-driven snippet/guidelines (the inventory said 'the def's promptSnippet'; _meta is the carrier)", "3a", "Loom prose in pi's prompt without a naming hunk"],
+    ["mcp/McpHttpServer.ts", "unchanged row (register the Loom toolkit)", "3a", "—"],
+    ["orchestration-v2/Orchestrator.ts — runtime-request.respond case", "lands now (deferred from Phase 2)", "3a", "live-waiter hand-off"],
+    ["orchestration-v2/Orchestrator.loom.ts — rule 4 human predicate", "AMENDED: createdBy user && creationSource !== 'server' (Loom-only file; listed because it changes Phase 2's stated rule)", "3b", "upstream's server-synthesised 'user' messages do not erase a hold"],
+    ["orchestration-v2/CheckpointCaptureService.ts", "ADDED (replaces the inventory's 'checkpointing (checkpoint.captured consumer)' row): Loom baseline ref as diff base when present", "3b", "honest per-turn diffs in a shared checkout"],
+    ["orchestration-v2/CheckpointRollbackService.ts", "ADDED: refuse with another live occupant", "3b", "the inventory listed it under the same checkpointing row"],
+    ["effect outbox kinds — emergent goal", "REMOVED", "3b", "a reactor with a deterministic goal id, no outbox member"],
+    ["orchestration-v2/Adapters/PiAdapterV2.ts", "AMENDED: + failure classification via the Loom classifier, + pre-switch_session sanitiser, + loom adapter options (the driver item's hunks stand)", "3c", "park-and-resume on upstream's limit recovery; reroute"],
+    ["packages/contracts/src/settings.ts", "AMENDED: + autoResumeLimitedThreads default true", "3c", "upstream's limit recovery is Loom's park-and-resume"],
+    ["packages/contracts/src/orchestrationV2.ts", "AMENDED: + loom?: on OrchestrationV2SubscribeShellInput", "3d", "the store mobile app must never receive a goal item"],
+    ["apps/web/src/rightPanelStore.ts, RightPanelTabs.tsx, ChatView.tsx, Sidebar.tsx, Sidebar.logic.ts, DiffPanel.tsx, MessagesTimeline.tsx, models.ts; packages/client-runtime/src/state/shell.ts, shellReducer.ts; contracts/rpc.ts", "ADDED (web rows — the inventory listed only models.ts)", "3d", "the re-hang's mount points, each marked"],
+    ["provider session bindings prune (conditional, Phase 2's check)", "unchanged", "—", "—"],
+  ]}
+/>
+
+## Decision log
+
+Calls this plan made where the strategy and Phase 2 were open or silent. Decisions already recorded there are applied, not listed.
+
+<Table
+  columns={["#", "Decision", "Alternative rejected", "Why"]}
+  rows={[
+    ["P3-1", "Loom's MCP tools are hand-registered (McpServer.addTool) returning the rendered markdown as one text block with isError for throw-mode tools", "Toolkit.make + McpServer.toolkit", "the toolkit path JSON-stringifies every success; the agent would read {\"rendered\": …}. Hand registration is upstream's own pattern for image tools and keeps 'the server render is the source of truth' and today's errorMode semantics"],
+    ["P3-2", "promptSnippet and promptGuidelines travel in the tool's _meta ('loom/promptSnippet', 'loom/promptGuidelines'); the bridge hunk reads them", "Encode them in the description with a delimiter the bridge parses; or accept upstream's generic guideline", "_meta is MCP's reserved extension slot and tools/list returns it; a delimiter is a hidden contract; the generic guideline loses the hand-authored prose Carl's tool-def doctrine is built on"],
+    ["P3-3", "Two REST routes survive beside /mcp: the session profile (GET) and ask_user_question's ask + long-poll wait; everything else is MCP", "Zero REST (profile via an MCP tool call from Loom's extension; ask via MCP)", "Loom's extension has no MCP client and should not grow one; a human answer can take hours and upstream's bridge callTool has no reconnecting wait. The two routes are ~120 lines and reuse McpSessionRegistry.resolve"],
+    ["P3-4", "Loom's extension re-asserts the active tool set on every before_agent_start (profile ∪ families enabled this session), plus the enable_toolset all deny-list", "session_start only + deny-list", "the bridge's session_start retry can register upstream's tools after Loom's profile applied; re-asserting per turn closes the window the strategy asked 3a to verify"],
+    ["P3-5", "The human-engaged cue is the ask_user_question tool itself: the extension activates it when the profile reports humanEngaged (latestUserAuthoredMessageAt set), and its snippet says why it is available", "Inject a one-line 'a human is now engaged' into the system prompt", "a system-prompt change invalidates the cache prefix; tool activation already changes the prompt and carries the meaning"],
+    ["P3-6", "The workstream capability is issued by prepareMcp and the registry issues exactly the requested set (Loom's build never issues orchestration or worktree)", "Keep upstream's fixed three and add a listing filter", "the MCP library's EnabledWhen cannot see the bearer; call-time denial plus the prompt profile is the strategy's mechanism, and the registry change is two lines"],
+    ["P3-7", "Tool descriptions, role overlays, the addendum and the digest are authored in a dedicated planner-preset session (3a-T) and only reviewed by coders", "Coders write the prose as they port", "Carl's standing rule: text models will read is authored by a top-tier model; the port is mechanical, the prose is a prompt"],
+    ["P3-8", "No loom_thread_heartbeats table; the liveness heartbeat is an in-memory map floored at process start", "Persist heartbeats as V1 did", "the sweep already floors at sweep start after a restart, so persistence bought nothing; one fewer migration and no writer on the hot event path"],
+    ["P3-9", "Stall suppression keys on an in-flight tool item (running command_execution / dynamic_tool / file_change on the active attempt) and the heartbeat advances on turn-item.updated", "Heartbeat on provider-turn.updated only", "a tool that prints periodically produces turn-item updates and no provider-turn change; V1's hasInFlightTool semantics are the behaviour to keep"],
+    ["P3-10", "Stuck-launch: verify both V1 failure modes under V2 first; expected verdict delete both modules; if a wedge survives, add a starting-run rule to the liveness sweep (interrupt + re-deliver), never a CAS command", "Port stuckLaunchRecovery.ts", "V2's effect outbox retries and attempt failures are the mechanism to test; a CAS over V2 session rows would be a new Loom command on upstream's runtime axis"],
+    ["P3-11", "Park-and-resume rides upstream's UsageLimitRecoveryWorker (autoResumeLimitedThreads true in Loom's build); the adapter classifies pi quota errors as usage_limit with resetAt from Loom's registry; Loom's RerouteSweep owns only the cross-vendor reroute, the move-back and the no-reset-time case", "Loom's ExhaustionResumeSweep owns every pi resume as in V1", "doctrine: upstream expresses 'resume when the window resets' with a UI; Loom keeps only what upstream cannot do"],
+    ["P3-12", "The reroute changes the thread's modelSelection (thread.model-selection.set), detaches the session, and resumes with a Loom control message; a loom_thread_reroute row remembers the intended selection for the move-back", "Reroute inside the adapter at startTurn without changing the stored selection (V1's shape)", "V2 records modelSelection per Run, so changing it is the honest attribution; the adapter stays free of health-registry logic; detach forces the fresh process the sanitiser needs"],
+    ["P3-13", "Rule 4's human predicate adds creationSource !== 'server' (seam 14)", "Leave Phase 2's rule and hunk UsageLimitRecoveryWorker to stamp a Loom origin", "upstream's limit-resume and restart continuations are createdBy user / creationSource server; one token in Loom's own file beats a hunk in an upstream worker"],
+    ["P3-14", "goal items reach only clients that subscribe with loom: true; the store mobile app never does", "Phase 2's unflagged merge", "a closed-union decoder in the store app would fail on an unknown kind; excess keys are stripped by default but new union members are not"],
+    ["P3-15", "goal_handoff's handler lives in 3a (toolkit) and launches through ThreadLaunchService.launch with a worktree strategy, then thread.goal.set + handoff.record", "A 3b reactor doing the launch", "it is one service call from a handler; no control-plane state is involved"],
+    ["P3-16", "Emergent goal is a reactor with a deterministic goal id (goal:emergent:<threadId>), not an effect-outbox kind", "An outbox member beside thread-title.generate", "an outbox kind is an upstream contract hunk; the reactor is at-most-once by the id and uses upstream's TextGeneration unchanged"],
+    ["P3-17", "The turn baseline is a Loom reactor capturing a ref at run start plus one hunk choosing it as the diff base; rollback refused with another live occupant", "Rely on V2's previous-checkpoint baseline", "in a shared checkout the previous checkpoint of this thread predates sibling edits made between its turns, so the diff would include them — the exact defect V1's baseline fixed, now more important"],
+    ["P3-18", "Semantic thread search (embeddings, archived hits, report indexing) is deferred to after cut-over; upstream's lexical V2 search serves meanwhile", "Re-seam the index in 3d", "Phase 2 shipped no index; the feature needs its own table, importer step and eval; nothing in the smoke depends on it (open question below)"],
+    ["P3-19", "The pending-question header/age badge, the worktrees settings panel and the relay plan/attention metadata are dropped", "Re-attach", "redundant with V2's pending-request rendering; isolation machinery; no consumer renders the relay fields"],
+    ["P3-20", "Migration numbers are fixed in this plan: 1049 usage ledger, 1050 reroute", "Each track picks the next free number at merge time", "parallel tracks would collide on the 1001+ ledger"],
+    ["P3-21", "No Phase 3 track edits Orchestrator.ts except the respond hunk (3a) Phase 2 deferred here", "Let tracks add case hunks as needed", "the decider is Phase 2's surface; keeping Phase 3 out of it is what keeps the hunk inventory the conflict surface it claims to be"],
+    ["P3-22", "The digest excerpt is trimmed to 400 characters", "Keep 600", "Carl's follow-up in the toolkit review"],
+  ]}
+/>
+
+## Phase 4 obligations
+
+What the importer and the QA instance will need from Phase 3, stated so Phase 4's planner can rely on it.
+
+- **Report paths.** `<serverConfig.workstreamReportsDir>/<threadId>.md`, `.round-<n>.md` for gate rounds, `.quiescent-<runId>.md` for synthesised reports; `reportPath` on the sidecar is the latest. The importer copies V1 `report_path` as is (same directory).
+- **Attention reasons** are exactly Phase 2's four stored values; `awaiting_orchestrator` is added for a V1 `yielded` lane. Nothing in Phase 3 adds a stored reason.
+- **Lineage re-emit.** Phase 2 §5 requires the importer to re-emit each child's thread row with `subagent` lineage; Phase 3's web filters and rollups read `lineage.parentThreadId`, so an imported child without it would surface as a root. Phase 4 must do this before the board is trusted.
+- **Episode columns stay null** on imported rows (Phase 2); the dispatcher's digest and yield rails key on `lastOutcome.eventId` / `outcomeEventId` and so stay silent for history. The first pass after import must send no kickoff: every imported thread with a transcript carries `kickoffAt`.
+- **Usage ledger** rows travel by the 1049 rename; no import step. `loom_thread_reroute` starts empty.
+- **Session binding** (`importedNativeThread` with the `*_<threadId>.jsonl` path) is what `consult_thread`, the sanitiser and the stall context resolve through; the Phase 4 remember-check covers it.
+- **The subscribe flag.** The QA web client passes `loom: true`; a store mobile app pointed at the QA instance must show threads without errors — that is the mobile check for pull 9.
+- **The name sweep** must have run before QA, so that imported live orchestrators (whose system prompts were composed with bare names) are re-launched with the new addendum on their first continuation; their in-transcript bare names are history and harmless.
+- **Settings** the QA instance needs on: `continueThreadsAfterServerUpdate` (Phase 2 default), `autoResumeLimitedThreads` (3c default), the quiescence grace defaults.
+
+<Callout tone="risk">
+**Risks.** (1) *The driver work item.* If it slips, 3c-0 absorbs it and 3a's composer lands behind a default layer; the smoke cannot run until both exist. (2) *Three parties in one pi process.* Upstream's bridge, Loom's extension and the composer's argv must agree on names and ordering; the prompt-debug sidecar is the instrument — read it in every smoke run. (3) *A receipted deferral is a dead wake.* 3b's `controlMessage()` is the only place that builds a control dispatch; a coder who dispatches a `server:` id elsewhere with any mode other than the tier table's has reintroduced the strategy's risk 7. (4) *Two resume mechanisms.* Upstream's limit recovery and Loom's reroute sweep are disjoint by condition (reset time known and no fallback → upstream; otherwise Loom); the `RerouteSweep` test asserts a thread upstream will resume is left alone. (5) *The withhold is call-time.* Upstream's tools are listed; if Loom's profile fails to apply, the model sees `delegate_task` — the denial still holds, but the prompt is noisy. The profile fetch failure notifies, and the smoke's step 13 proves the denial. (6) *Mobile.* The store app decodes a closed union; the flag is the only guard — a reviewer should refuse any Loom shell-stream member sent without it. (7) *Upstream churn in `Orchestrator.ts`.* Phase 3 adds one hunk there; keep it that way.
+</Callout>
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "semantic-search",
+      title: "Defer Loom's semantic thread search (embeddings, archived hits, indexed reports) to after cut-over, leaving upstream's lexical search in pull 9?",
+      subtitle: "Phase 1 detached the search index and settings because they were welded to V1 tables; Phase 2 shipped no replacement index. Upstream's own V2 search finds threads by title and content lexically, over active threads.",
+      refs: [{ label: "Track 3d — detach-ledger disposition", anchor: "detach-ledger-disposition" }],
+      mode: "single",
+      options: [
+        { id: "defer", label: "Yes — defer; lexical search serves until a post-cut-over item restores the embedding index on V2 tables", recommended: true, detail: "Keeps 3d to the surfaces the smoke exercises. Archived-thread hits and report indexing return later with their own import step." },
+        { id: "now", label: "No — re-seam the index and settings in 3d (adds a session and a migration)", detail: "Restores archived hits and report search in pull 9 at the cost of a 1051 migration, an embedder rewire and a Phase 4 import step for embeddings." },
+      ],
+    },
+    {
+      id: "held-retirement",
+      title: "The strategy's open question on retiring the staging hold is still unanswered; should Phase 3 build with the hold present, as Phase 2 did, or treat it as retired?",
+      subtitle: "Phase 2 kept the held field and thread.held.set (its D18). Phase 3 would carry workstream_release, the staged parameter on spawn/scaffold, the held board column and the staged cards — all deletable in one pass if Carl retires the hold.",
+      refs: [{ label: "Track 3a — the Loom extension", anchor: "the-loom-extension" }],
+      mode: "single",
+      options: [
+        { id: "present", label: "Build with the hold present (as Phase 2 did); delete in one pass if Carl answers 'retire'", recommended: true, detail: "No design depends on the answer; the deletion is a tool def, a parameter, a column and one predicate term." },
+        { id: "retired", label: "Treat it as retired now: no workstream_release, no staged, no held column in the board", detail: "Smaller 3a and 3d, but pre-empts Carl's form and would need Phase 2's column dropped by a migration." },
+      ],
+    },
+    {
+      id: "pi-intercom",
+      title: "For the unsolicited-run guard, is it acceptable that Loom-launched pi excludes pi-intercom (and any other run-starting extension) by an environment opt-out set in the pi provider instance's env?",
+      subtitle: "Upstream terminates pi when it starts a run with no T3 turn. pi-intercom can start one. The opt-out must be static per provider instance because upstream's launch env is per instance, not per thread.",
+      refs: [{ label: "Track 3c — the extension parts and the unsolicited-run audit", anchor: "the-extension-parts-and-the-unsolicited-run-audit" }],
+      mode: "single",
+      options: [
+        { id: "env", label: "Yes — a static per-instance opt-out is fine; 3c's audit records the variable per extension", recommended: true },
+        { id: "uninstall", label: "No — run-starting extensions must not be installed on a Loom host at all; the audit documents removal instead", detail: "Simplest guarantee, but it removes pi-intercom from Carl's interactive pi sessions on the same machine." },
+      ],
+    },
+  ]}
+/>
