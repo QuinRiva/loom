@@ -47,12 +47,14 @@ import {
   type ProviderInstanceConfigMap,
   ServerSettings,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause"; // loom: pretty-printed reconcile cause
+import * as Crypto from "effect/Crypto"; // loom: Pi-only env, see below
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import * as Settings from "../../serverSettings.ts";
+import * as ProviderEventLoggers from "./ProviderEventLoggers.ts"; // loom: Pi-only env
 import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "../builtInDrivers.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderInstanceRegistryMutator from "../Services/ProviderInstanceRegistryMutator.ts";
@@ -69,7 +71,11 @@ type ProviderInstanceRegistryHydrationEnv =
       BuiltInDriversEnv,
       ProviderOrchestrationAdapterInfrastructure | AcpRegistrySupport.AcpRegistryCatalog
     >
-  | Settings.ServerSettingsService;
+  | Settings.ServerSettingsService
+  // loom: the Pi-only registry's `BuiltInDriversEnv` no longer carries what the
+  // adapter infrastructure below needs (upstream's five-driver union did).
+  | Crypto.Crypto
+  | ProviderEventLoggers.ProviderEventLoggers;
 
 /**
  * Synthesize a `ProviderInstanceConfigMap` from a `ServerSettings` snapshot.
@@ -137,6 +143,7 @@ const SettingsWatcherLive = Layer.effectDiscard(
       Stream.runForEach((next) =>
         mutator.reconcile(deriveProviderInstanceConfigMap(next)).pipe(
           Effect.catchCause((cause) =>
+            // loom: log the pretty cause, not the raw Cause object
             Effect.logError("ProviderInstanceRegistry reconcile failed", {
               cause: Cause.pretty(cause),
             }),

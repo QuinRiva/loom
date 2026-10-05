@@ -19,7 +19,7 @@ import * as Effect from "effect/Effect";
 
 import type { DrainableWorker } from "@t3tools/shared/DrainableWorker";
 
-import { piStdoutBackpressure } from "../provider/Layers/Pi/RpcProcess.ts";
+// loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's pi RpcProcess, is quarantined.
 
 const INTERVAL_MS = 60_000;
 // Consecutive once-a-minute checks with work pending and no progress before the
@@ -328,25 +328,18 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
     yield* Effect.sleep(INTERVAL_MS);
     const nowMs = yield* Clock.currentTimeMillis;
     const fields = yield* sample(nowMs);
-    const piStdoutPausedSinceMs = Math.min(...piStdoutBackpressure.pausedSince.values());
     const decision = decideIngestionLiveness({
       previousCheckAtMs,
       lastProgressAtMs,
       queueDepth: fields.queueDepthNow,
-      blockedSinceMs: Math.min(
+      blockedSinceMs:
         runtimeEventPublishBackpressure.inFlight > 0
           ? runtimeEventPublishBackpressure.sinceMs
           : Number.POSITIVE_INFINITY,
-        piStdoutPausedSinceMs,
-      ),
       stalledChecks,
     });
     const details = {
       ...fields,
-      piStdoutPausedNow: piStdoutBackpressure.pausedSince.size,
-      piStdoutPausedForMs: Number.isFinite(piStdoutPausedSinceMs)
-        ? nowMs - piStdoutPausedSinceMs
-        : 0,
       stalledChecks: decision.stalledChecks,
     };
     previousCheckAtMs = nowMs;

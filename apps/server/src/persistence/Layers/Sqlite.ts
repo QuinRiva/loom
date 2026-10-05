@@ -3,6 +3,7 @@ import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MigrationError } from "effect/unstable/sql/Migrator"; // loom: see runAllMigrations below
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 // loom: two-lane migration ledger (upstream + loom 1001+).
@@ -29,7 +30,13 @@ const setup = Layer.effectDiscard(
     // PASSIVE checkpoints never shrink the -wal file, so it otherwise keeps its
     // largest size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
-    yield* runAllMigrations(); // loom: both ledgers
+    // loom: both ledgers; the fork ledger's refusal surfaces as upstream's MigrationError so
+    // this layer keeps upstream's error channel (pull 9, DL-148).
+    yield* runAllMigrations().pipe(
+      Effect.catchTag("LoomLedgerReconciliationError", (error) =>
+        Effect.fail(new MigrationError({ kind: "BadState", message: error.message })),
+      ),
+    );
   }),
 );
 

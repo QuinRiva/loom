@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import type * as Schema from "effect/Schema";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -115,7 +116,8 @@ const PRODUCTION_FORK_TAIL: ReadonlyArray<readonly [id: number, name: string]> =
  * grow when a new fork migration is added.
  */
 const historicalLedger: ReadonlyArray<
-  readonly [id: number, name: string, body: Effect.Effect<void, SqlError, SqlClient.SqlClient>]
+  readonly [id: number, name: string, body: Effect.Effect<void, SqlError | Schema.SchemaError, SqlClient.SqlClient>,
+  ]
 > = [
   ...migrationEntries.filter(([id]) => id <= 32),
   ...loomMigrationEntries
