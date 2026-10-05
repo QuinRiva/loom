@@ -123,6 +123,16 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
 import { joinLoomShellFields, joinLoomThreadShell } from "../loom/projection/loomShellJoin.ts"; // loom:
+import {
+  decideLoomCommand,
+  LoomDispatchDeferredError,
+  loomContinuationVetoed,
+  loomHumanStopRaise,
+  loomMessageFields,
+  loomQueuedTurnAttentionClear,
+  loomSettleBlockers,
+  loomTurnStartRules,
+} from "./Orchestrator.loom.ts"; // loom: the decider arm and the dispatchMessage helpers
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -240,6 +250,7 @@ export const OrchestratorV2Error = Schema.Union([
   OrchestratorCommandPreviouslyRejectedError,
   OrchestratorCommandIdConflictError,
   OrchestratorSubagentThreadReadOnlyError,
+  LoomDispatchDeferredError, // loom: never receipted (dispatchWithReceiptEffect)
 ]);
 export type OrchestratorV2Error = typeof OrchestratorV2Error.Type;
 
@@ -1797,6 +1808,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             occurredAt: now,
             payload: startingRun,
           },
+          // loom: rule 4 at start time — a queued human/orchestrator turn clears stored attention now
+          ...(yield* loomQueuedTurnAttentionClear(loomStore, threadId, queuedMessage.loom, now)),
         ],
         [
           ...sessionsToDetach.map((session) => ({
@@ -3631,6 +3644,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
     readonly senderThreadId?: OrchestrationV2ConversationMessage["senderThreadId"];
     readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
+    readonly loom?: OrchestrationV2ConversationMessage["loom"]; // loom:
     readonly forceRestart: boolean;
   }) =>
     Effect.gen(function* () {
@@ -3776,6 +3790,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
             ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
+            ...(input.loom === undefined ? {} : { loom: input.loom }), // loom: steer carry site
             id: input.messageId,
             threadId: input.command.threadId,
             runId: messageInput.runId,
@@ -4424,6 +4439,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return;
         }
       }
+      // loom: the target's sidecar and the message's loom field (humanAuthored stamped server-side, DL-194)
+      const loomWorkstream = yield* loomStore
+        .getWorkstream(command.threadId)
+        .pipe(mapDispatchError(command));
+      const loomFields = loomMessageFields(command);
+      // loom: rule 0 (DL-195) — a continuation of a Loom thread that is not continued is an accepted no-op
+      if (
+        (command.restartContinuationOfRunId ?? command.usageLimitContinuationOfRunId) !==
+          undefined &&
+        loomContinuationVetoed(
+          loomWorkstream,
+          projection.runtimeRequests.some((request) => request.status === "pending"),
+        )
+      ) {
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          occurredAt: yield* DateTime.now,
+          payload: projection.thread,
+        });
+        return;
+      }
 
       if (projection.thread.settledOverride !== null) {
         const now = yield* DateTime.now;
@@ -4512,13 +4552,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.dispatchMode,
         command.deliveryIntent,
       );
-      // loom: start_if_idle placeholder until A3's dispatchMessage hunk defers or resolves it
+      // loom: start_if_idle (FYI tier) — a busy target defers WITHOUT a receipt (deferral site 1);
+      // an idle one starts at once as queue_after_active, so it may carry a notification
       if (dispatchMode.type === "start_if_idle") {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: "start_if_idle not yet wired (A3)",
-        });
+        if (projection.runs.some(isBlockingRun)) {
+          return yield* new LoomDispatchDeferredError({
+            commandId: command.commandId,
+            commandType: command.type,
+            threadId: command.threadId,
+            reason: "target busy",
+          });
+        }
+        dispatchMode = { type: "queue_after_active" };
       }
       if (dispatchMode.type === "steer_active") {
         const targetRunId = dispatchMode.targetRunId;
@@ -4596,10 +4641,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // Route durable mailbox deliveries under the thread lock, using the live
       // session's capabilities. Never interrupt/restart a turn for a notification.
       if (
-        delegatedCompletion !== undefined &&
-        delegatedCompletion.taskIds.every(
-          (id) => projection.subagents.find((task) => task.id === id)?.completionWake === "always",
-        )
+        (delegatedCompletion !== undefined &&
+          delegatedCompletion.taskIds.every(
+            (id) =>
+              projection.subagents.find((task) => task.id === id)?.completionWake === "always",
+          )) ||
+        // loom: steered tier — a queued Loom control message rides upstream's steer conversion
+        (command.loom?.origin !== undefined && dispatchMode.type === "queue_after_active")
       ) {
         const active = projection.runs.find((run) => run.status === "running");
         const providerThread = projection.providerThreads.find(
@@ -4628,6 +4676,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             dispatchMode = { type: "steer_active", targetRunId: active.id };
           }
         }
+      }
+      // loom: the target's own turn-start rules 1–5, once the delivery mode is final
+      if (loomWorkstream !== null) {
+        yield* loomTurnStartRules({
+          command,
+          loom: loomFields,
+          workstream: loomWorkstream,
+          startsNow:
+            dispatchMode.type === "steer_active" ||
+            dispatchMode.type === "restart_active" ||
+            !projection.runs.some(isBlockingRun),
+          loomStore,
+          emit: emit(events, command),
+          toDispatchError: mapDispatchError(command),
+        });
       }
       const dispatchText =
         delegatedCompletion === undefined
@@ -4709,6 +4772,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.senderThreadId === undefined
             ? {}
             : { senderThreadId: command.senderThreadId }),
+          loom: loomFields, // loom: carry site
           forceRestart: dispatchMode.type === "restart_active",
         });
         return;
@@ -4906,6 +4970,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           updatedAt: now,
           ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
           ...(command.notification === undefined ? {} : { notification: command.notification }),
+          loom: loomFields, // loom: carry site
         };
         const emitEvent = emit(events, command);
         if (targetProviderThread === undefined) {
@@ -5249,6 +5314,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           updatedAt: now,
           ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
           ...(command.notification === undefined ? {} : { notification: command.notification }),
+          loom: loomFields, // loom: carry site
         };
         const turnItem: OrchestrationV2TurnItem = {
           createdBy: command.createdBy,
@@ -5941,6 +6007,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         ...(delegatedCompletion === undefined ? {} : { delegatedCompletion }),
         ...(command.notification === undefined ? {} : { notification: command.notification }),
+        loom: loomFields, // loom: carry site
       };
       const turnItem: OrchestrationV2TurnItem = {
         createdBy: command.createdBy,
@@ -7237,8 +7304,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(queuedMessage.senderThreadId === undefined
           ? {}
           : { senderThreadId: queuedMessage.senderThreadId }),
+        ...(queuedMessage.loom === undefined ? {} : { loom: queuedMessage.loom }), // loom: carry on promote
         forceRestart: false,
       });
+      // loom: rule 4 — the promoted human/orchestrator turn steers now, so it clears stored attention
+      yield* Effect.forEach(
+        yield* loomQueuedTurnAttentionClear(
+          loomStore,
+          command.threadId,
+          queuedMessage.loom,
+          now,
+        ).pipe(mapDispatchError(command)),
+        (event) => emitEvent(event),
+        { discard: true },
+      );
     });
 
   const dispatchQueuedRunReorder = (
@@ -9463,13 +9542,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           readonly reason: string;
         }
       | undefined;
-    // loom: delegation guard arm — every Loom command decides in Orchestrator.loom.ts (A3 wires it)
+    // loom: delegation guard arm — every Loom command decides in Orchestrator.loom.ts; `nested`
+    // is exactly the two same-thread upstream dispatchers, and the arm takes no lock
     if (isLoomCommand(command)) {
-      return yield* new OrchestratorDispatchError({
-        commandId: command.commandId,
-        commandType: command.type,
-        cause: "Loom decider not yet wired (A3)",
+      const decided = yield* decideLoomCommand({
+        command,
+        emit: emit(events, command),
+        toDispatchError: mapDispatchError(command),
+        loomStore,
+        projectionStore,
+        idAllocator,
+        threadForkService,
+        nested: {
+          dispatchMessage: (nested) => dispatchMessage(nested, events, effects),
+          dispatchRunInterrupt: (nested) => dispatchRunInterrupt(nested, events, effects),
+        },
       });
+      return {
+        events: yield* Ref.get(events),
+        effects: yield* Ref.get(effects),
+        ...decided,
+      };
     }
     switch (command.type) {
       case "thread.create":
@@ -9498,6 +9591,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             commandId: command.commandId,
             commandType: command.type,
             cause: `Thread ${command.threadId} changed before automatic settlement.`,
+          });
+        }
+        // loom: race guard — a Loom thread its parent owes a turn, or with unfinished sub-threads, stays
+        const loomBlocker = (yield* loomSettleBlockers(loomStore, command.threadId).pipe(
+          mapDispatchError(command),
+        )).blocker;
+        if (loomBlocker !== null) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: loomBlocker,
           });
         }
         yield* dispatchThreadMutation(
@@ -9613,6 +9717,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "run.interrupt":
         cancelUnsettledEffects = yield* dispatchRunInterrupt(command, events, effects);
+        // loom: a human stop (non-server: id) on a live Loom thread raises needs_guidance
+        yield* loomHumanStopRaise({
+          command,
+          loomStore,
+          emit: emit(events, command),
+          toDispatchError: mapDispatchError(command),
+        });
         break;
       case "queued-message.promote-to-steer":
         yield* dispatchQueuedMessagePromoteToSteer(command, events, effects);
@@ -9787,7 +9898,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       Effect.flatMap((planned) =>
         // A settle that finds the provider already ended everything has
         // nothing to record, which is its expected outcome, not a failure.
-        planned.events.length > 0 || command.type === "thread.background-work.settle"
+        planned.events.length > 0 ||
+        command.type === "thread.background-work.settle" ||
+        isLoomCommand(command) // loom: unchanged-value guards are accepted, receipted no-ops
           ? Effect.succeed(planned)
           : Effect.fail(
               new OrchestratorDispatchError({
@@ -9799,6 +9912,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
       Effect.catch((cause) =>
         Effect.gen(function* () {
+          // loom: a deferral is not a rejection — no receipt, so the deterministic id stays redeliverable
+          if (cause._tag === "LoomDispatchDeferredError") return yield* cause;
           const rejectedAt = yield* DateTime.now;
           const receipt = yield* eventSink
             .commitRejectedCommand({
