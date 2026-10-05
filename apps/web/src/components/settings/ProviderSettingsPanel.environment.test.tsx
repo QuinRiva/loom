@@ -219,7 +219,8 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("shows Codex and Claude while hiding untouched disabled provider slots", () => {
     const panel = renderPanel();
-    for (const driver of ["codex", "claudeAgent"] as const) {
+    // loom: pi is enabled by default (DL-84), so its slot is not an untouched disabled one.
+    for (const driver of ["codex", "claudeAgent", "pi"] as const) {
       expect(
         visitElements(
           panel,
@@ -227,7 +228,7 @@ describe("EnvironmentProviderSettings routing", () => {
         ),
       ).not.toBeNull();
     }
-    for (const driver of ["cursor", "grok", "pi", "opencode", "antigravity"] as const) {
+    for (const driver of ["cursor", "grok", "opencode", "antigravity"] as const) {
       expect(
         visitElements(
           panel,
