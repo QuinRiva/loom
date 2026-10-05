@@ -72,6 +72,16 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+// loom: the sidecar contract spliced into the unions below (plan pull9 phase 2 §1)
+import {
+  LoomClientCommandMembers,
+  LoomGoalShell,
+  LoomGoalShellStreamItemMembers,
+  LoomMessageFields,
+  LoomThreadShellFields,
+  makeLoomDomainEventMembers,
+  makeLoomInternalCommandMembers,
+} from "./orchestrationV2.loom.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -1060,6 +1070,7 @@ export type OrchestrationV2Notification = typeof OrchestrationV2Notification.Typ
 
 export const OrchestrationV2ConversationMessage = Schema.Struct({
   notification: Schema.optional(OrchestrationV2Notification),
+  loom: Schema.optional(LoomMessageFields), // loom: origin / humanAuthored / controlPayload
   ...OrchestrationV2CreationFields,
   scheduledTaskId: Schema.optional(ScheduledTaskId),
   // The sending agent's thread in this environment, separate from the receiving thread.
@@ -1565,6 +1576,7 @@ const OrchestrationV2EventBase = Schema.Struct({
 });
 
 export const OrchestrationV2DomainEvent = Schema.Union([
+  ...makeLoomDomainEventMembers(OrchestrationV2EventBase.fields), // loom: sidecar events
   Schema.Struct({
     ...OrchestrationV2EventBase.fields,
     type: Schema.Literal("thread.created"),
@@ -1845,6 +1857,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
     ),
   ),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
+  workstream: Schema.optional(LoomThreadShellFields), // loom: sidecar record, only on Loom threads
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
 
@@ -1859,10 +1872,12 @@ export type OrchestrationV2ThreadShellSnapshot = typeof OrchestrationV2ThreadShe
 export const OrchestrationV2ShellSnapshot = Schema.Struct({
   ...OrchestrationV2ThreadShellSnapshot.fields,
   projects: Schema.Array(OrchestrationProjectShell),
+  goals: Schema.optional(Schema.Array(LoomGoalShell)), // loom: only for `loom: true` subscribers
 });
 export type OrchestrationV2ShellSnapshot = typeof OrchestrationV2ShellSnapshot.Type;
 
 export const OrchestrationV2ShellStreamItem = Schema.Union([
+  ...LoomGoalShellStreamItemMembers, // loom: unsequenced goal items, applied ungated
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
   }),
@@ -2378,6 +2393,7 @@ export const OrchestrationV2RawProviderEventJson = OrchestrationV2RawProviderEve
 export type OrchestrationV2RawProviderEventJson = typeof OrchestrationV2RawProviderEventJson.Type;
 
 export const OrchestrationV2DomainEventJson = Schema.Union([
+  ...makeLoomDomainEventMembers(OrchestrationV2JsonEventBaseFields), // loom: sidecar events
   Schema.Struct({
     ...OrchestrationV2JsonEventBaseFields,
     type: Schema.Literal("thread.created"),
@@ -2525,6 +2541,7 @@ export const OrchestrationV2StoredEventJson = Schema.Struct({
 export type OrchestrationV2StoredEventJson = typeof OrchestrationV2StoredEventJson.Type;
 
 export const OrchestrationV2Command = Schema.Union([
+  ...LoomClientCommandMembers, // loom: client-dispatchable Loom commands
   Schema.Struct({
     type: Schema.Literal("thread.create"),
     ...OrchestrationV2CreationFields,
@@ -2753,6 +2770,7 @@ export const OrchestrationV2Command = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("message.dispatch"),
     notification: Schema.optional(OrchestrationV2Notification),
+    loom: Schema.optional(LoomMessageFields), // loom: carried onto the message record
     ...OrchestrationV2CreationFields,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
@@ -2788,6 +2806,7 @@ export const OrchestrationV2Command = Schema.Union([
       Schema.Struct({ type: Schema.Literal("restart_active"), targetRunId: RunId }),
       Schema.Struct({ type: Schema.Literal("queue_after_active") }),
       Schema.Struct({ type: Schema.Literal("start_immediately") }),
+      Schema.Struct({ type: Schema.Literal("start_if_idle") }), // loom: FYI tier — defers while busy
     ]),
   }),
   Schema.Struct({
@@ -2971,6 +2990,7 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
+  ...makeLoomInternalCommandMembers(OrchestrationV2CreationFields), // loom: server-only Loom commands
   /**
    * Records what a pull request watch saw, and wakes the agent in the same transaction when
    * `wake` is set. Rejected once the watch started at `startedAt` has ended, and a wake is
@@ -3114,6 +3134,7 @@ export const OrchestrationV2SubscribeShellInput = Schema.Struct({
   afterSequence: Schema.optionalKey(NonNegativeInt),
   /** Requests a marker between initial catch-up and live delivery. */
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  loom: Schema.optionalKey(Schema.Boolean), // loom: opt in to goal items and snapshot goals (seam 15)
 });
 export type OrchestrationV2SubscribeShellInput = typeof OrchestrationV2SubscribeShellInput.Type;
 
