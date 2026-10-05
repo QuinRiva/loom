@@ -22,7 +22,7 @@ export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
 /**
  * Exhaustion state (`ProviderHealthRegistryLive`), which also holds the
  * ephemeral account-usage telemetry the marks derive from (fed by
- * `SubscriptionUsagePoller`). The health registry also reads `providerFailover`
- * from ServerSettings (a later RuntimeCore step).
+ * `SubscriptionUsagePoller`). Its `providerFailover` settings subscription is
+ * detached in pull 9 (ledger DT-92).
  */
 export const LoomProviderHealthLive = ProviderHealthRegistryLive;

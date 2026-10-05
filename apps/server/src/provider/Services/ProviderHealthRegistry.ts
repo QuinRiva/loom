@@ -27,8 +27,8 @@
  *
  * @module ProviderHealthRegistry
  *
- * Soft-pause: accounts in `settings.providerFailover.pausedAccounts` are treated
- * as exhausted account-wide indefinitely (`until = null`, source "manual").
+ * Soft-pause (source "manual", account-wide, `until = null`) is detached in
+ * pull 9 (ledger DT-92): nothing feeds `pausedRef`, so it stays empty.
  */
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -259,7 +259,6 @@ export const activeMarks = (
 export const ProviderHealthRegistryLive = Layer.effect(
   ProviderHealthRegistry,
   Effect.gen(function* () {
-
     const usageRef = yield* Ref.make<ReadonlyMap<string, AccountUsageSnapshot>>(new Map());
     const telemetryRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
     const errorRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
