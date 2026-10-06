@@ -24,6 +24,7 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
+import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
 
 /**
  * A single previewable case. `render` returns the component already wrapped in
@@ -1278,6 +1279,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       subscriptionMeterFixture(METER_FIXTURE_STATES[1]!, "tokenFiles"),
     ],
   },
+  ...LOOM_PREVIEW_GROUPS, // loom: 3d-3 control cards, timeline rows, goal panel
 ];
 
 export const PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = PREVIEW_GROUPS.flatMap(

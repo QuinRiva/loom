@@ -231,7 +231,8 @@ export function presentThreadShell(
     id: thread.id,
     projectId: thread.projectId,
     title:
-      thread.lineage.relationshipToParent === "subagent"
+      // loom: 3d-3 — a Loom child (workstream row) keeps its manual title.
+      thread.lineage.relationshipToParent === "subagent" && thread.workstream === undefined
         ? formatSubagentDisplayTitle(thread.title)
         : thread.title,
     providerInstanceId: thread.providerInstanceId,

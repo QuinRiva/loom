@@ -61,5 +61,6 @@ export * from "./scheduledTask.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
+export * from "./rpc.loom.ts"; // loom: seam 21 ws methods
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";

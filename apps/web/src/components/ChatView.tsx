@@ -351,6 +351,7 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
+import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -689,6 +690,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 // browser, both fork-only right-panel surfaces.
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
+const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -1760,6 +1762,7 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const interceptLoomDraftCommand = useLoomDraftIntercepts(); // loom: 3d-3
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -5267,6 +5270,11 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThreadRef, isGitRepo, isServerThread, onDiffPanelOpen]);
+  // loom: 3d-3 — the goal tasks surface, offered only for a thread with a Loom goal.
+  const addTasksSurface =
+    activeThreadRef && activeThreadShell?.source.workstream?.goalId
+      ? () => useRightPanelStore.getState().open(activeThreadRef, "tasks")
+      : undefined;
   const openChangesFromThreadPanel = useCallback(() => {
     addDiffSurface();
   }, [addDiffSurface]);
@@ -8726,6 +8734,45 @@ export default function ChatView(props: ChatViewProps) {
         composerReviewComments.length +
         composerThreadContexts.length,
     });
+    // loom: 3d-3 — `/handoff` and `/retro` are intercepted at the send authority
+    // and never become a turn on this thread (loom/useLoomDraftIntercepts.ts).
+    if (
+      !directAnnotation &&
+      isServerThread &&
+      (await interceptLoomDraftCommand({
+        source: scopeThreadRef(activeThread.environmentId, activeThread.id),
+        submittedPrompt: promptForSend,
+        trimmedPrompt: trimmed,
+        hasAttachmentsOrContexts: composerHasNonPromptContent,
+        setSendInFlight: (inFlight) => {
+          sendInFlightRef.current = inFlight;
+        },
+        clearComposer: () => {
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+        },
+        readComposerContent: () => {
+          const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+          return {
+            prompt: promptRef.current,
+            attachmentCount: composerImagesRef.current.length + composerFilesRef.current.length,
+            terminalContextCount: composerTerminalContextsRef.current.length,
+            previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
+            reviewCommentCount: draft?.reviewComments.length ?? 0,
+            threadContextCount: draft?.threadContexts.length ?? 0,
+          };
+        },
+        restoreComposer: (prompt) => {
+          promptRef.current = prompt;
+          setComposerDraftPrompt(composerDraftTarget, prompt);
+          composerRef.current?.resetCursorState();
+        },
+        setThreadError,
+      }))
+    ) {
+      return;
+    }
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
@@ -10694,6 +10741,11 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : /* loom: 3d-3 — Loom's goal tasks panel (seam 18). */
+    renderedRightPanelSurface?.kind === "tasks" ? (
+      <Suspense fallback={null}>
+        <GoalTasksPanel thread={activeThreadShell} />
+      </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
@@ -11596,6 +11648,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
+          onAddTasks={addTasksSurface} // loom: 3d-3
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
@@ -11651,6 +11704,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
+            onAddTasks={addTasksSurface} // loom: 3d-3
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}

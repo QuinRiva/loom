@@ -353,6 +353,7 @@ import {
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import { LoomWsRpcs } from "./rpc.loom.ts"; // loom: seam 21
 
 export const WS_METHODS = {
   // Project registry methods
@@ -1968,4 +1969,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
+  ...LoomWsRpcs, // loom: seam 21 — Loom's ws methods (rpc.loom.ts)
 ).middleware(RpcScopeAuthorization);
