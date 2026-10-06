@@ -31,19 +31,15 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
-  type ControlPayload,
-  GoalId,
   GoalTaskId,
   type LoomMessageFields,
   MessageId,
   PI_DEFAULT_MODEL,
-  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
   type ThreadId,
-  ThreadId as ThreadIdSchema,
   TurnItemId,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
@@ -78,24 +74,15 @@ import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.t
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { buildSeedConfig } from "./seedConfig.ts";
+import { LOOM_SEED, loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
 
-// Stable ids: a re-run against a fresh home reproduces the fixture, and a
-// seeded home is refused by the project check below.
+// Stable ids (shared with the web preview fixtures): a re-run against a fresh
+// home reproduces the fixture, and a seeded home is refused.
 export const SEED = {
-  projectId: ProjectId.make("seed-project-0000"),
-  goalId: GoalId.make("seed-goal-0000"),
-  root: ThreadIdSchema.make("seed-thread-orchestrator"),
-  coderDone: ThreadIdSchema.make("seed-thread-coder-done"),
-  gateCoder: ThreadIdSchema.make("seed-thread-gate-coder"),
-  gateReviewer: ThreadIdSchema.make("seed-thread-gate-reviewer"),
-  quiescent: ThreadIdSchema.make("seed-thread-quiescent"),
-  blocked: ThreadIdSchema.make("seed-thread-blocked"),
-  unbriefed: ThreadIdSchema.make("seed-thread-unbriefed"),
-  cancelledLead: ThreadIdSchema.make("seed-thread-cancelled-lead"),
-  cancelledGrandchild: ThreadIdSchema.make("seed-thread-cancelled-grandchild"),
-  needsGuidanceRoot: ThreadIdSchema.make("seed-thread-needs-guidance-root"),
-  stagedRoot: ThreadIdSchema.make("seed-thread-staged-root"),
-} as const;
+  ...LOOM_SEED.threads,
+  projectId: LOOM_SEED.projectId,
+  goalId: LOOM_SEED.goalId,
+};
 
 const driver = ProviderDriverKind.make("pi");
 const instanceId = ProviderInstanceId.make("pi");
@@ -614,10 +601,10 @@ const seedProgram = Effect.gen(function* () {
 
   // ---- control cards on the root (seam 6): one digest, one synthesised yield, every notice ----
   const quiet = (yield* loomStore.getWorkstream(SEED.quiescent))!;
-  const controlMessages = seedControlMessages({
-    quiescentReportPath: quiet.reportPath!,
-    coderDoneReportPath: NodePath.join(reportsDir, `${SEED.coderDone}.md`),
-    reviewerReportPath: NodePath.join(reportsDir, `${SEED.gateReviewer}.md`),
+  const controlMessages = loomSeedControlMessages({
+    quiescent: quiet.reportPath!,
+    coderDone: NodePath.join(reportsDir, `${SEED.coderDone}.md`),
+    gateReviewer: NodePath.join(reportsDir, `${SEED.gateReviewer}.md`),
   });
   for (const control of controlMessages) {
     const id =
@@ -650,7 +637,7 @@ const seedProgram = Effect.gen(function* () {
         workspaceRoot,
         projectId: SEED.projectId,
         goalId: SEED.goalId,
-        threads: SEED,
+        threads: LOOM_SEED.threads,
         controlMessageIds: controlMessages.map((control) => control.key),
       },
       null,
@@ -658,128 +645,6 @@ const seedProgram = Effect.gen(function* () {
     ),
   );
 });
-
-/** The seeded control cards — the same payloads the preview fixtures render. */
-export const seedControlMessages = (paths: {
-  readonly quiescentReportPath: string;
-  readonly coderDoneReportPath: string;
-  readonly reviewerReportPath: string;
-}): ReadonlyArray<{
-  readonly key: string;
-  readonly text: string;
-  readonly payload: ControlPayload;
-}> => {
-  const notice = (
-    kind: NonNullable<ControlPayload["notice"]>,
-    heading: string,
-    items: ControlPayload["items"],
-  ) => ({
-    key: `notice-${kind}`,
-    text: `[T3 Workstream control plane — automated notice, not from the user]\n\n${heading}`,
-    payload: { kind: "notice" as const, notice: kind, heading, items },
-  });
-  return [
-    {
-      key: "digest",
-      text: "[T3 Workstream control plane — automated notice, not from the user]\n\nFYI digest — nothing below is blocked on you.",
-      payload: {
-        kind: "digest",
-        heading: "FYI digest — nothing below is blocked on you.",
-        items: [
-          {
-            kind: "terminal",
-            threadId: SEED.coderDone,
-            role: "coder",
-            title: "Completed",
-            status: "done",
-            reportPath: paths.coderDoneReportPath,
-            excerpt: "# Config loader\nImplemented the loader module and wired it into startup.",
-          },
-          {
-            kind: "gate-resolved",
-            threadId: SEED.gateReviewer,
-            role: "reviewer",
-            title: "Gate resolved (clean)",
-            status: "clean",
-            reportPath: paths.reviewerReportPath,
-          },
-          {
-            kind: "recovered",
-            threadId: SEED.gateCoder,
-            title: "Recovered after a server restart",
-          },
-          {
-            kind: "slow-tool",
-            threadId: SEED.cancelledGrandchild,
-            title: "A tool call has run for 6 minutes",
-            excerpt: "pnpm bench --filter parser",
-          },
-          {
-            kind: "spinning",
-            threadId: SEED.cancelledLead,
-            title: "Activity without progress for 15 minutes",
-          },
-          { kind: "dead-episode", threadId: SEED.blocked, title: "A wake could not be delivered" },
-        ],
-      },
-    },
-    {
-      key: "yield",
-      text: `[T3 Workstream control plane — automated notice, not from the user]\n\n${SEED.quiescent} went quiet; its report was synthesised.`,
-      payload: {
-        kind: "yield",
-        synthesised: true,
-        heading: "Went quiet; report synthesised",
-        items: [
-          {
-            threadId: SEED.quiescent,
-            role: "researcher",
-            title: "Survey checkpoint refs",
-            status: "quiescent",
-            reportPath: paths.quiescentReportPath,
-            excerpt: "Checkpoint refs live under `refs/t3/checkpoints/<thread>/turn/<n>`.",
-          },
-        ],
-      },
-    },
-    notice("gate-rework", "Review gate: rework requested (round 1)", [
-      {
-        threadId: SEED.gateReviewer,
-        role: "reviewer",
-        title: "Round 1",
-        reportPath: paths.reviewerReportPath,
-      },
-    ]),
-    notice("gate-reverify", "Review gate: re-verify (round 1)", [
-      { threadId: SEED.gateCoder, role: "coder", title: "Round 1" },
-    ]),
-    notice("brief-needed", "A child is waiting for its brief", [
-      { threadId: SEED.unbriefed, role: "coder", title: "Wire the loader into the CLI" },
-    ]),
-    notice("deadlock", "Your children cannot make progress", [
-      { threadId: SEED.blocked, role: "coder", title: "Waits on a quiet sibling" },
-    ]),
-    notice("stall-nudge", "No activity for 10 minutes — are you stuck?", [
-      { threadId: SEED.gateCoder, title: "Heartbeat frozen" },
-    ]),
-    notice("attention", "A child needs guidance", [
-      {
-        threadId: SEED.gateCoder,
-        role: "coder",
-        title: "needs_guidance",
-        status: "needs_guidance",
-      },
-    ]),
-    notice("notify", "Message from a sibling via notify_thread", [
-      {
-        threadId: SEED.gateReviewer,
-        role: "reviewer",
-        title: "The loader contract changed under me",
-        excerpt: "`load()` now returns `{ ready: boolean }`; three call sites need a pass.",
-      },
-    ]),
-  ];
-};
 
 /** The seed database for a seed config (migrated on open). */
 export const seedDatabaseLayer = (config: ServerConfig.ServerConfig["Service"]) =>
