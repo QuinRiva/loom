@@ -212,7 +212,7 @@ export const LoomRouteRecord = Schema.Struct({
 });
 export type LoomRouteRecord = typeof LoomRouteRecord.Type;
 
-// notify_thread loop safety: a bounded, pruned per-sender send log backing the
+// mcp__t3-code__notify_thread loop safety: a bounded, pruned per-sender send log backing the
 // arm's ordered-pair hourly cap.
 export const NotifySendLogEntry = Schema.Struct({
   targetThreadId: ThreadId,
@@ -220,7 +220,7 @@ export const NotifySendLogEntry = Schema.Struct({
 });
 export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 
-// One placed `goal_handoff` destination: the goal + staged root thread the
+// One placed `mcp__t3-code__goal_handoff` destination: the goal + staged root thread the
 // handoff created, the drafter that placed it, and when.
 export const HandoffDestination = Schema.Struct({
   goalId: GoalId,
@@ -230,7 +230,7 @@ export const HandoffDestination = Schema.Struct({
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
-// consult_thread observability: one entry per distinct target this thread has
+// mcp__t3-code__consult_thread observability: one entry per distinct target this thread has
 // consulted (the full question + answer live on `thread.consult-recorded`).
 export const LoomThreadConsultSummary = Schema.Struct({
   targetThreadId: ThreadId,
@@ -241,7 +241,7 @@ export const LoomThreadConsultSummary = Schema.Struct({
 });
 export type LoomThreadConsultSummary = typeof LoomThreadConsultSummary.Type;
 
-// notify_thread observability: one entry per distinct target this thread has
+// mcp__t3-code__notify_thread observability: one entry per distinct target this thread has
 // notified, with the still-undelivered count.
 export const LoomThreadPeerMessageSummary = Schema.Struct({
   targetThreadId: ThreadId,
@@ -508,7 +508,7 @@ export const LoomClientCommandMembers = [
   }),
 ] as const;
 
-/** The id prefix that marks a Loom `ask_user_question` runtime request (P3-26). */
+/** The id prefix that marks a Loom `mcp__t3-code__ask_user_question` runtime request (P3-26). */
 export const LOOM_ASK_REQUEST_PREFIX = "loom-ask:";
 
 /**
@@ -609,7 +609,7 @@ export const makeLoomInternalCommandMembers = <
       durationMs: NonNegativeInt,
       forkSessionPath: Schema.optional(TrimmedNonEmptyString),
     }),
-    /** Records one notify_thread message on the sender (`threadId`). */
+    /** Records one mcp__t3-code__notify_thread message on the sender (`threadId`). */
     Schema.Struct({
       type: Schema.Literal("thread.peer-message.record"),
       ...LoomCommandFields,
@@ -647,7 +647,7 @@ export const makeLoomInternalCommandMembers = <
       sourceThreadId: ThreadId,
     }),
     /**
-     * `ask_user_question` (3a-4): opens a pending `user_input` runtime request
+     * `mcp__t3-code__ask_user_question` (3a-4): opens a pending `user_input` runtime request
      * with its questions on `threadId`'s active run. `requestId` must carry
      * `LOOM_ASK_REQUEST_PREFIX` (the arm refuses otherwise).
      */

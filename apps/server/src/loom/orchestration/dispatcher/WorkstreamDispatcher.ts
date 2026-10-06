@@ -87,6 +87,12 @@ export const PASS_TICK_INTERVAL = "60 seconds";
 /** A sidecar row as a graph node (`id` = `threadId`) for the shared start and dependency predicates. */
 export type WorkstreamNode = LoomThreadWorkstream & { readonly id: ThreadId };
 
+/** A steer the startup pass left on disk (DL-387): its text, and the run ordinal after which a carrying turn counts. */
+export interface LeftStash {
+  readonly text: string;
+  readonly afterOrdinal: number;
+}
+
 /** A `server:` command rejected (and receipted): its episode is dead and never retried; the parent hears of it as a `dead-episode` digest item. */
 export interface DeadEpisode {
   readonly commandId: CommandId;
@@ -157,10 +163,11 @@ export interface PassContext {
   readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
   /**
    * Stashed steers the startup pass LEFT on threads rule 0 did not continue, by thread: the
-   * text as it was at startup (service lifetime; the next startup re-records them from disk).
-   * Only these are the redelivery rail's — any other stash is the adapter's live-turn record.
+   * text as it was at startup and the thread's last run ordinal then (service lifetime; the
+   * next startup re-records them from disk). Only these are the redelivery rail's — any other
+   * stash is the adapter's live-turn record.
    */
-  readonly leftStashes: Map<ThreadId, string>;
+  readonly leftStashes: Map<ThreadId, LeftStash>;
   /** The quiescence grace windows (`quiescenceGraceMs` / `quiescenceHumanGraceMs`). */
   readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null };
   /** When this dispatcher started (ms): floors the deferred-wake silence clock. */
@@ -310,7 +317,7 @@ export const PASS_STEPS: ReadonlyArray<PassStep> = [
 interface DispatcherMemory {
   readonly deadEpisodes: Set<DeadEpisode>;
   readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
-  readonly leftStashes: Map<ThreadId, string>;
+  readonly leftStashes: Map<ThreadId, LeftStash>;
   /** `delivered` cache, valid while the thread's `latestUserMessageAt` is `stamp`; dropped on each delivery. */
   readonly deliveredCache: Map<
     ThreadId,
@@ -428,7 +435,7 @@ export interface WorkstreamDispatcherShape {
    * The startup pass's hook (seam 20): a stashed steer it left on a thread rule 0 did not
    * continue, for the redelivery rail to carry into that thread's next human- or parent-started turn.
    */
-  readonly leaveStash: (threadId: ThreadId, steer: string) => Effect.Effect<void>;
+  readonly leaveStash: (threadId: ThreadId, stash: LeftStash) => Effect.Effect<void>;
   /** The last finished pass's deferrals per thread and rail (diagnostics). */
   readonly deferredWakes: Effect.Effect<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>;
 }
@@ -474,13 +481,11 @@ const make = Effect.gen(function* () {
           worker.enqueue().pipe(Effect.repeat(Schedule.spaced(PASS_TICK_INTERVAL))),
         );
         yield* orchestrator.streamDomainEvents.pipe(
-          // Plus a run starting on a thread holding a left stash (the redelivery rail).
+          // Plus any run change on a thread holding a left stash (the redelivery rail).
           Stream.filter(
             (event) =>
               isPassTrigger(event) ||
-              (event.type === "run.updated" &&
-                event.payload.status === "running" &&
-                memory.leftStashes.has(event.threadId)),
+              (event.type === "run.updated" && memory.leftStashes.has(event.threadId)),
           ),
           Stream.runForEach(() => worker.enqueue()),
           Effect.catchCause((cause) =>
@@ -498,8 +503,8 @@ const make = Effect.gen(function* () {
         memory.advisories.set(input.parentId, byKey);
         return worker.enqueue();
       }),
-    leaveStash: (threadId, steer) =>
-      Effect.sync(() => void memory.leftStashes.set(threadId, steer)),
+    leaveStash: (threadId, stash) =>
+      Effect.sync(() => void memory.leftStashes.set(threadId, stash)),
     deferredWakes: Ref.get(lastDeferredWakes),
   } satisfies WorkstreamDispatcherShape;
 });

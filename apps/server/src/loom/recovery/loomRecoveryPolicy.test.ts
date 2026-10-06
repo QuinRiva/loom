@@ -39,6 +39,7 @@ import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSession
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
+  completeOpenRuns,
   dispatch,
   LoomOrchestratorTestLayer,
   seededRunIds,
@@ -398,6 +399,75 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
         yield* dispatcher.runPass;
         assert.lengthOf(yield* redeliveries, 1);
         assert.equal(yield* PendingSteering.read(flagged), live);
+      }),
+  );
+
+  it.effect(
+    "a left stash still reaches its human-started turn when that turn ends (and the adapter clears the file) before a pass sees it",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("race-root");
+        const flagged = ThreadId.make("race-flagged");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: flagged, graphKey: "race" });
+        yield* dispatch({
+          type: "thread.attention.raise",
+          commandId: CommandId.make("race-raise"),
+          threadId: flagged,
+          createdAt,
+          reason: "needs_guidance",
+        });
+        yield* seedRunningRun({ threadId: flagged, live: true });
+        const steer = "Pin the dependency to 4.2.";
+        yield* stash(flagged, steer);
+        const redeliveryId = MessageId.make(
+          `message:${steerRedeliverCommandId(flagged, steerHash(steer))}`,
+        );
+        const redeliveries = Effect.map(orchestrator.getThreadProjection(flagged), (projection) =>
+          projection.messages.filter((message) => message.id === redeliveryId),
+        );
+        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+        assert.lengthOf(yield* redeliveries, 0);
+
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("race-human"),
+          threadId: flagged,
+          messageId: MessageId.make("message:race-human"),
+          text: "Carry on.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        // The human's turn runs and ends before any pass: its finalizeTurn clears the stash file.
+        const humanRun = (yield* orchestrator.getThreadProjection(flagged)).runs.find(
+          (run) => run.userMessageId === "message:race-human",
+        )!;
+        yield* writeEvents([
+          {
+            id: EventId.make("event:race-human-running"),
+            type: "run.updated",
+            threadId: flagged,
+            runId: humanRun.id,
+            providerInstanceId: humanRun.providerInstanceId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...humanRun, status: "running", startedAt: yield* DateTime.now },
+          } as OrchestrationV2DomainEvent,
+        ]);
+        yield* PendingSteering.clear(flagged);
+        yield* completeOpenRuns(flagged);
+
+        const dispatcher = yield* WorkstreamDispatcher;
+        yield* dispatcher.runPass;
+        const [redelivered, ...more] = yield* redeliveries;
+        assert.lengthOf(more, 0);
+        assert.include(redelivered!.text, steer);
+        yield* dispatcher.runPass;
+        assert.lengthOf(yield* redeliveries, 1);
+        assert.isFalse(yield* stashed(flagged));
       }),
   );
 

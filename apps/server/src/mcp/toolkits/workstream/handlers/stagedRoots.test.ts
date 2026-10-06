@@ -14,6 +14,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
+import { buildHandoffDraftTurnStart } from "../../../../loom/handoff/handoffDraft.ts";
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
 import {
   completeSeededRun,
@@ -154,6 +155,40 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
         [threadId],
       );
     }),
+  );
+
+  it.effect(
+    "mcp__t3-code__goal_handoff from a /handoff drafter points at its fork and records on the forkFromThreadId source",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const { root: source } = yield* goalRoot("drafted");
+        const drafter = ThreadId.make("drafted-drafter");
+        // The drafter's row exactly as `/handoff` spawns it (3b, DL-384): a root with forkFromThreadId.
+        const [spawn] = buildHandoffDraftTurnStart({
+          source: (yield* orchestrator.getThreadShell(source))!,
+          sourceGoalId: null,
+          drafterThreadId: drafter,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          explanation: "split the importer",
+        });
+        yield* orchestrator.dispatch(spawn!);
+
+        const result = yield* callAs(drafter, "goal_handoff", {
+          title: "Importer split",
+          description: "Split the importer.",
+          brief: "Split the importer into two stages.",
+        });
+        assert.isFalse(result.isError, result.text);
+        const { input } = launches.at(-1)!;
+        assert.include(input.initialMessage!.text, `thread ${drafter} holds a frozen fork`);
+        for (const on of [drafter, source])
+          assert.deepEqual(
+            (yield* store.getWorkstream(on))!.handoffDestinations.map((entry) => entry.threadId),
+            [input.threadId!],
+          );
+      }),
   );
 
   it.effect("goal_continue: a held sibling root on the same goal, carrying the brief", () =>

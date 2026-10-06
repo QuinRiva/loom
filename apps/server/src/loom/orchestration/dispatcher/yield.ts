@@ -3,7 +3,7 @@
  * child whose submit routed to `yield` — an unmatched outcome, a gate's
  * exhausted round cap, or the quiescence rail's synthesised `quiescent` submit —
  * hands its turn to the parent. V1's `yielded` lane is the stored
- * `awaiting_orchestrator` attention; `workstream_set_outcome` replaces
+ * `awaiting_orchestrator` attention; `mcp__t3-code__workstream_set_outcome` replaces
  * `set_lane`.
  *
  * @module loom/orchestration/dispatcher/yield

@@ -4,7 +4,7 @@
  * `handoff-drafter` (`handoffDraft.ts`); once its kickoff run has ended the pass
  * decides, from durable state only:
  *
- * - **success** — the drafter placed ≥1 handoff (`goal_handoff` records it on the
+ * - **success** — the drafter placed ≥1 handoff (`mcp__t3-code__goal_handoff` records it on the
  *   drafter's own row): outcome `done`, then `thread.archive` (archived-after-handoff
  *   is how the drafter is hidden; upstream's archive detaches its provider session
  *   through the outbox, so V1's stop-before-archive dance is not needed);
@@ -71,7 +71,7 @@ export const classifyHandoffSettlement = (
 ): HandoffSettlementAction => {
   if (row.archivedAt !== null || shell === null) return { kind: "none" };
   if (shell.latestRunId !== null && shell.activityRunStatus == null) {
-    // Only destinations THIS drafter placed count: `goal_handoff` also copies the
+    // Only destinations THIS drafter placed count: `mcp__t3-code__goal_handoff` also copies the
     // marker onto the drafter's fork source, which may itself be a failed drafter
     // the human re-ran `/handoff` from. A null attribution is pre-field data.
     return row.handoffDestinations.some(

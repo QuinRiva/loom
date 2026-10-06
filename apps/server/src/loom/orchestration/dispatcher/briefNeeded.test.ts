@@ -176,7 +176,8 @@ describe("buildBriefNeededMessage", () => {
       "cancelled",
     ])
       assert.include(text, fragment);
-    for (const gone of ["set_lane", "planned", "workstream_release"]) assert.notInclude(text, gone);
+    // `_release` covers the dropped release tool, prefixed or bare.
+    for (const gone of ["set_lane", "planned", "_release"]) assert.notInclude(text, gone);
   });
 
   it("says how long a node has stalled once past the first rung", () => {

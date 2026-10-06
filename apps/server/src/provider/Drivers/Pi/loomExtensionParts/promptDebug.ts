@@ -6,7 +6,7 @@
 // Loom's extension assembler (3a). It imports nothing (`node:fs` comes from
 // `process.getBuiltinModule`) and needs `ctx.profile()` → `{ promptDebugPath: string | null }`;
 // a null path makes the part a no-op.
-import type { LoomExtensionPart } from "./part.ts";
+import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const promptDebugPart: LoomExtensionPart = {
   name: "prompt-debug",

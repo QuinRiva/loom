@@ -26,7 +26,7 @@
  * no fallback ⇒ upstream's (this sweep leaves it alone); otherwise Loom's.
  * Every command id is deterministic per thread and failed run, so a receipted
  * step replays as a no-op and a `LoomDispatchDeferredError` is retried on the
- * next pass. Resumes are `createdBy: "agent"` control messages, never a human's.
+ * next pass. Resumes are steered `controlMessage()` wakes (`createdBy: "agent"`), never a human's.
  *
  * Runs every 60 s and after every run ends.
  *
@@ -34,7 +34,6 @@
  */
 import {
   CommandId,
-  MessageId,
   type ModelSelection,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
@@ -56,6 +55,12 @@ import { ProviderHealthRegistry, matches } from "../../provider/Services/Provide
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  controlMessage,
+  limitResumeCommandId,
+  rerouteBackCommandId,
+  rerouteCommandId,
+} from "../orchestration/dispatcher/controlMessage.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { deleteReroute, insertReroute, listReroutes } from "./rerouteRecord.ts";
 
@@ -119,19 +124,9 @@ const send = (command: OrchestrationV2ServerCommand) =>
     );
   });
 
+/** A steered control message (the target is idle, so it starts the turn). */
 const resume = (threadId: ThreadId, id: string, text: string) =>
-  send({
-    type: "message.dispatch",
-    commandId: CommandId.make(id),
-    messageId: MessageId.make(id),
-    threadId,
-    text,
-    attachments: [],
-    createdBy: "agent",
-    creationSource: "server",
-    loom: { origin: "control_notice" },
-    dispatchMode: { type: "queue_after_active" },
-  });
+  send(controlMessage({ threadId, id, tier: "steered", origin: "control_notice", text }));
 
 /** Selection set, then every live pi session detached, so the next turn opens a fresh process. */
 const moveTo = (threadId: ThreadId, idBase: string, modelSelection: ModelSelection) =>
@@ -224,14 +219,14 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
       // Clause 1 left half-done: the thread is still failed on the run it was rerouted from
       // (it ended before the reroute). Re-send its steps; receipted ids make each a no-op once landed.
       if (resumable && intendedOut && ranUntil <= Date.parse(reroute.reroutedAt)) {
-        const idBase = `server:loom:reroute:${threadId}:${runId}`;
+        const idBase = rerouteCommandId(threadId, runId);
         if (yield* moveTo(threadId, idBase, reroute.reroutedSelection))
           yield* resume(threadId, idBase, rerouteResumeText(reroute.reroutedSelection.model));
         return;
       }
       // Clause 2: back to the intended selection once it is healthy and the thread is idle.
       if (shell.activeRunId !== null || intendedOut) return;
-      const idBase = `server:loom:reroute-back:${threadId}:${Date.parse(reroute.reroutedAt)}`;
+      const idBase = rerouteBackCommandId(threadId, Date.parse(reroute.reroutedAt));
       if (!(yield* moveTo(threadId, idBase, intended))) return;
       yield* deleteReroute(threadId);
       // Stopped on the fallback's own limit: carry on where the intended model is healthy.
@@ -258,7 +253,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
 
     // Clause 1: the cross-vendor reroute.
     if (fallback !== undefined) {
-      const idBase = `server:loom:reroute:${threadId}:${runId}`;
+      const idBase = rerouteCommandId(threadId, runId);
       const reroutedSelection = { instanceId: intended.instanceId, model: fallback };
       // The row first: a model-set that never lands leaves a row that no longer matches the
       // thread's selection, which the next pass deletes; any later step is re-sent above.
@@ -276,7 +271,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
     }
     // Clause 3: a failure upstream cannot arm, resumed when the registry clears it.
     if (!upstreamResumes && !intendedOut && settings.autoResumeLimitedThreads)
-      yield* resume(threadId, `server:loom:limit-resume:${threadId}:${runId}`, rerouteResumeText());
+      yield* resume(threadId, limitResumeCommandId(threadId, runId), rerouteResumeText());
   });
 
   for (const threadId of new Set([...(yield* usageLimitedThreadIds), ...reroutes.keys()])) {

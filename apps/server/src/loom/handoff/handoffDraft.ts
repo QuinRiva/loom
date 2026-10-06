@@ -12,7 +12,7 @@
  * `thread.fork`'s `latest_stable` picks) for upstream to resolve natively at the
  * drafter's first run (P3-28's mechanism); then the kickoff as a Loom control
  * message. V2's bare `thread.fork` would leave the drafter without a sidecar
- * row, and the role is what `goal_handoff`, the composer's overlay and the
+ * row, and the role is what `mcp__t3-code__goal_handoff`, the composer's overlay and the
  * reactor key on.
  *
  * `/retro` (`retroDraft.ts`) reuses `launchDraftFork` with its own role and kickoff.
@@ -36,7 +36,7 @@ import { isForkableSourceRunStatus } from "../../orchestration-v2/ThreadForkServ
 import { controlMessage } from "../orchestration/dispatcher/controlMessage.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 
-/** The role every handoff-drafter special case keys on (3a's `goal_handoff`, the reactor). */
+/** The role every handoff-drafter special case keys on (3a's `mcp__t3-code__goal_handoff`, the reactor). */
 export const HANDOFF_DRAFTER_ROLE = "handoff-drafter";
 
 const TITLE_EXPLANATION_MAX = 50;
@@ -55,7 +55,7 @@ export const curatedTitle = (prefix: string, text: string) => {
 export const buildDrafterTitle = (explanation: string) => curatedTitle("Handoff", explanation);
 
 /**
- * The drafter kickoff: draft focused brief(s), one `goal_handoff` per independent
+ * The drafter kickoff: draft focused brief(s), one `mcp__t3-code__goal_handoff` per independent
  * goal, do not do the work, do not write exhaustive briefs (the receiving agent
  * can consult this frozen fork), end the turn once every handoff is placed.
  */

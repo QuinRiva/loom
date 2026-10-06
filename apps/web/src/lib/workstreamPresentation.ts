@@ -99,7 +99,7 @@ export const liveNodes = (nodes: Iterable<WorkstreamNode>) =>
 
 /**
  * The board's members for `threadId`: its lineage children plus the staged
- * (held) roots that continue or fork it — `goal_continue` and `thread_fork`,
+ * (held) roots that continue or fork it — `mcp__t3-code__goal_continue` and `mcp__t3-code__thread_fork`,
  * the two writers of `held` (P3-19b). Staged roots have no parent, so the held
  * column would otherwise never show them.
  */

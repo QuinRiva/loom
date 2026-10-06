@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { RunId, ScopedThreadRef, ThreadId } from "@t3tools/contracts"; // loom: ThreadId for the 3d-4 coder selection
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 

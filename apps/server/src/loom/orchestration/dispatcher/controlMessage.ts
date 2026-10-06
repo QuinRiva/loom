@@ -88,7 +88,7 @@ export const digestCommandId = (parentId: ThreadId, episodeHash: string) =>
 export const stallNudgeCommandId = (childId: ThreadId, episodeMs: number) =>
   `server:workstream-stall-nudge:${childId}:${episodeMs}`;
 /**
- * Delivery of one `notify_thread` peer-message record. 3a's handler sends its
+ * Delivery of one `mcp__t3-code__notify_thread` peer-message record. 3a's handler sends its
  * immediate delivery under this same id, so the handler and the rail can never
  * both deliver one record.
  */
@@ -112,6 +112,16 @@ export const quiescentSubmitCommandId = (threadId: ThreadId, runId: string) =>
 /** Redelivery of a stashed steer (seam 20): at startup, or behind the next human/parent turn. */
 export const steerRedeliverCommandId = (threadId: ThreadId, hash: string) =>
   `server:loom:steer-redeliver:${threadId}:${hash}`;
+
+/** 3c's reroute sweep, clause 1: the resume onto the fallback after the run it failed on (`:model` / `:detach:` steps share the base). */
+export const rerouteCommandId = (threadId: ThreadId, runId: string) =>
+  `server:loom:reroute:${threadId}:${runId}`;
+/** Clause 2's move back to the intended selection (steps share the base); its resume appends `:<runId>`. */
+export const rerouteBackCommandId = (threadId: ThreadId, reroutedAtMs: number) =>
+  `server:loom:reroute-back:${threadId}:${reroutedAtMs}`;
+/** Clause 3: the resume of a usage-limit failure upstream cannot arm (no future reset). */
+export const limitResumeCommandId = (threadId: ThreadId, runId: string) =>
+  `server:loom:limit-resume:${threadId}:${runId}`;
 
 /** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
 export const steerHash = (text: string) =>

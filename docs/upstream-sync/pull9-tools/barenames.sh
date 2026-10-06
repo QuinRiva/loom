@@ -62,11 +62,8 @@ UPSTREAM_NATIVE = (
     "apps/server/src/provider/acp/",
 )
 # Loom files with known hits this session may not edit: printed every run, not fatal.
-PENDING = {
-    "packages/contracts/src/orchestrationV2.loom.ts": "frozen contract; comment-only hits (integration)",
-    "apps/server/src/orchestration-v2/Orchestrator.ts": "not 3a-5's file; one comment in 3a-4's respond hunk (integration)",
-    "apps/server/src/mcp/toolkits/workstream/registration.test.ts": "pins 3a-1's stub text, which 3a-3's goal handlers replace (3a-3)",
-}
+# Empty since integration (DL-457): the frozen contract's comments were rewritten.
+PENDING = {}
 # This gate itself names every tool.
 SELF = ("docs/upstream-sync/pull9-tools/barenames.sh",)
 CODE = (".ts", ".tsx", ".js", ".mjs", ".cjs")

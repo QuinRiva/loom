@@ -1,6 +1,6 @@
 /**
  * loom: 3d-4 (DT-31) — the staged cards over an empty conversation. A held
- * thread (`workstream.held`: a `goal_continue` successor or a `thread_fork`
+ * thread (`workstream.held`: a `mcp__t3-code__goal_continue` successor or a `mcp__t3-code__thread_fork`
  * root) gets the kickoff offer; a Loom child with a brief on disk and no first
  * run yet gets the read-only preview. Both vanish once the conversation starts
  * (as rendered: optimistic message and in-flight send included) or the human

@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
+import { HANDOFF_DRAFTER_ROLE } from "../../../../loom/handoff/handoffDraft.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ProjectService from "../../../../project/ProjectService.ts";
@@ -28,9 +29,6 @@ import { LoomToolError, type LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { createdUuid, requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
 import { asToolError, dispatch, fail, nowIso, publishGoal, requireShell } from "./shared.ts";
-
-/** The role of the `/handoff` drafter (3b): its handoffs point back at its frozen fork. */
-export const HANDOFF_DRAFTER_ROLE = "handoff-drafter";
 
 const slugifyTitle = (title: string): string => {
   const slug = title.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
@@ -50,7 +48,8 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
   const store = yield* LoomStore.LoomStoreV2;
   const projects = yield* ProjectService.ProjectService;
   const self = yield* requireShell(caller.threadId);
-  const role = (yield* asToolError(store.getWorkstream(caller.threadId)))?.role ?? null;
+  const workstream = yield* asToolError(store.getWorkstream(caller.threadId));
+  const role = workstream?.role ?? null;
 
   // The caller's own project unless `project` names another (id, else title).
   // An inbox role's project is a mailbox, not a workspace, so it must name one.
@@ -147,8 +146,9 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
       }),
     );
   yield* record(caller.threadId, "record");
-  const source = self.forkedFrom?.type === "run" ? self.forkedFrom.threadId : undefined;
-  if (isDrafter && source !== undefined) yield* record(source, "record-source").pipe(Effect.ignore);
+  // The drafter is a Loom spawn with `forkFromThreadId` (3b, DL-384), not a V2 `thread.fork`.
+  const source = workstream?.forkFromThreadId ?? null;
+  if (isDrafter && source !== null) yield* record(source, "record-source").pipe(Effect.ignore);
 
   return `Handed off new goal ${goalId} (${title}) in project '${project.title}': its root session ${threadId} is starting on your brief in a fresh worktree.`;
 });

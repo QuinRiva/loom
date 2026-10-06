@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
-import type { LoomExtensionPart } from "./part.ts";
+import type { LoomExtensionPart } from "../loomExtension.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
 
@@ -256,7 +256,7 @@ describe("search-guard part", () => {
     expect(untouched).toBeUndefined();
   });
 
-  it("omits the consult_thread rung outside workstream sessions", () => {
+  it("omits the mcp__t3-code__consult_thread rung outside workstream sessions", () => {
     const guard = loadGuard(false);
     const result = guard.toolCall(bashCall(`find ${NodeOS.homedir()} -name x.md`), ctx) as {
       block?: boolean;

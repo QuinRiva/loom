@@ -96,7 +96,7 @@ export const LoomGoalTaskRewriteNode: Schema.Codec<
 
 /**
  * `loom.goal.task.rewrite`: the submitted tree IS the result (declarative
- * replace, as `goal_tasks_rewrite`). `branchTaskId` null = the whole tree;
+ * replace, as `mcp__t3-code__goal_tasks_rewrite`). `branchTaskId` null = the whole tree;
  * set = an anchored branch: `tasks` is exactly one root carrying that id,
  * spliced in place of the branch, the rest of the tree untouched.
  */

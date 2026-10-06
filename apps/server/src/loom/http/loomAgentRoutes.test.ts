@@ -18,6 +18,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
@@ -125,6 +126,12 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
       assert.include(before.body.activeTools, ASK); // the root orchestrator keeps human-input resident
       assert.include(before.body.denyList, "mcp__t3-code__delegate_task");
       assert.match(before.body.promptDebugPath, /prompt-debug\/routes-root\.md$/);
+      // The extension's prompt-debug part writes there with plain fs: the directory must exist.
+      assert.isTrue(
+        yield* (yield* FileSystem.FileSystem).exists(
+          before.body.promptDebugPath.replace(/\/routes-root\.md$/, ""),
+        ),
+      );
 
       yield* seedUserMessage(threadId, "message:routes:human", true);
       assert.isTrue((yield* call(auth, "GET", "/session-profile")).body.humanEngaged);

@@ -5,8 +5,8 @@
  * survivors beside `/mcp` (P3-3, `loom/http/loomAgentRoutes.ts`). Parts here:
  * `toolProfile` (the session profile applied at `session_start` and re-asserted
  * at every `before_agent_start`, P3-4; `mcp__t3-code__enable_toolset`) and
- * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll).
- * 3c's `searchGuard` / `promptDebug` parts join `LOOM_EXTENSION_PARTS`.
+ * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
+ * then 3c's `search-guard` and `prompt-debug` (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with
  * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,
@@ -31,6 +31,8 @@ import {
   UPSTREAM_WITHHELD_TOOLS,
 } from "../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
+import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
+import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
 import {
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
@@ -236,6 +238,8 @@ pi.registerTool({
 export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   toolProfilePart,
   askUserQuestionPart,
+  searchGuardPart,
+  promptDebugPart,
 ];
 
 export const assembleLoomExtensionSource = (parts: ReadonlyArray<LoomExtensionPart>): string => `\
