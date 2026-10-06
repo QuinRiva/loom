@@ -65,6 +65,7 @@ import {
   HtmlRenderToolkitHandlersLive,
 } from "./toolkits/html/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
+import { LoomToolkitRegistrationLive } from "./toolkits/workstream/registration.ts"; // loom:
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -772,4 +773,5 @@ export const layer = Layer.mergeAll(
   PullRequestsToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
   HtmlToolkitRegistrationLive,
+  LoomToolkitRegistrationLive, // loom: Loom's 21 workstream tools (pull 9 3a-1)
 ).pipe(Layer.provideMerge(McpTransportLive));

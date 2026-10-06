@@ -2,11 +2,11 @@
  * Loom's open-session composition seam (pull 9 strategy Area G; Phase 3 plan seam 4).
  *
  * `ProviderSessionManager.open` asks the composer for the thread's prompt,
- * skills and extensions on every provider process spawn and passes them on the
- * open-session input as `loom`; `buildPiRpcLaunch` turns them into argv. Phase 2
- * ships only the seam: the default composes nothing. Phase 3a provides the real
- * composer (role overlay, addendum, ship policy, goal context, launch identity)
- * by re-pointing `LoomSessionComposerLive` in `loom/serverLayers.ts`.
+ * skills, extensions and env on every provider process spawn and passes them on
+ * the open-session input as `loom`; `buildPiRpcLaunch` turns them into argv and
+ * the spawn env. This module is the seam only (upstream files import it, so it
+ * stays import-light); the production composer is `sessionComposerLive.ts`,
+ * wired by `LoomSessionComposerLive` in `loom/serverLayers.ts`.
  *
  * @module loom/prompt/sessionComposer
  */
@@ -23,6 +23,8 @@ export interface LoomOpenSessionFields {
   readonly skills: ReadonlyArray<string>;
   /** One `--extension <path>` each, beside upstream's bridge extension. */
   readonly extensions: ReadonlyArray<string>;
+  /** Merged into the pi process env (`PI_CACHE_RETENTION`, DL-300). */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = {
@@ -57,5 +59,5 @@ export class LoomSessionComposer extends Context.Reference<LoomSessionComposerSh
   { defaultValue: () => emptyComposer },
 ) {}
 
-/** Until Phase 3a: every session opens with empty Loom fields. */
+/** Every session opens with empty Loom fields. */
 export const LoomSessionComposerDefaultLive = Layer.succeed(LoomSessionComposer, emptyComposer);

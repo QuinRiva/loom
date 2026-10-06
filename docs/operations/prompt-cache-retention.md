@@ -11,7 +11,8 @@ and only a root can get it. The case for it is in
 
 `rootCacheRetention` in the server's `settings.json` (the cockpit:
 `~/.t3/cockpit/userdata/settings.json`). Hand-edit the file; the server watches
-it and reads the value at every pi launch, so no restart and no code change.
+it, so no restart and no code change. The value is read at a thread's FIRST pi
+launch and then fixed for that thread (see below).
 
 | value          | roots                                   | children |
 | -------------- | --------------------------------------- | -------- |
@@ -20,24 +21,26 @@ it and reads the value at every pi launch, so no restart and no code change.
 | `short`        | all 5 min (revert)                      | short    |
 
 A **root** is a thread with no parent (`parent_thread_id IS NULL`). That includes
-`thread_fork` forks, goal handoff/continue successors, and the `/handoff` and
-`/retro` fork threads. The read-only `consult_thread` fork, pi text generation
+`mcp__t3-code__thread_fork` forks, goal handoff/continue successors, and the `/handoff` and
+`/retro` fork threads. The read-only `mcp__t3-code__consult_thread` fork, pi text generation
 (titles, commit messages) and every child are always short.
 
-The value applies when the reactor launches pi. A running pi process keeps the
-retention it started with. A relaunch after a server restart also keeps it: a
-thread that was mid-turn at a deploy is resumed through `ProviderService`
-recovery, which reuses the retention stored on the session binding rather than
-reading the knob. So a revert to `short` reaches such a root only at its next
-reactor launch.
+The value applies to threads launched after the change. A thread's arm is part
+of its launch identity: the session composer records it with the thread's
+prompt in the write-once sidecar `<stateDir>/workstream-launch-identity/<threadId>.json`
+at the first launch, and every relaunch (restart, resume, idle reap) replays it.
+So each root keeps one arm for life, and a revert to `short` reaches only roots
+launched after it.
 
 The hash is `sha256(threadId)[0] < 128` → long. To recompute it in Python:
 `hashlib.sha256(tid.encode()).digest()[0] < 128`.
 
-Mechanism: the reactor picks the arm (`apps/server/src/provider/cacheRetention.loom.ts`)
-and the pi driver sets `PI_CACHE_RETENTION` in the pi process env every time it
-launches pi. pi then marks every cache breakpoint `ttl: "1h"`. The driver sets
-the variable every time, so a server started from a shell that exported
+Mechanism: the session composer (`apps/server/src/loom/prompt/sessionComposerLive.ts`)
+picks the arm (`apps/server/src/provider/cacheRetention.loom.ts`; a root is a
+thread whose V2 lineage has no parent) and returns it as the `env` of the Loom
+open-session fields, which `buildPiRpcLaunch` merges into the pi process env on
+every launch. pi then marks every cache breakpoint `ttl: "1h"`. The variable is
+set every time, so a server started from a shell that exported
 `PI_CACHE_RETENTION=long` cannot hand it to children.
 
 **Leak to know about:** anything a long-arm root's pi process spawns itself
@@ -54,7 +57,7 @@ shell profile:
 export PI_CACHE_RETENTION=long
 ```
 
-This is safe for loom threads, because the driver overrides the variable for each
+This is safe for loom threads, because the composer overrides the variable for each
 thread. A loom server started from that shell still keeps children short.
 
 ## Where the arm is recorded
@@ -67,8 +70,8 @@ The server appends one line per pi launch to
 { "threadId": "…", "cacheRetention": "long", "launchedAt": "2026-09-29T01:22:30.224Z" }
 ```
 
-This is the retention pi actually got, including recovery relaunches, which keep
-the thread's last arm. It is per launch because the knob can change mid-week. The
+This is the retention pi actually got, including relaunches, which replay the
+thread's recorded arm. The
 pi session id is the thread id (`piSessionIdForThread`), so the pi transcript is
 `~/.pi/agent/sessions/*/*_<threadId>.jsonl`.
 
@@ -84,8 +87,8 @@ CREATE TEMP TABLE arms AS
 SELECT thread_id, arm, MIN(launched_at) AS first_launch_at FROM arms GROUP BY thread_id, arm;
 ```
 
-A thread with more than one arm row was launched by the reactor again after the
-knob changed. Drop it from the A/B. Restarts do not cause a second arm.
+A thread has one arm for life (it is in its launch identity), so more than one
+arm row means its launch-identity sidecar was deleted. Drop it from the A/B.
 
 ## Reading the A/B (after a week, at least 100 roots per arm)
 

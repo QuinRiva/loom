@@ -52,6 +52,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import { LoomAskWaiters } from "../loom/userInput/askWaiters.ts";
 import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
 import type { IdAllocatorV2 } from "./IdAllocator.ts";
 import type { OrchestratorDispatchError, OrchestratorV2Error } from "./Orchestrator.ts";
@@ -146,9 +147,9 @@ const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
 const loopTargetsOf = (routes: ReadonlyArray<WorkstreamRoute>) =>
   routes.flatMap((route) => (route.kind === "loop" && route.to !== undefined ? [route.to] : []));
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
-const NOTIFY_PAIR_HOURLY_CAP = 10;
-const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
+// mcp__t3-code__notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
+export const NOTIFY_PAIR_HOURLY_CAP = 10;
+export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // The dispatchMessage helpers (DL-194, DL-195, §2 rules 1–5)
@@ -178,7 +179,7 @@ export const loomMessageFields = (
   >,
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
-/** Rule 4's clearing origins: a human, or the parent's `workstream_prompt`. */
+/** Rule 4's clearing origins: a human, or the parent's `mcp__t3-code__workstream_prompt`. */
 export const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
   loom?.humanAuthored === true || loom?.origin === "orchestrator";
 
@@ -217,7 +218,7 @@ export const loomQueuedTurnAttentionClear = (
 /**
  * The target thread's own rules for an accepted message (§2 rules 1–5; rule 0 is
  * `loomContinuationVetoed`, placed before upstream's unsettle per DL-195; rule 6
- * supersede is reserved for Phase 3a with `runtime-request.create`). Called once
+ * supersede is post-commit, in `loom/userInput/askUserQuestion.ts`). Called once
  * the delivery mode is final, so `startsNow` covers upstream's and the Loom
  * steer conversions. Emits only on `command.threadId`.
  */
@@ -279,8 +280,21 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
       }),
     );
   }
-  // 6. Supersede — reserved slot (Phase 3a, with runtime-request.create).
+  // 6. Supersede runs post-commit: the ask reactor (loom/userInput/askUserQuestion.ts) dismisses a
+  //    pending loom-ask: request when a human message lands, for row-less roots too (DL-348).
 });
+
+/**
+ * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
+ * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
+ * its tool result, so upstream's answer message is withheld. With no live
+ * waiter (pi died, the server restarted) upstream's message delivery stands.
+ */
+export const loomAskTakesAnswer = (requestId: string) =>
+  Effect.gen(function* () {
+    if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
+    return yield* (yield* LoomAskWaiters).isLive(requestId);
+  });
 
 // ---------------------------------------------------------------------------
 // run.interrupt and thread.auto-settle hunks
@@ -595,7 +609,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
       ) {
         return yield* fail(
-          `Thread ${submit.threadId} is ${row.outcome}; workstream_submit cannot act on a terminal thread.`,
+          `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
         );
       }
       const erased = holdErasedByCompletion({
@@ -827,7 +841,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     });
 
   /**
-   * `ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
+   * `mcp__t3-code__ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
    * runtime request on its own request node under the active run's root, with
    * the `user_input_request` turn item carrying the questions — the shapes
    * upstream's adapters emit, so V2's panel, mobile card and the shell's
@@ -1270,7 +1284,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       ).length;
       if (sent >= NOTIFY_PAIR_HOURLY_CAP) {
         return yield* fail(
-          `notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use consult_thread if you need an answer.`,
+          `mcp__t3-code__notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use mcp__t3-code__consult_thread if you need an answer.`,
         );
       }
       const target = yield* requireThread(command.targetThreadId);

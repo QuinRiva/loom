@@ -31,19 +31,22 @@ import {
   slugRoutesToAnthropic,
 } from "../provider/Drivers/Pi/SessionIdSanitiser.loom.ts";
 import { subscriptionScopeForSelection } from "../provider/exhaustionMapping.ts";
-import {
-  ProviderHealthRegistry,
-  ProviderHealthRegistryLive,
-} from "../provider/Services/ProviderHealthRegistry.ts";
 import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
 import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
-import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import * as PendingSteering from "./steering/pendingSteering.ts";
+import {
+  ProviderHealthRegistry,
+  ProviderHealthRegistryLive,
+} from "../provider/Services/ProviderHealthRegistry.ts";
+import { LoomAgentRoutesLive } from "./http/loomAgentRoutes.ts";
+import * as LoomThreadConsult from "./workstream/consult.ts";
+import { LoomSessionComposerRealLive } from "./prompt/sessionComposerLive.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
+import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 
 /**
  * Track 3c's driver economics (plan seam 19), reaching the runtime through
@@ -143,15 +146,26 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
  * and publish/subscribe goal shell items; and the re-drive reactor that moves
  * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
+ * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
  */
 export const LoomGoalBroadcastLive = Layer.mergeAll(
   LoomGoalBroadcast.layerWithReactor,
+  LoomThreadConsult.layer,
   LoomReDriveReactor.pipe(Layer.provide(CommandReceiptStore.layer)), // loom: re-drive (D16)
 ).pipe(Layer.provideMerge(LoomStore.layer));
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's
- * prompt, skills and extensions (driver plan §4). Empty until Phase 3a re-points
- * this one export at the real composer.
+ * prompt, skills, extensions and env (driver plan §4; Phase 3a-5). Its own
+ * reads (projection, projects, Loom store, extension path) are provided inside;
+ * ServerConfig, ServerSettings, SqlClient and the platform come from the server.
  */
-export const LoomSessionComposerLive = LoomSessionComposerDefaultLive;
+export const LoomSessionComposerLive = LoomSessionComposerRealLive;
+
+/**
+ * Loom's pi-extension surface (seam 19): the session-profile and
+ * mcp__t3-code__ask_user_question routes beside `/mcp`, and the reactor that hands answers
+ * to live waiters and closes superseded or orphaned questions. Mounted with the
+ * HTTP routes in `server.ts` (the router exists only there).
+ */
+export const LoomAgentHttpLive = Layer.mergeAll(LoomAgentRoutesLive, LoomAskReactorLive);

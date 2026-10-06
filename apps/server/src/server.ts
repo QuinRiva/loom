@@ -162,6 +162,7 @@ import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts
 import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import {
+  LoomAgentHttpLive,
   LoomGoalBroadcastLive,
   LoomProviderHealthLive,
   LoomProviderRuntimeLive,
@@ -731,6 +732,7 @@ const makeRoutesLayer = Layer.mergeAll(
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
   ),
+  LoomAgentHttpLive, // loom: /loom/agent session profile + mcp__t3-code__ask_user_question beside /mcp (seam 19)
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.

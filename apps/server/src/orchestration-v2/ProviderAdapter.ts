@@ -384,7 +384,7 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly initialNativeThreadId?: string;
   /** Preserves provider item identity across eager activation of a persisted thread. */
   readonly initialProviderItemIdentityVersion?: 2;
-  // loom: the composed prompt, skills and extensions (Area G); only the Pi adapter reads it
+  // loom: the composed prompt, skills, extensions and env (Area G, DL-300); only the Pi adapter reads it
   readonly loom?: LoomOpenSessionFields;
 }
 

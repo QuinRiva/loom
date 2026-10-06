@@ -16,6 +16,7 @@ const ALL_MCP_CAPABILITIES = [
   "worktree",
   "device",
   "pull-requests",
+  "workstream", // loom: Loom's workstream toolkit (pull 9 3a-1)
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
 

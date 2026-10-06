@@ -1085,7 +1085,7 @@ it.effect(
         assert.equal(resolved?.thread.threadId, threadId);
         assert.deepEqual(
           resolved?.capabilities,
-          new Set(["preview", "orchestration", "worktree", "pull-requests"]),
+          new Set(["preview", "workstream", "pull-requests"]), // loom: no orchestration/worktree (P3-6)
         );
 
         yield* manager.close(providerSessionId);
@@ -1142,7 +1142,7 @@ it.effect(
         const resolved = yield* registry.resolve(token!);
         assert.deepEqual(
           resolved?.capabilities,
-          new Set(["orchestration", "worktree", "pull-requests"]),
+          new Set(["workstream", "pull-requests"]), // loom: no orchestration/worktree (P3-6)
         );
 
         yield* manager.close(providerSessionId);
