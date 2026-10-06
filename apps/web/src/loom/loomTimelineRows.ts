@@ -6,7 +6,7 @@
  *   (`shell.workstream.consults`, newest exchange's question), placed at the
  *   last consult. The per-call question and answer stay on the tool row.
  * - **handoff receipt** — one row per root that continues this thread
- *   (`workstream.continuesThreadId === this`, the `goal_continue` shape),
+ *   (`workstream.continuesThreadId === this`, the `mcp__t3-code__goal_continue` shape),
  *   placed at its creation, naming where the work went and whether it is
  *   staged, launched or settled. V1 read the source's `handoffDestinations`,
  *   which the shell no longer carries (DL-435).

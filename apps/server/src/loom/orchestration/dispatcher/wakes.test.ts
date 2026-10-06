@@ -286,9 +286,12 @@ describe("buildChildWakeMessage", () => {
       "slow-tool",
     ] as const) {
       const text = buildChildWakeMessage({ ...child, attention: ["needs_guidance"] }, kind, null);
+      // No bare tool name: every one carries its `mcp__t3-code__` prefix.
       assert.notMatch(
         text,
-        /(?<!mcp__t3-code__)\b(workstream_\w+|consult_thread|ask_user_question)/,
+        new RegExp(
+          `(?<!mcp__t3-code__)\\b(workstream_\\w+|${["consult_thread", "ask_user_question"].join("|")})`,
+        ),
       );
       assert.notInclude(text, "set_lane");
     }

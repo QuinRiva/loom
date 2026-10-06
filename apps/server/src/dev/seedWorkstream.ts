@@ -366,7 +366,7 @@ const seedProgram = Effect.gen(function* () {
             kickoffBriefPath: writeFile(
               briefsDir,
               `${input.threadId}.md`,
-              `# ${input.title}\n\n${input.purpose}\n\nSubmit with workstream_submit when done.\n`,
+              `# ${input.title}\n\n${input.purpose}\n\nSubmit with mcp__t3-code__workstream_submit when done.\n`,
             ),
           }),
       ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
@@ -583,7 +583,7 @@ const seedProgram = Effect.gen(function* () {
   });
   yield* reDrive;
 
-  // ---- a root owed a human decision, and a staged (held) goal_continue root ----
+  // ---- a root owed a human decision, and a staged (held) mcp__t3-code__goal_continue root ----
   yield* createRoot(SEED.needsGuidanceRoot, "Plan the migration (needs guidance)");
   yield* message(
     SEED.needsGuidanceRoot,

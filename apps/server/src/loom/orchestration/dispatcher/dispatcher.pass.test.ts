@@ -578,7 +578,7 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
   );
 
   it.effect(
-    "notify: a record notify_thread already delivered is a receipted no-op for the rail",
+    "notify: a record mcp__t3-code__notify_thread already delivered is a receipted no-op for the rail",
     () =>
       Effect.gen(function* () {
         const [root, target] = ["notify-race-root", "notify-race-target"].map((id) =>

@@ -158,7 +158,7 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
   );
 
   it.effect(
-    "goal_handoff from a /handoff drafter points at its fork and records on the forkFromThreadId source",
+    "mcp__t3-code__goal_handoff from a /handoff drafter points at its fork and records on the forkFromThreadId source",
     () =>
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;

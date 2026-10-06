@@ -402,7 +402,7 @@ function layoutOrchestrator(
   // top-down order already encodes it. An inversion is the opposite: the spine
   // implies the wrong order, so this is the one cross-wave edge that carries
   // information and must be drawn (it arises when a node is re-gated after
-  // spawn, e.g. workstream_set_dependencies pointing an early node at a
+  // spawn, e.g. mcp__t3-code__workstream_set_dependencies pointing an early node at a
   // later-spawned replacement). Routed vertically through a clear side gutter
   // (the long span rules out the below-channel route used for same-wave pairs;
   // the dependency itself sits between the endpoints), deconflicted against the
@@ -545,7 +545,7 @@ export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
 }
 
 // ---------------------------------------------------------------------------
-// consult_thread observability: cross-edges + out-of-tree annotations derived
+// mcp__t3-code__consult_thread observability: cross-edges + out-of-tree annotations derived
 // from thread shells' consult summaries. Kept OUT of the memoised structural
 // layout (consults change at runtime and are additive) and resolved live from
 // the laid-out node positions — the same live-overlay pattern the renderer uses

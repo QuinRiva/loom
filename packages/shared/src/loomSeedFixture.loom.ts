@@ -145,7 +145,7 @@ export const loomSeedControlMessages = (reports: {
     notice("attention", "A child needs guidance", [
       { threadId: t.gateCoder, role: "coder", title: "needs_guidance", status: "needs_guidance" },
     ]),
-    notice("notify", "Message from a sibling via notify_thread", [
+    notice("notify", "Message from a sibling via mcp__t3-code__notify_thread", [
       {
         threadId: t.gateReviewer,
         role: "reviewer",

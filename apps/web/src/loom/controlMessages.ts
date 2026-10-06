@@ -2,7 +2,7 @@
  * loom: how a control-plane message renders (3d-3, seam 6).
  *
  * A Loom thread's transcript mixes what the human typed, what another thread
- * sent (a parent's steer, a kickoff brief, a `notify_thread` push) and what
+ * sent (a parent's steer, a kickoff brief, a `mcp__t3-code__notify_thread` push) and what
  * the control plane injected (digests, yields, notices). The control payload
  * rides `message.loom.controlPayload` on the thread projection's message (the
  * turn item carries only the text), and is the card's source of truth; the

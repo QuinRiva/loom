@@ -568,7 +568,7 @@ export const digestFlush: PassStep = {
 };
 
 /**
- * Notify delivery: each pending `notify_thread` record becomes one steered
+ * Notify delivery: each pending `mcp__t3-code__notify_thread` record becomes one steered
  * message (origin `notify`) on its target — steered into a running turn,
  * started on an idle one — then is marked delivered. A target that finished
  * (read fresh: this pass may have reopened it) or refuses it expires the record.

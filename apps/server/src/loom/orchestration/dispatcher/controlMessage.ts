@@ -88,7 +88,7 @@ export const digestCommandId = (parentId: ThreadId, episodeHash: string) =>
 export const stallNudgeCommandId = (childId: ThreadId, episodeMs: number) =>
   `server:workstream-stall-nudge:${childId}:${episodeMs}`;
 /**
- * Delivery of one `notify_thread` peer-message record. 3a's handler sends its
+ * Delivery of one `mcp__t3-code__notify_thread` peer-message record. 3a's handler sends its
  * immediate delivery under this same id, so the handler and the rail can never
  * both deliver one record.
  */
