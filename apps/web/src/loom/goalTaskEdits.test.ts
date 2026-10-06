@@ -28,7 +28,10 @@ describe("goalTaskRewriteFor", () => {
       branchTaskId: "a",
       tasks: [{ id: "a", text: "A", done: false, children: [] }],
     });
-    expect(goalTaskRewriteFor(tree, { kind: "add", parentTaskId: id("a"), text: "New" })?.tasks[0]?.children).toEqual([
+    expect(
+      goalTaskRewriteFor(tree, { kind: "add", parentTaskId: id("a"), text: "New" })?.tasks[0]
+        ?.children,
+    ).toEqual([
       { id: "a1", text: "A1", done: false, children: [] },
       { text: "New", done: false, children: [] },
     ]);
@@ -36,7 +39,9 @@ describe("goalTaskRewriteFor", () => {
 
   it("submits the whole tree only for top-level adds and removals", () => {
     expect(goalTaskRewriteFor(tree, { kind: "remove", taskId: id("b") })?.branchTaskId).toBeNull();
-    expect(goalTaskRewriteFor(tree, { kind: "add", parentTaskId: null, text: "C" })?.tasks).toHaveLength(3);
+    expect(
+      goalTaskRewriteFor(tree, { kind: "add", parentTaskId: null, text: "C" })?.tasks,
+    ).toHaveLength(3);
     expect(goalTaskRewriteFor(tree, { kind: "toggle", taskId: id("gone") })).toBeNull();
   });
 });

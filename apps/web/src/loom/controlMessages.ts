@@ -116,7 +116,14 @@ export function controlCardModel(
   const summary = payload.heading ?? controlSummaryLine(text);
   switch (payload.kind) {
     case "digest":
-      return { kind: "card", channel: "control-plane", label: "Digest", summary, marker: null, items: cardItems };
+      return {
+        kind: "card",
+        channel: "control-plane",
+        label: "Digest",
+        summary,
+        marker: null,
+        items: cardItems,
+      };
     case "yield":
       return {
         kind: "card",

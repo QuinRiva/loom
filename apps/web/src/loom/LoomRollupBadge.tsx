@@ -45,7 +45,8 @@ const rollupAtom = Atom.family((threadKey: string) => {
   let previous: WorkstreamRollup | null = null;
   let previousKey = "null";
   return Atom.make((get) => {
-    const rollup = ref === null ? null : (get(rollupsAtom(ref.environmentId)).get(ref.threadId) ?? null);
+    const rollup =
+      ref === null ? null : (get(rollupsAtom(ref.environmentId)).get(ref.threadId) ?? null);
     const key = JSON.stringify(rollup);
     if (key !== previousKey) {
       previousKey = key;

@@ -39,13 +39,16 @@ export function readLoomGoal(
   environmentId: EnvironmentId,
   goalId: GoalId | null | undefined,
 ): LoomGoalShell | null {
-  return goalId == null ? null : goalById(appAtomRegistry.get(loomGoalAtoms.goalsAtom(environmentId)), goalId);
+  return goalId == null
+    ? null
+    : goalById(appAtomRegistry.get(loomGoalAtoms.goalsAtom(environmentId)), goalId);
 }
 
 /** Done/total over a nested task tree. */
-export function countGoalTasks(
-  tasks: LoomGoalShell["tasks"],
-): { readonly done: number; readonly total: number } {
+export function countGoalTasks(tasks: LoomGoalShell["tasks"]): {
+  readonly done: number;
+  readonly total: number;
+} {
   return tasks.reduce(
     (acc, task) => {
       const child = countGoalTasks(task.children);

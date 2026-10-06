@@ -177,7 +177,12 @@ function ControlDigestItem({
             </span>
           ) : null}
           {item.role ? (
-            <span className={cn("shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs", classes.chip)}>
+            <span
+              className={cn(
+                "shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs",
+                classes.chip,
+              )}
+            >
               {item.role}
             </span>
           ) : null}
@@ -204,7 +209,9 @@ function ControlDigestItem({
               <div className="text-muted-foreground/60 text-2xs">{item.timestamp}</div>
             ) : null}
             {item.reportPath ? markdown(`Report: \`${item.reportPath}\``) : null}
-            {item.excerpt ? <div className="text-foreground/75">{markdown(item.excerpt)}</div> : null}
+            {item.excerpt ? (
+              <div className="text-foreground/75">{markdown(item.excerpt)}</div>
+            ) : null}
           </div>
         ) : null}
       </div>

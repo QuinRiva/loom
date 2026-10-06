@@ -6,6 +6,12 @@ import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
 import type { LoomTimelineRow as LoomTimelineRowData } from "./loomTimelineRows";
 import { LoomTimelineRowView } from "./LoomTimelineRowView";
 
-export const LoomTimelineRow = memo(function LoomTimelineRow({ row }: { row: LoomTimelineRowData }) {
-  return <LoomTimelineRowView row={row} environmentId={use(TimelineRowCtx).activeThreadEnvironmentId} />;
+export const LoomTimelineRow = memo(function LoomTimelineRow({
+  row,
+}: {
+  row: LoomTimelineRowData;
+}) {
+  return (
+    <LoomTimelineRowView row={row} environmentId={use(TimelineRowCtx).activeThreadEnvironmentId} />
+  );
 });

@@ -19,7 +19,11 @@ import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { goalTaskRewriteFor, type GoalTaskEdit } from "../loom/goalTaskEdits";
 import { countGoalTasks, loomCommands, useLoomGoal } from "../loom/loomGoalState";
 import { useLoomGoalActions } from "../loom/sidebarGoalActions";
-import { type AnchoredThreadsByTask, anchoredThreadsByTask, TaskThreadChip } from "../loom/TaskThreadChips";
+import {
+  type AnchoredThreadsByTask,
+  anchoredThreadsByTask,
+  TaskThreadChip,
+} from "../loom/TaskThreadChips";
 import { readLocalApi } from "../localApi";
 import { useThreadShells } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -81,7 +85,13 @@ function useEditDraft(serverValue: string, emptyReverts: boolean, commit: (value
   };
 }
 
-function GoalHeader({ goal, environmentId }: { goal: LoomGoalShell; environmentId: EnvironmentId }) {
+function GoalHeader({
+  goal,
+  environmentId,
+}: {
+  goal: LoomGoalShell;
+  environmentId: EnvironmentId;
+}) {
   const update = useAtomCommand(loomCommands.goalUpdate);
   const { renameGoal, setArchived } = useLoomGoalActions();
   const commit = (fields: { title?: string; description?: string }) =>
@@ -171,7 +181,8 @@ function TaskTextInput({
   onCancel: () => void;
 }) {
   const [text, setText] = useState(initial);
-  const submit = () => (text.trim().length > 0 && text.trim() !== initial ? onSubmit(text.trim()) : onCancel());
+  const submit = () =>
+    text.trim().length > 0 && text.trim() !== initial ? onSubmit(text.trim()) : onCancel();
   return (
     <Input
       size="sm"
@@ -192,7 +203,10 @@ function TaskTextInput({
   );
 }
 
-type Editing = { readonly kind: "rename" | "add-child"; readonly taskId: string } | { readonly kind: "add-root" } | null;
+type Editing =
+  | { readonly kind: "rename" | "add-child"; readonly taskId: string }
+  | { readonly kind: "add-root" }
+  | null;
 
 function TaskTree({
   tasks,
@@ -238,12 +252,20 @@ function TaskTree({
               ) : (
                 // Chips flow with the text so a long task wraps as one paragraph.
                 <span
-                  className={task.done ? "min-w-0 flex-1 text-muted-foreground line-through" : "min-w-0 flex-1"}
+                  className={
+                    task.done
+                      ? "min-w-0 flex-1 text-muted-foreground line-through"
+                      : "min-w-0 flex-1"
+                  }
                   onDoubleClick={() => setEditing({ kind: "rename", taskId: task.id })}
                 >
                   <LinkifiedText text={task.text} />
                   {anchors.get(task.id)?.map((thread) => (
-                    <TaskThreadChip key={thread.id} thread={thread} current={thread.id === activeThreadId} />
+                    <TaskThreadChip
+                      key={thread.id}
+                      thread={thread}
+                      current={thread.id === activeThreadId}
+                    />
                   ))}
                 </span>
               )}
@@ -307,7 +329,8 @@ export function GoalPanelView({
   const [editing, setEditing] = useState<Editing>(null);
   const onEdit = (edit: GoalTaskEdit) => {
     const input = goalTaskRewriteFor(goal.tasks, edit);
-    if (input) void rewrite({ environmentId: thread.environmentId, input: { goalId: goal.id, ...input } });
+    if (input)
+      void rewrite({ environmentId: thread.environmentId, input: { goalId: goal.id, ...input } });
   };
   return (
     <>

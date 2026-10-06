@@ -79,7 +79,9 @@ export function LoomTimelineRowView({
         <span
           className={cn(
             "shrink-0 text-3xs tracking-wide uppercase",
-            successor.state === "cancelled" ? "text-muted-foreground/70" : "text-success-foreground",
+            successor.state === "cancelled"
+              ? "text-muted-foreground/70"
+              : "text-success-foreground",
           )}
         >
           {HANDOFF_STATE_LABEL[successor.state]}

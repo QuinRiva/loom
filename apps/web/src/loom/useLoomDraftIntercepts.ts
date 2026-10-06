@@ -50,10 +50,14 @@ export function useLoomDraftIntercepts() {
   return useCallback(
     async (ports: LoomDraftInterceptPorts): Promise<boolean> => {
       const { source, setThreadError } = ports;
-      const decide = { trimmedPrompt: ports.trimmedPrompt, hasAttachmentsOrContexts: ports.hasAttachmentsOrContexts };
+      const decide = {
+        trimmedPrompt: ports.trimmedPrompt,
+        hasAttachmentsOrContexts: ports.hasAttachmentsOrContexts,
+      };
       const handoff = decideHandoffSend(decide);
       const retro = handoff.kind === "not-handoff" ? decideRetroSend(decide) : null;
-      if (handoff.kind === "not-handoff" && (retro === null || retro.kind === "not-retro")) return false;
+      if (handoff.kind === "not-handoff" && (retro === null || retro.kind === "not-retro"))
+        return false;
       const refusal =
         handoff.kind === "empty-error" || handoff.kind === "blocked-context"
           ? handoff.message
@@ -81,8 +85,13 @@ export function useLoomDraftIntercepts() {
             onDispatched(result.value);
           },
           onFailure: (result) => {
-            const error = isAtomCommandInterrupted(result) ? null : squashAtomCommandFailure(result);
-            setThreadError(source.threadId, error instanceof Error ? error.message : failureMessage);
+            const error = isAtomCommandInterrupted(result)
+              ? null
+              : squashAtomCommandFailure(result);
+            setThreadError(
+              source.threadId,
+              error instanceof Error ? error.message : failureMessage,
+            );
           },
         });
       if (handoff.kind === "dispatch") {
@@ -116,7 +125,9 @@ export function useLoomDraftIntercepts() {
           (result) =>
             void navigate({
               to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(scopeThreadRef(source.environmentId, result.reviewerThreadId)),
+              params: buildThreadRouteParams(
+                scopeThreadRef(source.environmentId, result.reviewerThreadId),
+              ),
             }),
         );
       }

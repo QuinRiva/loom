@@ -17,6 +17,7 @@ export interface GoalFormValues {
 
 interface GoalFormDialogState {
   readonly request: {
+    readonly id: number;
     readonly initial: GoalFormValues;
     readonly resolve: (values: GoalFormValues | null) => void;
   } | null;
@@ -34,8 +35,9 @@ export const useGoalFormDialogStore = create<GoalFormDialogState>()((set, get) =
 }));
 
 /** Imperative entry point for handlers outside the React tree. */
+let nextRequestId = 0;
 export const promptGoalForm = (initial: GoalFormValues): Promise<GoalFormValues | null> =>
   new Promise((resolve) => {
     useGoalFormDialogStore.getState().request?.resolve(null);
-    useGoalFormDialogStore.setState({ request: { initial, resolve } });
+    useGoalFormDialogStore.setState({ request: { id: ++nextRequestId, initial, resolve } });
   });

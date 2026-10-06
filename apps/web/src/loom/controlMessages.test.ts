@@ -3,7 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { controlCardModel, SYNTHESISED_MARKER } from "./controlMessages";
 
-const seed = loomSeedControlMessages({ coderDone: "a.md", gateReviewer: "b.md", quiescent: "c.md" });
+const seed = loomSeedControlMessages({
+  coderDone: "a.md",
+  gateReviewer: "b.md",
+  quiescent: "c.md",
+});
 
 describe("controlCardModel", () => {
   it("cards every seam-6 kind, notice and item kind the seed writes", () => {

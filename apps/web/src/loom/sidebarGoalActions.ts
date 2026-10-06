@@ -72,7 +72,11 @@ export function useLoomGoalActions() {
 
   /** Runs a `buildGoalMenuItems` entry; false when `clicked` is not one of them. */
   const runGoalMenuAction = useCallback(
-    (clicked: string | null | undefined, goal: LoomGoalShell | null, threadRef: ScopedThreadRef) => {
+    (
+      clicked: string | null | undefined,
+      goal: LoomGoalShell | null,
+      threadRef: ScopedThreadRef,
+    ) => {
       if (goal === null || !clicked?.startsWith("loom-goal:")) return false;
       const { environmentId } = threadRef;
       if (clicked === "loom-goal:tasks") useRightPanelStore.getState().open(threadRef, "tasks");

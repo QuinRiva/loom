@@ -30,7 +30,11 @@ import * as Struct from "effect/Struct";
 
 import { observeRpcEffect } from "../observability/RpcInstrumentation.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
-import { type LoomGoalTaskInput, type LoomStoreError, LoomStoreV2 } from "./projection/LoomStore.ts";
+import {
+  type LoomGoalTaskInput,
+  type LoomStoreError,
+  LoomStoreV2,
+} from "./projection/LoomStore.ts";
 
 const toRewriteNode = (task: LoomGoalTask): LoomGoalTaskRewriteNode => ({
   id: task.id,
@@ -45,7 +49,10 @@ interface TaskNode {
 }
 
 const collectIds = (nodes: ReadonlyArray<TaskNode>): string[] =>
-  nodes.flatMap((node) => [...(node.id === undefined ? [] : [node.id]), ...collectIds(node.children)]);
+  nodes.flatMap((node) => [
+    ...(node.id === undefined ? [] : [node.id]),
+    ...collectIds(node.children),
+  ]);
 
 /**
  * The full submitted tree: the submission itself, or (for a branch) the current
@@ -69,7 +76,9 @@ export const resolveTaskRewrite = (
     }
     const splice = (nodes: ReadonlyArray<LoomGoalTask>): LoomGoalTaskRewriteNode[] =>
       nodes.map((node) =>
-        node.id === branchId ? input.tasks[0]! : { ...toRewriteNode(node), children: splice(node.children) },
+        node.id === branchId
+          ? input.tasks[0]!
+          : { ...toRewriteNode(node), children: splice(node.children) },
       );
     tree = splice(goal.tasks);
   }
@@ -138,7 +147,10 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       goalWrite(LOOM_WS_METHODS.goalUpdate, input.goalId, (goal) =>
         input.title === undefined && input.description === undefined && input.slug === undefined
           ? Effect.fail(
-              fail(LOOM_WS_METHODS.goalUpdate, "Provide at least one of title, description or slug."),
+              fail(
+                LOOM_WS_METHODS.goalUpdate,
+                "Provide at least one of title, description or slug.",
+              ),
             )
           : loomStore.goals.upsert({
               id: goal.id,
@@ -161,9 +173,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.gen(function* () {
           const tree = resolveTaskRewrite(goal, input);
           if (typeof tree === "string") return yield* fail(LOOM_WS_METHODS.goalTaskRewrite, tree);
-          const fresh = (yield* Effect.forEach(idlessNodes(tree), () => crypto.randomUUIDv4.pipe(Effect.orDie)))[
-            Symbol.iterator
-          ]();
+          const fresh = (yield* Effect.forEach(idlessNodes(tree), () =>
+            crypto.randomUUIDv4.pipe(Effect.orDie),
+          ))[Symbol.iterator]();
           return yield* loomStore.tasks.replaceTree(
             goal.id,
             flattenTree(tree, null, () => GoalTaskId.make(fresh.next().value!)),
@@ -179,4 +191,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
 
 /** The nodes that need a minted id (one UUID each). */
 const idlessNodes = (nodes: ReadonlyArray<TaskNode>): ReadonlyArray<TaskNode> =>
-  nodes.flatMap((node) => [...(node.id === undefined ? [node] : []), ...idlessNodes(node.children)]);
+  nodes.flatMap((node) => [
+    ...(node.id === undefined ? [node] : []),
+    ...idlessNodes(node.children),
+  ]);

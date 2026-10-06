@@ -104,8 +104,7 @@ export function insertLoomTimelineRows(
     const index = result.findIndex(
       (candidate) => candidate.createdAt !== null && candidate.createdAt > row.createdAt,
     );
-    const at =
-      index !== -1 ? index : result.findIndex((candidate) => candidate.kind === "working");
+    const at = index !== -1 ? index : result.findIndex((candidate) => candidate.kind === "working");
     result.splice(at === -1 ? result.length : at, 0, row);
   }
   return result;

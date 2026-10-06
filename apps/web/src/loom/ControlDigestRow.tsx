@@ -46,9 +46,13 @@ function ConnectedCard({
   const ctx = use(TimelineRowCtx);
   const navigate = useNavigate();
   // Only carded rows subscribe to the shells, and only for item titles.
-  const shells = useThreadShells(model.kind === "card" && model.items.some((entry) => entry.item.threadId));
+  const shells = useThreadShells(
+    model.kind === "card" && model.items.some((entry) => entry.item.threadId),
+  );
   const senderLabels = useMemo(() => {
-    const wanted = new Set(model.kind === "card" ? model.items.flatMap((entry) => entry.item.threadId ?? []) : []);
+    const wanted = new Set(
+      model.kind === "card" ? model.items.flatMap((entry) => entry.item.threadId ?? []) : [],
+    );
     return new Map<ThreadId, string>(
       shells.flatMap((shell) =>
         wanted.has(shell.id) && shell.environmentId === ctx.activeThreadEnvironmentId

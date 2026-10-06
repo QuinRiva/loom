@@ -30,7 +30,9 @@ const senderLabels = new Map(shells.map((thread) => [thread.id, thread.title] as
 function ControlCard({ loom, text }: { loom: LoomMessageFields | undefined; text: string }) {
   const model = controlCardModel(loom, text);
   return model === null ? (
-    <p className="text-sm text-muted-foreground">Not a control arrival: renders upstream's bubble.</p>
+    <p className="text-sm text-muted-foreground">
+      Not a control arrival: renders upstream's bubble.
+    </p>
   ) : (
     <ControlDigestCardView
       model={model}
@@ -123,7 +125,11 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         render: () => (
           <TimelineLayoutFrame>
             {timelineRows.map((row) => (
-              <LoomTimelineRowView key={row.id} row={row} environmentId={loomPreviewEnvironmentId} />
+              <LoomTimelineRowView
+                key={row.id}
+                row={row}
+                environmentId={loomPreviewEnvironmentId}
+              />
             ))}
           </TimelineLayoutFrame>
         ),

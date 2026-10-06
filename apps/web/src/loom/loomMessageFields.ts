@@ -7,7 +7,11 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { LoomMessageFields, MessageId, OrchestrationV2ConversationMessage } from "@t3tools/contracts";
+import type {
+  LoomMessageFields,
+  MessageId,
+  OrchestrationV2ConversationMessage,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { environmentThreadDetails } from "../state/threads";
@@ -19,11 +23,16 @@ const indexAtom = Atom.family((threadKey: string) => {
   let previousMessages: ReadonlyArray<OrchestrationV2ConversationMessage> | null = null;
   let previous = EMPTY_INDEX;
   return Atom.make((get) => {
-    const messages = ref === null ? null : (get(environmentThreadDetails.threadAtom(ref))?.projection.messages ?? null);
+    const messages =
+      ref === null
+        ? null
+        : (get(environmentThreadDetails.threadAtom(ref))?.projection.messages ?? null);
     if (messages === null) return EMPTY_INDEX;
     if (messages !== previousMessages) {
       previousMessages = messages;
-      previous = new Map(messages.flatMap((message) => (message.loom ? [[message.id, message.loom] as const] : [])));
+      previous = new Map(
+        messages.flatMap((message) => (message.loom ? [[message.id, message.loom] as const] : [])),
+      );
     }
     return previous;
   }).pipe(Atom.withLabel(`loom-message-fields:${threadKey}`));
@@ -38,6 +47,9 @@ const fieldsAtom = Atom.family((key: string) => {
   );
 });
 
-export function useLoomMessageFields(threadKey: string, messageId: MessageId): LoomMessageFields | null {
+export function useLoomMessageFields(
+  threadKey: string,
+  messageId: MessageId,
+): LoomMessageFields | null {
   return useAtomValue(fieldsAtom(`${threadKey}|${messageId}`));
 }

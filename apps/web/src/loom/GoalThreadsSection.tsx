@@ -22,7 +22,10 @@ import { attentionLabel } from "./loomAttention";
 function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: string } {
   const reason = attentionReasonsOf(thread.source)[0];
   if (reason !== undefined) {
-    return { label: attentionLabel(reason), dot: reason === "error" ? "bg-red-400" : "bg-amber-400" };
+    return {
+      label: attentionLabel(reason),
+      dot: reason === "error" ? "bg-red-400" : "bg-amber-400",
+    };
   }
   const status = resolveSidebarThreadStatus(thread);
   if (status === "working" || status === "waiting") return { label: "working", dot: "bg-blue-400" };
@@ -88,7 +91,6 @@ export function GoalThreadsSection({
               <li key={shell.id}>
                 <button
                   type="button"
-                  title={shell.title}
                   onClick={() =>
                     void navigate({
                       to: "/$environmentId/$threadId",
