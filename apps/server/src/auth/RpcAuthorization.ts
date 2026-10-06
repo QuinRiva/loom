@@ -13,6 +13,7 @@ import {
   RpcScopeAuthorization,
   WS_METHODS,
   WsRpcGroup,
+  LOOM_WS_METHODS, // loom: 3d-3 — seam 21
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -214,6 +215,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeServerLifecycle]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
+  // loom: 3d-3 — seam 21 Loom ws methods (rpc.loom.ts); 3d-4 adds threadSpend/topSpend here.
+  [LOOM_WS_METHODS.handoffDraft]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.retroDraft]: AuthOrchestrationOperateScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

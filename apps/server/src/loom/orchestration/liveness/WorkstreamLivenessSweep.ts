@@ -395,10 +395,10 @@ const make = (thresholds: LivenessSweepThresholds) =>
             ? Effect.logInfo(label, { threadId: command.threadId, commandId: command.commandId })
             : Effect.void,
         ),
-        Effect.map(
-          (outcome) =>
-            outcome.status === "accepted" || (outcome.status === "receipted" && outcome.accepted),
-        ),
+        // Settled: landed now or earlier, or dead (rejected and receipted — V1's `settled`, so
+        // the ladder escalates after the grace instead of retrying a dead id forever). Only a
+        // deferral is retried.
+        Effect.map((outcome) => outcome.status !== "deferred"),
       );
 
     const raiseError = (label: string, threadId: ThreadId, id: string) =>
@@ -652,7 +652,7 @@ const make = (thresholds: LivenessSweepThresholds) =>
           },
         }),
       );
-      // Only a nudge that landed starts the grace; a failed one is retried next sweep.
+      // A settled nudge (landed, or dead) starts the grace; a deferred one is retried next sweep.
       if (nudged) stallNudges.set(id, { episodeMs, nudgedAtMs: now });
     });
 

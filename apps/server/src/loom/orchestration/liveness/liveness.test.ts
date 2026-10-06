@@ -59,6 +59,7 @@ const SpyDispatcherLayer = Layer.sync(WorkstreamDispatcher, () => {
     drain: Effect.void,
     runPass: Effect.void,
     advise: (input) => Effect.sync(() => void advised.push(input)),
+    leaveStash: () => Effect.void,
     deferredWakes: Effect.succeed(new Map()),
   };
 });
@@ -289,6 +290,34 @@ it.effect("a frozen steerable child is nudged once, then raised error once (step
       yield* sweep;
       yield* sweep;
       assert.lengthOf(yield* nudges(child), 1);
+      assert.deepEqual(yield* attention(child), ["error"]);
+    }),
+  ),
+);
+
+it.effect("a nudge the orchestrator rejected is settled: the ladder still escalates (DL-382)", () =>
+  withSweep(
+    Effect.gen(function* () {
+      const { child } = yield* seedRunningChild("rejected", true);
+      // The episode's nudge id is already receipted dead (a rejection between the steer
+      // predicate and the dispatch): every later sweep reads it as `receipted, not accepted`.
+      yield* (yield* CommandReceiptStoreV2).insertIfAbsent({
+        commandId: CommandId.make(stallNudgeCommandId(child, 0)),
+        threadId: child,
+        commandType: "message.dispatch",
+        acceptedAt: DateTime.makeUnsafe(0),
+        resultSequence: 0,
+        status: "rejected",
+        error: "steer target changed",
+      });
+      yield* sweep;
+      yield* minutes(11);
+      yield* sweep; // the nudge: dead, but settled — its grace starts
+      assert.lengthOf(yield* nudges(child), 0);
+      assert.deepEqual(yield* attention(child), []);
+      yield* minutes(2); // past the nudge grace
+      yield* sweep;
+      assert.equal((yield* receipt(livenessStallCommandId(child, 0)))?.status, "accepted");
       assert.deepEqual(yield* attention(child), ["error"]);
     }),
   ),

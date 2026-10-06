@@ -2,7 +2,8 @@
  * The workstream control plane's pass (Phase 3 plan Track 3b): one idempotent
  * recompute from durable state that re-drives the graph, promotes ready
  * children and delivers every wake, run by a coalescing worker on the trigger
- * set (`isPassTrigger`), once at startup and on a 60 s tick. It absorbs Phase
+ * set (`isPassTrigger`), on a 60 s tick, and once at startup from
+ * `loomStartupRecovery` (DL-386). It absorbs Phase
  * 2's re-drive reactor (DL-247).
  *
  * The steps run in `PASS_STEPS` order over one `PassContext`: re-drive and
@@ -77,6 +78,7 @@ import {
   terminalDeltas,
   yieldRail,
 } from "./rails.ts";
+import { steerRedelivery } from "./steerRedelivery.ts";
 import type { WakeMember } from "./wakes.ts";
 
 /** How often the pass re-runs with no trigger (time-based rails: grace windows, rungs, flush ages). */
@@ -153,6 +155,12 @@ export interface PassContext {
   readonly pendingDigests: Map<ThreadId, Array<PendingDigestItem>>;
   /** Advisories per parent by episode key (service lifetime; the sweep re-advises after a restart). */
   readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
+  /**
+   * Stashed steers the startup pass LEFT on threads rule 0 did not continue, by thread: the
+   * text as it was at startup (service lifetime; the next startup re-records them from disk).
+   * Only these are the redelivery rail's — any other stash is the adapter's live-turn record.
+   */
+  readonly leftStashes: Map<ThreadId, string>;
   /** The quiescence grace windows (`quiescenceGraceMs` / `quiescenceHumanGraceMs`). */
   readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null };
   /** When this dispatcher started (ms): floors the deferred-wake silence clock. */
@@ -286,6 +294,7 @@ const promotion: PassStep = {
 export const PASS_STEPS: ReadonlyArray<PassStep> = [
   reDrive,
   promotion,
+  steerRedelivery,
   quiescenceRail,
   terminalDeltas,
   attentionRail,
@@ -301,6 +310,7 @@ export const PASS_STEPS: ReadonlyArray<PassStep> = [
 interface DispatcherMemory {
   readonly deadEpisodes: Set<DeadEpisode>;
   readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
+  readonly leftStashes: Map<ThreadId, string>;
   /** `delivered` cache, valid while the thread's `latestUserMessageAt` is `stamp`; dropped on each delivery. */
   readonly deliveredCache: Map<
     ThreadId,
@@ -344,6 +354,7 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
     deadEpisodes: memory.deadEpisodes,
     pendingDigests: new Map(),
     advisories: memory.advisories,
+    leftStashes: memory.leftStashes,
     grace: {
       controlStartedMs: settings.quiescenceGraceMs,
       humanStartedMs: settings.quiescenceHumanGraceMs,
@@ -401,7 +412,7 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
 });
 
 export interface WorkstreamDispatcherShape {
-  /** Subscribes to the trigger set and starts the tick, after server activation; one startup pass. */
+  /** Subscribes to the trigger set and starts the tick, after server activation. */
   readonly start: Effect.Effect<void, never, Scope.Scope>;
   /** Resolves once no pass is running or pending (tests: the deterministic wait, never a sleep). */
   readonly drain: Effect.Effect<void>;
@@ -413,6 +424,11 @@ export interface WorkstreamDispatcherShape {
    * digests; requests a pass.
    */
   readonly advise: (input: AdviseInput) => Effect.Effect<void>;
+  /**
+   * The startup pass's hook (seam 20): a stashed steer it left on a thread rule 0 did not
+   * continue, for the redelivery rail to carry into that thread's next human- or parent-started turn.
+   */
+  readonly leaveStash: (threadId: ThreadId, steer: string) => Effect.Effect<void>;
   /** The last finished pass's deferrals per thread and rail (diagnostics). */
   readonly deferredWakes: Effect.Effect<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>;
 }
@@ -428,6 +444,7 @@ const make = Effect.gen(function* () {
   const memory: DispatcherMemory = {
     deadEpisodes: new Set(),
     advisories: new Map(),
+    leftStashes: new Map(),
     deliveredCache: new Map(),
     startedAtMs: DateTime.toEpochMillis(yield* DateTime.now),
   };
@@ -448,14 +465,23 @@ const make = Effect.gen(function* () {
   );
   const worker = yield* makeCoalescingWorker(pass);
   return {
+    // The startup pass is `loomStartupRecovery`'s (ordered after the held-queue release and the
+    // steer redelivery; activation follows it, DL-386). The tick's first beat here is the
+    // catch-up for what landed between that pass and this subscription (the stream is live-only).
     start: forkParked(
       Effect.gen(function* () {
-        yield* worker.enqueue();
         yield* Effect.forkScoped(
           worker.enqueue().pipe(Effect.repeat(Schedule.spaced(PASS_TICK_INTERVAL))),
         );
         yield* orchestrator.streamDomainEvents.pipe(
-          Stream.filter(isPassTrigger),
+          // Plus a run starting on a thread holding a left stash (the redelivery rail).
+          Stream.filter(
+            (event) =>
+              isPassTrigger(event) ||
+              (event.type === "run.updated" &&
+                event.payload.status === "running" &&
+                memory.leftStashes.has(event.threadId)),
+          ),
           Stream.runForEach(() => worker.enqueue()),
           Effect.catchCause((cause) =>
             Effect.logWarning("loom.dispatcher.stream-stopped", { cause }),
@@ -472,6 +498,8 @@ const make = Effect.gen(function* () {
         memory.advisories.set(input.parentId, byKey);
         return worker.enqueue();
       }),
+    leaveStash: (threadId, steer) =>
+      Effect.sync(() => void memory.leftStashes.set(threadId, steer)),
     deferredWakes: Ref.get(lastDeferredWakes),
   } satisfies WorkstreamDispatcherShape;
 });

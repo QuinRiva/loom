@@ -19,13 +19,12 @@
  *
  * @module loom/recovery/loomRecoveryPolicy
  */
-import * as NodeCrypto from "node:crypto";
-
 import {
   CommandId,
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadProjection,
   type RunId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -37,6 +36,8 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import {
   controlMessage,
+  redeliveredSteerText,
+  steerHash,
   steerRedeliverCommandId,
 } from "../orchestration/dispatcher/controlMessage.ts";
 import { WorkstreamDispatcher } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
@@ -56,6 +57,36 @@ export const isContinued = (
     workstream,
     projection.runtimeRequests.some((request) => request.status === "pending"),
   );
+
+/**
+ * Runs the thread's restart continuation now when its outbox effect is still due. The effect
+ * worker runs `effect:restart-continuation:<run>` asynchronously, so a Loom wake dispatched at
+ * startup could start a run first and turn the continuation into a no-op (the cut turn would be
+ * lost, DL-376). `continueRestartedRun` is idempotent by its message and command ids, so the
+ * worker's later run of the same effect does nothing.
+ */
+const runDueContinuation = (
+  threadId: ThreadId,
+  projection: Pick<OrchestrationV2ThreadProjection, "runs">,
+) =>
+  Effect.gen(function* () {
+    const source = projection.runs
+      .filter((run) => run.status !== "queued")
+      .reduce<(typeof projection.runs)[number] | undefined>(
+        (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+        undefined,
+      );
+    if (source === undefined) return;
+    const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
+      `effect:restart-continuation:${source.id}`,
+    );
+    if (
+      Option.isSome(continuation) &&
+      (continuation.value.status === "pending" || continuation.value.status === "running")
+    ) {
+      yield* continueRestartedRun({ threadId, sourceRunId: source.id });
+    }
+  });
 
 /** The §3 table's startup pass over Loom threads holding a queued run. Never fails startup. */
 export const releaseHeldQueues = Effect.gen(function* () {
@@ -98,6 +129,8 @@ export const releaseHeldQueues = Effect.gen(function* () {
         ),
       );
       if (queued.some((run) => run.queueHeld === true && loomOrigin.has(run.userMessageId))) {
+        // The continuation first, or the released wake starts a run ahead of it (DL-376).
+        yield* runDueContinuation(threadId, projection);
         yield* orchestrator.dispatch({
           type: "queue.resume",
           commandId: commandId("queue.resume"),
@@ -111,61 +144,39 @@ export const releaseHeldQueues = Effect.gen(function* () {
     );
   }
 }).pipe(
+  Effect.provide(EffectOutbox.layer),
   Effect.catchCause((cause) =>
     Effect.logWarning("loom.recovery.release-held-queues-failed", { cause }),
   ),
   Effect.withSpan("loom.recovery.releaseHeldQueues"),
 );
 
-/** The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt. */
-export const redeliveredSteerText = (steer: string) =>
-  [
-    "A message was sent to you while that turn was running and never reached it. Treat it as your latest instructions and apply it to the work you resume.",
-    `--- queued message ---\n${steer}\n--- end of queued message ---`,
-  ].join("\n\n");
-
-/** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
-export const steerHash = (text: string) =>
-  NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
-
 /**
  * Seam 20 (P3-24): each continued thread's stashed steer becomes one steered control
  * message, then the stash is cleared. A thread in rule 0's not-continued set keeps its
- * stash for the dispatchMessage path to redeliver behind the next human- or parent-started
- * turn. The redelivery must land behind upstream's restart continuation, which the effect
- * worker runs asynchronously: when the thread's continuation effect is still due, it is run
- * here first (`continueRestartedRun` is idempotent by its message and command ids), so the
- * steer queues behind — or steers into — the continuation run instead of starting a run of
- * its own that would turn the continuation stale. Never fails; per-thread failures log.
+ * stash, which is handed to the dispatcher (`leaveStash`) for its `steerRedelivery` rail to
+ * carry into the next human- or parent-started turn (DL-387). The redelivery must land
+ * behind upstream's restart continuation, which the effect worker runs asynchronously:
+ * when the thread's continuation effect is still due, it is run here first
+ * (`continueRestartedRun` is idempotent by its message and command ids), so the steer
+ * queues behind — or steers into — the continuation run instead of starting a run of its
+ * own that would turn the continuation stale. Never fails; per-thread failures log.
  */
 export const redeliverStashedSteers = Effect.gen(function* () {
   const orchestrator = yield* OrchestratorV2;
   const loomStore = yield* LoomStoreV2;
-  const outbox = yield* EffectOutbox.EffectOutboxV2;
   for (const threadId of yield* PendingSteering.listStashed()) {
     yield* Effect.gen(function* () {
       const steer = yield* PendingSteering.read(threadId);
       if (steer === null) return yield* PendingSteering.clear(threadId);
       const workstream = yield* loomStore.getWorkstream(threadId);
       const projection = yield* orchestrator.getThreadProjection(threadId);
-      if (workstream === null || !isContinued(workstream, projection)) return;
-      const source = projection.runs
-        .filter((run) => run.status !== "queued")
-        .reduce<(typeof projection.runs)[number] | undefined>(
-          (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
-          undefined,
-        );
-      const continuation =
-        source === undefined
-          ? Option.none()
-          : yield* outbox.get(`effect:restart-continuation:${source.id}`);
-      if (
-        source !== undefined &&
-        Option.isSome(continuation) &&
-        (continuation.value.status === "pending" || continuation.value.status === "running")
-      ) {
-        yield* continueRestartedRun({ threadId, sourceRunId: source.id });
-      }
+      if (workstream === null) return;
+      // Not continued: left for the dispatcher's rail to carry into the thread's next
+      // human- or parent-started turn (DL-387).
+      if (!isContinued(workstream, projection))
+        return yield* (yield* WorkstreamDispatcher).leaveStash(threadId, steer);
+      yield* runDueContinuation(threadId, projection);
       yield* orchestrator.dispatch(
         controlMessage({
           threadId,

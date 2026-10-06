@@ -1,17 +1,29 @@
 /**
  * Restart recovery for Loom threads (plan §3 table, w8; DL-195, DL-199): after
  * upstream's startup reconciliation holds every queued run, `releaseHeldQueues`
- * resumes a live thread's held control wake, leaves a thread owed a human
+ * resumes a live thread's held control wake (behind upstream's restart
+ * continuation, run first when its effect is still due — DL-376), leaves a thread owed a human
  * held (and rule 0 makes its continuation an accepted no-op), and cancels a
  * dead thread's queued runs — on the real orchestrator and recovery service.
  *
  * Seam 20 (Phase 3 3b-4, smoke step 17): `loomStartupRecovery` redelivers a
  * continued thread's stashed steer behind its restart continuation, exactly once,
- * and leaves the stash of a flagged, done or cancelled thread on disk.
+ * and leaves the stash of a flagged, done or cancelled thread on disk; the
+ * dispatcher's redelivery rail then carries a flagged thread's stash into the next
+ * human-started turn (DL-387).
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { CommandId, type LoomMessageFields, MessageId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  type LoomMessageFields,
+  MessageId,
+  type OrchestrationV2DomainEvent,
+  ProviderSessionId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -23,6 +35,7 @@ import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStor
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ServerConfig from "../../config.ts";
 import { ProviderRuntimeRecoveryService } from "../../orchestration-v2/ProviderRuntimeRecoveryService.ts";
+import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
@@ -33,14 +46,19 @@ import {
   seedThread,
   seedUsageLimitedRun,
   spawnChild,
+  testModelSelection,
+  writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
-import { WorkstreamDispatcherLive } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
+import { steerHash, steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
+import {
+  WorkstreamDispatcher,
+  WorkstreamDispatcherLive,
+} from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
+import * as PendingSteering from "../steering/pendingSteering.ts";
 import {
   loomStartupRecovery,
   redeliverStashedSteers,
   releaseHeldQueues,
-  steerHash,
 } from "./loomRecoveryPolicy.ts";
 
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -82,10 +100,21 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
         return threadId;
       });
 
-      // A live Loom thread with a control wake queued behind its turn.
+      // A live Loom thread (a real session, so upstream will continue it) with a control wake
+      // queued behind its turn.
       const live = yield* child("live");
-      yield* seedRunningRun({ threadId: live });
+      yield* seedRunningRun({ threadId: live, live: true });
+      // Queued while the session was away (not steerable), then the session is back.
+      const sessions = yield* ProviderSessionManagerV2;
+      const sessionId = ProviderSessionId.make(`provider-session:${live}`);
+      yield* sessions.close(sessionId);
       yield* queueBehind(live, "control");
+      yield* sessions.open({
+        threadId: live,
+        providerSessionId: sessionId,
+        modelSelection: testModelSelection,
+        runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+      });
       // A thread owed a human, with the same.
       const guided = yield* child("guided");
       yield* dispatch({
@@ -134,11 +163,22 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
       assert.equal(Option.getOrThrow(continuation).status, "accepted");
       assert.lengthOf(yield* queuedRuns(guided), 1);
 
-      yield* releaseHeldQueues;
+      yield* releaseHeldQueues.pipe(Effect.provide(ServerSettings.layerTest()));
+      // The effect worker's own run of the continuation effect, after the release: a no-op.
+      yield* continueRestartedRun({ threadId: live, sourceRunId: seededRunIds(live).runId }).pipe(
+        Effect.provide(ServerSettings.layerTest()),
+      );
 
-      const [resumed] = yield* queuedRuns(live);
-      assert.isFalse(resumed!.queueHeld === true);
-      assert.equal(resumed!.status, "starting");
+      // DL-376: upstream's continuation ran first and the released wake queues behind it —
+      // without the pre-call the wake would start first and the continuation would no-op.
+      const liveRuns = yield* queuedRuns(live);
+      assert.lengthOf(liveRuns, 2);
+      const continued = liveRuns.find(
+        (run) => run.userMessageId === `message:restart-continuation:${seededRunIds(live).runId}`,
+      );
+      const resumed = liveRuns.find((run) => run !== continued);
+      assert.equal(continued?.status, "starting");
+      assert.deepInclude(resumed, { status: "queued", queueHeld: false });
       const [stillHeld] = yield* queuedRuns(guided);
       assert.deepInclude(stillHeld, { status: "queued", queueHeld: true });
       assert.deepEqual(
@@ -278,6 +318,129 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           CommandId.make(steerRedeliverCommandId(live, steerHash(steerText(live)))),
         );
         assert.equal(Option.getOrThrow(receipt).status, "accepted");
+      }),
+  );
+
+  it.effect(
+    "a flagged thread's stash survives startup, then rides the next human-started turn once",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("later-root");
+        const flagged = ThreadId.make("later-flagged");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: flagged, graphKey: "later" });
+        yield* dispatch({
+          type: "thread.attention.raise",
+          commandId: CommandId.make("later-raise"),
+          threadId: flagged,
+          createdAt,
+          reason: "needs_guidance",
+        });
+        yield* seedRunningRun({ threadId: flagged, live: true });
+        const steer = "Use the staging bucket, not production.";
+        yield* stash(flagged, steer);
+        const redeliveryId = MessageId.make(
+          `message:${steerRedeliverCommandId(flagged, steerHash(steer))}`,
+        );
+        const redeliveries = Effect.map(orchestrator.getThreadProjection(flagged), (projection) =>
+          projection.messages.filter((message) => message.id === redeliveryId),
+        );
+
+        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+        // Rule 0: nothing sent; the stash waits for a human's or the parent's turn.
+        assert.lengthOf(yield* redeliveries, 0);
+        assert.isTrue(yield* stashed(flagged));
+
+        // The human answers; the turn starts (rule 4 clears the flag) and runs.
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("later-human"),
+          threadId: flagged,
+          messageId: MessageId.make("message:later-human"),
+          text: "Carry on.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const humanRun = (yield* orchestrator.getThreadProjection(flagged)).runs.find(
+          (run) => run.userMessageId === "message:later-human",
+        )!;
+        const dispatcher = yield* WorkstreamDispatcher;
+        yield* dispatcher.runPass; // not running yet: the stash waits
+        assert.lengthOf(yield* redeliveries, 0);
+        yield* writeEvents([
+          {
+            id: EventId.make("event:later-human-running"),
+            type: "run.updated",
+            threadId: flagged,
+            runId: humanRun.id,
+            providerInstanceId: humanRun.providerInstanceId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...humanRun, status: "running", startedAt: yield* DateTime.now },
+          } as OrchestrationV2DomainEvent,
+        ]);
+
+        // Pi accepts a fresh steer into the running turn: the adapter appends it to the stash.
+        const live = "Also bump the version.";
+        yield* PendingSteering.append(flagged, live);
+
+        yield* dispatcher.runPass;
+        const [redelivered, ...more] = yield* redeliveries;
+        assert.lengthOf(more, 0);
+        assert.include(redelivered!.text, steer);
+        assert.notInclude(redelivered!.text, live);
+        assert.equal(redelivered!.loom?.origin, "control_notice");
+        // Only the startup text left the file; the live turn's own steer keeps its durability.
+        assert.equal(yield* PendingSteering.read(flagged), live);
+        yield* dispatcher.runPass;
+        assert.lengthOf(yield* redeliveries, 1);
+        assert.equal(yield* PendingSteering.read(flagged), live);
+      }),
+  );
+
+  it.effect(
+    "a live turn's own stash (no restart) is never redelivered or cleared by the rail",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("live-stash-root");
+        const child = ThreadId.make("live-stash-child");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: child, graphKey: "live-stash" });
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("live-stash-human"),
+          threadId: child,
+          messageId: MessageId.make("message:live-stash-human"),
+          text: "Start on the parser.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const run = (yield* orchestrator.getThreadProjection(child)).runs[0]!;
+        yield* writeEvents([
+          {
+            id: EventId.make("event:live-stash-running"),
+            type: "run.updated",
+            threadId: child,
+            runId: run.id,
+            providerInstanceId: run.providerInstanceId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...run, status: "running", startedAt: yield* DateTime.now },
+          } as OrchestrationV2DomainEvent,
+        ]);
+        // What 3c's adapter writes when pi acks a steer into this live turn.
+        const accepted = "Use the new tokenizer.";
+        yield* PendingSteering.append(child, accepted);
+
+        yield* (yield* WorkstreamDispatcher).runPass;
+        const messages = (yield* orchestrator.getThreadProjection(child)).messages;
+        assert.isFalse(messages.some((message) => message.loom?.origin === "control_notice"));
+        assert.equal(yield* PendingSteering.read(child), accepted);
       }),
   );
 

@@ -26,7 +26,7 @@ const writeReportFile = Effect.fn("loom.writeReportFile")(function* (
   fileName: string,
   markdown: string,
 ) {
-  const dir = (yield* loomPaths(yield* ServerConfig)).workstreamReportsDir;
+  const dir = loomPaths(yield* ServerConfig).workstreamReportsDir;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const filePath = path.join(dir, fileName);

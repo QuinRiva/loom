@@ -26,6 +26,7 @@ const stashFile = (threadId: ThreadId) =>
   Effect.map(Effect.zip(stashDir, Path.Path), ([dir, path]) => path.join(dir, `${threadId}.json`));
 
 const decodeStash = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.String));
+const encodeStash = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 /** The stashed steer text for a thread, or null when there is none. */
 export const read = (threadId: ThreadId) =>
@@ -39,6 +40,18 @@ export const read = (threadId: ThreadId) =>
 export const clear = (threadId: ThreadId) =>
   Effect.gen(function* () {
     yield* (yield* FileSystem.FileSystem).remove(yield* stashFile(threadId), { force: true });
+  }).pipe(Effect.ignore);
+
+/** Adds an accepted steer to the thread's stash, after a blank line (3c's signature). */
+export const append = (threadId: ThreadId, text: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const existing = yield* read(threadId);
+    yield* fs.makeDirectory(yield* stashDir, { recursive: true });
+    yield* fs.writeFileString(
+      yield* stashFile(threadId),
+      yield* encodeStash(existing === null ? text : `${existing}\n\n${text}`),
+    );
   }).pipe(Effect.ignore);
 
 /** Every thread with a stash file. */

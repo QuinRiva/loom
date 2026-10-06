@@ -5,13 +5,23 @@
  * human-authored or orchestrator turn), and settle-on-merge settles a childless
  * shipper whose outcome is done but never a root with an unfinished sub-thread.
  *
- * Upstream refuses `thread.pull-request.watch` on every `subagent`-lineage thread,
- * which is every Loom child (DL-375): a shipper child cannot start a watch today, so
- * the wake is proven on a Loom root, and the refusal is pinned.
+ * Upstream refuses `thread.pull-request.watch` on every `subagent`-lineage thread
+ * ("its parent thread watches pull requests"); every Loom child has that lineage
+ * (DL-375), so the one marked clause of DL-305 exempts a thread with a Loom sidecar
+ * row: the shipper child watches its own PR, and an upstream subagent with no row is
+ * still refused.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  GoalId,
+  MessageId,
+  type OrchestrationV2DomainEvent,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -20,6 +30,7 @@ import * as Stream from "effect/Stream";
 
 import * as GitManager from "../git/GitManager.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import { makeLoomChildThread } from "../orchestration-v2/Orchestrator.loom.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadSettlementService from "../orchestration-v2/ThreadSettlementService.ts";
@@ -33,6 +44,8 @@ import {
   LoomOrchestratorTestLayer,
   seedThread,
   spawnChild,
+  testModelSelection,
+  writeEvents,
 } from "./testkit/loomOrchestratorLayer.ts";
 
 const TestLayer = Layer.mergeAll(
@@ -120,20 +133,20 @@ const raiseAcceptance = (threadId: ThreadId) =>
 
 it.layer(TestLayer)("Loom PR toolkit", (it) => {
   it.effect(
-    "a PR-watch wake runs on a Loom thread holding awaiting_acceptance; the hold survives",
+    "a Loom shipper child watches its PR; the wake runs and awaiting_acceptance survives it",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const store = yield* LoomStoreV2;
         const root = ThreadId.make("pr-watch-root");
-        const child = ThreadId.make("pr-watch-shipper");
+        const shipper = ThreadId.make("pr-watch-shipper");
         yield* seedLoomRoot(root);
-        yield* spawnChild({ parentThreadId: root, threadId: child, role: "shipper" });
-        // DL-375: upstream's subagent rule refuses the watch on a Loom child.
-        const refused = yield* Effect.flip(watchPullRequest(child, 7));
-        assert.include(String((refused as { cause?: unknown }).cause), "is a subagent");
-
-        const shipper = root;
+        yield* spawnChild({ parentThreadId: root, threadId: shipper, role: "shipper" });
+        assert.equal(
+          (yield* orchestrator.getThreadProjection(shipper)).thread.lineage.relationshipToParent,
+          "subagent",
+        );
+        // DL-305: the Loom row exempts the child from upstream's subagent refusal.
         yield* watchPullRequest(shipper, 7);
         yield* raiseAcceptance(shipper);
         const watch = (yield* orchestrator.getThreadProjection(shipper)).thread.pullRequests?.find(
@@ -169,6 +182,41 @@ it.layer(TestLayer)("Loom PR toolkit", (it) => {
         assert.isTrue(projection.runs.some((run) => run.userMessageId === wakeId));
         assert.deepEqual((yield* store.getWorkstream(shipper))!.attention, ["awaiting_acceptance"]);
       }),
+  );
+
+  it.effect("an upstream subagent thread with no Loom row is still refused a watch", () =>
+    Effect.gen(function* () {
+      const parent = ThreadId.make("pr-watch-upstream-parent");
+      const subagent = ThreadId.make("pr-watch-upstream-subagent");
+      yield* seedThread({ threadId: parent });
+      const now = yield* DateTime.now;
+      const parentThread = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(parent))
+        .thread;
+      // Upstream's own subagent shape (a delegated task's thread): subagent lineage, no sidecar.
+      const thread = makeLoomChildThread({
+        id: subagent,
+        title: "Delegated task",
+        modelSelection: testModelSelection,
+        createdBy: "agent",
+        creationSource: "mcp",
+        parent: parentThread,
+        root: parentThread,
+        now,
+      });
+      yield* writeEvents([
+        {
+          id: EventId.make(`event:upstream-subagent:${subagent}`),
+          type: "thread.created",
+          threadId: subagent,
+          providerInstanceId: thread.providerInstanceId,
+          occurredAt: now,
+          payload: thread,
+        } as OrchestrationV2DomainEvent,
+      ]);
+      assert.isNull(yield* (yield* LoomStoreV2).getWorkstream(subagent));
+      const refused = yield* Effect.flip(watchPullRequest(subagent, 8));
+      assert.include(String((refused as { cause?: unknown }).cause), "is a subagent");
+    }),
   );
 
   it.effect(
