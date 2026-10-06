@@ -145,6 +145,11 @@ Things you will trip over:
   `/home/Carl/.t3/qa-pull9/build/loom/scripts/pull9-qa/materialise-worktree.sh <threadId>`
   (refuses threads of un-cloned projects, and a thread whose branch the clone has checked
   out — `main`). Threads of other projects can be read but not continued.
+- **An imported child that ran isolated in V1 continues in its root's checkout**, on the
+  root's branch — V1 stored the root's `worktree_path`/`branch` on such children (701 of
+  the live imported children; 15 are not finished) and derived the child's own worktree
+  by convention, which V2 does not. Harmless in QA; a follow-up that commits lands on the
+  root's branch. It matters at cut-over (DL-578).
 - Starting a root takes two messages to stamp its `kickoffAt` (Phase 3 rule); the board
   is fine meanwhile.
 - **Settings → Archive lists archived children individually** (their lineage is correct —
