@@ -8,7 +8,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 
 import { resolveBundledPiCliPath, resolveLoomPiBinaryPath } from "./Drivers/Pi/bundledPi.loom.ts";
 import { UPDATE as PI_UPDATE } from "./Drivers/PiDriver.ts";

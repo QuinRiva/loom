@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // `/handoff` fork-drafter (plan §4 Phase 1): durable per-thread count of the
 // `goal_handoff` calls a handoff-drafter root has placed (one

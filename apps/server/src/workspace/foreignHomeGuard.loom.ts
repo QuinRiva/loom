@@ -25,7 +25,7 @@
 import * as NodePath from "node:path";
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /** The one refusal sentence every guarded call site reports. */
 export const FOREIGN_HOME_REFUSAL_DETAIL =

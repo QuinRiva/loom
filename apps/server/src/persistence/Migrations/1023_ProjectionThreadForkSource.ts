@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Thread fork (MVP): the source thread a thread was forked from.
 // - fork_from_thread_id: nullable thread id. Null for non-forked rows (the

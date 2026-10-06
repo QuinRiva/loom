@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Classification of a session's last error (e.g. "quota_exhausted"), persisted
 // alongside `last_error` so the exhaustion resume sweep can find limit-stalled

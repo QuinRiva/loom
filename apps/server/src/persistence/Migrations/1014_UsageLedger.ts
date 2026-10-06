@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Usage ledger (docs/usage-dashboard-design.md §3 D1): one row per
 // `thread.token-usage.updated` runtime event, written by

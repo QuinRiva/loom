@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Migrate usage-ledger provider attribution from driver kind to real backend.
 // `provider_name` recorded the emitting driver KIND (always "pi" here), which

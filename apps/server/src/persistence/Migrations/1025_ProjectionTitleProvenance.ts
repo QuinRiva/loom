@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // loom: title provenance (stale/empty-goal fix §4). Adds `title_provenance` to
 // both projection_threads and projection_goals so the decider can refuse to let

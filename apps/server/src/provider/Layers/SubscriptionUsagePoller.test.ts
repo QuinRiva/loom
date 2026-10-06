@@ -15,7 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import { TestClock } from "effect/testing";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import { describe, expect } from "vite-plus/test";
 
 import type { AccountUsageSnapshot, AccountUsageWindow } from "../accountUsage.loom.ts";

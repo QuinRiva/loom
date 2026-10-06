@@ -31,6 +31,7 @@ import {
   type OrchestrationV2ContextSourcePoint,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
+  type OrchestrationV2ServerCommand,
   RESERVED_OUTCOMES,
   ThreadId,
   type WorkstreamRoute,
@@ -79,8 +80,9 @@ export class LoomDispatchDeferredError extends Schema.TaggedError<LoomDispatchDe
 }
 
 type MessageDispatch = Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>;
-type RunInterrupt = Extract<
-  OrchestrationV2Command,
+type RunInterrupt = Extract<OrchestrationV2Command, { readonly type: "run.interrupt" }>;
+type HumanStop = Extract<
+  OrchestrationV2ServerCommand,
   { readonly type: "run.interrupt" | "thread.stop" }
 >;
 type QueuedRunCancel = Extract<OrchestrationV2Command, { readonly type: "queued-run.cancel" }>;
@@ -287,9 +289,9 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 // run.interrupt and thread.auto-settle hunks
 // ---------------------------------------------------------------------------
 
-/** A human stop (non-`server:` run.interrupt) on a live Loom thread raises needs_guidance. */
+/** A human stop (non-`server:` run.interrupt or thread.stop) on a live Loom thread raises needs_guidance. */
 export const loomHumanStopRaise = Effect.fn("loom.humanStopRaise")(function* (input: {
-  readonly command: RunInterrupt;
+  readonly command: HumanStop;
   readonly loomStore: LoomStoreV2["Service"];
   readonly emit: Emit;
   readonly toDispatchError: ToDispatchError;

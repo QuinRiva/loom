@@ -16,9 +16,9 @@ import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import * as Rpc from "effect/unstable/rpc/Rpc";
-import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
-import { SqlError, classifySqliteError } from "effect/unstable/sql/SqlError";
+import * as Rpc from "effect/rpc/Rpc";
+import * as RpcGroup from "effect/rpc/RpcGroup";
+import { SqlError, classifySqliteError } from "effect/sql/SqlError";
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
   "UnsupportedNodeSqliteVersionError",

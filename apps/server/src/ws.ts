@@ -3740,6 +3740,11 @@ const makeWsRpcLayer = (
                 readonly marks?: ReadonlyArray<ExhaustionMark>;
                 readonly sources?: ReadonlyArray<UsageLimitSourceSnapshot>;
               };
+              const initialProviderStatus = {
+                providers: yield* providerRegistry.getProviders,
+                marks: yield* providerHealthRegistry.snapshot,
+                sources: yield* usageLimitSources.current,
+              };
               const providerStatuses = Stream.merge(
                 Stream.merge(
                   providerRegistry.streamChanges.pipe(
@@ -3759,11 +3764,7 @@ const makeWsRpcLayer = (
                 ),
               ).pipe(
                 Stream.scan(
-                  {
-                    providers: yield* providerRegistry.getProviders,
-                    marks: yield* providerHealthRegistry.snapshot,
-                    sources: yield* usageLimitSources.current,
-                  },
+                  () => initialProviderStatus,
                   (state, event) => ({
                     providers: event.providers ?? state.providers,
                     marks: event.marks ?? state.marks,

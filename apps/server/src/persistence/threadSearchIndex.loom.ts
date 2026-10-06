@@ -19,7 +19,7 @@ import * as NodeFS from "node:fs";
 
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /** rowid = source rowid * 8 + code. Reports share the thread's rowid. */
 export const THREAD_SEARCH_KIND_CODES = {

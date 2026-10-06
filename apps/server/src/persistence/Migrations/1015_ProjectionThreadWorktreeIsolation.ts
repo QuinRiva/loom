@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Worktree isolation (docs plan workstream-worktree-isolation §1/§3): per-thread
 // isolation policy + fan-in settlement.
