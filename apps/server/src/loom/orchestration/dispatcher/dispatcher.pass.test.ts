@@ -627,9 +627,7 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         const receipts = yield* CommandReceiptStoreV2;
         assert.isTrue(
           Option.isSome(
-            yield* receipts.getByCommandId(
-              CommandId.make(notifyMarkCommandId("notify-race-rec")),
-            ),
+            yield* receipts.getByCommandId(CommandId.make(notifyMarkCommandId("notify-race-rec"))),
           ),
         );
         assert.isTrue(
