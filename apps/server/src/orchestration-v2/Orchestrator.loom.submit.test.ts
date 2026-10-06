@@ -166,27 +166,32 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
     }),
   );
 
-  it.effect(
-    "outcome.set cancelled skips (never fails on) an own run upstream cannot interrupt",
-    () =>
-      Effect.gen(function* () {
-        const cancelled = ThreadId.make("submit-cancelled");
-        yield* spawnChild({ parentThreadId: parent, threadId: cancelled, graphKey: "cancelled" });
-        yield* raise(cancelled, "needs_guidance");
-        // A seeded run has no live provider session, so upstream's interrupt refuses it.
-        yield* seedRunningRun({ threadId: cancelled });
-        const result = yield* dispatch({
-          type: "thread.outcome.set",
-          commandId: CommandId.make("server:test-cancel"),
-          threadId: cancelled,
-          createdAt,
-          outcome: "cancelled",
-        });
-        assert.deepEqual(summary(cancelled, result.storedEvents), [
-          ["thread.outcome-set", "cancelled"],
-          ["thread.attention-cleared"],
-        ]);
-      }),
+  it.effect("outcome.set cancelled settles an own run that has no live provider session", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const cancelled = ThreadId.make("submit-cancelled");
+      yield* spawnChild({ parentThreadId: parent, threadId: cancelled, graphKey: "cancelled" });
+      yield* raise(cancelled, "needs_guidance");
+      // A seeded run has no live provider session; since upstream's a7a2230c33 the
+      // interrupt settles it instead of refusing (DL-501), so cancelling still never fails.
+      yield* seedRunningRun({ threadId: cancelled });
+      const result = yield* dispatch({
+        type: "thread.outcome.set",
+        commandId: CommandId.make("server:test-cancel"),
+        threadId: cancelled,
+        createdAt,
+        outcome: "cancelled",
+      });
+      assert.deepEqual(summary(cancelled, result.storedEvents).slice(0, 2), [
+        ["thread.outcome-set", "cancelled"],
+        ["thread.attention-cleared"],
+      ]);
+      const { runs } = yield* orchestrator.getThreadProjection(cancelled);
+      assert.deepEqual(
+        runs.map((run) => run.status),
+        ["interrupted"],
+      );
+    }),
   );
   it.effect(
     "DL-246: outcome.set cancelled interrupts the running run and cancels every queued run in one command",
