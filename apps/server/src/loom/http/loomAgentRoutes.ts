@@ -125,7 +125,9 @@ const askRoute = HttpRouter.route(
       };
       const requestId = yield* openAskUserQuestion(caller, body);
       return HttpServerResponse.jsonUnsafe({ requestId });
-    }).pipe(Effect.catchTag("LoomAskError", (error) => Effect.succeed(reply(409, error.message)))),
+    }).pipe(
+      Effect.catchTags({ LoomAskError: (error) => Effect.succeed(reply(409, error.message)) }),
+    ),
   ),
 );
 

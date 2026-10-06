@@ -51,8 +51,8 @@ import { loomContinuationVetoed } from "../../orchestration-v2/Orchestrator.loom
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { subscriptionScopeForSelection } from "../../provider/exhaustionMapping.ts";
 import { resolveFailoverTarget } from "../../provider/failoverTarget.loom.ts";
-import { ProviderHealthRegistry, matches } from "../../provider/Services/ProviderHealthRegistry.ts";
-import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { ProviderHealthRegistry, matches } from "../../provider/ProviderHealthRegistry.ts";
+import { ProviderRegistry } from "../../provider/ProviderRegistry.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {

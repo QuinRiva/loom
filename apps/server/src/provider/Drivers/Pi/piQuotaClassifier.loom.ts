@@ -16,7 +16,7 @@ import type { IsoDateTime } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { PI_QUOTA_ERROR_RE, subscriptionScopeForSelection } from "../../exhaustionMapping.ts";
-import { type ExhaustionMark, isActive, matches } from "../../Services/ProviderHealthRegistry.ts";
+import { type ExhaustionMark, isActive, matches } from "../../ProviderHealthRegistry.ts";
 
 export interface ClassifiedPiFailure {
   readonly usageLimit: boolean;

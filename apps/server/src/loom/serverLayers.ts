@@ -47,11 +47,11 @@ import * as PendingSteering from "./steering/pendingSteering.ts";
 import {
   ProviderHealthRegistry,
   ProviderHealthRegistryLive,
-} from "../provider/Services/ProviderHealthRegistry.ts";
+} from "../provider/ProviderHealthRegistry.ts";
 import { LoomAgentRoutesLive } from "./http/loomAgentRoutes.ts";
 import * as LoomThreadConsult from "./workstream/consult.ts";
 import { LoomSessionComposerRealLive } from "./prompt/sessionComposerLive.ts";
-import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
+import { SubscriptionUsagePollerLive } from "../provider/SubscriptionUsagePoller.ts";
 import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 
 /**

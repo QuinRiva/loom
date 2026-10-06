@@ -133,9 +133,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         yield* broadcast.publish(goalShellItem(goal));
         return { goal: Struct.omit(goal, ["deletedAt"]) };
       }).pipe(
-        Effect.catchTag("LoomStoreError", (cause) =>
-          Effect.fail(fail(method, `${method} failed.`, cause)),
-        ),
+        Effect.catchTags({
+          LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
+        }),
       ),
       { "rpc.aggregate": "loom" },
     );

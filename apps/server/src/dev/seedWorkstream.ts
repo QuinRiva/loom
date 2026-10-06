@@ -68,9 +68,9 @@ import type {
   ProviderAdapterV2Shape,
 } from "../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import { ProjectServiceLayerLive } from "../orchestration-v2/runtimeLayer.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
+import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
@@ -690,9 +690,9 @@ export const seedRuntimeLayer = (
   options: { readonly runEffectWorker: boolean },
 ) =>
   Layer.mergeAll(
-    makeOrchestratorV2ReplayLayerWithRegistry(
+    ProviderReplayHarness.layerWithRegistry(
       { name: "seed-workstream" },
-      ProviderAdapterRegistry.makeSingleLayer(seedAdapter),
+      ProviderAdapterRegistry.layerSingle(seedAdapter),
       { databaseLayer: database, runEffectWorker: options.runEffectWorker },
     ),
     LoomStore.layer,
@@ -708,7 +708,7 @@ const main = Effect.gen(function* () {
   const database = seedDatabaseLayer(config);
 
   // 1. The project, through upstream's project service. A seeded home already has it.
-  const projectLayer = ProjectServiceLayerLive.pipe(
+  const projectLayer = RuntimeLayer.layerProjectService.pipe(
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(WorkspacePaths.WorkspacePaths)({

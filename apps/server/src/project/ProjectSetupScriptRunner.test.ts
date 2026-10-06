@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices"; // loom: breadcrumb needs FileSystem/Path
 import { assert, it, vi } from "@effect/vitest";
 import { ProjectId } from "@t3tools/contracts";
@@ -65,6 +66,7 @@ it.effect("resolves setup scripts through the standalone project service", () =>
         }),
         Layer.mock(TerminalManager.TerminalManager)({ open, write, subscribe }),
         ServerSettings.layerTest(),
+        NodeCrypto.layer,
         NodeServices.layer, // loom: the runner's breadcrumb (DL-73) acquires FileSystem/Path
       ),
     ),

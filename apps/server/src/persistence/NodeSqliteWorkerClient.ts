@@ -131,7 +131,7 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
     readonly noCache: boolean;
   }): Effect.Effect<ReadonlyArray<any>, SqlError> =>
     Effect.flatMap(safeIntegers, (safeIntegers) =>
-      Effect.catchTag(rpc.Execute({ ...request, safeIntegers }), "RpcClientError", Effect.die),
+      Effect.catchTags(rpc.Execute({ ...request, safeIntegers }), { RpcClientError: Effect.die }),
     ) as Effect.Effect<ReadonlyArray<any>, SqlError>;
 
   const executeValuesWorker = (request: {
@@ -140,11 +140,9 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
     readonly noCache: boolean;
   }): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
     Effect.flatMap(safeIntegers, (safeIntegers) =>
-      Effect.catchTag(
-        rpc.ExecuteValues({ ...request, safeIntegers }),
-        "RpcClientError",
-        Effect.die,
-      ),
+      Effect.catchTags(rpc.ExecuteValues({ ...request, safeIntegers }), {
+        RpcClientError: Effect.die,
+      }),
     ) as Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>;
 
   const connection: Connection = {

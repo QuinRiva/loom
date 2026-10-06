@@ -6,7 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
@@ -19,7 +19,7 @@ const TestLayer = Layer.mergeAll(
   LoomUsageLedger.layer,
   // The drafter handlers capture the orchestrator; these tests never call them.
   Layer.succeed(OrchestratorV2, {} as never),
-).pipe(Layer.provideMerge(SqlitePersistenceMemory), Layer.provideMerge(NodeServices.layer));
+).pipe(Layer.provideMerge(SqlitePersistence.layerMemory), Layer.provideMerge(NodeServices.layer));
 const goalId = GoalId.make("goal:ws");
 const task = (id: string) => GoalTaskId.make(id);
 

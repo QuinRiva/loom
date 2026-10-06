@@ -1,7 +1,7 @@
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ExhaustionMark } from "../../Services/ProviderHealthRegistry.ts";
+import type { ExhaustionMark } from "../../ProviderHealthRegistry.ts";
 import { classifyPiFailure } from "./piQuotaClassifier.loom.ts";
 import {
   PI_ACCOUNT_RATE_LIMIT_TEXT,
