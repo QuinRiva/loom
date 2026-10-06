@@ -56,9 +56,7 @@ describe("Loom tool families", () => {
       [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
     );
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => kept.has(name))).toEqual([]);
-    const loom: ReadonlyArray<string> = new Set(
-      LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)),
-    );
+    const loom: ReadonlySet<string> = new Set(LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)));
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => loom.has(name))).toEqual([]);
   });
 });
