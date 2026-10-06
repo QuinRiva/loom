@@ -9,6 +9,7 @@ import {
   selectActiveGroupKey,
   useThreadTabsStore,
 } from "./threadTabsStore";
+import { resolveThreadGroupKey } from "./threadTabGroups";
 
 const env = "env-1" as EnvironmentId;
 const ref = (id: string) => scopeThreadRef(env, ThreadId.make(id));
@@ -263,40 +264,61 @@ describe("threadTabsStore — removeThread", () => {
   });
 });
 
-describe("threadTabsStore — coalesceGroups (lineage-lag reconciliation)", () => {
-  it("merges a provisional group into its resolved root group, preserving order and active tab", () => {
-    // A and B were each seeded provisionally under their own key before the
-    // root replayed; now both resolve to root R.
-    state().seedActiveTab(refA, key("thread-A"));
-    state().seedActiveTab(refB, key("thread-B"));
-    expect(Object.keys(state().groups).sort()).toEqual([key("thread-A"), key("thread-B")].sort());
+describe("threadTabsStore — regroupTabs (lineage arriving after placement)", () => {
+  const roots: Record<string, string> = {
+    [key("root")]: gR,
+    [key("thread-A")]: gR,
+    [key("thread-B")]: gR,
+    [key("thread-Z")]: gS,
+  };
+  const rootKeyOf = (tab: Parameters<typeof scopedThreadKey>[0]) =>
+    roots[scopedThreadKey(tab)] ?? null;
 
-    state().coalesceGroups([
-      { from: key("thread-A"), to: gR },
-      { from: key("thread-B"), to: gR },
-    ]);
-
-    expect(Object.keys(state().groups)).toEqual([gR]);
+  it("splits the pull-9 flat bucket per root, preserving order and the active tab", () => {
+    for (const tab of [refA, refZ, refB, refC]) state().seedActiveTab(tab, "all");
+    state().regroupTabs(rootKeyOf);
     expect(groupTabs(gR)).toEqual([key("thread-A"), key("thread-B")]);
-    // Active thread (B) is unchanged; the active group is now R.
-    expect(state().activeKey).toBe(key("thread-B"));
-    expect(selectActiveGroupKey(state())).toBe(gR);
+    expect(groupTabs(gS)).toEqual([key("thread-Z")]);
+    // C's lineage is unknown, so it stays where it was.
+    expect(groupTabs("all")).toEqual([key("thread-C")]);
+    expect(state().activeKey).toBe(key("thread-C"));
   });
 
-  it("keeps at most one preview per group when merging, demoting the source preview", () => {
-    state().openTab(refB, gR, "preview"); // destination group's preview
-    state().openTab(refA, key("thread-A"), "preview"); // source group's preview
-    state().coalesceGroups([{ from: key("thread-A"), to: gR }]);
-    // Destination preview (B) wins; A is demoted to persistent.
+  it("keeps at most one preview per group, demoting the moved preview", () => {
+    state().openTab(refB, gR, "preview");
+    state().openTab(refA, key("thread-A"), "preview");
+    state().regroupTabs(rootKeyOf);
     expect(state().groups[gR]!.previewKey).toBe(key("thread-B"));
     expect(groupTabs(gR)).toEqual([key("thread-B"), key("thread-A")]);
   });
 
-  it("is a no-op when nothing changed", () => {
+  it("is a no-op when every tab is already in its root group", () => {
     state().seedActiveTab(refA, gR);
     const before = state().groups;
-    state().coalesceGroups([{ from: gR, to: gR }]);
+    state().regroupTabs(rootKeyOf);
     expect(state().groups).toBe(before);
+  });
+});
+
+describe("resolveThreadGroupKey", () => {
+  const parents = new Map<string, ThreadId | null>([
+    [key("root"), null],
+    [key("thread-A"), ThreadId.make("root")],
+    [key("thread-B"), ThreadId.make("thread-A")],
+    [key("thread-Z"), ThreadId.make("root-2")], // its root's shell is not loaded
+  ]);
+
+  it("walks sub-agent edges to the workstream root", () => {
+    expect([refR, refA, refB].map((tab) => resolveThreadGroupKey(parents, tab))).toEqual([
+      gR,
+      gR,
+      gR,
+    ]);
+  });
+
+  it("names an unloaded root by its id, and returns null for an unknown thread", () => {
+    expect(resolveThreadGroupKey(parents, refZ)).toBe(gS);
+    expect(resolveThreadGroupKey(parents, refC)).toBeNull();
   });
 });
 

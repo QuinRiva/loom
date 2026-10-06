@@ -13,8 +13,8 @@
  *
  * The store stays pure: it never computes lineage itself. The sync hook has the
  * shell map, so it supplies the group key to the seed/open/reopen actions and
- * drives coalescing (moving a tab from a provisional group into its real root
- * group once ancestor shells replay). Close/reorder/pin locate the group that
+ * drives regrouping (moving a tab into its real root group once its lineage is
+ * known). Close/reorder/pin locate the group that
  * contains the ref themselves.
  *
  * Tier 1 (durable UI store) per `docs/architecture/loom-ui-state-tiers.md`, with
@@ -88,11 +88,12 @@ export interface ThreadTabsState {
   /** Parity hook for a future real thread-deletion path. NOT called from any sweep. */
   removeThread: (ref: ScopedThreadRef) => void;
   /**
-   * Coalesce provisional groups into their resolved root groups once lineage
-   * replays. Each move merges the `from` group into the `to` group (order
-   * preserved, per-group cap re-applied). Driven purely by the sync hook.
+   * Move every tab whose resolved root group (`rootKeyOf`, null = unknown, left
+   * in place) differs from its bucket into that group: lineage arriving after a
+   * provisional seed, or the pull-9 flat strip's single bucket. Moved tabs
+   * append in order; the per-group cap is re-applied. Driven by the sync hook.
    */
-  coalesceGroups: (moves: ReadonlyArray<{ from: string; to: string }>) => void;
+  regroupTabs: (rootKeyOf: (ref: ScopedThreadRef) => string | null) => void;
 }
 
 const keyOf = (ref: ScopedThreadRef): string => scopedThreadKey(ref);
@@ -569,39 +570,34 @@ export const useThreadTabsStore = create<ThreadTabsState>()(
           };
         }),
 
-      coalesceGroups: (moves) =>
+      regroupTabs: (rootKeyOf) =>
         set((state) => {
+          const moves = Object.entries(state.groups).flatMap(([from, group]) =>
+            group.tabs.flatMap((ref) => {
+              const to = rootKeyOf(ref);
+              return to !== null && to !== from ? [{ ref, from, to }] : [];
+            }),
+          );
           if (moves.length === 0) return state;
           let groups = state.groups;
           let recentlyClosed = state.recentlyClosed;
-          for (const { from, to } of moves) {
-            if (from === to) continue;
-            const fromGroup = groups[from];
-            if (!fromGroup || fromGroup.tabs.length === 0) continue;
-            const toGroup = groups[to] ?? EMPTY_GROUP;
-            const toKeys = new Set(toGroup.tabs.map(keyOf));
-            const incoming = fromGroup.tabs.filter((entry) => !toKeys.has(keyOf(entry)));
-            // At most one preview per group: keep the destination's preview, and
-            // demote the source's preview to persistent if both had one.
-            const previewKey =
-              toGroup.previewKey ??
-              (fromGroup.previewKey && !toKeys.has(fromGroup.previewKey)
-                ? fromGroup.previewKey
-                : null);
-            const mergedTabs = [...toGroup.tabs, ...incoming];
-            const mergedMru = [...new Set([...toGroup.mru, ...fromGroup.mru])].filter((entry) =>
-              mergedTabs.some((ref) => keyOf(ref) === entry),
-            );
+          for (const { ref, from, to } of moves) {
+            const key = keyOf(ref);
+            const source = groups[from]!;
+            groups = detachTab(groups, from, key);
+            const target = groups[to] ?? EMPTY_GROUP;
+            // At most one preview per group: the destination's wins.
             const { group: capped, evicted } = enforceCapGroup(
-              { tabs: mergedTabs, previewKey, mru: mergedMru },
+              {
+                tabs: [...target.tabs, ref],
+                previewKey: target.previewKey ?? (source.previewKey === key ? key : null),
+                mru: source.mru.includes(key) ? [...target.mru, key] : target.mru,
+              },
               { activeKey: state.activeKey, protectedKey: null },
             );
-            const withoutFrom = { ...groups };
-            delete withoutFrom[from];
-            groups = setGroup(withoutFrom, to, capped);
+            groups = setGroup(groups, to, capped);
             recentlyClosed = pushRecentlyClosed(recentlyClosed, evicted);
           }
-          if (groups === state.groups) return state;
           return { groups, recentlyClosed };
         }),
     }),

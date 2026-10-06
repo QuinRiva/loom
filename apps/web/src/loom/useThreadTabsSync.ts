@@ -5,10 +5,9 @@
  * *active* tab; the store owns only the grouped open set and each group's order.
  * `useThreadTabsSync` is the one seed writer, called from the thread route — the
  * chokepoint every thread navigation funnels through. It also owns **group-key
- * derivation and coalescing**: the store never computes lineage, so this hook
- * supplies the group key to the seed and reconciles provisional groups into
- * their real root group once ancestor shells replay. `useThreadTabActions`
- * bundles the navigate-aware handlers (activate / close family / reopen /
+ * derivation and regrouping**: the store never computes lineage, so this hook
+ * supplies the group key to the seed and moves tabs into their real root group
+ * once their lineage is known. `useThreadTabActions` bundles the navigate-aware handlers (activate / close family / reopen /
  * traversal), which operate on the *active group* (the group containing the
  * active thread), so tab activation always flows URL → seed and there is exactly
  * one write-path for `activeKey`.
@@ -19,34 +18,8 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useCallback, useEffect, useRef } from "react";
 
 import { buildThreadRouteParams } from "../threadRoutes";
-import { useThreadGroupResolver, type ThreadGroupResolver } from "./threadTabGroups";
-import {
-  findGroupKeyByTab,
-  selectActiveGroup,
-  type ThreadTabGroup,
-  useThreadTabsStore,
-} from "./threadTabsStore";
-
-/**
- * The whole-group merges needed to move every group into the group its tabs now
- * resolve to. A group needs coalescing when its tabs' resolved root key differs
- * from its current bucket key (a provisional group whose ancestors have arrived).
- * All tabs in one provisional group share the same resolved root, so probing the
- * first tab is sufficient.
- */
-function computeGroupMoves(
-  groups: Record<string, ThreadTabGroup>,
-  resolveGroupKey: ThreadGroupResolver,
-): Array<{ from: string; to: string }> {
-  const moves: Array<{ from: string; to: string }> = [];
-  for (const [groupKey, group] of Object.entries(groups)) {
-    const probe = group.tabs[0];
-    if (!probe) continue;
-    const resolved = resolveGroupKey(probe);
-    if (resolved !== groupKey) moves.push({ from: groupKey, to: resolved });
-  }
-  return moves;
-}
+import { useThreadGroupResolver } from "./threadTabGroups";
+import { findGroupKeyByTab, selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 
 /**
  * Seed the open-tab set from the resolved route thread. Gated on
@@ -54,15 +27,15 @@ function computeGroupMoves(
  * redirects to `/`) never plants a phantom tab, and a valid thread seeds only
  * once its replay resolves. The seed appends-if-absent into the thread's group
  * and activates; it never reorders the strip and never pins/unpins the preview
- * tab. A separate coalescing effect folds provisional groups into their real
- * root group as ancestor shells arrive.
+ * tab. A separate effect regroups tabs whose lineage became known after they
+ * were placed (a provisional seed, or the pull-9 flat strip's single bucket).
  */
 export function useThreadTabsSync(
   threadRef: ScopedThreadRef | null,
   options: { bootstrapComplete: boolean; routeThreadExists: boolean },
 ): void {
   const seedActiveTab = useThreadTabsStore((state) => state.seedActiveTab);
-  const coalesceGroups = useThreadTabsStore((state) => state.coalesceGroups);
+  const regroupTabs = useThreadTabsStore((state) => state.regroupTabs);
   const resolveGroupKey = useThreadGroupResolver();
   const key = threadRef ? scopedThreadKey(threadRef) : null;
   const { bootstrapComplete, routeThreadExists } = options;
@@ -70,23 +43,20 @@ export function useThreadTabsSync(
   const refRef = useRef(threadRef);
   refRef.current = threadRef;
   // Resolver kept in a ref so the seed fires once per navigation (keyed on the
-  // thread), reading the latest lineage without re-seeding on every shell tick;
-  // shell-driven regrouping is the coalescing effect's job.
+  // thread), reading the latest lineage without re-seeding when it changes;
+  // lineage-driven regrouping is the effect below. An unknown thread (a draft)
+  // is its own group.
   const resolveRef = useRef(resolveGroupKey);
   resolveRef.current = resolveGroupKey;
 
   useEffect(() => {
     if (!key || !bootstrapComplete || !routeThreadExists) return;
     const ref = refRef.current;
-    if (ref) seedActiveTab(ref, resolveRef.current(ref));
+    if (ref) seedActiveTab(ref, resolveRef.current(ref) ?? scopedThreadKey(ref));
   }, [key, bootstrapComplete, routeThreadExists, seedActiveTab]);
 
-  // Coalesce provisional groups into their real root group as lineage resolves.
-  // Re-runs whenever the resolver identity changes (i.e. the shell list changed).
-  useEffect(() => {
-    const moves = computeGroupMoves(useThreadTabsStore.getState().groups, resolveGroupKey);
-    if (moves.length > 0) coalesceGroups(moves);
-  }, [resolveGroupKey, coalesceGroups]);
+  // Re-runs only when a lineage edge changes (the resolver's identity).
+  useEffect(() => regroupTabs(resolveGroupKey), [resolveGroupKey, regroupTabs]);
 }
 
 export interface ThreadTabActions {
@@ -175,7 +145,7 @@ export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): Thr
     const state = useThreadTabsStore.getState();
     const nextRef = state.recentlyClosed[0];
     if (!nextRef) return;
-    const ref = state.reopenClosedTab(resolveGroupKey(nextRef));
+    const ref = state.reopenClosedTab(resolveGroupKey(nextRef) ?? scopedThreadKey(nextRef));
     if (ref) navigateToRef(ref);
   }, [navigateToRef, resolveGroupKey]);
 
