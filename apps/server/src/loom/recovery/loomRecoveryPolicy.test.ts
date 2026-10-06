@@ -127,9 +127,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
       });
       yield* seedRunningRun({ threadId: guided });
       yield* queueBehind(guided, "control");
-      // A cancelled thread a human queued two follow-ups on before the restart.
+      // A cancelled thread a human started a turn on and queued two follow-ups behind before
+      // the restart. The run is seeded after the cancel: cancelling settles a running run (DL-501).
       const cancelled = yield* child("cancelled");
-      yield* seedRunningRun({ threadId: cancelled });
       yield* dispatch({
         type: "thread.outcome.set",
         commandId: CommandId.make("recovery-cancel"),
@@ -137,6 +137,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
         createdAt,
         outcome: "cancelled",
       });
+      yield* seedRunningRun({ threadId: cancelled });
       yield* queueBehind(cancelled, "human");
       yield* queueBehind(cancelled, "human");
       // An upstream-only thread keeps upstream's rule.

@@ -1,7 +1,6 @@
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
-import * as NodeCrypto from "node:crypto";
 
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -165,21 +164,21 @@ import {
 } from "./orchestration-v2/WireProjection.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
-import * as OrchestrationEventStore from "./persistence/Services/OrchestrationEventStore.ts";
+import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import {
   observeRpcEffect,
   observeRpcStream,
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
-import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
-import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
 import * as AcpRegistrySupport from "./provider/acp/AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./provider/acp/AcpRegistryRuntimeCoordinator.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as ProviderMaintenance from "./provider/providerMaintenance.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
-import * as ProviderAuthService from "./provider/Services/ProviderAuthService.ts";
+import * as ProviderAuthService from "./provider/ProviderAuthService.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -219,11 +218,8 @@ import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
-import {
-  requiredScopeForDeviceList,
-  rpcAuthorizationError,
-  rpcScopeAuthorizationLayer,
-} from "./auth/RpcAuthorization.ts";
+import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
+import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
@@ -252,10 +248,7 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 // loom: live exhaustion marks overlaid on the providers snapshot, and the
 // project reference links served with the server config.
-import {
-  type ExhaustionMark,
-  ProviderHealthRegistry,
-} from "./provider/Services/ProviderHealthRegistry.ts";
+import { type ExhaustionMark, ProviderHealthRegistry } from "./provider/ProviderHealthRegistry.ts";
 import type { ServerProvider, UsageLimitSourceSnapshot } from "@t3tools/contracts";
 import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import { loadProjectReferenceLinks } from "./loom/referenceLinks.ts";
@@ -1211,7 +1204,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
-const makeWsRpcLayer = (
+const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
@@ -1503,7 +1496,7 @@ const makeWsRpcLayer = (
               provider?.models.find((candidate) => candidate.isDefault)?.slug ??
               provider?.models[0]?.slug ??
               "default";
-            const commandId = CommandId.make(NodeCrypto.randomUUID());
+            const commandId = CommandId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie));
             const launched = yield* Effect.result(
               startup.enqueueCommand(
                 threadLaunch.launch({
@@ -2740,15 +2733,16 @@ const makeWsRpcLayer = (
                         status,
                       }),
                     ),
-                    Effect.catchTag("RelayClientInstallError", (error) =>
-                      Queue.fail(
-                        queue,
-                        new RelayClientInstallFailedError({
-                          reason: error.reason,
-                          message: error.message,
-                        }),
-                      ),
-                    ),
+                    Effect.catchTags({
+                      RelayClientInstallError: (error) =>
+                        Queue.fail(
+                          queue,
+                          new RelayClientInstallFailedError({
+                            reason: error.reason,
+                            message: error.message,
+                          }),
+                        ),
+                    }),
                     Effect.andThen(Queue.end(queue)),
                     Effect.forkScoped,
                   ),
@@ -3935,7 +3929,7 @@ const makeWsRpcLayer = (
     }),
   );
 
-export const websocketRpcRouteLayer = Layer.unwrap(
+export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
@@ -3979,19 +3973,14 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
           yield* RpcServer.make(ServerWsRpcGroup, { disableTracing: true }).pipe(
             Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(protocol)),
-            Effect.provide(rpcScopeAuthorizationLayer(session.scopes)),
+            Effect.provide(RpcAuthorization.layer(session.scopes)),
             Effect.forkScoped,
           );
           // @effect-diagnostics-next-line returnEffectInGen:off
           return httpEffect;
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-            ).pipe(
+            layerWsRpc(session, clientOrigin, clientAnalyticsProps, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),

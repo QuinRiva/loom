@@ -31,8 +31,8 @@ import {
 import { renderTasks } from "../loom/goals/goalTaskRender.ts";
 import { findGoalTask, flattenGoalTasks } from "../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
-import { ProjectServiceLayerLive } from "../orchestration-v2/runtimeLayer.ts";
-import * as SqlitePersistence from "../persistence/Layers/Sqlite.ts";
+import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -64,7 +64,7 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
   >,
 ) {
   const config = yield* resolveCliAuthConfig(flags, yield* GlobalFlag.LogLevel);
-  const runtime = Layer.mergeAll(LoomStore.layer, ProjectServiceLayerLive).pipe(
+  const runtime = Layer.mergeAll(LoomStore.layer, RuntimeLayer.layerProjectService).pipe(
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(

@@ -22,7 +22,7 @@ import {
   removeUsageLimitWindows, // loom: retraction for the subscription-usage feeder
   resolveUsageLimitsAfterProbe,
 } from "./providerUsageLimits.ts";
-import type { ServerProviderShape } from "./Services/ServerProvider.ts";
+import type { ServerProviderShape } from "./ServerProvider.ts";
 
 interface ProviderSnapshotState {
   readonly snapshot: ServerProvider;

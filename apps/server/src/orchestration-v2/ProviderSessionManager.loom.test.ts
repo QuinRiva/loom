@@ -30,7 +30,7 @@ import {
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
@@ -57,10 +57,10 @@ const runtimePolicy = {
 } as const;
 
 const stores = Layer.merge(EventStore.layer, ProjectionStore.layer).pipe(
-  Layer.provide(SqlitePersistenceMemory),
+  Layer.provide(SqlitePersistence.layerMemory),
 );
 const eventSink = EventSink.layer.pipe(
-  Layer.provide(Layer.mergeAll(stores, SqlitePersistenceMemory)),
+  Layer.provide(Layer.mergeAll(stores, SqlitePersistence.layerMemory)),
 );
 const mcpRegistry = Layer.effect(
   McpSessionRegistry.McpSessionRegistry,
@@ -122,7 +122,7 @@ const recordingAdapter = (opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSess
 const openWith = (composer: Layer.Layer<never> | undefined) =>
   Effect.gen(function* () {
     const opens = yield* Ref.make<ReadonlyArray<ProviderAdapterV2OpenSessionInput>>([]);
-    const registry = ProviderAdapterRegistry.makeSingleLayer(recordingAdapter(opens));
+    const registry = ProviderAdapterRegistry.layerSingle(recordingAdapter(opens));
     const ingestor = ProviderEventIngestor.layer.pipe(
       Layer.provide(
         Layer.mergeAll(eventSink, IdAllocator.layer, stores, ThreadCommandExecutor.layer),
@@ -247,7 +247,7 @@ it.effect("hands the production composer's prompt, extension and env to the adap
   Effect.gen(function* () {
     const { exit, opens } = yield* openWith(
       LoomSessionComposerLive.pipe(
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provide(SqlitePersistence.layerMemory),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-composer-psm-" })),
         Layer.provide(ServerSettings.layerTest({ rootCacheRetention: "long" })),
         Layer.provide(NodeServices.layer),

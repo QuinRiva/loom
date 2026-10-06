@@ -34,8 +34,8 @@ import { limitRecoveryCommand } from "../../orchestration-v2/UsageLimitRecoveryW
 import {
   ProviderHealthRegistry,
   ProviderHealthRegistryLive,
-} from "../../provider/Services/ProviderHealthRegistry.ts";
-import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+} from "../../provider/ProviderHealthRegistry.ts";
+import { ProviderRegistry } from "../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
   dispatch,

@@ -1,7 +1,7 @@
 /**
  * The Loom substrate's test layer (plans/upstream-pull9-phase2-substrate/plan.mdx
  * §7): V2's real orchestrator, event sink, SQL projection (with the Loom fold)
- * and receipts over `SqlitePersistenceMemory` — which runs every migration, so
+ * and receipts over `SqlitePersistence.layerMemory` — which runs every migration, so
  * the `loom_*` tables exist — with a stub provider adapter whose `openSession`
  * opens an inert session (nothing runs; an interrupt is accepted) only when a
  * test asks for one (`seedRunningRun({ live: true })`). Nothing mocks the
@@ -47,19 +47,14 @@ import * as EventSink from "../../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
 import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
-import { worktreeRepairDependenciesTestLayer } from "../../orchestration-v2/ProviderTurnStartService.testkit.ts";
+import * as ProviderTurnStartServiceTestkit from "../../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
-import {
-  OrchestrationEventInfrastructureLayerLive,
-  OrchestrationV2EventSinkLayerLive,
-  OrchestrationV2LayerLive,
-  ProjectServiceLayerLive,
-} from "../../orchestration-v2/runtimeLayer.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as RuntimeLayer from "../../orchestration-v2/runtimeLayer.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import type { ProviderInstance } from "../../provider/ProviderDriver.ts";
-import * as ProviderInstanceRegistry from "../../provider/Services/ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistry from "../../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../../sourceControl/SourceControlProviderRegistry.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
@@ -135,20 +130,20 @@ const providerInstance = {
 
 /** Orchestrator + event sink + project service + LoomStoreV2 + command receipts on one in-memory database. */
 export const LoomOrchestratorTestLayer = Layer.mergeAll(
-  OrchestrationV2LayerLive,
-  OrchestrationV2EventSinkLayerLive,
+  RuntimeLayer.layer,
+  RuntimeLayer.layerEventSink,
   LoomStore.layer,
   CommandReceiptStore.layerFromApplicationReceipts.pipe(
-    Layer.provide(OrchestrationEventInfrastructureLayerLive),
+    Layer.provide(RuntimeLayer.layerEventInfrastructure),
   ),
 ).pipe(
-  Layer.provideMerge(ProjectServiceLayerLive),
+  Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provide(
     Layer.mock(WorkspacePaths.WorkspacePaths)({
       normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
     }),
   ),
-  Layer.provide(worktreeRepairDependenciesTestLayer),
+  Layer.provide(ProviderTurnStartServiceTestkit.layer),
   Layer.provide(
     Layer.succeed(ProjectEnrichmentService.ProjectEnrichmentService, {
       peek: () =>
@@ -169,7 +164,7 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
     }),
   ),
   Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provideMerge(SqlitePersistenceMemory),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),
   Layer.provide(ServerSettings.layerTest()),
