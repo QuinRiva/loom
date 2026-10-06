@@ -1,5 +1,5 @@
 /**
- * `goal_continue`: THIS goal continued in a fresh-context session — a staged
+ * `mcp__t3-code__goal_continue`: THIS goal continued in a fresh-context session — a staged
  * root (one of `held`'s two writers, P3-19b) created by one `thread.spawn`
  * with no parent: the caller's goal, project, worktree, branch, model and
  * modes, `held: true`, `continuesThreadId` = the caller, and the brief (with a

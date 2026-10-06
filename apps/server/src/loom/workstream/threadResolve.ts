@@ -1,5 +1,5 @@
 /**
- * Target resolution for the global `consult_thread` / `notify_thread` (any
+ * Target resolution for the global `mcp__t3-code__consult_thread` / `mcp__t3-code__notify_thread` (any
  * thread the server knows, active or archived, across projects): an exact id,
  * or a fuzzy sidebar name ranked over `getShellSnapshot`. Titles are
  * non-unique, so an ambiguous name returns ranked candidates for the caller to

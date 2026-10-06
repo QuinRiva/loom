@@ -1,5 +1,5 @@
 /**
- * The markdown seam of the declarative whole-tree rewrite (`goal_tasks_rewrite`
+ * The markdown seam of the declarative whole-tree rewrite (`mcp__t3-code__goal_tasks_rewrite`
  * / `t3 goal task rewrite`): read format IS write format. `goalTaskRender.ts`
  * turns a tree into the indented `- [x] text (id)` checklist every read surface
  * emits; this module turns that checklist back into the entries
@@ -7,7 +7,7 @@
  *
  * The contract both directions honour is ROUND-TRIP IDENTITY: parsing
  * `renderGoalTaskTree(tree)` reproduces that tree's tasks exactly, so an
- * unedited `goal_task_list` output resubmitted verbatim changes nothing.
+ * unedited `mcp__t3-code__goal_task_list` output resubmitted verbatim changes nothing.
  *
  * Pure functions only — id minting lives at the edge that calls these.
  *

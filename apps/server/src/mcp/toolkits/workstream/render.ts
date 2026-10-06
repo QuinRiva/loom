@@ -343,7 +343,7 @@ export const describeSender = (input: {
 }) =>
   `thread «${input.title}» (${input.role ?? "thread"}, ${input.threadId}; ${input.relationship})`;
 
-/** The notify_thread wrapper landed in the recipient's transcript, fixed at record time. */
+/** The mcp__t3-code__notify_thread wrapper landed in the recipient's transcript, fixed at record time. */
 export const composeNotifyFramedText = (sender: string, senderThreadId: string, message: string) =>
   `Notification from ${sender}, sent via ${t("notify_thread")}:\n\n${message}\n\n` +
   `No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with ${t("notify_thread")} (threadId: ${senderThreadId}).`;

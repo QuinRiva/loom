@@ -188,7 +188,7 @@ it.layer(HandlerTestLayer)("goal task tools", (it) => {
     ),
   );
 
-  it.effect("goal_update renames the goal and publishes once; a taken slug is refused", () =>
+  it.effect("mcp__t3-code__goal_update renames the goal and publishes once; a taken slug is refused", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const { root, goalId, published } = yield* goalRoot("update");

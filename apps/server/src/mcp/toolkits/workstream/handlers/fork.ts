@@ -1,5 +1,5 @@
 /**
- * `thread_fork`: a staged copy of THIS thread's context that diverges on its
+ * `mcp__t3-code__thread_fork`: a staged copy of THIS thread's context that diverges on its
  * own — upstream's `thread.fork` (sourcePoint `latest_stable`, same project,
  * worktree, model and modes; the native session fork resolves at the fork's
  * first run), then `thread.goal.set` and `thread.held.set true` (one of

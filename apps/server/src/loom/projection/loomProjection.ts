@@ -223,7 +223,7 @@ const applyEdgeTables = (sql: SqlClient.SqlClient, event: LoomDomainEvent) => {
 
 /**
  * A goal-less root's first `thread.goal-set` creates its row from the V2
- * thread. Only `subagent` lineage is a workstream edge: a `thread_fork` result
+ * thread. Only `subagent` lineage is a workstream edge: a `mcp__t3-code__thread_fork` result
  * (upstream `fork` lineage) is a staged ROOT, kept out of its source's tree
  * and every delegation rail (DL-344).
  */

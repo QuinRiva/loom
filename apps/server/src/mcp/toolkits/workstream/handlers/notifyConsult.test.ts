@@ -1,5 +1,5 @@
 /**
- * notify_thread and consult_thread on V2's real orchestrator. Notify: one
+ * mcp__t3-code__notify_thread and mcp__t3-code__consult_thread on V2's real orchestrator. Notify: one
  * direct message with origin `notify` under the rail's shared id, the record
  * marked delivered, steer-or-queue never an abort, terminal targets refused
  * by the record before anything is sent, and the hourly cap counted from the
@@ -115,7 +115,7 @@ const seedProviderThread = Effect.fn("consultTest.seedProviderThread")(function*
   ]);
 });
 
-it.layer(TestLayer)("notify_thread and consult_thread", (it) => {
+it.layer(TestLayer)("mcp__t3-code__notify_thread and mcp__t3-code__consult_thread", (it) => {
   it.effect("notify: one notify-origin message under the rail's id; the record is delivered", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;

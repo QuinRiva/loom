@@ -1,5 +1,5 @@
 /**
- * goal_handoff, goal_continue, thread_fork and set_thread_title on V2's real
+ * mcp__t3-code__goal_handoff, mcp__t3-code__goal_continue, mcp__t3-code__thread_fork and mcp__t3-code__set_thread_title on V2's real
  * orchestrator. The launch service is a stub that records what it was asked
  * and dispatches the initial message as the real one would, so the test sees
  * the ordering that matters: the thread carries its goal BEFORE its first
@@ -230,7 +230,7 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
     }),
   );
 
-  it.effect("set_thread_title renames the calling thread", () =>
+  it.effect("mcp__t3-code__set_thread_title renames the calling thread", () =>
     Effect.gen(function* () {
       const self = ThreadId.make("title-self");
       yield* seedThread({ threadId: self });

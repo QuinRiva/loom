@@ -1,5 +1,5 @@
 /**
- * `consult_thread`: a GLOBAL read-only question to any thread the server
+ * `mcp__t3-code__consult_thread`: a GLOBAL read-only question to any thread the server
  * knows, by exact id or fuzzy name (an ambiguous name returns ranked
  * candidates and runs nothing). The session the throwaway fork reads is the
  * target's provider thread's strong `nativeThreadRef` — never a name or path

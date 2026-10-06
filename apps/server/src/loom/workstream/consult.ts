@@ -1,5 +1,5 @@
 /**
- * The frozen oracle behind `consult_thread` (ported from V1's
+ * The frozen oracle behind `mcp__t3-code__consult_thread` (ported from V1's
  * `workstreamAsk.ts` onto upstream's pi RPC transport). A throwaway
  * `pi --mode rpc --fork <session file>` process answers ONE question from a
  * read-only copy of a thread's session and is discarded; the target is never

@@ -7224,7 +7224,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             cause: "Enter an answer before sending.",
           });
         }
-        // loom: a live ask_user_question waiter takes the answer as its tool result — no message (P3-21)
+        // loom: a live mcp__t3-code__ask_user_question waiter takes the answer as its tool result — no message (P3-21)
         if (yield* loomAskTakesAnswer(runtimeRequest.id)) return;
         let dispatchMode: Extract<
           OrchestrationV2Command,

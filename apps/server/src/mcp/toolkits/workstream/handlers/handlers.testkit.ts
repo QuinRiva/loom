@@ -23,7 +23,7 @@ import { LOOM_TOOL_DEFS, type LoomMcpToolName } from "../defs.ts";
 import { makeLoomToolHandlers } from "../handlers.ts";
 import { callLoomTool } from "../registration.ts";
 
-/** The services a test replaces: launch (goal_handoff), the consult fork, git. Unstubbed calls die. */
+/** The services a test replaces: launch (mcp__t3-code__goal_handoff), the consult fork, git. Unstubbed calls die. */
 export type StubbedServices =
   | ThreadLaunchService.ThreadLaunchService
   | LoomThreadConsult

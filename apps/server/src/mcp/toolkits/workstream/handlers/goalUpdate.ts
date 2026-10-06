@@ -1,5 +1,5 @@
 /**
- * `goal_update`: the caller's active goal's title, objective and slug through
+ * `mcp__t3-code__goal_update`: the caller's active goal's title, objective and slug through
  * `LoomStoreV2.goals.upsert`, then published. A slug stays unique among the
  * project's goals (deleted ones included), as V1's decider required.
  *

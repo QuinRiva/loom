@@ -1,5 +1,5 @@
 /**
- * `notify_thread`: a one-way push to any live thread, steer-or-start and never
+ * `mcp__t3-code__notify_thread`: a one-way push to any live thread, steer-or-start and never
  * an abort. The peer-message record lands FIRST (`thread.peer-message.record`
  * on the sender): it is the cap's ledger, the board's edge and the control
  * plane's durable queue, and the arm refuses it for a finished, archived or

@@ -42,7 +42,7 @@ export const LoomProviderHealthLive = ProviderHealthRegistryLive;
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
  * and publish/subscribe goal shell items; and the re-drive reactor that moves
  * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
- * Also `consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
+ * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
  */
 export const LoomGoalBroadcastLive = Layer.mergeAll(
   LoomGoalBroadcast.layerWithReactor,

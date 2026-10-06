@@ -345,7 +345,7 @@ const readRewriteMarkdown = Effect.fn("goalCli.readRewriteMarkdown")(function* (
 });
 
 /**
- * Declarative whole-tree replace, the human twin of `goal_tasks_rewrite`: what
+ * Declarative whole-tree replace, the human twin of `mcp__t3-code__goal_tasks_rewrite`: what
  * `t3 goal show` prints goes back in. No branch scoping — that steers agents.
  */
 const goalTaskRewriteCommand = Command.make("rewrite", {

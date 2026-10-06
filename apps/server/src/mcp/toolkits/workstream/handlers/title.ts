@@ -1,5 +1,5 @@
 /**
- * `set_thread_title`: the calling thread renames ITSELF (never another
+ * `mcp__t3-code__set_thread_title`: the calling thread renames ITSELF (never another
  * thread) through upstream's `thread.metadata.update` — the command behind
  * upstream's own rename (`ThreadMetadataMcpService`, which a Loom credential
  * cannot reach: it needs the `orchestration` capability). An explicit title

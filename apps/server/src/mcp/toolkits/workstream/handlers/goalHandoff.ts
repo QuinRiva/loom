@@ -1,5 +1,5 @@
 /**
- * `goal_handoff` (P3-15): a NEW goal and its root session in a fresh worktree
+ * `mcp__t3-code__goal_handoff` (P3-15): a NEW goal and its root session in a fresh worktree
  * of the target project, started on the brief at once (not held). The order is
  * the point: the thread exists and carries the goal BEFORE its first message,
  * so the first session composes with the goal context. Upstream's launch
