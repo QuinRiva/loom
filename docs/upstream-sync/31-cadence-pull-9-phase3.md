@@ -1,0 +1,59 @@
+# Pull 9 — Phase 3: Loom's layer on V2 in four tracks
+
+Phase 3 builds everything that makes Loom's workstream layer work end to end on
+the Phase 2 substrate, per `plans/upstream-pull9-phase3-tracks/plan.mdx`
+(revision 4, amended in place by the Phase 3 orchestrator — see DL-302). Phase 2's
+record is `docs/upstream-sync/30-cadence-pull-9-phase2.md` (DL-192–290); this
+note continues the decision-log numbering from **DL-300**. Every call a coder,
+reviewer or the orchestrator makes that the plan left open — or that departs from
+it — is a row in §3. Phase 4 and Carl audit from here.
+
+## 1. Upstream boundary
+
+- Phase 2 pinned `upstream/main` at `3e6b45028c`. At the Phase 3 boundary
+  `upstream/main` had advanced **39 commits to `6302d66f77`**. Merge commit
+  **`0235b86c36`** (11 textual conflicts, resolved by the orchestrator keeping
+  upstream's structure plus Loom's marked lines — DL-301). `UPSTREAM_BASE` =
+  `6302d66f77`.
+- What moved: Effect **4.0.1 stable** (`194c73f3f9` — every `effect/unstable/<x>`
+  import is now `effect/<x>`); server service modules imported **as namespaces**
+  (`6302d66f77`); upstream migrations **057/058**; a new **`thread.stop`**
+  command as the human Stop path (`f32c23cf1a`); provider-native **`/goal`** for
+  Codex and Claude (`a172e1c4e8`); the **`secret_request`** turn item and
+  `request_secret` MCP tool (`9f61ba6741`); cheaper shell refreshes
+  (`c138163c8c`); PR-watch rate-limit and wake fixes; `delegated-tasks.stop` on
+  `run.interrupt holdQueue`; HTML pages inline (`677d1527c3`); webhook
+  automations.
+- Every line reference in the Phase 3 plan predates the boundary; anchor by
+  symbol.
+
+## 2. Environment and ranges
+
+- Phase 2's §2 carries over verbatim: `CI=true vp i --no-frozen-lockfile`; server
+  tests need git ≥ 2.56 (`PATH=/home/Carl/.cache/pull9-git256/bin:$PATH`);
+  `--no-verify` on merge-touching commits; never `git stash`; kill only captured
+  PIDs; smoke homes under `<worktree>/.t3/`; live DB copies only via
+  `VACUUM INTO` from `~/.t3/cockpit/userdata/state.sqlite`; nothing writes to
+  `~/.t3/cockpit`, `~/.t3/userdata`, `~/loom-releases`, the global pi or `~/.pi`.
+- Migrations: Phase 3 uses **1049–1051 only** (1049 usage ledger, 1050 reroute,
+  1051 free for a track that discovers a table); 1052 is Phase 4's.
+- **DL ranges, assigned up front** (Phase 2's parallel chains collided — DL-244,
+  DL-247): orchestrator and boundary **300–329**; track 3a **330–359**; track 3b
+  **360–389**; track 3c **390–419**; track 3d **420–449**; integration reviewer
+  and smoke **450–479**. A track that exhausts its range continues at 480+ and
+  says so in its report.
+
+## 3. Decision log
+
+| #      | Area / file                                                         | Question                                                                                                                                                                                              | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Why                                                                                                                                                                                                                                       | Source                                                      | Blast radius |
+| ------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------ |
+| DL-300 | root prompt-cache retention (strategy Area L retained item)         | `PI_CACHE_RETENTION` via the `rootCacheRetention` setting (quarantined `provider/cacheRetention.loom.ts`) had no owner in any Phase 2 or Phase 3 plan                                                   | **3a's composer owns it** (plan P3-29): `cacheRetention.loom.ts` out of quarantine; the composer computes `isRoot` from the V2 thread's `lineage.parentThreadId === null` and returns `env: { PI_CACHE_RETENTION }` on a new `env?: Readonly<Record<string, string>>` member of the `loom` open-session record (inside Phase 2's marked hunks on `ProviderAdapter.ts` / `piT3McpInjection.ts`), merged into the spawn env in `buildPiRpcLaunch`; children are always `short`; the launches jsonl is kept; `env` joins the write-once launch-identity sidecar | the composer already knows root-ness and settings and owns launch identity; the adapter stays free of Loom reads (P3-12's spirit); 3c's adapter options would need a store read for root-ness                                               | orchestrator                                                | local        |
+| DL-301 | boundary merge `0235b86c36` — `thread.stop`                         | upstream's `f32c23cf1a` made `thread.stop` the human Stop path; it nests `dispatchRunInterrupt` directly and never passes the `run.interrupt` switch case where Loom's human-stop `needs_guidance` raise sits | the raise (`loomHumanStopRaise`) is kept on `run.interrupt` **and** added as a marked block in the `thread.stop` case; `RunInterrupt` in `Orchestrator.loom.ts` widened to `"run.interrupt" \| "thread.stop"`; the `isLoomCommand` zero-event guard sits beside upstream's new `thread.stop` member. Recorded as a **merge resolution**, not a Phase 3 track hunk — P3-21's "one place" (3a's `runtime-request.respond`) stands for the tracks. Other resolutions: `Orchestrator.ts` `ThreadCommandExecutor.ThreadCommandExecutor` + `loomStore` binding; `ProjectionStore` / `runtimeLayer` / `Sqlite.ts` stable `effect/sql` paths + Loom layer lines; `ClaudeProvider.ts` `effect/process` + Loom's three model helpers (used at three call sites); `GitVcsDriverCore.ts` upstream's `classifyGitFailure` `reason` + Loom's stderr fold into `detail`; `shellReducer.ts` / `settings.test.ts` both imports; `package.json` pi 1.0.2 pin + cursor 1.0.35; `pnpm-workspace.yaml` pi patch + upstream's `@effect/vitest@4.0.1` patch; `pnpm-lock.yaml` taken from upstream and re-resolved by install | the human Stop must still flag a live Loom thread; the rest is upstream-wins-on-structure                                                                                                                                                      | orchestrator; verified by the merge-fallout gate            | local        |
+| DL-302 | Phase 3 plan revision 4                                             | fold Phase 2's DL-266 seam divergences and the new boundary into the plan before coders read it                                                                                                       | amended in place (not appended): seams 4, 6, 6b, 7b, 13b, 14, 15 and the Phase 2 inputs table now describe the landed code (Context.Reference composer with `LoomSessionComposerError`, `loomContinuationVetoed`, the three-term `isHumanAuthored` stamped at five sites, the flagged `loomShellGoals`, `runReDrivePass(gateLeg)` from context, the reactor in `LoomGoalBroadcastLive` without a tick, two Loom `server.ts` entries, the landed `thread.fork.prepare` arm, `attentionEpisodes` in 1046 so 1051 is free, DL-249's done-stays-held); 3b-3's stuck-launch experiments and 3b-4's seam 14 removed (DL-239/255, DL-245/248); P3-10/13/20/21 annotated; the hunk-inventory rows for `startNextQueuedRun` and rule 4/0 marked landed; a new "Revision 4" callout lists the upstream commits each track must read; P3-29 and the `env` member added | the plan is the spec coders and reviewers judge against; stale text would have 3b rebuilding seam 14 and 3a re-adding landed contract members                                                                                               | brief (task `ca54be99`); doc 30 DL-266                      | local        |
+| DL-303 | upstream `9f61ba6741` `request_secret` versus P3-3                  | upstream now has an MCP tool that creates a turn item and waits server-side for a human (500 ms poll, bounded by `MAX_WAIT_TIMEOUT_MS`) — does that reopen P3-3's two REST routes for `ask_user_question`? | **no.** P3-3 stands: a Loom question can wait hours and needs a reconnecting long-poll the bridge's `callTool` cannot provide. 3a-4 should read `OrchestratorMcpService.requestSecret` for its idempotency shape (`stableCommandId` + a thread-scoped `turn-item:…:<requestKey>` id, `loadThreadCaller`) and mirror it where the plan is silent                                                                                                                                                                                                  | the wait semantics differ; the idempotency pattern is worth copying                                                                                                                                                                       | orchestrator                                                | trivial      |
+
+(Coders and reviewers append rows below this line in their assigned range; keep the numbering dense within a range.)
+
+## 4. Gate record
+
+Filled by the Phase 3 integration gate on the final tree.
