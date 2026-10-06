@@ -7,8 +7,12 @@
  * context, and — appended per launch, never recorded — the relocation clause.
  * Everything but the relocation clause is the thread's launch identity: written
  * once at its first compose and replayed verbatim by every later compose, and
- * by a `forkFrom` child's first compose (P3-23). `env` carries
- * `PI_CACHE_RETENTION` (DL-300).
+ * by a `forkFrom` child's first compose (P3-23). Two drafter exceptions
+ * (DL-450): a `retro-reviewer` diverges in role from the thread it reviews, so
+ * it composes its own identity with its server-owned overlay (V1's
+ * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
+ * source has a record and composes fresh when it has none (an upstream-only
+ * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300).
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -37,6 +41,8 @@ import {
   LoomExtensionPathLive,
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
 import {
@@ -87,7 +93,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const isChild = thread.lineage.parentThreadId !== null;
-      const overlay = loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
+      const overlay =
+        workstream?.role === RETRO_REVIEWER_ROLE
+          ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT, delegation: false }
+          : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
       const catalogue =
         overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
       const goal =
@@ -135,21 +144,23 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
       if (Option.isSome(own)) return own.value;
-      const sourceThreadId = workstream?.forkFromThreadId ?? null;
-      const record =
+      const sourceThreadId =
+        workstream?.role === RETRO_REVIEWER_ROLE ? null : (workstream?.forkFromThreadId ?? null);
+      const source =
         sourceThreadId === null
-          ? yield* composeIdentity(thread, workstream, projectRoot)
-          : yield* readLaunchIdentity(identityDir, sourceThreadId).pipe(
-              Effect.flatMap(
-                Option.match({
-                  onNone: () =>
-                    Effect.fail(
-                      new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId }),
-                    ),
-                  onSome: Effect.succeed,
-                }),
-              ),
-            );
+          ? Option.none<LaunchIdentityRecord>()
+          : yield* readLaunchIdentity(identityDir, sourceThreadId);
+      if (
+        sourceThreadId !== null &&
+        Option.isNone(source) &&
+        workstream?.role !== HANDOFF_DRAFTER_ROLE
+      )
+        return yield* Effect.fail(
+          new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId }),
+        );
+      const record = Option.isSome(source)
+        ? source.value
+        : yield* composeIdentity(thread, workstream, projectRoot);
       yield* writeLaunchIdentity(identityDir, thread.id, record);
       return record;
     });

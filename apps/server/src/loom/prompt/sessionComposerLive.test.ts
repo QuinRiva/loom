@@ -1,7 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - fixture role files on disk.
 /**
  * The real composer over the real orchestrator and Loom store: byte-stable
- * output, the write-once launch identity, `forkFrom` replay, the child
+ * output, the write-once launch identity, `forkFrom` replay and the drafter
+ * exceptions to it, the child
  * readership clause, cache retention, the extension path and the relocation
  * clause.
  */
@@ -27,6 +28,8 @@ import {
   LoomExtensionPathLive,
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import * as ServerSettings from "../../serverSettings.ts";
+import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
 import {
   dispatch,
@@ -235,6 +238,66 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
           // The fork keeps its own copy, so a fork of the fork replays the same bytes.
           assert.equal(yield* fs.readFileString(identityFile(identityDir, fork)), sourceBytes);
+        }),
+      ),
+  );
+
+  it.effect(
+    "a retro reviewer composes its own identity with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
+    () =>
+      withComposer("short", (composer) =>
+        Effect.gen(function* () {
+          const { threadId: source, projectId } = yield* seedRoot("drafted", tempCheckout());
+          const { threadId: unlaunched } = yield* seedRoot("upstream-only", tempCheckout());
+          const createdAt = DateTime.formatIso(yield* DateTime.now);
+          const drafter = (id: string, role: string, from: ThreadId) =>
+            Effect.as(
+              dispatch({
+                type: "thread.spawn",
+                commandId: CommandId.make(`server:test-spawn:${id}`),
+                threadId: ThreadId.make(id),
+                createdAt,
+                createdBy: "user",
+                creationSource: "server",
+                parentThreadId: null,
+                projectId,
+                title: id,
+                modelSelection: testModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: null,
+                worktreePath: null,
+                role,
+                purpose: null,
+                goalId: null,
+                forkFromThreadId: from,
+              }),
+              ThreadId.make(id),
+            );
+          const sourceFields = yield* composer.compose(source);
+
+          const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, source);
+          const reviewed = (yield* composer.compose(reviewer)).appendSystemPrompt;
+          assert.isTrue(
+            reviewed.startsWith(
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(reviewer)}\n\n${RETRO_REVIEWER_OVERLAY_PROMPT}`,
+            ),
+          );
+          assert.notInclude(reviewed, "Available roles for spawning children");
+
+          const replaying = yield* drafter("thread:composer-drafter", HANDOFF_DRAFTER_ROLE, source);
+          assert.deepEqual(yield* composer.compose(replaying), sourceFields);
+
+          const fresh = yield* drafter(
+            "thread:composer-drafter-fresh",
+            HANDOFF_DRAFTER_ROLE,
+            unlaunched,
+          );
+          assert.isTrue(
+            (yield* composer.compose(fresh)).appendSystemPrompt.startsWith(
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
+            ),
+          );
         }),
       ),
   );
