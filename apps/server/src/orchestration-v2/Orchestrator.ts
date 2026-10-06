@@ -124,6 +124,7 @@ import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
 import { joinLoomShellFields, joinLoomThreadShell } from "../loom/projection/loomShellJoin.ts"; // loom:
 import {
   decideLoomCommand,
+  loomAskTakesAnswer,
   LoomDispatchDeferredError,
   loomContinuationVetoed,
   loomHumanStopRaise,
@@ -7223,6 +7224,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             cause: "Enter an answer before sending.",
           });
         }
+        // loom: a live ask_user_question waiter takes the answer as its tool result — no message (P3-21)
+        if (yield* loomAskTakesAnswer(runtimeRequest.id)) return;
         let dispatchMode: Extract<
           OrchestrationV2Command,
           { type: "message.dispatch" }
