@@ -26,6 +26,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type * as PlatformError from "effect/PlatformError";
 
 import * as CheckpointDiffQuery from "../checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -116,7 +117,7 @@ const rootScope = (threadId: ThreadId, cwd: string): OrchestrationV2CheckpointSc
 const runTurn = (
   scope: OrchestrationV2CheckpointScope,
   ordinal: number,
-  edit: Effect.Effect<void, unknown, FileSystem.FileSystem>,
+  edit: Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem>,
 ) =>
   Effect.gen(function* () {
     const checkpoints = yield* CheckpointService.CheckpointServiceV2;
