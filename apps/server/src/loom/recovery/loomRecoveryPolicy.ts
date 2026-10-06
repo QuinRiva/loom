@@ -175,7 +175,10 @@ export const redeliverStashedSteers = Effect.gen(function* () {
       // Not continued: left for the dispatcher's rail to carry into the thread's next
       // human- or parent-started turn (DL-387).
       if (!isContinued(workstream, projection))
-        return yield* (yield* WorkstreamDispatcher).leaveStash(threadId, steer);
+        return yield* (yield* WorkstreamDispatcher).leaveStash(threadId, {
+          text: steer,
+          afterOrdinal: Math.max(0, ...projection.runs.map((run) => run.ordinal)),
+        });
       yield* runDueContinuation(threadId, projection);
       yield* orchestrator.dispatch(
         controlMessage({
