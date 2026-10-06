@@ -64,24 +64,19 @@ The checkpointer is not the culprit. `fatal: Unable to create '…/index.lock':
 File exists.` (exit 128) comes from a real-index writer. The candidates are:
 
 - **`commitAll`** (`apps/server/src/vcs/GitVcsDriverCore.ts`) — the recognisable
-  triple `git add -A`; `git diff --cached --quiet`; `git rev-parse HEAD`. Used by
-  workstream fan-in and by worktree provisioning's base-commit snapshot. This is
-  the real-index path: serialised in-process by `WorktreeMutationLock` and gated
-  on child quiescence. An in-process lock cannot serialise against a separate
-  process, so every one of these commit sites — provisioning's base commit and
-  the fan-in reactor's child/parent commits alike — absorbs cross-process
-  contention with the shared bounded retry `GIT_LOCK_RETRY`
-  (`apps/server/src/git/gitLockRetry.ts`). The retry is the mechanism that
-  matters here; a commit that still fails after it is a real failure and settles
-  as one.
+  triple `git add -A`; `git diff --cached --quiet`; `git rev-parse HEAD`. This is
+  the real-index path. Its V1 callers (per-child worktree provisioning and the
+  merge-back of a finished child) were not ported in pull 9 — every workstream
+  thread now shares its parent's checkout — so the primitive is orphaned until
+  Phase 4 deletes it; while it exists it absorbs cross-process contention with
+  the shared bounded retry `GIT_LOCK_RETRY` (`apps/server/src/git/gitLockRetry.ts`).
 - **The commit-panel UI action**, which deliberately stages everything — but only
   when a user clicks it.
 
-Nothing commits _your staging_ automatically. The only automatic commits are the
-fan-in/provisioning `wip: workstream snapshot`-style commits above, which run
-`commitAll` against the real index — so an unexplained `wip:` commit on your
-branch is one of those, not the checkpointer (checkpoint captures are
-`commit-tree` objects that no branch points at).
+Nothing commits _your staging_ automatically: checkpoint captures are
+`commit-tree` objects that no branch points at, so an unexplained commit on your
+branch came from another thread sharing the worktree (or a user action), not
+from the checkpointer.
 
 ## The one checkpoint path that does mutate your worktree
 
