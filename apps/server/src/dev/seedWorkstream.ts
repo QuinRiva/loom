@@ -167,7 +167,7 @@ const seedAdapter: ProviderAdapterV2Shape = {
                 providerThread: {
                   ...turn.providerThread,
                   contextUsage: {
-                    usedTokens: 18_000 + turn.runOrdinal * 41_000,
+                    usedTokens: 18_000 + (turn.runOrdinal % 4) * 41_000,
                     maxTokens: 200_000,
                   },
                   updatedAt: at,
