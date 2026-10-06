@@ -33,6 +33,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { makeLoomChildThread } from "../orchestration-v2/Orchestrator.loom.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as PullRequestWatchReactor from "../orchestration-v2/PullRequestWatchReactor.ts";
 import * as ThreadSettlementService from "../orchestration-v2/ThreadSettlementService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -153,6 +154,24 @@ it.layer(TestLayer)("Loom PR toolkit", (it) => {
           (link) => link.number === 7,
         )?.watch;
         assert.isDefined(watch);
+
+        // DL-474: the reactor's sweep reads the PR (here the host read fails) instead of ending a
+        // subagent-lineage watch unread; upstream would have stopped this watch on its first pass.
+        const reactor = yield* PullRequestWatchReactor.make.pipe(
+          Effect.provide(
+            Layer.mock(PullRequestService.PullRequestService)({
+              detail: () => Effect.die("no host in this test"),
+              activity: () => Effect.die("no host in this test"),
+            }),
+          ),
+        );
+        yield* reactor.sweep;
+        assert.deepEqual(
+          (yield* orchestrator.getThreadProjection(shipper)).thread.pullRequests?.find(
+            (link) => link.number === 7,
+          )?.watch,
+          watch,
+        );
 
         // What PullRequestWatchReactor dispatches when a check fails on the head commit.
         const wakeId = MessageId.make("message:pr-watch-wake:shipper");
