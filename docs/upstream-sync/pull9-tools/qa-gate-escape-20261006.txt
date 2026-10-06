@@ -1,0 +1,38 @@
+# QA-scripts containment gate (reviewer d2ad46f8) — escape attempts from inside the QA sandbox, 2026-10-06
+# Throwaway home /home/Carl/.t3/qa-gate545 (deleted afterwards); sandbox = lib.sh qa_unit_properties + qa_exec_prefix at 51e8fd373b.
+# Host side: a reviewer-owned listener at /home/Carl/.t3/gate545-ro.sock (read-only inside the unit) received the line below.
+
+== adversarial-inner.sh
+uid=1001 pid=1
+== 1. unix socket on a READ-ONLY path (reviewer-owned listener at /home/Carl/.t3/gate545-ro.sock; the touch shows the path class is read-only)
+touch: cannot touch '<worktree>/.artifacts/pull9-p4-gate/ro-write-attempt': Read-only file system
+connect+write exit=0
+== 2. production pi-intercom broker: connect only, nothing sent
+broker connect exit=0
+srwxr-xr-x 1 Carl Carl 0 Jul 13 14:22 /home/Carl/.pi/agent/intercom/broker.sock
+== 3. cliproxy management API through the bridge (GET only; config.yaml holds a bcrypt hash, hence 401 — see adversarial-mgmt.sh for the plaintext key)
+config.yaml readable, secret-key lines: 1
+GET /v0/management/config without key -> 401
+GET /v0/management/config with key from config.yaml -> 401
+response bytes: 34; top-level keys: ["error"]
+GET /v0/management/auth-files with key -> 401
+== 4. /dev/shm
+/dev/shm writable (created /dev/shm/qa-gate545-probe)
+== 5. abstract unix sockets visible: 0
+== 6. other readable credentials (existence only)
+readable: /home/Carl/.codex/auth.json
+not readable: /home/Carl/.npmrc
+readable: /home/Carl/cli-proxy/auths
+not readable: /home/Carl/.config/loom-cockpit.env
+host listener received: hello-from-sandbox
+
+== adversarial-mgmt.sh (GET only; nothing mutated)
+-rw-r--r-- 1 Carl Carl 49 Jul  7 12:14 /home/Carl/cli-proxy/.mgmtkey
+read ~/cli-proxy/.mgmtkey inside the sandbox (48 chars)
+GET /v0/management/auth-files with ~/cli-proxy/.mgmtkey -> HTTP 200
+production accounts listed: 5
+
+== relative report path through build-home.sh (fixture)
+  33333333-3333-4333-8333-333333333333 report_path: 33333333-3333-4333-8333-333333333333.md → /home/Carl/.t3/qa-fx545b/userdata/workstream-reports/33333333-3333-4333-8333-333333333333-33333333-3333-4333-8333-333333333333.md
+relocated path exists=NO; the real file workstream-reports/33333333-3333-4333-8333-333333333333.md was rsynced beside it
+(production: 32 projection_threads rows carry a bare relative report_path of this shape; every one names an existing file)
