@@ -5,10 +5,10 @@ import {
   resolveProjectScripts,
   setupProjectScript,
 } from "@t3tools/shared/projectScripts";
-import * as NodeCrypto from "node:crypto";
 
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber"; // loom: breadcrumb
@@ -154,11 +154,11 @@ function stripTerminalControl(text: string): string {
   return (
     text
       .replace(
-        // eslint-disable-next-line no-control-regex
+        // eslint-disable-next-line no-control-regex -- ANSI escape sequences start with ESC.
         /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]/g,
         "",
       )
-      // eslint-disable-next-line no-control-regex
+      // eslint-disable-next-line no-control-regex -- removing control characters is the point.
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
   );
 }
@@ -211,6 +211,7 @@ export const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const terminalManager = yield* TerminalManager.TerminalManager;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const crypto = yield* Crypto.Crypto;
   const completionShell = resolveCompletionShell(
     yield* HostProcessPlatform,
     yield* HostProcessEnvironment,
@@ -393,7 +394,9 @@ export const make = Effect.gen(function* () {
     // loom: every run is observed, not only the ones a caller watches, because
     // the worktree-readiness breadcrumb is written for every run.
     const observe = input.observeCompletion ?? {};
-    const completionToken = observe ? NodeCrypto.randomUUID().replaceAll("-", "") : null;
+    const completionToken = observe
+      ? (yield* crypto.randomUUIDv4.pipe(Effect.orDie)).replaceAll("-", "")
+      : null;
     const commandLine =
       observe && completionToken
         ? wrapCommandForCompletion(

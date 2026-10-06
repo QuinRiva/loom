@@ -26,9 +26,10 @@ export const goalContinue = Effect.fn("LoomToolkit.goalContinue")(function* (
   if (!brief) return yield* fail("brief is required.");
   const self = yield* requireShell(caller.threadId);
   const { goal } = yield* requireActiveGoal(caller.threadId).pipe(
-    Effect.catchTag("LoomToolError", () =>
-      fail(`This thread has no active goal to continue (use ${t("goal_handoff")} instead).`),
-    ),
+    Effect.catchTags({
+      LoomToolError: () =>
+        fail(`This thread has no active goal to continue (use ${t("goal_handoff")} instead).`),
+    }),
   );
   const title = input.threadTitle?.trim() || `${goal.title} (continued)`;
   const key = yield* requestKey(input.clientRequestId);

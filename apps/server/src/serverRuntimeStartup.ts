@@ -33,6 +33,7 @@ import {
   refuseForeignHomeSideEffect,
 } from "./workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-81)
 import { loomStartupRecovery } from "./loom/recovery/loomRecoveryPolicy.ts"; // loom:
+import * as LoomV1WorkstreamImporter from "./loom/legacy/LoomV1WorkstreamImporter.ts"; // loom: Phase 4 importer
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
@@ -531,6 +532,7 @@ const make = (options?: StartupOptions) =>
                 ? Effect.void
                 : Effect.logInfo("Imported legacy v1 thread shells", summary),
             ),
+            Effect.andThen(LoomV1WorkstreamImporter.reconcile), // loom: workstream sidecar, lineage, session binding (Phase 4 §1)
           ),
         ),
         recover: runStartupPhase("orchestration-v2.recovery", providerRuntimeRecovery.recover),
@@ -556,6 +558,8 @@ const make = (options?: StartupOptions) =>
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
       yield* runStartupPhase("loom.recovery", loomStartupRecovery); // loom: §3 table (DL-199), stashed steers + one dispatcher pass (seam 20)
+      // Runs after activation: the status check fetches every enabled project's
+      // remote, and awaiting it here held command readiness for that long.
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {
@@ -563,6 +567,11 @@ const make = (options?: StartupOptions) =>
           const settings = yield* serverSettings.getSettings;
           yield* autoPullProjects(projects, settings);
         }),
+      ).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to load projects for automatic pull", { cause }),
+        ),
+        forkParked,
       );
 
       const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(

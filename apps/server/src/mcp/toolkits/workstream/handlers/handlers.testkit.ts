@@ -15,8 +15,8 @@ import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcas
 import { LoomOrchestratorTestLayer } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
-import { ProviderHealthRegistry } from "../../../../provider/Services/ProviderHealthRegistry.ts";
-import { ProviderRegistry } from "../../../../provider/Services/ProviderRegistry.ts";
+import { ProviderHealthRegistry } from "../../../../provider/ProviderHealthRegistry.ts";
+import { ProviderRegistry } from "../../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../../serverSettings.ts";
 import * as McpInvocationContext from "../../../McpInvocationContext.ts";
 import { LOOM_TOOL_DEFS, type LoomMcpToolName } from "../defs.ts";

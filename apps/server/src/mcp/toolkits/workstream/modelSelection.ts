@@ -35,8 +35,8 @@ import {
   aggregateAccountsBestRemaining,
   matches,
   ProviderHealthRegistry,
-} from "../../../provider/Services/ProviderHealthRegistry.ts";
-import { ProviderRegistry } from "../../../provider/Services/ProviderRegistry.ts";
+} from "../../../provider/ProviderHealthRegistry.ts";
+import { ProviderRegistry } from "../../../provider/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import { LoomToolError } from "./defs.ts";
 import type { PresetCatalogueEntry, ProfileSummaryEntry } from "./render.ts";

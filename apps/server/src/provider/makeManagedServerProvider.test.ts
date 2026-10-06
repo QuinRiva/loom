@@ -99,7 +99,7 @@ const refreshedSnapshotSecond: ServerProvider = {
   message: "Refreshed provider availability again.",
 };
 
-function makeBackgroundPolicyLayer(shouldRunScopeWork: boolean) {
+function layerBackgroundPolicy(shouldRunScopeWork: boolean) {
   return Layer.mock(BackgroundPolicy.BackgroundPolicy)({
     reportClientActivity: () => Effect.void,
     removeRpcClient: () => Effect.void,
@@ -130,11 +130,11 @@ function makeBackgroundPolicyLayer(shouldRunScopeWork: boolean) {
   });
 }
 
-const BackgroundPolicyAlwaysRunLayer = makeBackgroundPolicyLayer(true);
-const BackgroundPolicyNeverRunLayer = makeBackgroundPolicyLayer(false);
-const ServerSettingsTestLayer = ServerSettings.layerTest();
-const AlwaysRunTestLayer = Layer.merge(BackgroundPolicyAlwaysRunLayer, ServerSettingsTestLayer);
-const NeverRunTestLayer = Layer.merge(BackgroundPolicyNeverRunLayer, ServerSettingsTestLayer);
+const layerBackgroundPolicyAlwaysRun = layerBackgroundPolicy(true);
+const layerBackgroundPolicyNeverRun = layerBackgroundPolicy(false);
+const layerServerSettingsTest = ServerSettings.layerTest();
+const layerAlwaysRunTest = Layer.merge(layerBackgroundPolicyAlwaysRun, layerServerSettingsTest);
+const layerNeverRunTest = Layer.merge(layerBackgroundPolicyNeverRun, layerServerSettingsTest);
 
 const enrichedSnapshotSecond: ServerProvider = {
   ...refreshedSnapshotSecond,
@@ -189,7 +189,7 @@ describe("makeManagedServerProvider", () => {
           assert.deepStrictEqual(latest, refreshedSnapshot);
           assert.strictEqual(yield* Ref.get(checkCalls), 1);
         }),
-      ).pipe(Effect.provide(AlwaysRunTestLayer)),
+      ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("skips periodic provider refreshes without foreground provider-status demand", () =>
@@ -220,7 +220,7 @@ describe("makeManagedServerProvider", () => {
 
         assert.strictEqual(yield* Ref.get(checkCalls), 1);
       }),
-    ).pipe(Effect.provide(Layer.mergeAll(NeverRunTestLayer, TestClock.layer()))),
+    ).pipe(Effect.provide(Layer.mergeAll(layerNeverRunTest, TestClock.layer()))),
   );
 
   it.effect("disables periodic provider refreshes when the explicit interval is zero", () =>
@@ -247,7 +247,7 @@ describe("makeManagedServerProvider", () => {
 
         assert.strictEqual(yield* Ref.get(checkCalls), 1);
       }),
-    ).pipe(Effect.provide(Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer()))),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
   );
 
   it.effect("keeps manual refresh when interval refresh is disabled", () =>
@@ -281,7 +281,7 @@ describe("makeManagedServerProvider", () => {
         yield* provider.refresh;
         assert.strictEqual(yield* Ref.get(checkCalls), 2);
       }),
-    ).pipe(Effect.provide(Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer()))),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
   );
 
   it.effect("wakes a sleeping provider refresh loop when its interval changes", () =>
@@ -293,7 +293,7 @@ describe("makeManagedServerProvider", () => {
         };
         const serverSettingsRef = yield* Ref.make(initialServerSettings);
         const serverSettingsChanges = yield* PubSub.unbounded<typeof initialServerSettings>();
-        const serverSettingsLayer = Layer.succeed(
+        const layerServerSettings = Layer.succeed(
           ServerSettings.ServerSettingsService,
           ServerSettings.ServerSettingsService.of({
             start: Effect.void,
@@ -326,7 +326,7 @@ describe("makeManagedServerProvider", () => {
             ),
             Effect.as(refreshedSnapshot),
           ),
-        }).pipe(Effect.provide(Layer.merge(BackgroundPolicyAlwaysRunLayer, serverSettingsLayer)));
+        }).pipe(Effect.provide(Layer.merge(layerBackgroundPolicyAlwaysRun, layerServerSettings)));
 
         yield* Deferred.await(initialCheckDone);
         const nextServerSettings = {
@@ -388,7 +388,7 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual(latest, refreshedSnapshotSecond);
         assert.strictEqual(yield* Ref.get(checkCalls), 2);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("can update settings and disable periodic checks without probing again", () =>
@@ -423,7 +423,7 @@ describe("makeManagedServerProvider", () => {
         assert.strictEqual(yield* Ref.get(checkCalls), 1);
         assert.strictEqual(yield* Ref.get(enrichmentCalls), 2);
       }),
-    ).pipe(Effect.provide(Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer()))),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
   );
 
   it.effect("streams supplemental snapshot updates after the base provider check completes", () =>
@@ -461,7 +461,7 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual(updates, [refreshedSnapshot, enrichedSnapshot]);
         assert.deepStrictEqual(latest, enrichedSnapshot);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   // loom: a base refresh must not publish a snapshot that lost palette content.
@@ -510,7 +510,7 @@ describe("makeManagedServerProvider", () => {
           ["a", "b", "c"],
         );
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("carries enrichment-owned models and skills forward across a bare base refresh", () =>
@@ -558,7 +558,7 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual(updates.at(-1)?.skills, enrichedWithSkills.skills);
         assert.deepStrictEqual((yield* provider.getSnapshot).skills, enrichedWithSkills.skills);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("ignores stale enrichment callbacks after a newer refresh advances generation", () =>
@@ -619,7 +619,7 @@ describe("makeManagedServerProvider", () => {
         ]);
         assert.deepStrictEqual(latest, enrichedSnapshotSecond);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("applies runtime usage updates onto the published snapshot", () =>
@@ -681,7 +681,7 @@ describe("makeManagedServerProvider", () => {
         });
         assert.deepStrictEqual(yield* provider.getSnapshot, update);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
   it.effect("keeps live usage windows across a failed probe and a stale enrichment", () =>
@@ -752,6 +752,6 @@ describe("makeManagedServerProvider", () => {
         assert.strictEqual(refreshed.message, refreshedSnapshotSecond.message);
         assert.deepStrictEqual(refreshed.usageLimits?.windows, [liveWindow]);
       }),
-    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 });

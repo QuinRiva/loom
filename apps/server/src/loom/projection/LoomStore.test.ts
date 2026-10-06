@@ -11,10 +11,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as LoomStore from "./LoomStore.ts";
 
-const TestLayer = LoomStore.layer.pipe(Layer.provideMerge(SqlitePersistenceMemory));
+const TestLayer = LoomStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory));
 const projectId = ProjectId.make("project:store");
 const T = (minute: number) => `2026-01-01T00:${String(minute).padStart(2, "0")}:00.000Z`;
 

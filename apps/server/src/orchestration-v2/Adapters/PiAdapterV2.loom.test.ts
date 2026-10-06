@@ -43,7 +43,7 @@ import {
   type LoomPiAdapterHooksShape,
 } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
-import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import { ProviderHealthRegistry } from "../../provider/ProviderHealthRegistry.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import {

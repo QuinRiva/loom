@@ -13,11 +13,7 @@
  */
 import type { ServerProvider } from "@t3tools/contracts";
 
-import {
-  ACCOUNT_WIDE_SCOPE,
-  type ExhaustionMark,
-  isActive,
-} from "./Services/ProviderHealthRegistry.ts";
+import { ACCOUNT_WIDE_SCOPE, type ExhaustionMark, isActive } from "./ProviderHealthRegistry.ts";
 
 const RESET_CLOCK = new Intl.DateTimeFormat([], {
   hour: "2-digit",
