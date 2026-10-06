@@ -188,22 +188,24 @@ it.layer(HandlerTestLayer)("goal task tools", (it) => {
     ),
   );
 
-  it.effect("mcp__t3-code__goal_update renames the goal and publishes once; a taken slug is refused", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { root, goalId, published } = yield* goalRoot("update");
-        yield* goalRoot("update-other");
-        yield* published;
-        assert.include(
-          (yield* callAs(root, "goal_update", { slug: "update-other" })).text,
-          "already used",
-        );
-        const updated = yield* callAs(root, "goal_update", { title: "Renamed", description: "" });
-        assert.include(updated.text, `Updated goal ${goalId}.`);
-        const items = yield* published;
-        assert.lengthOf(items, 1);
-        assert.equal(items[0]?.kind === "goal.updated" ? items[0].goal.title : null, "Renamed");
-      }),
-    ),
+  it.effect(
+    "mcp__t3-code__goal_update renames the goal and publishes once; a taken slug is refused",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { root, goalId, published } = yield* goalRoot("update");
+          yield* goalRoot("update-other");
+          yield* published;
+          assert.include(
+            (yield* callAs(root, "goal_update", { slug: "update-other" })).text,
+            "already used",
+          );
+          const updated = yield* callAs(root, "goal_update", { title: "Renamed", description: "" });
+          assert.include(updated.text, `Updated goal ${goalId}.`);
+          const items = yield* published;
+          assert.lengthOf(items, 1);
+          assert.equal(items[0]?.kind === "goal.updated" ? items[0].goal.title : null, "Renamed");
+        }),
+      ),
   );
 });
