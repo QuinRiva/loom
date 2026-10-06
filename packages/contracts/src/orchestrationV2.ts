@@ -3078,7 +3078,11 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
-  ...makeLoomInternalCommandMembers(OrchestrationV2CreationFields), // loom: server-only Loom commands
+  // loom: server-only Loom commands
+  ...makeLoomInternalCommandMembers(
+    OrchestrationV2CreationFields,
+    OrchestrationV2UserInputQuestion,
+  ),
   /**
    * Records what a pull request watch saw, and wakes the agent in the same transaction when
    * `wake` is set. Rejected once the watch started at `startedAt` has ended, and a wake is

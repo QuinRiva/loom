@@ -10,6 +10,8 @@ import {
   LOOM_EVENT_TYPES,
   loomCommandThreadId,
   type LoomCommand,
+  LoomMessageFields,
+  makeLoomInternalCommandMembers,
 } from "./orchestrationV2.loom.ts";
 import {
   OrchestrationV2Command,
@@ -19,6 +21,7 @@ import {
   OrchestrationV2ShellStreamItem,
   OrchestrationV2SubscribeShellInput,
   OrchestrationV2ThreadShellJson,
+  OrchestrationV2UserInputQuestion,
 } from "./orchestrationV2.ts";
 
 const now = "2026-10-05T00:00:00.000Z";
@@ -250,5 +253,64 @@ describe("Loom sidecar contract splices", () => {
     expect(
       lock({ ...base, type: "thread.fork.prepare", threadId: "child", sourceThreadId: "src" }),
     ).toBe("child");
+  });
+
+  it("round-trips the Phase 3 control payload fields and still decodes a V1-shaped payload", () => {
+    const fields = Schema.decodeUnknownSync(LoomMessageFields);
+    const encode = Schema.encodeSync(LoomMessageFields);
+    const v1 = {
+      origin: "control_notice",
+      controlPayload: {
+        kind: "digest",
+        heading: "Two sub-threads finished",
+        items: [{ threadId: "child-1", title: "Coder", status: "done", reportPath: "/r.md" }],
+      },
+    };
+    expect(encode(fields(v1))).toEqual(v1);
+    for (const controlPayload of [
+      {
+        kind: "digest",
+        items: [
+          { kind: "gate-resolved", title: "Gate resolved" },
+          { kind: "dead-episode", threadId: "child-2", title: "Reviewer" },
+        ],
+      },
+      { kind: "notice", notice: "gate-rework", heading: "Rework", items: [] },
+      { kind: "yield", synthesised: true, items: [{ kind: "terminal", title: "Coder" }] },
+    ]) {
+      expect(encode(fields({ origin: "control_notice", controlPayload }))).toEqual({
+        origin: "control_notice",
+        controlPayload,
+      });
+    }
+    expect(() =>
+      fields({ controlPayload: { kind: "notice", notice: "bogus", items: [] } }),
+    ).toThrow();
+  });
+
+  it("carries runtime-request.create as an internal command only, locked on the asker", () => {
+    const create = {
+      type: "runtime-request.create",
+      commandId: "server:loom:ask:1",
+      threadId: "root-1",
+      createdAt: now,
+      requestId: "loom-ask:1",
+      questions: [
+        {
+          id: "q1",
+          header: "Scope",
+          question: "Ship it?",
+          options: [{ label: "Yes", description: "Ship now." }],
+        },
+      ],
+    };
+    const member = Schema.Union(
+      makeLoomInternalCommandMembers({}, OrchestrationV2UserInputQuestion),
+    );
+    const decoded = Schema.decodeUnknownSync(member)(create);
+    expect(Schema.encodeSync(member)(decoded)).toEqual(create);
+    expect(isLoomCommand(decoded)).toBe(true);
+    expect(loomCommandThreadId(decoded as LoomCommand)).toBe("root-1");
+    expect(() => decodeCommand(create)).toThrow();
   });
 });
