@@ -2,6 +2,7 @@ import {
   type ContextMenuItem,
   DEFAULT_GATE_MAX_ROUNDS,
   type LoomOutcome,
+  type LoomThreadOutcome,
   type LoomThreadShellFields,
   type ModelSelection,
   type OrchestrationV2ThreadShell,
@@ -528,7 +529,7 @@ export function buildNodeContextMenuItems(
 }
 
 // ---------------------------------------------------------------------------
-// Timeline — the journey the sidecar records (no event pull in V2)
+// Timeline — the journey the sidecar records, plus every submitted outcome
 // ---------------------------------------------------------------------------
 
 export interface TimelineRow {
@@ -537,17 +538,22 @@ export interface TimelineRow {
   readonly label: string;
   readonly detail: string | null;
   readonly tone: Tone;
+  /** The report this row's submit wrote (outcome rows only), as V1's per-round link. */
+  readonly reportPath?: string | null;
 }
 
 /**
- * A thread's timeline from its sidecar: created, held, dependencies set,
- * kicked off, the latest submitted outcome (verdict, round, counts), and the
- * plan outcome. Oldest first. The V2 sidecar keeps the latest of each, not
- * every transition, so this is the journey's milestones rather than a log.
+ * A thread's timeline: from its sidecar, created, held, dependencies set,
+ * kicked off and the plan outcome (the latest of each — milestones, not a
+ * log); and one row per submitted outcome (verdict, round, counts) linking the
+ * report that submit wrote. `outcomes` is the thread's outcome history
+ * (`loom.threadOutcomes`); until it arrives, the sidecar's latest outcome
+ * stands in with the sidecar's report, which is that submit's. Oldest first.
  */
 export function buildTimelineRows(
   node: WorkstreamNode,
   titleOf: (threadId: ThreadId) => string,
+  outcomes: ReadonlyArray<LoomThreadOutcome> | null = null,
 ): TimelineRow[] {
   const rows: Array<TimelineRow | null> = [
     {
@@ -572,7 +578,10 @@ export function buildTimelineRows(
     node.kickoffAt === null
       ? null
       : { key: "kickoff", at: node.kickoffAt, label: "Started", detail: null, tone: "info" },
-    node.lastOutcome === null ? null : lastOutcomeRow(node.lastOutcome),
+    ...(
+      outcomes ??
+      (node.lastOutcome === null ? [] : [{ ...node.lastOutcome, reportPath: node.reportPath }])
+    ).map(outcomeRow),
     node.outcomeAt === null || node.outcome === null
       ? null
       : {
@@ -588,21 +597,24 @@ export function buildTimelineRows(
     .toSorted((left, right) => left.at.localeCompare(right.at));
 }
 
-function lastOutcomeRow(last: NonNullable<WorkstreamNode["lastOutcome"]>): TimelineRow {
-  const verdict = describeOutcomeVerdict(last);
+function outcomeRow(outcome: LoomThreadOutcome): TimelineRow {
+  const verdict = describeOutcomeVerdict(outcome);
   const detail = [
-    `round ${last.round}`,
-    last.counts ? `${last.counts.mustFix} must-fix · ${last.counts.niceToHave} nice-to-have` : null,
-    last.synthesised ? "report synthesised" : null,
+    `round ${outcome.round}`,
+    outcome.counts
+      ? `${outcome.counts.mustFix} must-fix · ${outcome.counts.niceToHave} nice-to-have`
+      : null,
+    outcome.synthesised ? "report synthesised" : null,
   ]
     .filter(Boolean)
     .join(" · ");
   return {
-    key: "last-outcome",
-    at: last.at,
-    label: verdict?.label ?? `Submitted ${last.outcome.replaceAll("_", " ")}`,
+    key: `outcome:${outcome.eventId ?? outcome.at}`,
+    at: outcome.at,
+    label: verdict?.label ?? `Submitted ${outcome.outcome.replaceAll("_", " ")}`,
     detail,
     tone: verdict?.tone ?? "info",
+    reportPath: outcome.reportPath,
   };
 }
 

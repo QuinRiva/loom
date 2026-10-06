@@ -57,7 +57,7 @@ import { Spinner } from "./ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamActiveStrip } from "./WorkstreamActiveStrip";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
-import { WorkstreamTimelineDrawer } from "./WorkstreamTimeline";
+import { useThreadOutcomes, WorkstreamTimelineDrawer } from "./WorkstreamTimeline";
 
 // The graph (own SVG renderer + fork–join layout) is its own chunk.
 const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
@@ -382,9 +382,12 @@ function useWorkstreamSurface(threadRef: ScopedThreadRef) {
     onOpenReport,
     onOpenTimeline: (node) => setTimelineId(node.id),
   };
+  const timelineNode = timelineId === null ? undefined : nodes.get(timelineId);
+  const outcomes = useThreadOutcomes(threadRef.environmentId, timelineNode);
   const timeline = (
     <WorkstreamTimelineDrawer
-      node={timelineId === null ? undefined : nodes.get(timelineId)}
+      node={timelineNode}
+      outcomes={outcomes}
       titleOf={titleOf}
       onClose={() => setTimelineId(null)}
       onOpenThread={onOpenThread}

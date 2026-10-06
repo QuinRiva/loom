@@ -157,6 +157,7 @@ function TimelineFixture({ threadId }: { threadId: ThreadId }) {
     <div className="relative mx-auto h-[420px] w-[400px] overflow-hidden rounded-lg border border-border">
       <WorkstreamTimelineDrawer
         node={nodes.get(threadId)}
+        outcomes={null}
         titleOf={titleOf}
         onClose={noop}
         onOpenThread={noop}

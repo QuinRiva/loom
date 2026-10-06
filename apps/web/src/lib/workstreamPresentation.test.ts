@@ -128,12 +128,27 @@ describe("the gated pair", () => {
 
 describe("buildTimelineRows", () => {
   it("orders the sidecar's milestones and carries the verdict and counts", () => {
-    const rows = buildTimelineRows(node(T.gateReviewer), (id) => node(id).title);
-    expect(rows.map((row) => row.key)).toEqual(["created", "kickoff", "last-outcome"]);
+    const reviewer = node(T.gateReviewer);
+    const rows = buildTimelineRows(reviewer, (id) => node(id).title);
+    expect(rows.map((row) => row.key.split(":")[0])).toEqual(["created", "kickoff", "outcome"]);
     expect(rows.at(-1)).toMatchObject({
       label: "needs rework ⟲1",
       detail: "round 1 · 2 must-fix · 1 nice-to-have",
+      reportPath: reviewer.reportPath,
     });
+  });
+
+  it("gives every submitted outcome its own report row once the history arrives", () => {
+    const reviewer = node(T.gateReviewer);
+    const last = reviewer.lastOutcome!;
+    const rows = buildTimelineRows(reviewer, String, [
+      { ...last, round: 0, eventId: null, at: reviewer.createdAt, reportPath: "/r/a.md" },
+      { ...last, reportPath: "/r/a.round-1.md" },
+    ]);
+    expect(rows.filter((row) => row.reportPath).map((row) => row.reportPath)).toEqual([
+      "/r/a.md",
+      "/r/a.round-1.md",
+    ]);
   });
 
   it("marks a synthesised report and a settled outcome", () => {
