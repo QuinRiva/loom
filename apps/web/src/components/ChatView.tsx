@@ -9670,7 +9670,9 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          // loom: 3d-4 (DT-67) — a Loom thread keeps its title: a staged root's
+          // first (human) message must not re-seed it from the brief.
+          ...(activeThreadShell?.source.workstream ? {} : { titleSeed: title }),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode,

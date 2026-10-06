@@ -243,8 +243,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
-            <PendingQuestionBody text={activeQuestion.question} host={loomHost} />{" "}
-            {/* loom: 3d-4 */}
+            {/* loom: 3d-4 — markdown body with file chips (DT-36). */}
+            <PendingQuestionBody text={activeQuestion.question} host={loomHost} />
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}
