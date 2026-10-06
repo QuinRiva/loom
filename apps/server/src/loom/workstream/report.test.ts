@@ -19,6 +19,9 @@ describe("synthesisedReportFileName", () => {
   });
 
   it("keeps a run id that does not embed the thread id whole", () => {
-    assert.equal(synthesisedReportFileName(ThreadId.make("quiet-x"), "run-1"), "quiet-x.quiescent-run-1.md");
+    assert.equal(
+      synthesisedReportFileName(ThreadId.make("quiet-x"), "run-1"),
+      "quiet-x.quiescent-run-1.md",
+    );
   });
 });

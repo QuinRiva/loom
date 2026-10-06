@@ -274,7 +274,11 @@ const make = Effect.gen(function* () {
       threadPullRequestsOf(shell).find(
         (link) => link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, target),
       );
-    if (watching && thread.lineage.relationshipToParent === "subagent") {
+    if (
+      watching &&
+      thread.lineage.relationshipToParent === "subagent" &&
+      thread.workstream === undefined // loom: DL-471 — a Loom child watches its own PR (DL-305 here too)
+    ) {
       return yield* new PullRequestWatchFromSubagentError();
     }
     const before = watchedLink(thread);
