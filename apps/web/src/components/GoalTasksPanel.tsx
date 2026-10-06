@@ -58,25 +58,27 @@ function useEditDraft(serverValue: string, emptyReverts: boolean, commit: (value
     if (!focused.current) setDraft(serverValue);
   }, [serverValue]);
   return {
-    value: draft,
-    onFocus: () => {
-      focused.current = true;
-      dirty.current = false;
-    },
-    onChange: (event: { target: { value: string } }) => {
-      dirty.current = true;
-      setDraft(event.target.value);
-    },
-    onBlur: () => {
-      focused.current = false;
-      const { dispatch } = resolveEditBlur({
-        draft,
-        serverValue,
-        dirty: dirty.current,
-        emptyReverts,
-      });
-      if (dispatch !== null) commit(dispatch);
-      else setDraft(serverValue);
+    props: {
+      value: draft,
+      onFocus: () => {
+        focused.current = true;
+        dirty.current = false;
+      },
+      onChange: (event: { target: { value: string } }) => {
+        dirty.current = true;
+        setDraft(event.target.value);
+      },
+      onBlur: () => {
+        focused.current = false;
+        const { dispatch } = resolveEditBlur({
+          draft,
+          serverValue,
+          dirty: dirty.current,
+          emptyReverts,
+        });
+        if (dispatch !== null) commit(dispatch);
+        else setDraft(serverValue);
+      },
     },
     revert: () => {
       dirty.current = false;
@@ -123,7 +125,7 @@ function GoalHeader({
     <div className="mb-3 border-b border-border/60 pb-3">
       <div className="flex items-start justify-between gap-3">
         <input
-          {...title}
+          {...title.props}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -158,7 +160,7 @@ function GoalHeader({
         </Button>
       </div>
       <textarea
-        {...description}
+        {...description.props}
         aria-label="Goal description"
         placeholder={"Describe this goal\u2026"}
         rows={1}
