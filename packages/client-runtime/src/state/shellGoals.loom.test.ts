@@ -2,7 +2,7 @@ import { GoalId, ProjectId, type LoomGoalShell } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { v2ShellSnapshot } from "./orchestrationV2TestFixtures.ts";
-import { applyShellStreamEvent } from "./shellReducer.ts";
+import { applyShellStreamEvent, mergeShellSnapshotProjects } from "./shellReducer.ts";
 
 const goal = (updatedAt: string, title = "Goal"): LoomGoalShell => ({
   id: GoalId.make("goal-1"),
@@ -35,5 +35,20 @@ describe("Loom goal shell items", () => {
       goalId: GoalId.make("goal-1"),
     });
     expect(removed.goals).toEqual([]);
+  });
+
+  it("keep the goals held when an authoritative or resume snapshot carries none", () => {
+    const held = { ...v2ShellSnapshot, goals: [goal("2026-10-05T00:00:02.000Z", "Held")] };
+    // An authoritative snapshot from a server that did not send goals.
+    expect(
+      mergeShellSnapshotProjects(held, { ...v2ShellSnapshot, snapshotSequence: 7 }).goals,
+    ).toBe(held.goals);
+    // The afterSequence resume frame: a metadata-only enrichment snapshot without goals.
+    expect(
+      mergeShellSnapshotProjects(held, v2ShellSnapshot, { resolvedRepositoryIdentityRoots: [] })
+        .goals,
+    ).toBe(held.goals);
+    // An authoritative snapshot WITH goals replaces them (the reconnect resync).
+    expect(mergeShellSnapshotProjects(held, { ...v2ShellSnapshot, goals: [] }).goals).toEqual([]);
   });
 });

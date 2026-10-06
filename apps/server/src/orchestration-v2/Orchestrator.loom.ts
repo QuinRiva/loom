@@ -26,6 +26,8 @@ import {
   type LoomMessageFields,
   type LoomOutcomeSetCause,
   type LoomThreadWorkstream,
+  latestProviderTurnForAttempt,
+  LOOM_ASK_REQUEST_PREFIX,
   type OrchestrationV2AppThread,
   type OrchestrationV2Command,
   type OrchestrationV2ContextSourcePoint,
@@ -50,6 +52,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import { LoomAskWaiters } from "../loom/userInput/askWaiters.ts";
 import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
 import type { IdAllocatorV2 } from "./IdAllocator.ts";
 import type { OrchestratorDispatchError, OrchestratorV2Error } from "./Orchestrator.ts";
@@ -144,9 +147,9 @@ const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
 const loopTargetsOf = (routes: ReadonlyArray<WorkstreamRoute>) =>
   routes.flatMap((route) => (route.kind === "loop" && route.to !== undefined ? [route.to] : []));
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
-const NOTIFY_PAIR_HOURLY_CAP = 10;
-const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
+// mcp__t3-code__notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
+export const NOTIFY_PAIR_HOURLY_CAP = 10;
+export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // The dispatchMessage helpers (DL-194, DL-195, §2 rules 1–5)
@@ -176,7 +179,7 @@ export const loomMessageFields = (
   >,
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
-/** Rule 4's clearing origins: a human, or the parent's `workstream_prompt`. */
+/** Rule 4's clearing origins: a human, or the parent's `mcp__t3-code__workstream_prompt`. */
 export const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
   loom?.humanAuthored === true || loom?.origin === "orchestrator";
 
@@ -215,7 +218,7 @@ export const loomQueuedTurnAttentionClear = (
 /**
  * The target thread's own rules for an accepted message (§2 rules 1–5; rule 0 is
  * `loomContinuationVetoed`, placed before upstream's unsettle per DL-195; rule 6
- * supersede is reserved for Phase 3a with `runtime-request.create`). Called once
+ * supersede is post-commit, in `loom/userInput/askUserQuestion.ts`). Called once
  * the delivery mode is final, so `startsNow` covers upstream's and the Loom
  * steer conversions. Emits only on `command.threadId`.
  */
@@ -277,14 +280,27 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
       }),
     );
   }
-  // 6. Supersede — reserved slot (Phase 3a, with runtime-request.create).
+  // 6. Supersede runs post-commit: the ask reactor (loom/userInput/askUserQuestion.ts) dismisses a
+  //    pending loom-ask: request when a human message lands, for row-less roots too (DL-348).
 });
+
+/**
+ * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
+ * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
+ * its tool result, so upstream's answer message is withheld. With no live
+ * waiter (pi died, the server restarted) upstream's message delivery stands.
+ */
+export const loomAskTakesAnswer = (requestId: string) =>
+  Effect.gen(function* () {
+    if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
+    return yield* (yield* LoomAskWaiters).isLive(requestId);
+  });
 
 // ---------------------------------------------------------------------------
 // run.interrupt and thread.auto-settle hunks
 // ---------------------------------------------------------------------------
 
-/** A human stop (non-`server:` run.interrupt) on a live Loom thread raises needs_guidance. */
+/** A human stop (non-`server:` run.interrupt or thread.stop) on a live Loom thread raises needs_guidance. */
 export const loomHumanStopRaise = Effect.fn("loom.humanStopRaise")(function* (input: {
   readonly command: RunInterrupt;
   readonly loomStore: LoomStoreV2["Service"];
@@ -593,7 +609,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
       ) {
         return yield* fail(
-          `Thread ${submit.threadId} is ${row.outcome}; workstream_submit cannot act on a terminal thread.`,
+          `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
         );
       }
       const erased = holdErasedByCompletion({
@@ -821,6 +837,122 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         providerInstanceId: sourceRun.providerInstanceId,
         occurredAt: now,
         payload: transfer,
+      });
+    });
+
+  /**
+   * `mcp__t3-code__ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
+   * runtime request on its own request node under the active run's root, with
+   * the `user_input_request` turn item carrying the questions — the shapes
+   * upstream's adapters emit, so V2's panel, mobile card and the shell's
+   * `pendingRuntimeRequest` render it unchanged. `message` capability: upstream's
+   * terminal dismissal leaves it standing; 3a-4's respond hunk answers it.
+   */
+  const runtimeRequestCreate = (create: CommandOf<"runtime-request.create">) =>
+    Effect.gen(function* () {
+      const { requestId, threadId } = create;
+      if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) {
+        return yield* fail(`Runtime request ${requestId} is not a ${LOOM_ASK_REQUEST_PREFIX} id.`);
+      }
+      if (create.questions.length === 0) return yield* fail("A question request needs a question.");
+      yield* requireThread(threadId);
+      const projection = yield* read(
+        projectionStore.getThreadRecords(threadId, [
+          "runs",
+          "attempts",
+          "providerTurns",
+          "runtimeRequests",
+        ]),
+      );
+      const run = projection.runs
+        .filter(isBlockingRun)
+        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      if (run === undefined || run.rootNodeId === null) {
+        return yield* fail(`Thread ${threadId} has no active run to ask from.`);
+      }
+      const pending = projection.runtimeRequests.find((request) => request.status === "pending");
+      if (pending !== undefined) {
+        return yield* fail(`Thread ${threadId} already has pending runtime request ${pending.id}.`);
+      }
+      // Upstream's `providerTurnForRun` (not exported): the active attempt's latest turn.
+      const providerTurnId =
+        (
+          latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
+          projection.providerTurns.find(
+            (turn) =>
+              turn.id ===
+              projection.attempts.find((attempt) => attempt.id === run.activeAttemptId)
+                ?.providerTurnId,
+          )
+        )?.id ?? null;
+      const nodeId = ctx.idAllocator.derive.approvalNode({ requestId });
+      const ordinal = yield* read(projectionStore.getNextTurnItemOrdinal(threadId));
+      const base = {
+        threadId,
+        runId: run.id,
+        nodeId,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+      };
+      yield* emit({
+        ...base,
+        type: "runtime-request.updated",
+        payload: {
+          id: requestId,
+          nodeId,
+          providerTurnId,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "pending",
+          responseCapability: { type: "message" },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      });
+      yield* emit({
+        ...base,
+        type: "node.updated",
+        payload: {
+          id: nodeId,
+          threadId,
+          runId: run.id,
+          parentNodeId: run.rootNodeId,
+          rootNodeId: run.rootNodeId,
+          kind: "user_input_request",
+          status: "waiting",
+          countsForRun: false,
+          providerThreadId: run.providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          runtimeRequestId: requestId,
+          checkpointScopeId: null,
+          startedAt: now,
+          completedAt: null,
+        },
+      });
+      yield* emit({
+        ...base,
+        type: "turn-item.updated",
+        payload: {
+          id: ctx.idAllocator.derive.approvalTurnItem({ requestId }),
+          threadId,
+          runId: run.id,
+          nodeId,
+          providerThreadId: run.providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal,
+          status: "waiting",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "user_input_request",
+          requestId,
+          questions: create.questions,
+          responseMode: "message",
+        },
       });
     });
 
@@ -1152,7 +1284,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       ).length;
       if (sent >= NOTIFY_PAIR_HOURLY_CAP) {
         return yield* fail(
-          `notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use consult_thread if you need an answer.`,
+          `mcp__t3-code__notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use mcp__t3-code__consult_thread if you need an answer.`,
         );
       }
       const target = yield* requireThread(command.targetThreadId);
@@ -1208,6 +1340,10 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
 
     case "thread.fork.prepare":
       yield* forkPrepare(command);
+      return {};
+
+    case "runtime-request.create":
+      yield* runtimeRequestCreate(command);
       return {};
   }
 });

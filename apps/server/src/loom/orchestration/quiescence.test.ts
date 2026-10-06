@@ -5,6 +5,7 @@
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, EventId, MessageId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationV2Run } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
@@ -21,7 +22,7 @@ import {
   spawnChild,
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { quiescenceCandidate } from "./quiescence.ts";
+import { quiescenceCandidate, turnStartedByHuman } from "./quiescence.ts";
 
 const createdAt = "2026-01-01T00:00:00.000Z";
 const parent = ThreadId.make("quiet-parent");
@@ -49,7 +50,7 @@ const candidateAfter = Effect.fn("test.candidateAfter")(function* (
   return quiescenceCandidate({
     shell: (yield* orchestrator.getThreadShell(threadId))!,
     runs: projection.runs,
-    latestUserMessage: projection.messages.findLast((message) => message.role === "user") ?? null,
+    userMessages: projection.messages.filter((message) => message.role === "user"),
     children: yield* (yield* LoomStoreV2).listChildren(threadId),
     now: DateTime.add(ended.at(-1) ?? (yield* DateTime.now), { seconds: 60 }),
     grace,
@@ -168,7 +169,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
         quiescenceCandidate({
           shell: (yield* orchestrator.getThreadShell(held))!,
           runs: projection.runs.filter((run) => run.status !== "queued"),
-          latestUserMessage: null,
+          userMessages: [],
           children: [],
           now: DateTime.add(yield* DateTime.now, { minutes: 1 }),
           grace: minute,
@@ -209,5 +210,54 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
         assert.isFalse(yield* candidateAfter(human, minute));
         assert.isTrue(yield* candidateAfter(human, { ...minute, humanStartedMs: 0 }));
       }),
+  );
+});
+
+/** Runs started by these messages, in order, plus the user messages themselves (DL-482). */
+const turns = (...starters: ReadonlyArray<{ readonly id: string; readonly human: boolean }>) => ({
+  runs: starters.map(
+    (starter, index) =>
+      ({
+        ordinal: index + 1,
+        status: "completed",
+        userMessageId: MessageId.make(starter.id),
+      }) satisfies Pick<OrchestrationV2Run, "ordinal" | "status" | "userMessageId">,
+  ),
+  messages: starters.map((starter) => ({
+    id: MessageId.make(starter.id),
+    loom: { humanAuthored: starter.human },
+  })),
+});
+
+it("turnStartedByHuman: a continuation inherits who started the turn it continues (DL-482)", () => {
+  const human = { id: "composer-1", human: true };
+  const kickoff = { id: "message:server:workstream-kickoff:child", human: false };
+  // Every continuation kind the smoke saw, or that resumes a turn the same way.
+  const continuations = [
+    "message:restart-continuation:run:thread:child:ordinal:1", // upstream restart recovery
+    "message:server:loom:steer-redeliver:child:60e68b8e0a37c6e0", // 3b's stashed-steer redelivery
+    "message:server:loom:reroute:child:run:thread:child:ordinal:1", // 3c's reroute resume
+    "message:server:loom:reroute-back:child:1791278009512:run:thread:child:ordinal:2",
+    "message:server:loom:limit-resume:child:run:thread:child:ordinal:1",
+    "limit-resume:child:run:thread:child:ordinal:1", // upstream's usage-limit recovery
+  ].map((id) => ({ id, human: false }));
+  for (const continuation of continuations) {
+    const afterHuman = turns(human, continuation);
+    assert.isTrue(turnStartedByHuman(afterHuman.runs, afterHuman.messages), continuation.id);
+    const afterKickoff = turns(kickoff, continuation);
+    assert.isFalse(turnStartedByHuman(afterKickoff.runs, afterKickoff.messages), continuation.id);
+  }
+  // The smoke's step 17 chain: human turn → restart continuation → redelivered steer.
+  const chain = turns(human, continuations[0]!, continuations[1]!);
+  assert.isTrue(turnStartedByHuman(chain.runs, chain.messages));
+  // A new control start after a human turn is control-started; a queued run started nothing.
+  const notify = turns(human, { id: "message:server:workstream-notify:record", human: false });
+  assert.isFalse(turnStartedByHuman(notify.runs, notify.messages));
+  const queued = turns(human, kickoff);
+  assert.isTrue(
+    turnStartedByHuman(
+      queued.runs.map((run) => (run.ordinal === 2 ? { ...run, status: "queued" as const } : run)),
+      queued.messages,
+    ),
   );
 });

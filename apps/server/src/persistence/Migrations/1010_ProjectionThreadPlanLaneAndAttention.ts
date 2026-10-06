@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Three-axis state model (.plans/workstream-state-model-design.md): the single
 // conflated `status` column is split into a plan lane (intent) and an attention

@@ -36,20 +36,32 @@ is **not** seeded, and the UI will show an empty database.
 
 ```sh
 mkdir -p "$SEED_HOME"
-T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/seedWorkstream.ts
+T3CODE_HOME="$SEED_HOME" vp run dev:seed
 ```
 
-This populates an orchestrator + 5 coder sub-threads (multi-turn rework coder,
-shared-isolation child, cancelled child) with real git checkpoint refs, and
-`git init`s the orchestrator's own worktree so the Diff surface is reachable.
-The fixture checkouts land under `$SEED_HOME/worktrees/seed-workspace/` — that
-location is load-bearing, not cosmetic: the foreign-home guard (below) decides
-provenance from whether any recorded worktree path sits inside the running
-home's `worktreesDir`, so a seed rooted anywhere else would boot the instance
-read-only. Optionally prove the read model and a per-turn diff without the UI:
+This writes a Loom workstream through the real V2 orchestrator (upstream and
+Loom commands, never SQL): a goal with a nested task tree and, under one
+project, an orchestrator root anchored to it; a done coder with a report; a
+gated coder/reviewer pair mid-round (the reviewer looped findings, the coder
+holds rework round 1); a quiescent researcher (synthesised report, attention
+`awaiting_orchestrator`) with a blocked dependent; an unbriefed child; a
+cancelled lead with its own cancelled grandchild; a root holding a stored
+`needs_guidance`; and a staged (`held`) root with a kickoff brief. The root
+carries one control card of each seam-6 kind (a digest with every item kind, a
+synthesised yield, one notice per notice kind). Turns run against an in-process
+stub adapter, so every started thread has real checkpoint refs (the Diff
+surface) and the seed leaves nothing for a provider: booting a server on this
+home starts no pi. The shared checkout lands under
+`$SEED_HOME/worktrees/seed-workspace/` — that location is load-bearing, not
+cosmetic: the foreign-home guard (below) decides provenance from whether any
+recorded worktree path sits inside the running home's `worktreesDir`, so a seed
+rooted anywhere else would boot the instance read-only. Prove the read model —
+every thread's column and attention, the control cards, a checkpoint ref per
+started thread, an empty outbox and nothing the control plane's dispatcher pass
+would send on boot, now or a day later — without the UI:
 
 ```sh
-T3CODE_HOME="$SEED_HOME" node apps/server/src/dev/verifySeed.ts
+T3CODE_HOME="$SEED_HOME" vp run dev:seed:verify
 ```
 
 ## 2. Start the dev stack (backgrounded, logged)
@@ -121,24 +133,32 @@ fails or the token is spent, mint another without restarting:
 T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
 ```
 
-## 5. Verify the "By coder" diff dropdown
+## 5. Verify the seeded workstream
 
-1. Open the **Seed Fixture Project → "Deliver diff-panel fixture"** orchestrator
-   thread. Its header should show **Git actions** (Commit), confirming the
-   worktree is a repo — if it shows "Initialize Git", the Diff surface is gated
-   off and the seed's orchestrator `git init` did not run.
-2. Bottom of the right panel: **Add panel surface → Diff**. (The Diff item is
-   disabled unless the active thread's worktree is a git repo.)
-3. Click the diff-scope dropdown (top-left of the diff panel, labelled with the
-   current scope e.g. "Branch changes"). The menu must open — this is the exact
-   Base UI composition that previously crashed.
-4. Confirm the **By coder** section lists the seeded coders with badges:
-   `approximate` on the shared-isolation coder, `not merged` on the cancelled
-   one, and `+adds -dels` counts on each.
-5. Hover the multi-turn coder ("Parser with rework") to open its **per-turn
-   submenu** (All turns / Turn 3 / Turn 2 / Turn 1).
-6. Select a turn and confirm a **non-empty diff** renders (e.g. `parser.ts -1
-+1`).
+1. Open the **Seed Fixture Project → "Deliver the workstream fixture"**
+   orchestrator thread. Its header should show **Git actions** (Commit),
+   confirming the shared checkout is a repo — if it shows "Initialize Git", the
+   Diff surface is gated off and the seed's `git init` did not run.
+2. Its timeline carries the seeded control messages (digest, synthesised
+   yield, one per notice kind), and the right panel's **Lineage** lists its
+   children.
+3. The client state holds the goal and every thread's `workstream`: the shell
+   cache in IndexedDB (`t3code:connection-runtime` → `shell`) mirrors it, so a
+   `browser_evaluate` that reads that store and prints `snapshot.goals` and each
+   thread's `workstream` is a quick check.
+4. On first visit the root opens the **Workstream** board with a **Graph** tab
+   beside it (the one-shot auto-open; a child opens them from the panel
+   launcher, `W` / `N`). The board shows held (the staged root), blocked,
+   in progress, done and cancelled; the seed has no ready thread, so untick
+   "Survey checkpoint refs" under "Document checkpoint refs" → Waits on to see
+   Ready. The Graph shows the gated pair's loop edge with its `⟲ 1/2` badge.
+5. Cards, the strip and the timeline drawer show each thread's spend, and the
+   Usage page's **Cost** tab lists **Top threads by cost** — from a
+   deterministic fixture ledger until track 3c's usage ledger is wired
+   (`apps/server/src/loom/economics/LoomUsageLedger.fixture.ts`). The timeline
+   drawer also shows the thread's context-window chip. **Fixture follow-through
+   (staged)** shows the staged kickoff card; do not press Launch on a seeded
+   instance — it starts a real pi turn.
 
 ## 6. Clean up
 

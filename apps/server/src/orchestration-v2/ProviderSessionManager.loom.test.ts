@@ -16,9 +16,10 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
-import { HttpServer } from "effect/unstable/http";
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 
+import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
@@ -26,8 +27,11 @@ import {
   LoomSessionComposerError,
   type LoomOpenSessionFields,
 } from "../loom/prompt/sessionComposer.ts";
+import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
+import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
@@ -236,5 +240,24 @@ it.effect("fails the open, before the adapter runs, when composition fails", () 
       LoomSessionComposerError,
     );
     assert.lengthOf(opens, 0);
+  }),
+);
+
+it.effect("hands the production composer's prompt, extension and env to the adapter", () =>
+  Effect.gen(function* () {
+    const { exit, opens } = yield* openWith(
+      LoomSessionComposerLive.pipe(
+        Layer.provide(SqlitePersistenceMemory),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-composer-psm-" })),
+        Layer.provide(ServerSettings.layerTest({ rootCacheRetention: "long" })),
+        Layer.provide(NodeServices.layer),
+        Layer.orDie,
+      ),
+    );
+    assert.isTrue(Exit.isSuccess(exit));
+    const loom = opens[0]?.loom;
+    assert.isTrue(loom?.appendSystemPrompt.startsWith(WORK_MODEL_ADDENDUM));
+    assert.lengthOf(loom?.extensions ?? [], 1);
+    assert.deepEqual(loom?.env, { PI_CACHE_RETENTION: "long" });
   }),
 );

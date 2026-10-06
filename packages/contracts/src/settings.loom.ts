@@ -11,6 +11,7 @@
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
@@ -62,22 +63,60 @@ export const WorkstreamModelProfile = Schema.Struct({
 });
 export type WorkstreamModelProfile = typeof WorkstreamModelProfile.Type;
 
-// Cross-provider subscription-exhaustion failover (tier 2). Sparse, defaulted
-// — no migration. `chains` is optional (absent ⇒ use built-in default chains,
-// which live server-side); keys are exact slugs ("anthropic/claude-fable-5") or
-// namespace wildcards ("openai-codex/*"), values ordered target slugs.
-// `pausedAccounts` are account keys (providerInstanceId ?? providerName) the
-// user has soft-paused — treated as exhausted account-wide indefinitely.
-export const ProviderFailoverSettings = Schema.Struct({
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  resumeOnReset: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  chains: Schema.optional(
-    Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
-  ),
-  pausedAccounts: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
+// Cross-vendor reroute (pull 9 Phase 3, 3c-2): when a pi thread's vendor has no
+// healthy account, Loom moves it onto ONE fallback model of another vendor
+// (`fallbackTarget`, a pi slug such as "cliproxy/claude-opus-5-5"); null ⇒ no
+// reroute, the thread parks until its window resets. Resume-on-reset is
+// upstream's `autoResumeLimitedThreads`; the chain editor and pause are gone.
+const ProviderFailoverSettingsFields = Schema.Struct({
+  enabled: Schema.Boolean,
+  fallbackTarget: Schema.NullOr(TrimmedNonEmptyString),
 });
+
+const slugNamespace = (slug: string) => slug.split("/", 1)[0];
+
+/**
+ * The single target a stored V1 `chains` map collapses to: the first chain
+ * entry, in stored order, that is a concrete slug (a `<m>`, bare-namespace or
+ * `/*` entry needs the exhausted model's id, which a setting cannot know) of a
+ * different vendor than its chain's key; null when there is none.
+ */
+export const fallbackTargetFromChains = (
+  chains: Readonly<Record<string, ReadonlyArray<string>>>,
+): string | null =>
+  Object.entries(chains)
+    .flatMap(([key, targets]) => targets.map((target) => ({ key, target: target.trim() })))
+    .find(
+      ({ key, target }) =>
+        /^[^/]+\/[^*]/.test(target) &&
+        !target.includes("<m>") &&
+        slugNamespace(target) !== slugNamespace(key),
+    )?.target ?? null;
+
+// What settings.json may hold: the current keys, or V1's stored `chains`, read
+// once and folded into `fallbackTarget` (settings.json has no migration ledger).
+// V1's `resumeOnReset` and `pausedAccounts` are stripped as excess keys.
+const StoredProviderFailoverSettings = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  fallbackTarget: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  chains: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
+});
+
+export const ProviderFailoverSettings = StoredProviderFailoverSettings.pipe(
+  Schema.decodeTo(
+    ProviderFailoverSettingsFields,
+    SchemaTransformation.transform({
+      decode: (stored) => ({
+        enabled: stored.enabled ?? true,
+        fallbackTarget:
+          stored.fallbackTarget !== undefined
+            ? stored.fallbackTarget
+            : fallbackTargetFromChains(stored.chains ?? {}),
+      }),
+      encode: (settings) => settings,
+    }),
+  ),
+);
 export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
 
 // Thread-search embedding provider (plans/thread-content-search). One vector per
@@ -152,7 +191,7 @@ export const LoomClientSettingsPatchFields = {
 // Spread into `ServerSettings`.
 export const LoomServerSettingsFields = {
   // Named model presets for Workstream spawns. Keyed by a plain slug; the
-  // value is a full `ModelSelection`. `workstream_spawn` resolves a preset by
+  // value is a full `ModelSelection`. `mcp__t3-code__workstream_spawn` resolves a preset by
   // explicit `modelPreset` name, or — when neither model field is given — by
   // the child's `role` (a preset named after the role). Default empty so
   // existing spawns inherit the parent's selection exactly as before.
@@ -179,6 +218,14 @@ export const LoomServerSettingsFields = {
       Effect.succeed({ provider: "local" as const, model: "Xenova/bge-small-en-v1.5" }),
     ),
   ),
+  // Quiescence as completion (pull 9 Phase 3b): a started Loom child idle this
+  // long after a control-started turn (kickoff, wake, the parent's prompt) gets
+  // a synthesised report and yields to its parent.
+  quiescenceGraceMs: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(600_000))),
+  // The same for a turn a human started; null = never (a human is in the loop).
+  quiescenceHumanGraceMs: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 } as const;
 
 // Spread into `ServerSettingsPatch`.
@@ -192,20 +239,13 @@ export const LoomServerSettingsPatchFields = {
   ),
   // Whole-value replacement: the union's fields depend on `provider`.
   threadSearchEmbedding: Schema.optionalKey(ThreadSearchEmbeddingSettings),
-  // Shallow-merged into current (see applyServerSettingsPatch): scalar toggles
-  // replace when present; `chains`/`pausedAccounts` replace wholesale (the UI
-  // sends complete values), so a partial per-key merge has no coherent meaning.
+  quiescenceGraceMs: Schema.optionalKey(Schema.Number),
+  quiescenceHumanGraceMs: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  // Shallow-merged into current (see applyServerSettingsPatch): each key replaces when present.
   providerFailover: Schema.optionalKey(
     Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean),
-      resumeOnReset: Schema.optionalKey(Schema.Boolean),
-      // `optional`, not `optionalKey`: the settings-side `chains` is itself
-      // optional, so a caller spreading the current value through the patch
-      // (FailoverSettingsCard) legitimately carries an explicit undefined.
-      chains: Schema.optional(
-        Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
-      ),
-      pausedAccounts: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+      fallbackTarget: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
     }),
   ),
 } as const;

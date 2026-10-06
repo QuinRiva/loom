@@ -24,6 +24,8 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
+import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
+import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
 /**
  * A single previewable case. `render` returns the component already wrapped in
@@ -383,7 +385,7 @@ const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 
 // loom: guards the `thread:` sanitiser allow-list — without it the mention
 // renders as an href-less `<a>` that does nothing on click.
-const THREAD_MENTION_MARKDOWN = `Ask [Use the ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
+const THREAD_MENTION_MARKDOWN = `Ask [Use the mcp__t3-code__ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
 
 A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
 `;
@@ -500,7 +502,7 @@ function userBubbleFixture(
 
 // ---------------------------------------------------------------------------
 // Pending user-input panel — upstream's composer question wizard, driven by pi's
-// `ask_user_question`. One question at a time, Next/Submit on the last, and a
+// `mcp__t3-code__ask_user_question`. One question at a time, Next/Submit on the last, and a
 // Dismiss affordance whenever the request declares itself dismissible.
 // ---------------------------------------------------------------------------
 
@@ -1278,6 +1280,8 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       subscriptionMeterFixture(METER_FIXTURE_STATES[1]!, "tokenFiles"),
     ],
   },
+  ...LOOM_PREVIEW_GROUPS, // loom: 3d-3 control cards, timeline rows, goal panel
+  WORKSTREAM_PREVIEW_GROUP,
 ];
 
 export const PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = PREVIEW_GROUPS.flatMap(

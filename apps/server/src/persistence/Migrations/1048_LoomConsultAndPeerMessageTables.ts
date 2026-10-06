@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Pull 9 Phase 2 §5 (D12): V1's consult and peer-message edge tables renamed in
 // place. Upstream's importer preserves thread ids, so the history stays valid.

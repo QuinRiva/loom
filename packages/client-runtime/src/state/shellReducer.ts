@@ -1,10 +1,14 @@
-import type {
-  OrchestrationProjectShell,
-  OrchestrationV2ShellSnapshot,
-  OrchestrationV2ShellStreamItem,
+import {
+  OrchestrationV2ThreadShell,
+  type OrchestrationProjectShell,
+  type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ShellStreamItem,
 } from "@t3tools/contracts";
 import { isLoomGoalShellStreamItem } from "@t3tools/contracts"; // loom:
 import { applyLoomGoalItem } from "./shellGoals.loom.ts"; // loom:
+import * as Schema from "effect/Schema";
+
+const sameThreadShell = Schema.toEquivalence(OrchestrationV2ThreadShell);
 
 function upsertById<T extends { readonly id: unknown }>(
   items: ReadonlyArray<T>,
@@ -84,6 +88,8 @@ export function mergeShellSnapshotProjects(
   const previousById = new Map(previous.projects.map((project) => [project.id, project] as const));
   return {
     ...next,
+    // loom: a snapshot without `goals` (an unflagged or older server) keeps the goals already held
+    ...(next.goals === undefined && previous.goals !== undefined ? { goals: previous.goals } : {}),
     projects: next.projects.map((project) => {
       const prior = previousById.get(project.id);
       if (resolvedRootSet?.has(project.workspaceRoot) === true) {
@@ -127,6 +133,15 @@ export function applyShellStreamEvent(
         snapshotSequence: event.sequence,
       };
     case "thread.updated": {
+      // An unchanged shell keeps its object and the list, so subscribers that
+      // compare by reference skip the update. Only the cursor moves.
+      const existing =
+        event.location === "active"
+          ? snapshot.threads.find((thread) => thread.id === event.thread.id)
+          : undefined;
+      if (existing !== undefined && sameThreadShell(existing, event.thread)) {
+        return { ...snapshot, snapshotSequence: event.sequence };
+      }
       const withoutThread = (threads: OrchestrationV2ShellSnapshot["threads"]) =>
         threads.filter((thread) => thread.id !== event.thread.id);
       return {

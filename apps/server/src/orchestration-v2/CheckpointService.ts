@@ -13,13 +13,14 @@ import * as NodeCrypto from "node:crypto";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Base64Url from "effect/encoding/Base64Url";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { parseTurnDiffFilesFromNumstat } from "../checkpointing/Diffs.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
 import * as IdAllocator from "./IdAllocator.ts";
 
 const CHECKPOINT_REFS_PREFIX = "refs/t3/orchestration-v2/checkpoints";
@@ -163,7 +164,22 @@ export function checkpointRefForScopeOrdinal(input: {
 }): CheckpointRef {
   const scopeKey = NodeCrypto.createHash("sha256").update(input.scopeId).digest("hex").slice(0, 32);
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(scopeKey)}/ordinal/${input.ordinalWithinScope}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Base64Url.encode(scopeKey)}/ordinal/${input.ordinalWithinScope}`,
+  );
+}
+
+// loom: (P3-17) a Loom thread's start-of-run tree, written at every captureBaseline even when
+// upstream reuses the previous run's checkpoint (which, in a shared checkout, holds sibling
+// edits made between this thread's runs). Keyed like the upstream ref it sits beside: the
+// ordinal is the baseline ordinal (run ordinal - 1); the scope id is hashed (it contains ':').
+const LOOM_BASELINE_REFS_PREFIX = "refs/t3/loom-baseline";
+export function loomBaselineRef(input: {
+  readonly scopeId: CheckpointScopeId;
+  readonly ordinalWithinScope: number;
+}): CheckpointRef {
+  const scopeKey = NodeCrypto.createHash("sha256").update(input.scopeId).digest("hex").slice(0, 32);
+  return CheckpointRef.make(
+    `${LOOM_BASELINE_REFS_PREFIX}/${Base64Url.encode(scopeKey)}/${input.ordinalWithinScope}`,
   );
 }
 
@@ -242,12 +258,13 @@ function makeCheckpoint(input: {
 export const layer: Layer.Layer<
   CheckpointServiceV2,
   never,
-  CheckpointStore.CheckpointStore | IdAllocator.IdAllocatorV2
+  CheckpointStore.CheckpointStore | IdAllocator.IdAllocatorV2 | LoomStoreV2 // loom:
 > = Layer.effect(
   CheckpointServiceV2,
   Effect.gen(function* () {
     const checkpointStore = yield* CheckpointStore.CheckpointStore;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    const loomStore = yield* LoomStoreV2; // loom:
     const workspaceLocks = yield* KeyedLock.make<string>();
     const withWorkspaceLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
       workspaceLocks.withLock(cwd, effect);
@@ -263,6 +280,20 @@ export const layer: Layer.Layer<
         Effect.gen(function* () {
           if (!(yield* isGitCheckpointable(input.scope.cwd))) {
             return;
+          }
+          // loom: (P3-17) a Loom thread always snapshots its own start-of-run tree; upstream's logic follows unchanged.
+          if (
+            (yield* loomStore
+              .getWorkstream(input.scope.threadId)
+              .pipe(Effect.orElseSucceed(() => null))) !== null
+          ) {
+            yield* checkpointStore.captureCheckpoint({
+              cwd: input.scope.cwd,
+              checkpointRef: loomBaselineRef({
+                scopeId: input.scope.id,
+                ordinalWithinScope: input.ordinalWithinScope,
+              }),
+            });
           }
 
           const checkpointRef = checkpointRefForScopeOrdinal({
@@ -419,10 +450,24 @@ export const layer: Layer.Layer<
             });
           }
 
+          // loom: (P3-17) diff from this run's Loom start-of-run baseline when one was written.
+          const loomBaseline = loomBaselineRef({
+            scopeId: input.scope.id,
+            ordinalWithinScope: Math.max(0, input.ordinalWithinScope - 1),
+          });
+          const diffBaseRef =
+            (yield* loomStore
+              .getWorkstream(input.scope.threadId)
+              .pipe(Effect.orElseSucceed(() => null))) !== null &&
+            (yield* checkpointStore
+              .hasCheckpointRef({ cwd: input.scope.cwd, checkpointRef: loomBaseline })
+              .pipe(Effect.orElseSucceed(() => false)))
+              ? loomBaseline
+              : previousCheckpointRef;
           const previousExists = yield* checkpointStore
             .hasCheckpointRef({
               cwd: input.scope.cwd,
-              checkpointRef: previousCheckpointRef,
+              checkpointRef: diffBaseRef, // loom:
             })
             .pipe(
               Effect.catch((cause) =>
@@ -437,7 +482,7 @@ export const layer: Layer.Layer<
             ? yield* checkpointStore
                 .diffCheckpoints({
                   cwd: input.scope.cwd,
-                  fromCheckpointRef: previousCheckpointRef,
+                  fromCheckpointRef: diffBaseRef, // loom:
                   toCheckpointRef: checkpointRef,
                   fallbackFromToHead: false,
                   ignoreWhitespace: false,

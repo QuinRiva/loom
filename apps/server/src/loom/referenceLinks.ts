@@ -12,7 +12,7 @@
 import type { ProjectId, ServerConfig } from "@t3tools/contracts";
 import { resolveReferenceLinks } from "@t3tools/shared/t3codeConfig";
 import * as Effect from "effect/Effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 export const loadProjectReferenceLinks = (sql: SqlClient.SqlClient) =>
   sql<{ readonly projectId: ProjectId; readonly workspaceRoot: string }>`

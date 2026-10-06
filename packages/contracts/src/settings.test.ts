@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { PI_DEFAULT_MODEL } from "./model.ts"; // loom: pi is the fork's default provider
+import type { ProjectId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -117,6 +118,32 @@ describe("ServerSettings restart continuation", () => {
     const optOut = { continueThreadsAfterServerUpdate: false };
     expect(decodeServerSettingsPatch(optOut)).toEqual(optOut);
     expect(decodeServerSettings(optOut).continueThreadsAfterServerUpdate).toBe(false);
+  });
+});
+
+// loom: upstream's limit recovery is Loom's park-and-resume, so it is on unless opted out (P3-11).
+describe("ServerSettings limited-thread auto-resume", () => {
+  it("defaults auto-resume on for loom", () => {
+    expect(decodeServerSettings({}).autoResumeLimitedThreads).toBe(true);
+    expect(decodeServerSettings({ autoResumeLimitedThreads: false }).autoResumeLimitedThreads).toBe(
+      false,
+    );
+  });
+});
+
+// loom: quiescence graces (pull 9 Phase 3b) — 10 min for control-started turns, never for a human's.
+describe("ServerSettings quiescence graces", () => {
+  it("defaults to a 10-minute control grace and no human grace", () => {
+    expect(decodeServerSettings({}).quiescenceGraceMs).toBe(600_000);
+    expect(decodeServerSettings({}).quiescenceHumanGraceMs).toBeNull();
+  });
+
+  it("round-trips both through a patch", () => {
+    const patch = { quiescenceGraceMs: 60_000, quiescenceHumanGraceMs: 3_600_000 };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(decodeServerSettingsPatch({ quiescenceHumanGraceMs: null })).toEqual({
+      quiescenceHumanGraceMs: null,
+    });
   });
 });
 
@@ -1216,10 +1243,10 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("branch naming settings", () => {
-  it("defaults existing settings to the t3code static prefix", () => {
+  it("defaults existing settings to the t3 static prefix", () => {
     expect(decodeServerSettings({})).toMatchObject({
       branchNamingMode: "static",
-      branchNamePrefix: "t3code",
+      branchNamePrefix: "t3",
       branchNameInstructions: "",
     });
   });
@@ -1236,4 +1263,18 @@ describe("branch naming settings", () => {
       expect(decodeServerSettingsPatch(input)).toEqual(input);
     },
   );
+});
+
+describe("ServerSettings.removeAgentCreditsOnMerge", () => {
+  it("keeps agent credits by default and accepts opt-in patches", () => {
+    expect(decodeServerSettings({}).removeAgentCreditsOnMerge).toBe(false);
+    expect(
+      decodeServerSettingsPatch({ removeAgentCreditsOnMerge: true }).removeAgentCreditsOnMerge,
+    ).toBe(true);
+    expect(
+      decodeServerSettings({
+        projectSettingsOverrides: { project: { removeAgentCreditsOnMerge: true } },
+      }).projectSettingsOverrides["project" as ProjectId]?.removeAgentCreditsOnMerge,
+    ).toBe(true);
+  });
 });

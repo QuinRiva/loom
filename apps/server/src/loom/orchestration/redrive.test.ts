@@ -16,7 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { vi } from "vite-plus/test";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -29,7 +29,8 @@ import {
   seedThread,
   spawnChild,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { fixedGateLeg, planReDrive, runReDrivePass } from "./redrive.ts";
+import { makeGateLegComposer } from "./dispatcher/gateLegs.ts";
+import { dispatchServerCommand, planReDrive, runReDrivePass } from "./redrive.ts";
 
 // The recording wrapper around upstream's KeyedLock (ThreadCommandExecutor's
 // implementation): a fiber-local list of held (lock, key) pairs.
@@ -104,7 +105,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom re-drive", (it) => {
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;
         const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const pass = runReDrivePass(fixedGateLeg);
+        const pass = runReDrivePass(makeGateLegComposer(new Map()), dispatchServerCommand);
         yield* seedThread({ threadId: A });
         yield* spawnChild({ parentThreadId: A, threadId: B });
         yield* spawnChild({ parentThreadId: B, threadId: C });
@@ -213,7 +214,9 @@ describe("planReDrive episode rules", () => {
     ...patch,
   });
   const ids = (rows: ReadonlyArray<LoomThreadWorkstream>) =>
-    planReDrive({ rows, now: at(59), gateLeg: fixedGateLeg }).map((command) => command.commandId);
+    planReDrive({ rows, now: at(59), gateLeg: makeGateLegComposer(new Map()) }).map(
+      (command) => command.commandId,
+    );
 
   it("an episode without a stamp (an imported row) re-drives nothing", () => {
     assert.deepEqual(

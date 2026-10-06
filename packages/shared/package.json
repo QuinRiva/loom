@@ -123,6 +123,10 @@
       "types": "./src/toolOutput.ts",
       "import": "./src/toolOutput.ts"
     },
+    "./htmlRender": {
+      "types": "./src/htmlRender.ts",
+      "import": "./src/htmlRender.ts"
+    },
     "./favicon": {
       "types": "./src/favicon.ts",
       "import": "./src/favicon.ts"
@@ -418,6 +422,10 @@
     "./workstreamDependencies": {
       "types": "./src/workstreamDependencies.ts",
       "import": "./src/workstreamDependencies.ts"
+    },
+    "./loomSeedFixture.loom": {
+      "types": "./src/loomSeedFixture.loom.ts",
+      "import": "./src/loomSeedFixture.loom.ts"
     },
     "./workstreamStart.loom": {
       "types": "./src/workstreamStart.loom.ts",

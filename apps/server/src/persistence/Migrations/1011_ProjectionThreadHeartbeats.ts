@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Liveness heartbeat: a per-thread "last runtime activity at" timestamp that
 // advances on ANY runtime event (assistant/reasoning token deltas, tool

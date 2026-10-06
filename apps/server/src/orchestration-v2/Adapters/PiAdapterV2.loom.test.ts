@@ -1,15 +1,23 @@
+// @effect-diagnostics nodeBuiltinImport:off
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
 // reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
-// turn's pi-priced costUsd. Phase 3c appends its cases here.
+// turn's pi-priced costUsd. Phase 3c: a pi quota error ends the turn as usage_limit with a reset
+// time that satisfies upstream's limit-recovery arm (3c-1).
 //
 // A minimal in-process `pi --mode rpc` (the same technique as PiAdapterV2.test.ts's fake, which
 // is not exported): every request is recorded and auto-acknowledged, and the test pushes events.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   NodeId,
   ProviderInstanceId,
   ProviderSessionId,
+  type ProviderTurnId,
   RunAttemptId,
   RunId,
   ThreadId,
@@ -23,9 +31,21 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
+
+import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
 
 import * as ServerConfig from "../../config.ts";
+import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
+import * as PendingSteering from "../../loom/steering/pendingSteering.ts";
+import {
+  LoomPiAdapterHooks,
+  type LoomPiAdapterHooksShape,
+} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
+import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
+import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
   type LoomOpenSessionFields,
@@ -89,6 +109,12 @@ const makeFakePi = Effect.gen(function* () {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
   const requests: Array<PiRpcRecord> = [];
   const spawns: Array<ReadonlyArray<string>> = [];
+  // The session file's bytes at the moment each switch_session frame reached pi.
+  const switchedFiles: Array<string | null> = [];
+  // While set, pi refuses steer prompts (the id-less `prompt` response with success false).
+  // After answering the n-th steer the fake streams a usage frame of n tokens, so a test that
+  // sees that frame's provider_turn.updated knows the adapter has processed the answer.
+  const steers = { reject: false, answered: 0 };
   const emit = (record: PiRpcRecord) =>
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
@@ -106,13 +132,28 @@ const makeFakePi = Effect.gen(function* () {
             (line) => {
               const record = JSON.parse(line) as PiRpcRecord;
               requests.push(record);
+              if (record["type"] === "switch_session") {
+                const path = String(record["sessionPath"]);
+                switchedFiles.push(
+                  NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
+                );
+              }
+              const steer = record["streamingBehavior"] === "steer";
+              const refused = steer && steers.reject;
               return emit({
                 type: "response",
                 id: record["id"],
                 command: String(record["type"]),
-                success: true,
+                success: !refused,
+                ...(refused ? { error: "steer refused" } : {}),
                 data: RPC_DATA[String(record["type"])],
-              });
+              }).pipe(
+                Effect.andThen(
+                  steer
+                    ? emit({ type: "message_update", usage: { totalTokens: ++steers.answered } })
+                    : Effect.void,
+                ),
+              );
             },
             { discard: true },
           ),
@@ -125,10 +166,13 @@ const makeFakePi = Effect.gen(function* () {
       });
     }),
   );
-  return { spawner, emit, requests, spawns };
+  return { spawner, emit, requests, spawns, switchedFiles, steers };
 });
 
-const openRuntime = Effect.fnUntraced(function* (loom?: LoomOpenSessionFields) {
+const openRuntime = Effect.fnUntraced(function* (
+  loom?: LoomOpenSessionFields,
+  hooks?: LoomPiAdapterHooksShape,
+) {
   const fake = yield* makeFakePi;
   const adapter = makePiAdapterV2({
     instanceId: PI_INSTANCE_ID,
@@ -138,6 +182,7 @@ const openRuntime = Effect.fnUntraced(function* (loom?: LoomOpenSessionFields) {
     fileSystem: yield* FileSystem.FileSystem,
     idAllocator: yield* IdAllocator.IdAllocatorV2,
     serverConfig: yield* ServerConfig.ServerConfig,
+    ...(hooks === undefined ? {} : { loom: hooks }),
   });
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
@@ -210,6 +255,27 @@ describe("PiAdapterV2 (loom)", () => {
     assert.deepEqual(launch(EMPTY_LOOM_OPEN_SESSION_FIELDS), launch());
   });
 
+  it("merges the composer env over the inherited env without shadowing T3's own variables", () => {
+    const { env } = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { PI_CACHE_RETENTION: "long", PATH: "/bin" },
+      mcpSession: {
+        environmentId: EnvironmentId.make("environment-loom-env"),
+        threadId: ThreadId.make("thread-loom-env"),
+        providerSessionId: "mcp-session-loom-env",
+        providerInstanceId: ProviderInstanceId.make("pi"),
+        endpoint: "http://127.0.0.1:1/mcp",
+        authorizationHeader: "Bearer real",
+        browserToolsAvailable: false,
+      },
+      extensionPath: "/cache/t3-bridge.ts",
+      loom: { ...LOOM, env: { PI_CACHE_RETENTION: "short", T3_MCP_BEARER_TOKEN: "spoofed" } },
+    });
+    assert.equal(env.PI_CACHE_RETENTION, "short");
+    assert.equal(env.PATH, "/bin");
+    assert.equal(env.T3_MCP_BEARER_TOKEN, "real");
+  });
+
   it.effect("openSession spawns pi with the composed fields", () =>
     Effect.gen(function* () {
       const { fake } = yield* openRuntime(LOOM);
@@ -273,7 +339,17 @@ describe("PiAdapterV2 (loom)", () => {
         yield* fake.emit({ type: "message_update", usage: { totalTokens: 600, input: 500 } });
         yield* fake.emit({
           type: "message_end",
-          message: { role: "assistant", content: [], usage: { cost: { total: cost } } },
+          message: {
+            role: "assistant",
+            content: [],
+            usage: {
+              input: 100,
+              output: 20,
+              cacheRead: 300,
+              cacheWrite: 40,
+              cost: { total: cost },
+            },
+          },
         });
       }
       yield* fake.emit({ type: "agent_settled" });
@@ -295,6 +371,316 @@ describe("PiAdapterV2 (loom)", () => {
       assert.isTrue(live.every((entry) => entry.usage.costUsd === undefined));
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
+      // 3c-3: the turn's own tokens (two messages) in upstream's per-turn slot, not the
+      // session-wide stats; live frames carry none.
+      const turnUsage = turnUpdates.flatMap((event) =>
+        event.type === "provider_turn.updated" && event.providerTurn.turnTokenUsage !== undefined
+          ? [{ status: event.providerTurn.status, usage: event.providerTurn.turnTokenUsage }]
+          : [],
+      );
+      assert.deepEqual(turnUsage, [
+        {
+          status: "completed",
+          usage: {
+            usageScope: "main_agent",
+            usageStatus: "complete",
+            inputTokens: 880,
+            cachedInputTokens: 600,
+            cacheCreationTokens: 80,
+            outputTokens: 40,
+            hasSubagents: false,
+          },
+        },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-1: pi quota errors as upstream's usage_limit ─────────────────────────
+
+const COOLING_DOWN_WITH_RETRY_AFTER = PI_QUOTA_ERROR_TEXTS.find(
+  (entry) => entry.retryAfterMs === 3_639_000 && entry.text.includes("cooling down"),
+)!;
+const ANTHROPIC_SELECTION = { instanceId: PI_INSTANCE_ID, model: "anthropic/claude-opus-5" };
+const WEEKLY_RESET = "2099-01-01T00:00:00.000Z";
+
+/** Loom's live hooks over a real health registry, optionally holding a spent weekly window. */
+const liveHooks = (spentWeekly: boolean) =>
+  Effect.gen(function* () {
+    if (spentWeekly)
+      yield* (yield* ProviderHealthRegistry).applyUsage({
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        windows: [
+          { kind: "secondary", usedPercent: 100, resetsAt: WEEKLY_RESET, windowDurationMins: null },
+        ],
+        observedAt: "2026-10-06T00:00:00.000Z",
+      });
+    return yield* LoomPiAdapterHooks;
+  }).pipe(Effect.provide(LoomProviderHealthLive.pipe(Layer.provide(serverSettingsLayerTest()))));
+
+/** Run one turn that pi fails with `events`, and return what the orchestrator would read. */
+const runFailedTurn = Effect.fnUntraced(function* (
+  hooks: LoomPiAdapterHooksShape | undefined,
+  selection: typeof modelSelection,
+  events: ReadonlyArray<PiRpcRecord>,
+) {
+  const { fake, runtime, events: adapterEvents } = yield* openRuntime(undefined, hooks);
+  const providerThread = yield* runtime.ensureThread({
+    threadId: THREAD_ID,
+    modelSelection: selection,
+    runtimePolicy,
+  });
+  const runId = RunId.make(`run:${THREAD_ID}:quota`);
+  yield* runtime.startTurn({
+    appThread: yield* appThread,
+    threadId: THREAD_ID,
+    runId,
+    runOrdinal: 1,
+    providerTurnOrdinal: 1,
+    attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+    rootNodeId: NodeId.make(`node:${runId}:root`),
+    providerThread,
+    message: {
+      messageId: `message:${THREAD_ID}:quota` as never,
+      text: "Hello pi",
+      attachments: [],
+      createdBy: "user",
+      creationSource: "web",
+    },
+    modelSelection: selection,
+    runtimePolicy,
+  });
+  yield* fake.emit({ type: "agent_start" });
+  for (const event of events) yield* fake.emit(event);
+  yield* fake.emit({ type: "agent_settled" });
+  let providerTurn: Extract<ProviderAdapterV2Event, { type: "provider_turn.updated" }> | undefined;
+  let sessionError: string | null = null;
+  while (true) {
+    const event = yield* Queue.take(adapterEvents);
+    if (event.type === "provider_turn.updated") providerTurn = event;
+    if (event.type === "provider_session.updated") sessionError = event.providerSession.lastError;
+    if (event.type === "turn.terminal")
+      return { terminal: event, providerTurn: providerTurn!, sessionError, runId };
+  }
+});
+
+const modelError = (errorMessage: string): PiRpcRecord => ({
+  type: "message_end",
+  message: { role: "assistant", content: [], stopReason: "error", errorMessage },
+});
+
+describe("PiAdapterV2 (loom) — quota errors", () => {
+  it.effect("a weekly-limit error with no reset in its text arms upstream's limit recovery", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(true);
+      const { terminal, providerTurn, sessionError, runId } = yield* runFailedTurn(
+        hooks,
+        ANTHROPIC_SELECTION,
+        [modelError("weekly limit reached")],
+      );
+      assert.equal(providerTurn.providerTurn.status, "failed");
+      assert.equal(terminal.failure?.class, "usage_limit");
+      assert.equal(terminal.failure?.resetAt, WEEKLY_RESET);
+      assert.equal(terminal.failure?.message, "weekly limit reached"); // upstream's message kept
+
+      // The shell fields upstream derives from this failure, fed to upstream's own arm predicate.
+      const summary = threadErrorSummary(terminal.failure, sessionError);
+      const completedAt = providerTurn.providerTurn.completedAt!;
+      const command = limitRecoveryCommand(
+        {
+          id: THREAD_ID,
+          status: "failed",
+          lastErrorClass: summary.lastErrorClass,
+          latestRunId: runId,
+          usageLimitResetAt: summary.usageLimitResetAt,
+          archivedAt: null,
+          settledOverride: null,
+          pendingRuntimeRequest: null,
+          latestRunCompletedAt: completedAt,
+          updatedAt: completedAt,
+          limitRecovery: null,
+          snoozedUntil: null,
+        },
+        true,
+        DateTime.toEpochMillis(completedAt),
+      );
+      assert.equal(command?.type, "thread.metadata.update");
+      assert.deepEqual(
+        command?.type === "thread.metadata.update" ? command.limitRecovery : undefined,
+        { runId, resetAt: WEEKLY_RESET, autoResume: true, snooze: false },
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("pi's exhausted retries on the proxy's cooling-down 429 reset at its Retry-After", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(false);
+      const before = DateTime.toEpochMillis(yield* DateTime.now);
+      const text = COOLING_DOWN_WITH_RETRY_AFTER.text;
+      const { terminal } = yield* runFailedTurn(hooks, modelSelection, [
+        modelError(text),
+        { type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: text },
+        modelError(text),
+        { type: "auto_retry_end", success: false, attempt: 1, finalError: text },
+      ]);
+      const after = DateTime.toEpochMillis(yield* DateTime.now);
+      assert.equal(terminal.failure?.class, "usage_limit");
+      const resetMs = Date.parse(terminal.failure!.resetAt!);
+      assert.isAtLeast(resetMs, before + 3_639_000);
+      assert.isAtMost(resetMs, after + 3_639_000);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("a non-quota model error stays provider_error", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(true);
+      const { terminal } = yield* runFailedTurn(hooks, ANTHROPIC_SELECTION, [
+        modelError('400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"}}'),
+      ]);
+      assert.equal(terminal.failure?.class, "provider_error");
+      assert.isUndefined(terminal.failure?.resetAt);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("the default hooks leave upstream's classification unchanged", () =>
+    Effect.gen(function* () {
+      const { terminal } = yield* runFailedTurn(undefined, ANTHROPIC_SELECTION, [
+        modelError(COOLING_DOWN_WITH_RETRY_AFTER.text),
+      ]);
+      assert.equal(terminal.failure?.class, "provider_error");
+      assert.isUndefined(terminal.failure?.resetAt);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-2: the codex→Anthropic session sanitiser on resume ───────────────────
+
+const CODEX_HISTORY = [
+  JSON.stringify({ type: "session", version: 3, id: "s1", cwd: THREAD_CWD }),
+  JSON.stringify({
+    type: "message",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call_abc|fc_123", name: "read", arguments: {} }],
+    },
+  }),
+  JSON.stringify({
+    type: "message",
+    message: { role: "toolResult", toolCallId: "call_abc|fc_123", content: [] },
+  }),
+].join("\n");
+
+/** Resume a codex-history session file under `model` and return what pi loaded. */
+const resumeCodexHistoryUnder = Effect.fnUntraced(function* (model: string) {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-pi-resume-"));
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+  );
+  const sessionFile = NodePath.join(dir, "0001_codex.jsonl");
+  NodeFS.writeFileSync(sessionFile, CODEX_HISTORY);
+  const { fake, runtime } = yield* openRuntime(undefined, yield* liveHooks(false));
+  const providerThread = yield* runtime.ensureThread({
+    threadId: THREAD_ID,
+    modelSelection,
+    runtimePolicy,
+  });
+  yield* runtime.resumeThread({
+    providerThread: {
+      ...providerThread,
+      nativeThreadRef: { ...providerThread.nativeThreadRef!, nativeId: sessionFile },
+    },
+    modelSelection: { instanceId: PI_INSTANCE_ID, model },
+  });
+  assert.lengthOf(fake.switchedFiles, 1);
+  return fake.switchedFiles[0]!;
+});
+
+describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
+  it.effect("an Anthropic-family resume loads a file already rid of codex tool ids", () =>
+    Effect.gen(function* () {
+      const loaded = yield* resumeCodexHistoryUnder("cliproxy/claude-opus-5-5");
+      assert.notInclude(loaded, "|");
+      assert.include(loaded, "call_abc_fc_123");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("a codex resume leaves the file untouched", () =>
+    Effect.gen(function* () {
+      assert.equal(yield* resumeCodexHistoryUnder("openai-codex/gpt-6.1-sol"), CODEX_HISTORY);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-3: accepted steers are stashed until their turn ends (seam 20) ────────
+
+describe("PiAdapterV2 (loom) — steer stash", () => {
+  it.effect("stashes each steer pi accepts, in order, and clears the stash at turn end", () =>
+    Effect.gen(function* () {
+      const { fake, runtime, events } = yield* openRuntime(undefined, yield* liveHooks(false));
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection,
+        runtimePolicy,
+      });
+      const runId = RunId.make(`run:${THREAD_ID}:steer`);
+      const message = (text: string) => ({
+        messageId: `message:${THREAD_ID}:${text}` as never,
+        text,
+        attachments: [],
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+      });
+      yield* runtime.startTurn({
+        appThread: yield* appThread,
+        threadId: THREAD_ID,
+        runId,
+        runOrdinal: 1,
+        providerTurnOrdinal: 1,
+        attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+        rootNodeId: NodeId.make(`node:${runId}:root`),
+        providerThread,
+        message: message("Hello pi"),
+        modelSelection,
+        runtimePolicy,
+      });
+      yield* fake.emit({ type: "agent_start" });
+      let providerTurnId: ProviderTurnId | undefined;
+      while (providerTurnId === undefined) {
+        const event = yield* Queue.take(events);
+        if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
+      }
+      // pi answers a steer prompt on its event stream; the fake's usage frame right after the
+      // answer is processed after it, so seeing that frame means the stash write has happened.
+      const steer = Effect.fnUntraced(function* (text: string) {
+        const answered = fake.steers.answered + 1;
+        yield* runtime.steerTurn({
+          threadId: THREAD_ID,
+          runId,
+          providerThread,
+          providerTurnId: providerTurnId!,
+          message: message(text),
+        });
+        while (true) {
+          const event = yield* Queue.take(events);
+          if (
+            event.type === "provider_turn.updated" &&
+            event.providerTurn.tokenUsage?.usedTokens === answered
+          )
+            break;
+        }
+        return yield* PendingSteering.read(THREAD_ID);
+      });
+
+      assert.equal(yield* steer("first steer"), "first steer");
+      fake.steers.reject = true;
+      assert.equal(yield* steer("refused steer"), "first steer");
+      fake.steers.reject = false;
+      assert.equal(yield* steer("second steer"), "first steer\n\nsecond steer");
+
+      yield* fake.emit({ type: "agent_settled" });
+      while ((yield* Queue.take(events)).type !== "turn.terminal");
+      assert.isNull(yield* PendingSteering.read(THREAD_ID));
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

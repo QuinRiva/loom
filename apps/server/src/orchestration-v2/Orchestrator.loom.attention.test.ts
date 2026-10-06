@@ -315,4 +315,33 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         );
       }),
   );
+
+  it.effect(
+    "a human stop raises needs_guidance on run.interrupt; a server: stop and upstream's thread.stop do not",
+    () =>
+      Effect.gen(function* () {
+        // The web Stop button: run.interrupt with holdQueue on the running run.
+        const stopped = yield* child("stop-interrupt");
+        yield* seedRunningRun({ threadId: stopped, live: true });
+        yield* dispatch({
+          type: "run.interrupt",
+          commandId: CommandId.make("stop-interrupt"),
+          threadId: stopped,
+          runId: seededRunIds(stopped).runId,
+          holdQueue: true,
+        });
+        assert.deepEqual(yield* attentionOf(stopped), ["needs_guidance"]);
+
+        // upstream's thread.stop (the delegated-task cascade and MCP cancel_task; the web
+        // Stop is still run.interrupt) is not a human stop and raises nothing (DL-304).
+        const idle = yield* child("stop-thread-idle");
+        const accepted = yield* dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("stop-thread-idle"),
+          threadId: idle,
+        });
+        assert.deepEqual(accepted.storedEvents, []);
+        assert.deepEqual(yield* attentionOf(idle), []);
+      }),
+  );
 });

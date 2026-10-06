@@ -13,10 +13,11 @@ import {
   RpcScopeAuthorization,
   WS_METHODS,
   WsRpcGroup,
+  LOOM_WS_METHODS, // loom: 3d-3 — seam 21
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import type * as RpcGroup from "effect/rpc/RpcGroup";
 
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
@@ -95,6 +96,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
+  [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+  [WS_METHODS.secretsAnswerRequest]: AuthOrchestrationOperateScope,
+  // Delivery logs hold request bodies, so they need the same scope as the URL.
+  [WS_METHODS.scheduledTasksListWebhookDeliveries]: AuthOrchestrationOperateScope,
+  [WS_METHODS.scheduledTasksGetWebhookDelivery]: AuthOrchestrationOperateScope,
   [WS_METHODS.cloudGetRelayClientStatus]: AuthRelayReadScope,
   [WS_METHODS.cloudInstallRelayClient]: AuthRelayWriteScope,
   [WS_METHODS.pullRequestsList]: AuthOrchestrationReadScope,
@@ -209,6 +215,15 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeServerLifecycle]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
+  // loom: 3d-3 — seam 21 Loom ws methods (rpc.loom.ts); 3d-4's seam-11 spend reads are Read.
+  [LOOM_WS_METHODS.goalUpdate]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.goalArchive]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.goalUnarchive]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.goalTaskRewrite]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.handoffDraft]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.retroDraft]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.threadSpend]: AuthOrchestrationReadScope,
+  [LOOM_WS_METHODS.topSpend]: AuthOrchestrationReadScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

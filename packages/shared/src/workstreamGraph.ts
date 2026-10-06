@@ -295,7 +295,7 @@ export const unresolvedGateSourcesOf = <T extends Pick<GateNode, "id" | "outcome
 /**
  * Bypass guard (design §5.3): a gate party may not SELF-set `done` around the
  * routing — an open rework round or an unresolved gate as source must complete
- * through `workstream_submit`. Applies only to self-sets of the outcome;
+ * through `mcp__t3-code__workstream_submit`. Applies only to self-sets of the outcome;
  * parent/human overrides deliberately bypass it (decision 9).
  */
 export const requiresSubmitToComplete = (
@@ -415,7 +415,7 @@ export interface GraphViewThread extends GraphThread {
   /** When the first turn was delivered; null = not started. */
   readonly kickoffAt: string | null;
   /**
-   * Fork provenance (thread_fork / handoff drafter / retro reviewer). A
+   * Fork provenance (mcp__t3-code__thread_fork / handoff drafter / retro reviewer). A
    * parentless fork root carries its source here; `graphViewFor` treats the
    * fork edge as lineage FOR SCOPE ONLY, so a fork root can inspect its
    * source's workstream graph (and the source tree sees the fork). Absent /

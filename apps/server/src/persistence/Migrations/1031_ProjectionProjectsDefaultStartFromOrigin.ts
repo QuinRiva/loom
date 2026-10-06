@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Per-project default for branching new top-level worktrees from a freshly
 // fetched origin/main (docs/keep-loom-fresh-on-deploy.md §C). Mirrors

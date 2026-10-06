@@ -29,7 +29,7 @@ import { Type } from "typebox";
 const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
 const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
-const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
+const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim().slice(0, 0))}; // loom: empty — the role overlays and tool prose carry the doctrine
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
@@ -108,8 +108,11 @@ function formatMcpContent(result: unknown): string {
       if (part?.type === "text" && typeof part.text === "string") texts.push(part.text);
     }
   }
+  // Most T3 tools mirror structuredContent in a text block. Repeating it would
+  // leave T3's own output parsing two JSON documents instead of one.
   if (record.structuredContent !== undefined) {
-    texts.push(JSON.stringify(record.structuredContent));
+    const structured = JSON.stringify(record.structuredContent);
+    if (!texts.includes(structured)) texts.push(structured);
   }
   if (texts.length > 0) return texts.join("\\n");
   return JSON.stringify(result);
@@ -271,12 +274,15 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
         const name = tool.name;
         const registeredName = \`mcp__t3-code__\${name}\`;
         const description = tool.description ?? name;
+        const loom = (tool as { readonly _meta?: Record<string, unknown> })._meta; // loom: Loom's prose (P3-2)
+        const loomSnippet = loom?.["loom/promptSnippet"]; // loom:
+        const loomGuidelines = loom?.["loom/promptGuidelines"]; // loom:
         pi.registerTool({
           name: registeredName,
           label: name,
           description,
-          promptSnippet: description.split("\\n")[0] ?? name,
-          promptGuidelines: [
+          promptSnippet: typeof loomSnippet === "string" ? loomSnippet : (description.split("\\n")[0] ?? name), // loom:
+          promptGuidelines: typeof loomGuidelines === "string" ? loomGuidelines.split("\\n").filter(Boolean) : [ // loom:
             \`Use \${registeredName} from the t3-code MCP server when the user asks for T3 orchestration that this tool covers.\`,
           ],
           parameters: jsonSchemaToTypebox(tool.inputSchema),

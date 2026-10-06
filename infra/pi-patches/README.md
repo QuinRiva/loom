@@ -248,7 +248,7 @@ headless path never exposed the parameter. The patch adds `--cwd <dir>`:
   faithful record of where the work originally happened, and the conversation
   continues by append. Relocation is per-launch and runtime-only.
 - Absent the flag, behaviour is unchanged (including `--fork`, which
-  `consult_thread` depends on).
+  `mcp__t3-code__consult_thread` depends on).
 
 **The RPC half (added at 1.0.2).** Orchestration V2's `PiAdapterV2` does not
 resume with `--session`: it starts pi fresh and sends `switch_session

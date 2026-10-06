@@ -30,6 +30,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  RuntimeRequestId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
@@ -77,10 +78,35 @@ export type LoomMessageOrigin = typeof LoomMessageOrigin.Type;
 export const LoomKickoffOrigin = Schema.Literals([...LoomMessageOrigin.literals, "user", "other"]);
 export type LoomKickoffOrigin = typeof LoomKickoffOrigin.Type;
 
+/** What a `notice` control message is about (seam 6, P3-25); present when `kind` is `notice`. */
+export const LoomControlNoticeKind = Schema.Literals([
+  "gate-rework",
+  "gate-reverify",
+  "brief-needed",
+  "deadlock",
+  "stall-nudge",
+  "attention",
+  "notify",
+]);
+export type LoomControlNoticeKind = typeof LoomControlNoticeKind.Type;
+
+/** What one digest item reports (seam 6); gate resolution reaches the parent only as `gate-resolved`. */
+export const LoomControlItemKind = Schema.Literals([
+  "terminal",
+  "gate-resolved",
+  "recovered",
+  "slow-tool",
+  "spinning",
+  "dead-episode",
+]);
+export type LoomControlItemKind = typeof LoomControlItemKind.Type;
+
 // One item in a structured control-plane payload — a single sub-thread the
 // notice concerns (or a pure informational line). Every field beyond `title` is
-// optional so the renderer degrades gracefully.
+// optional so the renderer degrades gracefully (and an unknown kind falls back
+// to the raw text).
 export const ControlPayloadItem = Schema.Struct({
+  kind: Schema.optional(LoomControlItemKind),
   threadId: Schema.optional(ThreadId),
   role: Schema.optional(Schema.String),
   title: Schema.String,
@@ -96,6 +122,9 @@ export type ControlPayloadItem = typeof ControlPayloadItem.Type;
 // stays the exact bytes the model received; this drives the collapsed card.
 export const ControlPayload = Schema.Struct({
   kind: Schema.Literals(["digest", "yield", "notice"]),
+  notice: Schema.optional(LoomControlNoticeKind),
+  /** On a `yield`: the outcome was the dispatcher's quiescence submit, not the agent's. */
+  synthesised: Schema.optional(Schema.Boolean),
   heading: Schema.optional(Schema.String),
   items: Schema.Array(ControlPayloadItem),
 });
@@ -183,7 +212,7 @@ export const LoomRouteRecord = Schema.Struct({
 });
 export type LoomRouteRecord = typeof LoomRouteRecord.Type;
 
-// notify_thread loop safety: a bounded, pruned per-sender send log backing the
+// mcp__t3-code__notify_thread loop safety: a bounded, pruned per-sender send log backing the
 // arm's ordered-pair hourly cap.
 export const NotifySendLogEntry = Schema.Struct({
   targetThreadId: ThreadId,
@@ -191,7 +220,7 @@ export const NotifySendLogEntry = Schema.Struct({
 });
 export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 
-// One placed `goal_handoff` destination: the goal + staged root thread the
+// One placed `mcp__t3-code__goal_handoff` destination: the goal + staged root thread the
 // handoff created, the drafter that placed it, and when.
 export const HandoffDestination = Schema.Struct({
   goalId: GoalId,
@@ -201,7 +230,7 @@ export const HandoffDestination = Schema.Struct({
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
-// consult_thread observability: one entry per distinct target this thread has
+// mcp__t3-code__consult_thread observability: one entry per distinct target this thread has
 // consulted (the full question + answer live on `thread.consult-recorded`).
 export const LoomThreadConsultSummary = Schema.Struct({
   targetThreadId: ThreadId,
@@ -212,7 +241,7 @@ export const LoomThreadConsultSummary = Schema.Struct({
 });
 export type LoomThreadConsultSummary = typeof LoomThreadConsultSummary.Type;
 
-// notify_thread observability: one entry per distinct target this thread has
+// mcp__t3-code__notify_thread observability: one entry per distinct target this thread has
 // notified, with the still-undelivered count.
 export const LoomThreadPeerMessageSummary = Schema.Struct({
   targetThreadId: ThreadId,
@@ -479,13 +508,21 @@ export const LoomClientCommandMembers = [
   }),
 ] as const;
 
+/** The id prefix that marks a Loom `mcp__t3-code__ask_user_question` runtime request (P3-26). */
+export const LOOM_ASK_REQUEST_PREFIX = "loom-ask:";
+
 /**
  * Server-only Loom commands, spliced into `OrchestrationV2InternalCommand`.
  * A factory because `thread.spawn` carries upstream's creation fields
- * (`createdBy` / `creationSource`), which this file must not value-import.
+ * (`createdBy` / `creationSource`) and `runtime-request.create` upstream's
+ * question schema, which this file must not value-import.
  */
-export const makeLoomInternalCommandMembers = <const CreationFields extends Schema.Struct.Fields>(
+export const makeLoomInternalCommandMembers = <
+  const CreationFields extends Schema.Struct.Fields,
+  UserInputQuestion extends Schema.Top,
+>(
   creationFields: CreationFields,
+  userInputQuestion: UserInputQuestion,
 ) =>
   [
     /** Creates one child (or a staged root when `parentThreadId` is null). Locks the parent. */
@@ -572,7 +609,7 @@ export const makeLoomInternalCommandMembers = <const CreationFields extends Sche
       durationMs: NonNegativeInt,
       forkSessionPath: Schema.optional(TrimmedNonEmptyString),
     }),
-    /** Records one notify_thread message on the sender (`threadId`). */
+    /** Records one mcp__t3-code__notify_thread message on the sender (`threadId`). */
     Schema.Struct({
       type: Schema.Literal("thread.peer-message.record"),
       ...LoomCommandFields,
@@ -608,6 +645,17 @@ export const makeLoomInternalCommandMembers = <const CreationFields extends Sche
       type: Schema.Literal("thread.fork.prepare"),
       ...LoomCommandFields,
       sourceThreadId: ThreadId,
+    }),
+    /**
+     * `mcp__t3-code__ask_user_question` (3a-4): opens a pending `user_input` runtime request
+     * with its questions on `threadId`'s active run. `requestId` must carry
+     * `LOOM_ASK_REQUEST_PREFIX` (the arm refuses otherwise).
+     */
+    Schema.Struct({
+      type: Schema.Literal("runtime-request.create"),
+      ...LoomCommandFields,
+      requestId: RuntimeRequestId,
+      questions: Schema.Array(userInputQuestion),
     }),
   ] as const;
 
@@ -833,12 +881,15 @@ export const LOOM_COMMAND_TYPES = [
   "thread.peer-message.expire",
   "thread.handoff.record",
   "thread.fork.prepare",
+  "runtime-request.create",
 ] as const;
 export type LoomCommandType = (typeof LOOM_COMMAND_TYPES)[number];
 
 type LoomCommandMemberType =
   | (typeof LoomClientCommandMembers)[number]["Type"]["type"]
-  | ReturnType<typeof makeLoomInternalCommandMembers<Record<never, never>>>[number]["Type"]["type"];
+  | ReturnType<
+      typeof makeLoomInternalCommandMembers<Record<never, never>, Schema.Top>
+    >[number]["Type"]["type"];
 type _MissingLoomCommandTypes = AssertNever<Exclude<LoomCommandMemberType, LoomCommandType>>;
 type _ExtraLoomCommandTypes = AssertNever<Exclude<LoomCommandType, LoomCommandMemberType>>;
 
@@ -896,7 +947,8 @@ export const isLoomEventType = (type: string): type is LoomEventType =>
  * Sibling-graph edits lock the parent (D5, D22): spawn → its parent (a staged
  * root locks itself), scaffold → `threadId` (which IS the parent),
  * dependencies.set → `parentThreadId`. Every other command — including
- * `thread.fork.prepare` (the child) — locks `threadId`.
+ * `thread.fork.prepare` (the child) and `runtime-request.create` (the asker) —
+ * locks `threadId`.
  */
 export const loomCommandThreadId = (command: LoomCommand): ThreadId => {
   switch (command.type) {

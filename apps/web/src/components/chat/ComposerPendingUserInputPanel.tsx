@@ -9,6 +9,12 @@ import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
+// loom: 3d-4 — DT-36 additions (markdown body with file chips, reply in chat instead).
+import {
+  PendingQuestionBody,
+  ReplyInChatInsteadButton,
+  useLoomPendingInputHost,
+} from "~/loom/pendingUserInputLoom";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -83,6 +89,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // sending from the composer advances the active question.
   const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(null);
   const isCollapsed = collapsedQuestionId !== null && collapsedQuestionId === activeQuestion?.id;
+  const loomHost = useLoomPendingInputHost(prompt.requestId); // loom: 3d-4
 
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
@@ -129,12 +136,15 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
       }
+      // loom: 3d-4 — selecting never submits: only a non-final question
+      // auto-advances; the last waits for an explicit Send.
+      if (progress.isLastQuestion) return;
       autoAdvanceTimerRef.current = window.setTimeout(() => {
         autoAdvanceTimerRef.current = null;
         onAdvanceRef.current();
       }, 200);
     },
-    [activeQuestion, onToggleOption],
+    [activeQuestion, onToggleOption, progress.isLastQuestion], // loom: 3d-4 isLastQuestion
   );
 
   // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
@@ -233,7 +243,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
-            <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
+            {/* loom: 3d-4 — markdown body with file chips (DT-36). */}
+            <PendingQuestionBody text={activeQuestion.question} host={loomHost} />
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}
@@ -291,6 +302,15 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 );
               })}
             </div>
+            {/* loom: 3d-4 — answer the set in prose; the server settles it superseded. */}
+            {loomHost ? (
+              <ReplyInChatInsteadButton
+                hasText={customAnswerActive}
+                questionCount={prompt.questions.length}
+                disabled={responseDisabled}
+                onReply={loomHost.onReplyInChat}
+              />
+            ) : null}
           </ComposerBanner.Body>
         </ComposerBanner.Scroll>
       </CollapsiblePanel>

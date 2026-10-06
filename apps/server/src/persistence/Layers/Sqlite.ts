@@ -2,8 +2,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { MigrationError } from "effect/unstable/sql/Migrator"; // loom: see runAllMigrations below
+import * as SqlClient from "effect/sql/SqlClient";
+import { MigrationError } from "effect/sql/Migrator"; // loom: see runAllMigrations below
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 // loom: two-lane migration ledger (upstream + loom 1001+).

@@ -26,13 +26,13 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import { emptyWorkstream, readWorkstream, writeWorkstream } from "./LoomStore.ts";
 
 // Shell-level previews, as V1's projection pipeline bounded them.
 const PREVIEW_MAX_LENGTH = 140;
-// notify_thread's ordered-pair cap window (V1 `NOTIFY_PAIR_WINDOW_MS`; the
+// mcp__t3-code__notify_thread's ordered-pair cap window (V1 `NOTIFY_PAIR_WINDOW_MS`; the
 // quarantined `@t3tools/shared/notify` returns with Phase 3a's handler).
 const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
@@ -221,7 +221,12 @@ const applyEdgeTables = (sql: SqlClient.SqlClient, event: LoomDomainEvent) => {
   }
 };
 
-/** A goal-less root's first `thread.goal-set` creates its row from the V2 thread. */
+/**
+ * A goal-less root's first `thread.goal-set` creates its row from the V2
+ * thread. Only `subagent` lineage is a workstream edge: a `mcp__t3-code__thread_fork` result
+ * (upstream `fork` lineage) is a staged ROOT, kept out of its source's tree
+ * and every delegation rail (DL-344).
+ */
 const rowForGoalSet = (sql: SqlClient.SqlClient, threadId: ThreadId, at: IsoDateTime) =>
   sql<{
     readonly projectId: string;
@@ -229,8 +234,10 @@ const rowForGoalSet = (sql: SqlClient.SqlClient, threadId: ThreadId, at: IsoDate
     readonly rootThreadId: string | null;
   }>`
     SELECT project_id AS "projectId",
-      json_extract(payload_json, '$.lineage.parentThreadId') AS "parentThreadId",
-      json_extract(payload_json, '$.lineage.rootThreadId') AS "rootThreadId"
+      CASE json_extract(payload_json, '$.lineage.relationshipToParent') WHEN 'subagent'
+        THEN json_extract(payload_json, '$.lineage.parentThreadId') END AS "parentThreadId",
+      CASE json_extract(payload_json, '$.lineage.relationshipToParent') WHEN 'subagent'
+        THEN json_extract(payload_json, '$.lineage.rootThreadId') END AS "rootThreadId"
     FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
   `.pipe(
     Effect.map(([thread]) =>

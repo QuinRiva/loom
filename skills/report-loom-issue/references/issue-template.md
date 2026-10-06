@@ -21,7 +21,7 @@
 
 <!-- REQUIRED. What you did NOT check. Be specific and generous — this bounds
      the claim and stops a human chasing a phantom. e.g. "did not check whether
-     the parent had already set the lane", "did not read the reactor that
+     the parent had already set the outcome", "did not read the reactor that
      consumes this receipt", "did not try on a fresh thread". -->
 
 ## Alternative explanations

@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Agent-question arrival surfaces (plans/agent-question-redesign, increment 3):
 // the oldest open question's first header and its asked-at, so the sidebar row,

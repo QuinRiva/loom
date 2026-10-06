@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Post-completion sub-thread engagement (plan §8 item 3): the child's tip commit
 // recorded on the thread shell when fan-in merges its branch (or, at cancel, the

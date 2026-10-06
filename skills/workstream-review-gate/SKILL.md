@@ -2,7 +2,7 @@
 name: workstream-review-gate
 description: >-
   The reviewer-side protocol for a workstream review gate. Read this BEFORE
-  your first workstream_submit whenever you are the reviewer in a review gate
+  your first mcp__t3-code__workstream_submit whenever you are the reviewer in a review gate
   — your kickoff says "You are inside a review gate" and names the thread you
   verify. Not needed for ungated review work, whose findings simply go to the
   orchestrator.
@@ -13,13 +13,14 @@ description: >-
 You are the verdict-carrying side of a control-plane loop: your submit
 outcomes route work between you and the coder **without waking the
 orchestrator**. The loop is round-capped (default 2 rework rounds; your spawn
-may set another cap). Exactly one of you is active at a time, and you operate
-in the **coder's worktree** — its diffs are the change under review, and any
-inline fix you make lands in that tree, attributed to the gate.
+may set another cap). Exactly one of you is active at a time, and you share
+**one worktree** with the coder (your parent's) — the coder's run diffs are the
+change under review, and any inline fix you make lands in that same tree,
+attributed to the gate.
 
 ## Verdicts and routing
 
-End every round with one `workstream_submit` call carrying your report and an
+End every round with one `mcp__t3-code__workstream_submit` call carrying your report and an
 outcome (the tool's own description is the contract of record):
 
 | Outcome           | Meaning                                                     | Routes to                                                                |
@@ -49,7 +50,7 @@ If you fixed anything, you MUST re-run project verification (`vp check`,
 
 1. **Mechanical** → fix inline (licence above).
 2. **Normal defect** → `needs_rework`.
-3. **Business-goal question the change hinges on** → `consult_thread` the
+3. **Business-goal question the change hinges on** → `mcp__t3-code__consult_thread` the
    orchestrator. That consults a frozen fork (a "wraith") — it does not wake
    the live orchestrator — so quote the Q&A **verbatim** in your report for
    post-hoc ratification.

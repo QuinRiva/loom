@@ -98,6 +98,7 @@ import {
   deriveLatestThreadRun,
   deriveThreadRuntime,
   presentPendingBackgroundWork,
+  presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
 import {
@@ -140,7 +141,7 @@ import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReferenc
 import { nextTerminalId, resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
 import { useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   Fragment,
   lazy,
@@ -169,7 +170,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
@@ -294,6 +295,7 @@ import {
   ChevronDownIcon,
   DownloadIcon,
   GitBranchIcon,
+  TargetIcon,
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
@@ -349,6 +351,10 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
+import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
+import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
+import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -687,6 +693,14 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 // browser, both fork-only right-panel surfaces.
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
+const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
+// loom: 3d-2 seam 18 — the Workstream board and Graph surfaces.
+const WorkstreamPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
+);
+const WorkstreamGraphPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamGraphPanel })),
+);
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -744,6 +758,8 @@ function eventPathContainsSelector(event: Event, selector: string): boolean {
   return path.some((target) => target instanceof Element && target.closest(selector));
 }
 
+const SECRET_REQUEST_SELECTOR = '[data-v2-item-type="secret_request"]';
+
 /**
  * Whether input that landed outside any editable or interactive element
  * should be redirected into the composer. Shared by type-to-focus and
@@ -751,6 +767,9 @@ function eventPathContainsSelector(event: Event, selector: string): boolean {
  */
 function shouldRedirectInputToComposer(event: Event): boolean {
   if (event.defaultPrevented) return false;
+  // Near a pending secret request, input is meant for its private field: it
+  // must never land in the composer draft, which is persisted and sent.
+  if (eventPathContainsSelector(event, SECRET_REQUEST_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_EDITABLE_SELECTOR)) return false;
   if (eventPathContainsSelector(event, TYPE_TO_FOCUS_INTERACTIVE_SELECTOR)) return false;
   if (document.querySelector(TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR)) return false;
@@ -1753,6 +1772,7 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const interceptLoomDraftCommand = useLoomDraftIntercepts(); // loom: 3d-3
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -3566,6 +3586,7 @@ export default function ChatView(props: ChatViewProps) {
         turnItems: serverProjection.turnItems,
         activeProviderThreadId: serverProjection.thread.activeProviderThreadId,
         runs: serverProjection.runs,
+        pullRequests: serverProjection.thread.pullRequests,
       }),
     ];
   }, [serverProjection]);
@@ -4031,6 +4052,21 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  // loom: 3d-4 — host the pending question's DT-36 additions: chips resolve
+  // against this checkout, and "reply in chat instead" sends the typed answer as
+  // an ordinary message through onSend (the server settles the set superseded).
+  const loomReplyInChatRef = useRef(false);
+  useHostLoomPendingInput(activePendingUserInput?.requestId ?? null, {
+    cwd: gitCwd ?? undefined,
+    threadRef: activeThreadRef ?? undefined,
+    onReplyInChat: () => {
+      const text = activePendingProgress?.customAnswer.trim() ?? "";
+      if (text.length === 0) return;
+      loomReplyInChatRef.current = true;
+      promptRef.current = text;
+      void onSend();
+    },
+  });
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -5253,12 +5289,18 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, openPreview],
   );
+  const loomSurfaceActions = useLoomRightPanelSurfaces(activeThreadRef); // loom: 3d-2 seam 18
   const addDiffSurface = useCallback(() => {
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThreadRef, isGitRepo, isServerThread, onDiffPanelOpen]);
+  // loom: 3d-3 — the goal tasks surface, offered only for a thread with a Loom goal.
+  const addTasksSurface =
+    activeThreadRef && activeThreadShell?.source.workstream?.goalId
+      ? () => useRightPanelStore.getState().open(activeThreadRef, "tasks")
+      : undefined;
   const openChangesFromThreadPanel = useCallback(() => {
     addDiffSurface();
   }, [addDiffSurface]);
@@ -7138,6 +7180,130 @@ export default function ChatView(props: ChatViewProps) {
     [environmentId, navigate],
   );
 
+  // Commands such as /compact and /goal clear run as their own turn. The draft
+  // and its attachments stay local.
+  const sendStandaloneCommand = useCallback(
+    async (text: string, failureMessage: string) => {
+      if (!activeThread || !clientSettingsHydrated || sendInFlightRef.current) return;
+      const context = composerRef.current?.getSendContext();
+      if (!context?.providerAvailable) return;
+
+      const threadId = activeThread.id;
+      const messageId = newMessageId();
+      const createdAt = new Date().toISOString();
+      sendInFlightRef.current = true;
+      beginLocalDispatch();
+      setThreadError(threadId, null);
+      setOptimisticUserMessages((messages) => [
+        ...messages,
+        {
+          id: messageId,
+          role: "user",
+          text,
+          runId: null,
+          createdAt,
+          updatedAt: createdAt,
+          streaming: false,
+        },
+      ]);
+      scrollToEnd();
+      try {
+        const settingsResult = await persistThreadSettingsForNextTurn({
+          threadId,
+          createdAt,
+          ...(localCheckoutBranchMismatch
+            ? { branch: localCheckoutBranchMismatch.currentBranch }
+            : {}),
+          runtimeMode,
+          interactionMode: context.interactionMode,
+        });
+        const result =
+          settingsResult._tag === "Failure"
+            ? settingsResult
+            : await startThreadTurn({
+                environmentId,
+                input: {
+                  threadId,
+                  message: { messageId, role: "user", text, attachments: [] },
+                  modelSelection: context.selectedModelSelection,
+                  runtimeMode,
+                  interactionMode: context.interactionMode,
+                  createdAt,
+                },
+              });
+        if (result._tag === "Failure") {
+          setOptimisticUserMessages((messages) =>
+            messages.filter((message) => message.id !== messageId),
+          );
+          resetLocalDispatch();
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            setThreadError(threadId, error instanceof Error ? error.message : failureMessage);
+          }
+        } else {
+          clearUsageLimitsFor(routeThreadKey);
+        }
+      } finally {
+        sendInFlightRef.current = false;
+      }
+    },
+    [
+      activeThread,
+      beginLocalDispatch,
+      clientSettingsHydrated,
+      composerRef,
+      environmentId,
+      localCheckoutBranchMismatch,
+      persistThreadSettingsForNextTurn,
+      resetLocalDispatch,
+      routeThreadKey,
+      runtimeMode,
+      scrollToEnd,
+      sendInFlightRef,
+      setThreadError,
+      startThreadTurn,
+    ],
+  );
+  // A native /goal keeps the agent working across turns. Stop pauses a Codex
+  // goal; once the thread is idle the row offers the native follow-ups.
+  const activeGoal = activeThreadShell?.goal ?? null;
+  const goalBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+    if (!activeThread || activeGoal === null) return null;
+    const presentation = presentProviderGoal(activeGoal, isWorking);
+    return {
+      id: `goal:${activeThread.id}`,
+      variant: "default",
+      priority: "activity",
+      icon: <TargetIcon />,
+      // Usage stays in the title so a long objective cannot clip it.
+      title:
+        presentation.usage === null
+          ? presentation.title
+          : `${presentation.title} · ${presentation.usage}`,
+      description: presentation.objective,
+      actions: isWorking ? undefined : (
+        <>
+          {presentation.canResume ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => void sendStandaloneCommand("/goal resume", "Failed to resume goal.")}
+            >
+              Resume
+            </Button>
+          ) : null}
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => void sendStandaloneCommand("/goal clear", "Failed to clear goal.")}
+          >
+            Clear
+          </Button>
+        </>
+      ),
+    };
+  }, [activeGoal, activeThread, isWorking, sendStandaloneCommand]);
+
   const backgroundWorkBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
     if (presentation === null || !activeThread) {
@@ -7404,7 +7570,9 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
-    const backgroundWorkItems = backgroundWorkBannerItem === null ? [] : [backgroundWorkBannerItem];
+    const backgroundWorkItems = [goalBannerItem, backgroundWorkBannerItem].filter(
+      (item) => item !== null,
+    );
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -7483,6 +7651,7 @@ export default function ChatView(props: ChatViewProps) {
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
     backgroundWorkBannerItem,
+    goalBannerItem,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
     projectCloneBannerItem,
@@ -8200,75 +8369,9 @@ export default function ChatView(props: ChatViewProps) {
       setThreadError,
     ],
   );
-  const onCompactContext = async () => {
-    if (compactDisabled || !activeThread || !clientSettingsHydrated || sendInFlightRef.current) {
-      return;
-    }
-    const context = composerRef.current?.getSendContext();
-    if (!context?.providerAvailable) return;
-
-    // Compaction is a standalone command; the draft and its attachments stay local.
-    const threadId = activeThread.id;
-    const messageId = newMessageId();
-    const createdAt = new Date().toISOString();
-    sendInFlightRef.current = true;
-    beginLocalDispatch();
-    setThreadError(threadId, null);
-    setOptimisticUserMessages((messages) => [
-      ...messages,
-      {
-        id: messageId,
-        role: "user",
-        text: "/compact",
-        runId: null,
-        createdAt,
-        updatedAt: createdAt,
-        streaming: false,
-      },
-    ]);
-    scrollToEnd();
-    try {
-      const settingsResult = await persistThreadSettingsForNextTurn({
-        threadId,
-        createdAt,
-        ...(localCheckoutBranchMismatch
-          ? { branch: localCheckoutBranchMismatch.currentBranch }
-          : {}),
-        runtimeMode,
-        interactionMode: context.interactionMode,
-      });
-      const result =
-        settingsResult._tag === "Failure"
-          ? settingsResult
-          : await startThreadTurn({
-              environmentId,
-              input: {
-                threadId,
-                message: { messageId, role: "user", text: "/compact", attachments: [] },
-                modelSelection: context.selectedModelSelection,
-                runtimeMode,
-                interactionMode: context.interactionMode,
-                createdAt,
-              },
-            });
-      if (result._tag === "Failure") {
-        setOptimisticUserMessages((messages) =>
-          messages.filter((message) => message.id !== messageId),
-        );
-        resetLocalDispatch();
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          setThreadError(
-            threadId,
-            error instanceof Error ? error.message : "Failed to compact context.",
-          );
-        }
-      } else {
-        clearUsageLimitsFor(routeThreadKey);
-      }
-    } finally {
-      sendInFlightRef.current = false;
-    }
+  const onCompactContext = () => {
+    if (compactDisabled) return;
+    void sendStandaloneCommand("/compact", "Failed to compact context.");
   };
 
   const onResume = async () => {
@@ -8358,6 +8461,8 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     e?.preventDefault();
+    const loomReplyInChat = loomReplyInChatRef.current; // loom: 3d-4 reply in chat instead
+    loomReplyInChatRef.current = false;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (
@@ -8425,7 +8530,7 @@ export default function ChatView(props: ChatViewProps) {
       });
       return;
     }
-    if (activePendingProgress) {
+    if (activePendingProgress && !loomReplyInChat /* loom: 3d-4 */) {
       if (directAnnotation) {
         notifyDirectAnnotationAttached();
         return;
@@ -8657,6 +8762,45 @@ export default function ChatView(props: ChatViewProps) {
         composerReviewComments.length +
         composerThreadContexts.length,
     });
+    // loom: 3d-3 — `/handoff` and `/retro` are intercepted at the send authority
+    // and never become a turn on this thread (loom/useLoomDraftIntercepts.ts).
+    if (
+      !directAnnotation &&
+      isServerThread &&
+      (await interceptLoomDraftCommand({
+        source: scopeThreadRef(activeThread.environmentId, activeThread.id),
+        submittedPrompt: promptForSend,
+        trimmedPrompt: trimmed,
+        hasAttachmentsOrContexts: composerHasNonPromptContent,
+        setSendInFlight: (inFlight) => {
+          sendInFlightRef.current = inFlight;
+        },
+        clearComposer: () => {
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+        },
+        readComposerContent: () => {
+          const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+          return {
+            prompt: promptRef.current,
+            attachmentCount: composerImagesRef.current.length + composerFilesRef.current.length,
+            terminalContextCount: composerTerminalContextsRef.current.length,
+            previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
+            reviewCommentCount: draft?.reviewComments.length ?? 0,
+            threadContextCount: draft?.threadContexts.length ?? 0,
+          };
+        },
+        restoreComposer: (prompt) => {
+          promptRef.current = prompt;
+          setComposerDraftPrompt(composerDraftTarget, prompt);
+          composerRef.current?.resetCursorState();
+        },
+        setThreadError,
+      }))
+    ) {
+      return;
+    }
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
@@ -9526,7 +9670,9 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          // loom: 3d-4 (DT-67) — a Loom thread keeps its title: a staged root's
+          // first (human) message must not re-seed it from the brief.
+          ...(activeThreadShell?.source.workstream ? {} : { titleSeed: title }),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode,
@@ -10625,6 +10771,20 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : /* loom: 3d-3 — Loom's goal tasks panel (seam 18). */
+    renderedRightPanelSurface?.kind === "tasks" ? (
+      <Suspense fallback={null}>
+        <GoalTasksPanel thread={activeThreadShell} />
+      </Suspense>
+    ) : /* loom: 3d-2 seam 18 — the Workstream board and Graph surfaces. */
+    renderedRightPanelSurface?.kind === "workstream" ? (
+      <Suspense fallback={null}>
+        <WorkstreamPanel threadRef={activeThreadRef} />
+      </Suspense>
+    ) : renderedRightPanelSurface?.kind === "graph" ? (
+      <Suspense fallback={null}>
+        <WorkstreamGraphPanel threadRef={activeThreadRef} />
+      </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
@@ -11062,6 +11222,30 @@ export default function ChatView(props: ChatViewProps) {
                   ? {}
                   : { historyControls: threadHistoryControls })}
               />
+
+              {/* loom: 3d-4 — staged cards (DT-31): the held root's kickoff offer, a
+                  child's brief preview; Launch is the ordinary send below. */}
+              {activeThreadRef && isServerThread ? (
+                <LoomStagedCards
+                  threadRef={activeThreadRef}
+                  composerDraftTarget={composerDraftTarget}
+                  hasStarted={timelineEntries.length > 0 || isSendBusy}
+                  markdownCwd={gitCwd ?? undefined}
+                  launchDisabled={isSendBusy || isConnecting}
+                  launchBlockedReason={activeEnvironmentUnavailable ? "Not connected" : null}
+                  bottomInset={scrollToEndClearance}
+                  onLaunch={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    void onSend();
+                  }}
+                  onEditFirst={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    requestAnimationFrame(() => composerRef.current?.focusAtEnd());
+                  }}
+                />
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
@@ -11527,6 +11711,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
+          onAddTasks={addTasksSurface} // loom: 3d-3
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
@@ -11534,6 +11719,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={false} // loom: the fork ships no Device surface
+          loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -11582,6 +11768,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
+            onAddTasks={addTasksSurface} // loom: 3d-3
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
@@ -11589,6 +11776,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={false} // loom: the fork ships no Device surface
+            loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
           >
             {rightPanelContent}
           </RightPanelTabs>
