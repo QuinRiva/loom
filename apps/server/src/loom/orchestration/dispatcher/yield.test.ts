@@ -55,12 +55,23 @@ describe("buildYieldWakeMessage", () => {
 
   it("a synthesised yield says the child went quiet, and that its gate is parked", () => {
     const text = buildYieldWakeMessage(child, "quiescent", "last words", undefined, {
+      synthesised: true,
       gateParked: true,
     });
     assert.include(text, "went quiet");
     assert.include(text, "without calling `mcp__t3-code__workstream_submit`");
     assert.include(text, "the gate is parked");
     assert.include(text, "dissolves the gate");
+  });
+  it("an agent's yield from an unresolved gate member says the gate is parked", () => {
+    const flags = { synthesised: false, gateParked: true };
+    const text = buildYieldWakeMessage(child, "weird_token", null, undefined, flags);
+    assert.include(text, "matched no route");
+    assert.include(text, "the gate is parked");
+    assert.include(
+      buildYieldPayload(child, "weird_token", null, undefined, undefined, flags).heading,
+      "gate parked",
+    );
   });
 });
 
@@ -90,6 +101,7 @@ describe("buildYieldPayload", () => {
 
   it("a quiescent yield is marked synthesised", () => {
     const payload = buildYieldPayload(child, "quiescent", "x", undefined, undefined, {
+      synthesised: true,
       gateParked: false,
     });
     assert.isTrue(payload.synthesised);

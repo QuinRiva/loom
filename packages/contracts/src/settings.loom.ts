@@ -179,6 +179,14 @@ export const LoomServerSettingsFields = {
       Effect.succeed({ provider: "local" as const, model: "Xenova/bge-small-en-v1.5" }),
     ),
   ),
+  // Quiescence as completion (pull 9 Phase 3b): a started Loom child idle this
+  // long after a control-started turn (kickoff, wake, the parent's prompt) gets
+  // a synthesised report and yields to its parent.
+  quiescenceGraceMs: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(600_000))),
+  // The same for a turn a human started; null = never (a human is in the loop).
+  quiescenceHumanGraceMs: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 } as const;
 
 // Spread into `ServerSettingsPatch`.
@@ -192,6 +200,8 @@ export const LoomServerSettingsPatchFields = {
   ),
   // Whole-value replacement: the union's fields depend on `provider`.
   threadSearchEmbedding: Schema.optionalKey(ThreadSearchEmbeddingSettings),
+  quiescenceGraceMs: Schema.optionalKey(Schema.Number),
+  quiescenceHumanGraceMs: Schema.optionalKey(Schema.NullOr(Schema.Number)),
   // Shallow-merged into current (see applyServerSettingsPatch): scalar toggles
   // replace when present; `chains`/`pausedAccounts` replace wholesale (the UI
   // sends complete values), so a partial per-key merge has no coherent meaning.
