@@ -144,8 +144,13 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
 3. The client state holds the goal and every thread's `workstream`: the shell
    cache in IndexedDB (`t3code:connection-runtime` → `shell`) mirrors it, so a
    `browser_evaluate` that reads that store and prints `snapshot.goals` and each
-   thread's `workstream` is a quick check. The board, goal panel and control
-   cards that render this state arrive with the Phase 3 web re-hang.
+   thread's `workstream` is a quick check.
+4. On first visit the root opens the **Workstream** board with a **Graph** tab
+   beside it (the one-shot auto-open; a child opens them from the panel
+   launcher, `W` / `N`). The board shows held (the staged root), blocked,
+   in progress, done and cancelled; the seed has no ready thread, so untick
+   "Survey checkpoint refs" under "Document checkpoint refs" → Waits on to see
+   Ready. The Graph shows the gated pair's loop edge with its `⟲ 1/2` badge.
 
 ## 6. Clean up
 

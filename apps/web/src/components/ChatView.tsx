@@ -352,6 +352,7 @@ import {
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
 import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
+import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -691,6 +692,13 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
 const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
+// loom: 3d-2 seam 18 — the Workstream board and Graph surfaces.
+const WorkstreamPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
+);
+const WorkstreamGraphPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamGraphPanel })),
+);
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -5264,6 +5272,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, openPreview],
   );
+  const loomSurfaceActions = useLoomRightPanelSurfaces(activeThreadRef); // loom: 3d-2 seam 18
   const addDiffSurface = useCallback(() => {
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
@@ -10746,6 +10755,15 @@ export default function ChatView(props: ChatViewProps) {
       <Suspense fallback={null}>
         <GoalTasksPanel thread={activeThreadShell} />
       </Suspense>
+    ) : /* loom: 3d-2 seam 18 — the Workstream board and Graph surfaces. */
+    renderedRightPanelSurface?.kind === "workstream" ? (
+      <Suspense fallback={null}>
+        <WorkstreamPanel threadRef={activeThreadRef} />
+      </Suspense>
+    ) : renderedRightPanelSurface?.kind === "graph" ? (
+      <Suspense fallback={null}>
+        <WorkstreamGraphPanel threadRef={activeThreadRef} />
+      </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
@@ -11656,6 +11674,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={false} // loom: the fork ships no Device surface
+          loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -11712,6 +11731,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={false} // loom: the fork ships no Device surface
+            loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
           >
             {rightPanelContent}
           </RightPanelTabs>
