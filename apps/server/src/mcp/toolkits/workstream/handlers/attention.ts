@@ -1,5 +1,5 @@
 /**
- * `workstream_request_attention`: raises a hold on the caller or a direct
+ * `mcp__t3-code__workstream_request_attention`: raises a hold on the caller or a direct
  * child through `thread.attention.raise`; the arm refuses a finished thread
  * (DL-228) and the server-only reasons.
  *

@@ -21,7 +21,7 @@ import { LoomAgentRoutesLive } from "./http/loomAgentRoutes.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
-import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
+import { LoomSessionComposerRealLive } from "./prompt/sessionComposerLive.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 
@@ -49,14 +49,15 @@ export const LoomGoalBroadcastLive = Layer.mergeAll(
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's
- * prompt, skills and extensions (driver plan §4). Empty until Phase 3a re-points
- * this one export at the real composer.
+ * prompt, skills, extensions and env (driver plan §4; Phase 3a-5). Its own
+ * reads (projection, projects, Loom store, extension path) are provided inside;
+ * ServerConfig, ServerSettings, SqlClient and the platform come from the server.
  */
-export const LoomSessionComposerLive = LoomSessionComposerDefaultLive;
+export const LoomSessionComposerLive = LoomSessionComposerRealLive;
 
 /**
  * Loom's pi-extension surface (seam 19): the session-profile and
- * ask_user_question routes beside `/mcp`, and the reactor that hands answers
+ * mcp__t3-code__ask_user_question routes beside `/mcp`, and the reactor that hands answers
  * to live waiters and closes superseded or orphaned questions. Mounted with the
  * HTTP routes in `server.ts` (the router exists only there).
  */

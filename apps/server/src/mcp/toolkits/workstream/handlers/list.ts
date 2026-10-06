@@ -1,5 +1,5 @@
 /**
- * `workstream_list`: the caller's whole tree (archived included) from
+ * `mcp__t3-code__workstream_list`: the caller's whole tree (archived included) from
  * `LoomStoreV2.listWorkstreamTree`, each node joined with its V2 shell, its pi
  * session file (the provider thread's native ref) and its anchor's live task
  * text, then the spawn catalogue. Shells are read per tree member, not as a

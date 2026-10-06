@@ -137,5 +137,5 @@ run `pnpm ship -m "<summary>" --merge-only`. In order, the script:
   the person shipping mechanically) does not have, so when this happens,
   **escalate to the orchestrator / human** with the conflicting files and what
   each side is trying to do. In a delegated shipper thread, that means a
-  `workstream_submit` with outcome `needs_human`; point the orchestrator back at
+  `mcp__t3-code__workstream_submit` with outcome `needs_human`; point the orchestrator back at
   this document so it can finish the ship itself.

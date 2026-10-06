@@ -1,8 +1,8 @@
 /**
- * `workstream_set_outcome`: the plan outcome of the caller or a direct child
+ * `mcp__t3-code__workstream_set_outcome`: the plan outcome of the caller or a direct child
  * through `thread.outcome.set` (`none` reopens). A thread may not complete
  * ITSELF around a review gate — a pending rework round or membership of an
- * unresolved gate must finish through `workstream_submit`, whose outcome routes
+ * unresolved gate must finish through `mcp__t3-code__workstream_submit`, whose outcome routes
  * the gate; a parent's `done` on such a child is allowed and the arm's warning
  * is echoed. `cancelled` cascades through the arm's re-drive.
  *

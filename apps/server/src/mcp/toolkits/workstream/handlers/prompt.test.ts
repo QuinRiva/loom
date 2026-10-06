@@ -1,6 +1,6 @@
 /**
- * workstream_prompt, workstream_stop, workstream_request_attention and
- * workstream_set_dependencies on V2's real orchestrator: the prompt is one
+ * mcp__t3-code__workstream_prompt, mcp__t3-code__workstream_stop, mcp__t3-code__workstream_request_attention and
+ * mcp__t3-code__workstream_set_dependencies on V2's real orchestrator: the prompt is one
  * stored message with `loom.origin` orchestrator that clears a standing hold;
  * an unstarted briefed child is started by it with the kickoff wrapper; an
  * unbriefed or blocked child is refused; stop interrupts without raising;
@@ -105,7 +105,7 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
   );
 
   it.effect(
-    "prompt: an unbriefed child is sent to workstream_brief; a blocked one is refused by the arm",
+    "prompt: an unbriefed child is sent to mcp__t3-code__workstream_brief; a blocked one is refused by the arm",
     () =>
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;

@@ -32,7 +32,7 @@ describe("Loom tool families", () => {
     expect(LOOM_TOOL_DEFS).toHaveLength(21);
   });
 
-  it("HUMAN_INPUT names only the extension's ask_user_question", () => {
+  it("HUMAN_INPUT names only the extension's mcp__t3-code__ask_user_question", () => {
     expect(HUMAN_INPUT).toEqual(["mcp__t3-code__ask_user_question"]);
   });
 
@@ -52,11 +52,13 @@ describe("Loom tool families", () => {
     ].flatMap(namesOf);
     expect(UPSTREAM_WITHHELD_TOOLS.toSorted()).toEqual(expected.toSorted());
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__delegate_task");
-    const kept = [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(
-      namesOf,
+    const kept = new Set(
+      [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
     );
-    expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => kept.includes(name))).toEqual([]);
-    const loom: ReadonlyArray<string> = LOOM_TOOL_DEFS.map((def) => agentToolName(def.name));
-    expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => loom.includes(name))).toEqual([]);
+    expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => kept.has(name))).toEqual([]);
+    const loom: ReadonlyArray<string> = new Set(
+      LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)),
+    );
+    expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => loom.has(name))).toEqual([]);
   });
 });

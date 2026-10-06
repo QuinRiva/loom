@@ -2,7 +2,7 @@
  * Loom's tool families and the upstream withhold list, as the names pi sees
  * (`mcp__t3-code__<name>`). Replaces V1's `mcp/toolPaths.ts`: there are no
  * routes any more, only names. The role profiles (3a-5) union LEAF_CORE into
- * every role and the other families by `toolsets:`; `enable_toolset` (Loom's
+ * every role and the other families by `toolsets:`; `mcp__t3-code__enable_toolset` (Loom's
  * extension, 3a-4) activates a dormant family mid-session and never activates
  * an UPSTREAM_WITHHELD_TOOLS member.
  *
@@ -61,7 +61,7 @@ export const PULL_REQUESTS = Object.keys(PullRequestsToolkit.tools).map(agentToo
 /** The extension's escalation tool, unioned into every role profile. */
 export const ENABLE_TOOLSET_TOOL = agentToolName("enable_toolset");
 
-/** Families `enable_toolset` resolves by name; browser / studio / all resolve by prefix. */
+/** Families `mcp__t3-code__enable_toolset` resolves by name; browser / studio / all resolve by prefix. */
 export const DORMANT_TOOLSETS = {
   delegation: DELEGATION,
   "human-input": HUMAN_INPUT,

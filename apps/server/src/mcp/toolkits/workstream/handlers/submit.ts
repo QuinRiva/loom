@@ -1,5 +1,5 @@
 /**
- * `workstream_submit`: writes the caller's report and dispatches
+ * `mcp__t3-code__workstream_submit`: writes the caller's report and dispatches
  * `thread.work.submit`; the arm routes the outcome and the echo reports what
  * it decided (from the `thread.outcome-recorded` / `thread.route-taken` events
  * it committed), so "yielded" and a rework route read as NOT done. A

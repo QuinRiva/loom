@@ -1,5 +1,5 @@
 /**
- * `workstream_prompt`: the parent's message to a direct child as ONE
+ * `mcp__t3-code__workstream_prompt`: the parent's message to a direct child as ONE
  * `message.dispatch` with `loom.origin: "orchestrator"` — dispatched directly,
  * never through `ThreadManagementService.sendToThread` (which drops `loom`),
  * because the origin is what lets the arm's rule 4 clear the child's standing
@@ -22,7 +22,7 @@ import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { workstreamChildPrompt } from "../../../../loom/prompt/prose.ts";
+import { kickoffTextForPrompt } from "../../../../loom/prompt/childPrompt.ts";
 import { readWorkstreamBriefAt } from "../../../../loom/workstream/brief.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
@@ -94,11 +94,13 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
         `Child ${threadId} has a brief pointer but its file could not be read; re-attach it with ${t("workstream_brief")}.`,
       );
     if (row.forkFromThreadId !== null) yield* prepareFork(row, caller);
-    text = `${
-      row.role === null
-        ? brief
-        : workstreamChildPrompt({ role: row.role, brief, gateTargetId: gateLoopTargetOf(row) })
-    }\n\n${input.message}`;
+    text = kickoffTextForPrompt({
+      delivered: false,
+      role: row.role,
+      brief,
+      message: input.message,
+      gateTargetId: gateLoopTargetOf(row),
+    });
   }
 
   const { activeRunId } = yield* requireShell(threadId);

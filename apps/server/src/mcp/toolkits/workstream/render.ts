@@ -51,7 +51,7 @@ export const formatReportExcerpt = (report: string | null | undefined): string =
 };
 
 // ---------------------------------------------------------------------------
-// workstream_list
+// mcp__t3-code__workstream_list
 // ---------------------------------------------------------------------------
 
 /** What the list reads from one thread: the V2 shell joined with its sidecar fields. */
@@ -221,7 +221,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
 };
 
 // ---------------------------------------------------------------------------
-// workstream_submit echo
+// mcp__t3-code__workstream_submit echo
 // ---------------------------------------------------------------------------
 
 export interface SubmitOutcomeView {
@@ -254,7 +254,7 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
 };
 
 // ---------------------------------------------------------------------------
-// workstream_scaffold rejections
+// mcp__t3-code__workstream_scaffold rejections
 // ---------------------------------------------------------------------------
 
 /**
@@ -265,7 +265,7 @@ export const scaffoldNodeRejectionMessage = (nodeKey: string, graphMessage: stri
   `node "${nodeKey}": ${graphMessage.replace(/Nothing was spawned\.$/, "Nothing was created.")}`;
 
 // ---------------------------------------------------------------------------
-// consult_thread / notify_thread
+// mcp__t3-code__consult_thread / mcp__t3-code__notify_thread
 // ---------------------------------------------------------------------------
 
 export interface ThreadCandidate {
@@ -296,7 +296,7 @@ export const renderNotifyCandidates = (candidates: ReadonlyArray<ThreadCandidate
   renderThreadCandidates(candidates, "notify_thread");
 
 /**
- * What a notify_thread delivery did (steer-or-start): `started` an idle
+ * What a mcp__t3-code__notify_thread delivery did (steer-or-start): `started` an idle
  * target's turn, `steered` into its running turn, or `queued` behind a turn
  * that cannot take a steer yet. Never claims the recipient acted.
  */

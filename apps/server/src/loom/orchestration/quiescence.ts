@@ -1,6 +1,6 @@
 /**
  * Quiescence as completion — the substrate half (plans/upstream-pull9-phase2-substrate/plan.mdx
- * §6; DL-194): a started child that went quiet without `workstream_submit` is a
+ * §6; DL-194): a started child that went quiet without `mcp__t3-code__workstream_submit` is a
  * candidate for the dispatcher's synthesised `quiescent` submit (Phase 3b, on
  * terminal `run.updated` and its tick). Pure.
  *

@@ -1,5 +1,5 @@
 /**
- * workstream_submit and workstream_set_outcome on V2's real orchestrator: the
+ * mcp__t3-code__workstream_submit and mcp__t3-code__workstream_set_outcome on V2's real orchestrator: the
  * routing echo for terminal / loop / resolve / needs_human / yield, the D19
  * refusal before any report is written, and the self-issued `done` guard
  * (pending rework, unresolved gate) against a parent's `done` with the arm's

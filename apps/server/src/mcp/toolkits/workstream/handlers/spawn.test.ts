@@ -1,5 +1,5 @@
 /**
- * workstream_spawn / workstream_scaffold / workstream_brief on V2's real
+ * mcp__t3-code__workstream_spawn / mcp__t3-code__workstream_scaffold / mcp__t3-code__workstream_brief on V2's real
  * orchestrator: the sidecar row and subagent lineage, a row-less parent's
  * sidecar (DL-225), forkFrom's implied edge and inherited identity, the gate's
  * routes, scaffold's all-or-nothing references, and the brief file + path.

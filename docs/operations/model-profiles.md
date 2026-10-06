@@ -25,7 +25,7 @@ task, the server knows everything else.
 
 ## Task shapes
 
-`taskShape` is an optional enum on `workstream_spawn`. Three shapes:
+`taskShape` is an optional enum on `mcp__t3-code__workstream_spawn`. Three shapes:
 
 | `taskShape`  | Intended use                                                                                                                                                |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

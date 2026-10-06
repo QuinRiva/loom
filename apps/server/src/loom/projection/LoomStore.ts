@@ -253,7 +253,7 @@ export interface LoomGoalTaskInput {
   readonly position: number;
 }
 
-/** A still-undelivered notify_thread message, oldest first. */
+/** A still-undelivered mcp__t3-code__notify_thread message, oldest first. */
 export interface LoomPendingPeerMessage {
   readonly recordId: string;
   readonly senderThreadId: ThreadId;

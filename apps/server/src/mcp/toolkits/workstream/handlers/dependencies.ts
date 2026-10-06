@@ -1,5 +1,5 @@
 /**
- * `workstream_set_dependencies`: replaces the `blockedBy` set of the caller or
+ * `mcp__t3-code__workstream_set_dependencies`: replaces the `blockedBy` set of the caller or
  * a direct child through `thread.dependencies.set`, locked on the target's
  * parent (DL-202). A started thread records the edges for display only.
  *
