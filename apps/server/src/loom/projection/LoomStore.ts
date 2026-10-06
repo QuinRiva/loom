@@ -5,7 +5,9 @@
  * the Phase 3a handlers; the summaries the shell join attaches.
  *
  * `loom_thread_workstream` is written ONLY by the projector
- * (`loomProjection.ts`) inside V2's commit transaction; this module owns its
+ * (`loomProjection.ts`) inside V2's commit transaction — and once per V1 thread
+ * by the Phase 4 importer (`loom/legacy/LoomV1WorkstreamImporter.ts`), which
+ * inserts imported rows directly at first boot; this module owns its
  * row ↔ record codec, which the projector shares. Reads see committed state
  * only (no pending-event overlay).
  *
