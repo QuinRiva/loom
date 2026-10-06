@@ -22,6 +22,7 @@ import {
   EmergentGoalGeneratorPiLive,
   EmergentGoalReactorLive,
 } from "./orchestration/EmergentGoalReactor.ts";
+import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
@@ -49,17 +50,21 @@ export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
 
 /**
  * The workstream control plane (Phase 3 Track 3b): the dispatcher pass —
- * re-drive, promotion and every wake — started after server activation.
- * 3b-3/4/5 merge their layers here.
+ * re-drive, promotion and every wake — and the liveness sweep (which advises
+ * through the dispatcher), both started after server activation.
+ * 3b-4/5 merge their layers here.
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
-  WorkstreamDispatcherStartedLive,
+  WorkstreamLivenessSweepLive, // loom: 3b-3 — the sweep hands slow-tool/spinning advisories to the dispatcher
   EmergentGoalReactorLive.pipe(
     Layer.provide(EmergentGoalGeneratorPiLive),
     // The same layer reference as server.ts's entry, so the broadcast is one shared PubSub.
     Layer.provide(LoomGoalBroadcastLive),
   ),
-).pipe(Layer.provide([CommandReceiptStore.layer, LoomStore.layer]));
+).pipe(
+  Layer.provideMerge(WorkstreamDispatcherStartedLive),
+  Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
+);
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's
