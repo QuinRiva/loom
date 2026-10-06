@@ -51,3 +51,11 @@ deployed.
 - **DL-680 — The quiescence grace runs from the later of the last run's completion and the
   reopen time; a synthesised report never replaces a submitted report's path.** (Verifier
   B2.)
+- **DL-604 — Production (V1) stopped launching briefed scaffold nodes after its mid-session
+  restart (2026-10-06 ~23:20Z).** Five coders scaffolded and briefed after the restart
+  (`776b38eb`, `c87e53ec`, `a46cf508`, `7dfc22d8`, `0cc0b3e8`; also `9a5d1066`, whose kickoff
+  the restart ate) showed `in_progress` with no session file; the control plane later flagged
+  one "went quiet". Gated reviewers released by a coder's completion did launch. Workaround: a
+  `workstream_prompt` pointing at the stored brief
+  (`userdata/workstream-briefs/<id>.md`) starts the turn. This is production's V1 control
+  plane, not PR #333's code; recorded as a task to re-check after cut-over.
