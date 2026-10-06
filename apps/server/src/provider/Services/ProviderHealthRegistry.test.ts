@@ -96,6 +96,43 @@ describe("ProviderHealthRegistry semantics", () => {
     expect(dead.get(markKey("cliproxy", ACCOUNT_WIDE_SCOPE))?.source).toBe("telemetry");
   });
 
+  // DL-77 defect 2 (3c-2)
+  it("never reads one account's spent 5-hour window plus another's spent weekly window as healthy", () => {
+    const pool = ProviderInstanceId.make("cliproxy");
+    const SOONER = "2026-07-06T14:00:00.000Z";
+    const pooled = (label: string, primary: number, secondary: number, secondaryReset = FUTURE) =>
+      snapshot(
+        [
+          { kind: "primary", usedPercent: primary, resetsAt: SOONER, windowDurationMins: 300 },
+          {
+            kind: "secondary",
+            usedPercent: secondary,
+            resetsAt: secondaryReset,
+            windowDurationMins: 10080,
+          },
+        ],
+        { providerName: "cliproxy", providerInstanceId: pool, accountLabel: label },
+      );
+    // A: 5-hour full, weekly fresh. B: 5-hour fresh, weekly full. Neither can serve.
+    const { telemetry: dead } = deriveFromTelemetry(
+      [pooled("a@", 100, 0), pooled("b@", 0, 100)],
+      new Map(),
+      NOW,
+    );
+    // The account that frees up first (A, its 5-hour window) names the reset.
+    expect(dead.get(markKey("cliproxy", ACCOUNT_WIDE_SCOPE))).toMatchObject({
+      until: SOONER,
+      windowLabel: "5-hour",
+    });
+    // A third account with both windows open keeps the instance healthy.
+    const { telemetry: healthy } = deriveFromTelemetry(
+      [pooled("a@", 100, 0), pooled("b@", 0, 100), pooled("c@", 50, 60)],
+      new Map(),
+      NOW,
+    );
+    expect(healthy.size).toBe(0);
+  });
+
   it("marks a single-account instance whose only window is ≥99% (limitReached AND)", () => {
     const pool = ProviderInstanceId.make("cliproxy");
     // limitReached on only one pooled account must NOT exhaust the instance.

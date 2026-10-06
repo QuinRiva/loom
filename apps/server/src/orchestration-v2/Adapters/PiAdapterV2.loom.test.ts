@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
 // reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
 // turn's pi-priced costUsd. Phase 3c: a pi quota error ends the turn as usage_limit with a reset
@@ -5,6 +6,10 @@
 //
 // A minimal in-process `pi --mode rpc` (the same technique as PiAdapterV2.test.ts's fake, which
 // is not exported): every request is recorded and auto-acknowledged, and the test pushes events.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -101,6 +106,8 @@ const makeFakePi = Effect.gen(function* () {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
   const requests: Array<PiRpcRecord> = [];
   const spawns: Array<ReadonlyArray<string>> = [];
+  // The session file's bytes at the moment each switch_session frame reached pi.
+  const switchedFiles: Array<string | null> = [];
   const emit = (record: PiRpcRecord) =>
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
@@ -118,6 +125,12 @@ const makeFakePi = Effect.gen(function* () {
             (line) => {
               const record = JSON.parse(line) as PiRpcRecord;
               requests.push(record);
+              if (record["type"] === "switch_session") {
+                const path = String(record["sessionPath"]);
+                switchedFiles.push(
+                  NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
+                );
+              }
               return emit({
                 type: "response",
                 id: record["id"],
@@ -137,7 +150,7 @@ const makeFakePi = Effect.gen(function* () {
       });
     }),
   );
-  return { spawner, emit, requests, spawns };
+  return { spawner, emit, requests, spawns, switchedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -469,6 +482,64 @@ describe("PiAdapterV2 (loom) — quota errors", () => {
       ]);
       assert.equal(terminal.failure?.class, "provider_error");
       assert.isUndefined(terminal.failure?.resetAt);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-2: the codex→Anthropic session sanitiser on resume ───────────────────
+
+const CODEX_HISTORY = [
+  JSON.stringify({ type: "session", version: 3, id: "s1", cwd: THREAD_CWD }),
+  JSON.stringify({
+    type: "message",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call_abc|fc_123", name: "read", arguments: {} }],
+    },
+  }),
+  JSON.stringify({
+    type: "message",
+    message: { role: "toolResult", toolCallId: "call_abc|fc_123", content: [] },
+  }),
+].join("\n");
+
+/** Resume a codex-history session file under `model` and return what pi loaded. */
+const resumeCodexHistoryUnder = Effect.fnUntraced(function* (model: string) {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-pi-resume-"));
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+  );
+  const sessionFile = NodePath.join(dir, "0001_codex.jsonl");
+  NodeFS.writeFileSync(sessionFile, CODEX_HISTORY);
+  const { fake, runtime } = yield* openRuntime(undefined, yield* liveHooks(false));
+  const providerThread = yield* runtime.ensureThread({
+    threadId: THREAD_ID,
+    modelSelection,
+    runtimePolicy,
+  });
+  yield* runtime.resumeThread({
+    providerThread: {
+      ...providerThread,
+      nativeThreadRef: { ...providerThread.nativeThreadRef!, nativeId: sessionFile },
+    },
+    modelSelection: { instanceId: PI_INSTANCE_ID, model },
+  });
+  assert.lengthOf(fake.switchedFiles, 1);
+  return fake.switchedFiles[0]!;
+});
+
+describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
+  it.effect("an Anthropic-family resume loads a file already rid of codex tool ids", () =>
+    Effect.gen(function* () {
+      const loaded = yield* resumeCodexHistoryUnder("cliproxy/claude-opus-5-5");
+      assert.notInclude(loaded, "|");
+      assert.include(loaded, "call_abc_fc_123");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("a codex resume leaves the file untouched", () =>
+    Effect.gen(function* () {
+      assert.equal(yield* resumeCodexHistoryUnder("openai-codex/gpt-6.1-sol"), CODEX_HISTORY);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

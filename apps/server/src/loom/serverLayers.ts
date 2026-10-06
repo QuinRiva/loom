@@ -25,23 +25,42 @@ import {
 } from "../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { classifyPiFailure } from "../provider/Drivers/Pi/piQuotaClassifier.loom.ts";
 import {
+  sanitisePiSessionFile,
+  slugRoutesToAnthropic,
+} from "../provider/Drivers/Pi/SessionIdSanitiser.loom.ts";
+import { subscriptionScopeForSelection } from "../provider/exhaustionMapping.ts";
+import {
   ProviderHealthRegistry,
   ProviderHealthRegistryLive,
 } from "../provider/Services/ProviderHealthRegistry.ts";
+import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 
+/**
+ * Track 3c's driver economics: the cross-vendor reroute sweep (3c-2). Every
+ * service it reads is already in the runtime at `LoomProviderRuntimeLive`'s
+ * position except the Loom sidecar store, which it brings.
+ */
+export const LoomDriverEconomicsLive = RerouteSweepLive.pipe(Layer.provide(LoomStore.layer));
+
 /** Provider sweeps merged into the provider runtime layer. */
-export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
+export const LoomProviderRuntimeLive = Layer.mergeAll(
+  SubscriptionUsagePollerLive,
+  LoomDriverEconomicsLive,
+);
 
 /**
- * The pi adapter's Loom hooks (Phase 3 track 3c): the quota classifier reads the
- * health marks at classification time, so a quota error with no reset in its
- * text takes the account window's. The sanitiser (3c-2) and steer stash (3c-3)
- * are still the passthroughs.
+ * The pi adapter's Loom hooks (Phase 3 track 3c). The quota classifier reads
+ * the health marks at classification time, so a quota error with no reset in
+ * its text takes the account window's; a usage limit it finds is marked on the
+ * model (until its reset, or the registry's 30-minute default), which is what
+ * the reroute sweep waits on before resuming a failure upstream cannot arm. The
+ * sanitiser rewrites codex tool ids before an Anthropic-family resume (3c-2);
+ * the steer stash (3c-3) is still the passthrough.
  */
 export const LoomPiAdapterHooksLive = Layer.effect(
   LoomPiAdapterHooks,
@@ -52,7 +71,25 @@ export const LoomPiAdapterHooksLive = Layer.effect(
       classifier: (errorText, selection) =>
         Effect.all([health.snapshot, Clock.currentTimeMillis]).pipe(
           Effect.map(([marks, now]) => classifyPiFailure(errorText, selection, marks, now)),
+          Effect.tap((classified) => {
+            const { accountKey, modelId } = subscriptionScopeForSelection(
+              selection,
+              new Set([selection.instanceId]),
+            );
+            return classified.usageLimit && accountKey !== null
+              ? health.markExhausted({
+                  accountKey,
+                  modelScope: modelId,
+                  until: classified.resetAt ?? null,
+                  source: "error",
+                })
+              : Effect.void;
+          }),
         ),
+      sanitiser: (sessionFilePath, modelSlug) =>
+        slugRoutesToAnthropic(modelSlug)
+          ? Effect.sync(() => sanitisePiSessionFile(sessionFilePath))
+          : Effect.void,
     } satisfies LoomPiAdapterHooksShape;
   }),
 );

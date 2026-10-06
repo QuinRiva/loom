@@ -121,10 +121,13 @@ export const matches = (mark: ExhaustionMark, accountKey: string, modelId?: stri
  * before exhaustion marks are derived (§4). The registry stores one snapshot
  * per account (distinguished by `accountLabel`), but routing and exhaustion key
  * by the instance alone: the router fails over between the pooled accounts, so
- * the instance is only exhausted when EVERY account is. We therefore take, per
- * window kind+scope, the MINIMUM `usedPercent` across the instance's accounts
- * (the best remaining account, carrying its own resetsAt), and treat the
- * explicit `limitReached` flag as exhausted only when ALL accounts set it.
+ * the instance is only exhausted when EVERY account is. An account is only as
+ * healthy as its worst window, so per window label (account-wide, or one model
+ * carve-out) we keep the windows of the ONE account whose worst window under
+ * that label is lowest (ties: the one that resets first). Taking the minimum per
+ * window kind across accounts instead (DL-77 defect 2) read account A's spent
+ * 5-hour window and account B's spent weekly window as a healthy instance. The
+ * explicit `limitReached` flag counts only when ALL accounts set it.
  * Single-account instances pass through unchanged.
  */
 export const aggregateAccountsBestRemaining = (
@@ -136,21 +139,32 @@ export const aggregateAccountsBestRemaining = (
     if (group) group.push(snapshot);
     else groups.set(accountUsageRoutingKey(snapshot), [snapshot]);
   }
-  const windowKey = (window: AccountUsageWindow): string =>
-    `${window.kind}\u0000${window.scope?.displayName ?? ""}`;
+  const label = (window: AccountUsageWindow): string => window.scope?.displayName ?? "";
+  const resetMs = (window: AccountUsageWindow): number =>
+    window.resetsAt === null ? Infinity : Date.parse(window.resetsAt);
   return Array.from(groups.values(), (group) => {
     if (group.length === 1) return group[0] as AccountUsageSnapshot;
     const freshest = group.reduce((a, b) => (b.observedAt > a.observedAt ? b : a));
-    const bestByWindow = new Map<string, AccountUsageWindow>();
-    for (const window of group.flatMap((s) => s.windows)) {
-      const prev = bestByWindow.get(windowKey(window));
-      if (prev === undefined || window.usedPercent < prev.usedPercent)
-        bestByWindow.set(windowKey(window), window);
-    }
+    const windows = [...new Set(group.flatMap((s) => s.windows.map(label)))].flatMap(
+      (name) =>
+        group
+          .map((s) => s.windows.filter((window) => label(window) === name))
+          .filter((accountWindows) => accountWindows.length > 0)
+          .map((accountWindows) => ({
+            accountWindows,
+            worst: accountWindows.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a)),
+          }))
+          .reduce((a, b) =>
+            b.worst.usedPercent < a.worst.usedPercent ||
+            (b.worst.usedPercent === a.worst.usedPercent && resetMs(b.worst) < resetMs(a.worst))
+              ? b
+              : a,
+          ).accountWindows,
+    );
     return {
       providerName: freshest.providerName,
       providerInstanceId: freshest.providerInstanceId,
-      windows: Array.from(bestByWindow.values()),
+      windows,
       observedAt: freshest.observedAt,
       ...(group.every((s) => s.limitReached === true) ? { limitReached: true } : {}),
     } satisfies AccountUsageSnapshot;
@@ -358,10 +372,9 @@ export const ProviderHealthRegistryLive = Layer.effect(
         yield* publish;
       });
 
-    // Pull 9 (ledger DT-92): the `providerFailover.pausedAccounts` subscription is
-    // detached. Nothing routes on a manual mark once the failover consumers are
-    // quarantined, and the settings card that set and cleared it is gone too, so
-    // a stored pause would be a warning nobody could lift. `pausedRef` stays empty.
+    // Pull 9: manual pause is gone (the strategy's failover ruling; 3c-2 dropped
+    // `providerFailover.pausedAccounts` from the settings, DT-92). Nothing feeds
+    // `pausedRef`, so it stays empty.
 
     return {
       applyUsage,

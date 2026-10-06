@@ -425,9 +425,8 @@ export function applyServerSettingsPatch(
               : patch.threadSearchEmbedding,
         }
       : {}),
-    // loom: provider failover config.
-    // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
-    // replace wholesale (records/arrays have no coherent partial merge).
+    // loom: provider failover config (enabled, fallbackTarget).
+    // Shallow-merge: each key replaces when present.
     ...(providerFailover !== undefined
       ? { providerFailover: { ...current.providerFailover, ...providerFailover } }
       : {}),
