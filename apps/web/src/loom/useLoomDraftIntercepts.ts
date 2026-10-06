@@ -20,6 +20,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { waitForThreadShell } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import {
@@ -122,13 +123,18 @@ export function useLoomDraftIntercepts() {
               },
             }),
           "Could not start the retro.",
-          (result) =>
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(
-                scopeThreadRef(source.environmentId, result.reviewerThreadId),
-              ),
-            }),
+          // Navigating before the reviewer's shell reaches this client reads as a
+          // missing thread and bounces to `/` (as upstream's fork action avoids).
+          (result) => {
+            const reviewer = scopeThreadRef(source.environmentId, result.reviewerThreadId);
+            void waitForThreadShell(reviewer).then((ready) => {
+              if (ready)
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(reviewer),
+                });
+            });
+          },
         );
       }
       return true;
