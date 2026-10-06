@@ -154,9 +154,17 @@ export const layer = Layer.effect(
             "sessionFile",
           );
           yield* connection.request({ type: "prompt", message: composeConsultTurn(input) });
+          // The latest assistant message's provider error, so an empty answer can say why.
+          let providerError: string | undefined;
           while (true) {
             const event = yield* Queue.take(connection.events);
             if (event["type"] === "agent_settled") break;
+            const message = event["message"];
+            if (event["type"] === "message_end" && piRecordString(message, "role") === "assistant")
+              providerError =
+                piRecordString(message, "stopReason") === "error"
+                  ? piRecordString(message, "errorMessage")
+                  : undefined;
             // No human is present: cancel any extension dialog instead of stalling.
             if (
               event["type"] === "extension_ui_request" &&
@@ -170,7 +178,7 @@ export const layer = Layer.effect(
             }
           }
           const text = yield* connection.request({ type: "get_last_assistant_text" });
-          return (piRecordString(text, "text") ?? "").trim();
+          return { answer: (piRecordString(text, "text") ?? "").trim(), providerError };
         }).pipe(
           Effect.scoped,
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -186,11 +194,13 @@ export const layer = Layer.effect(
       );
       // The fork transcript is kept (or removed) whether or not the turn answered.
       const forkSessionPath = forkFile === undefined ? undefined : yield* retain(forkFile);
-      const answer = yield* exit;
+      const { answer, providerError } = yield* exit;
       if (answer.length === 0)
         return yield* new LoomConsultError({
           detail:
-            "The fork produced no answer (the session history may not be replayable, or the provider failed).",
+            providerError === undefined
+              ? "The fork finished without an answer."
+              : `The fork's model request failed: ${providerError}`,
         });
       return { answer, ...(forkSessionPath === undefined ? {} : { forkSessionPath }) };
     });
