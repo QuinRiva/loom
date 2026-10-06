@@ -10136,14 +10136,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.stop":
         cancelUnsettledEffects = yield* dispatchThreadStop(command, events, effects);
-        // loom: upstream's thread.stop (f32c23cf1a: the delegated-task cascade and MCP task cancel;
-        // the web Stop is still run.interrupt) nests the interrupt without passing the case above
-        yield* loomHumanStopRaise({
-          command,
-          loomStore,
-          emit: emit(events, command),
-          toDispatchError: mapDispatchError(command),
-        });
         break;
       case "queued-message.promote-to-steer":
         yield* dispatchQueuedMessagePromoteToSteer(command, events, effects);
