@@ -11,10 +11,7 @@ import { LOOM_WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../../connection/registry.ts";
-import {
-  createEnvironmentRpcCommand,
-  createEnvironmentRpcQueryAtomFamily,
-} from "../runtime.ts";
+import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "../runtime.ts";
 
 export function createLoomCommandAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,

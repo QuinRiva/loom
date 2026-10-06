@@ -171,7 +171,12 @@ export function useNewThreadHandler() {
       const logicalProjectKey =
         loomGoalId === null ? projectLogicalKey : goalDraftBucketKey(projectLogicalKey, loomGoalId);
       // Every path maps the draft it opens through here: that draft's thread joins the goal on create.
-      const setLogicalProjectDraftThreadId: typeof setDraftMapping = (key, ref, draftId, mapping) => {
+      const setLogicalProjectDraftThreadId: typeof setDraftMapping = (
+        key,
+        ref,
+        draftId,
+        mapping,
+      ) => {
         setDraftMapping(key, ref, draftId, mapping);
         if (loomGoalId !== null && mapping?.threadId)
           inheritLoomGoal(ref.environmentId, mapping.threadId, loomGoalId);

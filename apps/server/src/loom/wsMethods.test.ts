@@ -16,10 +16,7 @@ const TestLayer = Layer.mergeAll(
   LoomStore.layer,
   LoomGoalBroadcast.layer,
   LoomUsageLedgerFixtureLive,
-).pipe(
-  Layer.provideMerge(SqlitePersistenceMemory),
-  Layer.provideMerge(NodeServices.layer),
-);
+).pipe(Layer.provideMerge(SqlitePersistenceMemory), Layer.provideMerge(NodeServices.layer));
 const goalId = GoalId.make("goal:ws");
 const task = (id: string) => GoalTaskId.make(id);
 

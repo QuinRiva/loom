@@ -35,7 +35,10 @@ const childrenAtom = Atom.family((key: string) => {
           shell.lineage.parentThreadId === threadId ||
           shell.workstream?.parentThreadId === threadId,
       )
-      .toSorted((left, right) => DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt))
+      .toSorted(
+        (left, right) =>
+          DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+      )
       .map((shell) => ({ id: shell.id, title: shell.title }));
     const same =
       next.length === previous.length &&

@@ -9,12 +9,7 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  LoomThreadSpend,
-  LoomTopSpendRow,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, LoomThreadSpend, LoomTopSpendRow, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 

@@ -27,18 +27,16 @@ export function WorkstreamSpendSlot({
   const spend = useThreadSpend(useContext(WorkstreamEnvironmentContext), threadId);
   const cost = formatCostUsd(spend?.costUsd);
   if (!spend || cost === null) return null;
-  const tokens = `${formatTokens(spend.inputTokens)} in · ${formatTokens(spend.outputTokens)} out · ${formatTokens(spend.cachedTokens)} cached`;
   return fact ? (
     <div className="flex items-baseline gap-2 text-xs">
       <dt className="w-[108px] shrink-0 whitespace-nowrap text-muted-foreground">Cost</dt>
       <dd className="min-w-0 flex-1 truncate text-foreground/80 tabular-nums">
-        {cost} · {tokens}
+        {cost} · {formatTokens(spend.inputTokens)} in · {formatTokens(spend.outputTokens)} out ·{" "}
+        {formatTokens(spend.cachedTokens)} cached
       </dd>
     </div>
   ) : (
-    <span className="tabular-nums" title={`Lifetime spend: ${tokens}`}>
-      {cost}
-    </span>
+    <span className="tabular-nums">{cost}</span>
   );
 }
 
@@ -62,9 +60,8 @@ export function LoomContextChip({ threadId }: { readonly threadId: ThreadId }) {
   return (
     <span
       className={`tabular-nums ${percent !== null && percent > 50 ? "text-destructive-foreground" : ""}`}
-      title="Context window used"
     >
-      {formatContextWindowTokens(usage.usedTokens)}
+      context {formatContextWindowTokens(usage.usedTokens)}
       {max ? ` / ${formatContextWindowTokens(max)}` : ""}
       {percent !== null ? ` · ${percent}%` : ""}
     </span>

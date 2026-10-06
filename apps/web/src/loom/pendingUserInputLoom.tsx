@@ -24,9 +24,9 @@ export interface LoomPendingInputHost {
   readonly onReplyInChat: () => void;
 }
 
-const useHosts = create<{ readonly hosts: Readonly<Record<string, LoomPendingInputHost>> }>(
-  () => ({ hosts: {} }),
-);
+const useHosts = create<{ readonly hosts: Readonly<Record<string, LoomPendingInputHost>> }>(() => ({
+  hosts: {},
+}));
 
 /** ChatView: host the active request. The reply callback is read through a ref. */
 export function useHostLoomPendingInput(requestId: string | null, host: LoomPendingInputHost) {

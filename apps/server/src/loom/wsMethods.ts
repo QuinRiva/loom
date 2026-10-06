@@ -203,9 +203,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     [LOOM_WS_METHODS.topSpend]: (input: LoomTopSpendInput) =>
       observeRpcEffect(
         LOOM_WS_METHODS.topSpend,
-        usageLedger
-          .topSpend(input.limit, input.since)
-          .pipe(Effect.map((threads) => ({ threads }))),
+        usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
         { "rpc.aggregate": "loom" },
       ),
   };

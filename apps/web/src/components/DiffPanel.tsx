@@ -751,7 +751,11 @@ export default function DiffPanel({
                     onValueChange={selectScopeValue}
                   >
                     {loomChildren.map((child) => (
-                      <DropdownMenuRadioItem key={child.id} value={`coder:${child.id}`} closeOnClick>
+                      <DropdownMenuRadioItem
+                        key={child.id}
+                        value={`coder:${child.id}`}
+                        closeOnClick
+                      >
                         <span className="max-w-64 truncate">{child.title}</span>
                       </DropdownMenuRadioItem>
                     ))}
