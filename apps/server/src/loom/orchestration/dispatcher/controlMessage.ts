@@ -113,6 +113,16 @@ export const quiescentSubmitCommandId = (threadId: ThreadId, runId: string) =>
 export const steerRedeliverCommandId = (threadId: ThreadId, hash: string) =>
   `server:loom:steer-redeliver:${threadId}:${hash}`;
 
+/** 3c's reroute sweep, clause 1: the resume onto the fallback after the run it failed on (`:model` / `:detach:` steps share the base). */
+export const rerouteCommandId = (threadId: ThreadId, runId: string) =>
+  `server:loom:reroute:${threadId}:${runId}`;
+/** Clause 2's move back to the intended selection (steps share the base); its resume appends `:<runId>`. */
+export const rerouteBackCommandId = (threadId: ThreadId, reroutedAtMs: number) =>
+  `server:loom:reroute-back:${threadId}:${reroutedAtMs}`;
+/** Clause 3: the resume of a usage-limit failure upstream cannot arm (no future reset). */
+export const limitResumeCommandId = (threadId: ThreadId, runId: string) =>
+  `server:loom:limit-resume:${threadId}:${runId}`;
+
 /** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
 export const steerHash = (text: string) =>
   NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);

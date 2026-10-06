@@ -156,11 +156,11 @@ const shellOf = (threadId: ThreadId) =>
   Effect.gen(function* () {
     return (yield* (yield* Orchestrator.OrchestratorV2).getThreadShell(threadId))!;
   });
-/** The messages the sweep wrote (every Loom server id starts `server:loom:`). */
+/** The messages the sweep wrote (`controlMessage()` ids: `message:` + the `server:loom:` command id). */
 const sweepMessages = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const projection = yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(threadId);
-    return projection.messages.filter((message) => message.id.startsWith("server:loom:"));
+    return projection.messages.filter((message) => message.id.startsWith("message:server:loom:"));
   });
 
 it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute sweep", (it) => {
@@ -193,7 +193,7 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
         const resumes = yield* sweepMessages(threadId);
         assert.lengthOf(resumes, 1);
         const [resume] = resumes;
-        assert.equal(resume!.id, `server:loom:reroute:${threadId}:${runId}`);
+        assert.equal(resume!.id, `message:server:loom:reroute:${threadId}:${runId}`);
         assert.equal(resume!.loom?.origin, "control_notice");
         assert.notEqual(resume!.loom?.humanAuthored, true);
         assert.equal(resume!.createdBy, "agent");
@@ -246,7 +246,7 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
           assert.deepEqual((yield* shellOf(threadId)).modelSelection, FALLBACK);
           assert.deepEqual(
             (yield* sweepMessages(threadId)).map((message) => message.id),
-            [`server:loom:reroute:${threadId}:${runId}`],
+            [`message:server:loom:reroute:${threadId}:${runId}`],
           );
           assert.isTrue((yield* listReroutes).some((entry) => entry.threadId === threadId));
         }
@@ -352,13 +352,13 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
         yield* pass;
         yield* pass;
         const [resume] = yield* sweepMessages(unknown);
-        assert.equal(resume?.id, `server:loom:limit-resume:${unknown}:${runId}`);
+        assert.equal(resume?.id, `message:server:loom:limit-resume:${unknown}:${runId}`);
         assert.equal(resume?.loom?.origin, "control_notice");
         assert.lengthOf(yield* sweepMessages(unknown), 1);
         assert.deepEqual(yield* sweepMessages(known), []);
         assert.deepEqual(
           (yield* sweepMessages(due)).map((message) => message.id),
-          [`server:loom:limit-resume:${due}:${dueRunId}`],
+          [`message:server:loom:limit-resume:${due}:${dueRunId}`],
         );
         assert.deepEqual(yield* sweepMessages(snoozed), []);
       }),
