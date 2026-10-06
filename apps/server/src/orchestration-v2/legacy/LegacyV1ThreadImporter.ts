@@ -32,6 +32,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "../RandomUuid.ts";
+import {
+  importedLoomFields,
+  type LegacyLoomMessageColumns,
+} from "./LegacyV1ThreadImporter.loom.ts"; // loom: DL-610
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
 const TRANSCRIPT_EVENT_BATCH_SIZE = 100;
@@ -67,7 +71,7 @@ interface LegacyRepairRow extends LegacyThreadRow {
   readonly payload_json: string;
 }
 
-interface LegacyMessageRow {
+interface LegacyMessageRow extends LegacyLoomMessageColumns /* loom: DL-610 */ {
   readonly message_id: string;
   readonly thread_id: string;
   readonly role: "user" | "assistant";
@@ -248,8 +252,10 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
   const createdAt = dateTime(row.created_at);
   const updatedAt = dateTime(row.updated_at);
   const attachments = attachmentsFor(row);
+  const { createdBy, loom } = importedLoomFields(row); // loom: DL-610 — a Loom-origin message is the agent's
   const message: OrchestrationV2ConversationMessage = {
-    createdBy: row.role === "user" ? "user" : "agent",
+    createdBy, // loom: DL-610
+    ...(loom === undefined ? {} : { loom }), // loom: DL-610
     creationSource: "server",
     id: messageId,
     threadId,
@@ -289,7 +295,7 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
     row.role === "user"
       ? {
           ...baseTurnItem,
-          createdBy: "user",
+          createdBy, // loom: DL-610
           creationSource: "server",
           type: "user_message",
           messageId,
@@ -358,6 +364,8 @@ const make = Effect.gen(function* () {
         text,
         attachments_json,
         context_json,
+        origin, -- loom: DL-610
+        control_payload_json, -- loom: DL-610
         is_streaming,
         created_at,
         updated_at,
@@ -381,6 +389,8 @@ const make = Effect.gen(function* () {
           message.text,
           message.attachments_json,
           message.context_json,
+          message.origin, -- loom: DL-610
+          message.control_payload_json, -- loom: DL-610
           message.is_streaming,
           message.created_at,
           message.updated_at,
@@ -411,6 +421,8 @@ const make = Effect.gen(function* () {
           message.text,
           message.attachments_json,
           message.context_json,
+          message.origin, -- loom: DL-610
+          message.control_payload_json, -- loom: DL-610
           message.is_streaming,
           message.created_at,
           message.updated_at,
