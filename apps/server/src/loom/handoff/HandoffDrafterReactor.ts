@@ -172,6 +172,7 @@ const make = Effect.gen(function* () {
         ? Effect.failCause(cause)
         : Effect.logWarning("loom.handoff-drafter.pass-failed", { cause: Cause.pretty(cause) }),
     ),
+    Effect.withSpan("loom.handoff-drafter.pass"),
   );
   const worker = yield* makeCoalescingWorker(pass);
 
