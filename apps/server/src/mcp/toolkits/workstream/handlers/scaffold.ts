@@ -1,9 +1,9 @@
 /**
- * `workstream_scaffold`: a whole child graph in one `thread.scaffold`, all or
+ * `mcp__t3-code__workstream_scaffold`: a whole child graph in one `thread.scaffold`, all or
  * nothing. References are a node key (this call's, or an existing child's
  * graph key) or `thread:<id>`; a fork node inherits its source's identity along
  * the fork chain. Nodes are created unbriefed, so none starts before
- * `workstream_brief`. The arm validates the graph (live siblings, cycles,
+ * `mcp__t3-code__workstream_brief`. The arm validates the graph (live siblings, cycles,
  * unique and non-UUID keys) under the caller's lock; its refusal names nodes
  * by key.
  *

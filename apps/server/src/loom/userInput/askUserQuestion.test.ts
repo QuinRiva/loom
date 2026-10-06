@@ -1,5 +1,5 @@
 /**
- * `ask_user_question` on the real orchestrator (3a-4): the request on its
+ * `mcp__t3-code__ask_user_question` on the real orchestrator (3a-4): the request on its
  * dedicated node, the respond hunk with and without a live waiter, rule 6's
  * supersede and the run-end close. The reactor is fed each command's committed
  * events (the dispatch result, or the receipt's events by command id), so every
@@ -111,7 +111,7 @@ const respond = (threadId: ThreadId, requestId: RuntimeRequestId) =>
 const fresh = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provideService(effect, LoomAskWaiters, makeLoomAskWaiters());
 
-it.layer(LoomOrchestratorTestLayer)("Loom ask_user_question", (it) => {
+it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it) => {
   it.effect("opens a pending user_input request on its own node, the pick shown in its label", () =>
     fresh(
       Effect.gen(function* () {

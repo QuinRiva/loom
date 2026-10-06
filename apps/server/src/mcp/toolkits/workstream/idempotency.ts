@@ -1,6 +1,6 @@
 /**
  * Deterministic ids for handlers that create things (spawn, scaffold,
- * goal_task_add, goal_handoff, goal_continue, thread_fork), in upstream's
+ * mcp__t3-code__goal_task_add, mcp__t3-code__goal_handoff, mcp__t3-code__goal_continue, mcp__t3-code__thread_fork), in upstream's
  * `stableCommandId` shape (`OrchestratorMcpService.ts`): the credential's
  * `requestNamespace`, the operation and the request key. With the agent's
  * `clientRequestId` a retry reproduces the same ids, so the command receipt

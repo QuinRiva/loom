@@ -73,7 +73,7 @@ export const TOOLSET_FAMILIES = [
   "all",
 ] as const;
 
-/** Profile, re-assertion and `enable_toolset` (P3-4, P3-5). */
+/** Profile, re-assertion and `mcp__t3-code__enable_toolset` (P3-4, P3-5). */
 export const toolProfilePart: LoomExtensionPart = {
   name: "toolProfile",
   source: `
@@ -167,7 +167,7 @@ pi.registerTool({
 `,
 };
 
-/** `ask_user_question` over `POST …/ask` + `GET …/wait` (25 s slices; a dropped poll re-attaches). */
+/** `mcp__t3-code__ask_user_question` over `POST …/ask` + `GET …/wait` (25 s slices; a dropped poll re-attaches). */
 export const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
   source: `

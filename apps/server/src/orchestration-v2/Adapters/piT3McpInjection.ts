@@ -305,6 +305,7 @@ export function buildPiRpcLaunch(input: {
     args,
     env: {
       ...environment,
+      ...input.loom?.env, // loom: composer env (PI_CACHE_RETENTION, DL-300) overrides the inherited env, never T3's own vars
       ...(hasT3Extension && input.runtimeMode !== undefined
         ? {
             [T3_PI_RUNTIME_MODE_ENV]:

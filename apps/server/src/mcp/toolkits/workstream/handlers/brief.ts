@@ -1,5 +1,5 @@
 /**
- * `workstream_brief`: writes an unstarted direct child's kickoff brief to disk
+ * `mcp__t3-code__workstream_brief`: writes an unstarted direct child's kickoff brief to disk
  * and records its path with `thread.kickoff-brief.set`. Delivering the kickoff
  * is the control plane's (the child starts once briefed and unblocked).
  *

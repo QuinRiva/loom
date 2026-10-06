@@ -147,7 +147,7 @@ const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
 const loopTargetsOf = (routes: ReadonlyArray<WorkstreamRoute>) =>
   routes.flatMap((route) => (route.kind === "loop" && route.to !== undefined ? [route.to] : []));
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
+// mcp__t3-code__notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
 export const NOTIFY_PAIR_HOURLY_CAP = 10;
 export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
@@ -179,7 +179,7 @@ export const loomMessageFields = (
   >,
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
-/** Rule 4's clearing origins: a human, or the parent's `workstream_prompt`. */
+/** Rule 4's clearing origins: a human, or the parent's `mcp__t3-code__workstream_prompt`. */
 export const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
   loom?.humanAuthored === true || loom?.origin === "orchestrator";
 
@@ -286,7 +286,7 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 
 /**
  * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
- * request whose `ask_user_question` call is still polling takes the answer as
+ * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
  * its tool result, so upstream's answer message is withheld. With no live
  * waiter (pi died, the server restarted) upstream's message delivery stands.
  */
@@ -609,7 +609,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
       ) {
         return yield* fail(
-          `Thread ${submit.threadId} is ${row.outcome}; workstream_submit cannot act on a terminal thread.`,
+          `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
         );
       }
       const erased = holdErasedByCompletion({
@@ -841,7 +841,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     });
 
   /**
-   * `ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
+   * `mcp__t3-code__ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
    * runtime request on its own request node under the active run's root, with
    * the `user_input_request` turn item carrying the questions — the shapes
    * upstream's adapters emit, so V2's panel, mobile card and the shell's
@@ -1284,7 +1284,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       ).length;
       if (sent >= NOTIFY_PAIR_HOURLY_CAP) {
         return yield* fail(
-          `notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use consult_thread if you need an answer.`,
+          `mcp__t3-code__notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from ${command.threadId} to ${command.targetThreadId}. The recipient owes no reply; use mcp__t3-code__consult_thread if you need an answer.`,
         );
       }
       const target = yield* requireThread(command.targetThreadId);

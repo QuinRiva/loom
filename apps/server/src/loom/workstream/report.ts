@@ -6,7 +6,7 @@
  * `reportPath`, so the parent — whose cwd is its own worktree — reads it
  * directly. The quiescence rail writes a synthesised report beside them.
  *
- * Two tracks land this seam (3a-2 for `workstream_submit`, 3b for the
+ * Two tracks land this seam (3a-2 for `mcp__t3-code__workstream_submit`, 3b for the
  * quiescence rail); integration keeps one copy.
  *
  * @module loom/workstream/report

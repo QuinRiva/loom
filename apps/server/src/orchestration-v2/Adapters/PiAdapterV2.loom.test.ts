@@ -7,6 +7,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   NodeId,
   ProviderInstanceId,
   ProviderSessionId,
@@ -208,6 +209,27 @@ describe("PiAdapterV2 (loom)", () => {
     ]);
     // The empty default composer adds no argv: upstream's launch is unchanged.
     assert.deepEqual(launch(EMPTY_LOOM_OPEN_SESSION_FIELDS), launch());
+  });
+
+  it("merges the composer env over the inherited env without shadowing T3's own variables", () => {
+    const { env } = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { PI_CACHE_RETENTION: "long", PATH: "/bin" },
+      mcpSession: {
+        environmentId: EnvironmentId.make("environment-loom-env"),
+        threadId: ThreadId.make("thread-loom-env"),
+        providerSessionId: "mcp-session-loom-env",
+        providerInstanceId: ProviderInstanceId.make("pi"),
+        endpoint: "http://127.0.0.1:1/mcp",
+        authorizationHeader: "Bearer real",
+        browserToolsAvailable: false,
+      },
+      extensionPath: "/cache/t3-bridge.ts",
+      loom: { ...LOOM, env: { PI_CACHE_RETENTION: "short", T3_MCP_BEARER_TOKEN: "spoofed" } },
+    });
+    assert.equal(env.PI_CACHE_RETENTION, "short");
+    assert.equal(env.PATH, "/bin");
+    assert.equal(env.T3_MCP_BEARER_TOKEN, "real");
   });
 
   it.effect("openSession spawns pi with the composed fields", () =>

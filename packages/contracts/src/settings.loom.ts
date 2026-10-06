@@ -152,7 +152,7 @@ export const LoomClientSettingsPatchFields = {
 // Spread into `ServerSettings`.
 export const LoomServerSettingsFields = {
   // Named model presets for Workstream spawns. Keyed by a plain slug; the
-  // value is a full `ModelSelection`. `workstream_spawn` resolves a preset by
+  // value is a full `ModelSelection`. `mcp__t3-code__workstream_spawn` resolves a preset by
   // explicit `modelPreset` name, or — when neither model field is given — by
   // the child's `role` (a preset named after the role). Default empty so
   // existing spawns inherit the parent's selection exactly as before.

@@ -32,7 +32,7 @@ import { emptyWorkstream, readWorkstream, writeWorkstream } from "./LoomStore.ts
 
 // Shell-level previews, as V1's projection pipeline bounded them.
 const PREVIEW_MAX_LENGTH = 140;
-// notify_thread's ordered-pair cap window (V1 `NOTIFY_PAIR_WINDOW_MS`; the
+// mcp__t3-code__notify_thread's ordered-pair cap window (V1 `NOTIFY_PAIR_WINDOW_MS`; the
 // quarantined `@t3tools/shared/notify` returns with Phase 3a's handler).
 const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 

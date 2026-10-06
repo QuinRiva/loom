@@ -1,8 +1,8 @@
 /**
  * Loom's pi extension, built from its parts and run against a stub `pi` and a
  * stub `fetch` (the pattern of `piT3McpExtensionSource.test.ts`): the profile
- * at `session_start`, the per-turn re-assertion (P3-4), `enable_toolset` with
- * the deny-list and the human-input rule, and `ask_user_question` across a
+ * at `session_start`, the per-turn re-assertion (P3-4), `mcp__t3-code__enable_toolset` with
+ * the deny-list and the human-input rule, and `mcp__t3-code__ask_user_question` across a
  * dropped poll.
  */
 import * as NodeModule from "node:module";
@@ -134,7 +134,7 @@ describe("Loom pi extension", () => {
     );
   });
 
-  it("enable_toolset all activates everything but the deny-list", async () => {
+  it("mcp__t3-code__enable_toolset all activates everything but the deny-list", async () => {
     const pi = await load(serving(() => profile()));
     await pi.emit("session_start");
     const result = await pi.call(ENABLE, { family: "all" });
@@ -173,7 +173,7 @@ describe("Loom pi extension", () => {
     assert.include(pi.notices[0]!, "boom");
   });
 
-  it("ask_user_question re-attaches after a dropped poll and returns the answer", async () => {
+  it("mcp__t3-code__ask_user_question re-attaches after a dropped poll and returns the answer", async () => {
     const posts: Array<unknown> = [];
     const polls = [
       () => {

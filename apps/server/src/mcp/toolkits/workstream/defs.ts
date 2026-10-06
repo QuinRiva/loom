@@ -3,8 +3,8 @@
  * tool, with the prose (description, snippet, guidelines) read from
  * `prose.ts`. The Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
- * derived from it, so the two cannot drift (DL-336). `ask_user_question` and
- * `enable_toolset` are registered by Loom's pi extension, not here.
+ * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` and
+ * `mcp__t3-code__enable_toolset` are registered by Loom's pi extension, not here.
  *
  * @module mcp/toolkits/workstream/defs
  */

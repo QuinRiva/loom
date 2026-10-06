@@ -293,7 +293,7 @@ account, so repeats test a single credential, not the pool.
 
 **The live cockpit picked up a settings edit** — zero-cost, no spawn. Point a
 spare preset at the new slug, then read the preset block that
-`workstream_list` prints from any thread: the entry appears with **no
+`mcp__t3-code__workstream_list` prints from any thread: the entry appears with **no
 `[INVALID …]` marker** iff the running server's live catalogue accepts it.
 Always run a bogus slug as a negative control (`cliproxy/claude-opus-9-9`) —
 the check is skipped when an instance advertises an empty catalogue, so a clean
@@ -420,7 +420,7 @@ pi 0.87.1 accepts this entry as is (checked with `gpt-6.1-sol`), and it
 overrides an overlay or bundled model with the same id.
 
 **Point and test.** Write the targets with the skill's `--set`, then probe both
-binaries and run the §7 `workstream_list` check, using a bogus id of the same
+binaries and run the §7 `mcp__t3-code__workstream_list` check, using a bogus id of the same
 family as the negative control:
 
 ```bash
@@ -430,7 +430,7 @@ for bin in pi "$B"; do $bin -p --model openai-codex/gpt-6.1-sol --thinking high 
 
 There is no restart or deploy. The cockpit re-reads its settings within
 seconds and re-probes pi's catalogue every ~2 min, so right after a `models.json`
-edit `workstream_list` may show `[INVALID]` for up to 2 min.
+edit `mcp__t3-code__workstream_list` may show `[INVALID]` for up to 2 min.
 
 **Once a pi bump ships the model,** delete its `models.json` entry, and check
 that `pi --list-models` still lists the model. The targets need nothing: the

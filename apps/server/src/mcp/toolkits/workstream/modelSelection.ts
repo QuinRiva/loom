@@ -518,7 +518,7 @@ export const resolveChildModel = Effect.fn("LoomToolkit.resolveChildModel")(func
   };
 });
 
-/** The spawn catalogue `workstream_list` shows: presets and profiles with their validity. */
+/** The spawn catalogue `mcp__t3-code__workstream_list` shows: presets and profiles with their validity. */
 export const spawnCatalogue = Effect.gen(function* () {
   const settings = yield* (yield* ServerSettingsService).getSettings.pipe(
     Effect.mapError((error) => new LoomToolError({ message: error.message })),

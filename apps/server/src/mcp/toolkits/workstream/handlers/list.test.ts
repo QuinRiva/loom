@@ -1,5 +1,5 @@
 /**
- * workstream_list on V2's real orchestrator: the caller's whole tree joined
+ * mcp__t3-code__workstream_list on V2's real orchestrator: the caller's whole tree joined
  * with the shell — status, report path, waits-on, a synthesised report's
  * marker — and the spawn catalogue; a root before its first Loom write lists
  * itself.

@@ -1,6 +1,6 @@
 /**
  * The two REST survivors beside `/mcp` (P3-3), for Loom's pi extension: the
- * session profile (seam 5) and `ask_user_question`'s ask + long-poll wait.
+ * session profile (seam 5) and `mcp__t3-code__ask_user_question`'s ask + long-poll wait.
  * The bearer is the thread's MCP credential, resolved through
  * `McpSessionRegistry.resolve` exactly as `/mcp` does; the caller is that
  * credential's thread and must hold the `workstream` capability.
@@ -24,8 +24,9 @@ import {
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { loomPaths } from "../loomPaths.ts";
+import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
-import { LoomToolProfile } from "../prompt/toolProfile.ts";
+import { loadRoleOverlay } from "../prompt/roleOverlay.ts";
 import { ASK_COULD_NOT_PRESENT, openAskUserQuestion } from "../userInput/askUserQuestion.ts";
 import { LoomAskWaiters } from "../userInput/askWaiters.ts";
 
@@ -56,7 +57,7 @@ const asCaller = <E, R>(
  * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
  * message — never the shell's `latestUserAuthoredMessageAt`, which counts
  * upstream's usage-limit resume. A child nobody has written to does not keep
- * `ask_user_question` resident whatever its role says.
+ * `mcp__t3-code__ask_user_question` resident whatever its role says.
  */
 export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (threadId: ThreadId) {
   const { thread, messages } = yield* (yield* OrchestratorV2).getThreadRecords(
@@ -66,12 +67,18 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
   );
   const humanEngaged = messages.some((message) => message.loom?.humanAuthored === true);
   const hasParent = thread.lineage.parentThreadId !== null;
-  const role = (yield* (yield* LoomStoreV2).getWorkstream(threadId))?.role ?? null;
-  const activeTools = (yield* LoomToolProfile).activeTools({
-    role,
-    projectRoot: thread.worktreePath,
-  });
   const config = yield* ServerConfig.ServerConfig;
+  // The launched profile; a thread that never launched gets its role's profile as of now.
+  const launched = yield* readLaunchIdentity(
+    loomPaths(config).workstreamLaunchIdentityDir,
+    threadId,
+  );
+  const activeTools = Option.isSome(launched)
+    ? launched.value.tools
+    : (loadRoleOverlay({
+        role: (yield* (yield* LoomStoreV2).getWorkstream(threadId))?.role ?? null,
+        projectRoot: thread.worktreePath ?? process.cwd(),
+      })?.tools ?? []);
   return {
     activeTools:
       hasParent && !humanEngaged

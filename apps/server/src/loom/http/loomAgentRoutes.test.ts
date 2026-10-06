@@ -2,7 +2,7 @@
  * The `/loom/agent` routes over HTTP on the real orchestrator, with
  * credentials from the real `McpSessionRegistry`: the session profile's
  * `humanEngaged` reads only seam 14's stamp, a child's profile drops
- * `ask_user_question`, ask + wait deliver an answer, and a credential without
+ * `mcp__t3-code__ask_user_question`, ask + wait deliver an answer, and a credential without
  * `workstream` is refused.
  */
 import { NodeHttpServer } from "@effect/platform-node";
@@ -131,21 +131,23 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
     }),
   );
 
-  it.effect("a child nobody has written to does not keep ask_user_question resident", () =>
-    Effect.gen(function* () {
-      const { threadId: parent } = yield* seedThread({ threadId: "routes-parent" as ThreadId });
-      const child = "routes-child" as ThreadId;
-      yield* spawnChild({ parentThreadId: parent, threadId: child, role: "orchestrator" });
-      const profile = (yield* call(
-        yield* credential(child, ["workstream"]),
-        "GET",
-        "/session-profile",
-      )).body;
-      assert.isTrue(profile.hasParent);
-      assert.isFalse(profile.humanEngaged);
-      assert.notInclude(profile.activeTools, ASK);
-      assert.include(profile.activeTools, "mcp__t3-code__workstream_spawn");
-    }),
+  it.effect(
+    "a child nobody has written to does not keep mcp__t3-code__ask_user_question resident",
+    () =>
+      Effect.gen(function* () {
+        const { threadId: parent } = yield* seedThread({ threadId: "routes-parent" as ThreadId });
+        const child = "routes-child" as ThreadId;
+        yield* spawnChild({ parentThreadId: parent, threadId: child, role: "orchestrator" });
+        const profile = (yield* call(
+          yield* credential(child, ["workstream"]),
+          "GET",
+          "/session-profile",
+        )).body;
+        assert.isTrue(profile.hasParent);
+        assert.isFalse(profile.humanEngaged);
+        assert.notInclude(profile.activeTools, ASK);
+        assert.include(profile.activeTools, "mcp__t3-code__workstream_spawn");
+      }),
   );
 
   it.effect("ask opens the question and wait returns the answer", () =>

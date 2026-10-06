@@ -1,11 +1,11 @@
 /**
- * Every read surface of a goal's task tree — `goal_task_list`, the goal tools'
+ * Every read surface of a goal's task tree — `mcp__t3-code__goal_task_list`, the goal tools'
  * echoes and `t3 goal show` — renders the same `- [x] text (id)` indented form;
  * this is the single place that shape lives.
  *
  * One invariant holds for the scoped renderings: a rendering is either
  * COMPLETE within its declared scope — so resubmitting it to the matching
- * `goal_tasks_rewrite` scope is a verbatim no-op — or it is mechanically
+ * `mcp__t3-code__goal_tasks_rewrite` scope is a verbatim no-op — or it is mechanically
  * unusable as a rewrite submission. The elided/annotated views carry marker
  * lines with no `- ` bullet, which `parseGoalTaskMarkdown` rejects outright
  * rather than reading them as a new task whose siblings were deleted.
