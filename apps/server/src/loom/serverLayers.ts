@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
+import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
@@ -45,10 +46,12 @@ export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
 
 /**
  * The workstream control plane (Phase 3 Track 3b): the dispatcher pass —
- * re-drive, promotion and every wake — started after server activation.
- * 3b-3/4/5 merge their layers here.
+ * re-drive, promotion and every wake — and the liveness sweep (which advises
+ * through the dispatcher), both started after server activation.
+ * 3b-4/5 merge their layers here.
  */
-export const LoomControlPlaneLive = Layer.mergeAll(WorkstreamDispatcherStartedLive).pipe(
+export const LoomControlPlaneLive = Layer.mergeAll(WorkstreamLivenessSweepLive).pipe(
+  Layer.provideMerge(WorkstreamDispatcherStartedLive),
   Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
 );
 
