@@ -171,6 +171,18 @@
       "types": "./src/state/itemSupport.ts",
       "default": "./src/state/itemSupport.ts"
     },
+    "./state/loom/goals": {
+      "types": "./src/state/loom/goals.ts",
+      "default": "./src/state/loom/goals.ts"
+    },
+    "./state/loom/rollup": {
+      "types": "./src/state/loom/rollup.ts",
+      "default": "./src/state/loom/rollup.ts"
+    },
+    "./state/loom/workstream": {
+      "types": "./src/state/loom/workstream.ts",
+      "default": "./src/state/loom/workstream.ts"
+    },
     "./state/models": {
       "types": "./src/state/models.ts",
       "default": "./src/state/models.ts"

@@ -101,6 +101,12 @@ export const layerWithReactor = Layer.effectDiscard(goalCascadeReactor).pipe(
   Layer.provideMerge(layer),
 );
 
+/** The live goals of the given projects, as an authoritative shell snapshot carries them. */
+export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectShell>) =>
+  LoomStoreV2.use((loomStore) =>
+    Effect.forEach(projects, (project) => loomStore.goals.listByProject(project.id)),
+  ).pipe(Effect.map((goals) => ({ goals: goals.flat().map(toGoalShell) })));
+
 /**
  * The shell subscription's goal surface (DL-200): `goals` for the
  * authoritative snapshot and the live goal items, both empty unless the
@@ -120,9 +126,7 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   const subscription = yield* (yield* LoomGoalBroadcast).subscribe;
   return {
     snapshotGoals: (projects: ReadonlyArray<OrchestrationProjectShell>) =>
-      Effect.forEach(projects, (project) => loomStore.goals.listByProject(project.id)).pipe(
-        Effect.map((goals) => ({ goals: goals.flat().map(toGoalShell) })),
-      ),
+      loomSnapshotGoals(projects).pipe(Effect.provideService(LoomStoreV2, loomStore)),
     items: Stream.fromSubscription(subscription),
   };
 });
