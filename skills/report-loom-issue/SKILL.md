@@ -10,8 +10,8 @@ pi_global: true
 
 # Report a Loom issue
 
-Mid-task, something in Loom misbehaves — a `workstream_*` tool returns the
-wrong thing, the sidebar shows a stale lane, a deploy left a skill unlinked.
+Mid-task, something in Loom misbehaves — a `mcp__t3-code__workstream_*` tool returns the
+wrong thing, the sidebar shows a stale status, a deploy left a skill unlinked.
 Fixing it derails your task; describing it in your report buries it. The third
 option: park it as a GitHub issue on `QuinRiva/loom` in under a minute and
 carry on. The board is **public** and most reporters work on private client
@@ -38,7 +38,7 @@ human asks.** The board is a parking lot, not a queue.
 
 ```bash
 bash scripts/report_issue.sh \
-  --summary "workstream_submit with outcome=clean leaves the coder lane in_progress" \
+  --summary "mcp__t3-code__workstream_submit with outcome=clean leaves the coder in progress" \
   --confidence suspected \
   --surface workstream-tools \
   --description-file /tmp/loom-finding-$PI_SESSION_ID.md
@@ -96,14 +96,14 @@ verified**, or **Alternative explanations**:
 
 ### `--surface` — where a triager starts
 
-| Value              | Covers                                                                                                                                        |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `web`              | What you see in the app: chat, sidebar, plan/task views, rendering, Electron shell                                                            |
-| `server`           | Threads, turns, persistence, provider adapter, checkpoints, WebSocket, pairing                                                                |
-| `workstream-tools` | The pi tools Loom injects (`workstream_*`, `goal_*`, `consult_thread`, `notify_thread`), their routing and gates, the prompt text they inject |
-| `roles-skills`     | `roles/*.md`, Loom's `skills/`, the AGENTS overlay, the work-model doctrine                                                                   |
-| `cockpit`          | Release/deploy: `~/loom-releases`, deployctl, the systemd unit, `pi_global` linking, worktree provisioning                                    |
-| `pi`               | pi upstream (`@earendil-works/pi-coding-agent`): bash/read/edit tools, session replay, providers, TUI                                         |
+| Value              | Covers                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `web`              | What you see in the app: chat, sidebar, plan/task views, rendering, Electron shell                                                                                                                                                                                                                     |
+| `server`           | Threads, turns, persistence, provider adapter, checkpoints, WebSocket, pairing                                                                                                                                                                                                                         |
+| `workstream-tools` | The MCP tools Loom gives its threads (`mcp__t3-code__workstream_*`, `mcp__t3-code__goal_*`, `mcp__t3-code__consult_thread`, `mcp__t3-code__notify_thread`, the extension's `mcp__t3-code__enable_toolset` and `mcp__t3-code__ask_user_question`), their routing and gates, the prompt text they inject |
+| `roles-skills`     | `roles/*.md`, Loom's `skills/`, the AGENTS overlay, the work-model doctrine                                                                                                                                                                                                                            |
+| `cockpit`          | Release/deploy: `~/loom-releases`, deployctl, the systemd unit, `pi_global` linking, worktree provisioning                                                                                                                                                                                             |
+| `pi`               | pi upstream (`@earendil-works/pi-coding-agent`): bash/read/edit tools, session replay, providers, TUI                                                                                                                                                                                                  |
 
 _A triager starts here_, not _the bug is provably here_. Cause untraced → the
 surface you hit it on, and say so.
