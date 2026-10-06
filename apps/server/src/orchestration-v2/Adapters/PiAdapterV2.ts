@@ -2048,6 +2048,9 @@ export function makePiAdapterV2(
           baselineModel = null;
           baselineThinking = null;
           contextWindow = null;
+          // loom: codex tool ids would 400 an Anthropic-family resume; rewrite the file before pi loads it (3c-2)
+          if (resumeId != null)
+            yield* loomHooks.sanitiser(resumeId, threadInput.modelSelection.model);
           const result = yield* lifecycleRequest(
             resumeId != null
               ? // loom: pi resumes into the session's recorded cwd unless told otherwise; the thread's
