@@ -3,13 +3,14 @@
 // out of the upstream-owned ChatView and RightPanelTabs so each carries one
 // marked call/prop. 3d-3 adds the Goal tasks entry (shortcut G) and its
 // eligibility here.
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { GitBranch, type LucideIcon, Network } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { useClientSettings } from "../hooks/useSettings";
 import { useRightPanelStore } from "../rightPanelStore";
-import { useThreadShells } from "../state/entities";
+import { useThreadShell } from "../state/entities";
+import { useHasLoomChildren } from "./loomChildren";
 import type { SeedableSurfaceKind } from "./seedRightPanelSurfaces";
 import { selectAutoOpenedSurfaces, useWorkstreamUiStore } from "./workstreamUiStore";
 
@@ -49,22 +50,9 @@ export function autoOpenLoomSurfaces(ref: ScopedThreadRef, eligibility: LoomSurf
 export function useLoomRightPanelSurfaces(
   threadRef: ScopedThreadRef | null,
 ): ReadonlyArray<LoomSurfaceAction> {
-  const shells = useThreadShells();
   const autoOpenWorkstreamPanel = useClientSettings((settings) => settings.autoOpenWorkstreamPanel);
-  const threadId: ThreadId | null = threadRef?.threadId ?? null;
-  const environmentId = threadRef?.environmentId ?? null;
-  const workstreamThread = shells.some(
-    (shell) =>
-      shell.environmentId === environmentId &&
-      shell.id === threadId &&
-      shell.source.workstream !== undefined,
-  );
-  const workstreamRoot = shells.some(
-    (shell) =>
-      shell.environmentId === environmentId &&
-      shell.source.lineage.parentThreadId === threadId &&
-      shell.source.workstream !== undefined,
-  );
+  const workstreamThread = useThreadShell(threadRef)?.source.workstream !== undefined;
+  const workstreamRoot = useHasLoomChildren(threadRef);
 
   useEffect(() => {
     if (threadRef) autoOpenLoomSurfaces(threadRef, { workstreamRoot, autoOpenWorkstreamPanel });

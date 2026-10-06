@@ -45,7 +45,7 @@ import {
   useWorkstreamNodes,
   type WorkstreamCommands,
 } from "../loom/workstreamState";
-import { WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadLineage } from "../threadRouteLineage";
@@ -443,6 +443,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const node = nodes.get(threadRef.threadId);
   const members = boardMembersOf(threadRef.threadId, nodes);
   return (
+    <WorkstreamEnvironmentContext value={threadRef.environmentId}>
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <SurfaceHeader
         icon={<GitBranchIcon className="size-4 text-muted-foreground" />}
@@ -469,6 +470,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
         {timeline}
       </div>
     </div>
+    </WorkstreamEnvironmentContext>
   );
 }
 
@@ -501,6 +503,7 @@ export function WorkstreamGraphPanel({ threadRef }: { readonly threadRef: Scoped
   };
 
   return (
+    <WorkstreamEnvironmentContext value={threadRef.environmentId}>
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <SurfaceHeader
         icon={<NetworkIcon className="size-4 text-muted-foreground" />}
@@ -561,5 +564,6 @@ export function WorkstreamGraphPanel({ threadRef }: { readonly threadRef: Scoped
         {timeline}
       </div>
     </div>
+    </WorkstreamEnvironmentContext>
   );
 }

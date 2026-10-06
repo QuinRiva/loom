@@ -11,6 +11,7 @@ import {
   TONE_DOT_CLASSES,
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
+import { LoomContextChip, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -96,6 +97,12 @@ export function WorkstreamTimelineDrawer({
             <div className="truncate text-2xs text-muted-foreground">
               {node ? getRoleLabel(node) : "sub-thread"} · timeline
             </div>
+            {node ? (
+              <div className="flex gap-2 truncate font-mono text-2xs text-muted-foreground">
+                <WorkstreamSpendSlot threadId={node.id} />
+                <LoomContextChip threadId={node.id} />
+              </div>
+            ) : null}
           </div>
           {node?.reportPath ? (
             <Button size="xs" variant="outline" onClick={() => onOpenReport(node.reportPath!)}>

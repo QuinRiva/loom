@@ -8,6 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, RunId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment"; // loom: 3d-4 By coder
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -46,6 +47,7 @@ import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollaps
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThreadProjection, useThreadShell } from "../state/entities";
+import { useLoomChildren } from "../loom/loomChildren"; // loom: 3d-4 By coder
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
@@ -189,8 +191,22 @@ export default function DiffPanel({
     selectThreadDiffPanelSelection(state.byThreadKey, routeThreadRef),
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const { turnDiffSummaries, inferredCheckpointTurnCountByRunId } =
-    useTurnDiffSummaries(activeThreadProjection);
+  // loom: 3d-4 — "By coder" (DT-33): a child's diff is its own checkpoint scope,
+  // so a coder selection points the turn machinery at the child's projection
+  // (per-run diffs, made honest in a shared checkout by 3b's turn baseline).
+  const loomChildren = useLoomChildren(routeThreadRef ?? null);
+  const coder =
+    diffSelection.kind === "coder"
+      ? loomChildren.find((child) => child.id === diffSelection.threadId)
+      : undefined;
+  const coderProjection =
+    useThreadProjection(
+      coder && routeThreadRef ? scopeThreadRef(routeThreadRef.environmentId, coder.id) : null,
+    )?.projection ?? null;
+  const diffThreadId = coder?.id ?? activeThreadId;
+  const { turnDiffSummaries, inferredCheckpointTurnCountByRunId } = useTurnDiffSummaries(
+    coder ? coderProjection : activeThreadProjection, // loom: 3d-4
+  );
   const orderedTurnDiffSummaries = useMemo(
     () =>
       [...turnDiffSummaries].toSorted((left, right) => {
@@ -214,7 +230,13 @@ export default function DiffPanel({
     );
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
-  const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
+  const selectedRunId =
+    diffSelection.kind === "turn"
+      ? diffSelection.turnId
+      : // loom: 3d-4 — a coder with no checkpoint yet keeps the turn view (empty), never the parent's branch diff.
+        diffSelection.kind === "coder" && coder
+        ? (diffSelection.turnId ?? orderedTurnDiffSummaries[0]?.runId ?? ("" as RunId))
+        : null;
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
@@ -229,8 +251,9 @@ export default function DiffPanel({
     selectedTurn &&
     (selectedTurn.checkpointTurnCount ?? inferredCheckpointTurnCountByRunId[selectedTurn.runId]);
   const latestTurn = orderedTurnDiffSummaries[0];
-  const selectedScopeLabel =
-    selectedRunId === null
+  const selectedScopeLabel = coder // loom: 3d-4
+    ? `${coder.title} · ${selectedTurn?.runId === latestTurn?.runId ? "Latest turn" : `Turn ${selectedCheckpointTurnCount ?? "?"}`}`
+    : selectedRunId === null
       ? selectedGitScope === "unstaged"
         ? "Uncommitted"
         : "Changes"
@@ -260,7 +283,7 @@ export default function DiffPanel({
   const activeCheckpointDiff = useCheckpointDiff(
     {
       environmentId: activeThread?.environmentId ?? null,
-      threadId: activeThreadId,
+      threadId: diffThreadId, // loom: 3d-4
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
@@ -630,6 +653,8 @@ export default function DiffPanel({
 
   const selectTurn = (runId: RunId) => {
     if (!routeThreadRef) return;
+    // loom: 3d-4 — a turn picked while viewing a coder is that coder's turn.
+    if (coder) return useDiffPanelStore.getState().selectCoder(routeThreadRef, coder.id, runId);
     useDiffPanelStore.getState().selectTurn(routeThreadRef, runId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
@@ -644,14 +669,18 @@ export default function DiffPanel({
   // turn as "latest", while the turn sub-menu keys every turn by id so the
   // latest turn is also marked there.
   const selectedTurnValue = selectedTurn ? `turn:${selectedTurn.runId}` : "";
-  const selectedScopeValue =
-    selectedRunId === null
+  const selectedScopeValue = coder // loom: 3d-4
+    ? `coder:${coder.id}`
+    : selectedRunId === null
       ? selectedGitScope
       : selectedTurn?.runId === latestTurn?.runId
         ? "latest"
         : selectedTurnValue;
   const selectScopeValue = (value: string) => {
-    if (value === "unstaged" || value === "branch") {
+    const coderChild = loomChildren.find((child) => `coder:${child.id}` === value); // loom: 3d-4
+    if (coderChild && routeThreadRef) {
+      useDiffPanelStore.getState().selectCoder(routeThreadRef, coderChild.id, null);
+    } else if (value === "unstaged" || value === "branch") {
       selectGitScope(value);
     } else if (value === "latest") {
       if (latestTurn) selectTurn(latestTurn.runId);
@@ -712,6 +741,24 @@ export default function DiffPanel({
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {/* loom: 3d-4 — By coder (DT-33): each child's own turns. */}
+            {loomChildren.length > 0 ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>By coder</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuRadioGroup
+                    value={selectedScopeValue}
+                    onValueChange={selectScopeValue}
+                  >
+                    {loomChildren.map((child) => (
+                      <DropdownMenuRadioItem key={child.id} value={`coder:${child.id}`} closeOnClick>
+                        <span className="max-w-64 truncate">{child.title}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
         {selectedRunId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (

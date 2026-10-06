@@ -65,7 +65,7 @@ export const WorkstreamQuickFacts = forwardRef<
         <FactRow label="Model">
           <WorkstreamModelPill selection={node.modelSelection} />
         </FactRow>
-        <WorkstreamSpendSlot threadId={node.id} />
+        <WorkstreamSpendSlot threadId={node.id} fact />
         {isGateSource(node) || node.gateRounds > 0 ? (
           <FactRow label="Gate rounds">
             ⟲ {node.gateRounds}/{getGateLoopCap(node)}

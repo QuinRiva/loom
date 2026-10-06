@@ -7,14 +7,11 @@
  * @module state/loom/workstream
  */
 import type {
-  EnvironmentId,
   LoomThreadShellFields,
-  OrchestrationV2ShellSnapshot,
   OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
 import { isEligibleToStart, type StartNode } from "@t3tools/shared/workstreamStart.loom";
-import { Atom } from "effect/reactivity";
 
 export type WorkstreamBoardColumn =
   | "held"
@@ -66,29 +63,3 @@ export const deriveBoardColumn = (
   if (workstream.kickoffAt !== null) return "in_progress";
   return isEligibleToStart(startNodeOf(workstream), byId) ? "ready" : "blocked";
 };
-
-const EMPTY_COLUMNS: ReadonlyMap<ThreadId, WorkstreamBoardColumn> = new Map();
-
-export function createLoomWorkstreamAtoms(input: {
-  readonly snapshotAtom: (
-    environmentId: EnvironmentId,
-  ) => Atom.Atom<OrchestrationV2ShellSnapshot | null>;
-}) {
-  /** Every sidecar-bearing shell's derived column, keyed by thread id. */
-  const boardColumnsAtom = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) => {
-      const snapshot = get(input.snapshotAtom(environmentId));
-      if (snapshot === null) return EMPTY_COLUMNS;
-      const threads = [...snapshot.threads, ...snapshot.archivedThreads];
-      const byId = workstreamIndexOf(threads);
-      return new Map(
-        threads.flatMap((thread) =>
-          thread.workstream === undefined
-            ? []
-            : [[thread.id, deriveBoardColumn(thread.workstream, byId)] as const],
-        ),
-      );
-    }).pipe(Atom.withLabel(`loom-board-columns:${environmentId}`)),
-  );
-  return { boardColumnsAtom };
-}

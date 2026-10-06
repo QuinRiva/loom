@@ -22,9 +22,17 @@ import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
+import { LoomUsageLedgerFixtureLive } from "./economics/LoomUsageLedger.fixture.ts";
 
-/** Provider sweeps merged into the provider runtime layer. */
-export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
+/**
+ * Provider sweeps merged into the provider runtime layer, and seam 11's usage
+ * ledger the `loom.threadSpend` / `loom.topSpend` ws methods read — a 3d-4
+ * fixture until integration swaps in 3c's `LoomDriverEconomicsLive` (DL-438).
+ */
+export const LoomProviderRuntimeLive = Layer.mergeAll(
+  SubscriptionUsagePollerLive,
+  LoomUsageLedgerFixtureLive,
+);
 
 /**
  * Exhaustion state (`ProviderHealthRegistryLive`), which also holds the

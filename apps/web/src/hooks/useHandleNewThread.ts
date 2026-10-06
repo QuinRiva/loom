@@ -9,6 +9,7 @@ import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
   composerDraftHasUserContent,
+  goalDraftBucketKey, // loom: 3d-4 goal-keeping
   markPromotedDraftThreadByRef,
   type DraftId,
   type DraftThreadEnvMode,
@@ -34,6 +35,7 @@ import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import { inheritableGoalId, inheritLoomGoal } from "../loom/goalKeeping"; // loom: 3d-4
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -87,7 +89,7 @@ export function useNewThreadHandler() {
         getDraftThread,
         applyStickyState,
         setDraftThreadContext,
-        setLogicalProjectDraftThreadId,
+        setLogicalProjectDraftThreadId: setDraftMapping, // loom: 3d-4 wrapped below
         setModelSelection,
       } = useComposerDraftStore.getState();
       const requestingRouteHref = router.state.location.href;
@@ -161,9 +163,19 @@ export function useNewThreadHandler() {
           projectFile,
         ).settings.defaultThreadEnvMode;
       };
-      const logicalProjectKey = project
+      // loom: 3d-4 goal-keeping — a thread viewed under a Loom goal hands the goal on.
+      const loomGoalId = inheritableGoalId(carrySourceShell, projectRef.projectId);
+      const projectLogicalKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
+      const logicalProjectKey =
+        loomGoalId === null ? projectLogicalKey : goalDraftBucketKey(projectLogicalKey, loomGoalId);
+      // Every path maps the draft it opens through here: that draft's thread joins the goal on create.
+      const setLogicalProjectDraftThreadId: typeof setDraftMapping = (key, ref, draftId, mapping) => {
+        setDraftMapping(key, ref, draftId, mapping);
+        if (loomGoalId !== null && mapping?.threadId)
+          inheritLoomGoal(ref.environmentId, mapping.threadId, loomGoalId);
+      };
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
