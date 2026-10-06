@@ -92,7 +92,7 @@ const childFields = {
   gate: Schema.optionalKey(
     described(
       GateInput,
-      "Declare a review gate on this child (typically a reviewer): its workstream_submit outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically.",
+      `Declare a review gate on this child (typically a reviewer): its ${t("workstream_submit")} outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically.`,
     ),
   ),
   forkFrom: optionalText(
