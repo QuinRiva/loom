@@ -66,7 +66,8 @@ describe("restoring V2 settings", () => {
     ["autoResumeLimitedThreads", "Auto-resume limited threads"],
     ["snoozeLimitedThreads", "Snooze limited threads"],
   ] as const)("restores %s when it is the only changed setting", async (key, label) => {
-    state.settings = { ...DEFAULT_UNIFIED_SETTINGS, [key]: true };
+    // loom: flip the default (Loom defaults auto-resume on, P3-11)
+    state.settings = { ...DEFAULT_UNIFIED_SETTINGS, [key]: !DEFAULT_UNIFIED_SETTINGS[key] };
     hooks.beginRender();
     const restore = useSettingsRestore();
 
@@ -79,7 +80,7 @@ describe("restoring V2 settings", () => {
   });
 
   it("does not reset settings after cancellation", async () => {
-    state.settings = { ...DEFAULT_UNIFIED_SETTINGS, autoResumeLimitedThreads: true };
+    state.settings = { ...DEFAULT_UNIFIED_SETTINGS, autoResumeLimitedThreads: false }; // loom: P3-11 default on
     state.confirm.mockResolvedValue(false);
     hooks.beginRender();
 

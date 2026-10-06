@@ -1,6 +1,7 @@
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
 // reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
-// turn's pi-priced costUsd. Phase 3c appends its cases here.
+// turn's pi-priced costUsd. Phase 3c: a pi quota error ends the turn as usage_limit with a reset
+// time that satisfies upstream's limit-recovery arm (3c-1).
 //
 // A minimal in-process `pi --mode rpc` (the same technique as PiAdapterV2.test.ts's fake, which
 // is not exported): every request is recorded and auto-acknowledged, and the test pushes events.
@@ -25,7 +26,18 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
+
 import * as ServerConfig from "../../config.ts";
+import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
+import {
+  LoomPiAdapterHooks,
+  type LoomPiAdapterHooksShape,
+} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
+import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
+import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
   type LoomOpenSessionFields,
@@ -128,7 +140,10 @@ const makeFakePi = Effect.gen(function* () {
   return { spawner, emit, requests, spawns };
 });
 
-const openRuntime = Effect.fnUntraced(function* (loom?: LoomOpenSessionFields) {
+const openRuntime = Effect.fnUntraced(function* (
+  loom?: LoomOpenSessionFields,
+  hooks?: LoomPiAdapterHooksShape,
+) {
   const fake = yield* makeFakePi;
   const adapter = makePiAdapterV2({
     instanceId: PI_INSTANCE_ID,
@@ -138,6 +153,7 @@ const openRuntime = Effect.fnUntraced(function* (loom?: LoomOpenSessionFields) {
     fileSystem: yield* FileSystem.FileSystem,
     idAllocator: yield* IdAllocator.IdAllocatorV2,
     serverConfig: yield* ServerConfig.ServerConfig,
+    ...(hooks === undefined ? {} : { loom: hooks }),
   });
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
@@ -295,6 +311,164 @@ describe("PiAdapterV2 (loom)", () => {
       assert.isTrue(live.every((entry) => entry.usage.costUsd === undefined));
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-1: pi quota errors as upstream's usage_limit ─────────────────────────
+
+const COOLING_DOWN_WITH_RETRY_AFTER = PI_QUOTA_ERROR_TEXTS.find(
+  (entry) => entry.retryAfterMs === 3_639_000 && entry.text.includes("cooling down"),
+)!;
+const ANTHROPIC_SELECTION = { instanceId: PI_INSTANCE_ID, model: "anthropic/claude-opus-5" };
+const WEEKLY_RESET = "2099-01-01T00:00:00.000Z";
+
+/** Loom's live hooks over a real health registry, optionally holding a spent weekly window. */
+const liveHooks = (spentWeekly: boolean) =>
+  Effect.gen(function* () {
+    if (spentWeekly)
+      yield* (yield* ProviderHealthRegistry).applyUsage({
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        windows: [
+          { kind: "secondary", usedPercent: 100, resetsAt: WEEKLY_RESET, windowDurationMins: null },
+        ],
+        observedAt: "2026-10-06T00:00:00.000Z",
+      });
+    return yield* LoomPiAdapterHooks;
+  }).pipe(Effect.provide(LoomProviderHealthLive.pipe(Layer.provide(serverSettingsLayerTest()))));
+
+/** Run one turn that pi fails with `events`, and return what the orchestrator would read. */
+const runFailedTurn = Effect.fnUntraced(function* (
+  hooks: LoomPiAdapterHooksShape | undefined,
+  selection: typeof modelSelection,
+  events: ReadonlyArray<PiRpcRecord>,
+) {
+  const { fake, runtime, events: adapterEvents } = yield* openRuntime(undefined, hooks);
+  const providerThread = yield* runtime.ensureThread({
+    threadId: THREAD_ID,
+    modelSelection: selection,
+    runtimePolicy,
+  });
+  const runId = RunId.make(`run:${THREAD_ID}:quota`);
+  yield* runtime.startTurn({
+    appThread: yield* appThread,
+    threadId: THREAD_ID,
+    runId,
+    runOrdinal: 1,
+    providerTurnOrdinal: 1,
+    attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+    rootNodeId: NodeId.make(`node:${runId}:root`),
+    providerThread,
+    message: {
+      messageId: `message:${THREAD_ID}:quota` as never,
+      text: "Hello pi",
+      attachments: [],
+      createdBy: "user",
+      creationSource: "web",
+    },
+    modelSelection: selection,
+    runtimePolicy,
+  });
+  yield* fake.emit({ type: "agent_start" });
+  for (const event of events) yield* fake.emit(event);
+  yield* fake.emit({ type: "agent_settled" });
+  let providerTurn: Extract<ProviderAdapterV2Event, { type: "provider_turn.updated" }> | undefined;
+  let sessionError: string | null = null;
+  while (true) {
+    const event = yield* Queue.take(adapterEvents);
+    if (event.type === "provider_turn.updated") providerTurn = event;
+    if (event.type === "provider_session.updated") sessionError = event.providerSession.lastError;
+    if (event.type === "turn.terminal")
+      return { terminal: event, providerTurn: providerTurn!, sessionError, runId };
+  }
+});
+
+const modelError = (errorMessage: string): PiRpcRecord => ({
+  type: "message_end",
+  message: { role: "assistant", content: [], stopReason: "error", errorMessage },
+});
+
+describe("PiAdapterV2 (loom) — quota errors", () => {
+  it.effect("a weekly-limit error with no reset in its text arms upstream's limit recovery", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(true);
+      const { terminal, providerTurn, sessionError, runId } = yield* runFailedTurn(
+        hooks,
+        ANTHROPIC_SELECTION,
+        [modelError("weekly limit reached")],
+      );
+      assert.equal(providerTurn.providerTurn.status, "failed");
+      assert.equal(terminal.failure?.class, "usage_limit");
+      assert.equal(terminal.failure?.resetAt, WEEKLY_RESET);
+      assert.equal(terminal.failure?.message, "weekly limit reached"); // upstream's message kept
+
+      // The shell fields upstream derives from this failure, fed to upstream's own arm predicate.
+      const summary = threadErrorSummary(terminal.failure, sessionError);
+      const completedAt = providerTurn.providerTurn.completedAt!;
+      const command = limitRecoveryCommand(
+        {
+          id: THREAD_ID,
+          status: "failed",
+          lastErrorClass: summary.lastErrorClass,
+          latestRunId: runId,
+          usageLimitResetAt: summary.usageLimitResetAt,
+          archivedAt: null,
+          settledOverride: null,
+          pendingRuntimeRequest: null,
+          latestRunCompletedAt: completedAt,
+          updatedAt: completedAt,
+          limitRecovery: null,
+          snoozedUntil: null,
+        },
+        true,
+        DateTime.toEpochMillis(completedAt),
+      );
+      assert.equal(command?.type, "thread.metadata.update");
+      assert.deepEqual(
+        command?.type === "thread.metadata.update" ? command.limitRecovery : undefined,
+        { runId, resetAt: WEEKLY_RESET, autoResume: true, snooze: false },
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("pi's exhausted retries on the proxy's cooling-down 429 reset at its Retry-After", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(false);
+      const before = DateTime.toEpochMillis(yield* DateTime.now);
+      const text = COOLING_DOWN_WITH_RETRY_AFTER.text;
+      const { terminal } = yield* runFailedTurn(hooks, modelSelection, [
+        modelError(text),
+        { type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: text },
+        modelError(text),
+        { type: "auto_retry_end", success: false, attempt: 1, finalError: text },
+      ]);
+      const after = DateTime.toEpochMillis(yield* DateTime.now);
+      assert.equal(terminal.failure?.class, "usage_limit");
+      const resetMs = Date.parse(terminal.failure!.resetAt!);
+      assert.isAtLeast(resetMs, before + 3_639_000);
+      assert.isAtMost(resetMs, after + 3_639_000);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("a non-quota model error stays provider_error", () =>
+    Effect.gen(function* () {
+      const hooks = yield* liveHooks(true);
+      const { terminal } = yield* runFailedTurn(hooks, ANTHROPIC_SELECTION, [
+        modelError('400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"}}'),
+      ]);
+      assert.equal(terminal.failure?.class, "provider_error");
+      assert.isUndefined(terminal.failure?.resetAt);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("the default hooks leave upstream's classification unchanged", () =>
+    Effect.gen(function* () {
+      const { terminal } = yield* runFailedTurn(undefined, ANTHROPIC_SELECTION, [
+        modelError(COOLING_DOWN_WITH_RETRY_AFTER.text),
+      ]);
+      assert.equal(terminal.failure?.class, "provider_error");
+      assert.isUndefined(terminal.failure?.resetAt);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });
