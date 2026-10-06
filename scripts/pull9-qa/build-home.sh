@@ -129,6 +129,8 @@ q <"$foreign_sql"
 note "r3 report/brief paths outside $src_state/: $rows rewritten into the QA state dir ($relative bare names resolved to the copied $src_state/<reports|briefs>/ file, $copied files copied, $absent absent — kept as the record; listed above)"
 
 # ---- DL-265: neutralise auto-pull so no boot-time git pull can run ---------------------------
+# DL-552: and start new worktrees from the local base branch — the unit has no network, so
+# upstream's default (fetch origin first) fails every new worktree thread at "Fetch base branch".
 # V1 stores it per project in projection_projects.auto_pull (zeroed above) and in settings.json:
 # defaultAutoPull, projectAutoPullOverrides and projectSettingsOverrides[<id>].defaultAutoPull
 # (the server folds the column into the last one once; projectSettingsFolded marks that).
@@ -140,12 +142,14 @@ if [[ -f $settings_src ]]; then
   note "DL-265 before: auto_pull column had $autopull_before project(s) on; settings $(jq -c '{defaultAutoPull, projectAutoPullOverrides, folded: .projectSettingsFolded, overridesWithAutoPull: ([.projectSettingsOverrides // {} | to_entries[] | select(.value.defaultAutoPull == true) | .key])}' "$settings_src")"
   jq --argjson ids "$project_ids" '
     .defaultAutoPull = false
+    | .newWorktreesStartFromOrigin = false
     | .projectAutoPullOverrides = ((.projectAutoPullOverrides // {}) | map_values(false))
-    | .projectSettingsOverrides = (reduce $ids[] as $id ((.projectSettingsOverrides // {}); .[$id] = ((.[$id] // {}) + {defaultAutoPull: false})))
+    | .projectSettingsOverrides = (reduce $ids[] as $id ((.projectSettingsOverrides // {}); .[$id] = ((.[$id] // {}) + {defaultAutoPull: false, newWorktreesStartFromOrigin: false})))
   ' "$settings_src" >"$qa/userdata/settings.json"
-  note "DL-265 after: auto_pull column on for $(q 'SELECT COUNT(*) FROM projection_projects WHERE auto_pull != 0') project(s); settings defaultAutoPull=$(jq .defaultAutoPull "$qa/userdata/settings.json"), projectAutoPullOverrides all false ($(jq '.projectAutoPullOverrides | length' "$qa/userdata/settings.json")), projectSettingsOverrides[*].defaultAutoPull=false for all $(jq 'length' <<<"$project_ids") projects; pi binaryPath $(jq -c '[.providerInstances[]? | select(.driver == "pi") | .config.binaryPath]' "$qa/userdata/settings.json")"
+  note "DL-265 after: auto_pull column on for $(q 'SELECT COUNT(*) FROM projection_projects WHERE auto_pull != 0') project(s); settings defaultAutoPull=$(jq .defaultAutoPull "$qa/userdata/settings.json"), projectAutoPullOverrides all false ($(jq '.projectAutoPullOverrides | length' "$qa/userdata/settings.json")), newWorktreesStartFromOrigin=$(jq .newWorktreesStartFromOrigin "$qa/userdata/settings.json"), projectSettingsOverrides[*].{defaultAutoPull,newWorktreesStartFromOrigin}=false for all $(jq 'length' <<<"$project_ids") projects; pi binaryPath $(jq -c '[.providerInstances[]? | select(.driver == "pi") | .config.binaryPath]' "$qa/userdata/settings.json")"
 else
-  note "DL-265: no settings.json at the source; auto_pull column zeroed ($(q 'SELECT COUNT(*) FROM projection_projects') projects)"
+  echo '{"defaultAutoPull":false,"newWorktreesStartFromOrigin":false}' >"$qa/userdata/settings.json"
+  note "DL-265: no settings.json at the source; auto_pull column zeroed ($(q 'SELECT COUNT(*) FROM projection_projects') projects); settings.json written with auto-pull and start-from-origin off"
 fi
 
 # ---- r5 sessions: manifest + flat byte copy + last-line check -------------------------------

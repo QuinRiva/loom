@@ -24,8 +24,12 @@ DL-530–549 in `docs/upstream-sync/32-cadence-pull-9-phase4.md`.
 
 `probe.sh` and `start.sh` must run from the build's copy of this directory: the unit sees only the
 QA home (so the scripts it runs must live there, read-only to QA), and a thread worktree is reaped
-when its thread settles. Logs: `journalctl --user -u loom-qa-pull9 -f` (relay: `-u loom-qa-pull9-bridge`). Pairing: from `<qa>/build/loom`,
-`node apps/server/dist/bin.mjs pair --base-dir /home/Carl/.t3/qa-pull9`. The browser reaches the
+when its thread settles. Logs: `journalctl --user -u loom-qa-pull9 -f` (relay: `-u loom-qa-pull9-bridge`). Pairing (DL-557): every
+boot prints a one-time admin pairing URL valid for **5 minutes** —
+`journalctl --user -u loom-qa-pull9 --since -10min | grep 'Pairing URL'`; a missed window is a `stop.sh; start.sh`.
+`bin.mjs pair --base-dir …` from the host does **not** work: `server-runtime.json` records the server's pid
+inside the unit's PID namespace, so `pair` finds no live server; and Settings → Connections cannot mint
+links on a loopback-only server. A paired browser session lasts 30 days. The browser reaches the
 server at `127.0.0.1:13940` on the host (SSH-forward it the way 13900 is reached).
 
 ## The sandbox
@@ -47,7 +51,9 @@ same definition's digest.
 **Consequence:** QA has no internet. Every `cliproxy/*` model works (all presets except
 `coder-direct`); `openai-codex/*`, Vertex models and embeddings, GitHub fetch, PR watch, the npm
 registry and the cliproxy quota pollers (management API) do not. Shipping from QA fails at the
-push, loudly. QA agents cannot read production files either: old transcripts that name them see
+push, loudly. New worktrees start from the local base branch (`build-home.sh` sets
+`newWorktreesStartFromOrigin` false, DL-552 — upstream's default fetches origin first and fails), and a new
+worktree's setup script (`vp i`) fails for want of the registry: the thread still runs, without `node_modules`. QA agents cannot read production files either: old transcripts that name them see
 "No such file or directory".
 
 ## Refresh, teardown, rollback
