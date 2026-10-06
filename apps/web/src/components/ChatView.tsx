@@ -689,6 +689,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 // browser, both fork-only right-panel surfaces.
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
+const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -5267,6 +5268,11 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThreadRef, isGitRepo, isServerThread, onDiffPanelOpen]);
+  // loom: 3d-3 — the goal tasks surface, offered only for a thread with a Loom goal.
+  const addTasksSurface =
+    activeThreadRef && activeThreadShell?.source.workstream?.goalId
+      ? () => useRightPanelStore.getState().open(activeThreadRef, "tasks")
+      : undefined;
   const openChangesFromThreadPanel = useCallback(() => {
     addDiffSurface();
   }, [addDiffSurface]);
@@ -10694,6 +10700,11 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : /* loom: 3d-3 — Loom's goal tasks panel (seam 18). */
+    renderedRightPanelSurface?.kind === "tasks" ? (
+      <Suspense fallback={null}>
+        <GoalTasksPanel thread={activeThreadShell} />
+      </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
@@ -11596,6 +11607,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
+          onAddTasks={addTasksSurface} // loom: 3d-3
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
@@ -11651,6 +11663,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
+            onAddTasks={addTasksSurface} // loom: 3d-3
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}

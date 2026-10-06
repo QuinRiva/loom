@@ -25,6 +25,7 @@ const RIGHT_PANEL_KINDS = [
   "device",
   "terminal",
   "artifact", // loom: HTML artefact viewer
+  "tasks", // loom: 3d-2 seam 18 — goal tasks (3d-3 mounts it)
   "pull-request",
   "pull-requests",
 ] as const;
@@ -50,6 +51,7 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
+  | { id: "tasks"; kind: "tasks" } // loom: 3d-2 seam 18 (3d-3 adds only this kind; 3d-2 the rest)
   // loom: files reveal fields, `dir` and `artifact` surfaces, absolute file paths
   | {
       id: "files";
@@ -284,6 +286,8 @@ const singletonSurface = (kind: SingletonSurfaceKind): RightPanelSurface => {
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "tasks": // loom: 3d-2 seam 18
+      return { id: "tasks", kind }; // loom: 3d-3 (3d-2's loomSurface(kind) supersedes at fan-in)
   }
 };
 

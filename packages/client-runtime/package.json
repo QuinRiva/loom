@@ -171,6 +171,10 @@
       "types": "./src/state/itemSupport.ts",
       "default": "./src/state/itemSupport.ts"
     },
+    "./state/loom/goalCommands": {
+      "types": "./src/state/loom/goalCommands.ts",
+      "default": "./src/state/loom/goalCommands.ts"
+    },
     "./state/loom/goals": {
       "types": "./src/state/loom/goals.ts",
       "default": "./src/state/loom/goals.ts"

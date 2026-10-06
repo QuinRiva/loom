@@ -16,6 +16,7 @@ import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
   AppWindow, // loom: artefact surface
   FolderOpen, // loom: dir surface
+  ListTodo, // loom: 3d-3 goal tasks surface
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -125,6 +126,7 @@ interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -322,6 +324,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -365,6 +368,15 @@ function RightPanelEmptyState(props: {
       available: props.diffAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
       onClick: props.onAddDiff,
+    },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
     },
     {
       label: "Pull request",
@@ -595,6 +607,8 @@ function surfaceTitle(
       );
     case "artifact": // loom:
       return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
+    case "tasks": // loom: 3d-3 — Loom's goal, not the provider-native /goal chip
+      return "Goal tasks";
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -679,6 +693,8 @@ function SurfaceIcon({
       return <FolderOpen className="size-3 shrink-0" />;
     case "artifact": // loom:
       return <AppWindow className="size-3 shrink-0" />;
+    case "tasks": // loom: 3d-3
+      return <ListTodo className="size-3 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3 shrink-0" />;
     case "pull-request":
@@ -876,6 +892,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.diffAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
+    },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
     },
     {
       label: "Pull request",
@@ -1383,6 +1408,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddTasks={props.onAddTasks} // loom: 3d-3
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
