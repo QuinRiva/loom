@@ -13,9 +13,13 @@ import type {
   PullRequestState,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import type { LoomSurfaceAction } from "~/loom/useLoomRightPanelSurfaces"; // loom: 3d-2
 import {
   AppWindow, // loom: artefact surface
   FolderOpen, // loom: dir surface
+  GitBranch, // loom: 3d-2 workstream surface
+  ListTodo, // loom: 3d-2 tasks surface (3d-3 mounts it)
+  Network, // loom: 3d-2 graph surface
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -125,6 +129,7 @@ interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -133,6 +138,8 @@ interface RightPanelTabsProps {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
+  /** loom: 3d-2 seam 18 — Loom's launcher / "+" menu entries (Workstream, Graph; 3d-3 Goal tasks). */
+  loomSurfaceActions?: ReadonlyArray<LoomSurfaceAction>;
   children: ReactNode;
 }
 
@@ -322,6 +329,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -329,6 +337,7 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  loomSurfaceActions?: ReadonlyArray<LoomSurfaceAction> | undefined; // loom: 3d-2
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -366,6 +375,15 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
       onClick: props.onAddDiff,
     },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
+    },
     {
       label: "Pull request",
       icon: PullRequestGlyph.pullRequest,
@@ -391,6 +409,7 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
       onClick: props.onAddDevice,
     },
+    ...(props.loomSurfaceActions ?? []), // loom: 3d-2
   ] as const;
 
   type SurfaceAction = (typeof actions)[number];
@@ -595,6 +614,8 @@ function surfaceTitle(
       );
     case "artifact": // loom:
       return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
+    case "tasks": // loom: 3d-3 — Loom's goal, not the provider-native /goal chip
+      return "Goal tasks";
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -604,6 +625,12 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "tasks": // loom: 3d-2 seam 18
+      return "Goal tasks";
+    case "workstream": // loom: 3d-2 seam 18
+      return "Workstream";
+    case "graph": // loom: 3d-2 seam 18
+      return "Graph";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -679,6 +706,12 @@ function SurfaceIcon({
       return <FolderOpen className="size-3 shrink-0" />;
     case "artifact": // loom:
       return <AppWindow className="size-3 shrink-0" />;
+    case "tasks": // loom: 3d-2 seam 18
+      return <ListTodo className="size-3 shrink-0" />;
+    case "workstream": // loom: 3d-2 seam 18
+      return <GitBranch className="size-3 shrink-0" />;
+    case "graph": // loom: 3d-2 seam 18
+      return <Network className="size-3 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3 shrink-0" />;
     case "pull-request":
@@ -877,6 +910,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
     },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
+    },
     {
       label: "Pull request",
       icon: PullRequestGlyph.pullRequest,
@@ -901,6 +943,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
     },
+    ...(props.loomSurfaceActions ?? []), // loom: 3d-2
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1383,6 +1426,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddTasks={props.onAddTasks} // loom: 3d-3
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1390,6 +1434,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestAvailable={props.pullRequestAvailable}
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
+            loomSurfaceActions={props.loomSurfaceActions} // loom: 3d-2
           />
         ) : (
           props.children

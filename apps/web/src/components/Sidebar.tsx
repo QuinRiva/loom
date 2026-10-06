@@ -277,6 +277,12 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+// loom: 3d-3 — attention override, rollup badge and the Loom goal menu.
+import { loomAttentionOf, loomTopStatus } from "./Sidebar.logic.loom";
+import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
+import { LoomRollupBadge } from "../loom/LoomRollupBadge";
+import { readLoomGoal } from "../loom/loomGoalState";
+import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -1245,17 +1251,20 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
-  const shouldRecede = shouldRecedeSidebarThread({
-    status,
-    isUnread,
-    isWoke,
-    isActive: props.isActive,
-    isSelected,
-  });
+  const loomAttention = loomAttentionOf(thread.source); // loom: 3d-3
+  const shouldRecede =
+    loomAttention === null && // loom: 3d-3 — a flagged row never recedes
+    shouldRecedeSidebarThread({
+      status,
+      isUnread,
+      isWoke,
+      isActive: props.isActive,
+      isSelected,
+    });
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, sky working)
   // so a thread reads the same color everywhere it surfaces.
-  const topStatus =
+  const upstreamTopStatus = // loom: 3d-3 — renamed; the Loom attention override follows the chain
     status === "working"
       ? {
           // A native /goal keeps the agent going across turns until it is met.
@@ -1310,6 +1319,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         className: "text-success",
                       }
                     : null;
+  // loom: 3d-3 — Loom attention outranks every upstream state (Sidebar.logic.loom.ts).
+  const topStatus = loomAttention === null ? upstreamTopStatus : loomTopStatus(loomAttention);
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1796,6 +1807,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               remain visible AND clickable while the row is hovered. Only
               the time/jump label yields to the settle affordance. */}
             {prBadge}
+            <LoomRollupBadge threadKey={threadKey} /> {/* loom: 3d-3 sub-thread rollup */}
             {sortable?.isDragging ? (
               dragDestination
             ) : (
@@ -2124,6 +2136,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               )}
               {terminalStatusIcon}
               {prBadge}
+              <LoomRollupBadge threadKey={threadKey} /> {/* loom: 3d-3 sub-thread rollup */}
               {diff ? (
                 <span className="shrink-0 font-mono">
                   <span className="text-diff-addition-foreground">+{diff.insertions}</span>{" "}
@@ -2350,6 +2363,7 @@ export default function Sidebar() {
     archiveThread,
     deleteThread,
   } = useThreadActions();
+  const { runGoalMenuAction } = useLoomGoalActions(); // loom: 3d-3 goal menu
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -2715,7 +2729,11 @@ export default function Sidebar() {
     // Working beta: only inbox threads fold away. Pins stay where the user
     // put them, and snoozed or settled threads keep their shelves.
     const inbox = (thread: EnvironmentThreadShell) =>
-      workingShelfEnabled && isSidebarThreadWorking(thread) ? working : active;
+      workingShelfEnabled &&
+      isSidebarThreadWorking(thread) &&
+      loomAttentionOf(thread.source) === null // loom: 3d-3 — a flagged thread stays in the inbox
+        ? working
+        : active;
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     const draggable = new Set<string>();
@@ -4466,8 +4484,10 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom: 3d-3
         const clicked = await settlePromise(() =>
-          api.contextMenu.show(
+          showWithLoomGoalMenu(api, loomGoal)(
+            // loom: 3d-3 — Loom goal entries first
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
@@ -4496,6 +4516,7 @@ export default function Sidebar() {
           ),
         );
         if (clicked._tag === "Failure") return;
+        if (runGoalMenuAction(clicked.value, loomGoal, threadRef)) return; // loom: 3d-3
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -4699,6 +4720,7 @@ export default function Sidebar() {
       openProjectSettings,
       projectScopeKey,
       projectByKey,
+      runGoalMenuAction, // loom: 3d-3
       serverConfigs,
       setProjectScopeKey,
       setThreadAutoSettle,
@@ -4828,6 +4850,7 @@ export default function Sidebar() {
   return (
     <>
       <ThreadContextDragGhost />
+      <GoalFormDialogHost /> {/* loom: 3d-3 — the goal rename dialog */}
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
         className="min-h-full"

@@ -154,6 +154,8 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      // loom: 3d-3 — a workstream child's completion is its orchestrator's cue, not the user's.
+      if (kind === "completion" && rawThread.workstream?.parentThreadId) continue;
       const title =
         kind === "completion"
           ? "Thread completed"

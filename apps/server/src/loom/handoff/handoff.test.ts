@@ -23,6 +23,8 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
+import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
   completeOpenRuns,
@@ -49,10 +51,12 @@ import { RETRO_BRIEF_PATH, RETRO_REVIEWER_ROLE } from "./retroDraft.ts";
 const pi = ProviderDriverKind.make("pi");
 const createdAt = "2026-01-01T00:00:00.000Z";
 
-const TestLayer = HandoffDrafterReactorServiceLive.pipe(
-  Layer.provideMerge(LoomOrchestratorTestLayer),
-  Layer.provideMerge(NodeServices.layer),
-);
+// The ws handlers also carry 3d's goal methods and seam 11's spend reads (seam 21 integrated).
+const TestLayer = Layer.mergeAll(
+  HandoffDrafterReactorServiceLive,
+  LoomGoalBroadcast.layer,
+  LoomUsageLedger.layer,
+).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 
 /** An idle source whose one turn finished on `driver`; with `goal`, it is a Loom root with a row. */
 const seedSource = (name: string, options: { driver?: ProviderDriverKind; goal?: boolean } = {}) =>

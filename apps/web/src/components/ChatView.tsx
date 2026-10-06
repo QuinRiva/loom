@@ -351,6 +351,10 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
+import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
+import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
+import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -689,6 +693,14 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 // browser, both fork-only right-panel surfaces.
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
+const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
+// loom: 3d-2 seam 18 — the Workstream board and Graph surfaces.
+const WorkstreamPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
+);
+const WorkstreamGraphPanel = lazy(() =>
+  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamGraphPanel })),
+);
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
 const DevicePanel = lazy(() =>
@@ -1760,6 +1772,7 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const interceptLoomDraftCommand = useLoomDraftIntercepts(); // loom: 3d-3
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -4039,6 +4052,21 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  // loom: 3d-4 — host the pending question's DT-36 additions: chips resolve
+  // against this checkout, and "reply in chat instead" sends the typed answer as
+  // an ordinary message through onSend (the server settles the set superseded).
+  const loomReplyInChatRef = useRef(false);
+  useHostLoomPendingInput(activePendingUserInput?.requestId ?? null, {
+    cwd: gitCwd ?? undefined,
+    threadRef: activeThreadRef ?? undefined,
+    onReplyInChat: () => {
+      const text = activePendingProgress?.customAnswer.trim() ?? "";
+      if (text.length === 0) return;
+      loomReplyInChatRef.current = true;
+      promptRef.current = text;
+      void onSend();
+    },
+  });
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -5261,12 +5289,18 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, openPreview],
   );
+  const loomSurfaceActions = useLoomRightPanelSurfaces(activeThreadRef); // loom: 3d-2 seam 18
   const addDiffSurface = useCallback(() => {
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThreadRef, isGitRepo, isServerThread, onDiffPanelOpen]);
+  // loom: 3d-3 — the goal tasks surface, offered only for a thread with a Loom goal.
+  const addTasksSurface =
+    activeThreadRef && activeThreadShell?.source.workstream?.goalId
+      ? () => useRightPanelStore.getState().open(activeThreadRef, "tasks")
+      : undefined;
   const openChangesFromThreadPanel = useCallback(() => {
     addDiffSurface();
   }, [addDiffSurface]);
@@ -8427,6 +8461,8 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     e?.preventDefault();
+    const loomReplyInChat = loomReplyInChatRef.current; // loom: 3d-4 reply in chat instead
+    loomReplyInChatRef.current = false;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (
@@ -8494,7 +8530,7 @@ export default function ChatView(props: ChatViewProps) {
       });
       return;
     }
-    if (activePendingProgress) {
+    if (activePendingProgress && !loomReplyInChat /* loom: 3d-4 */) {
       if (directAnnotation) {
         notifyDirectAnnotationAttached();
         return;
@@ -8726,6 +8762,45 @@ export default function ChatView(props: ChatViewProps) {
         composerReviewComments.length +
         composerThreadContexts.length,
     });
+    // loom: 3d-3 — `/handoff` and `/retro` are intercepted at the send authority
+    // and never become a turn on this thread (loom/useLoomDraftIntercepts.ts).
+    if (
+      !directAnnotation &&
+      isServerThread &&
+      (await interceptLoomDraftCommand({
+        source: scopeThreadRef(activeThread.environmentId, activeThread.id),
+        submittedPrompt: promptForSend,
+        trimmedPrompt: trimmed,
+        hasAttachmentsOrContexts: composerHasNonPromptContent,
+        setSendInFlight: (inFlight) => {
+          sendInFlightRef.current = inFlight;
+        },
+        clearComposer: () => {
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+        },
+        readComposerContent: () => {
+          const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+          return {
+            prompt: promptRef.current,
+            attachmentCount: composerImagesRef.current.length + composerFilesRef.current.length,
+            terminalContextCount: composerTerminalContextsRef.current.length,
+            previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
+            reviewCommentCount: draft?.reviewComments.length ?? 0,
+            threadContextCount: draft?.threadContexts.length ?? 0,
+          };
+        },
+        restoreComposer: (prompt) => {
+          promptRef.current = prompt;
+          setComposerDraftPrompt(composerDraftTarget, prompt);
+          composerRef.current?.resetCursorState();
+        },
+        setThreadError,
+      }))
+    ) {
+      return;
+    }
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
@@ -9595,7 +9670,9 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          // loom: 3d-4 (DT-67) — a Loom thread keeps its title: a staged root's
+          // first (human) message must not re-seed it from the brief.
+          ...(activeThreadShell?.source.workstream ? {} : { titleSeed: title }),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode,
@@ -10694,6 +10771,20 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : /* loom: 3d-3 — Loom's goal tasks panel (seam 18). */
+    renderedRightPanelSurface?.kind === "tasks" ? (
+      <Suspense fallback={null}>
+        <GoalTasksPanel thread={activeThreadShell} />
+      </Suspense>
+    ) : /* loom: 3d-2 seam 18 — the Workstream board and Graph surfaces. */
+    renderedRightPanelSurface?.kind === "workstream" ? (
+      <Suspense fallback={null}>
+        <WorkstreamPanel threadRef={activeThreadRef} />
+      </Suspense>
+    ) : renderedRightPanelSurface?.kind === "graph" ? (
+      <Suspense fallback={null}>
+        <WorkstreamGraphPanel threadRef={activeThreadRef} />
+      </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (
       <Suspense fallback={null}>
@@ -11131,6 +11222,30 @@ export default function ChatView(props: ChatViewProps) {
                   ? {}
                   : { historyControls: threadHistoryControls })}
               />
+
+              {/* loom: 3d-4 — staged cards (DT-31): the held root's kickoff offer, a
+                  child's brief preview; Launch is the ordinary send below. */}
+              {activeThreadRef && isServerThread ? (
+                <LoomStagedCards
+                  threadRef={activeThreadRef}
+                  composerDraftTarget={composerDraftTarget}
+                  hasStarted={timelineEntries.length > 0 || isSendBusy}
+                  markdownCwd={gitCwd ?? undefined}
+                  launchDisabled={isSendBusy || isConnecting}
+                  launchBlockedReason={activeEnvironmentUnavailable ? "Not connected" : null}
+                  bottomInset={scrollToEndClearance}
+                  onLaunch={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    void onSend();
+                  }}
+                  onEditFirst={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    requestAnimationFrame(() => composerRef.current?.focusAtEnd());
+                  }}
+                />
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
@@ -11596,6 +11711,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
+          onAddTasks={addTasksSurface} // loom: 3d-3
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
@@ -11603,6 +11719,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={false} // loom: the fork ships no Device surface
+          loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -11651,6 +11768,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
+            onAddTasks={addTasksSurface} // loom: 3d-3
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
@@ -11658,6 +11776,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={false} // loom: the fork ships no Device surface
+            loomSurfaceActions={loomSurfaceActions} // loom: 3d-2 seam 18
           >
             {rightPanelContent}
           </RightPanelTabs>

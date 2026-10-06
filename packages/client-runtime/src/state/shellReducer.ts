@@ -88,6 +88,8 @@ export function mergeShellSnapshotProjects(
   const previousById = new Map(previous.projects.map((project) => [project.id, project] as const));
   return {
     ...next,
+    // loom: a snapshot without `goals` (an unflagged or older server) keeps the goals already held
+    ...(next.goals === undefined && previous.goals !== undefined ? { goals: previous.goals } : {}),
     projects: next.projects.map((project) => {
       const prior = previousById.get(project.id);
       if (resolvedRootSet?.has(project.workspaceRoot) === true) {

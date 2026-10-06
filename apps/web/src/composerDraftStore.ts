@@ -1446,6 +1446,14 @@ function projectDraftKey(projectRef: ScopedProjectRef): string {
   return scopedProjectKey(projectRef);
 }
 
+// loom: 3d-4 goal-keeping (DT-38) — a new thread started from a goal-bearing
+// thread drafts in its goal's own bucket, so it neither reuses nor clobbers the
+// project's plain draft. The suffix keeps the key's environment prefix, so every
+// `parseScopedProjectKey(...).environmentId` reader still sees the right one.
+export function goalDraftBucketKey(logicalProjectKey: string, goalId: string): string {
+  return `${logicalProjectKey}::goal:${goalId}`;
+}
+
 function logicalProjectDraftKey(logicalProjectKey: string): string {
   return logicalProjectKey.trim();
 }
