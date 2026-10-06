@@ -2,7 +2,7 @@
  * The emergent goal (P3-16) on the real orchestrator with a stub generator: a
  * goal-less root gets `goal:emergent:<threadId>` (published, attached under
  * `server:loom:emergent-goal:<threadId>`) once; run 1 needs a confident answer,
- * run 2 takes the best guess; a child and a run past the second never derive one.
+ * a forced derivation (run 2, or a goal tool) takes the best guess; a child never derives one.
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
@@ -70,12 +70,12 @@ it.layer(TestLayer)("Loom emergent goal", (it) => {
 
       // Run 1 needs a confident answer.
       confidence = "low";
-      yield* deriveEmergentGoal({ threadId: root, runOrdinal: 1 });
+      yield* deriveEmergentGoal({ threadId: root, force: false });
       assert.isNull(yield* store.goals.get(emergentGoalId(root)));
       assert.include(prompts[0], "The login test fails one run in five");
 
       // Run 2 takes the best guess.
-      yield* deriveEmergentGoal({ threadId: root, runOrdinal: 2 });
+      yield* deriveEmergentGoal({ threadId: root, force: true });
       const goal = (yield* store.goals.get(emergentGoalId(root)))!;
       assert.deepInclude(goal, {
         slug: "fix-the-flaky-login-test",
@@ -89,21 +89,16 @@ it.layer(TestLayer)("Loom emergent goal", (it) => {
       assert.equal(item.kind === "goal.updated" ? item.goal.id : null, goal.id);
 
       // At most once: a goal is never re-derived.
-      yield* deriveEmergentGoal({ threadId: root, runOrdinal: 2 });
+      yield* deriveEmergentGoal({ threadId: root, force: true });
       assert.lengthOf(prompts, 2);
 
-      // A child inherits its parent's goal; a third run is past the window.
+      // A child inherits its parent's goal.
       confidence = "high";
       const child = ThreadId.make("emergent-child");
       yield* spawnChild({ parentThreadId: root, threadId: child });
-      yield* deriveEmergentGoal({ threadId: child, runOrdinal: 1 });
-      const late = ThreadId.make("emergent-late");
-      yield* seedThread({ threadId: late });
-      yield* talk(late);
-      yield* deriveEmergentGoal({ threadId: late, runOrdinal: 3 });
+      yield* deriveEmergentGoal({ threadId: child, force: true });
       assert.lengthOf(prompts, 2);
       assert.isNull(yield* store.goals.get(emergentGoalId(child)));
-      assert.isNull(yield* store.goals.get(emergentGoalId(late)));
     }).pipe(Effect.scoped),
   );
 });

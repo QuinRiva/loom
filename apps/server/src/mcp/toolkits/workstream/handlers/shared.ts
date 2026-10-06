@@ -15,6 +15,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
+import { EmergentGoals } from "../../../../loom/orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
@@ -85,12 +86,18 @@ export const stripThreadRef = (ref: string) =>
 /**
  * The caller's active goal (live tasks included) and its sidecar row. The
  * agent never names a goal: acting on another goal is structurally impossible.
+ * A goal-less root gets its emergent goal here (awaiting one in flight): its
+ * first turn is when it lays out the plan (DL-671).
  */
 export const requireActiveGoal = Effect.fn("LoomToolkit.requireActiveGoal")(function* (
   threadId: ThreadId,
 ) {
   const store = yield* LoomStore.LoomStoreV2;
-  const row = yield* asToolError(store.getWorkstream(threadId));
+  let row = yield* asToolError(store.getWorkstream(threadId));
+  if (row?.goalId == null && row?.parentThreadId == null) {
+    yield* (yield* EmergentGoals).derive({ threadId, force: true });
+    row = yield* asToolError(store.getWorkstream(threadId));
+  }
   if (row?.goalId == null)
     return yield* fail("This thread has no active goal, so there is no task tree to act on.");
   const goal = yield* asToolError(store.goals.get(row.goalId));

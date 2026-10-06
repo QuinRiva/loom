@@ -95,6 +95,8 @@ export const composeBranchRewrite = (input: {
   readonly submitted: ReadonlyArray<GoalTaskLine>;
   readonly tasks: ReadonlyArray<LoomGoalTask>;
   readonly anchor: LoomGoalTask;
+  /** The goal's deleted tasks: one may be restored if its old parent chain reaches the branch. */
+  readonly deleted: ReadonlyArray<FlatGoalTask>;
 }):
   | { readonly lines: ReadonlyArray<GoalTaskLine & { readonly position: number }> }
   | { readonly error: string } => {
@@ -111,9 +113,13 @@ export const composeBranchRewrite = (input: {
       error: `The first line of a branch rewrite must be your anchor ${anchorLabel}, keeping its "(id)": it is the root of the branch you own, so it cannot be deleted, replaced or moved — rename it or tick it in place instead. Nothing was applied.`,
     };
   }
-  const outside = submitted.find(
-    (line) => line.taskId !== null && !isWithinGoalTaskBranch(anchor, line.taskId),
-  );
+  const deletedParent = new Map(input.deleted.map((task) => [task.id, task.parentTaskId]));
+  const inBranch = (taskId: GoalTaskId): boolean => {
+    if (isWithinGoalTaskBranch(anchor, taskId)) return true;
+    const parent = deletedParent.get(taskId);
+    return parent != null && inBranch(parent);
+  };
+  const outside = submitted.find((line) => line.taskId !== null && !inBranch(line.taskId));
   if (outside) {
     return {
       error: `Task ${outside.taskId} ("${outside.text}") is outside the branch you own, rooted at ${anchorLabel}, so a branch rewrite cannot touch it. Record work elsewhere in the goal with ${agentToolName("goal_task_add")} (passing its parentTaskId), and ask the tree's owner to restructure anything else. Nothing was applied.`,

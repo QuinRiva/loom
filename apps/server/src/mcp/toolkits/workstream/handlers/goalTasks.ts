@@ -55,9 +55,6 @@ const echo = (
     ...(placedTaskId === undefined ? {} : { placedTaskId }),
   });
 
-const known = (tasks: ReadonlyArray<LoomGoalTask>) =>
-  new Set<string>(flattenGoalTasks(tasks).map((task) => task.id));
-
 export const goalTaskList = Effect.fn("LoomToolkit.goalTaskList")(function* (
   input: LoomToolInput<"goal_task_list">,
   caller: WorkstreamCaller,
@@ -166,16 +163,22 @@ export const goalTasksRewrite = Effect.fn("LoomToolkit.goalTasksRewrite")(functi
     return yield* fail(
       `Rewrites are scoped to what a thread owns: the whole tree belongs to the thread that owns the goal, and a child may rewrite only the branch it is anchored to — this thread has a parent and no anchor. Use ${t("goal_task_add")} to record discovered work (nested under the relevant parent task) and ${t("goal_task_update")} to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.`,
     );
-  const parsed = parseGoalTaskMarkdown(input.markdown, known(goal.tasks));
-  if ("error" in parsed) return yield* fail(parsed.error);
   const current = flattenGoalTasks(goal.tasks);
+  const deleted = yield* asToolError(
+    Effect.flatMap(tasksStore, (store) => store.listDeleted(goal.id)),
+  );
+  const parsed = parseGoalTaskMarkdown(
+    input.markdown,
+    new Set([...current, ...deleted].map((task) => task.id)),
+  );
+  if ("error" in parsed) return yield* fail(parsed.error);
   // Line numbers name the SUBMITTED lines, so validate before a branch is spliced in.
-  const textError = validateGoalTaskRewriteText(parsed.lines, current);
+  const textError = validateGoalTaskRewriteText(parsed.lines, [...current, ...deleted]);
   if (textError !== undefined) return yield* fail(textError);
   const scoped =
     anchor === null
       ? parsed
-      : composeBranchRewrite({ submitted: parsed.lines, tasks: goal.tasks, anchor });
+      : composeBranchRewrite({ submitted: parsed.lines, tasks: goal.tasks, anchor, deleted });
   if ("error" in scoped) return yield* fail(scoped.error);
 
   const minted = yield* Effect.forEach(

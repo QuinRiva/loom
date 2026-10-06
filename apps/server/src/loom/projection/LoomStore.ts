@@ -305,7 +305,11 @@ export interface LoomStoreV2Shape {
   readonly tasks: {
     /** The live tree (roots with nested `children`). */
     readonly listByGoal: (goalId: GoalId) => Op<ReadonlyArray<LoomGoalTask>>;
-    /** The submitted list IS the tree: upserts every entry, tombstones the live rest. */
+    /** The goal's tombstoned tasks, flat: what a rewrite may restore by resubmitting an id. */
+    readonly listDeleted: (
+      goalId: GoalId,
+    ) => Op<ReadonlyArray<Omit<LoomGoalTask, "children" | "deletedAt">>>;
+    /** The submitted list IS the tree: upserts every entry (restoring tombstoned ones), tombstones the live rest. */
     readonly replaceTree: (
       goalId: GoalId,
       entries: ReadonlyArray<LoomGoalTaskInput>,
@@ -388,13 +392,15 @@ const make = Effect.gen(function* () {
       Effect.flatMap(decodeGoalRows),
     );
 
-  const listTasks = (goalId: GoalId) =>
+  const selectTasks = (goalId: GoalId, deleted: boolean) =>
     sql`SELECT task_id AS "id", goal_id AS "goalId", parent_task_id AS "parentTaskId",
           position, text, done, created_at AS "createdAt", updated_at AS "updatedAt"
-        FROM loom_goal_tasks WHERE goal_id = ${goalId} AND deleted_at IS NULL`.pipe(
+        FROM loom_goal_tasks WHERE goal_id = ${goalId}
+          AND deleted_at IS ${deleted ? sql`NOT NULL` : sql`NULL`}`.pipe(
       Effect.flatMap(decodeTaskRows),
-      Effect.map(buildTaskTree),
     );
+
+  const listTasks = (goalId: GoalId) => selectTasks(goalId, false).pipe(Effect.map(buildTaskTree));
 
   const withTasks = (row: GoalRow) =>
     listTasks(row.id).pipe(Effect.map((tasks): LoomGoal => ({ ...row, tasks })));
@@ -588,6 +594,7 @@ const make = Effect.gen(function* () {
     },
     tasks: {
       listByGoal: (goalId) => listTasks(goalId).pipe(run("tasks.listByGoal")),
+      listDeleted: (goalId) => selectTasks(goalId, true).pipe(run("tasks.listDeleted")),
       replaceTree: (goalId, entries) =>
         Effect.gen(function* () {
           const at = yield* now;

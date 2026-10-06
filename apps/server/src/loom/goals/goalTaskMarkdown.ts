@@ -17,7 +17,8 @@ import { GoalTaskId } from "@t3tools/contracts";
 
 import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
 import type { LoomGoalTaskInput } from "../projection/LoomStore.ts";
-import type { FlatGoalTask, GoalTaskLine } from "./goalTaskTree.ts";
+import { renderGoalTaskTree } from "./goalTaskRender.ts";
+import { buildGoalTaskTree, type FlatGoalTask, type GoalTaskLine } from "./goalTaskTree.ts";
 
 export const MAX_GOAL_TASK_TEXT_LENGTH = 300;
 
@@ -78,7 +79,8 @@ const indentDepth = (indent: string): number =>
  * Parses an indented markdown checklist into a flat, topologically ordered
  * list. Tolerant on whitespace, strict on meaning: an unparseable line, an
  * `(id)` that is not a task of this goal (a stale read), a repeated id, or a
- * submission with no task lines all fail the whole submission.
+ * submission with no task lines all fail the whole submission. `knownTaskIds`
+ * holds the goal's live AND deleted tasks: resubmitting a deleted one restores it.
  */
 export const parseGoalTaskMarkdown = (
   markdown: string,
@@ -140,8 +142,8 @@ export const parseGoalTaskMarkdown = (
 
 /**
  * Resolves parsed lines against the current tree into store entries — minting
- * ids for new lines — and summarises the diff (added / edited / moved /
- * removed). `current` is in tree order (`flattenGoalTasks`): positions are
+ * ids for new lines — and summarises the diff (added / restored / edited /
+ * moved / removed), listing every removed task as a resubmittable line. `current` is in tree order (`flattenGoalTasks`): positions are
  * re-derived densely from document order, so "moved" compares a task's RANK
  * among its siblings, never the stored position integer.
  */
@@ -174,10 +176,11 @@ export const resolveGoalTaskRewrite = (input: {
   }
 
   const submitted = new Set<string>(ids);
-  const counts = { added: 0, edited: 0, moved: 0, removed: 0 };
-  for (const task of tasks) {
+  const counts = { added: 0, restored: 0, edited: 0, moved: 0, removed: 0 };
+  tasks.forEach((task, index) => {
     const existing = currentById.get(task.id);
-    if (!existing) counts.added += 1;
+    // An id the live tree lacks was parsed as one of the goal's deleted tasks.
+    if (!existing) counts[input.lines[index]!.taskId === null ? "added" : "restored"] += 1;
     else {
       if (existing.text !== task.text || existing.done !== task.done) counts.edited += 1;
       if (
@@ -187,8 +190,20 @@ export const resolveGoalTaskRewrite = (input: {
         counts.moved += 1;
       }
     }
-  }
-  counts.removed = input.current.filter((task) => !submitted.has(task.id)).length;
+  });
+  const removed = input.current.filter((task) => !submitted.has(task.id));
+  counts.removed = removed.length;
+  const removedIds = new Set<string>(removed.map((task) => task.id));
+  // Nested among themselves, so a removed subtree pastes back as a subtree.
+  const removedLines = renderGoalTaskTree(
+    buildGoalTaskTree(
+      removed.map((task) =>
+        task.parentTaskId !== null && removedIds.has(task.parentTaskId)
+          ? task
+          : { ...task, parentTaskId: null },
+      ),
+    ),
+  ).trimEnd();
 
   const parts = Object.entries(counts)
     .filter(([, count]) => count > 0)
@@ -199,6 +214,10 @@ export const resolveGoalTaskRewrite = (input: {
     summary:
       parts.length === 0
         ? "Rewrote the task tree: no changes (the submitted tree matches the current one)."
-        : `Rewrote the task tree: ${parts.join(", ")}.`,
+        : `Rewrote the task tree: ${parts.join(", ")}.${
+            removed.length === 0
+              ? ""
+              : `\n\nRemoved:\n${removedLines}\nResubmit any of these lines, with its (id), in a rewrite to restore that task.`
+          }`,
   };
 };

@@ -128,7 +128,9 @@ describe("parse rules", () => {
     expect(tasks[4]).toMatchObject({ id: "minted-0" });
     // "Rewrite the guidance" was dropped; task 2 renamed; task 3 done-marked;
     // every retained task kept its parent and sibling slot, so nothing moved.
-    expect(summary).toBe("Rewrote the task tree: 1 added, 2 edited, 1 removed.");
+    expect(summary).toBe(
+      `Rewrote the task tree: 1 added, 2 edited, 1 removed.\n\nRemoved:\n- [ ] Rewrite the guidance (${uuid("5")})\nResubmit any of these lines, with its (id), in a rewrite to restore that task.`,
+    );
   });
 
   it("is tolerant of bullet, checkbox and indent style", () => {
