@@ -52,6 +52,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import { LoomAskWaiters } from "../loom/userInput/askWaiters.ts";
 import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
 import type { IdAllocatorV2 } from "./IdAllocator.ts";
 import type { OrchestratorDispatchError, OrchestratorV2Error } from "./Orchestrator.ts";
@@ -217,7 +218,7 @@ export const loomQueuedTurnAttentionClear = (
 /**
  * The target thread's own rules for an accepted message (§2 rules 1–5; rule 0 is
  * `loomContinuationVetoed`, placed before upstream's unsettle per DL-195; rule 6
- * supersede is reserved for Phase 3a with `runtime-request.create`). Called once
+ * supersede is post-commit, in `loom/userInput/askUserQuestion.ts`). Called once
  * the delivery mode is final, so `startsNow` covers upstream's and the Loom
  * steer conversions. Emits only on `command.threadId`.
  */
@@ -279,8 +280,21 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
       }),
     );
   }
-  // 6. Supersede — reserved slot (Phase 3a, with runtime-request.create).
+  // 6. Supersede runs post-commit: the ask reactor (loom/userInput/askUserQuestion.ts) dismisses a
+  //    pending loom-ask: request when a human message lands, for row-less roots too (DL-348).
 });
+
+/**
+ * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
+ * request whose `ask_user_question` call is still polling takes the answer as
+ * its tool result, so upstream's answer message is withheld. With no live
+ * waiter (pi died, the server restarted) upstream's message delivery stands.
+ */
+export const loomAskTakesAnswer = (requestId: string) =>
+  Effect.gen(function* () {
+    if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
+    return yield* (yield* LoomAskWaiters).isLive(requestId);
+  });
 
 // ---------------------------------------------------------------------------
 // run.interrupt and thread.auto-settle hunks

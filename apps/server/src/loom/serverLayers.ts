@@ -17,11 +17,13 @@ import * as Layer from "effect/Layer";
 
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
+import { LoomAgentRoutesLive } from "./http/loomAgentRoutes.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
+import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 
 /** Provider sweeps merged into the provider runtime layer. */
 export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
@@ -51,3 +53,11 @@ export const LoomGoalBroadcastLive = Layer.mergeAll(
  * this one export at the real composer.
  */
 export const LoomSessionComposerLive = LoomSessionComposerDefaultLive;
+
+/**
+ * Loom's pi-extension surface (seam 19): the session-profile and
+ * ask_user_question routes beside `/mcp`, and the reactor that hands answers
+ * to live waiters and closes superseded or orphaned questions. Mounted with the
+ * HTTP routes in `server.ts` (the router exists only there).
+ */
+export const LoomAgentHttpLive = Layer.mergeAll(LoomAgentRoutesLive, LoomAskReactorLive);
