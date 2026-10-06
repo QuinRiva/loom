@@ -19,7 +19,7 @@ import * as Option from "effect/Option";
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { writeSynthesisedReport } from "../../workstream/report.ts";
-import { latestUnheldRun, quiescenceCandidate } from "../quiescence.ts";
+import { latestUnheldRun, quiescenceCandidate, turnStartedByHuman } from "../quiescence.ts";
 import { quiescentSubmitCommandId } from "./controlMessage.ts";
 import type { PassContext, PassStep } from "./WorkstreamDispatcher.ts";
 
@@ -50,15 +50,11 @@ export const quiescenceRail: PassStep = {
       const records = yield* orchestrator.getThreadRecords(row.threadId, ["runs", "messages"], {
         messageRoles: ["user"],
       });
-      const latestUserMessage =
-        records.messages.toSorted(
-          (a, b) => DateTime.toEpochMillis(a.createdAt) - DateTime.toEpochMillis(b.createdAt),
-        )[records.messages.length - 1] ?? null;
       if (
         !quiescenceCandidate({
           shell,
           runs: records.runs,
-          latestUserMessage,
+          userMessages: records.messages,
           children: yield* loomStore.listChildren(row.threadId, { includeArchived: true }),
           now: ctx.now,
           grace: ctx.grace,
@@ -87,7 +83,7 @@ export const quiescenceRail: PassStep = {
         .flatMap((item) => (item.type === "assistant_message" ? [item] : []))
         .toSorted((a, b) => a.ordinal - b.ordinal)
         .at(-1);
-      const humanStarted = latestUserMessage?.loom?.humanAuthored === true;
+      const humanStarted = turnStartedByHuman(records.runs, records.messages);
       const reportPath = yield* writeSynthesisedReport(
         row.threadId,
         run.id,

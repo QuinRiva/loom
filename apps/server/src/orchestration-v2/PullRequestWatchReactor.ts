@@ -272,13 +272,14 @@ export const make = Effect.gen(function* () {
     });
 
   /** Watches that end without a host read; the rest are read once per pull request. */
-  const endsWithoutRead = ({ thread, link }: WatchTarget) =>
+  const endsWithoutRead = ({ thread, link }: WatchTarget, loomChild = false) =>
+    // loom: DL-474
     // A merged pull request cannot reopen. Settling and archiving end watches, and a subagent
     // cannot start one; a watch left from before those rules ends here.
     link.snapshot?.state === "merged" ||
     thread.settledOverride === "settled" ||
     thread.settledAt !== null ||
-    thread.lineage.relationshipToParent === "subagent";
+    (thread.lineage.relationshipToParent === "subagent" && !loomChild); // loom: DL-474 — a Loom child keeps its watch (DL-305)
 
   /**
    * Runs one thread's step for each thread in a group, so one refusal does not skip the rest.
@@ -379,8 +380,21 @@ export const make = Effect.gen(function* () {
     );
     const byPullRequest = new Map<string, Array<WatchTarget>>();
     const ending: Array<WatchTarget> = [];
+    const loomChildren = new Set( // loom: DL-474 — subagent-lineage threads with a Loom sidecar row
+      yield* Effect.filter(
+        targets
+          .filter((t) => t.thread.lineage.relationshipToParent === "subagent")
+          .map((t) => t.thread.id),
+        (id) =>
+          engine.getThreadShell(id).pipe(
+            Effect.map((shell) => shell?.workstream !== undefined),
+            Effect.orElseSucceed(() => false),
+          ),
+      ),
+    );
     for (const target of targets) {
-      if (endsWithoutRead(target)) {
+      if (endsWithoutRead(target, loomChildren.has(target.thread.id))) {
+        // loom: DL-474
         ending.push(target);
         continue;
       }

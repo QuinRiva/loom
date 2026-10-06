@@ -23,13 +23,38 @@ export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
       undefined,
     );
 
+/**
+ * A message that continues the turn before it rather than starting one (DL-482): upstream's
+ * restart continuation and limit-resume, and Loom's steer redelivery, reroute / reroute-back
+ * resumes and no-reset limit resume (`message:<commandId>` of `controlMessage.ts`'s builders).
+ */
+const CONTINUATION_MESSAGE_ID =
+  /^(message:restart-continuation:|limit-resume:|message:server:loom:(steer-redeliver|reroute|reroute-back|limit-resume):)/;
+
+/**
+ * Whether the latest started turn was started by a human: the message that started its run,
+ * looking back through continuation runs to the turn they continue. DL-194: the server-stamped
+ * `humanAuthored`, never `createdBy` (a schedule fire or limit-resume is `user` too).
+ */
+export const turnStartedByHuman = (
+  runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "status" | "userMessageId">>,
+  userMessages: ReadonlyArray<Pick<OrchestrationV2ConversationMessage, "id" | "loom">>,
+): boolean => {
+  const byId = new Map(userMessages.map((message) => [message.id, message]));
+  return (
+    runs
+      .filter((run) => run.status !== "queued")
+      .toSorted((a, b) => b.ordinal - a.ordinal)
+      .map((run) => byId.get(run.userMessageId))
+      .find((message) => message === undefined || !CONTINUATION_MESSAGE_ID.test(message.id))?.loom
+      ?.humanAuthored === true
+  );
+};
+
 export const quiescenceCandidate = (input: {
   readonly shell: OrchestrationV2ThreadShell; // joined: shell.workstream present
   readonly runs: ReadonlyArray<OrchestrationV2Run>; // getThreadRecords(threadId, ["runs"]) for the few pre-filtered candidates
-  readonly latestUserMessage: Pick<
-    OrchestrationV2ConversationMessage,
-    "createdBy" | "loom" | "createdAt"
-  > | null;
+  readonly userMessages: ReadonlyArray<Pick<OrchestrationV2ConversationMessage, "id" | "loom">>;
   readonly children: ReadonlyArray<LoomThreadWorkstream>;
   readonly now: DateTime.Utc;
   readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null }; // null = never for human-started turns
@@ -57,8 +82,7 @@ export const quiescenceCandidate = (input: {
     return false;
   const lastRun = latestUnheldRun(input.runs);
   if (lastRun?.completedAt == null) return false;
-  // DL-194: the server-stamped human predicate, not `createdBy` (a schedule fire or limit-resume is `user` too).
-  const humanStarted = input.latestUserMessage?.loom?.humanAuthored === true;
+  const humanStarted = turnStartedByHuman(input.runs, input.userMessages);
   const graceMs = humanStarted ? input.grace.humanStartedMs : input.grace.controlStartedMs;
   return (
     graceMs !== null &&

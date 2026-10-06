@@ -26,6 +26,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
+import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
 import { isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -52,6 +53,7 @@ import {
 import { forkParked } from "../../../serverActivation.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import { type LoomStoreError, LoomStoreV2 } from "../../projection/LoomStore.ts";
+import { kickoffText } from "../../prompt/childPrompt.ts";
 import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
   dispatchServerCommand,
@@ -285,7 +287,13 @@ const promotion: PassStep = {
               id: kickoffCommandId(row.threadId),
               tier: "steered",
               origin: "kickoff",
-              text,
+              // DL-472: the same first turn mcp__t3-code__workstream_prompt sends (role framing, gate
+              // membership, completion contract), not the bare brief.
+              text: kickoffText({
+                role: row.role,
+                brief: text,
+                gateTargetId: gateLoopTargetOf(row),
+              }),
             }),
           ),
       });

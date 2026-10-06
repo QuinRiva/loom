@@ -37,24 +37,29 @@ export interface InFlightTool {
 
 /**
  * The tool call running on the active attempt of the thread's running run, or
- * null: a `running` turn item of a tool kind whose provider turn is that
- * attempt's.
+ * null: a `running` turn item of a tool kind whose provider turn belongs to
+ * that attempt.
  */
 export const inFlightTool = Effect.fn("loom.liveness.inFlightTool")(function* (threadId: ThreadId) {
-  const { runs, attempts, turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(
+  const { runs, providerTurns, turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(
     threadId,
-    ["runs", "attempts", "turnItems"],
+    ["runs", "providerTurns", "turnItems"],
     { turnItemTypes: TOOL_ITEM_TYPES, turnItemStatuses: ["running"] },
   );
   const run = runs.find((candidate) => candidate.status === "running");
   if (run === undefined) return null;
-  const providerTurnId =
-    attempts.find((attempt) => attempt.id === run.activeAttemptId)?.providerTurnId ?? null;
+  // The attempt's provider turns name the attempt (Pi leaves the attempt's own providerTurnId null — DL-473).
+  const attemptTurnIds = new Set(
+    providerTurns
+      .filter((turn) => turn.runAttemptId === run.activeAttemptId)
+      .map((turn) => turn.id),
+  );
   const item = turnItems.findLast(
     (candidate): candidate is ToolTurnItem =>
       isToolItem(candidate) &&
       candidate.runId === run.id &&
-      candidate.providerTurnId === providerTurnId,
+      candidate.providerTurnId != null &&
+      attemptTurnIds.has(candidate.providerTurnId),
   );
   return item === undefined
     ? null

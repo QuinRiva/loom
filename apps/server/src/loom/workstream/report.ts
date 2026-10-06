@@ -47,10 +47,19 @@ export const writeWorkstreamReport = (threadId: ThreadId, markdown: string, roun
   );
 
 /**
+ * `<threadId>.quiescent-<run>.md`, where `<run>` is the run id minus the thread id
+ * it embeds: a V2 run id is `run:thread:<URI-encoded threadId>:ordinal:<n>`, and a
+ * spawned child's id is long enough that repeating it overflows the 255-byte
+ * filename limit (DL-470) — so a child's file is `<threadId>.quiescent-ordinal_<n>.md`.
+ */
+export const synthesisedReportFileName = (threadId: ThreadId, runId: string) =>
+  `${fileStem(threadId)}.quiescent-${fileStem(runId.split(`${encodeURIComponent(threadId)}:`).at(-1)!)}.md`;
+
+/**
  * Writes the quiescence rail's report for a thread that ended `runId` without
  * submitting — the fixed header (with `grace` rendered by the caller, e.g.
- * "10 min"), a blank line, then its last assistant message — and returns the
- * absolute path `<threadId>.quiescent-<runId>.md`.
+ * "10 min"), a blank line, then its last assistant message — and returns its
+ * absolute path (`synthesisedReportFileName`).
  */
 export const writeSynthesisedReport = (
   threadId: ThreadId,
@@ -59,7 +68,7 @@ export const writeSynthesisedReport = (
   grace: string,
 ) =>
   writeReportFile(
-    `${fileStem(threadId)}.quiescent-${fileStem(runId)}.md`,
+    synthesisedReportFileName(threadId, runId),
     `${QUIESCENT_REPORT_HEADER.replace("<grace>", grace)}\n\n${lastAssistantText}`,
   );
 

@@ -23,6 +23,7 @@ import { CommandReceiptStoreV2 } from "../../../orchestration-v2/CommandReceiptS
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { notifyDeliveryCommand } from "../../../mcp/toolkits/workstream/handlers/notify.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
+import { kickoffText } from "../../prompt/childPrompt.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import {
   completeOpenRuns,
@@ -142,7 +143,8 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         assert.equal((yield* receipt(kickoffCommandId(child)))?.status, "accepted");
         const [kickoff] = yield* messages(child);
         assert.equal(kickoff?.id, MessageId.make(`message:${kickoffCommandId(child)}`));
-        assert.equal(kickoff?.text, `Brief for ${child}.`);
+        // The same first turn mcp__t3-code__workstream_prompt sends (DL-472).
+        assert.equal(kickoff?.text, kickoffText({ role: "coder", brief: `Brief for ${child}.` }));
         assert.equal(kickoff?.loom?.origin, "kickoff");
         assert.isUndefined(kickoff?.loom?.controlPayload);
       }
