@@ -19,7 +19,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import { quiescenceCandidate } from "./orchestration/quiescence.ts";
+import { quiescenceCandidate, turnStartedByHuman } from "./orchestration/quiescence.ts";
 import { LoomStoreV2 } from "./projection/LoomStore.ts";
 import {
   completeSeededRun,
@@ -82,13 +82,14 @@ it.layer(LoomOrchestratorTestLayer)("Loom human predicate (seam 14)", (it) => {
       const quietProjection = yield* orchestrator.getThreadProjection(quiet);
       const quietShell = (yield* orchestrator.getThreadShell(quiet))!;
       const ended = quietProjection.runs[0]!.completedAt!;
-      const candidateAfterGrace = (
-        latestUserMessage: OrchestrationV2ConversationMessage | undefined,
-      ) =>
+      // `starter` started the quiet child's last turn.
+      const candidateAfterGrace = (starter: OrchestrationV2ConversationMessage | undefined) =>
         quiescenceCandidate({
           shell: quietShell,
-          runs: quietProjection.runs,
-          latestUserMessage: latestUserMessage ?? null,
+          runs: quietProjection.runs.map((run) =>
+            starter === undefined ? run : { ...run, userMessageId: starter.id },
+          ),
+          userMessages: starter === undefined ? [] : [starter],
           children: [],
           now: DateTime.add(ended, { seconds: 61 }),
           grace,
@@ -107,8 +108,14 @@ it.layer(LoomOrchestratorTestLayer)("Loom human predicate (seam 14)", (it) => {
           (run) => run.userMessageId === resume?.id,
         ),
       );
-      // Its turn is control-started: the control grace applies (a human turn never qualifies).
-      assert.isTrue(candidateAfterGrace(resume));
+      // It continues the limited turn (DL-482), which a control message started: control-started.
+      const resumedProjection = yield* orchestrator.getThreadProjection(resumed);
+      assert.isFalse(
+        turnStartedByHuman(
+          resumedProjection.runs,
+          resumedProjection.messages.filter((message) => message.role === "user"),
+        ),
+      );
 
       // On a thread holding awaiting_acceptance the hold stands (rule 0 makes the resume a no-op).
       const holding = ThreadId.make("human-limit-holding");
