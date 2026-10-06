@@ -8,6 +8,7 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import type {
   ContextMenuItem,
   EnvironmentId,
+  LocalApi,
   LoomGoalShell,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -31,8 +32,14 @@ const reportFailure = (title: string) => (result: AtomCommandResult<unknown, unk
   );
 };
 
+type LoomGoalMenuId =
+  | "loom-goal:tasks"
+  | "loom-goal:rename"
+  | "loom-goal:archive"
+  | "loom-goal:unarchive";
+
 /** The goal entries of a thread's context menu; empty for a thread with no Loom goal. */
-export function buildGoalMenuItems(goal: LoomGoalShell | null): ContextMenuItem<string>[] {
+export function buildGoalMenuItems(goal: LoomGoalShell | null): ContextMenuItem<LoomGoalMenuId>[] {
   if (goal === null) return [];
   return [
     { id: "loom-goal:tasks", label: "Open goal tasks" },
@@ -42,6 +49,15 @@ export function buildGoalMenuItems(goal: LoomGoalShell | null): ContextMenuItem<
       : { id: "loom-goal:unarchive", label: "Unarchive goal" },
   ];
 }
+
+/**
+ * `api.contextMenu.show` with the thread's goal entries first — the sidebar
+ * swaps its callee for this, so upstream's item list stays untouched.
+ */
+export const showWithLoomGoalMenu =
+  (api: LocalApi, goal: LoomGoalShell | null) =>
+  <Id extends string>(items: readonly ContextMenuItem<Id>[], position?: { x: number; y: number }) =>
+    api.contextMenu.show<Id | LoomGoalMenuId>([...buildGoalMenuItems(goal), ...items], position);
 
 export function useLoomGoalActions() {
   const update = useAtomCommand(loomCommands.goalUpdate, { reportFailure: false });

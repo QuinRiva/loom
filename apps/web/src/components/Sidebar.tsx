@@ -282,7 +282,7 @@ import { loomAttentionOf, loomTopStatus } from "./Sidebar.logic.loom";
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { LoomRollupBadge } from "../loom/LoomRollupBadge";
 import { readLoomGoal } from "../loom/loomGoalState";
-import { buildGoalMenuItems, useLoomGoalActions } from "../loom/sidebarGoalActions";
+import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -4486,7 +4486,8 @@ export default function Sidebar() {
           ) ?? null;
         const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom: 3d-3
         const clicked = await settlePromise(() =>
-          api.contextMenu.show(
+          showWithLoomGoalMenu(api, loomGoal)(
+            // loom: 3d-3 — Loom goal entries first
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
@@ -4510,7 +4511,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
-            }).toSpliced(0, 0, ...buildGoalMenuItems(loomGoal)), // loom: 3d-3 — Loom goal entries first
+            }),
             position,
           ),
         );

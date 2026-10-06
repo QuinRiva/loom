@@ -57,7 +57,9 @@ function GoalForm({
     <>
       <DialogHeader>
         <DialogTitle>Rename goal</DialogTitle>
-        <DialogDescription>The title and paragraph shown wherever this Loom goal appears.</DialogDescription>
+        <DialogDescription>
+          The title and paragraph shown wherever this Loom goal appears.
+        </DialogDescription>
       </DialogHeader>
       <DialogPanel>
         <label className="grid gap-1.5">
