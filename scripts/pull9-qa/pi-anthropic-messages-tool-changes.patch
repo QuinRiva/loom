@@ -4,8 +4,9 @@ The bridge renames payload.tools (bash -> Bash, fd -> mcp__pi__fd, ...) and hist
 tool_use blocks, but not the tool_removal / tool_addition blocks pi-ai 1.0 sends for a
 mid-conversation tool-set change. A removal then names a tool payload.tools does not
 declare, and Anthropic answers 400 "tool_addition/tool_removal references unknown tool
-'bash'". Every consult fork (--tools read,grep,find,ls) of a V2-started thread hits it.
-Applies with `patch -p1 -d <package dir>`; not yet upstream.
+'bash'". Any pi 1.0 session whose transcript leads with its system message and whose
+tool set later drops a renamed tool hits it. Applies with `patch -p1 -d <package dir>`;
+not yet upstream.
 
 --- a/dist/transform.js
 +++ b/dist/transform.js
@@ -18,7 +19,7 @@ Applies with `patch -p1 -d <package dir>`; not yet upstream.
      let anyChange = false;
      const next = messages.map((msg) => {
          if (!isPlainObject(msg) || !Array.isArray(msg.content))
-@@ -84,6 +84,24 @@
+@@ -84,6 +84,25 @@
          const content = msg.content.map((block) => {
              if (!isPlainObject(block))
                  return block;
@@ -36,6 +37,7 @@ Applies with `patch -p1 -d <package dir>`; not yet upstream.
 +                const mapped = rename(block.tool.definition.name);
 +                if (mapped !== block.tool.definition.name) {
 +                    nameMap.set(block.tool.definition.name, mapped);
++                    nameMap.set(lower(block.tool.definition.name), mapped);
 +                    msgChanged = true;
 +                    return { ...block, tool: { ...block.tool, definition: { ...block.tool.definition, name: mapped } } };
 +                }
@@ -43,7 +45,7 @@ Applies with `patch -p1 -d <package dir>`; not yet upstream.
              if ((block.type === "tool_use" || block.type === "tool_result") && typeof block.name === "string") {
                  const mapped = nameMap.get(block.name) ?? nameMap.get(lower(block.name));
                  if (mapped && mapped !== block.name) {
-@@ -126,7 +144,7 @@
+@@ -126,7 +145,7 @@
          payload.tool_choice = remapToolChoice(payload.tool_choice, nameMap);
      }
      if (Array.isArray(payload.messages)) {
