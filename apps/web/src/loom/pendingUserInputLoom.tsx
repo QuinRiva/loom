@@ -31,7 +31,9 @@ const useHosts = create<{ readonly hosts: Readonly<Record<string, LoomPendingInp
 /** ChatView: host the active request. The reply callback is read through a ref. */
 export function useHostLoomPendingInput(requestId: string | null, host: LoomPendingInputHost) {
   const replyRef = useRef(host.onReplyInChat);
-  replyRef.current = host.onReplyInChat;
+  useEffect(() => {
+    replyRef.current = host.onReplyInChat;
+  });
   const { cwd, threadRef } = host;
   useEffect(() => {
     if (requestId === null) return;
