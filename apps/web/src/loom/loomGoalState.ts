@@ -10,6 +10,7 @@ import type { EnvironmentId, GoalId, LoomGoalShell } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSnapshotAtom } from "../state/shell";
 
 export const loomGoalAtoms = createLoomGoalAtoms({ snapshotAtom: environmentSnapshotAtom });
@@ -31,6 +32,14 @@ export function useLoomGoal(
 ): LoomGoalShell | null {
   const goals = useLoomGoals(environmentId);
   return goalId == null ? null : goalById(goals, goalId);
+}
+
+/** The Loom goal a thread carries, read at call time (menus, not render). */
+export function readLoomGoal(
+  environmentId: EnvironmentId,
+  goalId: GoalId | null | undefined,
+): LoomGoalShell | null {
+  return goalId == null ? null : goalById(appAtomRegistry.get(loomGoalAtoms.goalsAtom(environmentId)), goalId);
 }
 
 /** Done/total over a nested task tree. */
