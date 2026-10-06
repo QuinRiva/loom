@@ -351,6 +351,7 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
+import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -1761,6 +1762,7 @@ export default function ChatView(props: ChatViewProps) {
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const interceptLoomDraftCommand = useLoomDraftIntercepts(); // loom: 3d-3
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -8732,6 +8734,45 @@ export default function ChatView(props: ChatViewProps) {
         composerReviewComments.length +
         composerThreadContexts.length,
     });
+    // loom: 3d-3 — `/handoff` and `/retro` are intercepted at the send authority
+    // and never become a turn on this thread (loom/useLoomDraftIntercepts.ts).
+    if (
+      !directAnnotation &&
+      isServerThread &&
+      (await interceptLoomDraftCommand({
+        source: scopeThreadRef(activeThread.environmentId, activeThread.id),
+        submittedPrompt: promptForSend,
+        trimmedPrompt: trimmed,
+        hasAttachmentsOrContexts: composerHasNonPromptContent,
+        setSendInFlight: (inFlight) => {
+          sendInFlightRef.current = inFlight;
+        },
+        clearComposer: () => {
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+        },
+        readComposerContent: () => {
+          const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+          return {
+            prompt: promptRef.current,
+            attachmentCount: composerImagesRef.current.length + composerFilesRef.current.length,
+            terminalContextCount: composerTerminalContextsRef.current.length,
+            previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
+            reviewCommentCount: draft?.reviewComments.length ?? 0,
+            threadContextCount: draft?.threadContexts.length ?? 0,
+          };
+        },
+        restoreComposer: (prompt) => {
+          promptRef.current = prompt;
+          setComposerDraftPrompt(composerDraftTarget, prompt);
+          composerRef.current?.resetCursorState();
+        },
+        setThreadError,
+      }))
+    ) {
+      return;
+    }
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
