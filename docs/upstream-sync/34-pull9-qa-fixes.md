@@ -12,3 +12,10 @@ deployed.
   closed with a pointer and replaced by **#333**, head `t3code/plan-next-upstream-merge`
   (= `bcee87ca65` + the Phase 4 fan-in merge `580362746c`). History is unchanged; every QA
   fix lands on this branch. Not merged.
+- **DL-601 — Goal task tree accidentally wiped and restored (2026-10-06 21:40Z).** Adding the
+  verification subtree with `goal_tasks_rewrite` from the unanchored goal owner replaced the
+  whole tree, soft-deleting 54 tasks. They were read back read-only from
+  `projection_goal_tasks` (`deleted_at = 2026-10-06T21:40:33.870Z`) and re-added with the same
+  text, done-state, nesting and order. Deleted ids cannot be revived, so **every restored
+  task has a new id** (e.g. the QA-fix task `c47fd0ab` is now `ef2e3d0d`); old ids quoted in
+  earlier docs and reports no longer resolve. The two "PR #332" task texts now say #333.
