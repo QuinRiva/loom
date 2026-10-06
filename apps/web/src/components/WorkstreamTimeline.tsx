@@ -1,6 +1,6 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, LoomThreadOutcome, ThreadId } from "@t3tools/contracts";
 import { ExternalLinkIcon, FileTextIcon, XIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   buildTimelineRows,
@@ -11,25 +11,61 @@ import {
   TONE_DOT_CLASSES,
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
+import { loomCommands } from "../loom/loomGoalState";
 import { LoomContextChip, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
+ * The inspected thread's outcome history (`loom.threadOutcomes`), so each
+ * outcome row links its own round's report as V1's lifecycle drawer did. Lives
+ * in the panel, not the drawer; fetched when the thread or its latest outcome
+ * changes, and null until that fetch answers (the drawer then shows the
+ * sidecar's latest outcome). Nothing polls.
+ */
+export function useThreadOutcomes(
+  environmentId: EnvironmentId,
+  node: WorkstreamNode | undefined,
+): ReadonlyArray<LoomThreadOutcome> | null {
+  const load = useAtomCommand(loomCommands.threadOutcomes, { reportFailure: false });
+  const [loaded, setLoaded] = useState<{
+    readonly key: string;
+    readonly outcomes: ReadonlyArray<LoomThreadOutcome>;
+  } | null>(null);
+  const threadId = node?.id;
+  const latestAt = node?.lastOutcome?.at ?? null;
+  const key = `${threadId}@${latestAt}`;
+  useEffect(() => {
+    if (threadId === undefined) return;
+    let cancelled = false;
+    void load({ environmentId, input: { threadId } }).then((result) => {
+      if (!cancelled && result._tag === "Success")
+        setLoaded({ key: `${threadId}@${latestAt}`, outcomes: result.value.outcomes });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [environmentId, threadId, latestAt, load]);
+  return loaded?.key === key ? loaded.outcomes : null;
+}
+
+/**
  * A thread's timeline drawer: the milestones its sidecar records (created,
- * held, dependencies, kickoff, latest submitted outcome, plan outcome) and its
- * gate routes. V2 keeps the latest of each, so this needs no event pull — it
- * reads the shell and updates live. Overlays the panel; Esc or the backdrop
- * dismisses it.
+ * held, dependencies, kickoff, plan outcome), every submitted outcome with a
+ * link to the report it wrote, and its gate routes. Reads the shell and updates
+ * live. Overlays the panel; Esc or the backdrop dismisses it.
  */
 export function WorkstreamTimelineDrawer({
   node,
+  outcomes,
   titleOf,
   onClose,
   onOpenThread,
   onOpenReport,
 }: {
   readonly node: WorkstreamNode | undefined;
+  readonly outcomes: ReadonlyArray<LoomThreadOutcome> | null;
   readonly titleOf: (threadId: ThreadId) => string;
   readonly onClose: () => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
@@ -67,7 +103,7 @@ export function WorkstreamTimelineDrawer({
     };
   }, [open, onClose]);
 
-  const rows = node ? buildTimelineRows(node, titleOf) : [];
+  const rows = node ? buildTimelineRows(node, titleOf, outcomes) : [];
 
   return (
     <>
@@ -153,6 +189,23 @@ export function WorkstreamTimelineDrawer({
                   </TooltipTrigger>
                   <TooltipPopup>{row.at}</TooltipPopup>
                 </Tooltip>
+                {row.reportPath ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="outline"
+                          aria-label="Open this round's completion report"
+                          onClick={() => onOpenReport(row.reportPath!)}
+                        />
+                      }
+                    >
+                      <FileTextIcon />
+                    </TooltipTrigger>
+                    <TooltipPopup>Open this round&rsquo;s completion report</TooltipPopup>
+                  </Tooltip>
+                ) : null}
               </li>
             ))}
           </ol>

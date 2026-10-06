@@ -6,7 +6,8 @@
  *
  * Seam 21 (integrated): 3b's drafter methods, 3d's goal methods (each writes
  * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
- * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438).
+ * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438), and
+ * the timeline's outcome history (DL-620).
  *
  * @module loom/wsMethods
  */
@@ -20,6 +21,7 @@ import {
   type LoomGoalTaskRewriteInput,
   type LoomGoalTaskRewriteNode,
   type LoomGoalUpdateInput,
+  type LoomThreadOutcomesInput,
   type LoomThreadSpendInput,
   type LoomTopSpendInput,
   LoomWsMethodError,
@@ -224,6 +226,22 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       observeRpcEffect(
         LOOM_WS_METHODS.topSpend,
         usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
+        { "rpc.aggregate": "loom" },
+      ),
+    // The timeline's outcome rows, each linking the report its submit wrote.
+    [LOOM_WS_METHODS.threadOutcomes]: (input: LoomThreadOutcomesInput) =>
+      observeRpcEffect(
+        LOOM_WS_METHODS.threadOutcomes,
+        loomStore.outcomeHistory(input.threadId).pipe(
+          Effect.map((outcomes) => ({ outcomes })),
+          Effect.mapError((cause) =>
+            fail(
+              LOOM_WS_METHODS.threadOutcomes,
+              `${LOOM_WS_METHODS.threadOutcomes} failed.`,
+              cause,
+            ),
+          ),
+        ),
         { "rpc.aggregate": "loom" },
       ),
   };

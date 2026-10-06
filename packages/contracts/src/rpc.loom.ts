@@ -17,7 +17,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { LoomGoalShell } from "./orchestrationV2.loom.ts";
+import { LoomGoalShell, WorkOutcomeRecord } from "./orchestrationV2.loom.ts";
 import {
   HandoffDraftInput,
   HandoffDraftResult,
@@ -36,6 +36,8 @@ export const LOOM_WS_METHODS = {
   // 3d-4 — seam 11's spend reads (DL-438).
   threadSpend: "loom.threadSpend",
   topSpend: "loom.topSpend",
+  // QA fix — the timeline's per-round report links (V1's lifecycle pull, outcomes only).
+  threadOutcomes: "loom.threadOutcomes",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -141,6 +143,26 @@ export type LoomTopSpendRow = typeof LoomTopSpendRow.Type;
 export const LoomTopSpendResult = Schema.Struct({ threads: Schema.Array(LoomTopSpendRow) });
 export type LoomTopSpendResult = typeof LoomTopSpendResult.Type;
 
+/**
+ * One submitted outcome and the report that submit wrote (each `thread.report-set`
+ * immediately precedes its `thread.outcome-recorded`); `reportPath` is null when
+ * the submit set none.
+ */
+export const LoomThreadOutcome = Schema.Struct({
+  ...WorkOutcomeRecord.fields,
+  reportPath: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type LoomThreadOutcome = typeof LoomThreadOutcome.Type;
+
+/** `loom.threadOutcomes`: every outcome a thread submitted, oldest first. */
+export const LoomThreadOutcomesInput = Schema.Struct({ threadId: ThreadId });
+export type LoomThreadOutcomesInput = typeof LoomThreadOutcomesInput.Type;
+
+export const LoomThreadOutcomesResult = Schema.Struct({
+  outcomes: Schema.Array(LoomThreadOutcome),
+});
+export type LoomThreadOutcomesResult = typeof LoomThreadOutcomesResult.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -170,6 +192,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.topSpend, {
     payload: LoomTopSpendInput,
     success: LoomTopSpendResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.threadOutcomes, {
+    payload: LoomThreadOutcomesInput,
+    success: LoomThreadOutcomesResult,
     error: LoomWsError,
   }),
 ] as const;

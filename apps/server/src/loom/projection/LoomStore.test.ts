@@ -222,4 +222,83 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       assert.isNotNull((yield* store.goals.get(goalId))?.deletedAt);
     }),
   );
+
+  it.effect("pairs each outcome with the report its submit set, across V1 and V2 events", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LoomStore.LoomStoreV2;
+      const threadId = "outcomes-thread";
+      const event = (version: number, n: number, type: string, payload: object) =>
+        sql`INSERT INTO orchestration_events ${sql.insert({
+          event_id: `event:${n}`,
+          aggregate_kind: "thread",
+          stream_id: threadId,
+          stream_version: n,
+          event_type: type,
+          occurred_at: T(n),
+          actor_kind: "server",
+          payload_json: JSON.stringify(payload),
+          metadata_json: "{}",
+          application_event_version: version,
+        })}`;
+      // V1 payloads carry `threadId` / `updatedAt` besides the V2 fields.
+      const v1 = { threadId, updatedAt: T(1) };
+      yield* event(1, 1, "thread.report-set", { ...v1, reportPath: "/r/t.round-1.md" });
+      yield* event(1, 2, "thread.outcome-recorded", {
+        ...v1,
+        outcome: "needs_rework",
+        decision: "loop",
+        round: 1,
+        counts: { mustFix: 1, niceToHave: 0 },
+      });
+      yield* event(2, 3, "thread.title-set", { title: "noise" });
+      yield* event(2, 4, "thread.outcome-recorded", {
+        outcome: "ask",
+        decision: "yield",
+        round: 1,
+      });
+      yield* event(2, 5, "thread.report-set", { reportPath: "/r/t.md" });
+      yield* event(2, 6, "thread.outcome-recorded", {
+        outcome: "clean",
+        decision: "resolve",
+        round: 1,
+      });
+
+      const outcomes = yield* store.outcomeHistory(ThreadId.make(threadId));
+      assert.deepEqual(
+        outcomes.map(({ outcome, round, reportPath, eventId, at }) => ({
+          outcome,
+          round,
+          reportPath,
+          eventId,
+          at,
+        })),
+        [
+          {
+            outcome: "needs_rework",
+            round: 1,
+            reportPath: "/r/t.round-1.md",
+            eventId: EventId.make("event:2"),
+            at: T(2),
+          },
+          {
+            outcome: "ask",
+            round: 1,
+            reportPath: null,
+            eventId: EventId.make("event:4"),
+            at: T(4),
+          },
+          {
+            outcome: "clean",
+            round: 1,
+            reportPath: "/r/t.md",
+            eventId: EventId.make("event:6"),
+            at: T(6),
+          },
+        ],
+      );
+      assert.deepEqual(outcomes[0]?.counts, { mustFix: 1, niceToHave: 0 });
+      assert.deepEqual(yield* store.outcomeHistory(ThreadId.make("no-events")), []);
+    }),
+  );
 });

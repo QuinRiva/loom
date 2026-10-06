@@ -14,6 +14,7 @@
  * @module loom/projection/LoomStore
  */
 import {
+  EventId,
   GoalId,
   GoalTaskId,
   IsoDateTime,
@@ -21,11 +22,13 @@ import {
   LoomGoalTask,
   LoomRouteRecord,
   LoomThreadConsultSummary,
+  type LoomThreadOutcome,
   LoomThreadPeerMessageSummary,
   LoomThreadShellFields,
   LoomThreadWorkstream,
   ProjectId,
   ThreadId,
+  TrimmedNonEmptyString,
   WorkOutcomeRecord,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -320,6 +323,12 @@ export interface LoomStoreV2Shape {
   readonly shellFields: (
     threadIds: ReadonlyArray<ThreadId>,
   ) => Op<ReadonlyMap<ThreadId, LoomThreadShellFields>>;
+  /**
+   * Every outcome the thread submitted, oldest first, each with the report its
+   * submit set. Read from the event log, V1-imported and V2 events alike (same
+   * types, compatible payloads): the sidecar keeps only the latest of each.
+   */
+  readonly outcomeHistory: (threadId: ThreadId) => Op<ReadonlyArray<LoomThreadOutcome>>;
   readonly consults: {
     /** Per-target consult summaries for the asker, newest first. */
     readonly listByAsker: (askerThreadId: ThreadId) => Op<ReadonlyArray<LoomThreadConsultSummary>>;
@@ -355,6 +364,21 @@ const PendingPeerMessageRow = Schema.Struct({
   framedMessage: Schema.String,
   createdAt: IsoDateTime,
 });
+
+const OutcomeEventRow = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("thread.report-set"),
+    payload: Schema.fromJsonString(Schema.Struct({ reportPath: TrimmedNonEmptyString })),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.outcome-recorded"),
+    eventId: EventId,
+    at: IsoDateTime,
+    payload: Schema.fromJsonString(
+      Schema.Struct(Struct.omit(WorkOutcomeRecord.fields, ["eventId", "at"])),
+    ),
+  }),
+]);
 
 const SHELL_OMITTED = [
   "notifySendLog",
@@ -656,6 +680,29 @@ const make = Effect.gen(function* () {
           ),
         );
       }).pipe(run("shellFields")),
+    outcomeHistory: (threadId) =>
+      sql`SELECT event_id AS "eventId", event_type AS "type", occurred_at AS "at",
+            payload_json AS "payload"
+          FROM orchestration_events
+          WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+            AND event_type IN ('thread.report-set', 'thread.outcome-recorded')
+          ORDER BY sequence`.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(OutcomeEventRow))),
+        Effect.map((rows) => {
+          // A submit's `report-set` precedes its `outcome-recorded`: carry it onto that outcome.
+          let reportPath: string | null = null;
+          return rows.flatMap((row) => {
+            if (row.type === "thread.report-set") {
+              reportPath = row.payload.reportPath;
+              return [];
+            }
+            const outcome = { ...row.payload, eventId: row.eventId, at: row.at, reportPath };
+            reportPath = null;
+            return [outcome];
+          });
+        }),
+        run("outcomeHistory"),
+      ),
     consults: {
       listByAsker: (askerThreadId) =>
         consultSummaries([askerThreadId]).pipe(
