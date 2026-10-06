@@ -113,7 +113,7 @@ Filed by an agent (\`report-loom-issue\`) under the human's account, found while
 - Loom release: \`$release\`${sha:+ — https://github.com/$REPO/tree/$sha}
 - pi: \`$pi_version\` (bundled)
 - Model: \`${PI_PROVIDER:-unknown}/${PI_MODEL:-unknown}\` (reasoning \`${PI_REASONING_LEVEL:-unknown}\`)
-- Thread: \`${PI_SESSION_ID:-unknown}\`${PI_SESSION_ID:+ — an agent picking this up can \`consult_thread\` this id for the discovering context}
+- Thread: \`${PI_SESSION_ID:-unknown}\`
 - Confidence as filed: **$confidence**
 EOF
 
