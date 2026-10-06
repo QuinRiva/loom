@@ -282,7 +282,11 @@ export const layer: Layer.Layer<
             return;
           }
           // loom: (P3-17) a Loom thread always snapshots its own start-of-run tree; upstream's logic follows unchanged.
-          if ((yield* loomStore.getWorkstream(input.scope.threadId)) !== null) {
+          if (
+            (yield* loomStore
+              .getWorkstream(input.scope.threadId)
+              .pipe(Effect.orElseSucceed(() => null))) !== null
+          ) {
             yield* checkpointStore.captureCheckpoint({
               cwd: input.scope.cwd,
               checkpointRef: loomBaselineRef({

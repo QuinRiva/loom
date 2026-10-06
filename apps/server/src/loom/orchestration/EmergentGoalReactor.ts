@@ -28,6 +28,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { slugify } from "@t3tools/shared/String";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -229,7 +230,10 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
   });
 });
 
-/** Started post-activation: each completed run of a goal-less root is tried once per process. */
+/**
+ * Started post-activation: each completed run of a goal-less root is tried once per process,
+ * serialised per thread, so a thread's goal is generated and written at most once.
+ */
 export const EmergentGoalReactorLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
@@ -238,6 +242,9 @@ export const EmergentGoalReactorLive = Layer.effectDiscard(
     >();
     const scope = yield* Effect.scope;
     const attempted = new Set<RunId>();
+    // One derivation per thread at a time: run 2 completing while run 1's generation is in
+    // flight waits, then finds the goal attached (or, after a low-confidence run 1, guesses).
+    const threadLocks = yield* KeyedLock.make<ThreadId>();
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) => {
         if (
@@ -250,17 +257,19 @@ export const EmergentGoalReactorLive = Layer.effectDiscard(
         }
         attempted.add(event.payload.id);
         // Forked: a generation can take minutes and must not hold up the event stream.
-        return deriveEmergentGoal({
-          threadId: event.threadId,
-          runOrdinal: event.payload.ordinal,
-        }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("loom.emergent-goal.failed", { threadId: event.threadId, cause }),
-          ),
-          Effect.provideContext(services),
-          Effect.forkIn(scope),
-          Effect.asVoid,
-        );
+        return threadLocks
+          .withLock(
+            event.threadId,
+            deriveEmergentGoal({ threadId: event.threadId, runOrdinal: event.payload.ordinal }),
+          )
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("loom.emergent-goal.failed", { threadId: event.threadId, cause }),
+            ),
+            Effect.provideContext(services),
+            Effect.forkIn(scope),
+            Effect.asVoid,
+          );
       }),
     );
   }),
