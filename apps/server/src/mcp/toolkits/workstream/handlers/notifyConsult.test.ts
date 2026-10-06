@@ -159,6 +159,26 @@ it.layer(TestLayer)("mcp__t3-code__notify_thread and mcp__t3-code__consult_threa
     }),
   );
 
+  it.effect("notify: a target whose provider turn is not up yet is queued and delivered", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const sender = yield* rootWithRow("launching-sender");
+      const target = yield* rootWithRow("launching-target");
+      yield* seedRunningRun({ threadId: target, live: true, turn: false });
+      const result = yield* callAs(sender, "notify_thread", { threadId: target, message: "FYI" });
+      assert.isFalse(result.isError, result.text);
+      assert.include(result.text, "queued");
+      const { runs } = yield* (yield* Orchestrator.OrchestratorV2).getThreadRecords(target, [
+        "runs",
+      ]);
+      assert.deepEqual(
+        runs.map((run) => run.status),
+        ["running", "queued"],
+      );
+      assert.deepEqual(yield* store.peerMessages.listPending(target), []);
+    }),
+  );
+
   it.effect("notify: archived and done targets are refused and nothing is sent", () =>
     Effect.gen(function* () {
       const sender = yield* rootWithRow("terminal-sender");
