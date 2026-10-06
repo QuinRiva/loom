@@ -32,7 +32,7 @@ import {
   detectForeignDatabaseAtBoot,
   refuseForeignHomeSideEffect,
 } from "./workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-81)
-import { releaseHeldQueues } from "./loom/recovery/loomRecoveryPolicy.ts"; // loom:
+import { loomStartupRecovery } from "./loom/recovery/loomRecoveryPolicy.ts"; // loom:
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
@@ -555,7 +555,7 @@ const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
-      yield* runStartupPhase("loom.recovery.release-held-queues", releaseHeldQueues); // loom: §3 table (DL-199)
+      yield* runStartupPhase("loom.recovery", loomStartupRecovery); // loom: §3 table (DL-199), stashed steers + one dispatcher pass (seam 20)
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {

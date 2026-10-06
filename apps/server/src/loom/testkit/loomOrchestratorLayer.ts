@@ -493,6 +493,85 @@ export const completeOpenRuns = Effect.fn("loom.testkit.completeOpenRuns")(funct
   return last;
 });
 
+/**
+ * A run that failed on a usage limit whose reset time has passed, with upstream's
+ * limit recovery armed (auto-resume): the state in which upstream's
+ * `UsageLimitRecoveryWorker` sends its limit-resume `message.dispatch`
+ * (`createdBy: "user"`, `creationSource: "server"`, `usageLimitContinuationOfRunId`).
+ */
+export const seedUsageLimitedRun = Effect.fn("loom.testkit.seedUsageLimitedRun")(function* (input: {
+  readonly threadId: ThreadId;
+}) {
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const sink = yield* EventSink.EventSinkV2;
+  const ids = yield* seedRunningRun({ threadId: input.threadId });
+  const projection = yield* orchestrator.getThreadProjection(input.threadId);
+  const run = projection.runs.find((entry) => entry.id === ids.runId)!;
+  const turn = projection.providerTurns.find((entry) => entry.id === ids.providerTurnId)!;
+  const now = yield* DateTime.now;
+  const resetAt = DateTime.formatIso(DateTime.subtract(now, { minutes: 1 }));
+  const base = { threadId: input.threadId, runId: ids.runId, occurredAt: now };
+  yield* sink.writeWithEffects({
+    effects: [],
+    events: [
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-item:${input.threadId}`),
+        type: "turn-item.updated",
+        nodeId: ids.nodeId,
+        payload: {
+          id: TurnItemId.make(`turn-item:seed-limit:${input.threadId}`),
+          threadId: input.threadId,
+          runId: ids.runId,
+          nodeId: ids.nodeId,
+          providerThreadId: ids.providerThreadId,
+          providerTurnId: ids.providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 0,
+          status: "failed",
+          title: null,
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+          type: "error",
+          failure: {
+            class: "usage_limit",
+            message: "Usage limit reached.",
+            code: null,
+            retryable: true,
+            resetAt,
+          },
+        },
+      },
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-turn:${input.threadId}`),
+        type: "provider-turn.updated",
+        nodeId: ids.nodeId,
+        payload: { ...turn, status: "failed", completedAt: now },
+      },
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-run:${input.threadId}`),
+        type: "run.updated",
+        payload: { ...run, status: "failed", completedAt: now },
+      },
+      {
+        id: EventId.make(`event:seed-limit-recovery:${input.threadId}`),
+        type: "thread.metadata-updated",
+        threadId: input.threadId,
+        occurredAt: now,
+        payload: {
+          ...projection.thread,
+          limitRecovery: { runId: ids.runId, resetAt, autoResume: true },
+        },
+      },
+    ],
+  });
+  return ids;
+});
+
 type LoomEventOf<Type extends LoomDomainEvent["type"]> = Extract<LoomDomainEvent, { type: Type }>;
 
 let loomEventCounter = 0;

@@ -19,7 +19,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { checkpointRefForScopeOrdinal } from "../orchestration-v2/CheckpointService.ts";
+import {
+  checkpointRefForScopeOrdinal,
+  loomBaselineRef, // loom:
+} from "../orchestration-v2/CheckpointService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import {
   CheckpointDiffResultInvalidError,
@@ -145,9 +148,6 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      // loom: the start-of-turn baseline-ref preference for adjacent-turn diffs is detached in
-      // pull 9 (DT-50): its writer (V1 CheckpointReactor) is deleted and V2 refs are
-      // scope-ordinal, so the read cannot be kept without re-seaming it onto V2.
       const toScope = projection.checkpointScopes.find(
         (scope) => scope.id === toCheckpoint.scopeId,
       );
@@ -184,10 +184,24 @@ export const make = Effect.gen(function* () {
         });
       }
 
+      // loom: (P3-17, DT-50 re-attached) a one-run diff starts at the run's Loom start-of-run
+      // baseline when one was written, so sibling edits made between this thread's runs in a
+      // shared checkout are excluded.
+      const loomBaseline =
+        input.fromTurnCount === input.toTurnCount - 1
+          ? loomBaselineRef({ scopeId: toScope.id, ordinalWithinScope: input.fromTurnCount })
+          : null;
+      const diffFromRef =
+        loomBaseline !== null &&
+        (yield* checkpointStore
+          .hasCheckpointRef({ cwd: toScope.cwd, checkpointRef: loomBaseline })
+          .pipe(Effect.orElseSucceed(() => false)))
+          ? loomBaseline
+          : fromCheckpointRef;
       const diff = yield* checkpointStore
         .diffCheckpoints({
           cwd: toScope.cwd,
-          fromCheckpointRef,
+          fromCheckpointRef: diffFromRef, // loom:
           toCheckpointRef: toCheckpoint.ref,
           fallbackFromToHead: false,
           ignoreWhitespace,

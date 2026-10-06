@@ -10,10 +10,17 @@
  *   thread owed a human stays held, a live thread with a held Loom control wake
  *   is resumed.
  *
+ * - **`loomStartupRecovery`** — the one startup call: `releaseHeldQueues`, then
+ *   each stashed steer (seam 20) redelivered behind the thread's restart
+ *   continuation as a steered control message, then one dispatcher pass (a
+ *   kickoff with no receipt is redelivered by promotion).
+ *
  * Threads without a sidecar row keep upstream's rule.
  *
  * @module loom/recovery/loomRecoveryPolicy
  */
+import * as NodeCrypto from "node:crypto";
+
 import {
   CommandId,
   type LoomThreadWorkstream,
@@ -22,10 +29,19 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
+import * as EffectOutbox from "../../orchestration-v2/EffectOutbox.ts";
 import { loomContinuationVetoed } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
+import {
+  controlMessage,
+  steerRedeliverCommandId,
+} from "../orchestration/dispatcher/controlMessage.ts";
+import { WorkstreamDispatcher } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
+import * as PendingSteering from "../steering/pendingSteering.ts";
 
 /**
  * A cut turn of this thread may be continued: no sidecar (upstream's rule), or a
@@ -100,3 +116,86 @@ export const releaseHeldQueues = Effect.gen(function* () {
   ),
   Effect.withSpan("loom.recovery.releaseHeldQueues"),
 );
+
+/** The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt. */
+export const redeliveredSteerText = (steer: string) =>
+  [
+    "A message was sent to you while that turn was running and never reached it. Treat it as your latest instructions and apply it to the work you resume.",
+    `--- queued message ---\n${steer}\n--- end of queued message ---`,
+  ].join("\n\n");
+
+/** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
+export const steerHash = (text: string) =>
+  NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
+
+/**
+ * Seam 20 (P3-24): each continued thread's stashed steer becomes one steered control
+ * message, then the stash is cleared. A thread in rule 0's not-continued set keeps its
+ * stash for the dispatchMessage path to redeliver behind the next human- or parent-started
+ * turn. The redelivery must land behind upstream's restart continuation, which the effect
+ * worker runs asynchronously: when the thread's continuation effect is still due, it is run
+ * here first (`continueRestartedRun` is idempotent by its message and command ids), so the
+ * steer queues behind — or steers into — the continuation run instead of starting a run of
+ * its own that would turn the continuation stale. Never fails; per-thread failures log.
+ */
+export const redeliverStashedSteers = Effect.gen(function* () {
+  const orchestrator = yield* OrchestratorV2;
+  const loomStore = yield* LoomStoreV2;
+  const outbox = yield* EffectOutbox.EffectOutboxV2;
+  for (const threadId of yield* PendingSteering.listStashed()) {
+    yield* Effect.gen(function* () {
+      const steer = yield* PendingSteering.read(threadId);
+      if (steer === null) return yield* PendingSteering.clear(threadId);
+      const workstream = yield* loomStore.getWorkstream(threadId);
+      const projection = yield* orchestrator.getThreadProjection(threadId);
+      if (workstream === null || !isContinued(workstream, projection)) return;
+      const source = projection.runs
+        .filter((run) => run.status !== "queued")
+        .reduce<(typeof projection.runs)[number] | undefined>(
+          (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+          undefined,
+        );
+      const continuation =
+        source === undefined
+          ? Option.none()
+          : yield* outbox.get(`effect:restart-continuation:${source.id}`);
+      if (
+        source !== undefined &&
+        Option.isSome(continuation) &&
+        (continuation.value.status === "pending" || continuation.value.status === "running")
+      ) {
+        yield* continueRestartedRun({ threadId, sourceRunId: source.id });
+      }
+      yield* orchestrator.dispatch(
+        controlMessage({
+          threadId,
+          id: steerRedeliverCommandId(threadId, steerHash(steer)),
+          tier: "steered",
+          origin: "control_notice",
+          text: redeliveredSteerText(steer),
+        }),
+      );
+      yield* PendingSteering.clear(threadId);
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("loom.recovery.steer-redelivery-failed", { threadId, cause }),
+      ),
+    );
+  }
+}).pipe(
+  Effect.provide(EffectOutbox.layer),
+  Effect.catchCause((cause) =>
+    Effect.logWarning("loom.recovery.steer-redelivery-pass-failed", { cause }),
+  ),
+  Effect.withSpan("loom.recovery.redeliverStashedSteers"),
+);
+
+/**
+ * The one marked startup call (after upstream's recovery and continuation effects are
+ * committed): release held queues, redeliver stashed steers, then one dispatcher pass.
+ */
+export const loomStartupRecovery = Effect.gen(function* () {
+  yield* releaseHeldQueues;
+  yield* redeliverStashedSteers;
+  yield* (yield* WorkstreamDispatcher).runPass;
+});

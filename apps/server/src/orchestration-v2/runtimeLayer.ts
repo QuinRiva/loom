@@ -112,7 +112,9 @@ const providerEventIngestorProvided = ProviderEventIngestor.layer.pipe(
   ),
 );
 
-const checkpointServiceProvided = CheckpointService.layer.pipe(Layer.provide(IdAllocator.layer));
+const checkpointServiceProvided = CheckpointService.layer.pipe(
+  Layer.provide(Layer.merge(IdAllocator.layer, LoomStore.layer)), // loom: the Loom turn baseline reads the sidecar (P3-17)
+);
 const contextHandoffServiceProvided = ContextHandoffService.layer.pipe(
   Layer.provide(IdAllocator.layer),
 );
