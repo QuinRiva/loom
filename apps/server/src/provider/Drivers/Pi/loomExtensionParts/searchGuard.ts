@@ -39,7 +39,7 @@
 // (the file pi loads lives outside this package): Node built-ins come from
 // `process.getBuiltinModule`. It needs no `ctx` member (pi's own handler
 // context supplies `cwd`).
-import type { LoomExtensionPart } from "./part.ts";
+import type { LoomExtensionPart } from "../loomExtension.ts";
 
 /**
  * Auto-injected bound (seconds) for unbounded pure-search bash pipelines.

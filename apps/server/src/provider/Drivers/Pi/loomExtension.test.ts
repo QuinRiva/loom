@@ -1,11 +1,15 @@
+// @effect-diagnostics nodeBuiltinImport:off
 /**
  * Loom's pi extension, built from its parts and run against a stub `pi` and a
  * stub `fetch` (the pattern of `piT3McpExtensionSource.test.ts`): the profile
  * at `session_start`, the per-turn re-assertion (P3-4), `mcp__t3-code__enable_toolset` with
  * the deny-list and the human-input rule, and `mcp__t3-code__ask_user_question` across a
- * dropped poll.
+ * dropped poll, and 3c's parts assembled in (the prompt-debug capture).
  */
+import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
 import { assert, describe, it } from "@effect/vitest";
 
@@ -87,7 +91,12 @@ const load = async (
   );
   NodeVM.runInNewContext(`${source}\nloomExtension(pi)`, {
     pi,
-    process: { env: { T3_MCP_URL: "http://127.0.0.1:4100/mcp", T3_MCP_BEARER_TOKEN: "token-1" } },
+    process: {
+      env: { T3_MCP_URL: "http://127.0.0.1:4100/mcp", T3_MCP_BEARER_TOKEN: "token-1" },
+      pid: 1,
+      getBuiltinModule: (name: string) =>
+        ({ "node:fs": NodeFS, "node:os": NodeOS, "node:path": NodePath })[name],
+    },
     fetch: async (url: string, init: { method: string; body?: string }) => fetchImpl(url, init),
     URL,
     setTimeout: (resume: () => void) => {
@@ -96,9 +105,9 @@ const load = async (
     },
     clearTimeout: () => undefined,
   });
-  const emit = async (name: string) => {
+  const emit = async (name: string, event: unknown = {}) => {
     for (const handler of handlers.get(name) ?? [])
-      await handler({}, { ui: { notify: (message: string) => notices.push(message) } });
+      await handler(event, { ui: { notify: (message: string) => notices.push(message) } });
   };
   return {
     emit,
@@ -195,5 +204,28 @@ describe("Loom pi extension", () => {
     assert.equal(result.content[0]!.text, "The user answered:\n- Ship?: Yes");
     assert.equal(polled, 3);
     assert.deepEqual(posts, [{ toolCallId: `call-${ASK}`, questions: [{ header: "Ship" }] }]);
+  });
+
+  it("assembles 3c's search guard and prompt-debug parts, and captures the prompt to the profile's path", async () => {
+    const source = assembleLoomExtensionSource(LOOM_EXTENSION_PARTS);
+    for (const name of ["toolProfile", "askUserQuestion", "search-guard", "prompt-debug"])
+      assert.include(source, `[${JSON.stringify(name)}, (pi, ctx) => {`);
+
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-prompt-debug-"));
+    const promptDebugPath = NodePath.join(dir, "thread-1.md");
+    const pi = await load(serving(() => profile({ promptDebugPath })));
+    await pi.emit("session_start");
+    await pi.emit("before_agent_start", {
+      prompt: "Do the work.",
+      systemPrompt: "SYSTEM PROMPT BYTES",
+      systemPromptOptions: { appendSystemPrompt: "LOOM ADDENDUM", cwd: "/work" },
+    });
+    await new Promise((resume) => setImmediate(resume)); // the capture is fire-and-forget
+
+    const captured = NodeFS.readFileSync(promptDebugPath, "utf8");
+    assert.include(captured, "LOOM ADDENDUM");
+    assert.include(captured, "SYSTEM PROMPT BYTES");
+    assert.equal(NodeFS.readFileSync(NodePath.join(dir, "thread-1.first.md"), "utf8"), captured);
+    NodeFS.rmSync(dir, { recursive: true, force: true });
   });
 });

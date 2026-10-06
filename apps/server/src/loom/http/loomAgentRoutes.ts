@@ -9,6 +9,7 @@
  */
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -68,6 +69,11 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
   const humanEngaged = messages.some((message) => message.loom?.humanAuthored === true);
   const hasParent = thread.lineage.parentThreadId !== null;
   const config = yield* ServerConfig.ServerConfig;
+  const promptDebugDir = loomPaths(config).workstreamPromptDebugDir;
+  // The prompt-debug part writes with plain fs and swallows every failure, so the directory exists first.
+  yield* (yield* FileSystem.FileSystem)
+    .makeDirectory(promptDebugDir, { recursive: true })
+    .pipe(Effect.ignore);
   // The launched profile; a thread that never launched gets its role's profile as of now.
   const launched = yield* readLaunchIdentity(
     loomPaths(config).workstreamLaunchIdentityDir,
@@ -90,7 +96,7 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
     denyList: UPSTREAM_WITHHELD_TOOLS,
     // V1 captured every pi thread's prompt; there is no setting to gate it.
     promptDebugPath: (yield* Path.Path).join(
-      loomPaths(config).workstreamPromptDebugDir,
+      promptDebugDir,
       `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}.md`,
     ),
   } satisfies LoomSessionProfile;

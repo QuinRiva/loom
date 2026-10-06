@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
-import type { LoomExtensionPart } from "./part.ts";
+import type { LoomExtensionPart } from "../loomExtension.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
 
