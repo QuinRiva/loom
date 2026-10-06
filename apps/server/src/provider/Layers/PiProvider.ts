@@ -14,6 +14,8 @@ import {
   type ServerProvider,
   type ServerProviderModel,
 } from "@t3tools/contracts";
+// loom: Loom's default model (Area H); this file's own PI_DEFAULT_MODEL is the "default" sentinel
+import { PI_DEFAULT_MODEL as LOOM_PI_DEFAULT_MODEL } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -119,6 +121,7 @@ function parseDiscoveredModels(
       slug,
       name: recordString(model, "name") ?? slug,
       isCustom: false,
+      ...(slug === LOOM_PI_DEFAULT_MODEL ? { isDefault: true } : {}), // loom: new threads land on it (DR-9)
       capabilities: thinkingCapabilitiesForPiModel(model, defaultThinkingLevel),
     });
   }

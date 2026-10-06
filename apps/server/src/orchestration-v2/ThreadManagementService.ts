@@ -63,6 +63,12 @@ export function withCreationProvenance(
 export function existingThreadIdsForCommand(
   command: OrchestrationV2ServerCommand,
 ): ReadonlyArray<ThreadId> {
+  // loom: a spawn's child does not exist yet — hydrate its parent (none for a staged root)
+  if (command.type === "thread.spawn") {
+    return command.parentThreadId === null ? [] : [command.parentThreadId];
+  }
+  // loom: a fork prepare reads the source's provider thread, like upstream's thread.fork
+  if (command.type === "thread.fork.prepare") return [command.threadId, command.sourceThreadId];
   switch (command.type) {
     case "thread.create":
       return [];

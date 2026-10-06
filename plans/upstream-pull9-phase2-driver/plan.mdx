@@ -1,0 +1,382 @@
+---
+manager_sessions:
+  - id: 892dca59-c1f4-4b0f-ade4-08db80338467
+    name: Pull-9 Phase 2 driver work item plan
+    role: plan
+    authored_at: 2026-10-05T20:41:05.816Z
+---
+
+# Pull 9 Phase 2 — the Pi driver work item
+
+Loom is a Pi-first fork of `pingdotgg/t3code`. Pull 9 re-platforms Loom onto upstream's Orchestration V2 (`plans/upstream-pull9-strategy/plan.mdx`); Phase 1 merged upstream and quarantined Loom's V1 Pi driver, so pi is now driven by upstream's `apps/server/src/orchestration-v2/Adapters/PiAdapterV2.ts` + `PiRpc.ts`, resolved from `PATH` (0.99.2 on this host). The Phase 2 substrate plan (`plans/upstream-pull9-phase2-substrate/plan.mdx`) deliberately left the **driver-side** items for their own plan. This is that plan. It is a one-coder item in two sessions: first the pi 1.0.2 bump with both Loom patches regenerated and patch 0001 extended to the RPC `switch_session` command, bundled-binary resolution and the contract test; then the adapter hunks (`cwdOverride`, `costUsd`, the Loom open-session field and its hook), the two doctrine checks, and the recorded verdicts.
+
+**Done** means: `apps/server` pins `@earendil-works/pi-coding-agent@1.0.2` with `patches/@earendil-works__pi-coding-agent@1.0.2.patch` regenerated from `infra/pi-patches/`; the RPC `cwdOverride` contract test is green against the **bundled patched** binary; a fresh-home Pi turn completes on 1.0.2 through `PiAdapterV2` running the bundled copy; the terminal `provider-turn.updated` of a Pi turn carries `tokenUsage.costUsd`; `ProviderSessionManager.open` fills `loom` on the open-session input from `LoomSessionComposer.compose(threadId)` (a default that returns empty values until Phase 3a lands the real composer) and `buildPiRpcLaunch` turns it into argv; a new Pi thread with no explicit model pick runs `PI_DEFAULT_MODEL`; deleting a thread removes its provider-session bindings even for sessions already stopped; the two stuck-launch failure modes have a recorded verdict each; `vp run typecheck`, `vp check`, upstream's `PiAdapterV2.test.ts` and Pi replay fixtures are green; every hunk in an upstream file carries `// loom:`; `docs/upstream-sync/30-cadence-pull-9-phase2.md` has a row per call made and the driver rows of its gate table filled.
+
+<Callout tone="info">
+**Authority.** Decisions the strategy recorded are applied, not reopened: pi **1.0.2** (not 1.0.3, published 2026-10-05 — the next bump is the platform-update skill's), both patches regenerated, patch 0001 extended to RPC `switch_session`, bundled patched pi preferred over `PATH`, `nativeThreadRef` as the only session identity (no `--session-id` hunk), no `forkFrom` member on the open-session field (Phase 3 plan P3-23/P3-28), the pending-steer stash and failure classification owned by Phase 3c, prompt composition by Phase 3a (`docs/upstream-sync/30-cadence-pull-9-phase2.md` DL-201). One `consult_manager` was made on the DL-74 mechanism and is recorded in the decision log (DR-10). Upstream code is cited by file and symbol at `upstream/main` `3e6b45028c` (the Phase 2 boundary merge `bd66e08c2c`); line numbers are from that tree and are hints, the symbols are the anchors. V1 code under `quarantine/` is read as the behavioural spec and never compiled.
+</Callout>
+
+## Boundaries — who owns what
+
+Nothing here is built twice and nothing is dropped. "Driver item" is this plan.
+
+<Table
+  density="compact"
+  columns={["Concern", "Owner", "What this plan does about it"]}
+  rows={[
+    ["pi version pin, both patches (0001 extended to RPC switch_session, 0002 atomic auth write), patch-bundle.mjs, infra/pi-patches/README.md", "Driver item (session 1)", "§1"],
+    ["Bundled-pi resolution on PiAdapterV2 and every other pi spawn; the binaryPath setting description (Phase 1 DT-49); whether pi update --self needs disabling", "Driver item (session 1)", "§1 — resolution at the driver boundary; the updater is already manual-only for a node_modules binary (no hunk, one test)"],
+    ["cwdOverride on every RPC switch_session the adapter issues; the RPC-path contract test against the real patched binary", "Driver item (session 1 test, session 2 hunk)", "§2"],
+    ["costUsd on the terminal provider-turn.updated tokenUsage", "Driver item writes it (session 2); Phase 3c's UsageLedgerReactor reads it", "§3; the cumulative-token caveat for 3c is recorded there"],
+    ["loom?: { appendSystemPrompt, skills, extensions } on ProviderAdapterV2OpenSessionInput; buildPiRpcLaunch argv; the ProviderSessionManager.open hook; the LoomSessionComposer default", "Driver item (session 2)", "§4"],
+    ["Prompt composition (addendum, role overlay, ship policy, goal context), the write-once launch-identity sidecar, forkFrom prompt replay, the real LoomSessionComposer layer", "Phase 3a (plan seam 4, P3-23)", "Not built here; the hook calls the composer in one line and does no LoomStoreV2 reads"],
+    ["The session fork for a forkFrom child (thread.fork.prepare → pending fork context transfer, resolved by upstream's native fork at first run)", "Phase 2 substrate lands the command (DL-197); Phase 3b dispatches it at promotion (P3-28)", "Not built here; the adapter forks nothing on its own account"],
+    ["Pending-steer stash", "Phase 3c writes it from the adapter; Phase 3b redelivers (seam 20, P3-24)", "Not built here"],
+    ["Quota / failure classification, the codex → Anthropic tool-id sanitiser, the cross-vendor reroute, adapter loom options", "Phase 3c", "Not built here; 3c's hunks stack on the adapter this plan leaves"],
+    ["Loom's pi extension file (profile, enable_toolset, ask_user_question, search guard, prompt debug)", "Phase 3a assembler + 3c parts", "Not built here; it reaches pi as one of the composer's extensions"],
+    ["Stuck-launch verification (two V1 failure modes under V2)", "Driver item records the verdicts (session 1); Phase 4 deletes or keeps quarantine/…/stuckLaunchRecovery.ts; Phase 3b adds its starting-run liveness rule only if a mode does not recover", "§6. DL-201 supersedes the Phase 3 plan's 'moves to 3b' sentence: 3b-3 consumes the verdict instead of running the experiments"],
+    ["Area H: a new Pi thread lands on PI_DEFAULT_MODEL", "Driver item (session 2)", "§5a — verdict: the sentinel does not satisfy it; one marked line in PiProvider.ts"],
+    ["Area L / DL-74: deleted threads do not accrete provider-session binding rows", "Driver item (session 2)", "§5b — verdict: V2 does not prune stopped sessions; one marked hunk in ThreadDeletion.ts"],
+    ["The usage ledger table and reactor, migrations 1049+", "Phase 3c", "Not built here; no migration in this plan"],
+  ]}
+/>
+
+## Files
+
+<FileTree
+  title="Driver work item change map"
+  entries={[
+    { path: "apps/server/package.json", change: "modified", note: "@earendil-works/pi-coding-agent exact pin 0.99.2 → 1.0.2 (no caret)." },
+    { path: "pnpm-workspace.yaml", change: "modified", note: "patchedDependencies: the 0.99.2 entry replaced by '@earendil-works/pi-coding-agent@1.0.2': patches/@earendil-works__pi-coding-agent@1.0.2.patch, keeping the # loom: comment above it." },
+    { path: "patches/@earendil-works__pi-coding-agent@1.0.2.patch", change: "added", note: "Regenerated by pnpm patch-commit from the readable diffs + patch-bundle.mjs; the 0.99.2 file is deleted." },
+    { path: "infra/pi-patches/0001-pi-cwd-override-rpc-resume.patch", change: "modified", note: "Re-derived against 1.0.2 (one context line in dist/cli/args.js changed; main.js hunks moved by six lines) and EXTENDED: dist/modes/rpc/rpc-mode.js passes command.cwdOverride to runtimeHost.switchSession; dist/modes/rpc/rpc-types.d.ts gains cwdOverride?: string on the switch_session command." },
+    { path: "infra/pi-patches/0002-pi-auth-storage-atomic-write.patch", change: "modified", note: "Applies to 1.0.2 at zero offset today; re-derive anyway so the stored diff is byte-exact against the new tarball." },
+    { path: "infra/pi-patches/patch-bundle.mjs", change: "modified", note: "0001 target gains one edit (the RPC switch_session case) and its header gains __loomResolveRpcCwdOverride; the 1.0.2 chunk layout is the 0.99 one (main() and the RPC loop share chunk-ZSBPJAJ2.js, auth storage is chunk-PDFMCAOZ.js)." },
+    { path: "infra/pi-patches/README.md", change: "modified", note: "0001 described as CLI + RPC; the 1.0.2 drift record and step-0 retirement outcomes; the bundled-resolver path updated from the quarantined Cli.ts to the new module." },
+    { path: "apps/server/src/provider/Drivers/Pi/bundledPi.loom.ts", change: "added", note: "resolveBundledPiCliPath() ported from quarantine/apps/server/src/provider/Layers/Pi/Cli.ts and resolveLoomPiBinaryPath(binaryPath): the bundled dist/bundle/cli.js when the setting is the default 'pi', else the user's path." },
+    { path: "apps/server/src/provider/Drivers/PiDriver.ts", change: "modified", note: "One marked line: effectiveConfig.binaryPath = resolveLoomPiBinaryPath(config.binaryPath), passed to the adapter, PiProvider, PiTextGeneration and the maintenance resolver alike." },
+    { path: "packages/contracts/src/settings.ts", change: "modified", note: "PiSettings.binaryPath description restored (DT-49): empty or 'pi' runs the bundled, patched copy; a path overrides it." },
+    { path: "apps/server/src/provider/Drivers/Pi/PiCwdOverride.contract.test.ts", change: "added", note: "quarantine's six CLI --cwd cases ported verbatim plus three RPC cases (switch_session with cwdOverride resumes with history intact and runs tools there; without it a dead header cwd is an RPC error; a missing cwdOverride directory is an RPC error). Drives the bundled binary via resolveBundledPiCliPath; never skips." },
+    { path: "apps/server/src/provider/providerMaintenance.loom.test.ts", change: "added", note: "resolvePackageManagedProviderMaintenance over PiDriver's definition with the bundled cli.js path yields update: null (manual-only) — pins 'pi update --self is disabled for the bundled copy' as upstream behaviour." },
+    { path: "packages/contracts/src/orchestrationV2.ts", change: "modified", note: "One marked field: costUsd: Schema.optional(Schema.Number) on OrchestrationV2ProviderTurnTokenUsage." },
+    { path: "apps/server/src/orchestration-v2/Adapters/PiAdapterV2.ts", change: "modified", note: "Marked hunks: cwdOverride: cwd on the switch_session record in registerThread; costUsd accumulated on ActivePiTurn from assistant message_end usage.cost.total and attached to the terminal tokenUsage in finalizeTurn; input.loom threaded into buildPiRpcLaunch in openSession." },
+    { path: "apps/server/src/orchestration-v2/Adapters/piT3McpInjection.ts", change: "modified", note: "buildPiRpcLaunch gains loom?: LoomOpenSessionFields → --append-system-prompt, repeated --skill, repeated --extension, placed after the user's launchArgs and before upstream's bridge --extension. Empty values add no argv." },
+    { path: "apps/server/src/orchestration-v2/ProviderAdapter.ts", change: "modified", note: "Marked: loom?: LoomOpenSessionFields on ProviderAdapterV2OpenSessionInput; the type lives in the Loom module below." },
+    { path: "apps/server/src/loom/prompt/sessionComposer.ts", change: "added", note: "LoomOpenSessionFields, LoomSessionComposerError, the LoomSessionComposer Context.Reference whose default compose() returns empty values, and LoomSessionComposerDefaultLive. Phase 3a replaces the default with the real layer in loom/serverLayers.ts." },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "export const LoomSessionComposerLive = LoomSessionComposerDefaultLive (3a re-points this one export)." },
+    { path: "apps/server/src/orchestration-v2/ProviderSessionManager.ts", change: "modified", note: "Marked: const sessionComposer = yield* LoomSessionComposer at layer build; in open(), const loom = yield* sessionComposer.compose(input.threadId) after the existing-session short-circuit and before prepareMcpSession (errors mapped to ProviderSessionOpenError), then loom passed to adapter.openSession." },
+    { path: "apps/server/src/orchestration-v2/runtimeLayer.ts", change: "modified", note: "One marked line: LoomSessionComposerLive in providerSessionManagerProvided's Layer.mergeAll (beside Phase 2's LoomStore.layer line in storesLayer)." },
+    { path: "apps/server/src/provider/Layers/PiProvider.ts", change: "modified", note: "One marked line in parseDiscoveredModels: isDefault: true on the discovered model whose slug is contracts' PI_DEFAULT_MODEL, imported (marked) as LOOM_PI_DEFAULT_MODEL because the file's own PI_DEFAULT_MODEL is the 'default' sentinel object (Area H)." },
+    { path: "apps/server/src/orchestration-v2/ThreadDeletion.ts", change: "modified", note: "One marked hunk in planThreadDeletion: provider-session.detached is emitted for every provider session of the deleted thread; the provider-session.detach effect is still enqueued only for live ones (DL-74)." },
+    { path: "apps/server/src/orchestration-v2/Adapters/PiAdapterV2.loom.test.ts", change: "added", note: "Fake-pi tests (the PiAdapterV2.test.ts harness): switch_session carries cwdOverride = the session cwd; costUsd sums two assistant message_end costs onto the terminal tokenUsage; a loom open-session input produces the three argv forms and an empty one produces none. Phase 3c appends its cases to this file." },
+    { path: "apps/server/src/orchestration-v2/ThreadDeletion.loom.test.ts, apps/server/src/provider/Layers/PiProvider.loom.test.ts", change: "added", note: "A stopped session's binding row is removed by thread.delete through the real projection; the discovered PI_DEFAULT_MODEL carries isDefault and the 'default' sentinel does not." },
+    { path: "docs/upstream-sync/30-cadence-pull-9-phase2.md", change: "modified", note: "Decision-log rows for every call below that a coder or reviewer confirms or departs from; the three driver rows of the gate table filled with evidence paths; the stuck-launch, Pi-default and DL-74 verdicts." },
+  ]}
+/>
+
+## 1. pi 1.0.2 with both patches, and the bundled binary
+
+### What the bump actually changes
+
+Measured against the pristine 1.0.2 tarball (`npm pack @earendil-works/pi-coding-agent@1.0.2`, extracted under the worktree's `.artifacts/pi-1.0.2/`), so the coder knows what will and will not drift:
+
+- **Patch 0002 is still needed and applies at zero offset.** `dist/core/auth-storage.js` writes `auth.json` with plain `writeFileSync` on both `withLock` (line 66) and `withLockAsync` (line 140); no `renameSync` anywhere in the file. The bundle's two call sites `…(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)` are in `dist/bundle/chunks/chunk-PDFMCAOZ.js` (count 2, as the applier expects).
+- **Patch 0001 is still needed.** `dist/cli/args.js` has no `--cwd`; the headless `--session` path still welds the runtime to the header cwd. The readable diff needs re-deriving: hunk 1 of `args.js` fails only because its context line `result.models = args[++i].split(",")…` became a four-line chain in 1.0.2; `args.d.ts` applies clean; `args.js` hunk 2 applies at a three-line offset and the `main.js` hunks apply (two of them at a six-line offset). All **eight** 0001 anchors of the current `patch-bundle.mjs` match exactly once in `chunk-ZSBPJAJ2.js` (and 0002's one anchor matches its two call sites in `chunk-PDFMCAOZ.js`; `patch-bundle.mjs` run on a copy of the pristine tarball reports `0002 … patched (1 edits)`, `0001 … patched (8 edits)`), and `resolvePath` is imported unaliased there, so the existing bundle edits carry over unchanged.
+- **The RPC `switch_session` path is where the extension goes.** `dist/core/agent-session-runtime.js` `switchSession(sessionPath, options)` already accepts `options.cwdOverride` and hands it to `SessionManager.open(sessionPath, undefined, options?.cwdOverride)`, then builds the runtime with `cwd: sessionManager.getCwd()` — so **tools run in the session's recorded cwd** unless the override is given — and `assertSessionCwdExists` throws when that cwd is gone. Only the RPC command handler never passes it: `dist/modes/rpc/rpc-mode.js` `case "switch_session"` calls `runtimeHost.switchSession(command.sessionPath)`. The minified form `case"switch_session":{let result=await runtimeHost.switchSession(command.sessionPath);` occurs exactly once, in the same chunk as `main()`. The RPC loop already turns a thrown error into an error response (`output(error(command.id, command.type, message))`), so validation can simply throw.
+- Dependencies: the six `@earendil-works/*` packages move `^0.99.2 → ^1.0.2`; one new transitive (`brace-expansion@5`, MIT). No new `@earendil-works/*` package, so `third-party-licenses.config.json` needs no new override — the README's manifest check still runs.
+- pi 1.0.2's `runMigrations` touches only legacy layouts (`oauth.json`, `apiKeys` in settings, commands → prompts, keybindings, tools → bin) and skips when `auth.json` exists, so running the bundled 1.0.2 against the shared `~/.pi/agent` does not rewrite what the global 0.99.2 reads. The smoke still records before/after hashes of `~/.pi/agent/settings.json` and `auth.json` (read-only observation) because Phase 4's precondition asks for the evidence.
+
+### The extended patch 0001
+
+Readable form (two files added to the diff; `main.js` / `args.js` / `args.d.ts` hunks unchanged in meaning):
+
+<Diff
+  filename="dist/modes/rpc/rpc-mode.js (pi 1.0.2)"
+  language="js"
+  mode="unified"
+  before={"import { attachJsonlLineReader, serializeJsonLine } from \"./jsonl.js\";\n// …\n            case \"switch_session\": {\n                const result = await runtimeHost.switchSession(command.sessionPath);\n                if (!result.cancelled) {\n                    await rebindSession();\n                }\n                return success(id, \"switch_session\", result);\n            }\n"}
+  after={"import { attachJsonlLineReader, serializeJsonLine } from \"./jsonl.js\";\nimport { existsSync, statSync } from \"node:fs\";\nimport { resolvePath } from \"../../utils/paths.js\";\n/**\n * LOOM PATCH (0001): `cwdOverride` on `switch_session` — resume a session whose\n * recorded cwd is gone, or run it somewhere else, without touching the file.\n * The runtime host already accepts the option; only the RPC command lacked it.\n */\nfunction resolveRpcCwdOverride(cwdOverride) {\n    if (cwdOverride === undefined)\n        return undefined;\n    const resolved = resolvePath(cwdOverride, process.cwd());\n    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {\n        throw new Error(`cwdOverride directory does not exist: ${resolved}`);\n    }\n    return { cwdOverride: resolved };\n}\n// …\n            case \"switch_session\": {\n                const result = await runtimeHost.switchSession(command.sessionPath, resolveRpcCwdOverride(command.cwdOverride));\n                if (!result.cancelled) {\n                    await rebindSession();\n                }\n                return success(id, \"switch_session\", result);\n            }\n"}
+  annotations={[
+    { side: "after", lines: "12", note: "pi's own resolvePath, as the CLI half uses — tilde, file:// and Windows forms resolve identically in both forms (README: the two forms must stay behaviourally identical)." },
+    { side: "after", lines: "13-15", note: "A thrown Error becomes an RPC error response for this command id; the process stays up and the session is unchanged (SessionManager.open has not run)." },
+    { side: "after", lines: "20", note: "No override → undefined, exactly upstream's call; behaviour without the field is unchanged." },
+  ]}
+/>
+
+`dist/modes/rpc/rpc-types.d.ts`: the `switch_session` member of the command union gains `cwdOverride?: string;` with a one-line doc comment. Bundle form, in `patch-bundle.mjs`'s existing `0001` target (same chunk, same header, so idempotency keeps working off the `__loomResolveCwdOverrideOrExit` marker): append `__loomResolveRpcCwdOverride` to `CWD_HEADER` (same body as above, using `__loomCwdExistsSync` / `__loomCwdStatSync` already imported there and the chunk's `resolvePath`), and one more edit:
+
+<Code
+  filename="infra/pi-patches/patch-bundle.mjs — appended to the 0001 edits"
+  language="js"
+  code={"[\n  \"0001 RPC switch_session accepts cwdOverride\",\n  /case\"switch_session\":\\{let result=await runtimeHost\\.switchSession\\(command\\.sessionPath\\);/g,\n  'case\"switch_session\":{let result=await runtimeHost.switchSession(command.sessionPath,__loomResolveRpcCwdOverride(command.cwdOverride));',\n  1,\n],\n"}
+/>
+
+The semantics the patch commits to: `cwdOverride` is resolved against the pi process's cwd; it must exist and be a directory, else the command fails and nothing changes; when valid, `SessionManager.open` is called with it, so the header is never read for cwd and never rewritten, the session directory is still the file's parent, the conversation continues by append, and `assertSessionCwdExists` passes trivially. The CLI `--cwd` half is kept as it is (the nine anchors cost nothing and a human reopening a finished thread's session from a terminal still needs it); retiring it would require the README's proof bar and there is no proof that stock 1.0.2 serves that case.
+
+### Regeneration runbook (the README's steps, with the deltas for this bump)
+
+Follow `infra/pi-patches/README.md` "Re-deriving after a pi version bump" exactly; it is the source of truth. The deltas: step 0's outcomes are the two facts above (record both in the README: 0002 still `writeFileSync` on both paths; 0001 still no `--cwd`, and the contract test against stock fails the CLI cases — and now also the RPC `cwdOverride` case, which stock ignores as an unknown field so the session resumes into the dead cwd and `switch_session` errors with "Stored session working directory does not exist"); in step 2 the editable dir is a worktree-local `.artifacts/pi-patch-1.0.2/` rather than `/tmp` (this repository keeps debug sidecars under the worktree); the readable `0001` must be re-derived **before** step 2's `patch -F 0` or it fails on `args.js` hunk 1; after `patch-commit`, restore the `# loom:` comment and the quoting in `pnpm-workspace.yaml` and `vp check --fix` the YAML. Install with `CI=true vp i --no-frozen-lockfile` (doc 30 §2) and assert `grep '"version"' "$(readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"` prints 1.0.2 before trusting any test. Nothing in this item touches the global `pi`, `~/.pi`, `~/.t3/cockpit`, `~/.t3/userdata` or `~/loom-releases`; `apply.sh --check` on the global install is **not** a gate.
+
+### Bundled resolution: once, at the driver boundary
+
+Upstream spawns pi in five places with `settings.binaryPath || "pi"` — `PiAdapterV2.openSession` and `forkThread`, `PiProvider.ts` (`runPiVersionCommand`, `discoverPiViaRpc`), `PiTextGeneration.ts` — and hands `binaryPath` to the maintenance resolver in `PiDriver.create`. All six read the config the driver builds, so the smallest hunk is one line where that config is built:
+
+<AnnotatedCode
+  filename="apps/server/src/provider/Drivers/PiDriver.ts (marked hunk, sketch)"
+  language="ts"
+  code={"const effectiveConfig = {\n  ...config,\n  enabled,\n  // loom: the default 'pi' means the copy bundled with Loom (patched); an explicit path overrides it\n  binaryPath: resolveLoomPiBinaryPath(config.binaryPath),\n} satisfies PiSettings;\n// …every consumer below — resolveMaintenance, PiAdapterV2Driver.create, makePiTextGeneration,\n// checkPiProviderStatus, the snapshot settings source — receives effectiveConfig (today the adapter\n// receives `config`; it must receive effectiveConfig).\n"}
+  annotations={[
+    { lines: "4-5", label: "one line", note: "resolveLoomPiBinaryPath('pi') → resolveBundledPiCliPath() ?? 'pi'; any other value is returned untouched. PiSettings decodes an empty setting to 'pi' (makeBinaryPathSetting), so empty and 'pi' both mean bundled." },
+    { lines: "7-9", label: "the one behavioural edit", note: "PiAdapterV2Driver.create currently gets the raw config; pass effectiveConfig so the adapter and the probes agree on the binary." },
+  ]}
+/>
+
+`resolveBundledPiCliPath()` is the quarantined function verbatim (`import.meta.resolve` of the package, walk up to the manifest, take `bin.pi` — `dist/bundle/cli.js`). The resolved path is spawned **directly**: the file is executable with a `#!/usr/bin/env node` shebang, `node` is on `PATH` wherever `pi` itself would have been (the cockpit unit puts `~/.n/bin` on `PATH`; the dev runner inherits the shell), and `PiRpc.makePiRpcConnection` → `resolveSpawnCommand` passes a POSIX command through unchanged. V1 spawned `process.execPath <cliPath>` instead; that would need the five call sites edited to split command and args, so it is not done — Loom runs on Linux and the shebang path is one line (DR-5). Running a `.js` directly does not work on Windows; that is recorded, not solved.
+
+**`pi update --self` needs no disabling.** Upstream's `resolvePackageManagedProviderMaintenance` (`apps/server/src/provider/providerMaintenance.ts`) returns the **manual-only** capabilities for any binary whose real path contains `/node_modules/` unless a package manager is proven to own it (vp, bun, pnpm-global, yarn-global, volta, npm `lib/node_modules`, Homebrew); the bundled path `…/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_patch_hash=…/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js` matches none of the proofs (`npmGlobalPrefixFromCommandPath` requires `/lib/node_modules/<pkg>/` with no earlier `/node_modules/`; `isPnpmGlobalCommandPath` matches only pnpm's global store paths). So with the hunk above the Settings → Providers card shows `canUpdate: false` and the version advisory offers only the manual `npm install -g` text, which would touch the global install, never the bundle. One test pins this (`providerMaintenance.loom.test.ts`). The "Update available: Pi 1.0.3" advisory will keep appearing while the bundled pin lags npm; it is informational and `enableProviderUpdateChecks` turns it off — not this item's concern.
+
+**The setting description (DT-49)** returns on `PiSettings.binaryPath` in `packages/contracts/src/settings.ts`, marked: *"Path to the Pi coding agent binary. Leave empty (or `pi`) to run the copy bundled with Loom, which carries Loom's patches; set a path only to override it."*
+
+### The contract test, on the real patched binary
+
+`apps/server/src/provider/Drivers/Pi/PiCwdOverride.contract.test.ts` ports `quarantine/apps/server/src/provider/Layers/Pi/PiCwdOverride.contract.test.ts` with two changes: it resolves the binary with `resolveBundledPiCliPath()` and **fails** (never skips) when that returns `undefined` — pi is a workspace dependency and is always present, and an unpatched bundle is exactly the drift to hear about; and it adds a third `describe` for the RPC path. The fixture is the quarantined one: a three-line session file (header with `cwd` = a directory that does not exist, one user message containing a token, one assistant reply) under an explicit `--session-dir` so the real session store is never touched. Every assertion is from RPC responses and the filesystem; no model call.
+
+<Table
+  density="compact"
+  columns={["Case", "Launch", "Commands on stdin", "Assertions"]}
+  rows={[
+    ["RPC resume with cwdOverride keeps history and relocates", "pi --mode rpc -ne --session-dir <dir>, cwd = an unrelated temp dir (pi starts a fresh session)", "switch_session { sessionPath, cwdOverride: liveCwd }; get_state; bash pwd", "switch_session success with cancelled false; get_state.sessionFile = the fixture file, sessionId = the fixture id, messageCount = 2 (an amnesiac new session would say 0); exactly one file for that id in the session dir (pi persists no file for the empty startup session — `SessionManager._persist` writes nothing until a user or assistant message exists); the fixture's first three lines survive verbatim with the dead cwd in the header; pwd output = realpath(liveCwd)"],
+    ["RPC resume without cwdOverride still refuses a dead header cwd", "as above", "switch_session { sessionPath }; get_state", "switch_session response has success false and its error contains 'Stored session working directory does not exist' and the dead path; the process is still alive (get_state succeeds) and still on the fresh startup session (sessionFile ≠ the fixture file); the fixture file is unchanged"],
+    ["RPC rejects a cwdOverride that is not a directory", "as above", "switch_session { sessionPath, cwdOverride: liveCwd + '/nope' }; get_state", "success false with 'cwdOverride directory does not exist'; the process is alive and on the startup session"],
+    ["The six CLI --cwd cases", "as quarantined (--session <file> --cwd <dir>; the four usage-error combinations)", "as quarantined", "unchanged"],
+  ]}
+/>
+
+The second RPC case is the control that makes the first meaningful (it shows the override, not the launch cwd, is what relocated the session). The test is the gate for the pi bump: it drives `dist/bundle/cli.js`, so it covers the bundle, not the readable tree.
+
+## 2. `cwdOverride` on every RPC `switch_session` the adapter issues
+
+Upstream resumes a provider thread by `registerThread` in `PiAdapterV2.ts` sending `{ type: "switch_session", sessionPath: resumeId }` through `lifecycleRequest`. Because pi builds the resumed runtime in the session's **recorded** cwd, a thread whose worktree is gone fails the resume ("Stored session working directory does not exist" → `ProviderTurnStartService` logs *Provider resume failed; attempting a fresh native session* and continues with a summary handoff — amnesia with a warning nobody reads), and a thread whose recorded cwd still exists but differs from the thread's cwd (Phase 4's relocated QA world; a thread continued from another checkout) would run its tools somewhere V2 does not believe it is running. The hunk:
+
+<Code
+  filename="apps/server/src/orchestration-v2/Adapters/PiAdapterV2.ts — registerThread (marked hunk)"
+  language="ts"
+  code={"const result = yield* lifecycleRequest(\n  resumeId != null\n    ? // loom: pi resumes into the session's recorded cwd unless told otherwise; the thread's cwd\n      // is the truth V2 holds (patch 0001, RPC half). Requires the bundled patched pi.\n      { type: \"switch_session\", sessionPath: resumeId, cwdOverride: cwd }\n    : { type: \"new_session\" },\n);\n"}
+/>
+
+`cwd` is `openSession`'s `input.runtimePolicy.cwd ?? options.serverConfig.cwd` — the directory pi was spawned in and the one `ProviderSessionManager.open` has already verified is a directory (`ProviderWorkspaceMissingError` otherwise). The override is passed **always**, not only when the header cwd is missing (DR-3): the adapter cannot cheaply read the header, and the invariant worth having is "tools run where V2 says" in every case. Nothing else changes — `forkThread`'s throwaway `--fork` process already sets the destination cwd from its own spawn cwd, and `new_session` has no recorded cwd. A stock (unpatched) pi ignores the unknown field, so the hunk degrades to today's behaviour if the bundle is ever unpatched; the contract test is what catches that.
+
+Test (`PiAdapterV2.loom.test.ts`, the fake-pi harness of `PiAdapterV2.test.ts`): resume a thread with an existing `nativeThreadRef` and assert `fake.takeRequest("switch_session").cwdOverride` equals the session's cwd. Note for the replay fixtures: `PiOrchestratorReplayHarness` matches outbound frames on the **union of keys**, so any future recorded fixture that contains a `switch_session` frame must list `cwdOverride: "<any>"`; the one existing Pi fixture (`testkit/fixtures/pi_compaction`) has no resume and stays green.
+
+## 3. `costUsd` on the terminal `tokenUsage`
+
+Upstream's `OrchestrationV2ProviderTurnTokenUsage` (`packages/contracts/src/orchestrationV2.ts`) carries `usedTokens`, `maxTokens`, `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningOutputTokens`, `updatedAt` — no cost. `PiAdapterV2.finalizeTurn` fills it from `get_session_stats` (`tokenUsageFromStats`); pi's `SessionStats` has `cost: number`, but that figure is the **whole session's** cumulative cost, as are its `tokens.*` totals. V1 took cost per assistant message from pi's own `usage.cost.total` on `message_end` (`quarantine/apps/server/src/provider/Drivers/PiDriver.ts` `normalizePiTokenUsage`: "pi attaches its own authoritative dollar figure … we never price tokens ourselves"). This plan keeps that semantics — **per turn, pi-priced**:
+
+- Contract (marked): `costUsd: Schema.optional(Schema.Number)` on `OrchestrationV2ProviderTurnTokenUsage`, doc comment *"loom: USD for this provider turn, summed from pi's per-message usage.cost.total; never computed by T3"*. Encoding through the schema is what lets the value survive `ProviderEventIngestor` → `provider-turn.updated` → the SQL projection.
+- Adapter (three small marked hunks): `ActivePiTurn` gains `costUsd: number` (initialised `0` where the turn is created, ~L2345); in `case "message_end"`, after the assistant-role check, `turn.costUsd += recordNumber(recordField(recordField(message, "usage"), "cost"), "total") ?? 0`; in `finalizeTurn`, the terminal `tokenUsage` becomes `tokenUsage === undefined ? undefined : { ...tokenUsage, ...(turn.costUsd > 0 ? { costUsd: turn.costUsd } : {}) }`. Live `provider_turn.updated` frames from `reportLiveUsage` carry no `costUsd`; the ledger keys on the terminal status.
+- Known gap, accepted: when `get_session_stats` fails or times out (2 s budget) the terminal turn carries no `tokenUsage` at all, so that turn's cost is not reported either. Phase 3c's ledger reads what is there; a pricing fallback is out of scope (never price tokens ourselves).
+
+<Callout tone="warning">
+**For Phase 3c (seam 11).** Upstream already defines a per-turn slot beside `tokenUsage`: `OrchestrationV2ProviderTurn.turnTokenUsage` (`TurnTokenUsage` in `packages/contracts/src/providerRuntime.ts`, filled by the Codex, Claude and OpenCode adapters and read by `ProviderEventIngestor`'s turn analytics); `PiAdapterV2` leaves it unset. Pi's `tokenUsage.inputTokens` / `cachedInputTokens` / `outputTokens` on the terminal turn are **session-cumulative** (they come from `get_session_stats.tokens`), not per-turn; `usedTokens` / `maxTokens` are the context meter. Only `costUsd` is per-turn. A ledger row that copies the token columns as "this turn's tokens" overcounts; 3c must either store them as session totals at turn end or difference them against the thread's previous completed turn. Extending this plan's hunk to also sum per-turn tokens was rejected as scope creep on a field 3c owns (DR-8).
+</Callout>
+
+Test: in the fake-pi harness, a turn with two assistant `message_end` events whose `message.usage.cost.total` are 0.0125 and 0.0075 and a stats response → the terminal `provider_turn.updated.tokenUsage.costUsd` is 0.02 and the running (live) frames carry none; a turn whose stats request times out carries no `tokenUsage`.
+
+## 4. The Loom open-session field, its argv, and the composer hook
+
+Strategy Area G retains what Loom composes and re-expresses how it is delivered: a Loom field on upstream's server-side open-session input, turned into argv by `buildPiRpcLaunch`, so the prompt bytes travel as launch identity (Phase 3a's composer replays them verbatim for a `forkFrom` child; the adapter never knows about forks — P3-23). The three pieces, and who fills them:
+
+<AnnotatedCode
+  filename="apps/server/src/loom/prompt/sessionComposer.ts (new, complete sketch)"
+  language="ts"
+  code={"export interface LoomOpenSessionFields {\n  readonly appendSystemPrompt: string;          // '' = nothing appended\n  readonly skills: ReadonlyArray<string>;       // repeated --skill <path>\n  readonly extensions: ReadonlyArray<string>;   // repeated --extension <path>, beside upstream's bridge\n}\nexport const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = { appendSystemPrompt: \"\", skills: [], extensions: [] };\n\nexport class LoomSessionComposerError extends Schema.TaggedError<LoomSessionComposerError>()(\n  \"LoomSessionComposerError\", { threadId: ThreadId, cause: Schema.Defect() },\n) {}\n\nexport interface LoomSessionComposerShape {\n  /** Byte-stable for the same inputs; called on every pi process spawn for the thread. */\n  readonly compose: (threadId: ThreadId) => Effect.Effect<LoomOpenSessionFields, LoomSessionComposerError>;\n}\n\n/** Phase 3a provides the real composer; until then every session opens with empty values. */\nexport const LoomSessionComposer = Context.Reference<LoomSessionComposerShape>(\n  \"loom/prompt/LoomSessionComposer\",\n  { defaultValue: () => ({ compose: () => Effect.succeed(EMPTY_LOOM_OPEN_SESSION_FIELDS) }) },\n);\nexport const LoomSessionComposerDefaultLive = Layer.succeed(LoomSessionComposer, {\n  compose: () => Effect.succeed(EMPTY_LOOM_OPEN_SESSION_FIELDS),\n});\n"}
+  annotations={[
+    { lines: "1-5", label: "the field type", note: "Exactly the Phase 3 seam-4 shape; no forkFrom member (P3-23/P3-28). ProviderAdapterV2OpenSessionInput gains loom?: LoomOpenSessionFields (marked); other adapters ignore it." },
+    { lines: "8-10", label: "error channel", note: "Seam 4 wrote the Effect without an error type. A composer that cannot read a role overlay must fail the open loudly rather than launch a child without its role, so the shape carries one typed error and the hook maps it to ProviderSessionOpenError (DR-7)." },
+    { lines: "18-21", label: "Context.Reference", note: "A service with a default value: `yield* LoomSessionComposer` adds no requirement, so upstream's hand-assembled test layers (ProviderSessionManager.test.ts, the replay harness) need no stub — the same pattern upstream uses for ProviderVersionCache. Phase 3a provides the real implementation as a layer; nothing else changes (DR-6)." },
+    { lines: "22-24", label: "the default layer", note: "What loom/serverLayers.ts exports as LoomSessionComposerLive today and what runtimeLayer.ts provides to the session manager; 3a re-points that one export." },
+  ]}
+/>
+
+<Code
+  filename="apps/server/src/orchestration-v2/ProviderSessionManager.ts — layerWithOptions / open (marked hunks)"
+  language="ts"
+  code={"const sessionComposer = yield* LoomSessionComposer; // loom: Phase 3a's composer, empty by default\n// …inside open(), after the `existing` short-circuit and BEFORE prepareMcpSession / Scope.make:\n// loom: compose before the MCP credential reservation and the session scope exist, so a composer\n// failure has nothing to release (adapter.openSession's tapError cleanup is not attached yet)\nconst loom = yield* sessionComposer.compose(input.threadId).pipe(\n  Effect.mapError((cause) => new ProviderSessionOpenError({\n    instanceId: input.modelSelection.instanceId, providerSessionId: input.providerSessionId, cause,\n  })),\n);\n// …then, beside the other input fields passed to adapter.openSession:\n  loom, // loom: the composed prompt, skills and extensions ride the open-session input (strategy Area G)\n"}
+/>
+
+The hook runs for every `open` — first turn, resume after idle release, provider switch — which is why the composer must be byte-stable (3a's unit test). It is called before `prepareMcpSession`, never inline in the `adapter.openSession({…})` argument: a `yield*` there fails before the call's `tapError` cleanup is attached, leaking the MCP credential reservation (so a later release never revokes that credential) and the unclosed session scope. It does **no** `LoomStoreV2` reads of its own and knows nothing about forks (DL-201). `runtimeLayer.ts` provides `LoomSessionComposerLive` to `providerSessionManagerProvided` with one marked line; `loom/serverLayers.ts` is where the binding changes hands when 3a lands.
+
+<AnnotatedCode
+  filename="apps/server/src/orchestration-v2/Adapters/piT3McpInjection.ts — buildPiRpcLaunch (marked hunk)"
+  language="ts"
+  code={"export function buildPiRpcLaunch(input: {\n  // …upstream fields\n  readonly loom?: LoomOpenSessionFields; // loom: Area G delivery\n}) {\n  // …\n  const args = [\n    \"--mode\", \"rpc\",\n    ...(input.ephemeral === true ? [\"--no-session\"] : []),\n    ...launchArgs,\n    // loom: composed prompt, skills and extensions follow the user's launch args (pi accumulates repeated --append-system-prompt)\n    ...(input.loom?.appendSystemPrompt ? [\"--append-system-prompt\", input.loom.appendSystemPrompt] : []),\n    ...(input.loom?.skills ?? []).flatMap((skill) => [\"--skill\", skill]),\n    ...(input.loom?.extensions ?? []).flatMap((extension) => [\"--extension\", extension]),\n    ...(input.disableExtensions === true ? [\"--no-extensions\"] : []),\n    ...(input.disableTools === true ? [\"--no-tools\"] : []),\n  ];\n  // …upstream then appends its own --extension <bridge> unless already present\n}\n"}
+  annotations={[
+    { lines: "10-13", label: "argv forms", note: "The V1 argv (quarantine RpcProcess.ts buildPiArgs) in the same order: prompt text inline (not a file — the bytes are the identity), --skill repeated, --extension repeated. pi 1.0.2 accepts all three repeated (args.js pushes to arrays; appendSystemPrompt entries are joined with blank lines)." },
+    { lines: "11", label: "empty adds nothing", note: "The default composer yields no argv, so upstream's pi_compaction replay fixture — which matches process_start args exactly — stays green, and discovery, text generation and forkThread (which pass no loom) are untouched." },
+  ]}
+/>
+
+`PiAdapterV2.openSession` passes `loom: input.loom` into its `buildPiRpcLaunch` call (one marked line). A user's own `--append-system-prompt` in `launchArgs` is appended too (pi joins them); Loom's extension is the composer's responsibility to name (3a materialises it). Tests: `buildPiRpcLaunch` with a full `loom` → the three forms in order before the bridge extension; with `EMPTY_LOOM_OPEN_SESSION_FIELDS` → argv identical to upstream's; `ProviderSessionManager.open` with a test layer providing a composer that fails → `ProviderSessionOpenError`, and with the default → the adapter's recorded input has `loom` equal to the empty fields.
+
+## 5. Two doctrine checks — verdicts and their smallest hunks
+
+### 5a. Area H — does the "Pi default" sentinel land a new thread on `PI_DEFAULT_MODEL`?
+
+**How a new Pi thread gets its model today.** `PiProvider.ts` builds the model list as `[PI_DEFAULT_MODEL sentinel {slug: "default", name: "Pi default"}, …discovered]` with no `isDefault` on any entry (`piModelsFromSettings`, `parseDiscoveredModels`). The web picks a new thread's model with `models.find(isDefault && !isCustom) ?? models.find(!isCustom) ?? …` (`apps/web/src/providerModels.ts` `getDefaultServerModel`, `providerInstances.ts`, `modelSelection.ts`), so with nothing flagged the **sentinel** is chosen; the adapter then skips `set_model` (`PI_INHERIT_MODEL_SLUG`) and pi runs whatever `~/.pi/agent/settings.json` names.
+
+**The fact that decides it.** Carl's pi settings name `defaultProvider: cliproxy`, `defaultModel: claude-fable-5-1`; Loom's `PI_DEFAULT_MODEL` is `cliproxy/claude-opus-5-5`. They differ **by design**: the platform-update skill maintains "global pi `defaultModel`" and "loom `PI_DEFAULT_MODEL`" as two separate default surfaces in its `targets.yaml`. So the sentinel lands a new Loom thread on Fable, not on the model Carl chose for Loom — the functionality is **not** satisfied — and it also records the run's `modelSelection.model` as the opaque `"default"`, which Phase 3c's cost-by-model, spawn headroom and reroute cannot key on.
+
+**Verdict: hunk.** One marked line in `parseDiscoveredModels` (`PiProvider.ts`): `...(slug === LOOM_PI_DEFAULT_MODEL ? { isDefault: true } : {})`, plus one marked import `PI_DEFAULT_MODEL as LOOM_PI_DEFAULT_MODEL` from `@t3tools/contracts` — `PiProvider.ts` already declares a local `PI_DEFAULT_MODEL`, which is the sentinel `ServerProviderModel` object (`slug: "default"`), so the bare name compares a string to that object and never matches. The sentinel stays in the list (upstream's mechanism is not deleted; a user can still pick "Pi default"); `DEFAULT_MODEL_BY_PROVIDER[pi]`, the auto-bootstrap selection (DL-85) and text generation already name `PI_DEFAULT_MODEL`. If the cliproxy extension is absent and `PI_DEFAULT_MODEL` is not discovered, the fallback is the first non-custom model — the sentinel — which is the right degradation. Recorded evidence, both in the smoke below: stock (session 1 tree) — a new thread with no pick reports `modelSelection.model = "default"` on its first run; with the hunk (session 2) — `cliproxy/claude-opus-5-5`.
+
+### 5b. Area L / DL-74 — does V2 prune a deleted thread's provider-session binding?
+
+**Where the binding lives.** `orchestration_v2_projection_provider_session_bindings (provider_session_id, thread_id)` (migration `055_OrchestrationV2` → `OrchestrationV2/ProviderSessionBindings.ts`), inserted on `provider-session.attached` and deleted on `provider-session.detached` (`ProjectionStore.ts` SQL fold); `getThreadRecords(…, ["providerSessions"])` reads a thread's sessions **through** this table.
+
+**What V2 does.** `thread.delete` → `planThreadDeletion` (`orchestration-v2/ThreadDeletion.ts`) emits `provider-session.detached` plus a `provider-session.detach` effect for each session — **skipping any whose status is already `stopped` or `error`** (`continue`). Idle release (`ProviderSessionManager.writeReleasedSessionEvents`) records a session as `stopped` via `provider-session.updated` without detaching it, and `thread.archive` skips stopped sessions the same way. So the common Loom sequence — a thread finishes, its session idles out after 30 minutes, the thread is deleted later — leaves the binding row (and the `provider_sessions` row, which upstream never deletes for any detached session) forever. **Verdict: V2 does not prune; the DL-74 functionality returns.**
+
+**The mechanism (DR-10, consulted).** Not the strategy's literal SQL sweep: V2 projection tables are rebuilt from the event log (`ProjectionMaintenance.rebuild` deletes every `orchestration_v2_projection_*` table and refolds), so a direct `DELETE` would make the live table disagree with a rebuild. Instead, one marked hunk in `planThreadDeletion`:
+
+<Diff
+  filename="apps/server/src/orchestration-v2/ThreadDeletion.ts — planThreadDeletion"
+  language="ts"
+  mode="unified"
+  before={"for (const session of projection.providerSessions) {\n  if (session.status === \"stopped\" || session.status === \"error\") continue;\n  yield* emitEvent({ type: \"provider-session.detached\", /* … */ });\n  effects.push({ /* provider-session.detach effect */ });\n}\n"}
+  after={"for (const session of projection.providerSessions) {\n  // loom: a deleted thread keeps no binding rows (DL-74); the event alone unbinds a session that is\n  // already stopped or errored — the detach effect is only for a live process\n  yield* emitEvent({ type: \"provider-session.detached\", /* … */ });\n  if (session.status === \"stopped\" || session.status === \"error\") continue;\n  effects.push({ /* provider-session.detach effect */ });\n}\n"}
+  annotations={[{ side: "after", lines: "4-5", note: "Upstream's own provider-session.detach command already emits this event for a session of any status, so the fold and the memory projection (which drops the session from providerSessions) are built for it; ThreadSettlementService merely enqueues the (deleted) thread." }]}
+/>
+
+Threads deleted before this hunk lands have no V2 sessions in production (nothing has run on V2 there), so no backfill. The `provider_sessions` row itself stays, as it does for every detached session upstream; the functionality Carl ruled on is the binding (DL-74's statement). Test: through the real orchestrator and SQL projection, open a session, record it `stopped` (`provider-session.updated`), dispatch `thread.delete`; the bindings table has no row for the thread and no `provider-session.detach` effect was enqueued for the stopped session.
+
+## 6. Stuck-launch verification — two modes, recorded verdicts
+
+V1 had `stuckLaunchRecovery.ts` (a CAS repair) and `thread.turn-start.fail` for two failures: (a) pi hangs at spawn so the run sits in `starting` with no turn; (b) the `provider-turn.start` effect fails before any turn so the pending-turn row holds the idle gate forever. **No repair is ported.** The output is one verdict per mode, with evidence, that Phase 4 uses to delete or keep those modules and that 3b reads before deciding whether its liveness sweep needs a starting-run rule (P3-10).
+
+**What V2 already does, so the coder knows what to look for.** The effect worker (`EffectWorker.ts`) retries a failed `provider-turn.start` with backoff `min(30 s, 100 ms × 2^(attempt−1))` up to `maxAttempts = 5`, then fails the outbox row. `ProviderTurnStartService.start` receives `willRetry` and, on the **last** attempt, `settleStartFailure` writes the run `failed` with an `error` turn item ("instead of leaving it `starting` after the effect gives up") for a session-open failure or a provider-thread-load failure. A `failed` run is not a blocking run (`isBlockingRun` = preparing | starting | running | waiting), so Loom's `start_if_idle` sees the thread idle. A hung pi is caught by `PiRpc` request timeouts: `get_state` in `registerThread` has 15 s (`PI_REQUEST_TIMEOUT_MS`); only lifecycle requests (`switch_session`, `new_session`, 60 s) terminate the process on timeout. Nothing in `ProviderTurnStartService` releases a session after a start failure, so a hung pi process may stay cached in `ProviderSessionManager` until its idle release (30 min). The verdict must therefore distinguish *the run recovers* from *the thread is usable again*.
+
+**Reproduction.** On the session-1 fresh home (below), a wrapper script set as the Pi binary path in that home's `settings.json` (`providers.pi.binaryPath`), written under `.artifacts/pull9-driver/`:
+
+<Code
+  filename=".artifacts/pull9-driver/pi-stuck.sh — mode (a); mode (b) replaces `exec sleep 100000` with `exit 1`"
+  language="bash"
+  code={"#!/bin/sh\n# T3_PI_RUNTIME_MODE is set only on a real session open (buildPiRpcLaunch); discovery,\n# the version probe and text generation run the real binary so the provider card stays healthy.\nif [ -n \"$T3_PI_RUNTIME_MODE\" ]; then exec sleep 100000; fi\nexec /ABS/PATH/TO/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \"$@\"\n"}
+/>
+
+Procedure per mode: set the wrapper, restart the server (the binary is read at driver creation), create a **new** Pi thread (a first turn, not a resume — V1's mode (a) was a spawn hang), send one message, then observe for up to the retry budget plus two minutes. Then restore the binary path, and (1) send a second message **without** restarting and (2) restart the server and send a third. Record both.
+
+<Table
+  density="compact"
+  columns={["Observation point", "Query / command", "Recovers when", "Does not recover when"]}
+  rows={[
+    ["Run status", "SELECT ordinal, status, requested_at, completed_at FROM orchestration_v2_projection_runs WHERE thread_id = ? ORDER BY ordinal", "the run is failed (or another terminal status) within the budget", "starting or preparing persists past the budget + 2 min"],
+    ["Outbox", "SELECT status, attempt_count, last_error FROM orchestration_v2_effect_outbox WHERE thread_id = ? AND effect_type = 'provider-turn.start'", "failed with attempt_count = 5 and last_error naming the cause (mode a: a PiRpc timeout; mode b: 'pi process exited with code 1' / open failure)", "pending or running with the lease renewing"],
+    ["Events", "SELECT sequence, json_extract(payload_json, '$.status') FROM orchestration_v2_events WHERE thread_id = ? AND event_type = 'run.updated' ORDER BY sequence", "a run.updated with status failed and an error turn item titled 'Provider session failed to open' or 'Provider turn failed to start'", "no terminal run.updated"],
+    ["Shell", "the thread's activityRunStatus in the shell snapshot (web: the thread shows no spinner; ws snapshot)", "null — the thread is idle", "a persistent working indicator"],
+    ["Server log", "grep 'Orchestration effect execution failed' and 'attemptCount'", "exactly five failures, then nothing", "unbounded repeats"],
+    ["Process tree (mode a)", "ps --ppid <server pid>; pgrep -f is forbidden — read /proc/<pid>/cmdline of the children", "record whether the sleep wrapper is still alive after the run failed (expected: yes, until idle release); record when it disappears", "—"],
+    ["Usability after restoring the binary", "message 2 (no restart) and message 3 (after restart) each start a run", "message 3 completes (the cached hung session is gone after a restart); record whether message 2 also completes or re-fails after another ~75 s (expected re-fail in mode a while the hung session is cached; expected success in mode b: its open does cache a session, but the wrapper's exit kills the transport and ProviderSessionManager's event pump releases that entry as runtime_error)", "message 3 does not start or complete"],
+  ]}
+/>
+
+**Verdict rubric.** A mode *recovers* when the run reaches a terminal status within the budget, the shell is idle, and message 3 completes. Record message 2's outcome and the lingering-process observation as the **residual** for 3b: if mode (a) leaves a hung session cached, that is a *dead session* the liveness sweep's `error`-class rule (3b) will surface, not a stuck launch; a starting-run rule is warranted only if a run itself fails to terminalise. Expected verdicts from the code reading above: **both recover** (b cleanly; a with the cached-session residual). If either does not recover, the record says so and Phase 4 keeps the quarantined modules pending 3b's rule; nothing in this item ports a repair.
+
+## 7. The fresh-home smoke (gates for both sessions)
+
+Phase 1's smoke (B) procedure (`docs/upstream-sync/29-cadence-pull-9-phase1.md`, S4b) on a new empty home under the worktree: `mkdir -p .t3/smoke-driver/userdata`; `pnpm build`; `T3CODE_NO_BROWSER=1 node apps/server/dist/bin.mjs serve --base-dir "$PWD/.t3/smoke-driver" --port <free>` logged to `.artifacts/pull9-driver/`; a scratch git repository under `.artifacts/pull9-driver/scratch-repo` as the project; kill only PIDs captured at spawn after checking `/proc/<pid>/cwd`. Evidence goes in the same directory and is cited from doc 30's gate table. Never point this at `~/.t3/cockpit`, `~/.t3/userdata` or the live `settings.json`.
+
+<Table
+  density="compact"
+  columns={["#", "Step", "Observe", "Session"]}
+  rows={[
+    ["F1", "Boot; open Settings → Providers", "Pi enabled, version 1.0.2, binary path shows the placeholder (nothing stored); the card offers no update action (manual-only)", "1"],
+    ["F2", "sha256 of ~/.pi/agent/settings.json and auth.json before F3 and after F8 (read-only)", "recorded; expected unchanged (pi 1.0.2's migrations are legacy-only)", "1 and 2"],
+    ["F3", "New Pi thread on the scratch project; do NOT pick a model; send 'Run echo hello'", "run 1 completed through PiAdapterV2; the pi child's /proc/<pid>/cmdline names the bundled dist/bundle/cli.js (not ~/.n/bin/pi) and the chunk beside it contains __loomResolveRpcCwdOverride; the run's modelSelection.model recorded — stock: 'default' (Area H evidence); with the §5a hunk: cliproxy/claude-opus-5-5", "1 (stock) and 2 (hunk)"],
+    ["F4", "kill -TERM the server mid-idle; relaunch; send 'Run pwd and print it'", "exactly the previously recorded continuation behaviour (DL-86); run 2 resumes the same pi session file via switch_session (the session's nativeThreadRef unchanged, user message count grows); pwd equals the thread's cwd", "1 and 2"],
+    ["F5", "Stuck-launch mode (a), then mode (b), per §6", "the verdict table filled; wrapper removed afterwards", "1"],
+    ["F6", "kill -TERM the server again (the graceful shutdown records the F3 thread's live session as stopped); relaunch; confirm SELECT status FROM orchestration_v2_projection_provider_sessions WHERE thread_id = ? reads stopped or error; then delete the F3 thread from the sidebar without sending it anything first", "SELECT count(*) FROM orchestration_v2_projection_provider_session_bindings b JOIN orchestration_v2_projection_threads t USING (thread_id) WHERE t.deleted_at IS NOT NULL — stock: 1 or more (DL-74 evidence); with the §5b hunk: 0", "1 (stock) and 2 (hunk)"],
+    ["F7", "A second thread with an explicit model pick; one turn", "the provider turn's tokenUsage.costUsd is a positive number on the terminal provider-turn.updated (orchestration_v2_events.payload_json, event_type = 'provider-turn.updated') and absent on the live frames", "2"],
+    ["F8", "Stop the server by its PID", "no listener on the port; no pi child alive; the home left on disk for the reviewer", "1 and 2"],
+  ]}
+/>
+
+## 8. Gates
+
+<Checklist
+  items={[
+    { id: "g-pin", label: "The pin and the patch: package.json pins 1.0.2 exactly; pnpm-workspace.yaml names only the 1.0.2 patch; the resolved package reads 1.0.2 and its bundle chunks carry both Loom markers; install is idempotent", note: "The 0.99.2 entry and file are gone; CI=true vp i --no-frozen-lockfile twice leaves the lockfile unchanged; grep -c on the resolved chunks: __loomWriteAuthAtomic call sites = 2, __loomResolveRpcCwdOverride present; node --check on every patched file; README step 3 in full, including the byte-for-byte reproduction of the patch-commit tree from the stored diffs + patch-bundle.mjs" },
+    { id: "g-contract", label: "PiCwdOverride.contract.test.ts: all nine cases pass against the bundled 1.0.2 (vp test run apps/server/src/provider/Drivers/Pi/PiCwdOverride.contract.test.ts); it fails — not skips — if the bundle is unpatched" },
+    { id: "g-smoke", label: "The fresh-home smoke F1–F8 recorded under .artifacts/pull9-driver/", note: "Stock and post-hunk observations for F3 and F6, the stuck-launch verdict table for both modes, the F7 costUsd value" },
+    { id: "g-upstream", label: "Upstream's PiAdapterV2.test.ts and the pi_compaction replay fixture green with every hunk in place; the four Loom test files green", note: "OrchestratorReplayFixtures.integration.test.ts; PiAdapterV2.loom.test.ts, ThreadDeletion.loom.test.ts, PiProvider.loom.test.ts, providerMaintenance.loom.test.ts. Server tests need git ≥ 2.56 on PATH: PATH=/home/Carl/.cache/pull9-git256/bin:$PATH (doc 30 §2)" },
+    { id: "g-static", label: "vp run typecheck 15/15; vp check 0 errors; docs/upstream-sync/pull7-tools/unmarkedsweep.sh reports no unmarked hunk; the third-party licence manifest generation succeeds" },
+    { id: "g-doc", label: "Records written: doc 30's three driver gate rows, a DL row per decision confirmed or departed from, the three verdicts with evidence paths; infra/pi-patches/README.md updated", note: "docs/upstream-sync/30-cadence-pull-9-phase2.md (stuck-launch, Area H, DL-74 verdicts); README: 1.0.2 drift, step-0 outcomes, the RPC half of 0001, the new resolver module path" },
+    { id: "g-never", label: "Nothing touched outside the worktree: the global pi is still 0.99.2, ~/.pi hashes unchanged (F2), ~/.t3/cockpit, ~/.t3/userdata and ~/loom-releases untouched; no git stash; only captured PIDs killed" },
+  ]}
+/>
+
+## Hunk inventory amendments
+
+The strategy's inventory row *"orchestration-v2/Adapters/PiAdapterV2.ts + PiRpc.ts — bundled pi resolution; open-session fields → argv; costUsd on usage; quota_exhausted classification; pi update --self disabled"* is split as follows; everything not named stands.
+
+<Table
+  density="compact"
+  columns={["Upstream file", "Change to the inventory", "Reason"]}
+  rows={[
+    ["provider/Drivers/PiDriver.ts", "ADDED (one marked line): binaryPath resolved to the bundled cli.js at the driver boundary", "every pi spawn and the maintenance resolver read the driver's config; one line covers six call sites"],
+    ["orchestration-v2/Adapters/PiAdapterV2.ts", "AMENDED: cwdOverride on switch_session; costUsd accumulation (ActivePiTurn field, message_end, finalizeTurn); loom passed to buildPiRpcLaunch. REMOVED from this row: bundled resolution (moved to PiDriver.ts) and 'pi update --self disabled' (no hunk — upstream's maintenance resolver is manual-only for a node_modules binary; a Loom test pins it). Phase 3c's rows (classifier, sanitiser, steer stash, loom options) stack on top", "—"],
+    ["orchestration-v2/Adapters/PiRpc.ts", "REMOVED (no hunk)", "the RPC transport is unchanged; the cwd override is a field on the record the adapter sends"],
+    ["orchestration-v2/Adapters/piT3McpInjection.ts", "ADDED: loom?: on buildPiRpcLaunch → --append-system-prompt / --skill / --extension", "Area G delivery"],
+    ["orchestration-v2/ProviderAdapter.ts", "ADDED: loom?: LoomOpenSessionFields on ProviderAdapterV2OpenSessionInput", "the open-session seam"],
+    ["orchestration-v2/ProviderSessionManager.ts (open session)", "AMENDED: the composition hook is `const loom = yield* sessionComposer.compose(input.threadId)` before prepareMcpSession, with the composer yielded at layer build; no forkFrom identity (P3-23), no LoomStoreV2 reads", "DL-201"],
+    ["orchestration-v2/runtimeLayer.ts", "AMENDED: + LoomSessionComposerLive provided to providerSessionManagerProvided (beside Phase 2's LoomStore.layer line)", "the one new service binding"],
+    ["orchestration-v2/ThreadDeletion.ts — planThreadDeletion", "ADDED (replaces 'provider session bindings prune (conditional)'): provider-session.detached emitted for stopped/error sessions too; the detach effect stays live-only", "DL-74 on V2's event model; a projection sweep would diverge from rebuild (DR-10)"],
+    ["provider/Layers/PiProvider.ts — parseDiscoveredModels", "ADDED (one marked line + one marked import): isDefault on contracts' PI_DEFAULT_MODEL", "Area H verdict (§5a)"],
+    ["packages/contracts/src/orchestrationV2.ts", "AMENDED: costUsd on OrchestrationV2ProviderTurnTokenUsage (the row already named it)", "—"],
+    ["packages/contracts/src/settings.ts", "AMENDED: + PiSettings.binaryPath description (DT-49)", "the bundled copy is real again"],
+    ["orchestration-v2/testkit/fixtures/{provider_thread_resume,thread_rollback,thread_rollback_after_stop}/pi_transcript.ndjson", "ADDED (session 2): \"cwdOverride\":\"<any>\" on each recorded switch_session frame; listed in unmarkedsweep.allow (NDJSON has no comment syntax)", "\u00a72's 'pi_compaction is the one Pi fixture' was wrong: eight Pi fixtures, three with a resume (doc 30 DL-251)"],
+    ["orchestration-v2/testkit/fixtures/simple/pi_output.ts \u2014 assertPiSettledTokenUsage", "ADDED (session 2, marked): costUsd stripped before the deep-equal against the recorded stats", "simple and multi_turn compare the whole settled tokenUsage; costUsd is asserted in PiAdapterV2.loom.test.ts"],
+    ["orchestration-v2/ThreadDeletion.test.ts", "ADDED (session 2, marked): the stopped/error sessions no longer survive the delete (expectation [])", "DL-74 changes upstream's asserted behaviour"],
+    ["orchestration-v2/ProviderSessionManager.loom.test.ts", "ADDED (Loom-only file): the \u00a74 hook tests (default, provided composer, failing composer)", "\u00a74 names them; not in the Files map"],
+    ["apps/server/package.json, pnpm-workspace.yaml, patches/", "fork-only dependency surface, marked where YAML allows a comment; not an upstream-file hunk", "listed so the sweep knows"],
+  ]}
+/>
+
+## Decision log
+
+Calls this plan made where the strategy, the Phase 2 substrate plan, the Phase 3 plan and DL-201 were open or named a mechanism the code reading overturned.
+
+<Table
+  columns={["#", "Decision", "Alternative rejected", "Why"]}
+  rows={[
+    ["DR-1", "pi 1.0.2, as decided; 1.0.3 (published 2026-10-05) is not taken", "Bump straight to 1.0.3", "Carl's recorded decision; upstream's adapter and fixtures were written against 1.0.0 behaviour; the next bump belongs to the platform-update skill, not this item"],
+    ["DR-2", "Patch 0001 is extended (CLI --cwd kept, RPC cwdOverride added) rather than replaced by an RPC-only patch", "Retire the CLI half now that V2 resumes over RPC", "the eight 0001 bundle anchors match 1.0.2 unchanged so keeping costs nothing; a human reopening a finished thread's session from a terminal still needs it; retiring requires the README's proof bar, which stock 1.0.2 does not meet"],
+    ["DR-3", "cwdOverride is passed on every switch_session, equal to the session's cwd", "Pass it only when the recorded header cwd is missing", "the adapter would have to read the session header; and the invariant that matters — tools run where V2 believes they run — must hold when the recorded cwd exists but differs (Phase 4's relocated QA world; a thread continued from another checkout)"],
+    ["DR-4", "An invalid cwdOverride is an RPC error response for that command; the process and the current session are untouched", "Mirror the CLI half's process.exit(1)", "an RPC client must keep a usable process; pi's command loop already converts a thrown Error into an error response, so no new mechanism"],
+    ["DR-5", "Bundled resolution happens once in PiDriver.create by rewriting the effective binaryPath to the bundled dist/bundle/cli.js, spawned directly via its shebang", "V1's process.execPath + [cliPath] (edits at five spawn sites); the pnpm .bin/pi shim (a pnpm layout detail, not pi's)", "one marked line instead of five; the maintenance resolver sees the same path and correctly reports manual-only; the shebang path depends on node being on PATH exactly as the stock 'pi' did. POSIX-only, recorded"],
+    ["DR-6", "LoomSessionComposer is a Context.Reference with an empty default (plus a default layer export for the wiring line)", "A Context.Service with a required default layer", "yield* of a Reference adds no requirement, so none of upstream's hand-assembled test layers for ProviderSessionManager need a stub; upstream uses the same pattern (ProviderVersionCache). Phase 3a provides the real implementation as a layer; seam 4's 'default layer returning empty values' is met"],
+    ["DR-7", "compose() carries a typed LoomSessionComposerError the hook maps to ProviderSessionOpenError", "An infallible compose (seam 4's wording) that swallows its failures", "launching a child without its role overlay because a file read failed is a silent wrong launch; failing the open is loud and is what every other open failure does"],
+    ["DR-8", "costUsd only: per-turn sum of assistant message_end usage.cost.total on the terminal tokenUsage; the cumulative token semantics are flagged to 3c, not changed", "Also sum per-turn tokens into a Loom sub-object; or report pi's session-cumulative stats.cost", "cost is Carl's functionality and per-turn is V1's semantics; tokens are 3c's ledger columns and their shape is 3c's call; cumulative cost would need differencing that breaks on forks and rollbacks"],
+    ["DR-9", "Area H: isDefault on the discovered PI_DEFAULT_MODEL; the sentinel stays available", "Rely on the sentinel plus pi's settings.json default; or delete the sentinel", "pi's global defaultModel (Fable) and Loom's PI_DEFAULT_MODEL (Opus) are different default surfaces by design (platform-update targets.yaml), so the sentinel cannot land a Loom thread on Carl's Loom choice, and it records 'default' where 3c needs a slug; deleting upstream's sentinel would remove a working user option for no gain"],
+    ["DR-10", "DL-74: provider-session.detached emitted for stopped/error sessions in planThreadDeletion (event only)", "The strategy's literal one-statement SQL sweep on the V2 bindings table; or accept the accretion", "consult_manager on the strategy (author 8bbbfc3e…, medium confidence): the plan committed to the functionality and deferred the mechanism; a projection DELETE would diverge from ProjectionMaintenance.rebuild, which refolds the log; the event is what upstream's own provider-session.detach command emits for a session of any status, so nothing is stretched. Accepting accretion contradicts Carl's DL-74 ruling"],
+    ["DR-11", "pi update --self: no hunk; a test pins upstream's manual-only resolution for the bundled path", "A Loom hunk forcing manual-only for the pi driver", "upstream already refuses to run any updater against an unproven node_modules install; a hunk would duplicate the rule"],
+    ["DR-12", "Stuck-launch verification stays in this item (DL-201) and its verdicts are consumed by Phase 4 (delete/keep) and 3b (starting-run rule only if a run fails to terminalise); the reproduction uses a binaryPath wrapper keyed on T3_PI_RUNTIME_MODE", "Move the experiments to 3b as the Phase 3 plan wrote; kill the real pi by PID at spawn", "DL-201 is the later ruling; this item has the fresh home and the real binary set up anyway; a wrapper keyed on the env var upstream sets only for real session opens leaves discovery, the version probe and text generation on the real binary so the provider card stays healthy and the composer can send"],
+    ["DR-13", "The Loom argv follows the user's launchArgs and precedes the bridge --extension; a user --append-system-prompt is kept (pi joins them)", "Strip user --append-system-prompt / --skill from launchArgs", "pi 1.0.2 accepts all three repeated; removing a user's configured args is upstream's decision to make (its resolvePiLaunchArgs allows them)"],
+  ]}
+/>
+
+## Work breakdown
+
+Two sessions for one coder; the handoff point is the commit at the end of session 1, on which session 2's smoke depends (it needs the bundled 1.0.2 to be what runs). Session 2's code does not depend on session 1's code beyond the resolver module.
+
+<Checklist
+  items={[
+    { id: "s1", label: "Session 1 — pi 1.0.2 + patches + bundled resolution + contract test + stock observations", note: "Re-derive 0001 (extend) and 0002 against the pristine tarball; append the RPC edit and header to patch-bundle.mjs; run the README's steps 1–3 with the deltas in §1 (worktree-local edit dir; CI=true vp i --no-frozen-lockfile); bundledPi.loom.ts + the PiDriver.ts line + the settings description; PiCwdOverride.contract.test.ts (nine cases) and providerMaintenance.loom.test.ts green; typecheck, check, unmarkedsweep, licence manifest; the fresh-home smoke F1–F6 and F8 on this tree — F3 and F6 give the STOCK observations for Area H and DL-74, F5 gives both stuck-launch verdicts; README and doc 30 rows; commit. Handoff: the bundled patched 1.0.2 is what every pi spawn runs, with evidence." },
+    { id: "s2", label: "Session 2 — adapter hunks, open-session field + hook + composer default, the two doctrine hunks, tests, post-hunk observations", note: "costUsd contract field + the three adapter hunks; cwdOverride on switch_session; loom on ProviderAdapterV2OpenSessionInput, buildPiRpcLaunch and PiAdapterV2.openSession; sessionComposer.ts, LoomSessionComposerLive in loom/serverLayers.ts, the runtimeLayer.ts line, the ProviderSessionManager hook; PiProvider.ts isDefault line; ThreadDeletion.ts hunk; PiAdapterV2.loom.test.ts, ThreadDeletion.loom.test.ts, PiProvider.loom.test.ts; upstream PiAdapterV2.test.ts and the pi_compaction fixture green; typecheck, check, unmarkedsweep; the smoke F1–F4, F6–F8 on this tree for the POST-HUNK observations (F3 model = PI_DEFAULT_MODEL, F6 count 0, F7 costUsd present); hunk inventory amendment and doc 30 rows; commit." },
+  ]}
+/>
+
+<Callout tone="risk">
+**Risks.** (1) *A regenerated patch that applies to `dist/` but not the bundle passes typecheck and fails at runtime* — the contract test drives the bundle and is the gate; never trust `apply.sh --check` on the global install as evidence for the bundled copy. (2) *The sibling-worktree trap* — a worktree that merged the bump commit without running `vp i` still resolves 0.99.2 and every probe passes anyway; assert the resolved version first (README). (3) *`cwdOverride` on an unpatched bundle degrades silently* to today's behaviour (pi ignores the field); only the contract test notices. (4) *Replay fixtures match outbound frames on the union of keys* — a future Pi fixture with a `switch_session` frame needs `cwdOverride: "<any>"`, or it fails for the right reason. (5) *Phase 2 substrate coders are editing `runtimeLayer.ts` concurrently* (the `storesLayer` line); this item's line is in `providerSessionManagerProvided`, so the merge is trivial but must be re-checked at rebase. (6) *The smoke runs the bundled 1.0.2 against the shared `~/.pi/agent`* — settings and auth are read-only by construction; the smoke's pi sessions are new files under pi's default session dir, `~/.pi/agent/sessions/<cwd-slug>/` for the scratch repo cwd, as every pi run writes them; F2's hashes are the evidence that settings and auth were not rewritten, and the scratch repo's session directory may be left for the reviewer. (7) *Stuck-launch mode (a) leaves a hung wrapper process* cached in `ProviderSessionManager` until idle release; kill it only by the PID read from `/proc`, after the observation, never by pattern.
+</Callout>
+
+## Open questions
+
+None. The strategy had already decided the version, the patch extension and the bundled binary; the two doctrine checks resolved on code and configuration facts (§5); the one mechanism the strategy had worded differently (the DL-74 prune) was settled by consulting its author (DR-10); and the stuck-launch ownership follows DL-201.

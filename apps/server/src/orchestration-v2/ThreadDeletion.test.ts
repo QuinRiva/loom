@@ -279,7 +279,7 @@ it.effect("queues provider and resource cleanup and preserves an earlier deletio
     assert.deepEqual(deleted.thread.deletedAt, createdAt);
     assert.deepEqual(
       deleted.providerSessions.map((session) => session.status),
-      ["stopped", "error"],
+      [], // loom: DL-74 — the deleted thread unbinds stopped and errored sessions too
     );
     assert.deepEqual(
       plan.effects.map((effect) => effect.request),

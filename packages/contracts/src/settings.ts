@@ -861,7 +861,9 @@ export const PiSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("pi").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the Pi coding agent binary.",
+        // loom: the bundled, patched pi is the default (DT-49)
+        description:
+          'Path to the Pi coding agent binary. Leave empty (or "pi") to run the copy bundled with Loom, which carries Loom\'s patches; set a path only to override it.',
         providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
       }),
     ),
@@ -889,6 +891,19 @@ export type AcpRegistryDistributionPreference = typeof AcpRegistryDistributionPr
 
 export const AcpRegistrySettings = makeProviderSettingsSchema(
   {
+    source: Schema.Literals(["registry", "local"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("registry")),
+      Schema.annotateKey({
+        title: "ACP source",
+        providerSettingsForm: {
+          control: "select",
+          options: [
+            { value: "registry", label: "ACP Registry" },
+            { value: "local", label: "Local command" },
+          ],
+        },
+      }),
+    ),
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -906,9 +921,13 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Executable override",
         description:
-          "Optional local executable to use instead of installing the registry distribution. Registry arguments and environment are still applied.",
+          "Executable on this environment. For registry agents, this overrides the distribution executable while keeping its arguments and environment.",
         providerSettingsForm: { placeholder: "Registry default", clearWhenEmpty: "omit" },
       }),
+    ),
+    commandArgs: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     authMethodId: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
@@ -929,7 +948,7 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["agentId", "commandPath", "authMethodId"],
+    order: ["source", "agentId", "commandPath", "authMethodId"],
   },
 );
 export type AcpRegistrySettings = typeof AcpRegistrySettings.Type;
@@ -1221,7 +1240,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // loom: deployctl/systemd writes no continuation marker, so redeploys resume by default.
+  // loom: on for every thread — deployctl/systemd writes no continuation marker, and Loom's
+  // rule 0 (Orchestrator.loom.ts loomContinuationVetoed) vetoes it per Loom thread (pull 9 §3).
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),

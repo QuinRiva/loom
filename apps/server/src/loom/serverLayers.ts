@@ -13,7 +13,14 @@
  *
  * @module loom/serverLayers
  */
+import * as Layer from "effect/Layer";
+
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
+import { LoomReDriveReactor } from "./orchestration/redrive.ts";
+import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
+import * as LoomStore from "./projection/LoomStore.ts";
+import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 
 /** Provider sweeps merged into the provider runtime layer. */
@@ -26,3 +33,21 @@ export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
  * detached in pull 9 (ledger DT-92).
  */
 export const LoomProviderHealthLive = ProviderHealthRegistryLive;
+
+/**
+ * Loom's sidecar store and the goal broadcast (with its cascade reactor),
+ * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
+ * and publish/subscribe goal shell items; and the re-drive reactor that moves
+ * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
+ */
+export const LoomGoalBroadcastLive = Layer.mergeAll(
+  LoomGoalBroadcast.layerWithReactor,
+  LoomReDriveReactor.pipe(Layer.provide(CommandReceiptStore.layer)), // loom: re-drive (D16)
+).pipe(Layer.provideMerge(LoomStore.layer));
+
+/**
+ * The open-session composer `ProviderSessionManager` asks for each thread's
+ * prompt, skills and extensions (driver plan §4). Empty until Phase 3a re-points
+ * this one export at the real composer.
+ */
+export const LoomSessionComposerLive = LoomSessionComposerDefaultLive;

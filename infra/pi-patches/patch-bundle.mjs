@@ -59,7 +59,7 @@ function __loomWriteAuthAtomic(authPath, next, options) {
  * mangled; the RPC contract test matches them by substring.
  */
 const CWD_HEADER = `
-// LOOM PATCH — see infra/pi-patches/README.md (0001 --cwd resume).
+// LOOM PATCH — see infra/pi-patches/README.md (0001 --cwd resume, CLI and RPC switch_session).
 import { existsSync as __loomCwdExistsSync, statSync as __loomCwdStatSync } from "node:fs";
 function __loomResolveCwdOverrideOrExit(parsed, cwd) {
   if (parsed.cwdOverride === undefined) return undefined;
@@ -84,6 +84,14 @@ function __loomResolveCwdOverrideOrExit(parsed, cwd) {
     process.exit(1);
   }
   return resolved;
+}
+function __loomResolveRpcCwdOverride(cwdOverride) {
+  if (cwdOverride === undefined) return undefined;
+  const resolved = resolvePath(cwdOverride, process.cwd());
+  if (!__loomCwdExistsSync(resolved) || !__loomCwdStatSync(resolved).isDirectory()) {
+    throw new Error(\`cwdOverride directory does not exist: \${resolved}\`);
+  }
+  return { cwdOverride: resolved };
 }
 `;
 
@@ -113,7 +121,9 @@ const TARGETS = [
   {
     patch: "0001",
     locator: "function openSessionOrExit(",
-    marker: "__loomResolveCwdOverrideOrExit",
+    // The RPC helper is the newest part of 0001, so a chunk patched by an older
+    // copy of this script (CLI half only) reads as unpatched rather than done.
+    marker: "__loomResolveRpcCwdOverride",
     header: CWD_HEADER,
     edits: [
       [
@@ -162,6 +172,12 @@ const TARGETS = [
         "0001 --cwd threaded into createSessionManager",
         /createSessionManager\(parsed,cwd,sessionDir,startupSettingsManager\)/g,
         "createSessionManager(parsed,cwd,sessionDir,startupSettingsManager,__loomCwdOverride)",
+        1,
+      ],
+      [
+        "0001 RPC switch_session accepts cwdOverride",
+        /case"switch_session":\{let result=await runtimeHost\.switchSession\(command\.sessionPath\);/g,
+        'case"switch_session":{let result=await runtimeHost.switchSession(command.sessionPath,__loomResolveRpcCwdOverride(command.cwdOverride));',
         1,
       ],
     ],

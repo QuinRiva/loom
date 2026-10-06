@@ -54,6 +54,7 @@ import {
   ThreadId,
   TurnItemId,
   NodeId,
+  isLoomDomainEvent, // loom:
 } from "@t3tools/contracts";
 import {
   createOrchestrationV2TurnItemVisibility,
@@ -69,6 +70,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type * as Statement from "effect/unstable/sql/Statement";
+import { applyLoomProjectionEvent } from "../loom/projection/loomProjection.ts"; // loom:
 
 import {
   isThreadHistoryUserTurn,
@@ -647,6 +649,8 @@ export function applyToProjection(
     updatedAt: event.occurredAt,
   };
 
+  // loom: Loom events change only the sidecar tables, never this projection
+  if (isLoomDomainEvent(event)) return base;
   switch (event.type) {
     case "thread.created":
     case "thread.archived":
@@ -1678,6 +1682,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const apply: ProjectionStoreV2Shape["apply"] = (event) =>
       Effect.gen(function* () {
+        // loom: sidecar tables are written in the commit transaction, beside upstream's projection
+        yield* applyLoomProjectionEvent(sql, event);
         switch (event.type) {
           case "thread.created":
           case "thread.archived":

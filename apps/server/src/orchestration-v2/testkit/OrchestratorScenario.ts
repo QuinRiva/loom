@@ -12,6 +12,7 @@ import type {
   CommandId,
   ThreadId,
 } from "@t3tools/contracts";
+import { isLoomCommand, loomCommandThreadId } from "@t3tools/contracts"; // loom:
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -132,6 +133,7 @@ export class OrchestratorV2ScenarioStepError extends Schema.TaggedError<Orchestr
 }
 
 function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<ThreadId> {
+  if (isLoomCommand(command)) return [loomCommandThreadId(command)]; // loom: the lock thread
   switch (command.type) {
     case "thread.create":
     case "thread.archive":

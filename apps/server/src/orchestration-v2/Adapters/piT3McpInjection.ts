@@ -2,6 +2,7 @@ import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 
+import type { LoomOpenSessionFields } from "../../loom/prompt/sessionComposer.ts"; // loom: Area G
 import type { McpProviderSessionConfig } from "../../mcp/McpProviderSession.ts";
 import {
   PI_T3_MCP_EXTENSION_FILENAME,
@@ -256,6 +257,7 @@ export function buildPiRpcLaunch(input: {
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
+  readonly loom?: LoomOpenSessionFields; // loom: Area G delivery
 }): {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
@@ -274,6 +276,13 @@ export function buildPiRpcLaunch(input: {
     "rpc",
     ...(input.ephemeral === true ? ["--no-session"] : []),
     ...launchArgs,
+    // loom: the composed prompt, skills and extensions follow the user's launch args and precede the
+    // bridge extension (pi joins repeated --append-system-prompt); empty fields add no argv
+    ...(input.loom?.appendSystemPrompt
+      ? ["--append-system-prompt", input.loom.appendSystemPrompt]
+      : []),
+    ...(input.loom?.skills ?? []).flatMap((skill) => ["--skill", skill]), // loom:
+    ...(input.loom?.extensions ?? []).flatMap((extension) => ["--extension", extension]), // loom:
     // Restrictions follow user launch args so a configured --tools or
     // --extension cannot silently re-enable unattended text-generation code.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),

@@ -104,6 +104,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
+  isLoomDomainEvent, // loom:
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import {
@@ -254,6 +255,7 @@ import {
 import type { ServerProvider, UsageLimitSourceSnapshot } from "@t3tools/contracts";
 import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import { loadProjectReferenceLinks } from "./loom/referenceLinks.ts";
+import { loomShellGoals } from "./loom/projection/LoomGoalBroadcast.ts"; // loom: DL-200
 import * as RelayClient from "@t3tools/shared/relayClient";
 import {
   sameUsageLimitCommandCoverage,
@@ -786,6 +788,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           afterSequence,
         })
         .pipe(
+          Stream.filter((stored) => !isLoomDomainEvent(stored.event)), // loom: clients read shell.workstream
           Stream.map((stored) => ({
             kind: "event" as const,
             sequence: stored.sequence,
@@ -811,6 +814,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           limit: THREAD_RESUME_MAX_REPLAY_EVENTS + 1,
         })
         .pipe(
+          Stream.filter((stored) => !isLoomDomainEvent(stored.event)), // loom: clients read shell.workstream
           Stream.map((stored) => ({
             kind: "event" as const,
             sequence: stored.sequence,
@@ -951,6 +955,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   function* (input: {
     readonly afterSequence?: number;
     readonly requestCompletionMarker?: boolean;
+    readonly loom?: boolean; // loom: opt in to goal items and snapshot goals (DL-200)
   }) {
     const sql = yield* SqlClient.SqlClient;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -960,6 +965,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
     const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
 
     const enrichmentChanges = yield* projectEnrichment.subscribeChanges;
+    const loomGoals = yield* loomShellGoals(input); // loom: empty unless `loom: true` (DL-200)
     const loadProjectMetadataSnapshot = Effect.fn("ws.orchestrationV2.loadProjectMetadataSnapshot")(
       function* (snapshotSequence: number) {
         const enriched = yield* enrichProjectShells(yield* projects.listShells());
@@ -987,8 +993,13 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         }),
       );
       const enriched = yield* enrichProjectShells(base.projects);
+      const goals = yield* loomGoals.snapshotGoals(base.projects); // loom: snapshot goals (DL-200)
       return {
-        snapshot: { ...base, projects: enriched.projects } as OrchestrationV2ShellSnapshot,
+        snapshot: {
+          ...base,
+          projects: enriched.projects,
+          ...goals, // loom:
+        } as OrchestrationV2ShellSnapshot,
         resolvedRepositoryIdentityRoots: enriched.resolvedRepositoryIdentityRoots,
       };
     });
@@ -1090,6 +1101,9 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       ),
     );
 
+    // loom: goal items ride the post-snapshot tail beside the enrichment refreshes
+    const enrichmentAndGoals = Stream.merge(enrichmentRefreshes, loomGoals.items);
+
     // Always attach the enrichment subscription before the first load so
     // completions that race HTTP snapshot fetch still push a refresh.
     // When the client already holds a shell snapshot (cached, or loaded
@@ -1142,7 +1156,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         return composeShellStreamWithEnrichment({
           initial: initialSnapshotItems(loaded),
           tail: completionThenLive(loaded.snapshot.snapshotSequence),
-          enrichment: enrichmentRefreshes,
+          enrichment: enrichmentAndGoals, // loom:
         });
       }
 
@@ -1152,7 +1166,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         return composeShellStreamWithEnrichment({
           initial: initialSnapshotItems(loaded),
           tail: completionThenLive(loaded.snapshot.snapshotSequence),
-          enrichment: enrichmentRefreshes,
+          enrichment: enrichmentAndGoals, // loom:
         });
       }
 
@@ -1166,7 +1180,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       return composeShellStreamWithEnrichment({
         initial: initialEnrichmentItems(loaded),
         tail: Stream.concat(Stream.concat(replay, completionMarker), liveFrom(highWater)),
-        enrichment: enrichmentRefreshes,
+        enrichment: enrichmentAndGoals, // loom:
       });
     }).pipe(
       Effect.mapError(
@@ -2138,36 +2152,9 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverUninstallAcpRegistryManagedBinary]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverUninstallAcpRegistryManagedBinary,
-            serverSettings
-              .withSettingsSnapshot((settings) =>
-                acpRegistryCatalog.uninstallManagedBinary(
-                  input,
-                  Effect.succeed(
-                    Object.values(settings.providerInstances).some((instance) => {
-                      if (
-                        instance.driver !== "acpRegistry" ||
-                        instance.config === null ||
-                        typeof instance.config !== "object"
-                      ) {
-                        return false;
-                      }
-                      return (instance.config as Record<string, unknown>).agentId === input.agentId;
-                    }),
-                  ),
-                ),
-              )
-              .pipe(
-                Effect.mapError((cause) =>
-                  AcpRegistrySupport.isAcpRegistryError(cause)
-                    ? cause
-                    : new AcpRegistrySupport.AcpRegistryError({
-                        reason: "install_failed",
-                        detail: `Could not read provider settings while checking references for ACP Registry agent ${input.agentId}.`,
-                        cause,
-                      }),
-                ),
-                Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError),
-              ),
+            acpRegistryCatalog
+              .uninstallManagedBinary(input)
+              .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError)),
             {
               "rpc.aggregate": "server",
               "acp_registry.agent_id": input.agentId,

@@ -410,6 +410,18 @@
     "./codexAuthHandoff": {
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
+    },
+    "./workstreamGraph": {
+      "types": "./src/workstreamGraph.ts",
+      "import": "./src/workstreamGraph.ts"
+    },
+    "./workstreamDependencies": {
+      "types": "./src/workstreamDependencies.ts",
+      "import": "./src/workstreamDependencies.ts"
+    },
+    "./workstreamStart.loom": {
+      "types": "./src/workstreamStart.loom.ts",
+      "import": "./src/workstreamStart.loom.ts"
     }
   },
   "scripts": {

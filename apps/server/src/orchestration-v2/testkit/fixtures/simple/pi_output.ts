@@ -46,7 +46,12 @@ export function assertPiSettledTokenUsage(
   for (const [index, turn] of turns.entries()) {
     const contextUsage = field(stats[index], "contextUsage");
     const tokens = field(stats[index], "tokens");
-    const { updatedAt: _updatedAt, ...tokenUsage } = turn.tokenUsage ?? { updatedAt: "" };
+    // loom: costUsd (driver plan §3) is the turn's pi-priced cost, asserted in PiAdapterV2.loom.test.ts
+    const {
+      updatedAt: _updatedAt,
+      costUsd: _costUsd,
+      ...tokenUsage
+    } = turn.tokenUsage ?? { updatedAt: "" };
     assert.deepEqual(tokenUsage, {
       usedTokens: field(contextUsage, "tokens"),
       maxTokens: field(contextUsage, "contextWindow"),

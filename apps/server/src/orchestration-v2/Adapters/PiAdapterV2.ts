@@ -329,6 +329,8 @@ interface ActivePiTurn {
   activeCompaction: PiCompactionState | null;
   activeProviderRetry: PiProviderRetryState | null;
   failure: ReturnType<typeof makeProviderFailure> | null;
+  // loom: USD for this turn, summed from pi's own per-message usage.cost.total (DR-8)
+  costUsd: number;
   /** Session-tree refs read just before Stop terminates Pi, when no read is possible later. */
   stopTreeRefs?: PiTurnTreeRefs | null;
 }
@@ -419,6 +421,7 @@ export function makePiAdapterV2(
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
+        ...(input.loom === undefined ? {} : { loom: input.loom }), // loom: Area G
       });
       const connection: PiRpcConnection = yield* makePiRpcConnection({
         command: options.settings.binaryPath || "pi",
@@ -1449,7 +1452,13 @@ export function makePiAdapterV2(
               : { nativeTurnRef: providerRef(treeRefs.turnStartEntryId) }),
             status: turn.interrupted ? "interrupted" : failure !== null ? "failed" : "completed",
             completedAt,
-            ...(tokenUsage === undefined ? {} : { tokenUsage }),
+            ...(tokenUsage === undefined
+              ? {}
+              : // loom: the turn's pi-priced cost rides only the terminal usage (DR-8)
+                {
+                  tokenUsage:
+                    turn.costUsd > 0 ? { ...tokenUsage, costUsd: turn.costUsd } : tokenUsage,
+                }),
           },
         });
         yield* updateProviderThread(state, {
@@ -1612,6 +1621,9 @@ export function makePiAdapterV2(
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
+            // loom: pi prices each message itself; never price tokens in T3 (DR-8)
+            turn.costUsd +=
+              recordNumber(recordField(recordField(message, "usage"), "cost"), "total") ?? 0;
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({
@@ -2019,7 +2031,9 @@ export function makePiAdapterV2(
           contextWindow = null;
           const result = yield* lifecycleRequest(
             resumeId != null
-              ? { type: "switch_session", sessionPath: resumeId }
+              ? // loom: pi resumes into the session's recorded cwd unless told otherwise; the thread's
+                // cwd is the truth V2 holds (patch 0001, RPC half; DR-3). Needs the bundled patched pi.
+                { type: "switch_session", sessionPath: resumeId, cwdOverride: cwd }
               : { type: "new_session" },
           );
           if (recordField(result, "cancelled") === true) {
@@ -2351,6 +2365,7 @@ export function makePiAdapterV2(
               activeCompaction: null,
               activeProviderRetry: null,
               failure: null,
+              costUsd: 0, // loom: DR-8
             };
             // Only the install/send/start-event boundary excludes the event
             // pump. Earlier correlated requests must leave the pump free so

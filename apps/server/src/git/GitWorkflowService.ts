@@ -415,7 +415,7 @@ export const make = Effect.gen(function* () {
       ),
     createWorktree: (input, options) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
-        Effect.andThen(git.createWorktree(input, options)),
+        Effect.andThen(gitManager.createWorktree(input, options)),
       ),
     // loom: fan-in / reaper primitives (orphaned in pull 9, DT-45).
     commitAll: (cwd, subject, body) =>

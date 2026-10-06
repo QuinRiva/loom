@@ -147,7 +147,12 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
-import { LoomProviderHealthLive, LoomProviderRuntimeLive } from "./loom/serverLayers.ts"; // loom:
+import {
+  LoomGoalBroadcastLive,
+  LoomProviderHealthLive,
+  LoomProviderRuntimeLive,
+} from "./loom/serverLayers.ts"; // loom:
+import * as LoomStore from "./loom/projection/LoomStore.ts"; // loom:
 import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
 import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClient.ts";
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
@@ -471,7 +476,11 @@ const OrchestrationApplicationLayerLive = CheckpointDiffQuery.layer.pipe(
 // so every client sees the same shelf.
 const ThreadSettlementWorkerLive = Layer.effectDiscard(
   ThreadSettlementService.make.pipe(Effect.flatMap((service) => service.start())),
-).pipe(Layer.provide(PullRequestServiceLive), Layer.provide(ProjectionStoreV2.layer));
+).pipe(
+  Layer.provide(PullRequestServiceLive),
+  Layer.provide(ProjectionStoreV2.layer),
+  Layer.provide(LoomStore.layer), // loom: settlement reads the Loom sidecar (blockers, finished roots)
+);
 
 const ThreadPullRequestWorkerLive = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
@@ -540,6 +549,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
   LoomProviderRuntimeLive, // loom: SubscriptionUsagePoller (the sidebar usage meter's feeder)
+  LoomGoalBroadcastLive, // loom: LoomStoreV2 + goal shell-item PubSub and its cascade reactor
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
 ).pipe(
@@ -578,7 +588,7 @@ const RuntimeCoreDependenciesLive = RuntimeCoreDependenciesBaseLive.pipe(
   Layer.provideMerge(PtyAdapterLive),
   // Search, prepare, status inspection, and turn launch share one registry
   // cache so every client and provider instance sees the same prepared agents.
-  Layer.provideMerge(AcpRegistryCatalogLive),
+  Layer.provideMerge(AcpRegistryCatalogLive.pipe(Layer.provide(ServerSettingsLayerLive))),
   // Shared native/canonical NDJSON writers used by both the per-instance
   // V2 drivers and the orchestration runtime. Provide resource attribution so
   // the rewritten telemetry pipeline can account for logical NDJSON writes.
