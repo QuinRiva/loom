@@ -78,6 +78,12 @@ export class EmergentGoalGenerator extends Context.Service<
   }
 >()("t3/loom/orchestration/EmergentGoalReactor/EmergentGoalGenerator") {}
 
+const decodePiSettings = Schema.decodeUnknownEffect(PiSettings);
+const isTextGenerationError = Schema.is(TextGenerationError);
+const decodeInterpretation = Schema.decodeEffect(
+  Schema.fromJsonString(buildEmergentGoalPrompt({ message: "" }).outputSchema),
+);
+
 const fail = (detail: string, cause?: unknown) =>
   new TextGenerationError({ operation: "generateEmergentGoal", detail, cause });
 
@@ -88,7 +94,6 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
     const serverSettings = yield* ServerSettingsService;
     const { cwd: serverCwd } = yield* ServerConfig;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const { outputSchema } = buildEmergentGoalPrompt({ message: "" });
     return {
       generate: (input) =>
         Effect.gen(function* () {
@@ -101,7 +106,7 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
               `Text generation instance '${modelSelection.instanceId}' is not Pi.`,
             );
           }
-          const pi = yield* Schema.decodeUnknownEffect(PiSettings)(instance.config ?? {});
+          const pi = yield* decodePiSettings(instance.config ?? {});
           const launchArgs = resolvePiLaunchArgs(pi.launchArgs);
           if (!launchArgs.ok) return yield* fail(launchArgs.message);
           const launch = buildPiRpcLaunch({
@@ -144,16 +149,12 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
           const text = (data as { text?: unknown } | null)?.text;
           if (typeof text !== "string" || text.trim() === "")
             return yield* fail("Pi returned no text.");
-          return yield* Schema.decodeEffect(Schema.fromJsonString(outputSchema))(
-            extractJsonObject(text.trim()),
-          );
+          return yield* decodeInterpretation(extractJsonObject(text.trim()));
         }).pipe(
           Effect.scoped,
           Effect.timeout(GENERATION_TIMEOUT),
           Effect.mapError((cause) =>
-            Schema.is(TextGenerationError)(cause)
-              ? cause
-              : fail("Emergent goal generation failed.", cause),
+            isTextGenerationError(cause) ? cause : fail("Emergent goal generation failed.", cause),
           ),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         ),

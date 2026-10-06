@@ -157,6 +157,8 @@ const StashTestLayer = WorkstreamDispatcherLive.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
+const encodeStash = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
+
 /** Writes a stash file exactly as 3c's adapter hunk will: one JSON string. */
 const stash = (threadId: ThreadId, text: string) =>
   Effect.gen(function* () {
@@ -164,10 +166,7 @@ const stash = (threadId: ThreadId, text: string) =>
     const path = yield* Path.Path;
     const dir = path.join((yield* ServerConfig.ServerConfig).stateDir, "pending-steering");
     yield* fs.makeDirectory(dir, { recursive: true });
-    yield* fs.writeFileString(
-      path.join(dir, `${threadId}.json`),
-      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.String))(text),
-    );
+    yield* fs.writeFileString(path.join(dir, `${threadId}.json`), yield* encodeStash(text));
   });
 const stashed = (threadId: ThreadId) =>
   Effect.gen(function* () {
