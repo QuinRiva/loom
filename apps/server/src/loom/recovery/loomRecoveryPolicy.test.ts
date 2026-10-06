@@ -154,6 +154,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
 const StashTestLayer = WorkstreamDispatcherLive.pipe(
   Layer.provideMerge(LoomOrchestratorTestLayer),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-recovery-" })),
+  Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provideMerge(NodeServices.layer),
 );
 
