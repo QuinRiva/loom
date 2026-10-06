@@ -316,3 +316,34 @@ export const renderNotifyDisposition = (input: {
       return `Notification queued for ${target}: it is delivered when its current turn can take it. ${noReply}`;
   }
 };
+
+/**
+ * The recipient's relationship to the sender. Consult and notify are global,
+ * so the sender may be the target's parent, its child, or unrelated; the
+ * framing states which rather than asserting a neutral peer.
+ */
+export const relationshipLabel = (input: {
+  readonly senderThreadId: string;
+  readonly senderParentThreadId: string | null;
+  readonly targetThreadId: string;
+  readonly targetParentThreadId: string | null;
+}) =>
+  input.targetParentThreadId === input.senderThreadId
+    ? "your parent orchestrator"
+    : input.senderParentThreadId === input.targetThreadId
+      ? "one of your sub-threads"
+      : "no parent/child relationship to you";
+
+/** Who is acting, as the consulted fork or the notified thread reads it. */
+export const describeSender = (input: {
+  readonly title: string;
+  readonly role: string | null;
+  readonly threadId: string;
+  readonly relationship: string;
+}) =>
+  `thread «${input.title}» (${input.role ?? "thread"}, ${input.threadId}; ${input.relationship})`;
+
+/** The notify_thread wrapper landed in the recipient's transcript, fixed at record time. */
+export const composeNotifyFramedText = (sender: string, senderThreadId: string, message: string) =>
+  `Notification from ${sender}, sent via ${t("notify_thread")}:\n\n${message}\n\n` +
+  `No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with ${t("notify_thread")} (threadId: ${senderThreadId}).`;

@@ -8,6 +8,9 @@
  *
  * @module mcp/toolkits/workstream/idempotency
  */
+// @effect-diagnostics nodeBuiltinImport:off - a pure digest, no service needed.
+import * as NodeCrypto from "node:crypto";
+
 import { CommandId, ThreadId } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -50,3 +53,23 @@ export const stableThreadId = (
   operation: string,
   index?: number,
 ) => ThreadId.make(stableId("thread", caller, key, operation, index));
+
+/**
+ * A uuid for a row that is not a command (a goal, a goal task): fresh without a
+ * `clientRequestId`, else derived from it so a retry rewrites the same row.
+ * Uuid-shaped because the task-tree parser reads an unknown uuid as a stale id.
+ */
+export const createdUuid = (
+  caller: WorkstreamCaller,
+  clientRequestId: string | undefined,
+  operation: string,
+) =>
+  clientRequestId === undefined
+    ? requestKey(undefined)
+    : Effect.succeed(
+        NodeCrypto.createHash("sha256")
+          .update(stableId("row", caller, clientRequestId, operation, undefined))
+          .digest("hex")
+          .slice(0, 32)
+          .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5"),
+      );

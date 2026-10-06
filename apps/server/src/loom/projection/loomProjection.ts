@@ -221,7 +221,12 @@ const applyEdgeTables = (sql: SqlClient.SqlClient, event: LoomDomainEvent) => {
   }
 };
 
-/** A goal-less root's first `thread.goal-set` creates its row from the V2 thread. */
+/**
+ * A goal-less root's first `thread.goal-set` creates its row from the V2
+ * thread. Only `subagent` lineage is a workstream edge: a `thread_fork` result
+ * (upstream `fork` lineage) is a staged ROOT, kept out of its source's tree
+ * and every delegation rail (DL-344).
+ */
 const rowForGoalSet = (sql: SqlClient.SqlClient, threadId: ThreadId, at: IsoDateTime) =>
   sql<{
     readonly projectId: string;
@@ -229,8 +234,10 @@ const rowForGoalSet = (sql: SqlClient.SqlClient, threadId: ThreadId, at: IsoDate
     readonly rootThreadId: string | null;
   }>`
     SELECT project_id AS "projectId",
-      json_extract(payload_json, '$.lineage.parentThreadId') AS "parentThreadId",
-      json_extract(payload_json, '$.lineage.rootThreadId') AS "rootThreadId"
+      CASE json_extract(payload_json, '$.lineage.relationshipToParent') WHEN 'subagent'
+        THEN json_extract(payload_json, '$.lineage.parentThreadId') END AS "parentThreadId",
+      CASE json_extract(payload_json, '$.lineage.relationshipToParent') WHEN 'subagent'
+        THEN json_extract(payload_json, '$.lineage.rootThreadId') END AS "rootThreadId"
     FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}
   `.pipe(
     Effect.map(([thread]) =>
