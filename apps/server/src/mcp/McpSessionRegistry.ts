@@ -137,12 +137,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
         },
         client: undefined,
-        capabilities: new Set<McpInvocationContext.McpCapability>([
-          "orchestration",
-          "worktree",
-          "pull-requests",
-          ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
-        ]),
+        // loom: issue exactly the requested set — Loom threads ask for workstream +
+        // pull-requests and are denied orchestration / worktree (pull 9 P3-6); a request
+        // naming nothing keeps upstream's default.
+        capabilities: new Set<McpInvocationContext.McpCapability>(
+          request.capabilities ?? [
+            "orchestration",
+            "worktree",
+            "pull-requests",
+            ...(browserToolsAvailable ? (["preview"] as const) : []),
+          ],
+        ),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
