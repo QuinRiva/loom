@@ -27,3 +27,27 @@ deployed.
   v22.12.0, `HOME=/home/Carl` → v24.21.0 (`~/.n/bin/node`). Production boots with the real
   home, so not a cut-over defect; and setup would fail in QA anyway (no npm registry, guide
   §4). No change.
+- **DL-603 — The restored goal tasks have new ids, and ticks wait for QA.** A task under the
+  QA-fix parent is ticked only when its fix is in PR #333 **and** in the rebuilt QA instance.
+  A coder ticking its own task when it submits is reopened until then.
+- **DL-634 — Consult forks keep the target's own tool set (Carl's direction).** Carl, on the
+  QA plan `plans/consult-thread-fork-failure/plan.mdx` (written in QA worktree `t3-9e9fa432`):
+  "I never liked the way that we limited which tools a consult thread could use … it caused
+  problems where … that thread … would try to do something that it needed to do in order to
+  answer the question but couldn't." So the `--tools read,grep,find,ls` narrowing and the
+  appended read-only system prompt go; read-only becomes an instruction in the consult turn.
+  The one kept limit is control-plane identity: the fork has no MCP credential, so it cannot
+  submit, spawn or flag as the target. Side effect: no renamed core tool is removed
+  mid-conversation, so the provider 400 (`tool_removal references unknown tool 'bash'`)
+  cannot occur on the consult path. Coder's first cut (`ba10ec368c`) fixed it instead by
+  patching the third-party `pi-anthropic-messages` bridge (which renames `bash`→`Bash` in the
+  tool list but not in `tool_removal` blocks); that patch stays for QA agent dirs as a
+  defence for other tool-shrinking paths, but the consult no longer depends on it. The plan's
+  stub-and-block alternative was not taken. Sent back via the review gate.
+- **DL-670 — Task-tree deletions are restorable by resubmitting the deleted line with its
+  id; the removal echo lists the removed lines; `goal_update` is owner-only.** No
+  confirmation flag, so normal prunes cost nothing extra. (Verifier F1/F2; DL-601 was this
+  bug.)
+- **DL-680 — The quiescence grace runs from the later of the last run's completion and the
+  reopen time; a synthesised report never replaces a submitted report's path.** (Verifier
+  B2.)
