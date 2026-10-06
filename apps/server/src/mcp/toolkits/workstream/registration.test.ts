@@ -115,13 +115,22 @@ it.effect("/mcp lists exactly the 21 Loom tools with _meta prose, object schemas
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
 );
 
-it.effect("every stub answers a workstream credential with its error mode", () =>
+it.effect("/mcp serves the real workstream handlers and 3a-3's stubs with their error modes", () =>
   Effect.gen(function* () {
-    const mcp = yield* serveMcp({}, { threadId: LOOM_TEST_THREAD, capabilities: ["workstream"] });
-    const list = yield* mcp.callTool("workstream_list", {});
-    expect(list).toMatchObject({
+    const mcp = yield* serveMcp(
+      {
+        loomStore: {
+          getWorkstream: () => Effect.succeed(null),
+          listChildren: () => Effect.succeed([]),
+        },
+      },
+      { threadId: LOOM_TEST_THREAD, capabilities: ["workstream"] },
+    );
+    // A real handler reaches the server's services (here: the stubbed sidecar store).
+    const brief = yield* mcp.callTool("workstream_brief", { node: "coder", markdown: "go" });
+    expect(brief).toMatchObject({
       isError: true,
-      content: [{ type: "text", text: "workstream_list is not ported in 3a-1." }],
+      content: [{ type: "text", text: expect.stringContaining('No direct child matches "coder"') }],
     });
     const tasks = yield* mcp.callTool("goal_task_list", {});
     expect(tasks).toMatchObject({
