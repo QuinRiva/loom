@@ -24,6 +24,7 @@ const legacyReaderFiles: Record<string, string> = {
   "persistence/ProviderSessionRuntime.ts": "orphaned DL-74 prune hunk (DT-89)",
   "persistence/threadSearchIndex.loom.ts":
     "migration 1045's FTS triggers on the inert V1 tables (DL-82)",
+  "loom/legacy/LoomV1WorkstreamImporter.ts": "Phase 4's Loom importer (sidecars, lineage, binding)", // loom: DL-513
 };
 // loom: files whose import only name-matches `forbiddenImport` (DL-179).
 const loomForbiddenImportExemptions = new Set([

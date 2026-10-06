@@ -24,7 +24,7 @@ Loom is a Pi-first fork of `pingdotgg/t3code` whose product is an orchestration 
 **Recorded facts folded at implementation (Phase 4 orchestrator, before coders were briefed).** These are rulings and findings from the Phase 3 report, the plan review and the parent orchestrator; they are applied by this plan, not re-opened.
 
 1. **Rulings.** Production's live database is `~/.t3/cockpit/userdata/state.sqlite`. The QA world clones **loom only**; no other project repository is cloned. The attachments directory is **not** copied. **No read-only `GH_TOKEN` is minted**: the QA unit carries no GitHub identity, the *PR watch* scenario is dropped from §5 (it passed in Phase 3's smoke with normal credentials), and every credential path stays hidden from the unit — the open question at the end of this plan is resolved as *drop*. **No deletions in pull 9**: `quarantine/`, the stuck-launch module and everything §4 lists as deletable stay in the tree (build-excluded); the staging hold (`held`) is **not** retired, so the importer's `planned, child, never started → held: true` branch is the live one. **No cut-over.** Precondition for continuing any imported thread: the `cwdOverride` RPC `switch_session` contract test (`PiCwdOverride.contract.test.ts`, 9/9 in Phase 2) is green on the final tree, re-run before the first continuation.
-2. **Plan-review nice-to-haves, all applied below.** `preview.sql`'s dangling-dependency filter lives in `WHERE`, not the `LEFT JOIN … ON`; the provider fix for a codex-fallback row uses the model from the raw V1 `model_selection_json` when it decodes to a pi model, else Loom's default pi model — never upstream's codex `DEFAULT_MODEL`; a `report_path` or `kickoff_brief_path` outside the cockpit home is **rewritten into the QA state directory** (`<qa>/userdata/workstream-reports/<basename>` / `workstream-briefs/<basename>`) with the file copied when it exists — a report path is never NULLed; the 1052 note no longer claims 1051 is reserved by a search option (1051 is free and stays free — Phase 4 uses 1052 only).
+2. **Plan-review nice-to-haves, all applied below.** `preview.sql`'s dangling-dependency filter lives in `WHERE`, not the `LEFT JOIN … ON`; the provider fix for a codex-fallback row uses the model from the raw V1 `model_selection_json` when it decodes to a pi model, else Loom's default pi model — never upstream's codex `DEFAULT_MODEL`; a `report_path` or `kickoff_brief_path` outside the cockpit home is **rewritten into the QA state directory** (`<qa>/userdata/workstream-reports/<basename>` / `workstream-briefs/<basename>`) with the file copied when it exists — a report path is never NULLed; the ledger migration no longer claims 1051 is reserved by a search option — and is numbered **1051** itself (DL-512: the Loom lane must stay dense — `Migrator` runs only ids above the high-water mark, so a skipped 1051 could never run once 1052 had; `LoomMigrations.test.ts` asserts the density).
 3. **Phase 3's final seam shapes** (facts the importer and QA world match): report paths are `<stateDir>/workstream-reports/<threadId>.md` / `.round-<n>.md` / `.quiescent-<runId>.md` via `apps/server/src/loom/loomPaths.ts`; stored attention reasons are exactly `error | needs_guidance | awaiting_acceptance | awaiting_orchestrator`; `WorkOutcomeRecord.synthesised` exists; `loom.humanAuthored` and the continuation-walking `turnStartedByHuman` are the human predicate; the board, rollups and web filters read `lineage.parentThreadId`, so **the lineage re-emit must land before anyone trusts the board**; `kickoffAt` on a row-less root is stamped on its *second* message; settings `loom.quiescenceGraceMs` 600000, `loom.quiescenceHumanGraceMs` null, `autoResumeLimitedThreads` true.
 4. **Launch isolation — the QA world gets its own pi agent directory.** Loom does not set `PI_CODING_AGENT_DIR`, so a QA pi would otherwise load Carl's global `~/.pi/agent` — pi-intercom could wake a QA pi and the unsolicited-run guard would kill it. The QA unit therefore sets `PI_CODING_AGENT_DIR=/home/Carl/.t3/qa-pull9/pi-agent`, built as Phase 3's smoke built its agent dir (DL-476/486): copies of `auth.json` and `settings.json` (with `packages`, `subagents`, `memory` removed), a generated `models.json` re-expressing pi-craft's `cliproxy.ts` provider, and a **copy** of the global `@blackbelt-technology/pi-anthropic-messages` extension (without it every `cliproxy/*` call fails `400 Third-party apps now draw from extra usage`); skills Carl's roles depend on are copied too. This amends D10's rejection of an agent-dir override: the override is taken *with* the copies D10 feared losing. `PI_CODING_AGENT_SESSION_DIR` still names `pi-sessions/` separately (pi's session root is derived from the agent dir only when the session variable is unset). `~/.pi/agent` stays read-only inside the unit, and the gate records its hashes unchanged.
 6. **Sandbox tightened at build (DL-530, DL-543, DL-544, DL-502/503).** The containment gate found real escapes the property table left open (host unix sockets — production's pi-intercom broker — reachable through read-only mounts; the copied "poller" secret was cliproxy's management key; the cockpit's inspector port and other host services on loopback). The unit is therefore an **allow-list**: an empty read-only tmpfs over `/home/Carl` with only the QA home (rw), node/pnpm stores and `.gitconfig` bound back in; `PrivateNetwork=yes` with exactly two unix-socket relays (an HTTP-aware, inference-only relay to cliproxy that refuses `/v0/management/*`; an inbound relay for port 13940); own PID namespace; `env -i`. **No secret is copied** (D12 superseded). Consequence (orchestrator's reversible call): QA has no internet — `cliproxy/*` presets work; `openai-codex`, Vertex, thread-search embeddings, GitHub fetch and the npm registry do not, and the quota pollers are out of scope; one line in `scripts/pull9-qa/lib.sh` plus a re-probe reverses it.
@@ -57,7 +57,7 @@ The one arrow that touches the pi home from the QA side is pi reading the shared
   entries={[
     { path: "apps/server/src/loom/legacy/LoomV1WorkstreamImporter.ts", change: "added", note: "The importer service: reconcile (startup phase), the pure mapLegacyThread, the pi session index, the lineage re-emit and the session binding. The last consumer of the deterministic *_<threadId>.jsonl name — it dies with the V1 tables." },
     { path: "apps/server/src/loom/legacy/LoomV1WorkstreamImporter.test.ts", change: "added", note: "Fixture-database test: every lane × root/child, archived, deleted, planned-with-turns, dangling dependency, duplicate graph key, missing/corrupt/present session files; run twice." },
-    { path: "apps/server/src/persistence/Migrations/1052_LoomLegacyImports.ts", change: "added", note: "The import ledger loom_legacy_imports. 1049 and 1050 are Phase 3c's (usage ledger, reroute); 1051 is free and left free; Phase 4 uses 1052 only." },
+    { path: "apps/server/src/persistence/Migrations/1051_LoomLegacyImports.ts", change: "added", note: "The import ledger loom_legacy_imports. 1049 and 1050 are Phase 3c's (usage ledger, reroute); Phase 4 uses 1051 (DL-512 — the lane stays dense)." },
     { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "One entry appended." },
     { path: "apps/server/src/serverRuntimeStartup.ts", change: "modified", note: "One marked pipe: upstream's importLegacyShells phase continues into loomImporter.reconcile, before recovery runs." },
     { path: "apps/server/src/orchestration-v2/Orchestrator.ts", change: "modified", note: "One marked clause in shouldPrepareLegacyImportHandoff (a strong native ref needs no legacy handoff) and the flag passed at its one call site; the queued path already gates on the native ref." },
@@ -125,7 +125,7 @@ One parameter, read from the environment because a startup phase has no argv, an
     ["outcome_event_id, unarchived_event_id, last_route", "—", "NULL — the episode stamps that keep every re-drive and digest rail silent for history (Phase 2 §5)"],
     ["kickoff_at", "projection_turns, projection_thread_messages", "MIN(turns.requested_at) for the thread; else MIN(created_at) of its user-role messages; NULL only when it has neither (never started)"],
     ["attention", "attention", "the stored set filtered to error | awaiting_acceptance | needs_guidance; plus awaiting_orchestrator when plan_lane = yielded; plus needs_guidance when a kept dependency is unsatisfiable (blocked_by row); emptied when outcome is terminal (V1's own rule — a terminal lane clears attention — re-asserted so no imported row violates 'no attention on a terminal outcome')"],
-    ["blocked_by, dependencies_since", "blocked_by, dependencies_since", "an id whose target gets a sidecar row is kept verbatim. An id whose target gets none (archived or deleted sibling): if that target's V1 plan_lane was done, the dependency is dropped (it was satisfied; dropping is what V1 would have read) + warning; otherwise it is KEPT — unsatisfiable, so the dependent cannot start, exactly V1's wedge — and needs_guidance is added to the dependent's attention so the wedge is visible, as Phase 2's planner does for a cancelled sibling. Both cases are in the pre-boot list"],
+    ["blocked_by, dependencies_since", "blocked_by, dependencies_since", "an id whose target gets a sidecar row is kept verbatim. An id whose target gets none (archived or deleted sibling): if that target's V1 plan_lane was done, the dependency is dropped (it was satisfied; dropping is what V1 would have read) + warning; otherwise it is KEPT and needs_guidance is added to the dependent's attention so the wedge is visible, as Phase 2's planner does for a cancelled sibling; because V2's dependency predicate never gates on an id with no sidecar row, a never-started dependent is also held (DL-511) — that is what keeps it from starting, exactly V1's wedge. Both cases are in the pre-boot list"],
     ["routes, gate_rounds, pending_rework", "routes, gate_rounds, pending_rework", "routes kept only where to names a sidecar-bearing live sibling (others dropped + warning); gate_rounds and pending_rework verbatim"],
     ["last_outcome", "last_outcome", "the record with recordedByEventId renamed to eventId and set NULL (requires WorkOutcomeRecord.eventId to be NullOr in the Phase 2 contract — see Decision log D7)"],
     ["report_path", "report_path", "verbatim; a missing file is a warning, never a NULL (the path is the record)"],
@@ -217,7 +217,7 @@ export function shouldPrepareLegacyImportHandoff(input: {
 
 `historyOrigin` stays `v1_import` (it is what makes the imported transcript count as pre-run history for fork boundaries, item windows and the awareness relay). Unbound threads keep upstream's handoff by construction. Upstream's own `AgentSessionImporter` path has the same redundancy, so this hunk is a candidate to upstream.
 
-### The ledger — migration 1052
+### The ledger — migration 1051
 
 <DataModel
   entities={[
@@ -239,7 +239,7 @@ export function shouldPrepareLegacyImportHandoff(input: {
 />
 
 ```sql
--- 1052_LoomLegacyImports.ts
+-- 1051_LoomLegacyImports.ts
 CREATE TABLE IF NOT EXISTS loom_legacy_imports (
   thread_id TEXT PRIMARY KEY,
   imported_at TEXT NOT NULL,
@@ -275,7 +275,10 @@ SELECT COUNT(*) FROM loom_thread_workstream WHERE outcome = 'cancelled';
 SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id) WHERE t.plan_lane = 'yielded';
 SELECT COUNT(*) FROM loom_thread_workstream WHERE EXISTS (SELECT 1 FROM json_each(attention) WHERE value = 'awaiting_orchestrator');
 SELECT COUNT(*) FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id)
- WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND w.kickoff_at IS NULL;
+ WHERE t.parent_thread_id IS NOT NULL AND w.kickoff_at IS NULL AND w.outcome IS NULL
+   AND (t.plan_lane = 'planned'
+     OR EXISTS (SELECT 1 FROM json_each(w.blocked_by) d                   -- DL-511: a kept unsatisfiable dependency also holds
+                 WHERE NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = d.value)));
 SELECT COUNT(*) FROM loom_thread_workstream WHERE held = 1;              -- equals the row above (0 if the hold is retired)
 
 -- C. Invariants — all 0.
@@ -321,7 +324,7 @@ SELECT COUNT(*) FROM loom_legacy_imports l JOIN orchestration_v2_projection_thre
 SELECT COUNT(*) FROM orchestration_v2_legacy_imports li LEFT JOIN loom_legacy_imports l USING (thread_id) WHERE l.thread_id IS NULL;
 
 -- H. Ledgers and goals.
-SELECT MAX(migration_id) FROM loom_sql_migrations;        -- 1052
+SELECT MAX(migration_id) FROM loom_sql_migrations;        -- 1051
 SELECT COUNT(*) FROM loom_goals; SELECT COUNT(*) FROM loom_goal_tasks;   -- equal to projection_goals / projection_goal_tasks counts taken on state.sqlite before boot
 SELECT g.goal_id, g.title FROM loom_goals g WHERE g.archived_at IS NULL AND g.deleted_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM loom_thread_workstream w WHERE w.goal_id = g.goal_id);  -- active goals with no live thread: a review list for Carl, expected short
@@ -356,9 +359,15 @@ SELECT COUNT(*) FROM projection_projects WHERE workspace_root NOT LIKE '/home/Ca
 SELECT plan_lane, parent_thread_id IS NOT NULL AS is_child, COUNT(*) FROM projection_threads
  WHERE deleted_at IS NULL AND archived_at IS NULL AND (parent_thread_id IS NOT NULL OR goal_id IS NOT NULL OR role IS NOT NULL)
  GROUP BY 1, 2;
--- The genuine holds: planned children with no turn and no user message (Carl reviews these).
-SELECT t.thread_id, t.title, t.role FROM projection_threads t
- WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+-- The genuine holds: planned children with no turn and no user message, plus (DL-511) never-started
+-- non-terminal children with a dependency on a non-done thread outside the live graph (Carl reviews these).
+SELECT t.thread_id, t.title, t.role, t.plan_lane FROM projection_threads t
+ WHERE t.parent_thread_id IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+   AND t.plan_lane NOT IN ('done', 'cancelled')
+   AND (t.plan_lane = 'planned' OR EXISTS (
+     SELECT 1 FROM json_each(t.blocked_by) d LEFT JOIN projection_threads x ON x.thread_id = d.value
+      WHERE (x.thread_id IS NULL OR x.deleted_at IS NOT NULL OR x.archived_at IS NOT NULL)
+        AND x.plan_lane IS NOT 'done'))
    AND NOT EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = t.thread_id)
    AND NOT EXISTS (SELECT 1 FROM projection_thread_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user');
 -- Would-be kickoffs: ready/planned children, never started, briefed (the dispatcher will start these after import).
@@ -447,7 +456,7 @@ Why the whole world and not just the worktree paths: the guard keys on worktree 
   items={[
     { "id": "b1", "label": "Start: scripts/pull9-qa/start.sh — the sandboxed transient unit loom-qa-pull9 (properties in 'The sandbox' below) running node apps/server/dist/bin.mjs serve --base-dir ~/.t3/qa-pull9 --port 13940 from ~/.t3/qa-pull9/build/loom", "note": "A transient unit survives the agent's shell and Carl's SSH sessions; journalctl --user -u loom-qa-pull9 -f is the log. Never 13900. The explicit --base-dir outranks any ambient T3CODE_HOME (AGENTS.md). start.sh is the ONLY way the QA server is started: a hand-started boot without the unit's environment would index pi's default sessions root and bind production's files" },
     { "id": "b2", "label": "Observe the one-time copy: statev2.sqlite appears beside state.sqlite (size ≈ the copy); state.sqlite's mtime and size do not change from here on", "note": "initializeV2Database runs before migrations; it never refreshes" },
-    { "id": "b3", "label": "Observe both ledgers in statev2.sqlite: effect_sql_migrations max = upstream's manifest max; loom_sql_migrations max = 1052; loom_goals and loom_goal_tasks exist (1047 renamed them) with the counts-in from qa/preview.txt", "note": "sqlite3 'file:…/statev2.sqlite?mode=ro'" },
+    { "id": "b3", "label": "Observe both ledgers in statev2.sqlite: effect_sql_migrations max = upstream's manifest max; loom_sql_migrations max = 1051; loom_goals and loom_goal_tasks exist (1047 renamed them) with the counts-in from qa/preview.txt", "note": "sqlite3 'file:…/statev2.sqlite?mode=ro'" },
     { "id": "b4", "label": "Observe the log, in order: the home rule line naming --base-dir; NO 'foreign-home guard' line; 'Imported legacy v1 thread shells' (upstream); the Loom import phase summary (threads considered, sidecars, lineage re-emits, bindings, missing); 'V2 orchestration recovery completed'", "note": "The import summary must name ~/.t3/qa-pull9/pi-sessions as the indexed root. A guard line here would mean NO recorded path is inside the QA worktrees dir (relocation did not run at all); its absence proves nothing about a partial miss — that is what preview.sql's allow-list and verify.sql J are for. Upstream's lazy transcript hydration runs in the background afterwards; it is DB-only and may take minutes" },
     { "id": "b5", "label": "Run verify.sql; every assertion as commented; file the review lists (held children, active goals without threads, missing sessions) into the hand-off doc", "note": "With the server stopped (stop.sh) or read-only" },
     { "id": "b6", "label": "Materialise the worktrees of the imported threads the remember-check will continue: an orchestrator and one of its children (the coder/reviewer pair of a recent finished workstream is ideal) — scripts/pull9-qa/materialise-worktree.sh <threadId> reads branch and worktree_path from the copy and runs git -C ~/.t3/qa-pull9/repos/<project> worktree add -b <branch> <path> origin/<branch>", "note": "Setup scripts (t3.json) run on the new worktree inside the QA home — vp i, .env link — as they would for a new thread" },
@@ -481,7 +490,7 @@ What the sandbox does **not** cover, stated so nobody assumes it: pi's `~/.pi/ag
 
 ### Keeping it running, and tearing it down
 
-Restart: `scripts/pull9-qa/stop.sh && scripts/pull9-qa/start.sh` (stop waits for the unit; start refuses if `~/.t3/qa-pull9/userdata/server-runtime.json` names a live pid). Logs: `journalctl --user -u loom-qa-pull9`. A new pairing token: `node apps/server/dist/bin.mjs pair --base-dir ~/.t3/qa-pull9` from `build/loom`. Updating the build (a Phase 3 fix lands): `git -C ~/.t3/qa-pull9/build/loom pull && vp i && pnpm build`, then restart — the database is untouched by a rebuild, and Loom migrations above 1052, if any, run at the next boot as on production. Teardown: `stop.sh`, then `rm -rf ~/.t3/qa-pull9` — the clones and their worktrees are inside it, so nothing is left in production's repositories; every pi session QA created or forked is inside `pi-sessions/` and goes with it. `stop.sh` must be the sandboxed unit's stop; the r9 probe unit is `--wait --collect` and leaves nothing.
+Restart: `scripts/pull9-qa/stop.sh && scripts/pull9-qa/start.sh` (stop waits for the unit; start refuses if `~/.t3/qa-pull9/userdata/server-runtime.json` names a live pid). Logs: `journalctl --user -u loom-qa-pull9`. A new pairing token: `node apps/server/dist/bin.mjs pair --base-dir ~/.t3/qa-pull9` from `build/loom`. Updating the build (a Phase 3 fix lands): `git -C ~/.t3/qa-pull9/build/loom pull && vp i && pnpm build`, then restart — the database is untouched by a rebuild, and Loom migrations above 1051, if any, run at the next boot as on production. Teardown: `stop.sh`, then `rm -rf ~/.t3/qa-pull9` — the clones and their worktrees are inside it, so nothing is left in production's repositories; every pi session QA created or forked is inside `pi-sessions/` and goes with it. `stop.sh` must be the sandboxed unit's stop; the r9 probe unit is `--wait --collect` and leaves nothing.
 
 ## 3. Rollback
 
@@ -562,7 +571,8 @@ The strategy's inventory is the surface that conflicts on every future pull; thi
   rows={[
     ["serverRuntimeStartup.ts — importLegacyShells phase", "ADDED (one marked pipe)", "Loom's importer must run after upstream's shell import and before recovery; piping onto upstream's phase needs no change to runOrderedV2StartupPhases"],
     ["orchestration-v2/Orchestrator.ts — shouldPrepareLegacyImportHandoff + its one call site", "ADDED (marked)", "a thread bound to its native session must not receive a 32,000-character copy of its own transcript on its first turn; scoped to strong refs so unbound imports keep upstream's fallback"],
-    ["persistence/Migrations/1052_LoomLegacyImports.ts", "not a hunk — Loom lane", "the import ledger"],
+    ["orchestration-v2/runtimeLayer.ts — layer", "ADDED (one marked import + one marked layer line, DL-513)", "the importer writes V2 events, and EventSinkV2 is not in the startup's context; provided beside upstream's own LegacyV1ThreadImporter layer"],
+    ["persistence/Migrations/1051_LoomLegacyImports.ts", "not a hunk — Loom lane", "the import ledger"],
   ]}
 />
 
@@ -594,7 +604,7 @@ The strategy's inventory is the surface that conflicts on every future pull; thi
 
 <Checklist
   items={[
-    { "id": "w1", "label": "Migration 1052 + the importer module: scope rules, mapLegacyThread (pure), the session index, lineage re-emit, binding, provider fix, ledger; the startup pipe hunk; the shouldPrepareLegacyImportHandoff hunk; the WorkOutcomeRecord.eventId NullOr change if Phase 2/3b has not made it", "note": "apps/server/src/loom/legacy/, serverRuntimeStartup.ts, Orchestrator.ts, packages/contracts" },
+    { "id": "w1", "label": "Migration 1051 + the importer module: scope rules, mapLegacyThread (pure), the session index, lineage re-emit, binding, provider fix, ledger; the startup pipe hunk; the shouldPrepareLegacyImportHandoff hunk; the WorkOutcomeRecord.eventId NullOr change if Phase 2/3b has not made it", "note": "apps/server/src/loom/legacy/, serverRuntimeStartup.ts, Orchestrator.ts, packages/contracts" },
     { "id": "w2", "label": "Fixture test (gate g-fixture); typecheck; unmarkedsweep" },
     { "id": "w3", "label": "scripts/pull9-qa: build-home.sh (snapshot, counts-in, relocate with the allow-list, copy, session manifest + rsync with the last-line check, loom clone, pre-boot gate, build, sandbox probe), materialise-worktree.sh, start.sh (the sandboxed unit), stop.sh, preview.sql, verify.sql", "note": "Every production path opened read-only; the script refuses an existing QA home and refuses to run if its target path is under ~/.t3/cockpit; start.sh refuses to start without PrivateUsers=yes in its own property list" },
     { "id": "w4", "label": "Build the QA world; boot; observe copy and ledgers; verify.sql; materialise two worktrees; the remember-check with the cwd and resume-log assertions; idempotent relaunch", "note": "§2, gates g-precondition through g-idempotent. Browser use for the remember-check is authorised by this plan's purpose (the dev-verify recipe's pairing path)" },

@@ -18,6 +18,7 @@ import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as Keybindings from "./keybindings.ts";
 import { WorkstreamDispatcher } from "./loom/orchestration/dispatcher/WorkstreamDispatcher.ts"; // loom:
 import * as LoomStore from "./loom/projection/LoomStore.ts"; // loom:
+import * as LoomV1WorkstreamImporter from "./loom/legacy/LoomV1WorkstreamImporter.ts"; // loom:
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -178,6 +179,7 @@ it.effect("parks automatic pull until activation without delaying command readin
         LoomStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory), Layer.orDie),
         NodeFileSystem.layer,
         Layer.mock(WorkstreamDispatcher)({ runPass: Effect.void }),
+        Layer.mock(LoomV1WorkstreamImporter.LoomV1WorkstreamImporter)({ reconcile: Effect.void }), // loom: Phase 4 importer
       );
 
       yield* Effect.gen(function* () {

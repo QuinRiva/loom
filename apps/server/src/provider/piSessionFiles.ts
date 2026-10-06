@@ -95,7 +95,7 @@ const HEADER_PROBE_BYTES = 64 * 1024;
  * header). Returns that header's `id`, or undefined when the file is not a
  * readable pi session.
  */
-const readSessionHeaderId = (path: string): string | undefined => {
+export const readSessionHeaderId = (path: string): string | undefined => {
   let handle: number | undefined;
   try {
     handle = NodeFS.openSync(path, "r");
