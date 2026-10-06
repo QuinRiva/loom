@@ -115,7 +115,7 @@ it.effect("/mcp lists exactly the 21 Loom tools with _meta prose, object schemas
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
 );
 
-it.effect("/mcp serves the real workstream handlers and 3a-3's stubs with their error modes", () =>
+it.effect("/mcp serves the real handlers with their error modes", () =>
   Effect.gen(function* () {
     const mcp = yield* serveMcp(
       {
@@ -132,9 +132,10 @@ it.effect("/mcp serves the real workstream handlers and 3a-3's stubs with their 
       isError: true,
       content: [{ type: "text", text: expect.stringContaining('No direct child matches "coder"') }],
     });
+    // A soft-mode refusal is plain text, not a failed call.
     const tasks = yield* mcp.callTool("goal_task_list", {});
     expect(tasks).toMatchObject({
-      content: [{ type: "text", text: "goal_task_list is not ported in 3a-1." }],
+      content: [{ type: "text", text: expect.stringContaining("has no active goal") }],
     });
     expect(tasks.isError ?? false).toBe(false);
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),

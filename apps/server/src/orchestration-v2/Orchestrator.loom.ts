@@ -147,8 +147,8 @@ const loopTargetsOf = (routes: ReadonlyArray<WorkstreamRoute>) =>
   routes.flatMap((route) => (route.kind === "loop" && route.to !== undefined ? [route.to] : []));
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
-const NOTIFY_PAIR_HOURLY_CAP = 10;
-const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
+export const NOTIFY_PAIR_HOURLY_CAP = 10;
+export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // The dispatchMessage helpers (DL-194, DL-195, §2 rules 1–5)

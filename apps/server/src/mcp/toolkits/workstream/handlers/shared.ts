@@ -6,16 +6,21 @@
  * @module mcp/toolkits/workstream/handlers/shared
  */
 import {
+  type GoalId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
+  type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
+import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
+import type { WorkstreamCaller } from "../authorisation.ts";
 import { LoomToolError } from "../defs.ts";
+import { describeSender, relationshipLabel, type ThreadCandidate } from "../render.ts";
 
 export const fail = (message: string) => Effect.fail(new LoomToolError({ message }));
 
@@ -76,3 +81,63 @@ export const stripThreadRef = (ref: string) =>
   ref.startsWith(SCAFFOLD_THREAD_REF_PREFIX)
     ? ThreadId.make(ref.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim())
     : ThreadId.make(ref.trim());
+
+/**
+ * The caller's active goal (live tasks included) and its sidecar row. The
+ * agent never names a goal: acting on another goal is structurally impossible.
+ */
+export const requireActiveGoal = Effect.fn("LoomToolkit.requireActiveGoal")(function* (
+  threadId: ThreadId,
+) {
+  const store = yield* LoomStore.LoomStoreV2;
+  const row = yield* asToolError(store.getWorkstream(threadId));
+  if (row?.goalId == null)
+    return yield* fail("This thread has no active goal, so there is no task tree to act on.");
+  const goal = yield* asToolError(store.goals.get(row.goalId));
+  if (goal === null || goal.deletedAt !== null)
+    return yield* fail("This thread's active goal was not found.");
+  return { goal, row };
+});
+
+/**
+ * Publishes a goal's current state on the shell stream (DL-200): goals are
+ * plain tables, so a write reaches subscribers only through this broadcast.
+ */
+export const publishGoal = Effect.fn("LoomToolkit.publishGoal")(function* (goalId: GoalId) {
+  const goal = yield* asToolError(
+    Effect.flatMap(LoomStore.LoomStoreV2, (store) => store.goals.get(goalId)),
+  );
+  if (goal !== null)
+    yield* (yield* LoomGoalBroadcast.LoomGoalBroadcast).publish(
+      LoomGoalBroadcast.goalShellItem(goal),
+    );
+  return goal;
+});
+
+/** A shell as an ambiguous name's candidate line. */
+export const candidateOf = (shell: OrchestrationV2ThreadShell): ThreadCandidate => ({
+  threadId: shell.id,
+  title: shell.title,
+  role: shell.workstream?.role ?? null,
+  status: shell.workstream?.outcome ?? shell.status,
+  worktreePath: shell.worktreePath,
+});
+
+/** How `target` reads the caller (title, role, id and relationship), for consult and notify. */
+export const senderDescriptor = Effect.fn("LoomToolkit.senderDescriptor")(function* (
+  caller: WorkstreamCaller,
+  target: OrchestrationV2ThreadShell,
+) {
+  const self = yield* requireShell(caller.threadId);
+  return describeSender({
+    title: self.title || caller.threadId,
+    role: self.workstream?.role ?? null,
+    threadId: caller.threadId,
+    relationship: relationshipLabel({
+      senderThreadId: caller.threadId,
+      senderParentThreadId: self.workstream?.parentThreadId ?? null,
+      targetThreadId: target.id,
+      targetParentThreadId: target.workstream?.parentThreadId ?? null,
+    }),
+  });
+});

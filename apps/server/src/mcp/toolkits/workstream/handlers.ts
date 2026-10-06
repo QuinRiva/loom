@@ -1,9 +1,8 @@
 /**
- * The handler record registration serves. The workstream family is 3a-2's
- * (`handlers/*.ts`); the goal, fork, title, consult and notify entries stay
- * stubs until 3a-3, failing with the tool's own error mode so the agent sees
- * the call reach the server. Services are captured when the record is built,
- * so every handler runs with the server's context.
+ * The handler record registration serves: one handler per tool
+ * (`handlers/*.ts`), checked against the defs' decoded inputs. Services are
+ * captured when the record is built, so every handler runs with the server's
+ * context.
  *
  * @module mcp/toolkits/workstream/handlers
  */
@@ -11,14 +10,21 @@ import * as Effect from "effect/Effect";
 import type * as Context from "effect/Context";
 
 import type { WorkstreamCaller } from "./authorisation.ts";
-import {
-  LOOM_TOOL_DEFS,
-  LoomToolError,
-  type LoomMcpToolName,
-  type LoomToolHandlers,
-  type LoomToolInput,
-} from "./defs.ts";
+import type { LoomMcpToolName, LoomToolError, LoomToolHandlers, LoomToolInput } from "./defs.ts";
 import { workstreamBrief } from "./handlers/brief.ts";
+import { consultThread } from "./handlers/consult.ts";
+import { threadFork } from "./handlers/fork.ts";
+import { goalContinue } from "./handlers/goalContinue.ts";
+import { goalHandoff } from "./handlers/goalHandoff.ts";
+import {
+  goalTaskAdd,
+  goalTaskList,
+  goalTasksRewrite,
+  goalTaskUpdate,
+} from "./handlers/goalTasks.ts";
+import { goalUpdate } from "./handlers/goalUpdate.ts";
+import { notifyThread } from "./handlers/notify.ts";
+import { setThreadTitle } from "./handlers/title.ts";
 import { workstreamList } from "./handlers/list.ts";
 import { workstreamSetOutcome } from "./handlers/outcome.ts";
 import { workstreamPrompt } from "./handlers/prompt.ts";
@@ -29,14 +35,7 @@ import { workstreamSpawn } from "./handlers/spawn.ts";
 import { workstreamStop } from "./handlers/stop.ts";
 import { workstreamSubmit } from "./handlers/submit.ts";
 
-const notPorted = Object.fromEntries(
-  LOOM_TOOL_DEFS.map((def) => [
-    def.name,
-    () => Effect.fail(new LoomToolError({ message: `${def.name} is not ported in 3a-1.` })),
-  ]),
-) as unknown as LoomToolHandlers;
-
-const workstreamHandlers = {
+const loomHandlers = {
   workstream_spawn: workstreamSpawn,
   workstream_scaffold: workstreamScaffold,
   workstream_brief: workstreamBrief,
@@ -47,24 +46,34 @@ const workstreamHandlers = {
   workstream_set_dependencies: workstreamSetDependencies,
   workstream_submit: workstreamSubmit,
   workstream_list: workstreamList,
+  consult_thread: consultThread,
+  notify_thread: notifyThread,
+  set_thread_title: setThreadTitle,
+  thread_fork: threadFork,
+  goal_task_list: goalTaskList,
+  goal_task_add: goalTaskAdd,
+  goal_task_update: goalTaskUpdate,
+  goal_tasks_rewrite: goalTasksRewrite,
+  goal_handoff: goalHandoff,
+  goal_continue: goalContinue,
+  goal_update: goalUpdate,
 } satisfies {
-  readonly [N in LoomMcpToolName]?: (
+  readonly [N in LoomMcpToolName]: (
     input: LoomToolInput<N>,
     caller: WorkstreamCaller,
   ) => Effect.Effect<string, LoomToolError, unknown>;
 };
 
 type HandlerServices = Effect.Services<
-  ReturnType<(typeof workstreamHandlers)[keyof typeof workstreamHandlers]>
+  ReturnType<(typeof loomHandlers)[keyof typeof loomHandlers]>
 >;
 
 /** Builds the record, providing each handler the services it needs from the building context. */
 export const makeLoomToolHandlers = Effect.map(
   Effect.context<HandlerServices>(),
-  (context: Context.Context<HandlerServices>): LoomToolHandlers => ({
-    ...notPorted,
-    ...(Object.fromEntries(
-      Object.entries(workstreamHandlers).map(([name, handler]) => [
+  (context: Context.Context<HandlerServices>): LoomToolHandlers =>
+    Object.fromEntries(
+      Object.entries(loomHandlers).map(([name, handler]) => [
         name,
         (input: never, caller: never) =>
           (
@@ -74,6 +83,5 @@ export const makeLoomToolHandlers = Effect.map(
             ) => Effect.Effect<string, LoomToolError, HandlerServices>
           )(input, caller).pipe(Effect.provideContext(context)),
       ]),
-    ) as Partial<LoomToolHandlers>),
-  }),
+    ) as LoomToolHandlers,
 );

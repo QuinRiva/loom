@@ -18,7 +18,11 @@ import {
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
-import { findGoalTask, isWithinGoalTaskBranch, resolveThreadAnchor } from "../authorisation.ts";
+import {
+  findGoalTask,
+  isWithinGoalTaskBranch,
+  resolveThreadAnchor,
+} from "../../../../loom/goals/goalTaskTree.ts";
 import { agentToolName as t } from "../families.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { asToolError } from "./shared.ts";

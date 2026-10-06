@@ -21,6 +21,7 @@ import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
+import * as LoomThreadConsult from "./workstream/consult.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 
 /** Provider sweeps merged into the provider runtime layer. */
@@ -39,9 +40,11 @@ export const LoomProviderHealthLive = ProviderHealthRegistryLive;
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
  * and publish/subscribe goal shell items; and the re-drive reactor that moves
  * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
+ * Also `consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
  */
 export const LoomGoalBroadcastLive = Layer.mergeAll(
   LoomGoalBroadcast.layerWithReactor,
+  LoomThreadConsult.layer,
   LoomReDriveReactor.pipe(Layer.provide(CommandReceiptStore.layer)), // loom: re-drive (D16)
 ).pipe(Layer.provideMerge(LoomStore.layer));
 

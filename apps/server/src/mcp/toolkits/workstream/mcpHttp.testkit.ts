@@ -25,7 +25,10 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
+import * as LoomGoalBroadcast from "../../../loom/projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "../../../loom/projection/LoomStore.ts";
+import { LoomThreadConsult } from "../../../loom/workstream/consult.ts";
+import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import { ProviderHealthRegistry } from "../../../provider/Services/ProviderHealthRegistry.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import type { McpCapability } from "../../McpInvocationContext.ts";
@@ -56,14 +59,23 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
     Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
     Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+    loomToolkitServiceStubs(stubs.loomStore),
+  );
+
+/** Every service Loom's toolkit captures when `/mcp` builds, stubbed (one line in upstream's tests). */
+export const loomToolkitServiceStubs = (loomStore: McpServiceStubs["loomStore"] = {}) =>
+  Layer.mergeAll(
     Layer.mock(LoomStore.LoomStoreV2)({
       goals: {} as never,
       tasks: {} as never,
       consults: {} as never,
       peerMessages: {} as never,
-      ...stubs.loomStore,
+      ...loomStore,
     }),
     Layer.mock(ProviderHealthRegistry)({}),
+    Layer.mock(LoomGoalBroadcast.LoomGoalBroadcast)({}),
+    Layer.mock(LoomThreadConsult)({}),
+    Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   );
 
 export interface McpToolResult {

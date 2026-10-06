@@ -325,6 +325,12 @@ export interface LoomStoreV2Shape {
   readonly peerMessages: {
     /** Pending messages (all targets when omitted), oldest first. */
     readonly listPending: (targetThreadId?: ThreadId) => Op<ReadonlyArray<LoomPendingPeerMessage>>;
+    /** Messages the sender recorded to the target at or after `since`, in any state (the cap's count). */
+    readonly countSent: (
+      senderThreadId: ThreadId,
+      targetThreadId: ThreadId,
+      since: IsoDateTime,
+    ) => Op<number>;
   };
 }
 
@@ -668,6 +674,13 @@ const make = Effect.gen(function* () {
             ORDER BY created_at ASC, seq ASC`.pipe(
           Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PendingPeerMessageRow))),
           run("peerMessages.listPending"),
+        ),
+      countSent: (senderThreadId, targetThreadId, since) =>
+        sql<{ readonly n: number }>`SELECT COUNT(*) AS n FROM loom_thread_peer_messages
+            WHERE sender_thread_id = ${senderThreadId} AND target_thread_id = ${targetThreadId}
+              AND created_at >= ${since}`.pipe(
+          Effect.map(([row]) => row?.n ?? 0),
+          run("peerMessages.countSent"),
         ),
     },
   };

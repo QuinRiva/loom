@@ -13,12 +13,10 @@ import type * as JsonSchema from "effect/JsonSchema";
 import * as Schema from "effect/Schema";
 import * as Tool from "effect/ai/Tool";
 
+import { MAX_GOAL_TASK_TEXT_LENGTH } from "../../../loom/goals/goalTaskMarkdown.ts";
 import type { WorkstreamCaller } from "./authorisation.ts";
 import { agentToolName as t } from "./families.ts";
 import { LOOM_TOOL_PROSE, type LoomProseToolName } from "./prose.ts";
-
-/** The longest task text the goal tools accept. */
-export const MAX_GOAL_TASK_TEXT_LENGTH = 300;
 
 /** The one failure a Loom handler returns; its message is the text the agent reads. */
 export class LoomToolError extends Schema.TaggedError<LoomToolError>()("LoomToolError", {
