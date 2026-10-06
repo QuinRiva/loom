@@ -291,6 +291,10 @@ import {
   formatReviewCommentFence,
   type LineReviewCommentContext, // loom:
 } from "../../reviewCommentContext";
+// loom: 3d-3 — control cards, consult rows and handoff receipts.
+import { ControlDigestRow } from "../../loom/ControlDigestRow";
+import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
+import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -359,7 +363,7 @@ interface TimelineRowActivityState {
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
 }
 
-const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
+export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!); // loom: 3d-3 exported for the Loom rows
 const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(null!);
 
 interface WorkGroupViewState {
@@ -802,7 +806,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     supportsConversationRollback,
     worktreeSetup,
   ]);
-  const rows = useStableRows(rawRows, listIdentityKey);
+  // loom: 3d-3 — consult rows and handoff receipts, spliced in by time.
+  const loomRows = useLoomTimelineRows(listIdentityKey);
+  const rows = useStableRows(
+    useMemo(() => insertLoomTimelineRows(rawRows, loomRows), [rawRows, loomRows]), // loom: 3d-3
+    listIdentityKey,
+  );
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1833,7 +1842,17 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "attempt-fold" ? <AttemptFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
+      {row.kind === "message" && row.message.role === "user" ? (
+        // loom: 3d-3 — a control-plane arrival renders as its card (controlPayload).
+        <ControlDigestRow
+          messageId={row.message.id}
+          text={row.message.text}
+          fallback={<UserTimelineRow row={row} />}
+        />
+      ) : null}
+      {row.kind === "loom-consult" || row.kind === "loom-handoff" ? (
+        <LoomTimelineRow row={row} /> // loom: 3d-3
+      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}

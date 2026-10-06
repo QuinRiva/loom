@@ -57,6 +57,7 @@ import {
   formatSearchToolLabel,
 } from "@t3tools/shared/toolActivity";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
+import type { LoomTimelineRow } from "../../loom/loomTimelineRows"; // loom: 3d-3
 
 function timelineEntryRunId(entry: TimelineEntry): RunId | null {
   if (entry.kind === "message") {
@@ -595,7 +596,8 @@ type MessagesTimelineRowContent =
       id: string;
       createdAt: string;
       htmlRender: HtmlRenderReference;
-    };
+    }
+  | LoomTimelineRow; // loom: 3d-3 — consult rows and handoff receipts (loom/loomTimelineRows.ts)
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -1998,6 +2000,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
+    case "loom-consult": // loom: 3d-3 — the Loom rows are reference-stable per change
+    case "loom-handoff": // loom: 3d-3
+      return a === b;
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
     case "thinking": {
