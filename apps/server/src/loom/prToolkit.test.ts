@@ -119,116 +119,120 @@ const raiseAcceptance = (threadId: ThreadId) =>
   });
 
 it.layer(TestLayer)("Loom PR toolkit", (it) => {
-  it.effect("a PR-watch wake runs on a Loom thread holding awaiting_acceptance; the hold survives", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const store = yield* LoomStoreV2;
-      const root = ThreadId.make("pr-watch-root");
-      const child = ThreadId.make("pr-watch-shipper");
-      yield* seedLoomRoot(root);
-      yield* spawnChild({ parentThreadId: root, threadId: child, role: "shipper" });
-      // DL-375: upstream's subagent rule refuses the watch on a Loom child.
-      const refused = yield* Effect.flip(watchPullRequest(child, 7));
-      assert.include(String((refused as { cause?: unknown }).cause), "is a subagent");
+  it.effect(
+    "a PR-watch wake runs on a Loom thread holding awaiting_acceptance; the hold survives",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const store = yield* LoomStoreV2;
+        const root = ThreadId.make("pr-watch-root");
+        const child = ThreadId.make("pr-watch-shipper");
+        yield* seedLoomRoot(root);
+        yield* spawnChild({ parentThreadId: root, threadId: child, role: "shipper" });
+        // DL-375: upstream's subagent rule refuses the watch on a Loom child.
+        const refused = yield* Effect.flip(watchPullRequest(child, 7));
+        assert.include(String((refused as { cause?: unknown }).cause), "is a subagent");
 
-      const shipper = root;
-      yield* watchPullRequest(shipper, 7);
-      yield* raiseAcceptance(shipper);
-      const watch = (yield* orchestrator.getThreadProjection(shipper)).thread.pullRequests?.find(
-        (link) => link.number === 7,
-      )?.watch;
-      assert.isDefined(watch);
+        const shipper = root;
+        yield* watchPullRequest(shipper, 7);
+        yield* raiseAcceptance(shipper);
+        const watch = (yield* orchestrator.getThreadProjection(shipper)).thread.pullRequests?.find(
+          (link) => link.number === 7,
+        )?.watch;
+        assert.isDefined(watch);
 
-      // What PullRequestWatchReactor dispatches when a check fails on the head commit.
-      const wakeId = MessageId.make("message:pr-watch-wake:shipper");
-      yield* dispatch({
-        type: "thread.pull-request-watch.sync",
-        commandId: CommandId.make("pr-watch-sync:shipper"),
-        threadId: shipper,
-        ...pr(7),
-        startedAt: watch!.startedAt,
-        watch: { ...watch!, failedChecks: ["ci"] },
-        wake: {
-          messageId: wakeId,
-          text: "A check failed on the pull request: ci.",
-          notification: {
-            source: { kind: "monitor" },
-            outcome: "failed",
-            summary: "Check failed: ci",
+        // What PullRequestWatchReactor dispatches when a check fails on the head commit.
+        const wakeId = MessageId.make("message:pr-watch-wake:shipper");
+        yield* dispatch({
+          type: "thread.pull-request-watch.sync",
+          commandId: CommandId.make("pr-watch-sync:shipper"),
+          threadId: shipper,
+          ...pr(7),
+          startedAt: watch!.startedAt,
+          watch: { ...watch!, failedChecks: ["ci"] },
+          wake: {
+            messageId: wakeId,
+            text: "A check failed on the pull request: ci.",
+            notification: {
+              source: { kind: "monitor" },
+              outcome: "failed",
+              summary: "Check failed: ci",
+            },
           },
-        },
-      });
+        });
 
-      const projection = yield* orchestrator.getThreadProjection(shipper);
-      const wake = projection.messages.find((message) => message.id === wakeId);
-      assert.equal(wake?.createdBy, "agent");
-      assert.isUndefined(wake?.loom?.origin);
-      assert.notEqual(wake?.loom?.humanAuthored, true);
-      assert.isTrue(projection.runs.some((run) => run.userMessageId === wakeId));
-      assert.deepEqual((yield* store.getWorkstream(shipper))!.attention, ["awaiting_acceptance"]);
-    }),
+        const projection = yield* orchestrator.getThreadProjection(shipper);
+        const wake = projection.messages.find((message) => message.id === wakeId);
+        assert.equal(wake?.createdBy, "agent");
+        assert.isUndefined(wake?.loom?.origin);
+        assert.notEqual(wake?.loom?.humanAuthored, true);
+        assert.isTrue(projection.runs.some((run) => run.userMessageId === wakeId));
+        assert.deepEqual((yield* store.getWorkstream(shipper))!.attention, ["awaiting_acceptance"]);
+      }),
   );
 
-  it.effect("settle-on-merge settles a done childless shipper, never a root with a live child", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const root = ThreadId.make("pr-merge-root");
-      const shipper = ThreadId.make("pr-merge-shipper");
-      const live = ThreadId.make("pr-merge-live");
-      yield* seedLoomRoot(root);
-      yield* spawnChild({ parentThreadId: root, threadId: shipper, role: "shipper" });
-      yield* spawnChild({ parentThreadId: root, threadId: live, graphKey: "live" });
-      yield* dispatch({
-        type: "thread.outcome.set",
-        commandId: CommandId.make("pr-merge-shipper-done"),
-        threadId: shipper,
-        createdAt,
-        outcome: "done",
-      });
-
-      // Both the shipper and the root carry the merged pull request.
-      const mergedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { seconds: 1 }));
-      for (const [threadId, number] of [
-        [shipper, 11],
-        [root, 12],
-      ] as const) {
-        yield* linkPullRequest(threadId, number);
+  it.effect(
+    "settle-on-merge settles a done childless shipper, never a root with a live child",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("pr-merge-root");
+        const shipper = ThreadId.make("pr-merge-shipper");
+        const live = ThreadId.make("pr-merge-live");
+        yield* seedLoomRoot(root);
+        yield* spawnChild({ parentThreadId: root, threadId: shipper, role: "shipper" });
+        yield* spawnChild({ parentThreadId: root, threadId: live, graphKey: "live" });
         yield* dispatch({
-          type: "thread.pull-request-link.sync",
-          commandId: CommandId.make(`pr-merge-sync:${threadId}`),
-          threadId,
-          ...pr(number),
-          snapshot: {
-            state: "merged",
-            title: "Scratch change",
-            headBranch: "scratch",
-            baseBranch: "main",
-            isDraft: false,
-            updatedAt: mergedAt,
-            syncedAt: mergedAt,
-            mergedAt,
-          },
-          stack: null,
+          type: "thread.outcome.set",
+          commandId: CommandId.make("pr-merge-shipper-done"),
+          threadId: shipper,
+          createdAt,
+          outcome: "done",
         });
-      }
 
-      const settlement = yield* ThreadSettlementService.ThreadSettlementServiceV2;
-      yield* settlement.start();
-      yield* awaitStoredEvent({
-        afterSequence: 0,
-        threadId: shipper,
-        predicate: (event) => event.type === "thread.settled",
-      });
-      yield* settlement.drain;
+        // Both the shipper and the root carry the merged pull request.
+        const mergedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { seconds: 1 }));
+        for (const [threadId, number] of [
+          [shipper, 11],
+          [root, 12],
+        ] as const) {
+          yield* linkPullRequest(threadId, number);
+          yield* dispatch({
+            type: "thread.pull-request-link.sync",
+            commandId: CommandId.make(`pr-merge-sync:${threadId}`),
+            threadId,
+            ...pr(number),
+            snapshot: {
+              state: "merged",
+              title: "Scratch change",
+              headBranch: "scratch",
+              baseBranch: "main",
+              isDraft: false,
+              updatedAt: mergedAt,
+              syncedAt: mergedAt,
+              mergedAt,
+            },
+            stack: null,
+          });
+        }
 
-      const settled = (threadId: ThreadId) =>
-        Effect.map(
-          orchestrator.getThreadProjection(threadId),
-          (projection) => projection.thread.settledAt !== null,
-        );
-      assert.isTrue(yield* settled(shipper));
-      assert.isFalse(yield* settled(root));
-      assert.isFalse(yield* settled(live));
-    }).pipe(Effect.scoped),
+        const settlement = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+        yield* settlement.start();
+        yield* awaitStoredEvent({
+          afterSequence: 0,
+          threadId: shipper,
+          predicate: (event) => event.type === "thread.settled",
+        });
+        yield* settlement.drain;
+
+        const settled = (threadId: ThreadId) =>
+          Effect.map(
+            orchestrator.getThreadProjection(threadId),
+            (projection) => projection.thread.settledAt !== null,
+          );
+        assert.isTrue(yield* settled(shipper));
+        assert.isFalse(yield* settled(root));
+        assert.isFalse(yield* settled(live));
+      }).pipe(Effect.scoped),
   );
 });

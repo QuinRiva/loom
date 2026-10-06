@@ -49,7 +49,9 @@ import {
 const VcsProcessLive = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
 const CheckpointStoreLive = CheckpointStore.layer.pipe(
   Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcessLive))),
-  Layer.provide(ServerConfig.ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-baseline-" })),
+  Layer.provide(
+    ServerConfig.ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-baseline-" }),
+  ),
   Layer.provide(NodeServices.layer),
 );
 const TestLayer = Layer.mergeAll(
@@ -67,13 +69,17 @@ const at = DateTime.makeUnsafe("2026-01-01T00:00:00.000Z");
 
 const git = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.flatMap(VcsProcess.VcsProcess, (process) =>
-    process.run({ operation: "loom.baseline.test.git", command: "git", cwd, args, timeoutMs: 10_000 }),
+    process.run({
+      operation: "loom.baseline.test.git",
+      command: "git",
+      cwd,
+      args,
+      timeoutMs: 10_000,
+    }),
   );
 
 const write = (cwd: string, file: string, text: string) =>
-  Effect.flatMap(FileSystem.FileSystem, (fs) =>
-    fs.writeFileString(NodePath.join(cwd, file), text),
-  );
+  Effect.flatMap(FileSystem.FileSystem, (fs) => fs.writeFileString(NodePath.join(cwd, file), text));
 
 /** A Loom child (sidecar row via the arm); it inherits its parent's worktree. */
 const spawnInCheckout = (threadId: ThreadId, parentThreadId: ThreadId, cwd: string) =>
@@ -169,110 +175,122 @@ const turnDiff = (
   );
 
 it.layer(TestLayer)("Loom turn baseline in a shared checkout", (it) => {
-  it.effect("A's run-2 diff excludes B's between-run edit; a plain thread keeps upstream's base", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const store = yield* CheckpointStore.CheckpointStore;
-      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "loom-baseline-" });
-      yield* git(cwd, ["init"]);
-      yield* git(cwd, ["config", "user.email", "test@test.com"]);
-      yield* git(cwd, ["config", "user.name", "Test"]);
-      yield* write(cwd, "README.md", "# shared\n");
-      yield* git(cwd, ["add", "."]);
-      yield* git(cwd, ["commit", "-m", "initial"]);
+  it.effect(
+    "A's run-2 diff excludes B's between-run edit; a plain thread keeps upstream's base",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* CheckpointStore.CheckpointStore;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "loom-baseline-" });
+        yield* git(cwd, ["init"]);
+        yield* git(cwd, ["config", "user.email", "test@test.com"]);
+        yield* git(cwd, ["config", "user.name", "Test"]);
+        yield* write(cwd, "README.md", "# shared\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "initial"]);
 
-      const root = ThreadId.make("baseline-root");
-      const a = ThreadId.make("baseline-a");
-      const b = ThreadId.make("baseline-b");
-      const plain = ThreadId.make("baseline-plain");
-      yield* seedThread({ threadId: root });
-      yield* spawnInCheckout(a, root, cwd);
-      yield* spawnInCheckout(b, root, cwd);
-      yield* seedThread({ threadId: plain });
-      const scopeA = rootScope(a, cwd);
-      const scopePlain = rootScope(plain, cwd);
+        const root = ThreadId.make("baseline-root");
+        const a = ThreadId.make("baseline-a");
+        const b = ThreadId.make("baseline-b");
+        const plain = ThreadId.make("baseline-plain");
+        yield* seedThread({ threadId: root });
+        yield* spawnInCheckout(a, root, cwd);
+        yield* spawnInCheckout(b, root, cwd);
+        yield* seedThread({ threadId: plain });
+        const scopeA = rootScope(a, cwd);
+        const scopePlain = rootScope(plain, cwd);
 
-      const a1 = yield* runTurn(scopeA, 1, write(cwd, "a1.txt", "a1\n"));
-      const plain1 = yield* runTurn(scopePlain, 1, write(cwd, "plain1.txt", "p1\n"));
-      // B works in the shared tree between A's (and the plain thread's) runs.
-      yield* write(cwd, "b.txt", "b\n");
-      const a2 = yield* runTurn(scopeA, 2, write(cwd, "a2.txt", "a2\n"));
-      const plain2 = yield* runTurn(scopePlain, 2, write(cwd, "plain2.txt", "p2\n"));
+        const a1 = yield* runTurn(scopeA, 1, write(cwd, "a1.txt", "a1\n"));
+        const plain1 = yield* runTurn(scopePlain, 1, write(cwd, "plain1.txt", "p1\n"));
+        // B works in the shared tree between A's (and the plain thread's) runs.
+        yield* write(cwd, "b.txt", "b\n");
+        const a2 = yield* runTurn(scopeA, 2, write(cwd, "a2.txt", "a2\n"));
+        const plain2 = yield* runTurn(scopePlain, 2, write(cwd, "plain2.txt", "p2\n"));
 
-      const hasRef = (scope: OrchestrationV2CheckpointScope, ordinalWithinScope: number) =>
-        store.hasCheckpointRef({
-          cwd,
-          checkpointRef: CheckpointService.loomBaselineRef({ scopeId: scope.id, ordinalWithinScope }),
-        });
-      assert.match(
-        CheckpointService.loomBaselineRef({ scopeId: scopeA.id, ordinalWithinScope: 1 }),
-        /^refs\/t3\/loom-baseline\/[A-Za-z0-9_-]+\/1$/,
-      );
-      assert.isTrue(yield* hasRef(scopeA, 1));
-      assert.isFalse(yield* hasRef(scopePlain, 1));
+        const hasRef = (scope: OrchestrationV2CheckpointScope, ordinalWithinScope: number) =>
+          store.hasCheckpointRef({
+            cwd,
+            checkpointRef: CheckpointService.loomBaselineRef({
+              scopeId: scope.id,
+              ordinalWithinScope,
+            }),
+          });
+        assert.match(
+          CheckpointService.loomBaselineRef({ scopeId: scopeA.id, ordinalWithinScope: 1 }),
+          /^refs\/t3\/loom-baseline\/[A-Za-z0-9_-]+\/1$/,
+        );
+        assert.isTrue(yield* hasRef(scopeA, 1));
+        assert.isFalse(yield* hasRef(scopePlain, 1));
 
-      // The file summary: A's run 2 is only A's work; the plain thread's still carries B's edit.
-      assert.deepEqual(
-        a2.files.map((file) => file.path),
-        ["a2.txt"],
-      );
-      assert.deepEqual(
-        plain2.files.map((file) => file.path).toSorted(),
-        ["a2.txt", "b.txt", "plain2.txt"],
-      );
+        // The file summary: A's run 2 is only A's work; the plain thread's still carries B's edit.
+        assert.deepEqual(
+          a2.files.map((file) => file.path),
+          ["a2.txt"],
+        );
+        assert.deepEqual(plain2.files.map((file) => file.path).toSorted(), [
+          "a2.txt",
+          "b.txt",
+          "plain2.txt",
+        ]);
 
-      // The Diff panel's one-run diff.
-      const diffA = (yield* turnDiff(scopeA, [a1, a2], 2)).diff;
-      assert.include(diffA, "a2.txt");
-      assert.notInclude(diffA, "b.txt");
-      const diffPlain = (yield* turnDiff(scopePlain, [plain1, plain2], 2)).diff;
-      assert.include(diffPlain, "b.txt");
-    }).pipe(Effect.scoped),
+        // The Diff panel's one-run diff.
+        const diffA = (yield* turnDiff(scopeA, [a1, a2], 2)).diff;
+        assert.include(diffA, "a2.txt");
+        assert.notInclude(diffA, "b.txt");
+        const diffPlain = (yield* turnDiff(scopePlain, [plain1, plain2], 2)).diff;
+        assert.include(diffPlain, "b.txt");
+      }).pipe(Effect.scoped),
   );
 
-  it.effect("file restore is refused while another thread occupies the checkout (upstream's rule)", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const dependencies = {
-        fileSystem: fs,
-        projections: yield* ProjectionStore.ProjectionStoreV2,
-        projects: yield* ProjectStore.ProjectStoreV2,
-        path: yield* Path.Path,
-      };
-      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "loom-rollback-" });
-      const root = ThreadId.make("rollback-root");
-      const child = ThreadId.make("rollback-child");
-      yield* seedThread({ threadId: ThreadId.make("rollback-project-seed") });
-      // A root working in its own checkout; its children inherit the worktree (shared checkout).
-      yield* dispatch({
-        type: "thread.create",
-        createdBy: "user",
-        creationSource: "web",
-        commandId: CommandId.make(`command:seed-thread:${root}`),
-        threadId: root,
-        projectId,
-        title: "Rollback root",
-        modelSelection: testModelSelection,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: cwd,
-      });
-      const isolated = isCheckpointRestoreIsolated({ id: root, worktreePath: cwd }, { cwd }, dependencies);
-      assert.isTrue(yield* isolated);
+  it.effect(
+    "file restore is refused while another thread occupies the checkout (upstream's rule)",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dependencies = {
+          fileSystem: fs,
+          projections: yield* ProjectionStore.ProjectionStoreV2,
+          projects: yield* ProjectStore.ProjectStoreV2,
+          path: yield* Path.Path,
+        };
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "loom-rollback-" });
+        const root = ThreadId.make("rollback-root");
+        const child = ThreadId.make("rollback-child");
+        yield* seedThread({ threadId: ThreadId.make("rollback-project-seed") });
+        // A root working in its own checkout; its children inherit the worktree (shared checkout).
+        yield* dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`command:seed-thread:${root}`),
+          threadId: root,
+          projectId,
+          title: "Rollback root",
+          modelSelection: testModelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: cwd,
+        });
+        const isolated = isCheckpointRestoreIsolated(
+          { id: root, worktreePath: cwd },
+          { cwd },
+          dependencies,
+        );
+        assert.isTrue(yield* isolated);
 
-      yield* spawnInCheckout(child, root, cwd);
-      assert.isFalse(yield* isolated);
-      // A finished occupant still left its edits in the tree: restoring the root's snapshot
-      // would revert them, so upstream keeps refusing.
-      yield* dispatch({
-        type: "thread.outcome.set",
-        commandId: CommandId.make("rollback-child-done"),
-        threadId: child,
-        createdAt: DateTime.formatIso(yield* DateTime.now),
-        outcome: "done",
-      });
-      assert.isFalse(yield* isolated);
-    }).pipe(Effect.scoped),
+        yield* spawnInCheckout(child, root, cwd);
+        assert.isFalse(yield* isolated);
+        // A finished occupant still left its edits in the tree: restoring the root's snapshot
+        // would revert them, so upstream keeps refusing.
+        yield* dispatch({
+          type: "thread.outcome.set",
+          commandId: CommandId.make("rollback-child-done"),
+          threadId: child,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          outcome: "done",
+        });
+        assert.isFalse(yield* isolated);
+      }).pipe(Effect.scoped),
   );
 });

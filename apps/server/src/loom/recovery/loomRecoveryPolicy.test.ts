@@ -17,6 +17,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -163,7 +164,10 @@ const stash = (threadId: ThreadId, text: string) =>
     const path = yield* Path.Path;
     const dir = path.join((yield* ServerConfig.ServerConfig).stateDir, "pending-steering");
     yield* fs.makeDirectory(dir, { recursive: true });
-    yield* fs.writeFileString(path.join(dir, `${threadId}.json`), JSON.stringify(text));
+    yield* fs.writeFileString(
+      path.join(dir, `${threadId}.json`),
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.String))(text),
+    );
   });
 const stashed = (threadId: ThreadId) =>
   Effect.gen(function* () {
@@ -173,107 +177,108 @@ const stashed = (threadId: ThreadId) =>
   });
 
 it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it) => {
-  it.effect("a continued thread's steer lands behind its continuation once; flagged threads keep it", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const receipts = yield* CommandReceiptStoreV2;
-      const root = ThreadId.make("stash-root");
-      yield* seedThread({ threadId: root });
-      const child = Effect.fn("test.stashChild")(function* (key: string) {
-        const threadId = ThreadId.make(`stash-${key}`);
-        yield* spawnChild({ parentThreadId: root, threadId, graphKey: key });
-        return threadId;
-      });
-      const steerText = (threadId: ThreadId) => `Also update the changelog (${threadId}).`;
-      const redeliveryId = (threadId: ThreadId) =>
-        MessageId.make(
-          `message:${steerRedeliverCommandId(threadId, steerHash(steerText(threadId)))}`,
+  it.effect(
+    "a continued thread's steer lands behind its continuation once; flagged threads keep it",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const receipts = yield* CommandReceiptStoreV2;
+        const root = ThreadId.make("stash-root");
+        yield* seedThread({ threadId: root });
+        const child = Effect.fn("test.stashChild")(function* (key: string) {
+          const threadId = ThreadId.make(`stash-${key}`);
+          yield* spawnChild({ parentThreadId: root, threadId, graphKey: key });
+          return threadId;
+        });
+        const steerText = (threadId: ThreadId) => `Also update the changelog (${threadId}).`;
+        const redeliveryId = (threadId: ThreadId) =>
+          MessageId.make(
+            `message:${steerRedeliverCommandId(threadId, steerHash(steerText(threadId)))}`,
+          );
+
+        // Live, mid-turn on a real session: upstream will continue it.
+        const live = yield* child("live");
+        yield* seedRunningRun({ threadId: live, live: true });
+        // Owed a human.
+        const guided = yield* child("guided");
+        yield* dispatch({
+          type: "thread.attention.raise",
+          commandId: CommandId.make("stash-raise-guided"),
+          threadId: guided,
+          createdAt,
+          reason: "needs_guidance",
+        });
+        yield* seedRunningRun({ threadId: guided, live: true });
+        // Done, with a control wake queued behind its last turn (DL-249: stays held).
+        const done = yield* child("done");
+        yield* seedRunningRun({ threadId: done });
+        yield* queueBehind(done, "control");
+        yield* dispatch({
+          type: "thread.outcome.set",
+          commandId: CommandId.make("stash-done"),
+          threadId: done,
+          createdAt,
+          outcome: "done",
+        });
+        // Cancelled.
+        const cancelled = yield* child("cancelled");
+        yield* seedRunningRun({ threadId: cancelled });
+        yield* dispatch({
+          type: "thread.outcome.set",
+          commandId: CommandId.make("stash-cancelled"),
+          threadId: cancelled,
+          createdAt,
+          outcome: "cancelled",
+        });
+        for (const threadId of [live, guided, done, cancelled]) {
+          yield* stash(threadId, steerText(threadId));
+        }
+
+        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+
+        // The live thread: upstream's continuation first, then the steer behind it.
+        const projection = yield* orchestrator.getThreadProjection(live);
+        const continuation = projection.messages.find(
+          (message) => message.id === `message:restart-continuation:${seededRunIds(live).runId}`,
         );
+        assert.isDefined(continuation);
+        const redelivered = projection.messages.filter(
+          (message) => message.id === redeliveryId(live),
+        );
+        assert.lengthOf(redelivered, 1);
+        assert.deepEqual(redelivered[0]!.loom, { origin: "control_notice", humanAuthored: false });
+        assert.include(redelivered[0]!.text, steerText(live));
+        assert.include(redelivered[0]!.text, "never reached it");
+        const runOf = (messageId: string) =>
+          projection.runs.find((run) => run.userMessageId === messageId)!;
+        assert.isAbove(runOf(redelivered[0]!.id).ordinal, runOf(continuation!.id).ordinal);
+        assert.isFalse(yield* stashed(live));
 
-      // Live, mid-turn on a real session: upstream will continue it.
-      const live = yield* child("live");
-      yield* seedRunningRun({ threadId: live, live: true });
-      // Owed a human.
-      const guided = yield* child("guided");
-      yield* dispatch({
-        type: "thread.attention.raise",
-        commandId: CommandId.make("stash-raise-guided"),
-        threadId: guided,
-        createdAt,
-        reason: "needs_guidance",
-      });
-      yield* seedRunningRun({ threadId: guided, live: true });
-      // Done, with a control wake queued behind its last turn (DL-249: stays held).
-      const done = yield* child("done");
-      yield* seedRunningRun({ threadId: done });
-      yield* queueBehind(done, "control");
-      yield* dispatch({
-        type: "thread.outcome.set",
-        commandId: CommandId.make("stash-done"),
-        threadId: done,
-        createdAt,
-        outcome: "done",
-      });
-      // Cancelled.
-      const cancelled = yield* child("cancelled");
-      yield* seedRunningRun({ threadId: cancelled });
-      yield* dispatch({
-        type: "thread.outcome.set",
-        commandId: CommandId.make("stash-cancelled"),
-        threadId: cancelled,
-        createdAt,
-        outcome: "cancelled",
-      });
-      for (const threadId of [live, guided, done, cancelled]) {
-        yield* stash(threadId, steerText(threadId));
-      }
+        // Flagged, done and cancelled threads: nothing sent, the stash stays for a human's turn.
+        for (const threadId of [guided, done, cancelled]) {
+          const messages = (yield* orchestrator.getThreadProjection(threadId)).messages;
+          assert.isFalse(messages.some((message) => message.id === redeliveryId(threadId)));
+          assert.isTrue(yield* stashed(threadId));
+        }
+        const doneQueued = (yield* orchestrator.getThreadProjection(done)).runs.filter(
+          (run) => run.status === "queued",
+        );
+        assert.isTrue(doneQueued.length === 1 && doneQueued[0]!.queueHeld === true);
 
-      yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
-      yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
-
-      // The live thread: upstream's continuation first, then the steer behind it.
-      const projection = yield* orchestrator.getThreadProjection(live);
-      const continuation = projection.messages.find(
-        (message) =>
-          message.id === `message:restart-continuation:${seededRunIds(live).runId}`,
-      );
-      assert.isDefined(continuation);
-      const redelivered = projection.messages.filter(
-        (message) => message.id === redeliveryId(live),
-      );
-      assert.lengthOf(redelivered, 1);
-      assert.deepEqual(redelivered[0]!.loom, { origin: "control_notice", humanAuthored: false });
-      assert.include(redelivered[0]!.text, steerText(live));
-      assert.include(redelivered[0]!.text, "never reached it");
-      const runOf = (messageId: string) =>
-        projection.runs.find((run) => run.userMessageId === messageId)!;
-      assert.isAbove(runOf(redelivered[0]!.id).ordinal, runOf(continuation!.id).ordinal);
-      assert.isFalse(yield* stashed(live));
-
-      // Flagged, done and cancelled threads: nothing sent, the stash stays for a human's turn.
-      for (const threadId of [guided, done, cancelled]) {
-        const messages = (yield* orchestrator.getThreadProjection(threadId)).messages;
-        assert.isFalse(messages.some((message) => message.id === redeliveryId(threadId)));
-        assert.isTrue(yield* stashed(threadId));
-      }
-      const doneQueued = (yield* orchestrator.getThreadProjection(done)).runs.filter(
-        (run) => run.status === "queued",
-      );
-      assert.isTrue(doneQueued.length === 1 && doneQueued[0]!.queueHeld === true);
-
-      // The same stash again (a crash before the clear) hits the receipt: still one message.
-      yield* stash(live, steerText(live));
-      yield* redeliverStashedSteers.pipe(Effect.provide(ServerSettings.layerTest()));
-      const again = (yield* orchestrator.getThreadProjection(live)).messages.filter(
-        (message) => message.id === redeliveryId(live),
-      );
-      assert.lengthOf(again, 1);
-      assert.isFalse(yield* stashed(live));
-      const receipt = yield* receipts.getByCommandId(
-        CommandId.make(steerRedeliverCommandId(live, steerHash(steerText(live)))),
-      );
-      assert.equal(Option.getOrThrow(receipt).status, "accepted");
-    }),
+        // The same stash again (a crash before the clear) hits the receipt: still one message.
+        yield* stash(live, steerText(live));
+        yield* redeliverStashedSteers.pipe(Effect.provide(ServerSettings.layerTest()));
+        const again = (yield* orchestrator.getThreadProjection(live)).messages.filter(
+          (message) => message.id === redeliveryId(live),
+        );
+        assert.lengthOf(again, 1);
+        assert.isFalse(yield* stashed(live));
+        const receipt = yield* receipts.getByCommandId(
+          CommandId.make(steerRedeliverCommandId(live, steerHash(steerText(live)))),
+        );
+        assert.equal(Option.getOrThrow(receipt).status, "accepted");
+      }),
   );
 
   it.effect("rule 0 vetoes upstream's limit-resume on a cancelled Loom thread (seam 13b)", () =>
@@ -319,7 +324,9 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
       );
       const after = yield* orchestrator.getThreadProjection(cancelled);
       assert.lengthOf(after.runs, 1);
-      assert.isFalse(after.messages.some((message) => message.id === `message:veto-resume:${cancelled}`));
+      assert.isFalse(
+        after.messages.some((message) => message.id === `message:veto-resume:${cancelled}`),
+      );
     }),
   );
 });

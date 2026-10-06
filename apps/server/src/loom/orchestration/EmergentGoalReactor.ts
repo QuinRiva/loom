@@ -97,7 +97,9 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
             .textGenerationModelSelection;
           const instance = deriveProviderInstanceConfigMap(settings)[modelSelection.instanceId];
           if (instance?.driver !== "pi") {
-            return yield* fail(`Text generation instance '${modelSelection.instanceId}' is not Pi.`);
+            return yield* fail(
+              `Text generation instance '${modelSelection.instanceId}' is not Pi.`,
+            );
           }
           const pi = yield* Schema.decodeUnknownEffect(PiSettings)(instance.config ?? {});
           const launchArgs = resolvePiLaunchArgs(pi.launchArgs);
@@ -140,7 +142,8 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
           }
           const data = yield* connection.request({ type: "get_last_assistant_text" });
           const text = (data as { text?: unknown } | null)?.text;
-          if (typeof text !== "string" || text.trim() === "") return yield* fail("Pi returned no text.");
+          if (typeof text !== "string" || text.trim() === "")
+            return yield* fail("Pi returned no text.");
           return yield* Schema.decodeEffect(Schema.fromJsonString(outputSchema))(
             extractJsonObject(text.trim()),
           );
@@ -148,7 +151,9 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
           Effect.scoped,
           Effect.timeout(GENERATION_TIMEOUT),
           Effect.mapError((cause) =>
-            Schema.is(TextGenerationError)(cause) ? cause : fail("Emergent goal generation failed.", cause),
+            Schema.is(TextGenerationError)(cause)
+              ? cause
+              : fail("Emergent goal generation failed.", cause),
           ),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         ),

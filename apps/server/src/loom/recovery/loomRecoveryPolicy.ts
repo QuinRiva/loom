@@ -35,7 +35,10 @@ import * as EffectOutbox from "../../orchestration-v2/EffectOutbox.ts";
 import { loomContinuationVetoed } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
-import { controlMessage, steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
+import {
+  controlMessage,
+  steerRedeliverCommandId,
+} from "../orchestration/dispatcher/controlMessage.ts";
 import { WorkstreamDispatcher } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import * as PendingSteering from "../steering/pendingSteering.ts";
