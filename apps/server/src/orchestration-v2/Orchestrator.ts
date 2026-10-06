@@ -2418,7 +2418,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
-      thread.lineage.relationshipToParent === "subagent"
+      thread.lineage.relationshipToParent === "subagent" &&
+      (yield* loomStore.getWorkstream(command.threadId).pipe(mapDispatchError(command))) === null // loom: DL-305 — a Loom child (shipper) watches its own PR; P3-21 two places
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,

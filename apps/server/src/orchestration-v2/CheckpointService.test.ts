@@ -14,6 +14,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as CheckpointService from "./CheckpointService.ts";
 import * as IdAllocator from "./IdAllocator.ts";
 
@@ -51,6 +52,7 @@ it.effect.each([false, true, "interrupt"] as const)(
       Layer.provide(
         Layer.mergeAll(
           IdAllocator.layer,
+          Layer.mock(LoomStore.LoomStoreV2)({ getWorkstream: () => Effect.succeed(null) } as never), // loom:
           Layer.mock(CheckpointStore.CheckpointStore)({
             isGitRepository: () => Effect.succeed(true),
             hasCheckpointRef,

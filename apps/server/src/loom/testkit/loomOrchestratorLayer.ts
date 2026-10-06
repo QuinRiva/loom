@@ -30,6 +30,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  TurnItemId,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -239,8 +240,11 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
   readonly threadId: ThreadId;
   readonly ordinal?: number;
   readonly live?: boolean;
+  /** The provider thread's driver (default the test driver; `pi` for the drafter guards). */
+  readonly driver?: ProviderDriverKind;
 }) {
   const sink = yield* EventSink.EventSinkV2;
+  const driver = input.driver ?? testDriver;
   const now = yield* DateTime.now;
   const ordinal = input.ordinal ?? 1;
   const ids = seededRunIds(input.threadId, ordinal);
@@ -267,13 +271,13 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
         type: "provider-thread.updated",
         payload: {
           id: ids.providerThreadId,
-          driver: testDriver,
+          driver,
           providerInstanceId,
           providerSessionId,
           appThreadId: threadId,
           ownerNodeId: null,
           nativeThreadRef: {
-            driver: testDriver,
+            driver,
             nativeId: `native:${threadId}`,
             strength: "strong",
           },
@@ -437,6 +441,140 @@ export const completeSeededRun = Effect.fn("loom.testkit.completeSeededRun")(fun
   });
 });
 
+/**
+ * Completes every blocking run on the thread (orchestrator-started runs never
+ * progress on the inert session), optionally recording a last assistant
+ * message on the latest; returns that run.
+ */
+export const completeOpenRuns = Effect.fn("loom.testkit.completeOpenRuns")(function* (
+  threadId: ThreadId,
+  lastAssistantText?: string,
+) {
+  const now = yield* DateTime.now;
+  const runs = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(
+    threadId,
+  )).runs.filter((run) => ["preparing", "starting", "running", "waiting"].includes(run.status));
+  const events: Array<OrchestrationV2DomainEvent> = runs.map((run) => ({
+    id: EventId.make(`event:complete-open-run:${run.id}`),
+    type: "run.updated",
+    threadId,
+    runId: run.id,
+    occurredAt: now,
+    payload: { ...run, status: "completed", completedAt: now },
+  }));
+  const last = runs.at(-1);
+  if (last !== undefined && lastAssistantText !== undefined) {
+    events.unshift({
+      id: EventId.make(`event:last-assistant:${last.id}`),
+      type: "turn-item.updated",
+      threadId,
+      runId: last.id,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make(`turn-item:last-assistant:${last.id}`),
+        threadId,
+        runId: last.id,
+        nodeId: last.rootNodeId ?? NodeId.make(`node:${last.id}`),
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 10,
+        status: "completed",
+        title: null,
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "assistant_message",
+        messageId: MessageId.make(`message:last-assistant:${last.id}`),
+        text: lastAssistantText,
+        streaming: false,
+      },
+    });
+  }
+  yield* (yield* EventSink.EventSinkV2).write({ events });
+  return last;
+});
+
+/**
+ * A run that failed on a usage limit whose reset time has passed, with upstream's
+ * limit recovery armed (auto-resume): the state in which upstream's
+ * `UsageLimitRecoveryWorker` sends its limit-resume `message.dispatch`
+ * (`createdBy: "user"`, `creationSource: "server"`, `usageLimitContinuationOfRunId`).
+ */
+export const seedUsageLimitedRun = Effect.fn("loom.testkit.seedUsageLimitedRun")(function* (input: {
+  readonly threadId: ThreadId;
+}) {
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const sink = yield* EventSink.EventSinkV2;
+  const ids = yield* seedRunningRun({ threadId: input.threadId });
+  const projection = yield* orchestrator.getThreadProjection(input.threadId);
+  const run = projection.runs.find((entry) => entry.id === ids.runId)!;
+  const turn = projection.providerTurns.find((entry) => entry.id === ids.providerTurnId)!;
+  const now = yield* DateTime.now;
+  const resetAt = DateTime.formatIso(DateTime.subtract(now, { minutes: 1 }));
+  const base = { threadId: input.threadId, runId: ids.runId, occurredAt: now };
+  yield* sink.writeWithEffects({
+    effects: [],
+    events: [
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-item:${input.threadId}`),
+        type: "turn-item.updated",
+        nodeId: ids.nodeId,
+        payload: {
+          id: TurnItemId.make(`turn-item:seed-limit:${input.threadId}`),
+          threadId: input.threadId,
+          runId: ids.runId,
+          nodeId: ids.nodeId,
+          providerThreadId: ids.providerThreadId,
+          providerTurnId: ids.providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 0,
+          status: "failed",
+          title: null,
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+          type: "error",
+          failure: {
+            class: "usage_limit",
+            message: "Usage limit reached.",
+            code: null,
+            retryable: true,
+            resetAt,
+          },
+        },
+      },
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-turn:${input.threadId}`),
+        type: "provider-turn.updated",
+        nodeId: ids.nodeId,
+        payload: { ...turn, status: "failed", completedAt: now },
+      },
+      {
+        ...base,
+        id: EventId.make(`event:seed-limit-run:${input.threadId}`),
+        type: "run.updated",
+        payload: { ...run, status: "failed", completedAt: now },
+      },
+      {
+        id: EventId.make(`event:seed-limit-recovery:${input.threadId}`),
+        type: "thread.metadata-updated",
+        threadId: input.threadId,
+        occurredAt: now,
+        payload: {
+          ...projection.thread,
+          limitRecovery: { runId: ids.runId, resetAt, autoResume: true },
+        },
+      },
+    ],
+  });
+  return ids;
+});
+
 type LoomEventOf<Type extends LoomDomainEvent["type"]> = Extract<LoomDomainEvent, { type: Type }>;
 
 let loomEventCounter = 0;
@@ -486,6 +624,8 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
   readonly routes?: ReadonlyArray<WorkstreamRoute>;
   readonly held?: boolean;
   readonly role?: string;
+  readonly forkFromThreadId?: ThreadId;
+  readonly kickoffBriefPath?: string;
 }) {
   return yield* dispatch({
     type: "thread.spawn",
@@ -509,6 +649,8 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
     ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
     ...(input.routes === undefined ? {} : { routes: input.routes }),
     ...(input.held === undefined ? {} : { held: input.held }),
+    ...(input.forkFromThreadId === undefined ? {} : { forkFromThreadId: input.forkFromThreadId }),
+    ...(input.kickoffBriefPath === undefined ? {} : { kickoffBriefPath: input.kickoffBriefPath }),
   });
 });
 

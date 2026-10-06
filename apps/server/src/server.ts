@@ -163,6 +163,7 @@ import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMoni
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import {
   LoomAgentHttpLive,
+  LoomControlPlaneLive,
   LoomGoalBroadcastLive,
   LoomProviderHealthLive,
   LoomProviderRuntimeLive,
@@ -594,6 +595,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   ProviderUsageLimitsIngestionLive,
   LoomProviderRuntimeLive, // loom: usage poller + LoomDriverEconomicsLive (reroute sweep, usage ledger)
   LoomGoalBroadcastLive, // loom: LoomStoreV2 + goal shell-item PubSub and its cascade reactor
+  LoomControlPlaneLive, // loom: the workstream dispatcher (re-drive, promotion, wakes)
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
 ).pipe(

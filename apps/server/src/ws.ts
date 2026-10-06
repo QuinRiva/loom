@@ -260,6 +260,7 @@ import type { ServerProvider, UsageLimitSourceSnapshot } from "@t3tools/contract
 import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import { loadProjectReferenceLinks } from "./loom/referenceLinks.ts";
 import { loomShellGoals } from "./loom/projection/LoomGoalBroadcast.ts"; // loom: DL-200
+import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom: 3d-3 — seam 21
 import * as RelayClient from "@t3tools/shared/relayClient";
 import {
   sameUsageLimitCommandCoverage,
@@ -1846,6 +1847,7 @@ const makeWsRpcLayer = (
       });
 
       const handlers = ServerWsRpcGroup.of({
+        ...(yield* makeLoomWsHandlers), // loom: 3d-3 — seam 21 Loom ws methods (loom/wsMethods.ts)
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_V2_WS_METHODS.dispatchCommand,

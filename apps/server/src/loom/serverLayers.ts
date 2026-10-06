@@ -34,7 +34,13 @@ import { subscriptionScopeForSelection } from "../provider/exhaustionMapping.ts"
 import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
 import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
-import { LoomReDriveReactor } from "./orchestration/redrive.ts";
+import { HandoffDrafterReactorLive } from "./handoff/HandoffDrafterReactor.ts";
+import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
+import {
+  EmergentGoalGeneratorPiLive,
+  EmergentGoalReactorLive,
+} from "./orchestration/EmergentGoalReactor.ts";
+import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import * as PendingSteering from "./steering/pendingSteering.ts";
@@ -144,15 +150,34 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
 /**
  * Loom's sidecar store and the goal broadcast (with its cascade reactor),
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
- * and publish/subscribe goal shell items; and the re-drive reactor that moves
- * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
+ * and publish/subscribe goal shell items. Pull 9 Phase 2 §4. (The Phase 2
+ * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
  * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
  */
 export const LoomGoalBroadcastLive = Layer.mergeAll(
   LoomGoalBroadcast.layerWithReactor,
   LoomThreadConsult.layer,
-  LoomReDriveReactor.pipe(Layer.provide(CommandReceiptStore.layer)), // loom: re-drive (D16)
 ).pipe(Layer.provideMerge(LoomStore.layer));
+
+/**
+ * The workstream control plane (Phase 3 Track 3b), every worker started after
+ * server activation: the dispatcher pass — re-drive, promotion and every wake —
+ * the liveness sweep (which advises through the dispatcher), the emergent-goal
+ * reactor and the `/handoff` drafter reactor. The startup pass itself is
+ * `loomStartupRecovery`'s (DL-386).
+ */
+export const LoomControlPlaneLive = Layer.mergeAll(
+  WorkstreamLivenessSweepLive, // loom: 3b-3 — the sweep hands slow-tool/spinning advisories to the dispatcher
+  EmergentGoalReactorLive.pipe(
+    Layer.provide(EmergentGoalGeneratorPiLive),
+    // The same layer reference as server.ts's entry, so the broadcast is one shared PubSub.
+    Layer.provide(LoomGoalBroadcastLive),
+  ),
+  HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
+).pipe(
+  Layer.provideMerge(WorkstreamDispatcherStartedLive),
+  Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
+);
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's

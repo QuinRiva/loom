@@ -15,7 +15,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 
 /** The latest run that is not queued (a queued run never started; a held queue is still queued). */
-const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
+export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
   runs
     .filter((run) => run.status !== "queued")
     .reduce<OrchestrationV2Run | undefined>(

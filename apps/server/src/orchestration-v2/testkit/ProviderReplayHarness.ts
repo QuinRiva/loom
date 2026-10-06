@@ -324,6 +324,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
   );
   const checkpointServiceProvided = CheckpointService.layer.pipe(
     Layer.provide(Layer.mergeAll(checkpointStoreLayer, IdAllocator.layer)),
+    Layer.provide(storesLayer), // loom: LoomStoreV2 for the Loom turn baseline (P3-17)
   );
   const contextHandoffServiceProvided = ContextHandoffService.layer.pipe(
     Layer.provide(IdAllocator.layer),
