@@ -65,10 +65,10 @@ The script labels the issue `bug`, `needs-triage`, `agent-found`,
 `confidence:<x>`, `surface:<x>` — you pass no labels. It also **appends a
 footer** you never write: that an agent filed this under the human's account,
 the Loom release id and commit permalink, the bundled pi version,
-`$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id, the confidence as
-filed, and — only when the worktree's origin is `QuinRiva/loom` — its branch and
-sha (any other project is named only as "a non-loom project"). Do not repeat
-any of this in the body.
+`$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id (with a note that
+it is a `consult_thread` handle), the confidence as filed, and — only when the
+worktree's origin is `QuinRiva/loom` — its branch and sha (any other project is
+named only as "a non-loom project"). Do not repeat any of this in the body.
 
 ### `confirmed` vs `suspected`
 
@@ -138,7 +138,8 @@ point, not an error to route around:
   ```bash
   gh issue comment <n> -R QuinRiva/loom -F /tmp/loom-finding-$PI_SESSION_ID.md
   ```
-  Comments get no footer, so end yours with your thread id (`$PI_SESSION_ID`).
+  Comments get no footer, so end yours with your thread id (`$PI_SESSION_ID`)
+  so a pick-up agent can `consult_thread` you too.
   The redaction rule applies to comments too, and the leak guard does not run
   on them — anything you add after exit 3 is unguarded.
 - **Genuinely different** → re-run with `--force` and say in the body how it
@@ -151,3 +152,11 @@ The inbox is `gh issue list -R QuinRiva/loom -l needs-triage -l agent-found`;
 read it only when a human asks you to triage. `duplicate`, `invalid`,
 `wontfix` and closing are the human's moves — an agent touches a filed issue
 only when told to.
+
+When you are the agent picking one up, the footer's `Thread:` id (and the id a
+commenter signed off with) is a `consult_thread` handle on the thread that
+found the bug. Ask it a self-contained question before re-deriving the finding
+from the compressed description — it holds the context the issue could not.
+An id older than this machine's session retention may not resolve; fall back
+to the description. The same convention holds on the AIT and PE Jira boards
+(`report-latent-issue`, `jira_create.sh`), so it is one rule everywhere.
