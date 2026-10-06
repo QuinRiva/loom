@@ -9,7 +9,9 @@
  * bottom (they fail naming the method, DL-433). The goal methods are 3d's:
  * each writes `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`,
  * exactly as the goal tool handlers do (DL-219: publish when the write moved
- * the goal — every write here stamps `updatedAt`).
+ * the goal — every write here stamps `updatedAt`). The two spend reads (3d-4)
+ * answer from seam 11's `LoomUsageLedger` (3c's; a fixture layer until
+ * integration, DL-438).
  *
  * @module loom/wsMethods
  */
@@ -22,6 +24,8 @@ import {
   type LoomGoalTaskRewriteInput,
   type LoomGoalTaskRewriteNode,
   type LoomGoalUpdateInput,
+  type LoomThreadSpendInput,
+  type LoomTopSpendInput,
   LoomWsMethodError,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
@@ -29,6 +33,7 @@ import * as Effect from "effect/Effect";
 import * as Struct from "effect/Struct";
 
 import { observeRpcEffect } from "../observability/RpcInstrumentation.ts";
+import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
 import {
   type LoomGoalTaskInput,
@@ -104,6 +109,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const loomStore = yield* LoomStoreV2;
   const broadcast = yield* LoomGoalBroadcast;
   const crypto = yield* Crypto.Crypto;
+  const usageLedger = yield* LoomUsageLedger;
 
   const fail = (method: string, message: string, cause?: unknown) =>
     new LoomWsMethodError({ method, message, ...(cause === undefined ? {} : { cause }) });
@@ -185,7 +191,21 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     // 3b's, stubbed until integration.
     [LOOM_WS_METHODS.handoffDraft]: (_input: unknown) => notWired(LOOM_WS_METHODS.handoffDraft),
     [LOOM_WS_METHODS.retroDraft]: (_input: unknown) => notWired(LOOM_WS_METHODS.retroDraft),
-    // 3d-4 slot: loom.threadSpend / loom.topSpend handlers go here.
+    // 3d-4 — seam 11's spend reads.
+    [LOOM_WS_METHODS.threadSpend]: (input: LoomThreadSpendInput) =>
+      observeRpcEffect(
+        LOOM_WS_METHODS.threadSpend,
+        usageLedger
+          .threadSpend(input.threadIds)
+          .pipe(Effect.map((spend) => ({ spend: Object.fromEntries(spend) }))),
+        { "rpc.aggregate": "loom" },
+      ),
+    [LOOM_WS_METHODS.topSpend]: (input: LoomTopSpendInput) =>
+      observeRpcEffect(
+        LOOM_WS_METHODS.topSpend,
+        usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
+        { "rpc.aggregate": "loom" },
+      ),
   };
 });
 

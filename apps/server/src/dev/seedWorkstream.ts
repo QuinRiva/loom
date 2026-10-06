@@ -160,6 +160,19 @@ const seedAdapter: ProviderAdapterV2Shape = {
               `provider-turn:seed:${turn.threadId}:${turn.runOrdinal}`,
             );
             yield* PubSub.publishAll(events, [
+              // A context-window reading, so the web's context chip has a value (3d-4).
+              {
+                type: "provider_thread.updated",
+                driver,
+                providerThread: {
+                  ...turn.providerThread,
+                  contextUsage: {
+                    usedTokens: 18_000 + (turn.runOrdinal % 4) * 41_000,
+                    maxTokens: 200_000,
+                  },
+                  updatedAt: at,
+                },
+              },
               {
                 type: "provider_turn.updated",
                 driver,

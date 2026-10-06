@@ -7,14 +7,16 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { LoomUsageLedgerFixtureLive } from "./economics/LoomUsageLedger.fixture.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { makeLoomWsHandlers } from "./wsMethods.ts";
 
-const TestLayer = Layer.mergeAll(LoomStore.layer, LoomGoalBroadcast.layer).pipe(
-  Layer.provideMerge(SqlitePersistenceMemory),
-  Layer.provideMerge(NodeServices.layer),
-);
+const TestLayer = Layer.mergeAll(
+  LoomStore.layer,
+  LoomGoalBroadcast.layer,
+  LoomUsageLedgerFixtureLive,
+).pipe(Layer.provideMerge(SqlitePersistenceMemory), Layer.provideMerge(NodeServices.layer));
 const goalId = GoalId.make("goal:ws");
 const task = (id: string) => GoalTaskId.make(id);
 

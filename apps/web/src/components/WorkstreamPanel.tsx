@@ -45,7 +45,7 @@ import {
   useWorkstreamNodes,
   type WorkstreamCommands,
 } from "../loom/workstreamState";
-import { WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadLineage } from "../threadRouteLineage";
@@ -443,32 +443,34 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const node = nodes.get(threadRef.threadId);
   const members = boardMembersOf(threadRef.threadId, nodes);
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <SurfaceHeader
-        icon={<GitBranchIcon className="size-4 text-muted-foreground" />}
-        title="Workstream"
-        node={node}
-        nodes={nodes}
-        threadTitle={node?.title ?? "this thread"}
-        onOpenThread={actions.onOpenThread}
-      >
-        <Badge size="sm" variant="outline">
-          {members.length} {members.length === 1 ? "sub-thread" : "sub-threads"}
-        </Badge>
-      </SurfaceHeader>
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto px-3 py-3">
-          {members.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              No sub-threads. Children this thread spawns appear here.
-            </div>
-          ) : (
-            <WorkstreamBoard threadId={threadRef.threadId} nodes={nodes} {...actions} />
-          )}
+    <WorkstreamEnvironmentContext value={threadRef.environmentId}>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <SurfaceHeader
+          icon={<GitBranchIcon className="size-4 text-muted-foreground" />}
+          title="Workstream"
+          node={node}
+          nodes={nodes}
+          threadTitle={node?.title ?? "this thread"}
+          onOpenThread={actions.onOpenThread}
+        >
+          <Badge size="sm" variant="outline">
+            {members.length} {members.length === 1 ? "sub-thread" : "sub-threads"}
+          </Badge>
+        </SurfaceHeader>
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto px-3 py-3">
+            {members.length === 0 ? (
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                No sub-threads. Children this thread spawns appear here.
+              </div>
+            ) : (
+              <WorkstreamBoard threadId={threadRef.threadId} nodes={nodes} {...actions} />
+            )}
+          </div>
+          {timeline}
         </div>
-        {timeline}
       </div>
-    </div>
+    </WorkstreamEnvironmentContext>
   );
 }
 
@@ -501,65 +503,67 @@ export function WorkstreamGraphPanel({ threadRef }: { readonly threadRef: Scoped
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <SurfaceHeader
-        icon={<NetworkIcon className="size-4 text-muted-foreground" />}
-        title="Graph"
-        node={nodes.get(threadRef.threadId)}
-        nodes={nodes}
-        threadTitle={root?.title ?? "this thread"}
-        onOpenThread={onOpenThread}
-      >
-        {rollup ? (
-          <Badge size="sm" variant="outline">
-            {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total} settled
-          </Badge>
-        ) : null}
-        {rollup?.plan.deadlocked ? (
-          <Badge size="sm" variant="error">
-            deadlocked
-          </Badge>
-        ) : null}
-      </SurfaceHeader>
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto px-3 py-3">
-          {rootId === null ? (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              This thread is not part of a workstream.
-            </div>
-          ) : (
-            <>
-              {rollup ? (
-                <WorkstreamActiveStrip
-                  nodes={subtree.filter((node) => node.id !== rootId)}
-                  rollup={rollup}
-                  onOpenThread={onOpenThread}
-                />
-              ) : null}
-              <Suspense
-                fallback={
-                  <div className="flex h-40 items-center justify-center">
-                    <Spinner />
-                  </div>
-                }
-              >
-                <WorkstreamGraph
-                  key={rootId}
-                  viewKey={scopedThreadKey(scopeThreadRef(threadRef.environmentId, rootId))}
-                  nodes={subtree}
-                  byId={nodes}
-                  rollupOf={rollupOf}
-                  titleOf={titleOf}
-                  onOpenThread={onOpenThread}
-                  onOpenTimeline={(node) => setTimelineId(node.id)}
-                  onNodeContextMenu={(node, position) => void onNodeContextMenu(node, position)}
-                />
-              </Suspense>
-            </>
-          )}
+    <WorkstreamEnvironmentContext value={threadRef.environmentId}>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <SurfaceHeader
+          icon={<NetworkIcon className="size-4 text-muted-foreground" />}
+          title="Graph"
+          node={nodes.get(threadRef.threadId)}
+          nodes={nodes}
+          threadTitle={root?.title ?? "this thread"}
+          onOpenThread={onOpenThread}
+        >
+          {rollup ? (
+            <Badge size="sm" variant="outline">
+              {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total} settled
+            </Badge>
+          ) : null}
+          {rollup?.plan.deadlocked ? (
+            <Badge size="sm" variant="error">
+              deadlocked
+            </Badge>
+          ) : null}
+        </SurfaceHeader>
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto px-3 py-3">
+            {rootId === null ? (
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                This thread is not part of a workstream.
+              </div>
+            ) : (
+              <>
+                {rollup ? (
+                  <WorkstreamActiveStrip
+                    nodes={subtree.filter((node) => node.id !== rootId)}
+                    rollup={rollup}
+                    onOpenThread={onOpenThread}
+                  />
+                ) : null}
+                <Suspense
+                  fallback={
+                    <div className="flex h-40 items-center justify-center">
+                      <Spinner />
+                    </div>
+                  }
+                >
+                  <WorkstreamGraph
+                    key={rootId}
+                    viewKey={scopedThreadKey(scopeThreadRef(threadRef.environmentId, rootId))}
+                    nodes={subtree}
+                    byId={nodes}
+                    rollupOf={rollupOf}
+                    titleOf={titleOf}
+                    onOpenThread={onOpenThread}
+                    onOpenTimeline={(node) => setTimelineId(node.id)}
+                    onNodeContextMenu={(node, position) => void onNodeContextMenu(node, position)}
+                  />
+                </Suspense>
+              </>
+            )}
+          </div>
+          {timeline}
         </div>
-        {timeline}
       </div>
-    </div>
+    </WorkstreamEnvironmentContext>
   );
 }

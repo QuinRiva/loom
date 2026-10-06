@@ -151,6 +151,13 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
    in progress, done and cancelled; the seed has no ready thread, so untick
    "Survey checkpoint refs" under "Document checkpoint refs" → Waits on to see
    Ready. The Graph shows the gated pair's loop edge with its `⟲ 1/2` badge.
+5. Cards, the strip and the timeline drawer show each thread's spend, and the
+   Usage page's **Cost** tab lists **Top threads by cost** — from a
+   deterministic fixture ledger until track 3c's usage ledger is wired
+   (`apps/server/src/loom/economics/LoomUsageLedger.fixture.ts`). The timeline
+   drawer also shows the thread's context-window chip. **Fixture follow-through
+   (staged)** shows the staged kickoff card; do not press Launch on a seeded
+   instance — it starts a real pi turn.
 
 ## 6. Clean up
 

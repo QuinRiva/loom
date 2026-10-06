@@ -41,5 +41,5 @@ export function seedRightPanelSurfaces(
     return surfaces === current.surfaces ? current : { ...current, surfaces };
   }
   const activation = SEEDABLE_SURFACE_KINDS.find((kind) => kinds.includes(kind))!;
-  return { isOpen: true, surfaces, activeSurfaceId: activation };
+  return { ...current, isOpen: true, surfaces, activeSurfaceId: activation };
 }

@@ -7,12 +7,21 @@
 // contract shapes (`HandoffDraft*` / `RetroDraft*` in `server.ts`) so the web
 // intercepts (3d-3) compile and reach the server today; their handlers in
 // `wsMethods.ts` are stubs that fail naming the method (DL-433). Integration
-// keeps 3b's definitions and deletes these. Everything else here is 3d's.
+// keeps 3b's definitions and deletes these. Everything else here is 3d's —
+// including seam 11's two spend reads (3d-4), served by 3c's `LoomUsageLedger`
+// (a fixture layer until integration, DL-438).
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
-import { GoalId, GoalTaskId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  GoalId,
+  GoalTaskId,
+  IsoDateTime,
+  PositiveInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { LoomGoalShell } from "./orchestrationV2.loom.ts";
 import {
   HandoffDraftInput,
@@ -29,7 +38,9 @@ export const LOOM_WS_METHODS = {
   // 3b (stubbed until integration, see header).
   handoffDraft: "loom.handoffDraft",
   retroDraft: "loom.retroDraft",
-  // 3d-4 slot: loom.threadSpend / loom.topSpend go here.
+  // 3d-4 — seam 11's spend reads (DL-438).
+  threadSpend: "loom.threadSpend",
+  topSpend: "loom.topSpend",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -101,6 +112,40 @@ export const LoomGoalTaskRewriteInput = Schema.Struct({
 });
 export type LoomGoalTaskRewriteInput = typeof LoomGoalTaskRewriteInput.Type;
 
+/** One thread's spend from the usage ledger (seam 11; `cachedTokens` = cache read + write). */
+export const LoomThreadSpend = Schema.Struct({
+  costUsd: Schema.Number,
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  cachedTokens: Schema.Number,
+});
+export type LoomThreadSpend = typeof LoomThreadSpend.Type;
+
+/** `loom.threadSpend`: lifetime spend for a batch of threads (the board's and chips' lookup). */
+export const LoomThreadSpendInput = Schema.Struct({
+  threadIds: Schema.Array(ThreadId).check(Schema.isMaxLength(200)),
+});
+export type LoomThreadSpendInput = typeof LoomThreadSpendInput.Type;
+
+/** A thread with no ledger rows is absent from `spend`. */
+export const LoomThreadSpendResult = Schema.Struct({
+  spend: Schema.Record(ThreadId, LoomThreadSpend),
+});
+export type LoomThreadSpendResult = typeof LoomThreadSpendResult.Type;
+
+/** `loom.topSpend`: the `limit` costliest threads since `since`, most expensive first. */
+export const LoomTopSpendInput = Schema.Struct({
+  limit: PositiveInt.check(Schema.isLessThanOrEqualTo(100)),
+  since: IsoDateTime,
+});
+export type LoomTopSpendInput = typeof LoomTopSpendInput.Type;
+
+export const LoomTopSpendRow = Schema.Struct({ threadId: ThreadId, ...LoomThreadSpend.fields });
+export type LoomTopSpendRow = typeof LoomTopSpendRow.Type;
+
+export const LoomTopSpendResult = Schema.Struct({ threads: Schema.Array(LoomTopSpendRow) });
+export type LoomTopSpendResult = typeof LoomTopSpendResult.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -121,5 +166,15 @@ export const LoomWsRpcs = [
     success: RetroDraftResult,
     error: LoomWsError,
   }),
-  // 3d-4 slot: loom.threadSpend / loom.topSpend Rpc members go here.
+  // 3d-4 — seam 11 (DL-438).
+  Rpc.make(LOOM_WS_METHODS.threadSpend, {
+    payload: LoomThreadSpendInput,
+    success: LoomThreadSpendResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.topSpend, {
+    payload: LoomTopSpendInput,
+    success: LoomTopSpendResult,
+    error: LoomWsError,
+  }),
 ] as const;

@@ -135,6 +135,12 @@ import {
 } from "../ui/number-field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+// loom: 3d-4 (DT-77) — the Workstream auto-open toggle, kept in a fork-owned file.
+import {
+  LOOM_AUTO_OPEN_RESTORE_DEFAULTS,
+  LoomAutoOpenSettingsRows,
+  loomAutoOpenChangedLabels,
+} from "../../loom/LoomAutoOpenSettingsRows";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -599,6 +605,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff whitespace changes"]
         : []),
       ...(settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? ["Diff layout"] : []),
+      ...loomAutoOpenChangedLabels(settings), // loom: 3d-4
       ...(settings.proactivePanelsEnabled !== DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled
         ? ["Proactive panels"]
         : []),
@@ -805,6 +812,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
+      ...LOOM_AUTO_OPEN_RESTORE_DEFAULTS, // loom: 3d-4
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
@@ -3031,6 +3039,8 @@ export function GeneralSettingsPanel() {
             </>
           }
         />
+        {/* loom: 3d-4 (DT-77) — the Workstream auto-open toggle. */}
+        <LoomAutoOpenSettingsRows settings={settings} updateSettings={updateSettings} />
       </SettingsSection>
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">

@@ -353,6 +353,8 @@ import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRo
 import { useThreadTabsStore } from "../loom/threadTabsStore"; // loom: pin the tab on send
 import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom: 3d-3
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
+import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -4050,6 +4052,21 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  // loom: 3d-4 — host the pending question's DT-36 additions: chips resolve
+  // against this checkout, and "reply in chat instead" sends the typed answer as
+  // an ordinary message through onSend (the server settles the set superseded).
+  const loomReplyInChatRef = useRef(false);
+  useHostLoomPendingInput(activePendingUserInput?.requestId ?? null, {
+    cwd: gitCwd ?? undefined,
+    threadRef: activeThreadRef ?? undefined,
+    onReplyInChat: () => {
+      const text = activePendingProgress?.customAnswer.trim() ?? "";
+      if (text.length === 0) return;
+      loomReplyInChatRef.current = true;
+      promptRef.current = text;
+      void onSend();
+    },
+  });
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -8444,6 +8461,8 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     e?.preventDefault();
+    const loomReplyInChat = loomReplyInChatRef.current; // loom: 3d-4 reply in chat instead
+    loomReplyInChatRef.current = false;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (
@@ -8511,7 +8530,7 @@ export default function ChatView(props: ChatViewProps) {
       });
       return;
     }
-    if (activePendingProgress) {
+    if (activePendingProgress && !loomReplyInChat /* loom: 3d-4 */) {
       if (directAnnotation) {
         notifyDirectAnnotationAttached();
         return;
@@ -9651,7 +9670,9 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          // loom: 3d-4 (DT-67) — a Loom thread keeps its title: a staged root's
+          // first (human) message must not re-seed it from the brief.
+          ...(activeThreadShell?.source.workstream ? {} : { titleSeed: title }),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode,
@@ -11201,6 +11222,30 @@ export default function ChatView(props: ChatViewProps) {
                   ? {}
                   : { historyControls: threadHistoryControls })}
               />
+
+              {/* loom: 3d-4 — staged cards (DT-31): the held root's kickoff offer, a
+                  child's brief preview; Launch is the ordinary send below. */}
+              {activeThreadRef && isServerThread ? (
+                <LoomStagedCards
+                  threadRef={activeThreadRef}
+                  composerDraftTarget={composerDraftTarget}
+                  hasStarted={timelineEntries.length > 0 || isSendBusy}
+                  markdownCwd={gitCwd ?? undefined}
+                  launchDisabled={isSendBusy || isConnecting}
+                  launchBlockedReason={activeEnvironmentUnavailable ? "Not connected" : null}
+                  bottomInset={scrollToEndClearance}
+                  onLaunch={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    void onSend();
+                  }}
+                  onEditFirst={(brief) => {
+                    promptRef.current = brief;
+                    setComposerDraftPrompt(composerDraftTarget, brief);
+                    requestAnimationFrame(() => composerRef.current?.focusAtEnd());
+                  }}
+                />
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (

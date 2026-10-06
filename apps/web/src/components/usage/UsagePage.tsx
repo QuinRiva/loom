@@ -34,6 +34,7 @@ import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { TopThreadSpend } from "../../loom/TopThreadSpend"; // loom: 3d-4 — seam 11
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
@@ -836,6 +837,12 @@ export function UsagePage() {
                     </table>
                   )}
                 </section>
+
+                {/* loom: 3d-4 — which threads spent the window, from Loom's usage
+                    ledger (seam 11). Cost tab only. */}
+                {metric === "cost" ? (
+                  <TopThreadSpend window={window} selectedEnvironmentIds={selectedEnvironmentIds} />
+                ) : null}
               </>
             )}
           </WorkspacePageContainer>
