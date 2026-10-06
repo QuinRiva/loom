@@ -57,7 +57,8 @@ cosmetic: the foreign-home guard (below) decides provenance from whether any
 recorded worktree path sits inside the running home's `worktreesDir`, so a seed
 rooted anywhere else would boot the instance read-only. Prove the read model —
 every thread's column and attention, the control cards, a checkpoint ref per
-started thread, an empty outbox and no re-drive owed — without the UI:
+started thread, an empty outbox and nothing the control plane's dispatcher pass
+would send on boot, now or a day later — without the UI:
 
 ```sh
 T3CODE_HOME="$SEED_HOME" vp run dev:seed:verify

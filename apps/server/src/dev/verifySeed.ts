@@ -3,33 +3,36 @@
  * shell serves it: every seeded thread's `workstream` on the joined shell with
  * the column and attention the seed meant, the goal and its tree, the control
  * cards on the root, a real checkpoint ref per started thread, and nothing a
- * booting server would act on (an empty effect outbox, every re-drive episode
- * already receipted). Read-only: the effect worker does not run.
+ * booting server would act on (an empty effect outbox, and nothing 3b's
+ * dispatcher pass would send, now or a day later). Read-only: the effect worker
+ * does not run and the pass's dispatches are intercepted.
  *
  * Run: `T3CODE_HOME=<scratch> node apps/server/src/dev/verifySeed.ts`
  *
  * @module dev/verifySeed
  */
 // Dev-only fixture tooling (not shipped); see seedWorkstream.ts.
-// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off preferSchemaOverJson:off
+// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off preferSchemaOverJson:off globalDateInEffect:off globalDate:off
 import * as NodeChildProcess from "node:child_process";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { LoomThreadShellFields, ThreadId } from "@t3tools/contracts";
 import { isEligibleToStart, type StartNode } from "@t3tools/shared/workstreamStart.loom";
+import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { makeGateLegComposer } from "../loom/orchestration/dispatcher/gateLegs.ts";
-import { planReDrive } from "../loom/orchestration/redrive.ts";
+import {
+  WorkstreamDispatcher,
+  WorkstreamDispatcherLive,
+} from "../loom/orchestration/dispatcher/WorkstreamDispatcher.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
-import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import { LoomDispatchDeferredError } from "../orchestration-v2/Orchestrator.loom.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { buildSeedConfig } from "./seedConfig.ts";
 import { SEED, seedDatabaseLayer, seedRuntimeLayer } from "./seedWorkstream.ts";
 
@@ -60,10 +63,46 @@ const columnOf = (ws: LoomThreadShellFields, byId: ReadonlyMap<ThreadId, StartNo
         ? "ready"
         : "blocked");
 
+/**
+ * The `server:` commands one dispatcher pass at `atMs` tries to dispatch. Read-only: the
+ * orchestrator's `dispatch` records the command and answers `LoomDispatchDeferredError` (a
+ * receipted episode never reaches it), so nothing is written.
+ */
+const dispatcherWouldSend = (atMs: number) =>
+  Effect.gen(function* () {
+    const real = yield* Orchestrator.OrchestratorV2;
+    const attempted: string[] = [];
+    const recording = Orchestrator.OrchestratorV2.of({
+      ...real,
+      dispatch: (command) =>
+        Effect.fail(
+          new LoomDispatchDeferredError({
+            commandId: command.commandId,
+            commandType: command.type,
+            threadId: (command as { readonly threadId: ThreadId }).threadId,
+            reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
+          }),
+        ),
+    });
+    const clock = yield* Clock.Clock;
+    yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
+      Effect.provide(WorkstreamDispatcherLive),
+      Effect.provideService(Orchestrator.OrchestratorV2, recording),
+      Effect.provide(ServerSettings.layerTest()),
+      Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeMillisUnsafe: () => atMs,
+        currentTimeMillis: Effect.succeed(atMs),
+        currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
+        currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
+      }),
+    );
+    return attempted;
+  });
+
 const verifyProgram = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const loomStore = yield* LoomStore.LoomStoreV2;
-  const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const sql = yield* SqlClient.SqlClient;
   const failures: string[] = [];
   const check = (ok: boolean, detail: string) => {
@@ -159,21 +198,19 @@ const verifyProgram = Effect.gen(function* () {
     );
   }
 
-  // Inert on boot: no outbox work, and every re-drive episode already receipted.
+  // Inert on boot: no outbox work, and nothing 3b's dispatcher pass (the startup pass and every
+  // tick) would send — now, or a day on, when every grace window and brief-needed rung has passed.
   const [outbox] = yield* sql<{ open: number }>`
     SELECT count(*) AS open FROM orchestration_v2_effect_outbox WHERE status IN ('pending', 'running')
   `;
   check(outbox?.open === 0, `${outbox?.open} effects pending in the outbox`);
-  const owed = [];
-  for (const command of planReDrive({
-    rows: yield* loomStore.listReDriveInput(),
-    now: DateTime.formatIso(yield* DateTime.now),
-    gateLeg: makeGateLegComposer(new Map()),
-  })) {
-    if (Option.isNone(yield* receipts.getByCommandId(command.commandId)))
-      owed.push(command.commandId);
-  }
-  check(owed.length === 0, `re-drive would send on boot: ${owed.join(", ")}`);
+  const nowMs = Date.now();
+  const owed = {
+    now: yield* dispatcherWouldSend(nowMs),
+    dayLater: yield* dispatcherWouldSend(nowMs + 24 * 60 * 60 * 1000),
+  };
+  for (const [when, commands] of Object.entries(owed))
+    check(commands.length === 0, `re-drive would send on boot (${when}): ${commands.join(", ")}`);
 
   yield* Console.log(
     JSON.stringify(

@@ -503,6 +503,15 @@ const seedProgram = Effect.gen(function* () {
   // The re-drive planner sends the rework leg under its own id, exactly as the server would.
   yield* reDrive;
   yield* settle(SEED.gateCoder);
+  // The human cut in on the rework: a human-started last turn is never synthesised quiescent
+  // (null human grace), so the dispatcher never yields this mid-round coder on boot.
+  yield* message(
+    SEED.gateCoder,
+    "seed:gate-coder:human",
+    "Before the rework lands: keep the tokeniser's public signature unchanged.",
+    undefined,
+    true,
+  );
 
   // ---- quiescent child (synthesised report, awaiting_orchestrator) and its blocked dependent ----
   yield* spawn({
@@ -543,6 +552,9 @@ const seedProgram = Effect.gen(function* () {
     role: "coder",
     purpose: "Spawned without a brief: the parent still owes one.",
     brief: false,
+    // Deliberately deferred on the survey (brief-needed move 2): the web still shows it
+    // brief-needed, and 3b's rail owes no notice while a dependency is open.
+    blockedBy: [SEED.quiescent],
   });
 
   // ---- cancelled subtree: a lead with its own grandchild, cancelled by cascade ----
