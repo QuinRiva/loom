@@ -5,6 +5,15 @@
 Install `vp` using the [root README](../../README.md#install-vp). The checkout requires Node 24;
 Bun is optional. From the repository root:
 
+<!-- loom: host git prerequisite (#329) -->
+
+The host needs **git 2.41 or newer** on `PATH`, including the server service's own `PATH`.
+Checkpoint capture runs `git sparse-checkout check-rules` (2.41) and
+`ls-files --sparse` (2.35), worktree handling runs `worktree list -z` (2.36), and the pre-commit hook's
+lint-staged refuses git older than 2.32. Older distributions (e.g. Debian 11's 2.30)
+need a source build into `/usr/local`; configure it with `sysconfdir = /etc` so it
+reads the existing `/etc/gitconfig`.
+
 ```sh
 vp i
 vp run dev
