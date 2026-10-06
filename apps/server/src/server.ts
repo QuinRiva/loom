@@ -162,6 +162,7 @@ import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts
 import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import {
+  LoomControlPlaneLive,
   LoomGoalBroadcastLive,
   LoomProviderHealthLive,
   LoomProviderRuntimeLive,
@@ -593,6 +594,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   ProviderUsageLimitsIngestionLive,
   LoomProviderRuntimeLive, // loom: SubscriptionUsagePoller (the sidebar usage meter's feeder)
   LoomGoalBroadcastLive, // loom: LoomStoreV2 + goal shell-item PubSub and its cascade reactor
+  LoomControlPlaneLive, // loom: the workstream dispatcher (re-drive, promotion, wakes)
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
 ).pipe(

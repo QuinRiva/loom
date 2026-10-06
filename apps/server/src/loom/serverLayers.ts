@@ -17,7 +17,7 @@ import * as Layer from "effect/Layer";
 
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
-import { LoomReDriveReactor } from "./orchestration/redrive.ts";
+import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
@@ -37,13 +37,20 @@ export const LoomProviderHealthLive = ProviderHealthRegistryLive;
 /**
  * Loom's sidecar store and the goal broadcast (with its cascade reactor),
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
- * and publish/subscribe goal shell items; and the re-drive reactor that moves
- * cascades and gate legs until Phase 3b's dispatcher absorbs it. Pull 9 Phase 2 §4.
+ * and publish/subscribe goal shell items. Pull 9 Phase 2 §4.
  */
-export const LoomGoalBroadcastLive = Layer.mergeAll(
-  LoomGoalBroadcast.layerWithReactor,
-  LoomReDriveReactor.pipe(Layer.provide(CommandReceiptStore.layer)), // loom: re-drive (D16)
-).pipe(Layer.provideMerge(LoomStore.layer));
+export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
+  Layer.provideMerge(LoomStore.layer),
+);
+
+/**
+ * The workstream control plane (Phase 3 Track 3b): the dispatcher pass —
+ * re-drive, promotion and every wake — started after server activation.
+ * 3b-3/4/5 merge their layers here.
+ */
+export const LoomControlPlaneLive = Layer.mergeAll(WorkstreamDispatcherStartedLive).pipe(
+  Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
+);
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's
