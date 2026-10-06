@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // notify_thread (cross-thread push): one row per recorded peer message, keyed
 // by the handler-generated `record_id` (stable correlation key from which the

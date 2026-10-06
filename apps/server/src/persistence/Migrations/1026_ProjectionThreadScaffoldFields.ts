@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Scaffold-first graph authoring (workstream-scaffold plan §1a + "Key scoping"):
 // two nullable child-only columns.

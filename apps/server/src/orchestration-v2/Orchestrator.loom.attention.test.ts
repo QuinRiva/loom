@@ -315,4 +315,45 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         );
       }),
   );
+
+  it.effect(
+    "a human stop raises needs_guidance on run.interrupt and thread.stop; a server: stop does not",
+    () =>
+      Effect.gen(function* () {
+        // The web Stop button: run.interrupt with holdQueue on the running run.
+        const stopped = yield* child("stop-interrupt");
+        yield* seedRunningRun({ threadId: stopped, live: true });
+        yield* dispatch({
+          type: "run.interrupt",
+          commandId: CommandId.make("stop-interrupt"),
+          threadId: stopped,
+          runId: seededRunIds(stopped).runId,
+          holdQueue: true,
+        });
+        assert.deepEqual(yield* attentionOf(stopped), ["needs_guidance"]);
+
+        // thread.stop with nothing running: upstream's accepted no-op, so the raise is
+        // the only event and the command is receipted on it.
+        const idle = yield* child("stop-thread-idle");
+        const accepted = yield* dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("stop-thread-idle"),
+          threadId: idle,
+        });
+        assert.deepEqual(
+          accepted.storedEvents.map((stored) => stored.event.type),
+          ["thread.attention-raised"],
+        );
+        assert.deepEqual(yield* attentionOf(idle), ["needs_guidance"]);
+
+        const serverStopped = yield* child("stop-thread-server");
+        const noOp = yield* dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("server:stop-thread-server"),
+          threadId: serverStopped,
+        });
+        assert.deepEqual(noOp.storedEvents, []);
+        assert.deepEqual(yield* attentionOf(serverStopped), []);
+      }),
+  );
 });

@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Pull 9 Phase 2 §5: Loom's sidecar record, one row per Loom thread keyed by
 // V2's thread id — written only by the Loom projector inside V2's commit

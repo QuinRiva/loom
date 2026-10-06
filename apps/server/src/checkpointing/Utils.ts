@@ -21,7 +21,7 @@ export function checkpointBaselineRefForThreadTurn(
   turnCount: number,
 ): CheckpointRef {
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/baseline/${turnCount}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Base64Url.encode(threadId)}/baseline/${turnCount}`,
   );
 }
 

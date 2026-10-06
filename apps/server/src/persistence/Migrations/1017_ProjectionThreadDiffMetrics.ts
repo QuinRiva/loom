@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Lines-of-diff meter: per-thread cumulative added/deleted line counts, folded
 // from the durable per-turn checkpoint file summaries (SUM of every checkpoint

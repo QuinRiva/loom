@@ -22,12 +22,12 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import * as Reactivity from "effect/unstable/reactivity/Reactivity";
-import * as RpcClient from "effect/unstable/rpc/RpcClient";
-import * as Client from "effect/unstable/sql/SqlClient";
-import type { Connection } from "effect/unstable/sql/SqlConnection";
-import { SqlError, ConnectionError } from "effect/unstable/sql/SqlError";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as Reactivity from "effect/reactivity/Reactivity";
+import * as RpcClient from "effect/rpc/RpcClient";
+import * as Client from "effect/sql/SqlClient";
+import type { Connection } from "effect/sql/SqlConnection";
+import { SqlError, ConnectionError } from "effect/sql/SqlError";
+import * as Statement from "effect/sql/Statement";
 
 import { timeIngestionWait } from "../diagnostics/ProviderRuntimeIngestionTelemetry.ts";
 import type { SqliteClientConfig } from "./NodeSqliteClient.ts";

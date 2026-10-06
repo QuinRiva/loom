@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // consult_thread observability: one row per recorded consult (keyed by the
 // originating event id, so re-projection is idempotent). The asker shell's

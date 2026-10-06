@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Context cost meter: per-thread cumulative dollar spend, folded from the
 // durable activity log (sum of every `context-window.updated` activity's

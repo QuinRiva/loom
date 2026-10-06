@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Task-tree branch scoping (plans/task-tree-branch-scoping/plan.mdx §1):
 // anchor_task_id — the ONE task of the thread's goal whose subtree is the branch

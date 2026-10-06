@@ -22,7 +22,7 @@ import type { AccountUsageWindow } from "../accountUsage.loom.ts";
 import { scopedDisplayNameToModelId } from "../exhaustionMapping.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 const REQUEST_TIMEOUT = "15 seconds";
 

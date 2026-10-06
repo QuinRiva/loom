@@ -12,7 +12,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";

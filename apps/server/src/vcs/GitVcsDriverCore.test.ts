@@ -1096,8 +1096,11 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           })
           .pipe(Effect.flip);
 
-        assert.equal(error.detail, "git worktree add failed");
-        assert.include(error.message, "git worktree add failed (branch_checked_out_in_worktree)");
+        // loom: `executeGit` folds git's stderr into `detail` (PR-13), so the
+        // caller's detail is its prefix rather than the whole value.
+        assert.isTrue(error.detail?.startsWith("git worktree add failed git stderr: "));
+        assert.include(error.message, "git worktree add failed");
+        assert.include(error.message, "(branch_checked_out_in_worktree)");
       }),
     );
 
