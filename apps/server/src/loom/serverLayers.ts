@@ -13,10 +13,21 @@
  *
  * @module loom/serverLayers
  */
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
-import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
+import {
+  LoomPiAdapterHooks,
+  passthroughLoomPiAdapterHooks,
+  type LoomPiAdapterHooksShape,
+} from "../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { classifyPiFailure } from "../provider/Drivers/Pi/piQuotaClassifier.loom.ts";
+import {
+  ProviderHealthRegistry,
+  ProviderHealthRegistryLive,
+} from "../provider/Services/ProviderHealthRegistry.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
@@ -27,12 +38,38 @@ import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsag
 export const LoomProviderRuntimeLive = SubscriptionUsagePollerLive;
 
 /**
+ * The pi adapter's Loom hooks (Phase 3 track 3c): the quota classifier reads the
+ * health marks at classification time, so a quota error with no reset in its
+ * text takes the account window's. The sanitiser (3c-2) and steer stash (3c-3)
+ * are still the passthroughs.
+ */
+export const LoomPiAdapterHooksLive = Layer.effect(
+  LoomPiAdapterHooks,
+  Effect.gen(function* () {
+    const health = yield* ProviderHealthRegistry;
+    return {
+      ...passthroughLoomPiAdapterHooks,
+      classifier: (errorText, selection) =>
+        Effect.all([health.snapshot, Clock.currentTimeMillis]).pipe(
+          Effect.map(([marks, now]) => classifyPiFailure(errorText, selection, marks, now)),
+        ),
+    } satisfies LoomPiAdapterHooksShape;
+  }),
+);
+
+/**
  * Exhaustion state (`ProviderHealthRegistryLive`), which also holds the
  * ephemeral account-usage telemetry the marks derive from (fed by
  * `SubscriptionUsagePoller`). Its `providerFailover` settings subscription is
  * detached in pull 9 (ledger DT-92).
+ *
+ * It also carries {@link LoomPiAdapterHooksLive}: this export sits below the
+ * provider-instance registry in `server.ts`, so every `PiAdapterV2Driver.create`
+ * yields the live hooks with no `server.ts` line of their own.
  */
-export const LoomProviderHealthLive = ProviderHealthRegistryLive;
+export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
+  Layer.provideMerge(ProviderHealthRegistryLive),
+);
 
 /**
  * Loom's sidecar store and the goal broadcast (with its cascade reactor),

@@ -70,6 +70,12 @@ import {
   type PiCompactCommand,
 } from "../../provider/PiCommands.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
+import {
+  classifyLoomPiFailure,
+  LoomPiAdapterHooks,
+  passthroughLoomPiAdapterHooks,
+  type LoomPiAdapterHooksShape,
+} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import * as IdAllocator from "../IdAllocator.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
 import {
@@ -228,6 +234,8 @@ export interface PiAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig.ServerConfig["Service"];
+  // loom: quota classifier, resume sanitiser, steer stash (3c); absent ⇒ upstream behaviour
+  readonly loom?: LoomPiAdapterHooksShape;
 }
 
 /** Concatenate the `text` fields of a Pi content-block array. */
@@ -374,6 +382,7 @@ export function makePiAdapterV2(
   options: PiAdapterV2Options,
 ): ProviderAdapter.ProviderAdapterV2Shape {
   const { idAllocator } = options;
+  const loomHooks = options.loom ?? passthroughLoomPiAdapterHooks; // loom: 3c
 
   const protocolError = (detail: string, payload?: unknown) =>
     new ProviderAdapter.ProviderAdapterProtocolError({
@@ -1626,10 +1635,15 @@ export function makePiAdapterV2(
               recordNumber(recordField(recordField(message, "usage"), "cost"), "total") ?? 0;
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
-              turn.failure = makeProviderFailure({
-                message: recordString(message, "errorMessage") ?? "Pi reported a model error.",
-                class: "provider_error",
-              });
+              // loom: a pi quota error becomes usage_limit so upstream's limit recovery parks it (P3-11)
+              turn.failure = yield* classifyLoomPiFailure(
+                loomHooks,
+                turn.turnInput.modelSelection,
+                makeProviderFailure({
+                  message: recordString(message, "errorMessage") ?? "Pi reported a model error.",
+                  class: "provider_error",
+                }),
+              );
             }
             return;
           }
@@ -1760,11 +1774,16 @@ export function makePiAdapterV2(
               turn.failure = null;
               return;
             }
-            const failure = makeProviderFailure({
-              message: recordString(event, "finalError") ?? "Pi auto-retry failed.",
-              class: "provider_error",
-              retryable: false,
-            });
+            // loom: pi retries a 429 before giving up, so its final error is classified too (P3-11)
+            const failure = yield* classifyLoomPiFailure(
+              loomHooks,
+              turn.turnInput.modelSelection,
+              makeProviderFailure({
+                message: recordString(event, "finalError") ?? "Pi auto-retry failed.",
+                class: "provider_error",
+                retryable: false,
+              }),
+            );
             const attempt = Math.max(1, Math.trunc(recordNumber(event, "attempt") ?? 1));
             const current = turn.activeProviderRetry;
             const providerRetry = {
@@ -2993,6 +3012,7 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
         fileSystem,
         idAllocator,
         serverConfig,
+        loom: yield* LoomPiAdapterHooks, // loom: 3c (live hooks in loom/serverLayers.ts)
       });
     },
     (effect, input) =>
@@ -3027,6 +3047,7 @@ const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, PiAdapterV2Dr
         fileSystem,
         idAllocator,
         serverConfig,
+        loom: yield* LoomPiAdapterHooks, // loom: 3c
       });
     }),
   );
