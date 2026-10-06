@@ -18,6 +18,7 @@
 import {
   CommandId,
   type ControlPayload,
+  DEFAULT_SERVER_SETTINGS,
   type ControlPayloadItem,
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadShell,
@@ -308,8 +309,6 @@ interface DispatcherMemory {
   readonly startedAtMs: number;
 }
 
-const DEFAULT_GRACE = { controlStartedMs: 600_000, humanStartedMs: null };
-
 /** Builds the pass context: the active rows, their archived dependencies, the joined shells. */
 const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
   memory: DispatcherMemory,
@@ -317,7 +316,10 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
   const loomStore = yield* LoomStoreV2;
   const orchestrator = yield* OrchestratorV2;
   const receipts = yield* CommandReceiptStoreV2;
-  const settings = yield* Effect.option((yield* ServerSettings.ServerSettingsService).getSettings);
+  // A settings read failure must not stop the control plane: fall back to the schema defaults.
+  const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings.pipe(
+    Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS),
+  );
   const rows = yield* loomStore.listActiveWorkstreams();
   const nodesById = new Map<ThreadId, WorkstreamNode>(
     rows.map((row) => [row.threadId, { ...row, id: row.threadId }]),
@@ -342,13 +344,10 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
     deadEpisodes: memory.deadEpisodes,
     pendingDigests: new Map(),
     advisories: memory.advisories,
-    grace: Option.match(settings, {
-      onNone: () => DEFAULT_GRACE,
-      onSome: (value) => ({
-        controlStartedMs: value.quiescenceGraceMs,
-        humanStartedMs: value.quiescenceHumanGraceMs,
-      }),
-    }),
+    grace: {
+      controlStartedMs: settings.quiescenceGraceMs,
+      humanStartedMs: settings.quiescenceHumanGraceMs,
+    },
     startedAtMs: memory.startedAtMs,
     delivered: (threadId) =>
       Effect.gen(function* () {

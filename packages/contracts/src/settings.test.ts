@@ -121,6 +121,22 @@ describe("ServerSettings restart continuation", () => {
   });
 });
 
+// loom: quiescence graces (pull 9 Phase 3b) — 10 min for control-started turns, never for a human's.
+describe("ServerSettings quiescence graces", () => {
+  it("defaults to a 10-minute control grace and no human grace", () => {
+    expect(decodeServerSettings({}).quiescenceGraceMs).toBe(600_000);
+    expect(decodeServerSettings({}).quiescenceHumanGraceMs).toBeNull();
+  });
+
+  it("round-trips both through a patch", () => {
+    const patch = { quiescenceGraceMs: 60_000, quiescenceHumanGraceMs: 3_600_000 };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    expect(decodeServerSettingsPatch({ quiescenceHumanGraceMs: null })).toEqual({
+      quiescenceHumanGraceMs: null,
+    });
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");

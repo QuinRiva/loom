@@ -160,6 +160,51 @@ it.layer(TestLayer)("quiescence rail", (it) => {
     }),
   );
 
+  it.effect("gate parties waiting for their counterpart are parked, not quiet", () =>
+    Effect.gen(function* () {
+      const [root, coder, reviewer] = ["park-root", "park-coder", "park-reviewer"].map((id) =>
+        ThreadId.make(id),
+      );
+      yield* seedThread({ threadId: root! });
+      yield* spawnChild({ parentThreadId: root!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: root!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [{ on: ["needs_rework"], kind: "loop", to: coder! }],
+      });
+      yield* brief(coder!);
+      yield* runPass;
+      yield* submit(coder!);
+      yield* completeOpenRuns(coder!);
+      yield* brief(reviewer!);
+      yield* runPass;
+      // The reviewer loops and ends its turn: it waits for the rework, it is not quiet.
+      yield* submit(reviewer!, "needs_rework");
+      yield* completeOpenRuns(reviewer!);
+      yield* runPass; // the rework leg opens the coder's round in this same pass
+      yield* runPass;
+      assert.isTrue((yield* row(coder!)).pendingRework);
+      assert.deepEqual((yield* row(reviewer!)).attention, []);
+      assert.equal((yield* row(reviewer!)).lastOutcome?.decision, "loop");
+
+      // The coder hands back and ends its turn: it waits for the re-verify, it is not quiet.
+      yield* submit(coder!);
+      yield* completeOpenRuns(coder!);
+      yield* runPass; // the re-verify leg goes to the reviewer
+      yield* runPass;
+      assert.equal(
+        (yield* receipt(`server:workstream-gate:${reviewer}:1:reverify`))?.status,
+        "accepted",
+      );
+      assert.deepEqual((yield* row(coder!)).attention, []);
+      assert.equal((yield* row(coder!)).lastOutcome?.decision, "loop");
+      assert.lengthOf(yield* yields(root!), 0);
+    }),
+  );
+
   it.effect("a quiet gate coder in rework yields; the reviewer gets no reverify leg", () =>
     Effect.gen(function* () {
       const [root, coder, reviewer] = ["quiet-gate-root", "quiet-coder", "quiet-reviewer"].map(

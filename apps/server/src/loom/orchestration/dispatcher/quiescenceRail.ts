@@ -10,7 +10,8 @@
  *
  * @module loom/orchestration/dispatcher/quiescenceRail
  */
-import { CommandId, type OrchestrationV2Run } from "@t3tools/contracts";
+import { CommandId } from "@t3tools/contracts";
+import { isWaitingInGate } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -18,7 +19,7 @@ import * as Option from "effect/Option";
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { writeSynthesisedReport } from "../../workstream/report.ts";
-import { quiescenceCandidate } from "../quiescence.ts";
+import { latestUnheldRun, quiescenceCandidate } from "../quiescence.ts";
 import { quiescentSubmitCommandId } from "./controlMessage.ts";
 import type { PassContext, PassStep } from "./WorkstreamDispatcher.ts";
 
@@ -27,10 +28,6 @@ export const formatGrace = (ms: number): string => {
   const [n, unit] = ms % 60_000 === 0 ? [ms / 60_000, "minute"] : [Math.round(ms / 1000), "second"];
   return `${n} ${unit}${n === 1 ? "" : "s"}`;
 };
-
-/** The run `quiescenceCandidate` measured the grace from: the latest non-queued run. */
-const lastRunOf = (runs: ReadonlyArray<OrchestrationV2Run>) =>
-  runs.filter((run) => run.status !== "queued").toSorted((a, b) => b.ordinal - a.ordinal)[0];
 
 export const quiescenceRail: PassStep = {
   name: "quiescence",
@@ -68,7 +65,18 @@ export const quiescenceRail: PassStep = {
         })
       )
         continue;
-      const run = lastRunOf(records.runs)!;
+      // A party waiting for its gate counterpart is parked, not quiet (plan: "`isWaitingInGate`
+      // still exempts…"). Read the siblings fresh: this pass's re-drive may just have
+      // opened the counterpart's round, which the pass-start snapshot cannot show.
+      const siblings = new Map(
+        (yield* loomStore.listChildren(row.parentThreadId, { includeArchived: true })).map(
+          (sibling) => [sibling.threadId, { ...sibling, id: sibling.threadId }],
+        ),
+      );
+      const fresh = siblings.get(row.threadId)!;
+      if (fresh.outcome !== null || fresh.attention.length > 0 || isWaitingInGate(fresh, siblings))
+        continue;
+      const run = latestUnheldRun(records.runs)!;
       const commandId = quiescentSubmitCommandId(row.threadId, run.id);
       if (yield* ctx.sent(commandId)) continue;
       const { turnItems } = yield* orchestrator.getThreadRecords(row.threadId, ["turnItems"], {
