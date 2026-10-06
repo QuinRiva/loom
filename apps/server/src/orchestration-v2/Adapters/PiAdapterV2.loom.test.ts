@@ -16,6 +16,7 @@ import {
   NodeId,
   ProviderInstanceId,
   ProviderSessionId,
+  type ProviderTurnId,
   RunAttemptId,
   RunId,
   ThreadId,
@@ -35,6 +36,7 @@ import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
 
 import * as ServerConfig from "../../config.ts";
 import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
+import * as PendingSteering from "../../loom/steering/pendingSteering.ts";
 import {
   LoomPiAdapterHooks,
   type LoomPiAdapterHooksShape,
@@ -108,6 +110,10 @@ const makeFakePi = Effect.gen(function* () {
   const spawns: Array<ReadonlyArray<string>> = [];
   // The session file's bytes at the moment each switch_session frame reached pi.
   const switchedFiles: Array<string | null> = [];
+  // While set, pi refuses steer prompts (the id-less `prompt` response with success false).
+  // After answering the n-th steer the fake streams a usage frame of n tokens, so a test that
+  // sees that frame's provider_turn.updated knows the adapter has processed the answer.
+  const steers = { reject: false, answered: 0 };
   const emit = (record: PiRpcRecord) =>
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
@@ -131,13 +137,22 @@ const makeFakePi = Effect.gen(function* () {
                   NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
                 );
               }
+              const steer = record["streamingBehavior"] === "steer";
+              const refused = steer && steers.reject;
               return emit({
                 type: "response",
                 id: record["id"],
                 command: String(record["type"]),
-                success: true,
+                success: !refused,
+                ...(refused ? { error: "steer refused" } : {}),
                 data: RPC_DATA[String(record["type"])],
-              });
+              }).pipe(
+                Effect.andThen(
+                  steer
+                    ? emit({ type: "message_update", usage: { totalTokens: ++steers.answered } })
+                    : Effect.void,
+                ),
+              );
             },
             { discard: true },
           ),
@@ -150,7 +165,7 @@ const makeFakePi = Effect.gen(function* () {
       });
     }),
   );
-  return { spawner, emit, requests, spawns, switchedFiles };
+  return { spawner, emit, requests, spawns, switchedFiles, steers };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -302,7 +317,17 @@ describe("PiAdapterV2 (loom)", () => {
         yield* fake.emit({ type: "message_update", usage: { totalTokens: 600, input: 500 } });
         yield* fake.emit({
           type: "message_end",
-          message: { role: "assistant", content: [], usage: { cost: { total: cost } } },
+          message: {
+            role: "assistant",
+            content: [],
+            usage: {
+              input: 100,
+              output: 20,
+              cacheRead: 300,
+              cacheWrite: 40,
+              cost: { total: cost },
+            },
+          },
         });
       }
       yield* fake.emit({ type: "agent_settled" });
@@ -324,6 +349,27 @@ describe("PiAdapterV2 (loom)", () => {
       assert.isTrue(live.every((entry) => entry.usage.costUsd === undefined));
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
+      // 3c-3: the turn's own tokens (two messages) in upstream's per-turn slot, not the
+      // session-wide stats; live frames carry none.
+      const turnUsage = turnUpdates.flatMap((event) =>
+        event.type === "provider_turn.updated" && event.providerTurn.turnTokenUsage !== undefined
+          ? [{ status: event.providerTurn.status, usage: event.providerTurn.turnTokenUsage }]
+          : [],
+      );
+      assert.deepEqual(turnUsage, [
+        {
+          status: "completed",
+          usage: {
+            usageScope: "main_agent",
+            usageStatus: "complete",
+            inputTokens: 880,
+            cachedInputTokens: 600,
+            cacheCreationTokens: 80,
+            outputTokens: 40,
+            hasSubagents: false,
+          },
+        },
+      ]);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });
@@ -540,6 +586,79 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
   it.effect("a codex resume leaves the file untouched", () =>
     Effect.gen(function* () {
       assert.equal(yield* resumeCodexHistoryUnder("openai-codex/gpt-6.1-sol"), CODEX_HISTORY);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── 3c-3: accepted steers are stashed until their turn ends (seam 20) ────────
+
+describe("PiAdapterV2 (loom) — steer stash", () => {
+  it.effect("stashes each steer pi accepts, in order, and clears the stash at turn end", () =>
+    Effect.gen(function* () {
+      const { fake, runtime, events } = yield* openRuntime(undefined, yield* liveHooks(false));
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection,
+        runtimePolicy,
+      });
+      const runId = RunId.make(`run:${THREAD_ID}:steer`);
+      const message = (text: string) => ({
+        messageId: `message:${THREAD_ID}:${text}` as never,
+        text,
+        attachments: [],
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+      });
+      yield* runtime.startTurn({
+        appThread: yield* appThread,
+        threadId: THREAD_ID,
+        runId,
+        runOrdinal: 1,
+        providerTurnOrdinal: 1,
+        attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+        rootNodeId: NodeId.make(`node:${runId}:root`),
+        providerThread,
+        message: message("Hello pi"),
+        modelSelection,
+        runtimePolicy,
+      });
+      yield* fake.emit({ type: "agent_start" });
+      let providerTurnId: ProviderTurnId | undefined;
+      while (providerTurnId === undefined) {
+        const event = yield* Queue.take(events);
+        if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
+      }
+      // pi answers a steer prompt on its event stream; the fake's usage frame right after the
+      // answer is processed after it, so seeing that frame means the stash write has happened.
+      const steer = Effect.fnUntraced(function* (text: string) {
+        const answered = fake.steers.answered + 1;
+        yield* runtime.steerTurn({
+          threadId: THREAD_ID,
+          runId,
+          providerThread,
+          providerTurnId: providerTurnId!,
+          message: message(text),
+        });
+        while (true) {
+          const event = yield* Queue.take(events);
+          if (
+            event.type === "provider_turn.updated" &&
+            event.providerTurn.tokenUsage?.usedTokens === answered
+          )
+            break;
+        }
+        return yield* PendingSteering.read(THREAD_ID);
+      });
+
+      assert.equal(yield* steer("first steer"), "first steer");
+      fake.steers.reject = true;
+      assert.equal(yield* steer("refused steer"), "first steer");
+      fake.steers.reject = false;
+      assert.equal(yield* steer("second steer"), "first steer\n\nsecond steer");
+
+      yield* fake.emit({ type: "agent_settled" });
+      while ((yield* Queue.take(events)).type !== "turn.terminal");
+      assert.isNull(yield* PendingSteering.read(THREAD_ID));
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

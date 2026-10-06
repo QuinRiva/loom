@@ -12,7 +12,6 @@ import {
   ACCOUNT_WIDE_SCOPE,
   activeMarks,
   deriveFromTelemetry,
-  dropUnpausedErrorMarks,
   isActive,
   markKey,
   matches,
@@ -180,7 +179,7 @@ describe("ProviderHealthRegistry semantics", () => {
     // Model-scoped mark present; account-wide (all-models 81%) absent.
     expect(telemetry.has(markKey("claudeAgent", "claude-fable-5"))).toBe(true);
     expect(telemetry.has(markKey("claudeAgent", ACCOUNT_WIDE_SCOPE))).toBe(false);
-    const marks = activeMarks(telemetry, new Map(), new Set(), NOW);
+    const marks = activeMarks(telemetry, new Map(), NOW);
     expect(marks.some((m) => matches(m, "claudeAgent", "claude-fable-5"))).toBe(true);
     expect(marks.some((m) => matches(m, "claudeAgent", "claude-opus-4-8"))).toBe(false);
   });
@@ -276,31 +275,6 @@ describe("ProviderHealthRegistry semantics", () => {
     expect(isActive(errorMark("codex", "*", null), NOW)).toBe(true);
   });
 
-  it("surfaces paused accounts as account-wide manual marks", () => {
-    const marks = activeMarks(new Map(), new Map(), new Set(["claudeAgent"]), NOW);
-    expect(marks).toHaveLength(1);
-    expect(marks[0]).toMatchObject({
-      accountKey: "claudeAgent",
-      modelScope: ACCOUNT_WIDE_SCOPE,
-      until: null,
-      source: "manual",
-    });
-    expect(matches(marks[0]!, "claudeAgent", "claude-opus-4-8")).toBe(true);
-  });
-
-  it("drops error marks for accounts that transition paused → unpaused", () => {
-    const errors = new Map([
-      [markKey("codex", ACCOUNT_WIDE_SCOPE), errorMark("codex", "*", FUTURE)],
-      [markKey("claudeAgent", ACCOUNT_WIDE_SCOPE), errorMark("claudeAgent", "*", FUTURE)],
-    ]);
-    // codex unpaused (was paused, now not); claudeAgent unchanged.
-    const kept = dropUnpausedErrorMarks(errors, new Set(["codex"]), new Set());
-    expect(kept.has(markKey("codex", ACCOUNT_WIDE_SCOPE))).toBe(false);
-    expect(kept.has(markKey("claudeAgent", ACCOUNT_WIDE_SCOPE))).toBe(true);
-    // No transition ⇒ untouched (same reference is fine).
-    expect(dropUnpausedErrorMarks(errors, new Set(["codex"]), new Set(["codex"])).size).toBe(2);
-  });
-
   it("quota-classifies subscription-limit wording but not bare rate-limit/429", () => {
     expect(classifiesAsQuota("You have reached your weekly usage limit")).toBe(true);
     expect(classifiesAsQuota("quota exceeded; resets at 15:40")).toBe(true);
@@ -322,7 +296,7 @@ describe("ProviderHealthRegistry semantics", () => {
     const errors = new Map([
       [markKey("codex", ACCOUNT_WIDE_SCOPE), errorMark("codex", "*", FUTURE)],
     ]);
-    const marks = activeMarks(telemetry, errors, new Set(), NOW);
+    const marks = activeMarks(telemetry, errors, NOW);
     expect(marks).toHaveLength(1);
     expect(marks[0]?.source).toBe("telemetry");
   });

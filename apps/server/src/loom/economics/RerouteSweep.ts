@@ -207,18 +207,30 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
       shell.lastErrorClass === "usage_limit" &&
       runId !== null &&
       shell.pendingRuntimeRequest === null &&
-      shell.settledOverride !== "settled";
+      shell.settledOverride !== "settled" &&
+      // A snoozed thread is not resumed, as upstream's limitRecoveryCommand.
+      (shell.snoozedUntil == null || DateTime.toEpochMillis(shell.snoozedUntil) <= nowMs);
     const workstream = yield* loomStore.getWorkstream(threadId);
     const resumable =
       limited &&
       (workstream === null ||
         (!loomContinuationVetoed(workstream, false) && workstream.attention.length === 0));
 
-    // Clause 2: back to the intended selection once it is healthy and the thread is idle.
+    const ranUntil = DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
     if (reroute !== undefined) {
       // The failure's own reset counts too: the registry is empty after a restart.
       const resetPending = reroute.resetAt !== null && Date.parse(reroute.resetAt) > nowMs;
-      if (shell.activeRunId !== null || exhausted(intended) || resetPending) return;
+      const intendedOut = exhausted(intended) || resetPending;
+      // Clause 1 left half-done: the thread is still failed on the run it was rerouted from
+      // (it ended before the reroute). Re-send its steps; receipted ids make each a no-op once landed.
+      if (resumable && intendedOut && ranUntil <= Date.parse(reroute.reroutedAt)) {
+        const idBase = `server:loom:reroute:${threadId}:${runId}`;
+        if (yield* moveTo(threadId, idBase, reroute.reroutedSelection))
+          yield* resume(threadId, idBase, rerouteResumeText(reroute.reroutedSelection.model));
+        return;
+      }
+      // Clause 2: back to the intended selection once it is healthy and the thread is idle.
+      if (shell.activeRunId !== null || intendedOut) return;
       const idBase = `server:loom:reroute-back:${threadId}:${Date.parse(reroute.reroutedAt)}`;
       if (!(yield* moveTo(threadId, idBase, intended))) return;
       yield* deleteReroute(threadId);
@@ -231,8 +243,8 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
 
     const resetMs = Date.parse(shell.usageLimitResetAt ?? "");
     // Upstream arms (and resumes) only a reset later than the failed run's end.
-    const upstreamResumes =
-      resetMs > DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
+    // A reset already due when the run ended (pi-ai rounds "~0 min") is not armed: clause 3's.
+    const upstreamResumes = resetMs > ranUntil;
     const intendedOut = exhausted(intended) || (upstreamResumes && resetMs > nowMs);
     const fallback =
       !settings.providerFailover.enabled || !intendedOut
@@ -248,7 +260,8 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
     if (fallback !== undefined) {
       const idBase = `server:loom:reroute:${threadId}:${runId}`;
       const reroutedSelection = { instanceId: intended.instanceId, model: fallback };
-      if (!(yield* moveTo(threadId, idBase, reroutedSelection))) return;
+      // The row first: a model-set that never lands leaves a row that no longer matches the
+      // thread's selection, which the next pass deletes; any later step is re-sent above.
       yield* insertReroute({
         threadId,
         intendedSelection: intended,
@@ -257,6 +270,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
         windowLabel: marksFor(intended).find((mark) => mark.windowLabel)?.windowLabel ?? null,
         resetAt: shell.usageLimitResetAt ?? null,
       });
+      if (!(yield* moveTo(threadId, idBase, reroutedSelection))) return;
       yield* resume(threadId, idBase, rerouteResumeText(fallback));
       return;
     }

@@ -339,6 +339,14 @@ interface ActivePiTurn {
   failure: ReturnType<typeof makeProviderFailure> | null;
   // loom: USD for this turn, summed from pi's own per-message usage.cost.total (DR-8)
   costUsd: number;
+  // loom: this turn's tokens, summed from pi's per-message usage (stats' tokens are session-wide; 3c-3)
+  loomTokens: {
+    messages: number;
+    input: number;
+    cacheRead: number;
+    cacheWrite: number;
+    output: number;
+  };
   /** Session-tree refs read just before Stop terminates Pi, when no read is possible later. */
   stopTreeRefs?: PiTurnTreeRefs | null;
 }
@@ -525,6 +533,7 @@ export function makePiAdapterV2(
       const pendingPromptResponses: Array<{
         readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
         readonly kind: "turn_start" | "steer";
+        readonly loomSteerText?: string; // loom: stashed once pi accepts the steer (3c-3, seam 20)
       }> = [];
       const pendingCompactResponses: Array<{
         readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
@@ -1468,8 +1477,26 @@ export function makePiAdapterV2(
                   tokenUsage:
                     turn.costUsd > 0 ? { ...tokenUsage, costUsd: turn.costUsd } : tokenUsage,
                 }),
+            // loom: the turn's own tokens in upstream's per-turn slot; Loom's usage ledger reads them (3c-3)
+            ...(turn.loomTokens.messages === 0
+              ? {}
+              : {
+                  turnTokenUsage: {
+                    usageScope: "main_agent",
+                    usageStatus: !turn.interrupted && failure === null ? "complete" : "partial",
+                    inputTokens:
+                      turn.loomTokens.input +
+                      turn.loomTokens.cacheRead +
+                      turn.loomTokens.cacheWrite,
+                    cachedInputTokens: turn.loomTokens.cacheRead,
+                    cacheCreationTokens: turn.loomTokens.cacheWrite,
+                    outputTokens: turn.loomTokens.output,
+                    hasSubagents: false,
+                  },
+                }),
           },
         });
+        yield* loomHooks.steerStash.clear(turn.turnInput.threadId); // loom: the turn consumed its steers (seam 20)
         yield* updateProviderThread(state, {
           status: "idle",
           ...(treeRefs?.leafId == null
@@ -1633,6 +1660,13 @@ export function makePiAdapterV2(
             // loom: pi prices each message itself; never price tokens in T3 (DR-8)
             turn.costUsd +=
               recordNumber(recordField(recordField(message, "usage"), "cost"), "total") ?? 0;
+            // loom: per-turn tokens for upstream's turnTokenUsage (3c-3)
+            const loomUsage = recordField(message, "usage");
+            turn.loomTokens.messages += 1;
+            turn.loomTokens.input += nonNegativeInteger(loomUsage, "input") ?? 0;
+            turn.loomTokens.cacheRead += nonNegativeInteger(loomUsage, "cacheRead") ?? 0;
+            turn.loomTokens.cacheWrite += nonNegativeInteger(loomUsage, "cacheWrite") ?? 0;
+            turn.loomTokens.output += nonNegativeInteger(loomUsage, "output") ?? 0;
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               // loom: a pi quota error becomes usage_limit so upstream's limit recovery parks it (P3-11)
@@ -1868,6 +1902,12 @@ export function makePiAdapterV2(
             const responseTurn =
               pendingPrompt?.providerTurnId === turn?.providerTurn.id ? turn : null;
             if (event["success"] === true) {
+              // loom: pi accepted a steer into the live turn; stash it so a restart redelivers it (seam 20)
+              if (pendingPrompt?.loomSteerText !== undefined && responseTurn !== null)
+                yield* loomHooks.steerStash.append(
+                  responseTurn.turnInput.threadId,
+                  pendingPrompt.loomSteerText,
+                );
               // Deferred success ack. Command-only prompts (pure extension
               // slash commands) never start an agent run and never emit
               // `agent_settled`, so probe for idleness. The probe result is
@@ -2388,6 +2428,7 @@ export function makePiAdapterV2(
               activeProviderRetry: null,
               failure: null,
               costUsd: 0, // loom: DR-8
+              loomTokens: { messages: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, // loom: 3c-3
             };
             // Only the install/send/start-event boundary excludes the event
             // pump. Earlier correlated requests must leave the pump free so
@@ -2494,6 +2535,7 @@ export function makePiAdapterV2(
                   pendingPromptResponses.push({
                     providerTurnId: turn.providerTurn.id,
                     kind: "steer",
+                    loomSteerText: steerInput.message.text, // loom: seam 20
                   });
                 }
                 turn.settleProbeGeneration += 1;
@@ -3010,7 +3052,11 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
       return makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: {
+          // loom: run-starting extensions stay passive under T3 (docs/operations/pi-extensions-audit.md); the instance env may override
+          PI_PASSIVE_EXTENSIONS: "1",
+          ...mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        },
         spawner,
         fileSystem,
         idAllocator,
