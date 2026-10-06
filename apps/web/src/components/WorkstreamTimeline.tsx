@@ -98,7 +98,7 @@ export function WorkstreamTimelineDrawer({
               {node ? getRoleLabel(node) : "sub-thread"} · timeline
             </div>
             {node ? (
-              <div className="flex gap-2 truncate font-mono text-2xs text-muted-foreground">
+              <div className="flex flex-wrap gap-x-2 font-mono text-2xs text-muted-foreground">
                 <WorkstreamSpendSlot threadId={node.id} />
                 <LoomContextChip threadId={node.id} />
               </div>
