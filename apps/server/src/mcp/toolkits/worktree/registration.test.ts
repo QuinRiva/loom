@@ -22,6 +22,8 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
+import * as LoomStore from "../../../loom/projection/LoomStore.ts"; // loom: Loom toolkit services
+import { ProviderHealthRegistry } from "../../../provider/Services/ProviderHealthRegistry.ts"; // loom: Loom toolkit services
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
@@ -40,6 +42,8 @@ const StubServicesLive = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+  Layer.succeed(LoomStore.LoomStoreV2, {} as never), // loom: Loom toolkit services
+  Layer.mock(ProviderHealthRegistry)({}), // loom: Loom toolkit services
 );
 
 const ToolsListPayload = Schema.fromJsonString(

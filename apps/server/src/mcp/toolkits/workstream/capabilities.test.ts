@@ -49,6 +49,7 @@ it.effect("a Loom credential is denied delegate_task and t3_thread_send, and lin
               return { sequence: 1, storedEvents: [] };
             }),
         },
+        loomStore: { getWorkstream: () => Effect.succeed(null) },
         projects: {
           getShell: () =>
             Effect.succeed(
@@ -88,9 +89,13 @@ it.effect("a Loom credential is denied delegate_task and t3_thread_send, and lin
       { type: "thread.pull-request.link", threadId: LOOM_TEST_THREAD, number: 42 },
     ]);
 
+    // Loom's own tools are served: the submit reaches its handler (no sidecar row here).
     const loom = yield* mcp.callTool("workstream_submit", { markdown: "report" });
     expect(loom.content).toEqual([
-      { type: "text", text: "workstream_submit is not ported in 3a-1." },
+      {
+        type: "text",
+        text: `Thread ${LOOM_TEST_THREAD} is not a workstream thread; there is nothing to submit to.`,
+      },
     ]);
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
 );

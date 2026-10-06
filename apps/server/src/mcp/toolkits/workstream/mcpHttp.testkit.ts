@@ -25,6 +25,8 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
+import * as LoomStore from "../../../loom/projection/LoomStore.ts";
+import { ProviderHealthRegistry } from "../../../provider/Services/ProviderHealthRegistry.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import type { McpCapability } from "../../McpInvocationContext.ts";
 import * as McpSessionRegistry from "../../McpSessionRegistry.ts";
@@ -33,6 +35,10 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 export interface McpServiceStubs {
   readonly orchestrator?: Partial<Orchestrator.OrchestratorV2["Service"]>;
   readonly projects?: Partial<ProjectService.ProjectService["Service"]>;
+  readonly loomStore?: Pick<
+    Partial<LoomStore.LoomStoreV2["Service"]>,
+    "getWorkstream" | "listWorkstreamTree" | "listChildren"
+  >;
 }
 
 const stubServices = (stubs: McpServiceStubs) =>
@@ -50,6 +56,14 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
     Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
     Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+    Layer.mock(LoomStore.LoomStoreV2)({
+      goals: {} as never,
+      tasks: {} as never,
+      consults: {} as never,
+      peerMessages: {} as never,
+      ...stubs.loomStore,
+    }),
+    Layer.mock(ProviderHealthRegistry)({}),
   );
 
 export interface McpToolResult {
