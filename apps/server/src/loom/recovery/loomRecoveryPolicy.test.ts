@@ -54,6 +54,7 @@ import {
   WorkstreamDispatcher,
   WorkstreamDispatcherLive,
 } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
+import * as PendingSteering from "../steering/pendingSteering.ts";
 import {
   loomStartupRecovery,
   redeliverStashedSteers,
@@ -382,14 +383,64 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           } as OrchestrationV2DomainEvent,
         ]);
 
+        // Pi accepts a fresh steer into the running turn: the adapter appends it to the stash.
+        const live = "Also bump the version.";
+        yield* PendingSteering.append(flagged, live);
+
         yield* dispatcher.runPass;
         const [redelivered, ...more] = yield* redeliveries;
         assert.lengthOf(more, 0);
         assert.include(redelivered!.text, steer);
+        assert.notInclude(redelivered!.text, live);
         assert.equal(redelivered!.loom?.origin, "control_notice");
-        assert.isFalse(yield* stashed(flagged));
+        // Only the startup text left the file; the live turn's own steer keeps its durability.
+        assert.equal(yield* PendingSteering.read(flagged), live);
         yield* dispatcher.runPass;
         assert.lengthOf(yield* redeliveries, 1);
+        assert.equal(yield* PendingSteering.read(flagged), live);
+      }),
+  );
+
+  it.effect(
+    "a live turn's own stash (no restart) is never redelivered or cleared by the rail",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("live-stash-root");
+        const child = ThreadId.make("live-stash-child");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: child, graphKey: "live-stash" });
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("live-stash-human"),
+          threadId: child,
+          messageId: MessageId.make("message:live-stash-human"),
+          text: "Start on the parser.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const run = (yield* orchestrator.getThreadProjection(child)).runs[0]!;
+        yield* writeEvents([
+          {
+            id: EventId.make("event:live-stash-running"),
+            type: "run.updated",
+            threadId: child,
+            runId: run.id,
+            providerInstanceId: run.providerInstanceId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...run, status: "running", startedAt: yield* DateTime.now },
+          } as OrchestrationV2DomainEvent,
+        ]);
+        // What 3c's adapter writes when pi acks a steer into this live turn.
+        const accepted = "Use the new tokenizer.";
+        yield* PendingSteering.append(child, accepted);
+
+        yield* (yield* WorkstreamDispatcher).runPass;
+        const messages = (yield* orchestrator.getThreadProjection(child)).messages;
+        assert.isFalse(messages.some((message) => message.loom?.origin === "control_notice"));
+        assert.equal(yield* PendingSteering.read(child), accepted);
       }),
   );
 

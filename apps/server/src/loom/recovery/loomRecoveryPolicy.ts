@@ -154,12 +154,13 @@ export const releaseHeldQueues = Effect.gen(function* () {
 /**
  * Seam 20 (P3-24): each continued thread's stashed steer becomes one steered control
  * message, then the stash is cleared. A thread in rule 0's not-continued set keeps its
- * stash for the dispatchMessage path to redeliver behind the next human- or parent-started
- * turn. The redelivery must land behind upstream's restart continuation, which the effect
- * worker runs asynchronously: when the thread's continuation effect is still due, it is run
- * here first (`continueRestartedRun` is idempotent by its message and command ids), so the
- * steer queues behind — or steers into — the continuation run instead of starting a run of
- * its own that would turn the continuation stale. Never fails; per-thread failures log.
+ * stash, which is handed to the dispatcher (`leaveStash`) for its `steerRedelivery` rail to
+ * carry into the next human- or parent-started turn (DL-387). The redelivery must land
+ * behind upstream's restart continuation, which the effect worker runs asynchronously:
+ * when the thread's continuation effect is still due, it is run here first
+ * (`continueRestartedRun` is idempotent by its message and command ids), so the steer
+ * queues behind — or steers into — the continuation run instead of starting a run of its
+ * own that would turn the continuation stale. Never fails; per-thread failures log.
  */
 export const redeliverStashedSteers = Effect.gen(function* () {
   const orchestrator = yield* OrchestratorV2;
@@ -170,7 +171,11 @@ export const redeliverStashedSteers = Effect.gen(function* () {
       if (steer === null) return yield* PendingSteering.clear(threadId);
       const workstream = yield* loomStore.getWorkstream(threadId);
       const projection = yield* orchestrator.getThreadProjection(threadId);
-      if (workstream === null || !isContinued(workstream, projection)) return;
+      if (workstream === null) return;
+      // Not continued: left for the dispatcher's rail to carry into the thread's next
+      // human- or parent-started turn (DL-387).
+      if (!isContinued(workstream, projection))
+        return yield* (yield* WorkstreamDispatcher).leaveStash(threadId, steer);
       yield* runDueContinuation(threadId, projection);
       yield* orchestrator.dispatch(
         controlMessage({

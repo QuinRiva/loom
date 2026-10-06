@@ -3,18 +3,22 @@
  * thread the startup pass did not continue (rule 0's not-continued set: flagged,
  * done, request-parked) stays on disk, and the next turn a human or the parent
  * starts on that thread carries it. No `dispatchMessage` hunk is authorised for
- * this (P3-21), so it is a dispatcher rail: while such a turn runs, the stash is
- * dispatched as the same steered control message the startup pass sends (same
- * id, so a startup redelivery and this one are mutually exclusive), which
- * upstream's conversion steers into the running turn, then the file is cleared.
+ * this (P3-21), so it is a dispatcher rail over the stashes the startup pass
+ * LEFT (`PassContext.leftStashes`) — never over the stash directory, which during
+ * any live turn also holds that turn's own already-accepted steers (3c's adapter
+ * appends on every acked steer and clears at `finalizeTurn`).
  *
- * Residual: a turn short enough to finalize before a pass sees it running loses
- * the steer, because 3c's adapter clears the stash at `finalizeTurn`; the
- * `run.updated` running trigger (`hasStashedSteer`) keeps that window to one pass.
+ * While such a turn runs, the left text is dispatched as the same steered control
+ * message the startup pass sends (same id, so the two paths are mutually
+ * exclusive), which upstream's conversion steers into the running turn. The file
+ * then keeps only what the adapter appended after startup (the live turn's own
+ * steers, so their crash durability survives). An entry whose file no longer
+ * starts with the left text was cleared by the adapter's `finalizeTurn`: it is
+ * dropped, and the steer is lost — the residual for a turn too short for a pass
+ * to see it running (the `run.updated` running trigger keeps that to one pass).
  *
  * @module loom/orchestration/dispatcher/steerRedelivery
  */
-import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { loomContinuationVetoed } from "../../../orchestration-v2/Orchestrator.loom.ts";
@@ -28,15 +32,16 @@ import {
 } from "./controlMessage.ts";
 import { landed, type PassContext, type PassStep } from "./WorkstreamDispatcher.ts";
 
-/** The pass trigger's cheap check: does `threadId` hold a stash? */
-export const hasStashedSteer = (threadId: ThreadId) =>
-  Effect.map(PendingSteering.read(threadId), (steer) => steer !== null);
-
 export const steerRedelivery: PassStep = {
   name: "steerRedelivery",
   run: Effect.fn("loom.dispatcher.steerRedelivery")(function* (ctx: PassContext) {
     const orchestrator = yield* OrchestratorV2;
-    for (const threadId of yield* PendingSteering.listStashed()) {
+    for (const [threadId, left] of ctx.leftStashes) {
+      const current = yield* PendingSteering.read(threadId);
+      if (current === null || !current.startsWith(left)) {
+        ctx.leftStashes.delete(threadId);
+        continue;
+      }
       if (ctx.shells.get(threadId)?.activityRunStatus !== "running") continue;
       const { runs, messages, runtimeRequests } = yield* orchestrator.getThreadRecords(
         threadId,
@@ -54,22 +59,22 @@ export const steerRedelivery: PassStep = {
       const started = runs.find((run) => run.status === "running");
       const loom = messages.find((message) => message.id === started?.userMessageId)?.loom;
       if (loom?.humanAuthored !== true && loom?.origin !== "orchestrator") continue;
-      const steer = yield* PendingSteering.read(threadId);
-      if (steer === null) {
-        yield* PendingSteering.clear(threadId);
-        continue;
-      }
       const outcome = yield* ctx.dispatch(
         "steer-redelivery",
         controlMessage({
           threadId,
-          id: steerRedeliverCommandId(threadId, steerHash(steer)),
+          id: steerRedeliverCommandId(threadId, steerHash(left)),
           tier: "steered",
           origin: "control_notice",
-          text: redeliveredSteerText(steer),
+          text: redeliveredSteerText(left),
         }),
       );
-      if (landed(outcome)) yield* PendingSteering.clear(threadId);
+      if (!landed(outcome)) continue;
+      ctx.leftStashes.delete(threadId);
+      // Keep only what the adapter appended after startup (this turn's accepted steers).
+      const rest = current.slice(left.length).replace(/^\n\n/, "");
+      yield* PendingSteering.clear(threadId);
+      if (rest.length > 0) yield* PendingSteering.append(threadId, rest);
     }
   }),
 };

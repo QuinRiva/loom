@@ -147,9 +147,9 @@ export const buildHandoffDraftTurnStart = (
 /**
  * Validates the source and launches a drafter fork; returns the drafter's id.
  * Guards as V1: the source exists, is idle (forking a mid-turn session would
- * capture an unclosed tool call), and its latest finished run ran on pi (the
- * drafter's whole value is the source's native session). The model is the
- * source's projected selection (DL-384: launch identity is the composer's).
+ * capture an unclosed tool call), and its latest finished run ran on pi with a strong
+ * native session ref (the drafter's whole value is the source's native session). The
+ * model is the source's projected selection (DL-384: launch identity is the composer's).
  * Fails with `LoomWsMethodError` naming `method`.
  */
 export const launchDraftFork = (input: {
@@ -184,10 +184,16 @@ export const launchDraftFork = (input: {
       .toSorted((left, right) => right.ordinal - left.ordinal)[0];
     if (latest === undefined)
       return yield* fail(`This thread has no finished turn yet, so nothing can be ${input.verb}.`);
-    const driver = providerThreads.find((thread) => thread.id === latest.providerThreadId)?.driver;
-    if (driver !== "pi") {
+    const providerThread = providerThreads.find((thread) => thread.id === latest.providerThreadId);
+    if (providerThread?.driver !== "pi") {
       return yield* fail(
         `Only pi-backed threads can be ${input.verb} (the fork relies on pi's native session).`,
+      );
+    }
+    // `fork.prepare` refuses without one; checked here so no drafter is created first.
+    if (providerThread.nativeThreadRef?.strength !== "strong") {
+      return yield* fail(
+        `This thread's pi session cannot be forked (no native session reference), so it cannot be ${input.verb}.`,
       );
     }
     const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4);

@@ -59,6 +59,7 @@ const SpyDispatcherLayer = Layer.sync(WorkstreamDispatcher, () => {
     drain: Effect.void,
     runPass: Effect.void,
     advise: (input) => Effect.sync(() => void advised.push(input)),
+    leaveStash: () => Effect.void,
     deferredWakes: Effect.succeed(new Map()),
   };
 });
