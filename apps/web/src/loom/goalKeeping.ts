@@ -11,13 +11,7 @@
  * re-adopted (its goal bucket keeps it distinct, but it starts goal-less).
  */
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
-import {
-  CommandId,
-  type EnvironmentId,
-  type GoalId,
-  type OrchestrationV2ThreadShell,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, type EnvironmentId, type GoalId, type ThreadId } from "@t3tools/contracts";
 
 import { randomUUID } from "../lib/utils";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -25,13 +19,6 @@ import { orchestrationEnvironment } from "../state/orchestration";
 import { environmentThreadShells } from "../state/threads";
 
 const waiting = new Map<ThreadId, () => void>();
-
-/** The goal a new thread should inherit from the thread being viewed, if any. */
-export const inheritableGoalId = (
-  source: Pick<OrchestrationV2ThreadShell, "projectId" | "workstream"> | null | undefined,
-  targetProjectId: string,
-): GoalId | null =>
-  source?.projectId === targetProjectId ? (source.workstream?.goalId ?? null) : null;
 
 export function inheritLoomGoal(environmentId: EnvironmentId, threadId: ThreadId, goalId: GoalId) {
   waiting.get(threadId)?.();

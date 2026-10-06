@@ -35,7 +35,6 @@ import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
-import { inheritableGoalId, inheritLoomGoal } from "../loom/goalKeeping"; // loom: 3d-4
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -164,7 +163,10 @@ export function useNewThreadHandler() {
         ).settings.defaultThreadEnvMode;
       };
       // loom: 3d-4 goal-keeping — a thread viewed under a Loom goal hands the goal on.
-      const loomGoalId = inheritableGoalId(carrySourceShell, projectRef.projectId);
+      const loomGoalId =
+        carrySourceShell?.projectId === projectRef.projectId
+          ? (carrySourceShell.source.workstream?.goalId ?? null)
+          : null;
       const projectLogicalKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
@@ -178,8 +180,11 @@ export function useNewThreadHandler() {
         mapping,
       ) => {
         setDraftMapping(key, ref, draftId, mapping);
-        if (loomGoalId !== null && mapping?.threadId)
-          inheritLoomGoal(ref.environmentId, mapping.threadId, loomGoalId);
+        const threadId = mapping?.threadId;
+        if (loomGoalId !== null && threadId !== undefined)
+          void import("../loom/goalKeeping").then((loom) =>
+            loom.inheritLoomGoal(ref.environmentId, threadId, loomGoalId),
+          );
       };
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
