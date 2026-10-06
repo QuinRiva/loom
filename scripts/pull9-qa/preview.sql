@@ -38,9 +38,15 @@ SELECT COUNT(*) AS threads_total, SUM(deleted_at IS NOT NULL) AS deleted, SUM(de
   FROM projection_threads;
 
 .print
-.print == The genuine holds: planned children with no turn and no user message (Carl reviews these)
-SELECT t.thread_id, t.title, t.role FROM projection_threads t
- WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+.print == The genuine holds: planned children with no turn and no user message, plus (DL-511) never-started
+.print == non-terminal children with a dependency on a non-done thread outside the live graph (Carl reviews these)
+SELECT t.thread_id, t.title, t.role, t.plan_lane FROM projection_threads t
+ WHERE t.parent_thread_id IS NOT NULL AND t.deleted_at IS NULL AND t.archived_at IS NULL
+   AND t.plan_lane NOT IN ('done', 'cancelled')
+   AND (t.plan_lane = 'planned' OR EXISTS (
+     SELECT 1 FROM json_each(t.blocked_by) d LEFT JOIN projection_threads x ON x.thread_id = d.value
+      WHERE (x.thread_id IS NULL OR x.deleted_at IS NOT NULL OR x.archived_at IS NOT NULL)
+        AND x.plan_lane IS NOT 'done'))
    AND NOT EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = t.thread_id)
    AND NOT EXISTS (SELECT 1 FROM projection_thread_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user');
 

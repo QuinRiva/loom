@@ -4,7 +4,7 @@
 -- Every row must come back 0 unless stated. Counts-in are in /home/Carl/.t3/qa-pull9/qa/preview.txt.
 -- Column names checked against: V1 projection_* (live schema), loom_thread_workstream (1046),
 -- loom_goals/loom_goal_tasks (1047), orchestration_v2_* (055 + OrchestrationV2/Foundation, which adds
--- provider_threads.driver and threads.provider_instance_id), loom_legacy_imports (plan's 1052, not yet landed).
+-- provider_threads.driver and threads.provider_instance_id), loom_legacy_imports (migration 1051, DL-512).
 .headers on
 .mode list
 .separator ' | '
@@ -22,9 +22,12 @@ SELECT COUNT(*) AS v1_cancelled FROM projection_threads t JOIN loom_thread_works
 SELECT COUNT(*) AS outcome_cancelled FROM loom_thread_workstream WHERE outcome = 'cancelled';
 SELECT COUNT(*) AS v1_yielded FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id) WHERE t.plan_lane = 'yielded';
 SELECT COUNT(*) AS awaiting_orchestrator FROM loom_thread_workstream WHERE EXISTS (SELECT 1 FROM json_each(attention) WHERE value = 'awaiting_orchestrator');
-SELECT COUNT(*) AS v1_planned_unstarted_children FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id)
- WHERE t.plan_lane = 'planned' AND t.parent_thread_id IS NOT NULL AND w.kickoff_at IS NULL;
-SELECT COUNT(*) AS held FROM loom_thread_workstream WHERE held = 1;   -- equals the row above (0 if the hold is retired)
+SELECT COUNT(*) AS v1_expected_holds FROM projection_threads t JOIN loom_thread_workstream w USING (thread_id)
+ WHERE t.parent_thread_id IS NOT NULL AND w.kickoff_at IS NULL AND w.outcome IS NULL
+   AND (t.plan_lane = 'planned'
+     OR EXISTS (SELECT 1 FROM json_each(w.blocked_by) d                   -- DL-511: a kept unsatisfiable dependency also holds
+                 WHERE NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = d.value)));
+SELECT COUNT(*) AS held FROM loom_thread_workstream WHERE held = 1;   -- equals the row above
 
 .print == C. Invariants (all 0)
 SELECT COUNT(*) AS terminal_with_hold_or_attention FROM loom_thread_workstream WHERE outcome IS NOT NULL AND (held = 1 OR attention != '[]');
@@ -68,7 +71,7 @@ SELECT COUNT(*) AS bound_not_pi_instance FROM loom_legacy_imports l JOIN orchest
 .print == G. Ledger covers every imported V1 row (0 pending)
 SELECT COUNT(*) AS pending FROM orchestration_v2_legacy_imports li LEFT JOIN loom_legacy_imports l USING (thread_id) WHERE l.thread_id IS NULL;
 
-.print == H. Ledgers and goals (1052; goal/task counts equal preview.txt's counts-in; then a short review list)
+.print == H. Ledgers and goals (loom_migration_max = 1051, DL-512; goal/task counts equal preview.txt's counts-in; then a short review list)
 SELECT MAX(migration_id) AS loom_migration_max FROM loom_sql_migrations;
 SELECT (SELECT COUNT(*) FROM loom_goals) AS loom_goals, (SELECT COUNT(*) FROM loom_goal_tasks) AS loom_goal_tasks;
 SELECT g.goal_id, g.title FROM loom_goals g WHERE g.archived_at IS NULL AND g.deleted_at IS NULL
