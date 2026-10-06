@@ -44,9 +44,23 @@ qa_require_home() {
   [[ -d $1 && ! -L $1 && $(realpath "$1") == "$1" ]] || qa_die "QA home $1 is not an existing real directory"
 }
 
+# The unit sees only the QA home, so the scripts it runs (sandbox-entry.sh, probe-inner.sh)
+# must come from the build, which is also read-only inside — QA cannot edit its own probe —
+# and outlives the thread worktree that wrote the toolkit.
+qa_require_toolkit_in_build() { # $1 = QA home
+  [[ $QA_TOOLKIT == "$1/build/loom/scripts/pull9-qa" ]] ||
+    qa_die "run this from $1/build/loom/scripts/pull9-qa/ (the unit can see only the QA home), not $QA_TOOLKIT"
+}
+
 # The sandbox. Every property here is load-bearing; PrivateUsers=yes is what
 # makes the path properties take effect in a user unit on this host's systemd
 # 247 (without it they are silently ignored). See README "The sandbox".
+# The home is an ALLOW-LIST: an empty read-only tmpfs over /home/Carl with only
+# the QA home (read-write; its build read-only) and the toolchain bound back in.
+# Everything else under the home — production's state, worktrees, release store,
+# pi home, credentials, and every unix socket or FIFO (connecting to those needs
+# no write permission on the mount, so read-only is not enough) — does not exist.
+QA_HOST_READ_ONLY=(/home/Carl/.n /home/Carl/.local/share/pnpm /home/Carl/.cache/node/corepack /home/Carl/.gitconfig)
 qa_unit_properties() { # $1 = QA home → QA_PROPS
   local qa=$1
   QA_PROPS=(
@@ -54,19 +68,17 @@ qa_unit_properties() { # $1 = QA home → QA_PROPS
     -p NoNewPrivileges=yes
     -p PrivateNetwork=yes
     -p PrivateTmp=yes
-    -p ProtectHome=read-only
-    -p TemporaryFileSystem=/run
-    -p "ReadWritePaths=$qa"
+    -p "TemporaryFileSystem=/run /dev/shm /home/Carl:ro"
+    -p "BindPaths=$qa"
+    -p "BindReadOnlyPaths=${QA_HOST_READ_ONLY[*]/#/-}"
     -p "ReadOnlyPaths=-$qa/build"
-    -p "ReadOnlyPaths=/home/Carl/.t3/cockpit -/home/Carl/.t3/userdata -/home/Carl/.t3/worktrees /home/Carl/loom-releases /home/Carl/loom /home/Carl/.pi"
-    -p "InaccessiblePaths=/home/Carl/.t3/cockpit/userdata -/home/Carl/.git-credentials -/home/Carl/.config/gh -/home/Carl/.ssh -/home/Carl/.config/carl-roobot -/home/Carl/.netrc -/home/Carl/.gcp -/home/Carl/.config/gcloud -/home/Carl/.docker -/home/Carl/.slack -/home/Carl/.config/loom-cockpit.env"
     -p "UnsetEnvironment=DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR"
   )
 }
 
 # The complete environment of every process in the unit (env -i: nothing is
 # inherited, so no credential variable can leak in). No GH_TOKEN, no Google or
-# Vertex variable: the unit has no network beyond the cliproxy bridge.
+# Vertex variable: the unit has no network beyond the cliproxy relay.
 qa_unit_env() { # $1 = QA home → QA_ENV
   local qa=$1
   QA_ENV=(
@@ -74,7 +86,7 @@ qa_unit_env() { # $1 = QA home → QA_ENV
     "PATH=$qa/build/loom/node_modules/.bin:/home/Carl/.n/bin:/home/Carl/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin"
     "T3CODE_HOME=$qa" T3CODE_NO_BROWSER=1 T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=false
     "PI_CODING_AGENT_DIR=$qa/pi-agent" "PI_CODING_AGENT_SESSION_DIR=$qa/pi-sessions"
-    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never COREPACK_HOME=/home/Carl/.cache/node/corepack
     "XDG_CACHE_HOME=$qa/cache" "npm_config_cache=$qa/cache/npm" npm_config_package_import_method=copy
   )
 }
@@ -88,18 +100,20 @@ qa_exec_prefix() { # → QA_EXEC
     /usr/bin/env -i "${QA_ENV[@]}")
 }
 
-# Host side of the two unix-socket bridges: the only flows across the unit's
-# network boundary are QA port 13940 (in) and cliproxy 8317 (out).
+# Host side of the network boundary (relay.mjs): the only flows across it are the
+# QA port 13940 (in) and cliproxy's inference paths (out).
 qa_start_bridge() { # $1 = QA home, $2 = unit name, $3 = mode (server|probe)
   mkdir -p "$1/run"
   rm -f "$1/run/cliproxy.sock" # so the wait below sees the new listener, not a stale socket
   systemd-run --user --quiet --collect --unit="$2" \
     -p PrivateUsers=yes -p NoNewPrivileges=yes -p PrivateTmp=yes -p ProtectHome=read-only \
     -p "ReadWritePaths=$1/run" -p TemporaryFileSystem=/run \
-    -- /bin/bash "$QA_TOOLKIT/bridge.sh" "$1" "$3"
+    -- "$QA_NODE" "$QA_TOOLKIT/relay.mjs" "$1/run" "$3"
   local i
-  for i in $(seq 50); do [[ -S $1/run/cliproxy.sock ]] && return 0; sleep 0.1; done
-  qa_die "bridge unit $2 did not create $1/run/cliproxy.sock (journalctl --user -u $2)"
+  for i in $(seq 50); do [[ -S $1/run/cliproxy.sock ]] && break; sleep 0.1; done
+  sleep 0.5
+  [[ -S $1/run/cliproxy.sock ]] && systemctl --user is-active --quiet "$2" ||
+    qa_die "bridge unit $2 is not up with $1/run/cliproxy.sock (journalctl --user -u $2)"
 }
 
 # Identity of the sandbox definition: probe.sh records it on PROBE PASSED and

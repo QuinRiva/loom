@@ -71,7 +71,10 @@ INSERT INTO projection_threads (thread_id, project_id, title, branch, worktree_p
   ('66666666-6666-4666-8666-666666666666', 'p-loom', 'blocked', NULL, NULL, '2026-01-06', 't', NULL, NULL,
     'g1', '11111111-1111-4111-8111-111111111111', 'coder', 'ready', NULL, NULL,
     '["44444444-4444-4444-8444-444444444444","99999999-9999-4999-8999-999999999999"]', '[{"to":"33333333-3333-4333-8333-333333333333","on":"done"}]'),
-  ('77777777-7777-4777-8777-777777777777', 'p-fathom', 'chat', NULL, NULL, '2026-01-07', 't', NULL, NULL, NULL, NULL, NULL, 'planned', NULL, NULL, '[]', '[]');
+  ('77777777-7777-4777-8777-777777777777', 'p-fathom', 'chat', NULL, NULL, '2026-01-07', 't', NULL, NULL, NULL, NULL, NULL, 'planned', NULL, NULL, '[]', '[]'),
+  -- t-relative: V1 stored some report paths as a bare '<threadId>.md' (32 production rows)
+  ('88888888-8888-4888-8888-888888888888', 'p-loom', 'relative', NULL, NULL, '2026-01-08', 't', NULL, NULL,
+    'g1', '11111111-1111-4111-8111-111111111111', 'coder', 'done', '88888888-8888-4888-8888-888888888888.md', NULL, '[]', '[]');
 INSERT INTO projection_turns (thread_id, turn_id, state, requested_at, checkpoint_files_json) VALUES
   ('11111111-1111-4111-8111-111111111111', 'u1', 'completed', '2026-01-01T00:00:01Z', '[]'),
   ('22222222-2222-4222-8222-222222222222', 'u2', 'completed', '2026-01-02T00:00:01Z', '[]');
@@ -79,6 +82,7 @@ INSERT INTO projection_thread_messages VALUES ('m1', '11111111-1111-4111-8111-11
 SQL
 echo '# root report' >"$src/state/workstream-reports/11111111-1111-4111-8111-111111111111.md"
 echo '# root brief' >"$src/state/workstream-briefs/root.md"
+echo '# relative report' >"$src/state/workstream-reports/88888888-8888-4888-8888-888888888888.md"
 echo '# planned brief' >"$src/state/workstream-briefs/55555555-5555-4555-8555-555555555555.md"
 echo '{}' >"$src/state/workstream-launch-identity/11111111-1111-4111-8111-111111111111.json"
 echo '# child report written under an old home' >"$src/foreign/child-report.md"
@@ -109,7 +113,11 @@ sources=(--source-db "$db" --source-state-dir "$src/state" --source-worktrees "$
 echo "===== 1. build-home.sh into $target (expect: gate passes)"
 "$QA_TOOLKIT/build-home.sh" "${sources[@]}" --target "$target"
 echo "----- $target/qa/preview.txt"; cat "$target/qa/preview.txt"
-echo "----- not copied: $(ls "$target/userdata/secrets"; ls "$target/userdata" | grep -c attachments) (attachments dirs: 0 expected)"
+echo "----- every relocated report/brief path, and whether its file exists in the QA world:"
+sqlite3 -batch -noheader -separator ' ' "file:$target/userdata/state.sqlite?mode=ro" \
+  "SELECT thread_id, p FROM (SELECT thread_id, report_path AS p FROM projection_threads UNION ALL SELECT thread_id, kickoff_brief_path FROM projection_threads) WHERE p IS NOT NULL" |
+  while read -r tid p; do printf '  %s %s exists=%s\n' "${tid:0:8}" "$p" "$([[ -f $p ]] && echo yes || echo NO)"; done
+echo "----- not copied: secrets dir $([[ -e $target/userdata/secrets ]] && echo PRESENT || echo absent), attachments $([[ -e $target/userdata/attachments ]] && echo PRESENT || echo absent)"
 
 echo; echo "===== 2. refusals"
 for t in "$target" /home/Carl/.t3/cockpit /home/Carl/.t3/cockpit/qa-x /home/Carl/.t3/userdata; do

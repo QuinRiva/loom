@@ -2,6 +2,7 @@
 # QA-ONLY. Builds the QA pi agent directory (PI_CODING_AGENT_DIR of the QA unit;
 # recorded fact 4), as Phase 3's smoke built its own:
 #   auth.json      copy of ~/.pi/agent/auth.json (model credentials; pi refreshes them here, never globally)
+#   cliproxy.apikey  copy of the cliproxy INFERENCE key (the unit cannot see ~/cli-proxy)
 #   settings.json  copy of ~/.pi/agent/settings.json without packages/subagents/memory
 #   models.json    generated: pi-craft's cliproxy provider (cliproxy.ts) re-expressed against the
 #                  bundled pi's own anthropic catalogue (cliproxy.ts calls getBuiltinModels("anthropic"))
@@ -36,6 +37,10 @@ grep -q 'getBuiltinModels("anthropic")' "$cliproxy_ts" || qa_die "cliproxy.ts no
 [[ $base_url && $api_key && $betas ]] || qa_die "could not read baseUrl/apiKey/anthropic-beta from $cliproxy_ts"
 # Inside the unit "localhost" must be the IPv4 relay to the cliproxy bridge.
 base_url=${base_url/localhost/127.0.0.1}
+# The unit cannot see ~/cli-proxy: copy the INFERENCE key it names (never .mgmtkey) into the agent dir.
+[[ $api_key =~ ^!cat\ (/home/Carl/cli-proxy/\.apikey)$ ]] || qa_die "cliproxy.ts apiKey is not '!cat /home/Carl/cli-proxy/.apikey' — re-read it"
+install -m 600 "${BASH_REMATCH[1]}" "$target/cliproxy.apikey"
+api_key="!cat $target/cliproxy.apikey"
 
 "$QA_NODE" --input-type=module - "$pi_ai/dist/providers/all.js" "$base_url" "$api_key" "$betas" >"$target/models.json" <<'EOF'
 const [catalogue, baseUrl, apiKey, betas] = process.argv.slice(2);

@@ -44,8 +44,7 @@ free=$(df --output=avail -B1 /home/Carl/.t3 | tail -1)
 
 mkdir "$qa" # atomic: fails if a concurrent build created it
 trap 'rc=$?; ((rc == 0)) || qa_log "BUILD FAILED — $qa is partial: rm -rf $qa before building again"' EXIT
-mkdir -p "$qa"/{userdata/workstream-reports,userdata/workstream-briefs,userdata/workstream-launch-identity,userdata/secrets,pi-sessions,repos/not-cloned,worktrees,qa,run,cache}
-chmod 700 "$qa/userdata/secrets"
+mkdir -p "$qa"/{userdata/workstream-reports,userdata/workstream-briefs,userdata/workstream-launch-identity,pi-sessions,repos/not-cloned,worktrees,qa,run,cache}
 copy=$qa/userdata/state.sqlite
 report=$qa/qa/preview.txt
 note() { qa_log "$*"; printf '%s\n' "$*" >>"$report"; }
@@ -69,11 +68,7 @@ for d in workstream-reports workstream-briefs workstream-launch-identity; do
   [[ -d $src_state/$d ]] && rsync -a "$src_state/$d/" "$qa/userdata/$d/" # eta: ~1 min (≈115 MB)
   note "r4 copied $d: $(find "$qa/userdata/$d" -type f | wc -l) files"
 done
-secrets=0
-for f in "$src_state"/secrets/usage-limit-source-*.bin; do
-  [[ -f $f ]] && install -m 600 "$f" "$qa/userdata/secrets/" && secrets=$((secrets + 1))
-done
-note "r4 copied secrets: $secrets usage-limit-source-*.bin only (never server-signing-key, cli-token, asset-access, cloud-link); attachments NOT copied"
+note "r4 copied NO secrets (the usage-limit source credential is cliproxy's management key — DL-547) and NO attachments"
 
 # ---- r3 relocation, in one transaction on the copy -----------------------------------------
 before=$(q "SELECT COUNT(*) FROM projection_threads WHERE worktree_path IS NOT NULL")
@@ -101,16 +96,24 @@ note "r3 worktrees: $before recorded; $(q "SELECT COUNT(*) FROM projection_threa
 
 # Report/brief paths outside the source state dir (recorded fact 2): rewritten to
 # <qa>/userdata/workstream-reports|briefs/<basename>, the file copied when it exists — never NULLed.
+# A bare relative name (V1 stored some as '<threadId>.md') names the file in the source
+# reports/briefs dir, already copied by r4: the row points at that copy.
 foreign_sql=$qa/qa/foreign-paths.sql
 echo BEGIN\; >"$foreign_sql"
-copied=0 absent=0 rows=0
+copied=0 absent=0 relative=0 rows=0
 while IFS=$'\t' read -r col tid path; do
   dir=$([[ $col == report_path ]] && echo workstream-reports || echo workstream-briefs)
   base=$(basename -- "$path")
   [[ $base =~ ^[A-Za-z0-9._@+-]+$ && $base != . && $base != .. ]] || base=$tid.md
-  dest=$qa/userdata/$dir/$base
-  [[ -e $dest ]] && dest=$qa/userdata/$dir/$tid-$base
-  if [[ $path == /* && -f $path ]]; then cp -p -- "$path" "$dest" && copied=$((copied + 1)); else absent=$((absent + 1)); fi
+  if [[ $path != /* && $path == "$base" && -f $src_state/$dir/$path ]]; then
+    # V1 also stored bare names relative to its reports/briefs dir: that file is already copied (r4).
+    dest=$qa/userdata/$dir/$path
+    relative=$((relative + 1))
+  else
+    dest=$qa/userdata/$dir/$base
+    [[ -e $dest ]] && dest=$qa/userdata/$dir/$tid-$base
+    if [[ $path == /* && -f $path ]]; then cp -p -- "$path" "$dest" && copied=$((copied + 1)); else absent=$((absent + 1)); fi
+  fi
   [[ $tid =~ ^[A-Za-z0-9._:-]+$ ]] || qa_die "unexpected thread id '$tid'"
   echo "UPDATE projection_threads SET $col = '$dest' WHERE thread_id = '$tid';" >>"$foreign_sql"
   printf '  %s %s: %s → %s\n' "$tid" "$col" "$path" "$dest" >>"$report"
@@ -123,7 +126,7 @@ done < <(qt "
    WHERE kickoff_brief_path IS NOT NULL AND substr(kickoff_brief_path, 1, length('$qa/userdata/')) != '$qa/userdata/'")
 echo COMMIT\; >>"$foreign_sql"
 q <"$foreign_sql"
-note "r3 report/brief paths outside $src_state/: $rows rewritten into the QA state dir ($copied files copied, $absent absent — kept as the record; listed above)"
+note "r3 report/brief paths outside $src_state/: $rows rewritten into the QA state dir ($relative bare names resolved to the copied $src_state/<reports|briefs>/ file, $copied files copied, $absent absent — kept as the record; listed above)"
 
 # ---- DL-265: neutralise auto-pull so no boot-time git pull can run ---------------------------
 # V1 stores it per project in projection_projects.auto_pull (zeroed above) and in settings.json:

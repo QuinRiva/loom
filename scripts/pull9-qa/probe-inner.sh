@@ -5,6 +5,9 @@
 # expectation fails.
 #   usage (via sandbox-entry.sh): probe-inner.sh <qa> full <pi-cli> <uuid> <cockpit-pid>
 #                                 probe-inner.sh <qa> push
+# Host facts the probe needs (written by probe.sh before the unit starts):
+#   <qa>/qa/host-sockets.txt  every listening unix socket on the host outside /run, /tmp, /var/tmp and the QA home
+#   /dev/shm/qa-probe-<uuid>  a host /dev/shm marker that must not be visible inside
 set -uo pipefail
 qa=$1 mode=$2 pi_cli=${3:-} uuid=${4:-} cockpit_pid=${5:-}
 fails=0
@@ -21,10 +24,10 @@ run() { # $1 = expect (fail|ok), $2 = regex the output must match ('' = any), re
   [[ -n $out ]] && head -c 600 <<<"$out" | sed 's/^/      | /'
   return 0
 }
-# A write that must fail read-only; if it ever succeeds the file is removed at once.
-ro() {
+# A write that must fail; if it ever succeeds the file is removed at once.
+nowrite() { # $1 = dir, $2 = refusal regex
   local f=$1/.qa-probe-$$
-  run fail 'Read-only file system' touch "$f"
+  run fail "$2" touch "$f"
   [[ -e $f ]] && rm -f "$f" && echo "      ! created and removed $f"
   return 0
 }
@@ -48,25 +51,39 @@ echo "probe-inner mode=$mode uid=$(id -u) pid=$$ qa=$qa"
 if [[ $mode == push ]]; then
   probe_push
 else
-  section "Production paths are read-only"
+  section "Production paths do not exist inside (the home is an empty read-only tmpfs + an allow-list of binds)"
   for d in /home/Carl/.t3/cockpit /home/Carl/.t3/cockpit/worktrees /home/Carl/.t3/userdata /home/Carl/.t3/worktrees \
     /home/Carl/loom-releases /home/Carl/loom /home/Carl/loom/.git /home/Carl/.pi/agent/sessions /home/Carl/.pi/agent \
-    /home/Carl/.pi/agent/extensions /home/Carl /home/Carl/pi-craft /home/Carl/cli-proxy /home/Carl/.config/systemd/user; do
-    if [[ -d $d ]]; then ro "$d"; else echo "SKIP  $d does not exist (home is read-only: it cannot be created)"; fi
+    /home/Carl/.pi/agent/extensions /home/Carl/pi-craft /home/Carl/cli-proxy /home/Carl/.config/systemd/user; do
+    nowrite "$d" 'No such file or directory'
   done
-  [[ -d $qa/build ]] && ro "$qa/build"
+  section "What is visible outside the QA home is read-only"
+  for d in /home/Carl /home/Carl/.t3 /home/Carl/.n /home/Carl/.local/share/pnpm "$qa/build"; do
+    [[ -d $d ]] && nowrite "$d" 'Read-only file system'
+  done
+  run ok '' bash -c "ls -A /home/Carl /home/Carl/.t3"
 
-  section "Credentials, production state and host sockets are inaccessible"
-  run fail 'Permission denied' cat /home/Carl/.git-credentials
-  run fail 'Permission denied' ls /home/Carl/.config/gh
-  run fail 'Permission denied' ls /home/Carl/.ssh
-  run fail 'Permission denied' ls /home/Carl/.config/carl-roobot
-  run fail 'Permission denied' ls /home/Carl/.t3/cockpit/userdata
-  run fail 'Permission denied' cat /home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin
-  run fail 'No such file' ls "/run/user/$(id -u)/bus"
-  run fail 'No such file' ls /run/docker.sock /var/run/docker.sock
+  section "Credentials, production state and host sockets are unreachable"
+  for f in /home/Carl/.git-credentials /home/Carl/.config/gh/hosts.yml /home/Carl/.ssh /home/Carl/.config/carl-roobot/config.json \
+    /home/Carl/.t3/cockpit/userdata/state.sqlite /home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin \
+    /home/Carl/cli-proxy/.mgmtkey /home/Carl/cli-proxy/.apikey "/run/user/$(id -u)/bus" /run/docker.sock /var/run/docker.sock; do
+    run fail 'No such file or directory' ls -d "$f"
+  done
+  run fail '' socat -u /dev/null UNIX-CONNECT:/home/Carl/.pi/agent/intercom/broker.sock
+  while read -r sock; do
+    run fail 'No such file or directory' ls -d "$sock" # path lookup only: never connect to a live host socket
+  done <"$qa/qa/host-sockets.txt"
+  run fail 'No such file or directory' ls -d "/dev/shm/qa-probe-$uuid"
   run fail '' systemctl --user status
   run fail '' sudo -n true
+
+  section "cliproxy relay forwards inference only: management and everything else refused (403 from the relay)"
+  for req in "GET /v0/management/auth-files" "POST /v0/management/auth-files" "PUT /v0/management/config.yaml" \
+    "DELETE /v0/management/auth-files" "GET /v1/messages" "POST /v1/messages/../../v0/management/auth-files" \
+    "POST /v1/%2e%2e/v0/management/auth-files" "POST /v0/management/api-call" "GET /v1/models"; do
+    run ok '^403 qa relay: refused' bash -c "curl -s --path-as-is -X ${req% *} -H 'Authorization: Bearer probe-not-a-key' \
+      -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317${req#* }' && cat /tmp/r"
+  done
 
   probe_push
 

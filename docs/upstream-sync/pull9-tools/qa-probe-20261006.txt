@@ -1,17 +1,15 @@
-# probe 2026-10-06T12:32:02Z  qa=/home/Carl/.t3/qa-pull9  sandbox=04aab7adebc37e30  pi=/home/Carl/.t3/cockpit/worktrees/ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527/ws-ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527-coder-aab8d84c/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_patch_hash=b5fbae1e7b915dfe89238f7e6389f6010fc40b_f0d14e28a46f27df1a9618b764e927c0/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js  session=cb4ce1f2-1807-4adc-92e9-7f2603537b2b  cockpit-pid=2438859
+# probe 2026-10-06T13:03:31Z  qa=/home/Carl/.t3/qa-pull9  sandbox=94bbf00311cbb81b  pi=/home/Carl/.t3/qa-pull9/build/loom/pistage/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js  session=8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336  cockpit-pid=2438859
 # unit properties:
 #   PrivateUsers=yes
 #   NoNewPrivileges=yes
 #   PrivateNetwork=yes
 #   PrivateTmp=yes
-#   ProtectHome=read-only
-#   TemporaryFileSystem=/run
-#   ReadWritePaths=/home/Carl/.t3/qa-pull9
+#   TemporaryFileSystem=/run /dev/shm /home/Carl:ro
+#   BindPaths=/home/Carl/.t3/qa-pull9
+#   BindReadOnlyPaths=-/home/Carl/.n -/home/Carl/.local/share/pnpm -/home/Carl/.cache/node/corepack -/home/Carl/.gitconfig
 #   ReadOnlyPaths=-/home/Carl/.t3/qa-pull9/build
-#   ReadOnlyPaths=/home/Carl/.t3/cockpit -/home/Carl/.t3/userdata -/home/Carl/.t3/worktrees /home/Carl/loom-releases /home/Carl/loom /home/Carl/.pi
-#   InaccessiblePaths=/home/Carl/.t3/cockpit/userdata -/home/Carl/.git-credentials -/home/Carl/.config/gh -/home/Carl/.ssh -/home/Carl/.config/carl-roobot -/home/Carl/.netrc -/home/Carl/.gcp -/home/Carl/.config/gcloud -/home/Carl/.docker -/home/Carl/.slack -/home/Carl/.config/loom-cockpit.env
 #   UnsetEnvironment=DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR
-# exec prefix: /usr/bin/unshare --user --map-current-user --mount --pid --fork --mount-proc --kill-child -- /usr/bin/env …env -i <17 vars>
+# exec prefix: /usr/bin/unshare --user --map-current-user --mount --pid --fork --mount-proc --kill-child -- /usr/bin/env …env -i <18 vars>
 #   env HOME=/home/Carl
 #   env USER=Carl
 #   env LOGNAME=Carl
@@ -26,68 +24,141 @@
 #   env PI_CODING_AGENT_SESSION_DIR=/home/Carl/.t3/qa-pull9/pi-sessions
 #   env GIT_TERMINAL_PROMPT=0
 #   env GCM_INTERACTIVE=never
+#   env COREPACK_HOME=/home/Carl/.cache/node/corepack
 #   env XDG_CACHE_HOME=/home/Carl/.t3/qa-pull9/cache
 #   env npm_config_cache=/home/Carl/.t3/qa-pull9/cache/npm
 #   env npm_config_package_import_method=copy
+# host listening unix sockets checked inside: 11
 probe-inner mode=full uid=1001 pid=3 qa=/home/Carl/.t3/qa-pull9
 
-== Production paths are read-only
+== Production paths do not exist inside (the home is an empty read-only tmpfs + an allow-list of binds)
 PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/cockpit/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.t3/cockpit/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.t3/cockpit/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/cockpit/worktrees/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.t3/cockpit/worktrees/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.t3/cockpit/worktrees/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/userdata/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.t3/userdata/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.t3/userdata/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/worktrees/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.t3/worktrees/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.t3/worktrees/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/loom-releases/.qa-probe-3
-      | touch: cannot touch '/home/Carl/loom-releases/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/loom-releases/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/loom/.qa-probe-3
-      | touch: cannot touch '/home/Carl/loom/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/loom/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/loom/.git/.qa-probe-3
-      | touch: cannot touch '/home/Carl/loom/.git/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/loom/.git/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.pi/agent/sessions/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.pi/agent/sessions/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.pi/agent/sessions/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.pi/agent/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.pi/agent/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.pi/agent/.qa-probe-3': No such file or directory
 PASS  expect=fail  exit=1  $ touch /home/Carl/.pi/agent/extensions/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.pi/agent/extensions/.qa-probe-3': Read-only file system
+      | touch: cannot touch '/home/Carl/.pi/agent/extensions/.qa-probe-3': No such file or directory
+PASS  expect=fail  exit=1  $ touch /home/Carl/pi-craft/.qa-probe-3
+      | touch: cannot touch '/home/Carl/pi-craft/.qa-probe-3': No such file or directory
+PASS  expect=fail  exit=1  $ touch /home/Carl/cli-proxy/.qa-probe-3
+      | touch: cannot touch '/home/Carl/cli-proxy/.qa-probe-3': No such file or directory
+PASS  expect=fail  exit=1  $ touch /home/Carl/.config/systemd/user/.qa-probe-3
+      | touch: cannot touch '/home/Carl/.config/systemd/user/.qa-probe-3': No such file or directory
+
+== What is visible outside the QA home is read-only
 PASS  expect=fail  exit=1  $ touch /home/Carl/.qa-probe-3
       | touch: cannot touch '/home/Carl/.qa-probe-3': Read-only file system
-PASS  expect=fail  exit=1  $ touch /home/Carl/pi-craft/.qa-probe-3
-      | touch: cannot touch '/home/Carl/pi-craft/.qa-probe-3': Read-only file system
-PASS  expect=fail  exit=1  $ touch /home/Carl/cli-proxy/.qa-probe-3
-      | touch: cannot touch '/home/Carl/cli-proxy/.qa-probe-3': Read-only file system
-PASS  expect=fail  exit=1  $ touch /home/Carl/.config/systemd/user/.qa-probe-3
-      | touch: cannot touch '/home/Carl/.config/systemd/user/.qa-probe-3': Read-only file system
+PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/.qa-probe-3
+      | touch: cannot touch '/home/Carl/.t3/.qa-probe-3': Read-only file system
+PASS  expect=fail  exit=1  $ touch /home/Carl/.n/.qa-probe-3
+      | touch: cannot touch '/home/Carl/.n/.qa-probe-3': Read-only file system
+PASS  expect=fail  exit=1  $ touch /home/Carl/.local/share/pnpm/.qa-probe-3
+      | touch: cannot touch '/home/Carl/.local/share/pnpm/.qa-probe-3': Read-only file system
+PASS  expect=fail  exit=1  $ touch /home/Carl/.t3/qa-pull9/build/.qa-probe-3
+      | touch: cannot touch '/home/Carl/.t3/qa-pull9/build/.qa-probe-3': Read-only file system
+PASS  expect=ok  exit=0  $ bash -c ls -A /home/Carl /home/Carl/.t3
+      | /home/Carl:
+      | .cache
+      | .gitconfig
+      | .local
+      | .n
+      | .t3
+      | 
+      | /home/Carl/.t3:
+      | qa-pull9
 
-== Credentials, production state and host sockets are inaccessible
-PASS  expect=fail  exit=1  $ cat /home/Carl/.git-credentials
-      | cat: /home/Carl/.git-credentials: Permission denied
-PASS  expect=fail  exit=2  $ ls /home/Carl/.config/gh
-      | ls: cannot open directory '/home/Carl/.config/gh': Permission denied
-PASS  expect=fail  exit=2  $ ls /home/Carl/.ssh
-      | ls: cannot open directory '/home/Carl/.ssh': Permission denied
-PASS  expect=fail  exit=2  $ ls /home/Carl/.config/carl-roobot
-      | ls: cannot open directory '/home/Carl/.config/carl-roobot': Permission denied
-PASS  expect=fail  exit=2  $ ls /home/Carl/.t3/cockpit/userdata
-      | ls: cannot open directory '/home/Carl/.t3/cockpit/userdata': Permission denied
-PASS  expect=fail  exit=1  $ cat /home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin
-      | cat: /home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin: Permission denied
-PASS  expect=fail  exit=2  $ ls /run/user/1001/bus
+== Credentials, production state and host sockets are unreachable
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.git-credentials
+      | ls: cannot access '/home/Carl/.git-credentials': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.config/gh/hosts.yml
+      | ls: cannot access '/home/Carl/.config/gh/hosts.yml': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.ssh
+      | ls: cannot access '/home/Carl/.ssh': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.config/carl-roobot/config.json
+      | ls: cannot access '/home/Carl/.config/carl-roobot/config.json': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.t3/cockpit/userdata/state.sqlite
+      | ls: cannot access '/home/Carl/.t3/cockpit/userdata/state.sqlite': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin
+      | ls: cannot access '/home/Carl/.t3/cockpit/userdata/secrets/server-signing-key.bin': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/cli-proxy/.mgmtkey
+      | ls: cannot access '/home/Carl/cli-proxy/.mgmtkey': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/cli-proxy/.apikey
+      | ls: cannot access '/home/Carl/cli-proxy/.apikey': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /run/user/1001/bus
       | ls: cannot access '/run/user/1001/bus': No such file or directory
-PASS  expect=fail  exit=2  $ ls /run/docker.sock /var/run/docker.sock
+PASS  expect=fail  exit=2  $ ls -d /run/docker.sock
       | ls: cannot access '/run/docker.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /var/run/docker.sock
       | ls: cannot access '/var/run/docker.sock': No such file or directory
+PASS  expect=fail  exit=1  $ socat -u /dev/null UNIX-CONNECT:/home/Carl/.pi/agent/intercom/broker.sock
+      | 2026/10/07 00:03:32 socat[157] E connect(6, AF=1 "/home/Carl/.pi/agent/intercom/broker.sock", 43): No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.cache/zed/zed-remote-server-crash-handler-3389521
+      | ls: cannot access '/home/Carl/.cache/zed/zed-remote-server-crash-handler-3389521': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.cache/zed/zed-remote-server-proxy-crash-handler-3389517
+      | ls: cannot access '/home/Carl/.cache/zed/zed-remote-server-proxy-crash-handler-3389517': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.codex/ipc/ipc.sock
+      | ls: cannot access '/home/Carl/.codex/ipc/ipc.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.local/share/zed/server_state/workspace-56/stderr.sock
+      | ls: cannot access '/home/Carl/.local/share/zed/server_state/workspace-56/stderr.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.local/share/zed/server_state/workspace-56/stdin.sock
+      | ls: cannot access '/home/Carl/.local/share/zed/server_state/workspace-56/stdin.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.local/share/zed/server_state/workspace-56/stdout.sock
+      | ls: cannot access '/home/Carl/.local/share/zed/server_state/workspace-56/stdout.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /home/Carl/.pi/agent/intercom/broker.sock
+      | ls: cannot access '/home/Carl/.pi/agent/intercom/broker.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /var/run/docker/libnetwork/e9947b59449d.sock
+      | ls: cannot access '/var/run/docker/libnetwork/e9947b59449d.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /var/run/docker/metrics.sock
+      | ls: cannot access '/var/run/docker/metrics.sock': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /var/run/etserver.idpasskey.fifo
+      | ls: cannot access '/var/run/etserver.idpasskey.fifo': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /var/run/postgresql/.s.PGSQL.5433
+      | ls: cannot access '/var/run/postgresql/.s.PGSQL.5433': No such file or directory
+PASS  expect=fail  exit=2  $ ls -d /dev/shm/qa-probe-8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336
+      | ls: cannot access '/dev/shm/qa-probe-8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336': No such file or directory
 PASS  expect=fail  exit=1  $ systemctl --user status
       | Failed to connect to bus: $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined (consider using --machine=<user>@.host --user to connect to bus of other user)
 PASS  expect=fail  exit=1  $ sudo -n true
       | sudo: /etc/sudo.conf is owned by uid 65534, should be 0
       | sudo: /usr/bin/sudo must be owned by uid 0 and have the setuid bit set
 
+== cliproxy relay forwards inference only: management and everything else refused (403 from the relay)
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X GET -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v0/management/auth-files' && cat /tmp/r
+      | 403 qa relay: refused GET /v0/management/auth-files
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X POST -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v0/management/auth-files' && cat /tmp/r
+      | 403 qa relay: refused POST /v0/management/auth-files
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X PUT -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v0/management/config.yaml' && cat /tmp/r
+      | 403 qa relay: refused PUT /v0/management/config.yaml
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X DELETE -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v0/management/auth-files' && cat /tmp/r
+      | 403 qa relay: refused DELETE /v0/management/auth-files
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X GET -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v1/messages' && cat /tmp/r
+      | 403 qa relay: refused GET /v1/messages
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X POST -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v1/messages/../../v0/management/auth-files' && cat /tmp/r
+      | 403 qa relay: refused POST /v0/management/auth-files
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X POST -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v1/%2e%2e/v0/management/auth-files' && cat /tmp/r
+      | 403 qa relay: refused POST /v0/management/auth-files
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X POST -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v0/management/api-call' && cat /tmp/r
+      | 403 qa relay: refused POST /v0/management/api-call
+PASS  expect=ok  exit=0  $ bash -c curl -s --path-as-is -X GET -H 'Authorization: Bearer probe-not-a-key'       -w '%{http_code} ' -o /tmp/r 'http://127.0.0.1:8317/v1/models' && cat /tmp/r
+      | 403 qa relay: refused GET /v1/models
+
 == GitHub: no identity, a dry-run push fails (never succeeds; --dry-run writes nothing even if it authenticated)
 PASS  expect=fail  exit=1  $ gh auth status
-      | failed to create root command: failed to read configuration: open /home/Carl/.config/gh/config.yml: permission denied
+      | You are not logged into any GitHub hosts. To log in, run: gh auth login
 PASS  expect=fail  exit=128  $ bash -c printf 'protocol=https\nhost=github.com\n\n' | git credential fill
       | fatal: could not read Username for 'https://github.com': terminal prompts disabled
 PASS  expect=fail  exit=128  $ git -C /home/Carl/.t3/qa-pull9/qa/probe-repo push --dry-run https://github.com/QuinRiva/loom.git HEAD:refs/heads/qa-probe-never
@@ -121,45 +192,50 @@ PASS  expect=fail  exit=2  $ getent hosts github.com
 PASS  expect=ok  exit=0  $ bash -c ls /proc | grep -cE '^[0-9]+$'
       | 7
 PASS  expect=fail  exit=1  $ kill -0 2438859
-      | /home/Carl/.t3/cockpit/worktrees/ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527/ws-ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527-coder-aab8d84c/scripts/pull9-qa/probe-inner.sh: line 15: kill: (2438859) - No such process
+      | /home/Carl/.t3/qa-pull9/build/loom/scripts/pull9-qa/probe-inner.sh: line 18: kill: (2438859) - No such process
 
 == The QA home is writable
-PASS  expect=ok  exit=0  $ bash -c touch '/home/Carl/.t3/qa-pull9/qa/.probe-cb4ce1f2-1807-4adc-92e9-7f2603537b2b' && rm '/home/Carl/.t3/qa-pull9/qa/.probe-cb4ce1f2-1807-4adc-92e9-7f2603537b2b'
+PASS  expect=ok  exit=0  $ bash -c touch '/home/Carl/.t3/qa-pull9/qa/.probe-8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336' && rm '/home/Carl/.t3/qa-pull9/qa/.probe-8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336'
 
 == pi one-shot with the QA agent dir (cliproxy via the bridge)
 PASS  expect=ok  exit=0  $ bash -c env | grep -E '^PI_CODING_AGENT_(DIR|SESSION_DIR)='
       | PI_CODING_AGENT_DIR=/home/Carl/.t3/qa-pull9/pi-agent
       | PI_CODING_AGENT_SESSION_DIR=/home/Carl/.t3/qa-pull9/pi-sessions
-PASS  expect=ok  exit=0  $ node /home/Carl/.t3/cockpit/worktrees/ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527/ws-ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527-coder-aab8d84c/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_patch_hash=b5fbae1e7b915dfe89238f7e6389f6010fc40b_f0d14e28a46f27df1a9618b764e927c0/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js -p Reply with the single word: ok --model cliproxy/claude-sonnet-5-5 --session-id cb4ce1f2-1807-4adc-92e9-7f2603537b2b
-      | Warning: No project session found with id 'cb4ce1f2-1807-4adc-92e9-7f2603537b2b'; creating a new session with that id.
+PASS  expect=ok  exit=0  $ node /home/Carl/.t3/qa-pull9/build/loom/pistage/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js -p Reply with the single word: ok --model cliproxy/claude-sonnet-5-5 --session-id 8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336
+      | Warning: No project session found with id '8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336'; creating a new session with that id.
       | ok
-PASS  expect=ok  exit=0  $ bash -c ls /home/Carl/.t3/qa-pull9/pi-sessions/*_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl
-      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl
-PASS  expect=ok  exit=0  $ node /home/Carl/.t3/cockpit/worktrees/ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527/ws-ws-t3code-plan-next-upstream-merge-orchestrator-05cb7527-coder-aab8d84c/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_patch_hash=b5fbae1e7b915dfe89238f7e6389f6010fc40b_f0d14e28a46f27df1a9618b764e927c0/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js -p Reply with the word you replied with last time, nothing else. --model cliproxy/claude-sonnet-5-5 --session-id cb4ce1f2-1807-4adc-92e9-7f2603537b2b
+PASS  expect=ok  exit=0  $ bash -c ls /home/Carl/.t3/qa-pull9/pi-sessions/*_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl
+      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl
+PASS  expect=ok  exit=0  $ node /home/Carl/.t3/qa-pull9/build/loom/pistage/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js -p Reply with the word you replied with last time, nothing else. --model cliproxy/claude-sonnet-5-5 --session-id 8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336
       | ok
-PASS  expect=ok  exit=0  $ bash -c n=$(ls /home/Carl/.t3/qa-pull9/pi-sessions/*_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl | wc -l); l=$(wc -l < '/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl'); echo files=$n lines=6'->'$l; [ $n -eq 1 ] && [ $l -gt 6 ]
+PASS  expect=ok  exit=0  $ bash -c n=$(ls /home/Carl/.t3/qa-pull9/pi-sessions/*_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl | wc -l); l=$(wc -l < '/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl'); echo files=$n lines=6'->'$l; [ $n -eq 1 ] && [ $l -gt 6 ]
       | files=1 lines=6->8
       rpc responses:
       | {"id": "a", "success": true, "error": null, "sessionFile": null}
-      | {"id": "b", "success": true, "error": null, "sessionFile": "/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl"}
+      | {"id": "b", "success": true, "error": null, "sessionFile": "/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl"}
       | {"id": "c", "success": true, "error": null, "sessionFile": null}
-      | {"id": "d", "success": true, "error": null, "sessionFile": "/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-06-503Z_01a11133-2367-76f1-a672-cc002feb1821.jsonl"}
+      | {"id": "d", "success": true, "error": null, "sessionFile": "/home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-36-975Z_01a1114f-fc0f-751d-b875-e7eebd79b238.jsonl"}
 PASS  expect=ok  exit=0  $ jq -r select(.id=="a") | .success
       | true
 PASS  expect=ok  exit=0  $ jq -r select(.id=="b") | .sessionFile
-      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl
+      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl
 PASS  expect=ok  exit=0  $ jq -r select(.id=="d") | .sessionFile
-      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-06-503Z_01a11133-2367-76f1-a672-cc002feb1821.jsonl
-PASS  expect=ok  exit=0  $ test /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-06-503Z_01a11133-2367-76f1-a672-cc002feb1821.jsonl != /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl
+      | /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-36-975Z_01a1114f-fc0f-751d-b875-e7eebd79b238.jsonl
+PASS  expect=ok  exit=0  $ test /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-36-975Z_01a1114f-fc0f-751d-b875-e7eebd79b238.jsonl != /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl
 
 probe-inner: 0 expectation(s) failed
+
+== Host side: the relay refuses a management call carrying cliproxy's REAL management key (read here, never given to the unit)
+  GET /v0/management/auth-files with the real key via the relay → qa relay: refused GET /v0/management/auth-files
+ 403
+PASS  refused by the relay
 
 == Same sandbox minus PrivateNetwork: the push must fail on authentication
 probe-inner mode=push uid=1001 pid=1 qa=/home/Carl/.t3/qa-pull9
 
 == GitHub: no identity, a dry-run push fails (never succeeds; --dry-run writes nothing even if it authenticated)
 PASS  expect=fail  exit=1  $ gh auth status
-      | failed to create root command: failed to read configuration: open /home/Carl/.config/gh/config.yml: permission denied
+      | You are not logged into any GitHub hosts. To log in, run: gh auth login
 PASS  expect=fail  exit=128  $ bash -c printf 'protocol=https\nhost=github.com\n\n' | git credential fill
       | fatal: could not read Username for 'https://github.com': terminal prompts disabled
 PASS  expect=fail  exit=128  $ git -C /home/Carl/.t3/qa-pull9/qa/probe-repo push --dry-run https://github.com/QuinRiva/loom.git HEAD:refs/heads/qa-probe-never
@@ -179,5 +255,5 @@ probe-inner: 0 expectation(s) failed
   after  1d62cc0c46d6154112f268a2d8e64326a5add519ebdd942fc668326b535f702a  -
 PASS  ~/.pi/agent hashes unchanged
 PASS  no probe session under ~/.pi/agent/sessions
-  -rw-r--r-- 1 Carl Carl 9003 Oct  6 23:32 /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T12-32-02-704Z_cb4ce1f2-1807-4adc-92e9-7f2603537b2b.jsonl
-PROBE PASSED sandbox=04aab7adebc37e30
+  -rw-r--r-- 1 Carl Carl 8176 Oct  7 00:03 /home/Carl/.t3/qa-pull9/pi-sessions/2026-10-06T13-03-32-827Z_8b4c7b40-9118-4b4a-9e5a-5a1ff35d8336.jsonl
+PROBE PASSED sandbox=94bbf00311cbb81b

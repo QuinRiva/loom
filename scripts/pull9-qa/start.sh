@@ -11,6 +11,7 @@ qa_strip_env
 qa=$QA_HOME_DEFAULT
 [[ ${1:-} == --qa-home ]] && qa=$2
 qa_require_home "$qa"
+qa_require_toolkit_in_build "$qa"
 
 qa_unit_properties "$qa"
 printf '%s\n' "${QA_PROPS[@]}" | grep -qx 'PrivateUsers=yes' ||
@@ -38,7 +39,7 @@ fi
 
 qa_exec_prefix "$qa"
 qa_start_bridge "$qa" "$QA_BRIDGE_UNIT" server
-qa_log "bridge $QA_BRIDGE_UNIT active: 127.0.0.1:$QA_PORT → $qa/run/server.sock, $qa/run/cliproxy.sock → 127.0.0.1:$QA_CLIPROXY_PORT"
+qa_log "bridge $QA_BRIDGE_UNIT active: 127.0.0.1:$QA_PORT → $qa/run/server.sock, $qa/run/cliproxy.sock → 127.0.0.1:$QA_CLIPROXY_PORT (inference paths only)"
 systemd-run --user --quiet --collect --unit="$QA_UNIT" "${QA_PROPS[@]}" -p TimeoutStopSec=30 \
   -- "${QA_EXEC[@]}" /bin/bash "$QA_TOOLKIT/sandbox-entry.sh" "$qa" server
 qa_log "started $QA_UNIT on 127.0.0.1:$QA_PORT (journalctl --user -u $QA_UNIT -f)"
