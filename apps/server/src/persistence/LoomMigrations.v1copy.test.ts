@@ -7,6 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -24,10 +25,10 @@ const at = "2026-01-01T00:00:00.000Z";
 // t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
 // (upstream lane at 054, Loom lane at 1045, with 1045's search triggers on the
 // goal tables) is copied to `statev2.sqlite` by `initializeV2Database` and
-// migrated by the live Sqlite layer: the Loom lane ends at 1048, V1's goal,
-// consult and peer-message rows survive the renames, and upstream's ledger is
-// exactly upstream's manifest.
-it.effect("migrates a copied V1 database to 1048 with the renamed tables' rows intact", () => {
+// migrated by the live Sqlite layer: the Loom lane ends at 1050, V1's goal,
+// consult, peer-message and usage-ledger rows survive the renames (1048, 1049),
+// and upstream's ledger is exactly upstream's manifest.
+it.effect("migrates a copied V1 database to 1050 with the renamed tables' rows intact", () => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-v1copy-"));
   const seed = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -43,6 +44,10 @@ it.effect("migrates a copied V1 database to 1048 with the renamed tables' rows i
       VALUES ('event-1', 'thread-a', 'thread-b', 'B', 'What?', ${at})`;
     yield* sql`INSERT INTO projection_thread_peer_messages (record_id, sender_thread_id, target_thread_id, target_title, message, framed_message, message_preview, status, seq, created_at)
       VALUES ('record-1', 'thread-a', 'thread-b', 'B', 'hi', '[a] hi', 'hi', 'pending', 1, ${at})`;
+    yield* sql`INSERT INTO projection_usage_ledger (event_id, thread_id, turn_id, provider_instance_id, provider_id, requested_model, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, cost_usd, created_at)
+      VALUES ('usage-1', 'thread-a', 'turn-1', 'pi', 'anthropic', 'claude-opus-5', 10, 200, 30, 40, 0.5, ${at}),
+             ('usage-2', 'thread-a', 'turn-2', 'pi', 'openai-codex', 'gpt-6.1-sol', 5, 0, 0, 7, 0.25, ${at}),
+             ('usage-3', 'thread-b', NULL, 'pi', NULL, NULL, 1, 2, 3, 4, 0, ${at})`;
   }).pipe(
     Effect.provide(NodeSqliteClient.layer({ filename: NodePath.join(directory, "state.sqlite") })),
   );
@@ -59,11 +64,13 @@ it.effect("migrates a copied V1 database to 1048 with the renamed tables' rows i
       const sql = yield* SqlClient.SqlClient;
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
-      assert.deepEqual(loomLedger.slice(-4), [
+      assert.deepEqual(loomLedger.slice(-6), [
         { id: 1045, name: "ThreadSearchIndex" },
         { id: 1046, name: "LoomThreadWorkstream" },
         { id: 1047, name: "LoomGoalTables" },
         { id: 1048, name: "LoomConsultAndPeerMessageTables" },
+        { id: 1049, name: "LoomUsageLedger" },
+        { id: 1050, name: "LoomThreadReroute" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;
@@ -95,10 +102,58 @@ it.effect("migrates a copied V1 database to 1048 with the renamed tables' rows i
         "projection_goal_tasks",
         "projection_thread_consults",
         "projection_thread_peer_messages",
+        "projection_usage_ledger",
       ]) {
         assert.notInclude(tables, gone);
       }
       assert.include(tables, "loom_thread_workstream");
+      // 1049: V1's ledger rows travel with their columns; V2's two new ones start NULL.
+      assert.deepEqual(
+        yield* sql`SELECT event_id, thread_id, requested_model, cache_read_tokens, cost_usd, run_id, provider_turn_id
+          FROM loom_usage_ledger ORDER BY event_id`,
+        [
+          {
+            event_id: "usage-1",
+            thread_id: "thread-a",
+            requested_model: "claude-opus-5",
+            cache_read_tokens: 200,
+            cost_usd: 0.5,
+            run_id: null,
+            provider_turn_id: null,
+          },
+          {
+            event_id: "usage-2",
+            thread_id: "thread-a",
+            requested_model: "gpt-6.1-sol",
+            cache_read_tokens: 0,
+            cost_usd: 0.25,
+            run_id: null,
+            provider_turn_id: null,
+          },
+          {
+            event_id: "usage-3",
+            thread_id: "thread-b",
+            requested_model: null,
+            cache_read_tokens: 2,
+            cost_usd: 0,
+            run_id: null,
+            provider_turn_id: null,
+          },
+        ],
+      );
+      const ledgerIndexes = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'loom_usage_ledger' AND sql IS NOT NULL ORDER BY name`;
+      assert.deepEqual(
+        ledgerIndexes.map((row) => row.name),
+        ["idx_loom_usage_created", "idx_loom_usage_thread_created", "idx_loom_usage_turn"],
+      );
+      const turnRow = (eventId: string) =>
+        sql`INSERT INTO loom_usage_ledger (event_id, thread_id, provider_turn_id, created_at)
+          VALUES (${eventId}, 'thread-a', 'provider-turn-1', ${at})`;
+      yield* turnRow("usage-4");
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(turnRow("usage-5"))));
+      // 1050: the reroute record exists and starts empty.
+      assert.deepEqual(yield* sql`SELECT * FROM loom_thread_reroute`, []);
       // The goal FK and 1045's search triggers followed the rename.
       const fk = yield* sql<{ readonly table: string }>`
         SELECT "table" FROM pragma_foreign_key_list('loom_goal_tasks')`;

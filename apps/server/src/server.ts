@@ -591,7 +591,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestionLive,
-  LoomProviderRuntimeLive, // loom: SubscriptionUsagePoller (the sidebar usage meter's feeder)
+  LoomProviderRuntimeLive, // loom: usage poller + LoomDriverEconomicsLive (reroute sweep, usage ledger)
   LoomGoalBroadcastLive, // loom: LoomStoreV2 + goal shell-item PubSub and its cascade reactor
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
@@ -637,9 +637,10 @@ const RuntimeCoreDependenciesLive = RuntimeCoreDependenciesBaseLive.pipe(
   // the rewritten telemetry pipeline can account for logical NDJSON writes.
   // Provided once at the runtime level so every consumer sees the same
   // logger instances.
-  // loom: LoomProviderHealthLive (exhaustion state + nested account-usage store)
-  // rides this step so it reaches the subscription usage poller above (pull 9:
-  // upstream's PiDriver no longer requires it); see loom/serverLayers.ts.
+  // loom: LoomProviderHealthLive (exhaustion state, account-usage telemetry and
+  // the pi adapter's Loom hooks: quota classifier, resume sanitiser, steer stash)
+  // rides this step so it reaches the usage poller and reroute sweep above and
+  // every driver the instance registry builds; see loom/serverLayers.ts.
   // `ModelManifest.layer` is the legacy-model classification data, refreshed
   // from the repo's `model-manifest.json` on `main` and applied by the
   // Codex/Claude drivers.

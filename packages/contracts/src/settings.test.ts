@@ -121,6 +121,16 @@ describe("ServerSettings restart continuation", () => {
   });
 });
 
+// loom: upstream's limit recovery is Loom's park-and-resume, so it is on unless opted out (P3-11).
+describe("ServerSettings limited-thread auto-resume", () => {
+  it("defaults auto-resume on for loom", () => {
+    expect(decodeServerSettings({}).autoResumeLimitedThreads).toBe(true);
+    expect(decodeServerSettings({ autoResumeLimitedThreads: false }).autoResumeLimitedThreads).toBe(
+      false,
+    );
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");

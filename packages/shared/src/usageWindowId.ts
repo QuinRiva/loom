@@ -13,7 +13,7 @@
 export type UsageWindowKind = "primary" | "secondary";
 
 export interface UsageWindowIdentity {
-  /** Routing key: `providerInstanceId ?? providerName` — what pausedAccounts and exhaustion marks key by. */
+  /** Routing key: `providerInstanceId ?? providerName` — what exhaustion marks key by. */
   readonly accountKey: string;
   /** Pooled-account label within the instance; absent for its sole account. */
   readonly accountLabel?: string;
