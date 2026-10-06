@@ -30,6 +30,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  TurnItemId,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -435,6 +436,61 @@ export const completeSeededRun = Effect.fn("loom.testkit.completeSeededRun")(fun
       },
     ],
   });
+});
+
+/**
+ * Completes every blocking run on the thread (orchestrator-started runs never
+ * progress on the inert session), optionally recording a last assistant
+ * message on the latest; returns that run.
+ */
+export const completeOpenRuns = Effect.fn("loom.testkit.completeOpenRuns")(function* (
+  threadId: ThreadId,
+  lastAssistantText?: string,
+) {
+  const now = yield* DateTime.now;
+  const runs = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(
+    threadId,
+  )).runs.filter((run) => ["preparing", "starting", "running", "waiting"].includes(run.status));
+  const events: Array<OrchestrationV2DomainEvent> = runs.map((run) => ({
+    id: EventId.make(`event:complete-open-run:${run.id}`),
+    type: "run.updated",
+    threadId,
+    runId: run.id,
+    occurredAt: now,
+    payload: { ...run, status: "completed", completedAt: now },
+  }));
+  const last = runs.at(-1);
+  if (last !== undefined && lastAssistantText !== undefined) {
+    events.unshift({
+      id: EventId.make(`event:last-assistant:${last.id}`),
+      type: "turn-item.updated",
+      threadId,
+      runId: last.id,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make(`turn-item:last-assistant:${last.id}`),
+        threadId,
+        runId: last.id,
+        nodeId: last.rootNodeId ?? NodeId.make(`node:${last.id}`),
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 10,
+        status: "completed",
+        title: null,
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "assistant_message",
+        messageId: MessageId.make(`message:last-assistant:${last.id}`),
+        text: lastAssistantText,
+        streaming: false,
+      },
+    });
+  }
+  yield* (yield* EventSink.EventSinkV2).write({ events });
+  return last;
 });
 
 type LoomEventOf<Type extends LoomDomainEvent["type"]> = Extract<LoomDomainEvent, { type: Type }>;

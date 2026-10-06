@@ -5,16 +5,20 @@
  * set (`isPassTrigger`), once at startup and on a 60 s tick. It absorbs Phase
  * 2's re-drive reactor (DL-247).
  *
- * The steps run in `PASS_STEPS` order over one `PassContext`. 3b-1 builds
- * re-drive and promotion; the rest are named no-ops 3b-2 fills, reading the
- * context's `deferredWakes` and `deadEpisodes`. Every `server:` dispatch goes
- * through `PassContext.dispatch`, which applies the receipt discipline
- * (`dispatchServerCommand`) and records deferrals and dead episodes.
+ * The steps run in `PASS_STEPS` order over one `PassContext`: re-drive and
+ * promotion here, the quiescence rail in `quiescenceRail.ts`, the wake rails in
+ * `rails.ts`. Every `server:` dispatch goes through `PassContext.dispatch`,
+ * which applies the receipt discipline (`dispatchServerCommand`) and records
+ * deferrals and dead episodes. Nothing here is persisted: "already told" is
+ * read back from the target's stored control messages (`PassContext.delivered`)
+ * and the receipts.
  *
  * @module loom/orchestration/dispatcher/WorkstreamDispatcher
  */
 import {
   CommandId,
+  type ControlPayload,
+  type ControlPayloadItem,
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -29,17 +33,22 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import type { ServerConfig } from "../../../config.ts";
-import { CommandReceiptStoreV2 } from "../../../orchestration-v2/CommandReceiptStore.ts";
+import {
+  CommandReceiptStoreV2,
+  type CommandReceiptStoreV2Error,
+} from "../../../orchestration-v2/CommandReceiptStore.ts";
 import {
   OrchestratorV2,
   type OrchestratorV2Error,
 } from "../../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../../serverActivation.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import { type LoomStoreError, LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
@@ -54,7 +63,20 @@ import {
   forkPrepareCommandId,
   kickoffCommandId,
 } from "./controlMessage.ts";
+import type { DigestExtra } from "./digest.ts";
 import { makeGateLegComposer } from "./gateLegs.ts";
+import { quiescenceRail } from "./quiescenceRail.ts";
+import {
+  attentionRail,
+  briefNeededRail,
+  deadlockRail,
+  digestFlush,
+  notifyDelivery,
+  surfaceDeferredWakes,
+  terminalDeltas,
+  yieldRail,
+} from "./rails.ts";
+import type { WakeMember } from "./wakes.ts";
 
 /** How often the pass re-runs with no trigger (time-based rails: grace windows, rungs, flush ages). */
 export const PASS_TICK_INTERVAL = "60 seconds";
@@ -68,6 +90,41 @@ export interface DeadEpisode {
   readonly commandType: string;
   readonly threadId: ThreadId;
   readonly error: string;
+  readonly atMs: number;
+}
+
+/**
+ * One FYI item withheld for a parent's digest: a terminal child (`member`) or
+ * a pre-rendered line (`extra`). `key` is its episode key (the digest id
+ * hashes them); `settle` forgets an in-memory item once a message carried it.
+ */
+export interface PendingDigestItem {
+  readonly key: string;
+  readonly eventAtMs: number | null;
+  readonly member?: WakeMember;
+  readonly extra?: DigestExtra;
+  readonly settle?: () => void;
+}
+
+/** A liveness advisory (3b-3's sweep) waiting for its parent's next digest; process memory only. */
+export interface AdviseInput {
+  readonly parentId: ThreadId;
+  /** `threadId` is the child; `excerpt` (else `title`) is the digest line's text, without a leading bullet. */
+  readonly item: ControlPayloadItem & {
+    readonly kind: DigestExtra["kind"];
+    readonly threadId: ThreadId;
+  };
+  /** Stable per episode: a repeated `advise` with the same key is one item. */
+  readonly episodeKey: string;
+  /** ISO time the episode began: a parent message carrying the item after it means "already told". */
+  readonly episodeStartedAt: string;
+}
+
+/** A control-payload item a thread already received, with the message's time. */
+export interface DeliveredItem {
+  readonly payload: ControlPayload;
+  readonly item: ControlPayloadItem;
+  readonly atMs: number;
 }
 
 /** What a `server:` dispatch came to: `receipted` = sent before (accepted, or dead when `accepted` is false). */
@@ -89,20 +146,39 @@ export interface PassContext {
   readonly nodesById: ReadonlyMap<ThreadId, WorkstreamNode>;
   /** The V2 thread shells (active and archived), joined with `shell.workstream`. */
   readonly shells: ReadonlyMap<ThreadId, OrchestrationV2ThreadShell>;
-  /** Steered wakes a busy target deferred this pass, per thread and rail; 3b-2's `surfaceDeferredWakes` reads it. */
+  /** Wakes a target deferred this pass (no receipt), per thread and rail; `surfaceDeferredWakes` reads it. */
   readonly deferredWakes: Map<ThreadId, Map<string, number>>;
+  /** FYI items withheld per parent this pass: decision-bearing wakes piggyback them, the flush sends the rest. */
+  readonly pendingDigests: Map<ThreadId, Array<PendingDigestItem>>;
+  /** Advisories per parent by episode key (service lifetime; the sweep re-advises after a restart). */
+  readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
+  /** The quiescence grace windows (`quiescenceGraceMs` / `quiescenceHumanGraceMs`). */
+  readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null };
+  /** When this dispatcher started (ms): floors the deferred-wake silence clock. */
+  readonly startedAtMs: number;
+  /** Items of the Loom control messages `threadId` has received, oldest first (cached until its next delivery). */
+  readonly delivered: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<DeliveredItem>, PassError, PassServices>;
+  /** Whether a `server:` id already has a receipt (sent, or dead). */
+  readonly sent: (id: string) => Effect.Effect<boolean, PassError, PassServices>;
   /**
    * Rejected `server:` commands not yet reported to a parent. Lives for the
    * service's lifetime (a dead episode is receipted, so it is never seen
-   * again): 3b-2's digest flush removes the entries it delivers.
+   * again); the message that carries one as a digest item removes it.
    */
-  readonly deadEpisodes: Array<DeadEpisode>;
-  /** Dispatches one `server:` command under the receipt discipline, recording a deferral under `rail`. */
+  readonly deadEpisodes: Set<DeadEpisode>;
+  /** Dispatches one `server:` command under the receipt discipline, recording a deferral (`count` items) under `rail`. */
   readonly dispatch: (
     rail: string,
     command: ThreadServerCommand,
+    count?: number,
   ) => Effect.Effect<PassDispatchOutcome, never, PassServices>;
 }
+
+/** True when the dispatch put the message (or command) in place, now or earlier. */
+export const landed = (outcome: PassDispatchOutcome) =>
+  outcome.status === "accepted" || (outcome.status === "receipted" && outcome.accepted);
 
 /** The services a pass step may read. */
 export type PassServices =
@@ -111,10 +187,11 @@ export type PassServices =
   | CommandReceiptStoreV2
   | FileSystem.FileSystem
   | Path.Path
-  | ServerConfig;
+  | ServerConfig
+  | ServerSettings.ServerSettingsService;
 
 /** What a failing step can fail with; a failure ends the pass (logged) and the next pass retries. */
-export type PassError = LoomStoreError | OrchestratorV2Error;
+export type PassError = LoomStoreError | OrchestratorV2Error | CommandReceiptStoreV2Error;
 
 /** One named step of the pass. */
 export interface PassStep {
@@ -172,11 +249,7 @@ const promotion: PassStep = {
           createdAt,
           sourceThreadId: row.forkFromThreadId,
         });
-        if (
-          prepared.status !== "accepted" &&
-          !(prepared.status === "receipted" && prepared.accepted)
-        )
-          continue;
+        if (!landed(prepared)) continue;
       }
       const brief = yield* fs.readFileString(row.kickoffBriefPath!).pipe(Effect.option);
       yield* Option.match(brief, {
@@ -204,33 +277,47 @@ const promotion: PassStep = {
   }),
 };
 
-const stub = (name: string): PassStep => ({ name, run: () => Effect.void });
-
 /**
- * The pass, in order. Steps 3–11 are 3b-2's: quiescence rail, terminal deltas,
- * per-child rails, yields, brief-needed, deadlock, digest flush, notify
- * delivery, deferred-wake surfacing.
+ * The pass, in order. Later steps read the pass-start snapshot: what an earlier
+ * step changed (a quiescent submit, a gate resolve) emits a trigger event, so
+ * the next pass sees it.
  */
 export const PASS_STEPS: ReadonlyArray<PassStep> = [
   reDrive,
   promotion,
-  stub("quiescence"),
-  stub("terminalDeltas"),
-  stub("childRails"),
-  stub("yields"),
-  stub("briefNeeded"),
-  stub("deadlock"),
-  stub("digestFlush"),
-  stub("notifyDelivery"),
-  stub("deferredWakes"),
+  quiescenceRail,
+  terminalDeltas,
+  attentionRail,
+  yieldRail,
+  briefNeededRail,
+  deadlockRail,
+  digestFlush,
+  notifyDelivery,
+  surfaceDeferredWakes,
 ];
+
+/** Service-lifetime state a pass reads; all of it is recomputable or deliberately ephemeral. */
+interface DispatcherMemory {
+  readonly deadEpisodes: Set<DeadEpisode>;
+  readonly advisories: Map<ThreadId, Map<string, AdviseInput>>;
+  /** `delivered` cache, valid while the thread's `latestUserMessageAt` is `stamp`; dropped on each delivery. */
+  readonly deliveredCache: Map<
+    ThreadId,
+    { readonly stamp: string; readonly items: ReadonlyArray<DeliveredItem> }
+  >;
+  readonly startedAtMs: number;
+}
+
+const DEFAULT_GRACE = { controlStartedMs: 600_000, humanStartedMs: null };
 
 /** Builds the pass context: the active rows, their archived dependencies, the joined shells. */
 const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
-  deadEpisodes: Array<DeadEpisode>,
+  memory: DispatcherMemory,
 ) {
   const loomStore = yield* LoomStoreV2;
   const orchestrator = yield* OrchestratorV2;
+  const receipts = yield* CommandReceiptStoreV2;
+  const settings = yield* Effect.option((yield* ServerSettings.ServerSettingsService).getSettings);
   const rows = yield* loomStore.listActiveWorkstreams();
   const nodesById = new Map<ThreadId, WorkstreamNode>(
     rows.map((row) => [row.threadId, { ...row, id: row.threadId }]),
@@ -241,31 +328,65 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
     if (dep !== null && dep.deletedAt === null) nodesById.set(depId, { ...dep, id: depId });
   }
   const snapshot = yield* orchestrator.getShellSnapshot();
+  const shells = new Map(
+    [...snapshot.threads, ...snapshot.archivedThreads].map((shell) => [shell.id, shell]),
+  );
   const deferredWakes = new Map<ThreadId, Map<string, number>>();
+  const now = yield* DateTime.now;
   return {
-    now: yield* DateTime.now,
+    now,
     rows,
     nodesById,
-    shells: new Map(
-      [...snapshot.threads, ...snapshot.archivedThreads].map((shell) => [shell.id, shell]),
-    ),
+    shells,
     deferredWakes,
-    deadEpisodes,
-    dispatch: (rail, command) =>
+    deadEpisodes: memory.deadEpisodes,
+    pendingDigests: new Map(),
+    advisories: memory.advisories,
+    grace: Option.match(settings, {
+      onNone: () => DEFAULT_GRACE,
+      onSome: (value) => ({
+        controlStartedMs: value.quiescenceGraceMs,
+        humanStartedMs: value.quiescenceHumanGraceMs,
+      }),
+    }),
+    startedAtMs: memory.startedAtMs,
+    delivered: (threadId) =>
+      Effect.gen(function* () {
+        const stamp = String(shells.get(threadId)?.latestUserMessageAt ?? null);
+        const cached = memory.deliveredCache.get(threadId);
+        if (cached?.stamp === stamp) return cached.items;
+        const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
+          messageRoles: ["user"],
+        });
+        const items = messages.flatMap((message) => {
+          const payload = message.loom?.controlPayload;
+          const atMs = DateTime.toEpochMillis(message.createdAt);
+          return payload === undefined
+            ? []
+            : payload.items.map((item) => ({ payload, item, atMs }));
+        });
+        memory.deliveredCache.set(threadId, { stamp, items });
+        return items;
+      }),
+    sent: (id) => Effect.map(receipts.getByCommandId(CommandId.make(id)), Option.isSome),
+    dispatch: (rail, command, count = 1) =>
       dispatchServerCommand(command).pipe(
         Effect.map((outcome) => {
           if (outcome.status === "deferred") {
             const rails = deferredWakes.get(command.threadId) ?? new Map<string, number>();
-            rails.set(rail, (rails.get(rail) ?? 0) + 1);
+            rails.set(rail, (rails.get(rail) ?? 0) + count);
             deferredWakes.set(command.threadId, rails);
           } else if (outcome.status === "dead") {
-            deadEpisodes.push({
+            memory.deadEpisodes.add({
               commandId: command.commandId,
               commandType: command.type,
               threadId: command.threadId,
               error: outcome.error,
+              atMs: DateTime.toEpochMillis(now),
             });
           }
+          if (outcome.status === "accepted" && command.type === "message.dispatch")
+            memory.deliveredCache.delete(command.threadId);
           return outcome.status === "dead" ? { status: "dead" as const } : outcome;
         }),
         // A receipt-store read failure is this command's problem only; the next pass retries it.
@@ -287,6 +408,14 @@ export interface WorkstreamDispatcherShape {
   readonly drain: Effect.Effect<void>;
   /** Requests a pass and waits for it (coalesced with any pending one). */
   readonly runPass: Effect.Effect<void>;
+  /**
+   * The liveness sweep's hook (3b-3): an advisory item for `parentId`'s next FYI
+   * digest, deduped by `episodeKey` in memory and by the parent's stored
+   * digests; requests a pass.
+   */
+  readonly advise: (input: AdviseInput) => Effect.Effect<void>;
+  /** The last finished pass's deferrals per thread and rail (diagnostics). */
+  readonly deferredWakes: Effect.Effect<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>;
 }
 
 export class WorkstreamDispatcher extends Context.Service<
@@ -297,10 +426,19 @@ export class WorkstreamDispatcher extends Context.Service<
 const make = Effect.gen(function* () {
   const services = yield* Effect.context<PassServices>();
   const orchestrator = yield* OrchestratorV2;
-  const deadEpisodes: Array<DeadEpisode> = [];
+  const memory: DispatcherMemory = {
+    deadEpisodes: new Set(),
+    advisories: new Map(),
+    deliveredCache: new Map(),
+    startedAtMs: DateTime.toEpochMillis(yield* DateTime.now),
+  };
+  const lastDeferredWakes = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>(
+    new Map(),
+  );
   const pass = Effect.gen(function* () {
-    const ctx = yield* makePassContext(deadEpisodes);
+    const ctx = yield* makePassContext(memory);
     for (const step of PASS_STEPS) yield* step.run(ctx);
+    yield* Ref.set(lastDeferredWakes, ctx.deferredWakes);
   }).pipe(
     Effect.catchCause((cause) =>
       Cause.hasInterruptsOnly(cause)
@@ -328,6 +466,14 @@ const make = Effect.gen(function* () {
     ),
     drain: worker.drain,
     runPass: worker.enqueue().pipe(Effect.andThen(worker.drain)),
+    advise: (input) =>
+      Effect.suspend(() => {
+        const byKey = memory.advisories.get(input.parentId) ?? new Map<string, AdviseInput>();
+        if (!byKey.has(input.episodeKey)) byKey.set(input.episodeKey, input);
+        memory.advisories.set(input.parentId, byKey);
+        return worker.enqueue();
+      }),
+    deferredWakes: Ref.get(lastDeferredWakes),
   } satisfies WorkstreamDispatcherShape;
 });
 

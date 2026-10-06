@@ -213,7 +213,7 @@ describe("buildDigestPayload", () => {
     const text = buildStandaloneDigest(members);
     const payload = buildDigestPayload(members);
     const target = payload.items.find((i) => i.threadId === "cod")!;
-    assert.equal(target.kind, "gate-resolved");
+    assert.equal(target.kind, "terminal");
     assert.isUndefined(target.excerpt);
     assert.isUndefined(target.status);
     assert.isUndefined(target.timestamp);

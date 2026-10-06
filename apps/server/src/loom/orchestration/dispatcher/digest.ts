@@ -79,11 +79,12 @@ const wakeMemberToPayloadItem = (member: WakeMember): ControlPayloadItem => {
 };
 
 /**
- * A resolved pair's target as a reference-only item: only what the pair text
- * states about it (no excerpt, status or timestamp it never received).
+ * A resolved pair's target as a reference-only `terminal` item: only what the
+ * pair text states about it (no excerpt, status or timestamp it never
+ * received). The gate's resolution is the source's one `gate-resolved` item.
  */
 const pairTargetToPayloadItem = (target: WakeMember): ControlPayloadItem => ({
-  kind: "gate-resolved",
+  kind: "terminal",
   threadId: target.id,
   ...(target.role !== null ? { role: target.role } : {}),
   title: "Round report (verified by the gate)",

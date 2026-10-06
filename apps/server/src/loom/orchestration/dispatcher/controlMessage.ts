@@ -85,8 +85,21 @@ export const digestCommandId = (parentId: ThreadId, episodeHash: string) =>
 /** One stall nudge per frozen episode (3b-3's State C). */
 export const stallNudgeCommandId = (childId: ThreadId, episodeMs: number) =>
   `server:workstream-stall-nudge:${childId}:${episodeMs}`;
-/** Deferred `notify_thread` delivery of one peer-message record. */
+/**
+ * Delivery of one `notify_thread` peer-message record. 3a's handler sends its
+ * immediate delivery under this same id, so the handler and the rail can never
+ * both deliver one record.
+ */
 export const notifyCommandId = (recordId: string) => `server:workstream-notify:${recordId}`;
+/** `thread.peer-message.mark-delivered` on the sender once the record's message landed. */
+export const notifyMarkCommandId = (recordId: string) =>
+  `server:workstream-notify-mark:${recordId}`;
+/** `thread.peer-message.expire` on the sender when the target finished first or refused it. */
+export const notifyExpireCommandId = (recordId: string) =>
+  `server:workstream-notify-expire:${recordId}`;
+/** The `needs_guidance` raise on a thread that reads busy but silent while FYI wakes wait on it (V1 #304). */
+export const wakeDeferredCommandId = (threadId: ThreadId, silentSince: string) =>
+  `server:workstream-wake-deferred:${threadId}:${silentSince}`;
 /** `thread.fork.prepare` on a forkFrom child, issued at promotion (P3-28). */
 export const forkPrepareCommandId = (childId: ThreadId) => `server:loom:fork-prepare:${childId}`;
 /** The `needs_guidance` park on a child whose brief file cannot be read at promotion. */
