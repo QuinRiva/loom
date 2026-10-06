@@ -331,6 +331,8 @@ const seedProgram = Effect.gen(function* () {
     readonly blockedBy?: ReadonlyArray<ThreadId>;
     readonly routes?: ReadonlyArray<WorkstreamRoute>;
     readonly anchorTaskId?: GoalTaskId;
+    /** The parent turn that spawned it; siblings sharing one form a wave on the graph. */
+    readonly spawnGeneration?: string;
   }) =>
     dispatch({
       type: "thread.spawn",
@@ -362,6 +364,7 @@ const seedProgram = Effect.gen(function* () {
       ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
       ...(input.routes === undefined ? {} : { routes: input.routes }),
       ...(input.anchorTaskId === undefined ? {} : { anchorTaskId: input.anchorTaskId }),
+      ...(input.spawnGeneration === undefined ? {} : { spawnGeneration: input.spawnGeneration }),
     });
 
   /** 3b's kickoff: the brief as the first message, origin kickoff, under 3b's command id. */
@@ -465,6 +468,7 @@ const seedProgram = Effect.gen(function* () {
     title: "Parser with review gate",
     role: "coder",
     purpose: "Implement the parser; a reviewer gates it.",
+    spawnGeneration: "seed-wave-gate",
   });
   yield* spawn({
     threadId: SEED.gateReviewer,
@@ -473,6 +477,7 @@ const seedProgram = Effect.gen(function* () {
     role: "reviewer",
     purpose: "Review the parser; loop findings back until clean.",
     blockedBy: [SEED.gateCoder],
+    spawnGeneration: "seed-wave-gate",
     routes: [
       { on: ["needs_rework"], kind: "loop", to: SEED.gateCoder, maxRounds: 2 },
       { on: ["clean"], kind: "resolve" },
@@ -498,6 +503,7 @@ const seedProgram = Effect.gen(function* () {
     title: "Survey checkpoint refs",
     role: "researcher",
     purpose: "Survey how checkpoint refs are named across providers.",
+    spawnGeneration: "seed-wave-survey",
   });
   yield* kickoff(SEED.quiescent);
   const quietRun = (yield* settle(SEED.quiescent)).at(-1)!;
@@ -520,6 +526,7 @@ const seedProgram = Effect.gen(function* () {
     role: "coder",
     purpose: "Write the checkpoint-ref doc from the survey.",
     blockedBy: [SEED.quiescent],
+    spawnGeneration: "seed-wave-survey",
   });
   yield* spawn({
     threadId: SEED.unbriefed,

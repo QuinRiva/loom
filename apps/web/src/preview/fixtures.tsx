@@ -24,6 +24,7 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
+import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
 /**
  * A single previewable case. `render` returns the component already wrapped in
@@ -1278,6 +1279,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       subscriptionMeterFixture(METER_FIXTURE_STATES[1]!, "tokenFiles"),
     ],
   },
+  WORKSTREAM_PREVIEW_GROUP,
 ];
 
 export const PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = PREVIEW_GROUPS.flatMap(
