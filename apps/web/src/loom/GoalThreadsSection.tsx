@@ -15,7 +15,6 @@ import { useMemo } from "react";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { cn } from "../lib/utils";
-import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
 import { attentionLabel } from "./loomAttention";
@@ -38,13 +37,14 @@ export function GoalThreadsSection({
   goalId,
   environmentId,
   activeThreadId,
+  shells,
 }: {
   goalId: GoalId;
   environmentId: EnvironmentId;
   activeThreadId: ThreadId | null;
+  shells: ReadonlyArray<EnvironmentThreadShell>;
 }) {
   const navigate = useNavigate();
-  const shells = useThreadShells();
   const rows = useMemo(
     () =>
       orderGoalThreadsByHandoff(

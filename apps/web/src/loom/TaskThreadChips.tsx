@@ -22,11 +22,9 @@ import {
   SearchIcon,
   ShipIcon,
 } from "lucide-react";
-import { useMemo } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { cn } from "../lib/utils";
-import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
 
 /** The repo's `roles/` vocabulary; anything else falls back to the generic glyph. */
@@ -43,27 +41,25 @@ const ROLE_ICONS: Record<string, typeof BotIcon> = {
 export type AnchoredThreadsByTask = ReadonlyMap<string, ReadonlyArray<EnvironmentThreadShell>>;
 
 /** Goal tasks → the threads anchored to them, oldest first (a fork sits after its source). */
-export function useAnchoredThreadsByTask(
+export function anchoredThreadsByTask(
+  shells: ReadonlyArray<EnvironmentThreadShell>,
   goalId: GoalId,
   environmentId: EnvironmentId,
 ): AnchoredThreadsByTask {
-  const shells = useThreadShells();
-  return useMemo(() => {
-    const byTask = new Map<string, EnvironmentThreadShell[]>();
-    for (const thread of shells
-      .filter(
-        (thread) =>
-          thread.environmentId === environmentId &&
-          thread.archivedAt === null &&
-          thread.source.workstream?.goalId === goalId &&
-          thread.source.workstream.anchorTaskId !== null,
-      )
-      .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-      const taskId = thread.source.workstream!.anchorTaskId!;
-      byTask.set(taskId, [...(byTask.get(taskId) ?? []), thread]);
-    }
-    return byTask;
-  }, [shells, environmentId, goalId]);
+  const byTask = new Map<string, EnvironmentThreadShell[]>();
+  for (const thread of shells
+    .filter(
+      (thread) =>
+        thread.environmentId === environmentId &&
+        thread.archivedAt === null &&
+        thread.source.workstream?.goalId === goalId &&
+        thread.source.workstream.anchorTaskId !== null,
+    )
+    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    const taskId = thread.source.workstream!.anchorTaskId!;
+    byTask.set(taskId, [...(byTask.get(taskId) ?? []), thread]);
+  }
+  return byTask;
 }
 
 export function TaskThreadChip({

@@ -12,15 +12,16 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";
 import { MoreHorizontalIcon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LinkifiedText } from "../loom/referenceLinks";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { goalTaskRewriteFor, type GoalTaskEdit } from "../loom/goalTaskEdits";
 import { countGoalTasks, loomCommands, useLoomGoal } from "../loom/loomGoalState";
 import { useLoomGoalActions } from "../loom/sidebarGoalActions";
-import { type AnchoredThreadsByTask, TaskThreadChip, useAnchoredThreadsByTask } from "../loom/TaskThreadChips";
+import { type AnchoredThreadsByTask, anchoredThreadsByTask, TaskThreadChip } from "../loom/TaskThreadChips";
 import { readLocalApi } from "../localApi";
+import { useThreadShells } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -288,9 +289,21 @@ function TaskTree({
   );
 }
 
-function GoalPanelBody({ goal, thread }: { goal: LoomGoalShell; thread: EnvironmentThreadShell }) {
+/** The panel for one goal, given every thread shell held (the preview mounts it directly). */
+export function GoalPanelView({
+  goal,
+  thread,
+  shells,
+}: {
+  goal: LoomGoalShell;
+  thread: Pick<EnvironmentThreadShell, "id" | "environmentId">;
+  shells: ReadonlyArray<EnvironmentThreadShell>;
+}) {
   const rewrite = useAtomCommand(loomCommands.goalTaskRewrite);
-  const anchors = useAnchoredThreadsByTask(goal.id, thread.environmentId);
+  const anchors = useMemo(
+    () => anchoredThreadsByTask(shells, goal.id, thread.environmentId),
+    [shells, goal.id, thread.environmentId],
+  );
   const [editing, setEditing] = useState<Editing>(null);
   const onEdit = (edit: GoalTaskEdit) => {
     const input = goalTaskRewriteFor(goal.tasks, edit);
@@ -329,7 +342,12 @@ function GoalPanelBody({ goal, thread }: { goal: LoomGoalShell; thread: Environm
           </Button>
         )}
       </div>
-      <GoalThreadsSection goalId={goal.id} environmentId={thread.environmentId} activeThreadId={thread.id} />
+      <GoalThreadsSection
+        goalId={goal.id}
+        environmentId={thread.environmentId}
+        activeThreadId={thread.id}
+        shells={shells}
+      />
     </>
   );
 }
@@ -337,6 +355,7 @@ function GoalPanelBody({ goal, thread }: { goal: LoomGoalShell; thread: Environm
 export default function GoalTasksPanel({ thread }: { thread: EnvironmentThreadShell | null }) {
   const goalId = thread?.source.workstream?.goalId ?? null;
   const goal = useLoomGoal(thread?.environmentId ?? null, goalId);
+  const shells = useThreadShells();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
       {thread === null || goalId === null ? (
@@ -345,7 +364,7 @@ export default function GoalTasksPanel({ thread }: { thread: EnvironmentThreadSh
       ) : goal === null ? (
         <p className="text-sm text-muted-foreground/70">Missing goal: {goalId}</p>
       ) : (
-        <GoalPanelBody goal={goal} thread={thread} />
+        <GoalPanelView goal={goal} thread={thread} shells={shells} />
       )}
     </div>
   );
