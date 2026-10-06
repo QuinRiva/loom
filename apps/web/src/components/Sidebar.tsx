@@ -4487,33 +4487,30 @@ export default function Sidebar() {
         const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom: 3d-3
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            [
-              ...buildGoalMenuItems(loomGoal), // loom: 3d-3 — Loom goal entries
-              ...buildThreadActionMenuItems({
-                branch: thread.branch ?? null,
-                projectFilter: threadProjectGroup
-                  ? {
-                      label: threadProjectGroup.displayName,
-                      isActive: projectScopeKey === threadProjectGroup.projectKey,
-                    }
-                  : null,
-                isPinned,
-                isSettled,
-                autoSettleEnabled: thread.autoSettleDisabledAt == null,
-                isSnoozed,
-                canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-                isRegeneratingTitle,
-                isRunning: !threadRuntimeCanArchive(thread.runtime),
-                supports: {
-                  settlement: supportsSettlement,
-                  autoSettleOptOut: supportsAutoSettleOptOut,
-                  snooze: supportsSnooze,
-                  pinning: supportsPinning,
-                  titleRegeneration: supportsTitleRegeneration,
-                },
-                snoozePresets,
-              }),
-            ],
+            buildThreadActionMenuItems({
+              branch: thread.branch ?? null,
+              projectFilter: threadProjectGroup
+                ? {
+                    label: threadProjectGroup.displayName,
+                    isActive: projectScopeKey === threadProjectGroup.projectKey,
+                  }
+                : null,
+              isPinned,
+              isSettled,
+              autoSettleEnabled: thread.autoSettleDisabledAt == null,
+              isSnoozed,
+              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+              isRegeneratingTitle,
+              isRunning: !threadRuntimeCanArchive(thread.runtime),
+              supports: {
+                settlement: supportsSettlement,
+                autoSettleOptOut: supportsAutoSettleOptOut,
+                snooze: supportsSnooze,
+                pinning: supportsPinning,
+                titleRegeneration: supportsTitleRegeneration,
+              },
+              snoozePresets,
+            }).toSpliced(0, 0, ...buildGoalMenuItems(loomGoal)), // loom: 3d-3 — Loom goal entries first
             position,
           ),
         );
