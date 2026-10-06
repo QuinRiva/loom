@@ -26,6 +26,7 @@ import {
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadProjection,
   type RunId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -56,6 +57,36 @@ export const isContinued = (
     workstream,
     projection.runtimeRequests.some((request) => request.status === "pending"),
   );
+
+/**
+ * Runs the thread's restart continuation now when its outbox effect is still due. The effect
+ * worker runs `effect:restart-continuation:<run>` asynchronously, so a Loom wake dispatched at
+ * startup could start a run first and turn the continuation into a no-op (the cut turn would be
+ * lost, DL-376). `continueRestartedRun` is idempotent by its message and command ids, so the
+ * worker's later run of the same effect does nothing.
+ */
+const runDueContinuation = (
+  threadId: ThreadId,
+  projection: Pick<OrchestrationV2ThreadProjection, "runs">,
+) =>
+  Effect.gen(function* () {
+    const source = projection.runs
+      .filter((run) => run.status !== "queued")
+      .reduce<(typeof projection.runs)[number] | undefined>(
+        (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+        undefined,
+      );
+    if (source === undefined) return;
+    const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
+      `effect:restart-continuation:${source.id}`,
+    );
+    if (
+      Option.isSome(continuation) &&
+      (continuation.value.status === "pending" || continuation.value.status === "running")
+    ) {
+      yield* continueRestartedRun({ threadId, sourceRunId: source.id });
+    }
+  });
 
 /** The §3 table's startup pass over Loom threads holding a queued run. Never fails startup. */
 export const releaseHeldQueues = Effect.gen(function* () {
@@ -98,6 +129,8 @@ export const releaseHeldQueues = Effect.gen(function* () {
         ),
       );
       if (queued.some((run) => run.queueHeld === true && loomOrigin.has(run.userMessageId))) {
+        // The continuation first, or the released wake starts a run ahead of it (DL-376).
+        yield* runDueContinuation(threadId, projection);
         yield* orchestrator.dispatch({
           type: "queue.resume",
           commandId: commandId("queue.resume"),
@@ -111,6 +144,7 @@ export const releaseHeldQueues = Effect.gen(function* () {
     );
   }
 }).pipe(
+  Effect.provide(EffectOutbox.layer),
   Effect.catchCause((cause) =>
     Effect.logWarning("loom.recovery.release-held-queues-failed", { cause }),
   ),
@@ -141,7 +175,6 @@ export const steerHash = (text: string) =>
 export const redeliverStashedSteers = Effect.gen(function* () {
   const orchestrator = yield* OrchestratorV2;
   const loomStore = yield* LoomStoreV2;
-  const outbox = yield* EffectOutbox.EffectOutboxV2;
   for (const threadId of yield* PendingSteering.listStashed()) {
     yield* Effect.gen(function* () {
       const steer = yield* PendingSteering.read(threadId);
@@ -149,23 +182,7 @@ export const redeliverStashedSteers = Effect.gen(function* () {
       const workstream = yield* loomStore.getWorkstream(threadId);
       const projection = yield* orchestrator.getThreadProjection(threadId);
       if (workstream === null || !isContinued(workstream, projection)) return;
-      const source = projection.runs
-        .filter((run) => run.status !== "queued")
-        .reduce<(typeof projection.runs)[number] | undefined>(
-          (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
-          undefined,
-        );
-      const continuation =
-        source === undefined
-          ? Option.none()
-          : yield* outbox.get(`effect:restart-continuation:${source.id}`);
-      if (
-        source !== undefined &&
-        Option.isSome(continuation) &&
-        (continuation.value.status === "pending" || continuation.value.status === "running")
-      ) {
-        yield* continueRestartedRun({ threadId, sourceRunId: source.id });
-      }
+      yield* runDueContinuation(threadId, projection);
       yield* orchestrator.dispatch(
         controlMessage({
           threadId,

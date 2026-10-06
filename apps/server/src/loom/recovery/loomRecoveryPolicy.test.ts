@@ -1,7 +1,8 @@
 /**
  * Restart recovery for Loom threads (plan §3 table, w8; DL-195, DL-199): after
  * upstream's startup reconciliation holds every queued run, `releaseHeldQueues`
- * resumes a live thread's held control wake, leaves a thread owed a human
+ * resumes a live thread's held control wake (behind upstream's restart
+ * continuation, run first when its effect is still due — DL-376), leaves a thread owed a human
  * held (and rule 0 makes its continuation an accepted no-op), and cancels a
  * dead thread's queued runs — on the real orchestrator and recovery service.
  *
@@ -11,7 +12,13 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { CommandId, type LoomMessageFields, MessageId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  type LoomMessageFields,
+  MessageId,
+  ProviderSessionId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -23,6 +30,7 @@ import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStor
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ServerConfig from "../../config.ts";
 import { ProviderRuntimeRecoveryService } from "../../orchestration-v2/ProviderRuntimeRecoveryService.ts";
+import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
@@ -33,6 +41,7 @@ import {
   seedThread,
   seedUsageLimitedRun,
   spawnChild,
+  testModelSelection,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
 import { WorkstreamDispatcherLive } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
@@ -82,10 +91,21 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
         return threadId;
       });
 
-      // A live Loom thread with a control wake queued behind its turn.
+      // A live Loom thread (a real session, so upstream will continue it) with a control wake
+      // queued behind its turn.
       const live = yield* child("live");
-      yield* seedRunningRun({ threadId: live });
+      yield* seedRunningRun({ threadId: live, live: true });
+      // Queued while the session was away (not steerable), then the session is back.
+      const sessions = yield* ProviderSessionManagerV2;
+      const sessionId = ProviderSessionId.make(`provider-session:${live}`);
+      yield* sessions.close(sessionId);
       yield* queueBehind(live, "control");
+      yield* sessions.open({
+        threadId: live,
+        providerSessionId: sessionId,
+        modelSelection: testModelSelection,
+        runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+      });
       // A thread owed a human, with the same.
       const guided = yield* child("guided");
       yield* dispatch({
@@ -134,11 +154,22 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
       assert.equal(Option.getOrThrow(continuation).status, "accepted");
       assert.lengthOf(yield* queuedRuns(guided), 1);
 
-      yield* releaseHeldQueues;
+      yield* releaseHeldQueues.pipe(Effect.provide(ServerSettings.layerTest()));
+      // The effect worker's own run of the continuation effect, after the release: a no-op.
+      yield* continueRestartedRun({ threadId: live, sourceRunId: seededRunIds(live).runId }).pipe(
+        Effect.provide(ServerSettings.layerTest()),
+      );
 
-      const [resumed] = yield* queuedRuns(live);
-      assert.isFalse(resumed!.queueHeld === true);
-      assert.equal(resumed!.status, "starting");
+      // DL-376: upstream's continuation ran first and the released wake queues behind it —
+      // without the pre-call the wake would start first and the continuation would no-op.
+      const liveRuns = yield* queuedRuns(live);
+      assert.lengthOf(liveRuns, 2);
+      const continued = liveRuns.find(
+        (run) => run.userMessageId === `message:restart-continuation:${seededRunIds(live).runId}`,
+      );
+      const resumed = liveRuns.find((run) => run !== continued);
+      assert.equal(continued?.status, "starting");
+      assert.deepInclude(resumed, { status: "queued", queueHeld: false });
       const [stillHeld] = yield* queuedRuns(guided);
       assert.deepInclude(stillHeld, { status: "queued", queueHeld: true });
       assert.deepEqual(
