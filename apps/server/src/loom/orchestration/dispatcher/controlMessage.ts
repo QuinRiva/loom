@@ -13,6 +13,8 @@
  *
  * @module loom/orchestration/dispatcher/controlMessage
  */
+import * as NodeCrypto from "node:crypto";
+
 import {
   CommandId,
   type ControlPayload,
@@ -107,6 +109,17 @@ export const briefReadParkCommandId = (childId: ThreadId) => `server:loom:brief-
 /** The quiescence rail's `thread.work.submit` (outcome `quiescent`), one per quiet run. */
 export const quiescentSubmitCommandId = (threadId: ThreadId, runId: string) =>
   `server:loom:quiescent:${threadId}:${runId}`;
-/** Startup redelivery of a stashed steer (seam 20). */
+/** Redelivery of a stashed steer (seam 20): at startup, or behind the next human/parent turn. */
 export const steerRedeliverCommandId = (threadId: ThreadId, hash: string) =>
   `server:loom:steer-redeliver:${threadId}:${hash}`;
+
+/** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
+export const steerHash = (text: string) =>
+  NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
+
+/** The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt. */
+export const redeliveredSteerText = (steer: string) =>
+  [
+    "A message was sent to you while that turn was running and never reached it. Treat it as your latest instructions and apply it to the work you resume.",
+    `--- queued message ---\n${steer}\n--- end of queued message ---`,
+  ].join("\n\n");

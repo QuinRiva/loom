@@ -8,17 +8,22 @@
  *
  * Seam 20 (Phase 3 3b-4, smoke step 17): `loomStartupRecovery` redelivers a
  * continued thread's stashed steer behind its restart continuation, exactly once,
- * and leaves the stash of a flagged, done or cancelled thread on disk.
+ * and leaves the stash of a flagged, done or cancelled thread on disk; the
+ * dispatcher's redelivery rail then carries a flagged thread's stash into the next
+ * human-started turn (DL-387).
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   type LoomMessageFields,
   MessageId,
+  type OrchestrationV2DomainEvent,
   ProviderSessionId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -42,14 +47,17 @@ import {
   seedUsageLimitedRun,
   spawnChild,
   testModelSelection,
+  writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
-import { WorkstreamDispatcherLive } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
+import { steerHash, steerRedeliverCommandId } from "../orchestration/dispatcher/controlMessage.ts";
+import {
+  WorkstreamDispatcher,
+  WorkstreamDispatcherLive,
+} from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
 import {
   loomStartupRecovery,
   redeliverStashedSteers,
   releaseHeldQueues,
-  steerHash,
 } from "./loomRecoveryPolicy.ts";
 
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -309,6 +317,79 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           CommandId.make(steerRedeliverCommandId(live, steerHash(steerText(live)))),
         );
         assert.equal(Option.getOrThrow(receipt).status, "accepted");
+      }),
+  );
+
+  it.effect(
+    "a flagged thread's stash survives startup, then rides the next human-started turn once",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("later-root");
+        const flagged = ThreadId.make("later-flagged");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: flagged, graphKey: "later" });
+        yield* dispatch({
+          type: "thread.attention.raise",
+          commandId: CommandId.make("later-raise"),
+          threadId: flagged,
+          createdAt,
+          reason: "needs_guidance",
+        });
+        yield* seedRunningRun({ threadId: flagged, live: true });
+        const steer = "Use the staging bucket, not production.";
+        yield* stash(flagged, steer);
+        const redeliveryId = MessageId.make(
+          `message:${steerRedeliverCommandId(flagged, steerHash(steer))}`,
+        );
+        const redeliveries = Effect.map(orchestrator.getThreadProjection(flagged), (projection) =>
+          projection.messages.filter((message) => message.id === redeliveryId),
+        );
+
+        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+        // Rule 0: nothing sent; the stash waits for a human's or the parent's turn.
+        assert.lengthOf(yield* redeliveries, 0);
+        assert.isTrue(yield* stashed(flagged));
+
+        // The human answers; the turn starts (rule 4 clears the flag) and runs.
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("later-human"),
+          threadId: flagged,
+          messageId: MessageId.make("message:later-human"),
+          text: "Carry on.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const humanRun = (yield* orchestrator.getThreadProjection(flagged)).runs.find(
+          (run) => run.userMessageId === "message:later-human",
+        )!;
+        const dispatcher = yield* WorkstreamDispatcher;
+        yield* dispatcher.runPass; // not running yet: the stash waits
+        assert.lengthOf(yield* redeliveries, 0);
+        yield* writeEvents([
+          {
+            id: EventId.make("event:later-human-running"),
+            type: "run.updated",
+            threadId: flagged,
+            runId: humanRun.id,
+            providerInstanceId: humanRun.providerInstanceId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...humanRun, status: "running", startedAt: yield* DateTime.now },
+          } as OrchestrationV2DomainEvent,
+        ]);
+
+        yield* dispatcher.runPass;
+        const [redelivered, ...more] = yield* redeliveries;
+        assert.lengthOf(more, 0);
+        assert.include(redelivered!.text, steer);
+        assert.equal(redelivered!.loom?.origin, "control_notice");
+        assert.isFalse(yield* stashed(flagged));
+        yield* dispatcher.runPass;
+        assert.lengthOf(yield* redeliveries, 1);
       }),
   );
 

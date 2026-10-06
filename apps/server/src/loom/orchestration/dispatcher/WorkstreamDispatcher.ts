@@ -2,7 +2,8 @@
  * The workstream control plane's pass (Phase 3 plan Track 3b): one idempotent
  * recompute from durable state that re-drives the graph, promotes ready
  * children and delivers every wake, run by a coalescing worker on the trigger
- * set (`isPassTrigger`), once at startup and on a 60 s tick. It absorbs Phase
+ * set (`isPassTrigger`), on a 60 s tick, and once at startup from
+ * `loomStartupRecovery` (DL-386). It absorbs Phase
  * 2's re-drive reactor (DL-247).
  *
  * The steps run in `PASS_STEPS` order over one `PassContext`: re-drive and
@@ -77,6 +78,7 @@ import {
   terminalDeltas,
   yieldRail,
 } from "./rails.ts";
+import { hasStashedSteer, steerRedelivery } from "./steerRedelivery.ts";
 import type { WakeMember } from "./wakes.ts";
 
 /** How often the pass re-runs with no trigger (time-based rails: grace windows, rungs, flush ages). */
@@ -286,6 +288,7 @@ const promotion: PassStep = {
 export const PASS_STEPS: ReadonlyArray<PassStep> = [
   reDrive,
   promotion,
+  steerRedelivery,
   quiescenceRail,
   terminalDeltas,
   attentionRail,
@@ -401,7 +404,7 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
 });
 
 export interface WorkstreamDispatcherShape {
-  /** Subscribes to the trigger set and starts the tick, after server activation; one startup pass. */
+  /** Subscribes to the trigger set and starts the tick, after server activation. */
   readonly start: Effect.Effect<void, never, Scope.Scope>;
   /** Resolves once no pass is running or pending (tests: the deterministic wait, never a sleep). */
   readonly drain: Effect.Effect<void>;
@@ -448,14 +451,23 @@ const make = Effect.gen(function* () {
   );
   const worker = yield* makeCoalescingWorker(pass);
   return {
+    // The startup pass is `loomStartupRecovery`'s (ordered after the held-queue release and the
+    // steer redelivery; activation follows it, DL-386). The tick's first beat here is the
+    // catch-up for what landed between that pass and this subscription (the stream is live-only).
     start: forkParked(
       Effect.gen(function* () {
-        yield* worker.enqueue();
         yield* Effect.forkScoped(
           worker.enqueue().pipe(Effect.repeat(Schedule.spaced(PASS_TICK_INTERVAL))),
         );
         yield* orchestrator.streamDomainEvents.pipe(
-          Stream.filter(isPassTrigger),
+          // Plus a run starting on a thread holding a stashed steer (the redelivery rail).
+          Stream.filterEffect((event) =>
+            isPassTrigger(event)
+              ? Effect.succeed(true)
+              : event.type === "run.updated" && event.payload.status === "running"
+                ? hasStashedSteer(event.threadId).pipe(Effect.provideContext(services))
+                : Effect.succeed(false),
+          ),
           Stream.runForEach(() => worker.enqueue()),
           Effect.catchCause((cause) =>
             Effect.logWarning("loom.dispatcher.stream-stopped", { cause }),

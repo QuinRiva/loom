@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
+import { HandoffDrafterReactorLive } from "./handoff/HandoffDrafterReactor.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
 import {
   EmergentGoalGeneratorPiLive,
@@ -49,10 +50,11 @@ export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
 );
 
 /**
- * The workstream control plane (Phase 3 Track 3b): the dispatcher pass —
- * re-drive, promotion and every wake — and the liveness sweep (which advises
- * through the dispatcher), both started after server activation.
- * 3b-4/5 merge their layers here.
+ * The workstream control plane (Phase 3 Track 3b), every worker started after
+ * server activation: the dispatcher pass — re-drive, promotion and every wake —
+ * the liveness sweep (which advises through the dispatcher), the emergent-goal
+ * reactor and the `/handoff` drafter reactor. The startup pass itself is
+ * `loomStartupRecovery`'s (DL-386).
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
   WorkstreamLivenessSweepLive, // loom: 3b-3 — the sweep hands slow-tool/spinning advisories to the dispatcher
@@ -61,6 +63,7 @@ export const LoomControlPlaneLive = Layer.mergeAll(
     // The same layer reference as server.ts's entry, so the broadcast is one shared PubSub.
     Layer.provide(LoomGoalBroadcastLive),
   ),
+  HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
 ).pipe(
   Layer.provideMerge(WorkstreamDispatcherStartedLive),
   Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),

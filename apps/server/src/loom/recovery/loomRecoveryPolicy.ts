@@ -19,8 +19,6 @@
  *
  * @module loom/recovery/loomRecoveryPolicy
  */
-import * as NodeCrypto from "node:crypto";
-
 import {
   CommandId,
   type LoomThreadWorkstream,
@@ -38,6 +36,8 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import {
   controlMessage,
+  redeliveredSteerText,
+  steerHash,
   steerRedeliverCommandId,
 } from "../orchestration/dispatcher/controlMessage.ts";
 import { WorkstreamDispatcher } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
@@ -150,17 +150,6 @@ export const releaseHeldQueues = Effect.gen(function* () {
   ),
   Effect.withSpan("loom.recovery.releaseHeldQueues"),
 );
-
-/** The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt. */
-export const redeliveredSteerText = (steer: string) =>
-  [
-    "A message was sent to you while that turn was running and never reached it. Treat it as your latest instructions and apply it to the work you resume.",
-    `--- queued message ---\n${steer}\n--- end of queued message ---`,
-  ].join("\n\n");
-
-/** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
-export const steerHash = (text: string) =>
-  NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 
 /**
  * Seam 20 (P3-24): each continued thread's stashed steer becomes one steered control
