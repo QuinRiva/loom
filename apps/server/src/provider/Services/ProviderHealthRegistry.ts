@@ -4,7 +4,7 @@
  * Also holds the account-usage telemetry the marks derive from ("what the
  * provider reported") beside the marks themselves ("what T3 concluded"): the
  * {@link SubscriptionUsagePoller} feeds it, marks derive from two automatic
- * sources plus a manual pause, expire on a TTL, and are consumed by routing
+ * sources, expire on a TTL, and are consumed by routing
  * (chunk C), the resume sweep (chunk D), and spawn headroom. The telemetry is
  * server-internal only — the user-facing usage surface is upstream's Limits
  * page, which the poller feeds separately (see `accountUsage.loom.ts`).
@@ -26,9 +26,6 @@
  * slate (no persistence — repopulates from the next poll).
  *
  * @module ProviderHealthRegistry
- *
- * Soft-pause (source "manual", account-wide, `until = null`) is detached in
- * pull 9 (ledger DT-92): nothing feeds `pausedRef`, so it stays empty.
  */
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -59,13 +56,13 @@ export interface ExhaustionMark {
   readonly accountKey: string;
   /** `"*"` (account-wide) or a pi modelId. */
   readonly modelScope: string;
-  /** ISO resetsAt; null ⇒ unknown/indefinite (paused, or no reset data). */
+  /** ISO resetsAt; null ⇒ unknown/indefinite (no reset data). */
   readonly until: string | null;
-  readonly source: "telemetry" | "error" | "manual";
+  readonly source: "telemetry" | "error";
   /** For UI/reason strings (e.g. "Fable"). */
   readonly displayName?: string;
   /** Human window label for reason strings (e.g. "weekly", "5-hour"); telemetry
-   * marks only — error/manual marks don't know which window tripped. */
+   * marks only — error marks don't know which window tripped. */
   readonly windowLabel?: string;
 }
 
@@ -89,13 +86,13 @@ export interface ProviderHealthRegistryShape {
   ) => Effect.Effect<boolean>;
   /**
    * ISO time the model/account is exhausted until, or null when indefinite
-   * (paused / no reset data). Undefined-shaped callers should gate on
+   * (no reset data). Undefined-shaped callers should gate on
    * {@link isExhausted} first; a healthy key also returns null.
    */
   readonly exhaustedUntil: (accountKey: string, modelId?: string) => Effect.Effect<string | null>;
   /** Record an error-sourced mark (default 30-min TTL when `until` is null). */
   readonly markExhausted: (mark: ExhaustionMark) => Effect.Effect<void>;
-  /** All currently-active marks (paused + telemetry + error), for the UI feed. */
+  /** All currently-active marks (telemetry + error), for the UI feed. */
   readonly snapshot: Effect.Effect<ReadonlyArray<ExhaustionMark>>;
   /** One emission per change. */
   readonly streamChanges: Stream.Stream<ReadonlyArray<ExhaustionMark>>;
@@ -228,39 +225,12 @@ export const deriveFromTelemetry = (
   return { telemetry, error };
 };
 
-/**
- * Drop error-sourced marks for accounts that transitioned paused → unpaused, so
- * the manual escape hatch (§4.4: "pause + unpause forces re-derivation from
- * current telemetry") clears a wrong automatic mark immediately. Telemetry marks
- * are rebuilt every stream tick, so only error marks need explicit dropping.
- */
-export const dropUnpausedErrorMarks = (
-  errorMarks: ReadonlyMap<string, ExhaustionMark>,
-  prevPaused: ReadonlySet<string>,
-  nextPaused: ReadonlySet<string>,
-): ReadonlyMap<string, ExhaustionMark> => {
-  const unpaused = new Set([...prevPaused].filter((account) => !nextPaused.has(account)));
-  if (unpaused.size === 0) return errorMarks;
-  const kept = new Map(errorMarks);
-  for (const [key, mark] of kept) if (unpaused.has(mark.accountKey)) kept.delete(key);
-  return kept;
-};
-
 export const activeMarks = (
   telemetry: ReadonlyMap<string, ExhaustionMark>,
   error: ReadonlyMap<string, ExhaustionMark>,
-  paused: ReadonlySet<string>,
   now: number,
 ): ReadonlyArray<ExhaustionMark> => {
   const merged = new Map<string, ExhaustionMark>();
-  for (const account of paused) {
-    merged.set(markKey(account, ACCOUNT_WIDE_SCOPE), {
-      accountKey: account,
-      modelScope: ACCOUNT_WIDE_SCOPE,
-      until: null,
-      source: "manual",
-    });
-  }
   // Telemetry then error: an error mark refines a key only if telemetry has none.
   for (const mark of telemetry.values())
     if (isActive(mark, now)) merged.set(markKey(mark.accountKey, mark.modelScope), mark);
@@ -276,7 +246,6 @@ export const ProviderHealthRegistryLive = Layer.effect(
     const usageRef = yield* Ref.make<ReadonlyMap<string, AccountUsageSnapshot>>(new Map());
     const telemetryRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
     const errorRef = yield* Ref.make<ReadonlyMap<string, ExhaustionMark>>(new Map());
-    const pausedRef = yield* Ref.make<ReadonlySet<string>>(new Set());
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ExhaustionMark>>(),
       PubSub.shutdown,
@@ -284,22 +253,13 @@ export const ProviderHealthRegistryLive = Layer.effect(
 
     const publish = Effect.gen(function* () {
       const nowMs = yield* Clock.currentTimeMillis;
-      const [telemetry, error, paused] = yield* Effect.all([
-        Ref.get(telemetryRef),
-        Ref.get(errorRef),
-        Ref.get(pausedRef),
-      ]);
-      yield* PubSub.publish(changesPubSub, activeMarks(telemetry, error, paused, nowMs));
+      const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      yield* PubSub.publish(changesPubSub, activeMarks(telemetry, error, nowMs));
     }).pipe(Effect.asVoid);
 
     const isExhausted: ProviderHealthRegistryShape["isExhausted"] = (accountKey, modelId, now) =>
       Effect.gen(function* () {
-        const [telemetry, error, paused] = yield* Effect.all([
-          Ref.get(telemetryRef),
-          Ref.get(errorRef),
-          Ref.get(pausedRef),
-        ]);
-        if (paused.has(accountKey)) return true;
+        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
         const at = now ?? (yield* Clock.currentTimeMillis);
         const hit = (mark: ExhaustionMark) =>
           matches(mark, accountKey, modelId) && isActive(mark, at);
@@ -308,12 +268,7 @@ export const ProviderHealthRegistryLive = Layer.effect(
 
     const exhaustedUntil: ProviderHealthRegistryShape["exhaustedUntil"] = (accountKey, modelId) =>
       Effect.gen(function* () {
-        const [telemetry, error, paused] = yield* Effect.all([
-          Ref.get(telemetryRef),
-          Ref.get(errorRef),
-          Ref.get(pausedRef),
-        ]);
-        if (paused.has(accountKey)) return null;
+        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
         const now = yield* Clock.currentTimeMillis;
         const relevant = [...telemetry.values(), ...error.values()].filter(
           (mark) => matches(mark, accountKey, modelId) && isActive(mark, now),
@@ -349,12 +304,8 @@ export const ProviderHealthRegistryLive = Layer.effect(
 
     const snapshot = Effect.gen(function* () {
       const nowMs = yield* Clock.currentTimeMillis;
-      const [t, e, p] = yield* Effect.all([
-        Ref.get(telemetryRef),
-        Ref.get(errorRef),
-        Ref.get(pausedRef),
-      ]);
-      return activeMarks(t, e, p, nowMs);
+      const [t, e] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      return activeMarks(t, e, nowMs);
     });
 
     // Fresh telemetry rebuilds the telemetry marks and clears reset error marks.
@@ -371,10 +322,6 @@ export const ProviderHealthRegistryLive = Layer.effect(
         yield* Ref.set(errorRef, derived.error);
         yield* publish;
       });
-
-    // Pull 9: manual pause is gone (the strategy's failover ruling; 3c-2 dropped
-    // `providerFailover.pausedAccounts` from the settings, DT-92). Nothing feeds
-    // `pausedRef`, so it stays empty.
 
     return {
       applyUsage,

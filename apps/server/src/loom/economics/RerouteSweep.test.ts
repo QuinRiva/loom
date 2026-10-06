@@ -8,6 +8,7 @@
  * the fake `ProviderRegistry` reports it as driver `pi` with a two-vendor
  * catalogue, and the thread's selection carries pi slugs.
  */
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -23,9 +24,9 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as ServerConfig from "../../config.ts";
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as EventSink from "../../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -47,7 +48,7 @@ import {
 import { LoomPiAdapterHooks } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { LoomProviderHealthLive } from "../serverLayers.ts";
 import { runRerouteSweepPass } from "./RerouteSweep.ts";
-import { insertReroute, LOOM_THREAD_REROUTE_DDL, listReroutes } from "./rerouteRecord.ts";
+import { insertReroute, listReroutes } from "./rerouteRecord.ts";
 
 const INSTANCE = ProviderInstanceId.make("codex");
 const INTENDED: ModelSelection = { instanceId: INSTANCE, model: "openai-codex/gpt-6.1-sol" };
@@ -69,12 +70,9 @@ const pass = runRerouteSweepPass().pipe(
   ),
 );
 
-/** Each case gets its own health registry; the reroute table is 3c-3's migration 1050. */
+/** Each case gets its own health registry. */
 const withHealth = <A, E, R>(body: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    yield* (yield* SqlClient.SqlClient).unsafe(LOOM_THREAD_REROUTE_DDL);
-    return yield* body;
-  }).pipe(Effect.provide(ProviderHealthRegistryLive));
+  body.pipe(Effect.provide(ProviderHealthRegistryLive));
 
 const inMs = (ms: number) =>
   Effect.map(DateTime.now, (now) => DateTime.formatIso(DateTime.add(now, { milliseconds: ms })));
@@ -208,6 +206,54 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
     ),
   );
 
+  it.effect("finishes a reroute whose steps did not all land, resuming once", () =>
+    withHealth(
+      Effect.gen(function* () {
+        yield* exhaust(INTENDED);
+        const reroute = (threadId: ThreadId) =>
+          Effect.gen(function* () {
+            yield* insertReroute({
+              threadId,
+              intendedSelection: INTENDED,
+              reroutedSelection: FALLBACK,
+              reroutedAt: yield* inMs(1),
+              windowLabel: null,
+              resetAt: null,
+            });
+          });
+        // The row is written first, so a model-set that never landed leaves the row and the
+        // intended selection: the next pass drops the stale row and reroutes afresh.
+        const unmoved = ThreadId.make("reroute-unmoved");
+        const unmovedRun = (yield* seedLimited(unmoved, yield* inMs(3_600_000))).runId;
+        yield* reroute(unmoved);
+        // Moved but never resumed: the pass re-sends the same deterministic resume.
+        const unresumed = ThreadId.make("reroute-unresumed");
+        const unresumedRun = (yield* seedLimited(unresumed, yield* inMs(3_600_000))).runId;
+        yield* reroute(unresumed);
+        yield* dispatch({
+          type: "thread.model-selection.set",
+          commandId: CommandId.make(`server:loom:reroute:${unresumed}:${unresumedRun}:model`),
+          threadId: unresumed,
+          modelSelection: FALLBACK,
+        });
+        yield* TestClock.adjust("1 second");
+        yield* pass;
+        yield* pass;
+        for (const [threadId, runId] of [
+          [unmoved, unmovedRun],
+          [unresumed, unresumedRun],
+        ] as const) {
+          assert.deepEqual((yield* shellOf(threadId)).modelSelection, FALLBACK);
+          assert.deepEqual(
+            (yield* sweepMessages(threadId)).map((message) => message.id),
+            [`server:loom:reroute:${threadId}:${runId}`],
+          );
+          assert.isTrue((yield* listReroutes).some((entry) => entry.threadId === threadId));
+        }
+      }),
+    ),
+  );
+
   it.effect("moves an idle rerouted thread back once its intended account is healthy", () =>
     withHealth(
       Effect.gen(function* () {
@@ -274,8 +320,20 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
         yield* seedLimited(known, yield* inMs(3_600_000));
         const unknown = ThreadId.make("reroute-no-reset");
         const { runId } = yield* seedLimited(unknown, null);
+        // pi-ai's "~0 min": a reset already due when the run ended, which upstream refuses to arm.
+        const due = ThreadId.make("reroute-due-reset");
+        const { runId: dueRunId } = yield* seedLimited(due, yield* inMs(0));
+        // A snoozed thread is not resumed by Loom either.
+        const snoozed = ThreadId.make("reroute-snoozed");
+        yield* seedLimited(snoozed, null);
+        yield* dispatch({
+          type: "thread.snooze",
+          commandId: CommandId.make("test:snooze"),
+          threadId: snoozed,
+          snoozedUntil: yield* inMs(2 * 3_600_000),
+        });
         yield* pass;
-        for (const threadId of [known, unknown]) {
+        for (const threadId of [known, unknown, due, snoozed]) {
           assert.deepEqual((yield* shellOf(threadId)).modelSelection, INTENDED);
           assert.deepEqual(yield* sweepMessages(threadId), []);
         }
@@ -286,6 +344,7 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
           "thread.metadata.update",
         );
         assert.isNull(limitRecoveryCommand(yield* shellOf(unknown), true, nowMs));
+        assert.isNull(limitRecoveryCommand(yield* shellOf(due), true, nowMs));
 
         // The registry clears: Loom resumes the no-reset failure; upstream's still waits.
         yield* TestClock.adjust("61 minutes");
@@ -297,6 +356,11 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
         assert.equal(resume?.loom?.origin, "control_notice");
         assert.lengthOf(yield* sweepMessages(unknown), 1);
         assert.deepEqual(yield* sweepMessages(known), []);
+        assert.deepEqual(
+          (yield* sweepMessages(due)).map((message) => message.id),
+          [`server:loom:limit-resume:${due}:${dueRunId}`],
+        );
+        assert.deepEqual(yield* sweepMessages(snoozed), []);
       }),
     ),
   );
@@ -358,5 +422,13 @@ it.effect("the live classifier marks a no-reset usage limit for the registry's d
     const [mark] = yield* (yield* ProviderHealthRegistry).snapshot;
     assert.deepInclude(mark, { accountKey: "codex", modelScope: "gpt-6.1-sol", source: "error" });
     assert.equal(mark?.until, "1970-01-01T00:30:00.000Z");
-  }).pipe(Effect.provide(LoomProviderHealthLive.pipe(Layer.provide(ServerSettings.layerTest())))),
+  }).pipe(
+    Effect.provide(
+      LoomProviderHealthLive.pipe(
+        Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-reroute-hooks-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  ),
 );

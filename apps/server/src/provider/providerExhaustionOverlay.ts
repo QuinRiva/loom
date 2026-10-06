@@ -2,7 +2,7 @@
  * Overlay active account-wide exhaustion marks from {@link ProviderHealthRegistry}
  * onto the `ServerProvider` snapshots the config WS stream serves (§8.2). A
  * subscription account (`codex`/`claudeAgent`) whose whole account is exhausted
- * or paused surfaces on its provider card as `status: "warning"` with a
+ * surfaces on its provider card as `status: "warning"` with a
  * human-readable reason. Model-scoped marks are deliberately ignored here — a
  * single carved-out model does not make the provider unavailable, and the pill's
  * scoped bars already show it.
@@ -32,7 +32,6 @@ const formatResetClock = (until: string | null): string | null => {
 };
 
 const exhaustionMessage = (mark: ExhaustionMark): string => {
-  if (mark.source === "manual") return "Provider paused — failover routing will avoid it";
   const clock = formatResetClock(mark.until);
   return clock ? `Subscription limit reached — resets ${clock}` : "Subscription limit reached";
 };

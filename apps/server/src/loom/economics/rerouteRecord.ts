@@ -1,7 +1,7 @@
 /**
  * The reroute record (plan seam 12): one row per pi thread the reroute sweep
  * moved onto the fallback model, holding the selection to move it back to.
- * Migration 1050 (3c-3) creates the table with exactly {@link LOOM_THREAD_REROUTE_DDL}.
+ * Migration 1050 (`persistence/Migrations/1050_LoomThreadReroute.ts`) creates the table.
  *
  * @module loom/economics/rerouteRecord
  */
@@ -9,15 +9,6 @@ import { ModelSelection, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-
-export const LOOM_THREAD_REROUTE_DDL = `CREATE TABLE IF NOT EXISTS loom_thread_reroute (
-  thread_id TEXT PRIMARY KEY,
-  intended_selection TEXT,
-  rerouted_selection TEXT,
-  rerouted_at TEXT,
-  window_label TEXT,
-  reset_at TEXT
-)`;
 
 const ThreadReroute = Schema.Struct({
   threadId: ThreadId,

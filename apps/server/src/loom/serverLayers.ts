@@ -15,12 +15,14 @@
  */
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import type * as Path from "effect/Path";
 
+import type * as ServerConfig from "../config.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import {
   LoomPiAdapterHooks,
-  passthroughLoomPiAdapterHooks,
   type LoomPiAdapterHooksShape,
 } from "../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { classifyPiFailure } from "../provider/Drivers/Pi/piQuotaClassifier.loom.ts";
@@ -33,19 +35,39 @@ import {
   ProviderHealthRegistry,
   ProviderHealthRegistryLive,
 } from "../provider/Services/ProviderHealthRegistry.ts";
+import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
+import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
 import { LoomReDriveReactor } from "./orchestration/redrive.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
+import * as PendingSteering from "./steering/pendingSteering.ts";
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 
 /**
- * Track 3c's driver economics: the cross-vendor reroute sweep (3c-2). Every
- * service it reads is already in the runtime at `LoomProviderRuntimeLive`'s
- * position except the Loom sidecar store, which it brings.
+ * Track 3c's driver economics (plan seam 19), reaching the runtime through
+ * `LoomProviderRuntimeLive`:
+ *
+ * - `RerouteSweepLive` — the cross-vendor reroute, move-back and no-reset resume
+ *   for pi threads stopped on a usage limit (3c-2; `loom_thread_reroute`, 1050).
+ * - `UsageLedgerReactorLive` — one `loom_usage_ledger` row per terminal provider
+ *   turn (3c-3; 1049).
+ * - `LoomUsageLedger.layer` — seam 11's `threadSpend` / `topSpend`, exposed to
+ *   the runtime for 3d's ws methods.
+ *
+ * The fourth member, the pi adapter's live hooks ({@link LoomPiAdapterHooksLive}:
+ * quota classifier, resume sanitiser, steer stash), cannot sit here: drivers
+ * are built inside the provider-instance registry, which captures its context
+ * below this position, so the hooks ride {@link LoomProviderHealthLive}.
+ * Every service these read is already in the runtime here except the Loom
+ * sidecar store, which this export brings.
  */
-export const LoomDriverEconomicsLive = RerouteSweepLive.pipe(Layer.provide(LoomStore.layer));
+export const LoomDriverEconomicsLive = Layer.mergeAll(
+  RerouteSweepLive,
+  UsageLedgerReactorLive,
+  LoomUsageLedger.layer,
+).pipe(Layer.provide(LoomStore.layer));
 
 /** Provider sweeps merged into the provider runtime layer. */
 export const LoomProviderRuntimeLive = Layer.mergeAll(
@@ -60,14 +82,17 @@ export const LoomProviderRuntimeLive = Layer.mergeAll(
  * model (until its reset, or the registry's 30-minute default), which is what
  * the reroute sweep waits on before resuming a failure upstream cannot arm. The
  * sanitiser rewrites codex tool ids before an Anthropic-family resume (3c-2);
- * the steer stash (3c-3) is still the passthrough.
+ * the steer stash keeps steers pi accepted in `<stateDir>/pending-steering/`
+ * until their turn ends, for 3b's startup pass to redeliver (3c-3, seam 20).
  */
 export const LoomPiAdapterHooksLive = Layer.effect(
   LoomPiAdapterHooks,
   Effect.gen(function* () {
     const health = yield* ProviderHealthRegistry;
+    const stashContext = yield* Effect.context<
+      ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path
+    >();
     return {
-      ...passthroughLoomPiAdapterHooks,
       classifier: (errorText, selection) =>
         Effect.all([health.snapshot, Clock.currentTimeMillis]).pipe(
           Effect.map(([marks, now]) => classifyPiFailure(errorText, selection, marks, now)),
@@ -90,6 +115,11 @@ export const LoomPiAdapterHooksLive = Layer.effect(
         slugRoutesToAnthropic(modelSlug)
           ? Effect.sync(() => sanitisePiSessionFile(sessionFilePath))
           : Effect.void,
+      steerStash: {
+        append: (threadId, text) =>
+          PendingSteering.append(threadId, text).pipe(Effect.provide(stashContext)),
+        clear: (threadId) => PendingSteering.clear(threadId).pipe(Effect.provide(stashContext)),
+      },
     } satisfies LoomPiAdapterHooksShape;
   }),
 );
