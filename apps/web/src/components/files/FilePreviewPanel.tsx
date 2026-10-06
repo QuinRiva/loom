@@ -1,6 +1,5 @@
 import { Spinner } from "~/components/ui/spinner";
 import type {
-  ChatFileAttachment,
   EditorId,
   EnvironmentId,
   ResolvedKeybindingsConfig,
@@ -41,6 +40,7 @@ import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
+import type { ChatFileAttachment } from "~/types";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 // loom: artifact viewer ("Open preview")
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -1368,6 +1368,7 @@ export default function FilePreviewPanel({
               mimeType={attachment.mimeType}
               sizeBytes={attachment.sizeBytes}
               asset={{ environmentId, attachmentId: attachment.id }}
+              htmlRender={attachment.htmlRender === true}
             />
           ) : relativePath && isVideo && absolutePath ? (
             <WorkspaceVideoPreview

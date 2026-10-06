@@ -79,7 +79,10 @@ export class LoomDispatchDeferredError extends Schema.TaggedError<LoomDispatchDe
 }
 
 type MessageDispatch = Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>;
-type RunInterrupt = Extract<OrchestrationV2Command, { readonly type: "run.interrupt" }>;
+type RunInterrupt = Extract<
+  OrchestrationV2Command,
+  { readonly type: "run.interrupt" | "thread.stop" }
+>;
 type QueuedRunCancel = Extract<OrchestrationV2Command, { readonly type: "queued-run.cancel" }>;
 type CommandOf<T extends LoomCommand["type"]> = Extract<LoomCommand, { readonly type: T }>;
 type LoomEventOf<T extends LoomEventType> = Extract<LoomDomainEvent, { readonly type: T }>;
