@@ -18,6 +18,10 @@ import * as Layer from "effect/Layer";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthRegistry.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
+import {
+  EmergentGoalGeneratorPiLive,
+  EmergentGoalReactorLive,
+} from "./orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { LoomSessionComposerDefaultLive } from "./prompt/sessionComposer.ts";
@@ -48,9 +52,14 @@ export const LoomGoalBroadcastLive = LoomGoalBroadcast.layerWithReactor.pipe(
  * re-drive, promotion and every wake — started after server activation.
  * 3b-3/4/5 merge their layers here.
  */
-export const LoomControlPlaneLive = Layer.mergeAll(WorkstreamDispatcherStartedLive).pipe(
-  Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
-);
+export const LoomControlPlaneLive = Layer.mergeAll(
+  WorkstreamDispatcherStartedLive,
+  EmergentGoalReactorLive.pipe(
+    Layer.provide(EmergentGoalGeneratorPiLive),
+    // The same layer reference as server.ts's entry, so the broadcast is one shared PubSub.
+    Layer.provide(LoomGoalBroadcastLive),
+  ),
+).pipe(Layer.provide([CommandReceiptStore.layer, LoomStore.layer]));
 
 /**
  * The open-session composer `ProviderSessionManager` asks for each thread's
