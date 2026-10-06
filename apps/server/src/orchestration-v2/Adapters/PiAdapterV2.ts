@@ -3052,7 +3052,11 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
       return makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: {
+          // loom: run-starting extensions stay passive under T3 (docs/operations/pi-extensions-audit.md); the instance env may override
+          PI_PASSIVE_EXTENSIONS: "1",
+          ...mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        },
         spawner,
         fileSystem,
         idAllocator,
