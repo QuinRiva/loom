@@ -486,6 +486,8 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
   readonly routes?: ReadonlyArray<WorkstreamRoute>;
   readonly held?: boolean;
   readonly role?: string;
+  readonly forkFromThreadId?: ThreadId;
+  readonly kickoffBriefPath?: string;
 }) {
   return yield* dispatch({
     type: "thread.spawn",
@@ -509,6 +511,8 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
     ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
     ...(input.routes === undefined ? {} : { routes: input.routes }),
     ...(input.held === undefined ? {} : { held: input.held }),
+    ...(input.forkFromThreadId === undefined ? {} : { forkFromThreadId: input.forkFromThreadId }),
+    ...(input.kickoffBriefPath === undefined ? {} : { kickoffBriefPath: input.kickoffBriefPath }),
   });
 });
 

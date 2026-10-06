@@ -7,8 +7,8 @@
  * receipted id is done (accepted or dead) and never re-sent; a deferral leaves
  * no receipt, so the same id is retried on the next pass.
  *
- * `LoomReDriveReactor` runs the pass on graph events and once at startup until
- * Phase 3b folds it into the dispatcher's pass.
+ * The dispatcher (`dispatcher/WorkstreamDispatcher.ts`) runs the pass first in
+ * every control-plane pass, with the real gate-leg composer (`dispatcher/gateLegs.ts`).
  *
  * @module loom/orchestration/redrive
  */
@@ -27,42 +27,35 @@ import {
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Stream from "effect/Stream";
 
-import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
+import {
+  CommandReceiptStoreV2,
+  type CommandReceiptStoreV2Error,
+} from "../../orchestration-v2/CommandReceiptStore.ts";
 import { LOOM_CASCADE_CANCEL_PREFIX } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import { forkParked } from "../../serverActivation.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
+
+/** Every command the control plane dispatches targets (and locks) one thread. */
+export type ThreadServerCommand = Extract<
+  OrchestrationV2ServerCommand,
+  { readonly threadId: ThreadId }
+>;
 
 /** A gate leg that carries a control message (resolve carries none). */
 export interface GateLeg {
   readonly kind: "rework" | "reverify";
-  /** The thread whose route was taken (reviewer for rework, coder for reverify). */
-  readonly sourceThreadId: ThreadId;
+  /** The thread whose route was taken (reviewer for rework, coder for reverify); its report is the leg's subject. */
+  readonly source: LoomThreadWorkstream;
   readonly targetThreadId: ThreadId;
   readonly round: number;
 }
 
-/** The gate-leg message composer: 3b passes its real one; Phase 2 passes `fixedGateLeg`. */
+/** Composes a gate leg's control message; the dispatcher's is `makeGateLegComposer`. */
 export type GateLegComposer = (leg: GateLeg) => {
   readonly text: string;
   readonly controlPayload: ControlPayload;
-};
-
-export const fixedGateLeg: GateLegComposer = (leg) => {
-  const heading =
-    leg.kind === "rework" ? "Review gate: rework requested" : "Review gate: re-verify";
-  return {
-    text: `${heading} (round ${leg.round}). Read ${leg.sourceThreadId}'s report and continue.`,
-    controlPayload: {
-      kind: "notice",
-      heading,
-      items: [{ threadId: leg.sourceThreadId, title: `Round ${leg.round}` }],
-    },
-  };
 };
 
 const outcomeSet = (threadId: ThreadId, outcome: "cancelled", now: IsoDateTime, id: string) =>
@@ -109,7 +102,7 @@ const gateLegCommand = (
   source: LoomThreadWorkstream,
   now: IsoDateTime,
   compose: GateLegComposer,
-): OrchestrationV2ServerCommand => {
+): ThreadServerCommand => {
   const route = source.lastRoute!;
   const leg =
     route.kind === "loop" ? "rework" : route.kind === "loop-back" ? "reverify" : "resolve";
@@ -125,7 +118,7 @@ const gateLegCommand = (
   if (leg === "resolve") return { type: "thread.gate.resolve", ...base };
   const message = compose({
     kind: leg,
-    sourceThreadId: source.threadId,
+    source,
     targetThreadId: route.to,
     round: route.round,
   });
@@ -142,7 +135,7 @@ export const planReDrive = (input: {
   readonly rows: ReadonlyArray<LoomThreadWorkstream>; // LoomStoreV2.listReDriveInput()
   readonly now: IsoDateTime; // every Loom command carries createdAt
   readonly gateLeg: GateLegComposer;
-}): ReadonlyArray<OrchestrationV2ServerCommand> => {
+}): ReadonlyArray<ThreadServerCommand> => {
   const { rows, now } = input;
   const byId = new Map(rows.map((row) => [row.threadId, row]));
   const nodes = rows.map((row) => ({ ...row, id: row.threadId }));
@@ -253,48 +246,80 @@ export interface ReDrivePassResult {
   readonly accepted: ReadonlyArray<CommandId>;
   /** `LoomDispatchDeferredError`: no receipt, retried next pass. */
   readonly deferred: ReadonlyArray<CommandId>;
-  /** Rejected and receipted: the episode is dead (logged; 3b's advisory rail surfaces it). */
+  /** Rejected and receipted: the episode is dead (the dispatcher's dispatch helper records it for the digest). */
   readonly dead: ReadonlyArray<CommandId>;
 }
 
+/** What a `server:` dispatch came to: `receipted` = sent before (accepted, or dead when `accepted` is false). */
+export type ServerDispatchOutcome =
+  | { readonly status: "accepted" | "deferred" }
+  | { readonly status: "dead"; readonly error: string }
+  | { readonly status: "receipted"; readonly accepted: boolean };
+
 /**
- * One pass: plan over `listReDriveInput`, skip ids that already have a receipt,
- * dispatch the rest SEQUENTIALLY — one thread lock at a time, never nested.
+ * The receipt discipline for every `server:` control command (re-expressing
+ * V1's `receiptDedup.ts` on `CommandReceiptStoreV2`): an id with a receipt was
+ * delivered (accepted) or is dead (rejected) and is never re-sent; a
+ * `LoomDispatchDeferredError` leaves no receipt, so the same id retries next pass.
  */
-export const runReDrivePass = Effect.fn("loom.runReDrivePass")(function* (
-  gateLeg: GateLegComposer,
-) {
-  const orchestrator = yield* OrchestratorV2;
+export const dispatchServerCommand = Effect.fn("loom.dispatchServerCommand")(function* (
+  command: ThreadServerCommand,
+): Effect.fn.Return<
+  ServerDispatchOutcome,
+  CommandReceiptStoreV2Error,
+  CommandReceiptStoreV2 | OrchestratorV2
+> {
   const receipts = yield* CommandReceiptStoreV2;
-  const loomStore = yield* LoomStoreV2;
-  const commands = planReDrive({
-    rows: yield* loomStore.listReDriveInput(),
-    now: DateTime.formatIso(yield* DateTime.now),
-    gateLeg,
-  });
-  const result = {
-    accepted: [] as CommandId[],
-    deferred: [] as CommandId[],
-    dead: [] as CommandId[],
-  };
-  for (const command of commands) {
-    if (Option.isSome(yield* receipts.getByCommandId(command.commandId))) continue;
-    const outcome = yield* orchestrator.dispatch(command).pipe(
-      Effect.as("accepted" as const),
-      Effect.catch((error) =>
-        error._tag === "LoomDispatchDeferredError"
-          ? Effect.succeed("deferred" as const)
-          : Effect.logWarning("loom.redrive.dead-episode", {
-              commandId: command.commandId,
-              commandType: command.type,
-              error: error.message,
-            }).pipe(Effect.as("dead" as const)),
-      ),
-    );
-    result[outcome].push(command.commandId);
+  const orchestrator = yield* OrchestratorV2;
+  const receipt = yield* receipts.getByCommandId(command.commandId);
+  if (Option.isSome(receipt)) {
+    // Delivered earlier, or dead: never re-sent.
+    return { status: "receipted", accepted: receipt.value.status === "accepted" };
   }
-  return result satisfies ReDrivePassResult;
+  return yield* orchestrator.dispatch(command).pipe(
+    Effect.as<ServerDispatchOutcome>({ status: "accepted" }),
+    Effect.catch((error) =>
+      error._tag === "LoomDispatchDeferredError"
+        ? Effect.succeed<ServerDispatchOutcome>({ status: "deferred" })
+        : Effect.logWarning("loom.control-plane.dead-episode", {
+            commandId: command.commandId,
+            commandType: command.type,
+            threadId: command.threadId,
+            error: error.message,
+          }).pipe(Effect.as<ServerDispatchOutcome>({ status: "dead", error: error.message })),
+    ),
+  );
 });
+
+/**
+ * One re-drive: plan over `listReDriveInput` and dispatch each command
+ * SEQUENTIALLY — one thread lock at a time, never nested — through `dispatch`
+ * (the dispatcher's pass helper, or the bare `dispatchServerCommand`).
+ */
+export const runReDrivePass = <E, R>(
+  gateLeg: GateLegComposer,
+  dispatch: (
+    command: ThreadServerCommand,
+  ) => Effect.Effect<{ readonly status: "receipted" | "accepted" | "deferred" | "dead" }, E, R>,
+) =>
+  Effect.gen(function* () {
+    const loomStore = yield* LoomStoreV2;
+    const commands = planReDrive({
+      rows: yield* loomStore.listReDriveInput(),
+      now: DateTime.formatIso(yield* DateTime.now),
+      gateLeg,
+    });
+    const result = {
+      accepted: [] as CommandId[],
+      deferred: [] as CommandId[],
+      dead: [] as CommandId[],
+    };
+    for (const command of commands) {
+      const { status } = yield* dispatch(command);
+      if (status !== "receipted") result[status].push(command.commandId);
+    }
+    return result satisfies ReDrivePassResult;
+  }).pipe(Effect.withSpan("loom.runReDrivePass"));
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   "completed",
@@ -303,39 +328,27 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   "cancelled",
   "rolled_back",
 ]);
-const TRIGGER_EVENT_TYPES: ReadonlySet<string> = new Set([
+/** The events that enqueue a control-plane pass (besides a terminal `run.updated`). */
+export const PASS_TRIGGER_EVENT_TYPES: ReadonlySet<string> = new Set([
+  // Loom graph and wake events
+  "thread.workstream-created",
   "thread.outcome-set",
+  "thread.outcome-recorded",
   "thread.route-taken",
+  "thread.attention-raised",
+  "thread.dependencies-set",
+  "thread.kickoff-brief-set",
+  "thread.goal-set",
+  "thread.peer-message-recorded",
+  // upstream lifecycle the cascades follow (they must not wait for the tick)
   "thread.archived",
   "thread.unarchived",
   "thread.deleted",
-  "thread.goal-set",
+  // a request opening or settling changes the parent's wake set
+  "runtime-request.updated",
 ]);
 
-/** A graph change, or a run ending (so a deferred gate leg retries when its target goes idle). */
-export const isReDriveTrigger = (event: OrchestrationV2DomainEvent) =>
-  TRIGGER_EVENT_TYPES.has(event.type) ||
+/** A graph change, a wake-bearing event, or a run ending (so a deferred wake retries when its target goes idle). */
+export const isPassTrigger = (event: OrchestrationV2DomainEvent) =>
+  PASS_TRIGGER_EVENT_TYPES.has(event.type) ||
   (event.type === "run.updated" && TERMINAL_RUN_STATUSES.has(event.payload.status));
-
-/**
- * Runs a pass once after activation (startup, after recovery) and then on every
- * debounced burst of trigger events. No periodic tick: that is Phase 3b's.
- */
-export const LoomReDriveReactor = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    const pass = runReDrivePass(fixedGateLeg).pipe(
-      Effect.catchCause((cause) => Effect.logWarning("loom.redrive.pass-failed", { cause })),
-    );
-    yield* forkParked(
-      Stream.merge(
-        Stream.succeed("startup"),
-        orchestrator.streamDomainEvents.pipe(Stream.filter(isReDriveTrigger)),
-      ).pipe(
-        Stream.debounce("200 millis"),
-        Stream.runForEach(() => pass),
-        Effect.catchCause((cause) => Effect.logWarning("loom.redrive.reactor-stopped", { cause })),
-      ),
-    );
-  }),
-);
