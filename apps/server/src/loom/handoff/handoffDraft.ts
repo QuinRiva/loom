@@ -68,7 +68,13 @@ const BLOCKING_RUN = new Set(["preparing", "starting", "running", "waiting"]);
 export interface DraftForkInput {
   readonly source: Pick<
     OrchestrationV2ThreadShell,
-    "id" | "projectId" | "modelSelection" | "runtimeMode" | "interactionMode" | "branch" | "worktreePath"
+    | "id"
+    | "projectId"
+    | "modelSelection"
+    | "runtimeMode"
+    | "interactionMode"
+    | "branch"
+    | "worktreePath"
   >;
   readonly sourceGoalId: GoalId | null;
   readonly drafterThreadId: ThreadId;

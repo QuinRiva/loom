@@ -108,7 +108,8 @@ const make = Effect.gen(function* () {
 
   const settle = (row: LoomThreadWorkstream, nowMs: number) =>
     Effect.gen(function* () {
-      const id = (step: string) => CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
+      const id = (step: string) =>
+        CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
       const action = classifyHandoffSettlement(
         row,
@@ -130,7 +131,9 @@ const make = Effect.gen(function* () {
         });
       } else if (action.kind === "guidance") {
         const source =
-          row.forkFromThreadId === null ? null : yield* loomStore.getWorkstream(row.forkFromThreadId);
+          row.forkFromThreadId === null
+            ? null
+            : yield* loomStore.getWorkstream(row.forkFromThreadId);
         const target =
           source !== null &&
           source.outcome === null &&

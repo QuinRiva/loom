@@ -240,8 +240,11 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
   readonly threadId: ThreadId;
   readonly ordinal?: number;
   readonly live?: boolean;
+  /** The provider thread's driver (default the test driver; `pi` for the drafter guards). */
+  readonly driver?: ProviderDriverKind;
 }) {
   const sink = yield* EventSink.EventSinkV2;
+  const driver = input.driver ?? testDriver;
   const now = yield* DateTime.now;
   const ordinal = input.ordinal ?? 1;
   const ids = seededRunIds(input.threadId, ordinal);
@@ -268,13 +271,13 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
         type: "provider-thread.updated",
         payload: {
           id: ids.providerThreadId,
-          driver: testDriver,
+          driver,
           providerInstanceId,
           providerSessionId,
           appThreadId: threadId,
           ownerNodeId: null,
           nativeThreadRef: {
-            driver: testDriver,
+            driver,
             nativeId: `native:${threadId}`,
             strength: "strong",
           },

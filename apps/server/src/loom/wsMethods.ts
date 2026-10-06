@@ -7,11 +7,7 @@
  *
  * @module loom/wsMethods
  */
-import {
-  type HandoffDraftInput,
-  LOOM_WS_METHODS,
-  type RetroDraftInput,
-} from "@t3tools/contracts";
+import { type HandoffDraftInput, LOOM_WS_METHODS, type RetroDraftInput } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
