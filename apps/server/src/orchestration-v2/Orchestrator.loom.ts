@@ -26,6 +26,8 @@ import {
   type LoomMessageFields,
   type LoomOutcomeSetCause,
   type LoomThreadWorkstream,
+  latestProviderTurnForAttempt,
+  LOOM_ASK_REQUEST_PREFIX,
   type OrchestrationV2AppThread,
   type OrchestrationV2Command,
   type OrchestrationV2ContextSourcePoint,
@@ -829,6 +831,122 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       });
     });
 
+  /**
+   * `ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
+   * runtime request on its own request node under the active run's root, with
+   * the `user_input_request` turn item carrying the questions — the shapes
+   * upstream's adapters emit, so V2's panel, mobile card and the shell's
+   * `pendingRuntimeRequest` render it unchanged. `message` capability: upstream's
+   * terminal dismissal leaves it standing; 3a-4's respond hunk answers it.
+   */
+  const runtimeRequestCreate = (create: CommandOf<"runtime-request.create">) =>
+    Effect.gen(function* () {
+      const { requestId, threadId } = create;
+      if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) {
+        return yield* fail(`Runtime request ${requestId} is not a ${LOOM_ASK_REQUEST_PREFIX} id.`);
+      }
+      if (create.questions.length === 0) return yield* fail("A question request needs a question.");
+      yield* requireThread(threadId);
+      const projection = yield* read(
+        projectionStore.getThreadRecords(threadId, [
+          "runs",
+          "attempts",
+          "providerTurns",
+          "runtimeRequests",
+        ]),
+      );
+      const run = projection.runs
+        .filter(isBlockingRun)
+        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      if (run === undefined || run.rootNodeId === null) {
+        return yield* fail(`Thread ${threadId} has no active run to ask from.`);
+      }
+      const pending = projection.runtimeRequests.find((request) => request.status === "pending");
+      if (pending !== undefined) {
+        return yield* fail(`Thread ${threadId} already has pending runtime request ${pending.id}.`);
+      }
+      // Upstream's `providerTurnForRun` (not exported): the active attempt's latest turn.
+      const providerTurnId =
+        (
+          latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
+          projection.providerTurns.find(
+            (turn) =>
+              turn.id ===
+              projection.attempts.find((attempt) => attempt.id === run.activeAttemptId)
+                ?.providerTurnId,
+          )
+        )?.id ?? null;
+      const nodeId = ctx.idAllocator.derive.approvalNode({ requestId });
+      const ordinal = yield* read(projectionStore.getNextTurnItemOrdinal(threadId));
+      const base = {
+        threadId,
+        runId: run.id,
+        nodeId,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+      };
+      yield* emit({
+        ...base,
+        type: "runtime-request.updated",
+        payload: {
+          id: requestId,
+          nodeId,
+          providerTurnId,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "pending",
+          responseCapability: { type: "message" },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      });
+      yield* emit({
+        ...base,
+        type: "node.updated",
+        payload: {
+          id: nodeId,
+          threadId,
+          runId: run.id,
+          parentNodeId: run.rootNodeId,
+          rootNodeId: run.rootNodeId,
+          kind: "user_input_request",
+          status: "waiting",
+          countsForRun: false,
+          providerThreadId: run.providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          runtimeRequestId: requestId,
+          checkpointScopeId: null,
+          startedAt: now,
+          completedAt: null,
+        },
+      });
+      yield* emit({
+        ...base,
+        type: "turn-item.updated",
+        payload: {
+          id: ctx.idAllocator.derive.approvalTurnItem({ requestId }),
+          threadId,
+          runId: run.id,
+          nodeId,
+          providerThreadId: run.providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal,
+          status: "waiting",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "user_input_request",
+          requestId,
+          questions: create.questions,
+          responseMode: "message",
+        },
+      });
+    });
+
   switch (command.type) {
     case "thread.spawn": {
       if (command.creationSource !== "mcp" && command.creationSource !== "server") {
@@ -1213,6 +1331,10 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
 
     case "thread.fork.prepare":
       yield* forkPrepare(command);
+      return {};
+
+    case "runtime-request.create":
+      yield* runtimeRequestCreate(command);
       return {};
   }
 });
