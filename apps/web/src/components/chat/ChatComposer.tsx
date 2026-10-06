@@ -260,6 +260,7 @@ import {
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
+import { LOOM_DRAFT_SLASH_ITEMS } from "~/loom/composerIntercepts"; // loom:
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
@@ -2662,6 +2663,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               },
             ] as const)
           : []),
+        // loom: the `/handoff` and `/retro` intercepts.
+        ...(_isServerThread && phase !== "running" && composerTrigger.rangeStart === 0
+          ? LOOM_DRAFT_SLASH_ITEMS
+          : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
         selectedProviderSkills,
@@ -2765,12 +2770,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    _isServerThread, // loom:
     activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
     environmentId,
     environmentThreadShells,
     exactPullRequestLookup.data,
+    phase, // loom:
     planModeUiEnabled,
     pullRequestLookup.data,
     pullRequestProjectId,
@@ -3939,6 +3946,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        // loom: `/handoff` and `/retro` take free text, so selection inserts the
+        // command for the human to finish (as provider commands do).
+        if (item.command === "handoff" || item.command === "retro") {
+          const replacement = `/${item.command} `;
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
