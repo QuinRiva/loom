@@ -62,7 +62,7 @@ UPSTREAM_NATIVE = (
     "apps/server/src/provider/acp/",
 )
 # Loom files with known hits this session may not edit: printed every run, not fatal.
-# Empty since integration (DL-458): the frozen contract's comments were rewritten.
+# Empty since integration (DL-457): the frozen contract's comments were rewritten.
 PENDING = {}
 # This gate itself names every tool.
 SELF = ("docs/upstream-sync/pull9-tools/barenames.sh",)
