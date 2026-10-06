@@ -32,6 +32,7 @@ import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import { buildActiveShellSnapshot } from "./ShellStream.ts";
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
+import { loomSnapshotGoals } from "../loom/projection/LoomGoalBroadcast.ts"; // loom: seam 15
 
 function isThreadNotFound(error: unknown): boolean {
   return (
@@ -104,7 +105,8 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         }),
       );
       const projects = yield* enrichProjectShells(base.projects);
-      return { ...base, projects };
+      // loom: Loom goals ride the authoritative snapshot (seam 15); a closed-schema client strips them
+      return { ...base, projects, ...(yield* loomSnapshotGoals(base.projects)) };
     });
 
     const loadThreadSnapshot = Effect.fn("http.orchestration.loadThreadSnapshot")(function* (

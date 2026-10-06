@@ -423,6 +423,10 @@
       "types": "./src/workstreamDependencies.ts",
       "import": "./src/workstreamDependencies.ts"
     },
+    "./loomSeedFixture.loom": {
+      "types": "./src/loomSeedFixture.loom.ts",
+      "import": "./src/loomSeedFixture.loom.ts"
+    },
     "./workstreamStart.loom": {
       "types": "./src/workstreamStart.loom.ts",
       "import": "./src/workstreamStart.loom.ts"
