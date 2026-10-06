@@ -615,7 +615,8 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         const delivered = (yield* messages(target!)).filter((m) => m.loom?.origin === "notify");
         assert.lengthOf(delivered, 1);
         // The handler's message, not a second one built by the rail.
-        assert.include(JSON.stringify(delivered[0]!.loom?.controlPayload), "From Root");
+        const payload = delivered[0]!.loom?.controlPayload;
+        assert.equal(payload?.kind === "notice" ? payload.items?.[0]?.title : null, "From Root");
         assert.deepEqual(
           yield* (yield* CommandReceiptStoreV2).getByCommandId(
             CommandId.make(notifyCommandId("notify-race-rec")),
