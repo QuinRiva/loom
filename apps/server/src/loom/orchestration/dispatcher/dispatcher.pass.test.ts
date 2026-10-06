@@ -21,6 +21,7 @@ import * as NodePath from "node:path";
 import * as ServerConfig from "../../../config.ts";
 import { CommandReceiptStoreV2 } from "../../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import { notifyDeliveryCommand } from "../../../mcp/toolkits/workstream/handlers/notify.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import {
@@ -36,6 +37,9 @@ import {
   attentionCommandId,
   forkPrepareCommandId,
   kickoffCommandId,
+  notifyCommandId,
+  notifyExpireCommandId,
+  notifyMarkCommandId,
   yieldCommandId,
 } from "./controlMessage.ts";
 import { WorkstreamDispatcher, WorkstreamDispatcherLive } from "./WorkstreamDispatcher.ts";
@@ -571,6 +575,71 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         1,
       );
     }),
+  );
+
+  it.effect(
+    "notify: a record notify_thread already delivered is a receipted no-op for the rail",
+    () =>
+      Effect.gen(function* () {
+        const [root, target] = ["notify-race-root", "notify-race-target"].map((id) =>
+          ThreadId.make(id),
+        );
+        yield* seedThread({ threadId: root! });
+        yield* spawnChild({ parentThreadId: root!, threadId: target!, graphKey: "target" });
+        yield* dispatch({
+          type: "thread.peer-message.record",
+          commandId: CommandId.make("notify-race-record"),
+          threadId: root!,
+          createdAt,
+          recordId: "notify-race-rec",
+          targetThreadId: target!,
+          targetTitle: "Target",
+          message: "Heads up.",
+          framedMessage: "[notify from root] Heads up.",
+        });
+        // The handler's immediate send landed; its mark-delivered had not when the pass read the queue.
+        yield* dispatch(
+          notifyDeliveryCommand({
+            recordId: "notify-race-rec",
+            senderThreadId: root!,
+            senderTitle: "Root",
+            targetThreadId: target!,
+            framedMessage: "[notify from root] Heads up.",
+          }),
+        );
+        const receipt = yield* (yield* CommandReceiptStoreV2).getByCommandId(
+          CommandId.make(notifyCommandId("notify-race-rec")),
+        );
+
+        yield* runPass;
+        const delivered = (yield* messages(target!)).filter((m) => m.loom?.origin === "notify");
+        assert.lengthOf(delivered, 1);
+        // The handler's message, not a second one built by the rail.
+        assert.include(JSON.stringify(delivered[0]!.loom?.controlPayload), "From Root");
+        assert.deepEqual(
+          yield* (yield* CommandReceiptStoreV2).getByCommandId(
+            CommandId.make(notifyCommandId("notify-race-rec")),
+          ),
+          receipt,
+        );
+        // Marked delivered (the replay counts as landed), never expired.
+        const receipts = yield* CommandReceiptStoreV2;
+        assert.isTrue(
+          Option.isSome(
+            yield* receipts.getByCommandId(
+              CommandId.make(notifyMarkCommandId("notify-race-rec")),
+            ),
+          ),
+        );
+        assert.isTrue(
+          Option.isNone(
+            yield* receipts.getByCommandId(
+              CommandId.make(notifyExpireCommandId("notify-race-rec")),
+            ),
+          ),
+        );
+        assert.isEmpty(yield* (yield* LoomStoreV2).peerMessages.listPending());
+      }),
   );
 
   it.effect("imported rows (null episode stamps) wake nobody", () =>

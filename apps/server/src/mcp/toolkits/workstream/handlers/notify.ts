@@ -12,10 +12,19 @@
  *
  * @module mcp/toolkits/workstream/handlers/notify
  */
-import { CommandId, MessageId } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  type OrchestrationV2ServerCommand,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
+import {
+  notifyCommandId,
+  notifyMarkCommandId,
+} from "../../../../loom/orchestration/dispatcher/controlMessage.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import { resolveThread } from "../../../../loom/workstream/threadResolve.ts";
 import {
@@ -47,10 +56,41 @@ const MESSAGE_MAX_CHARS = 16_000;
 /** The ids one record's lifecycle shares with 3b's notify-delivery rail (seam 6). */
 export const notifyIds = (recordId: string) => ({
   record: CommandId.make(`server:workstream-notify-record:${recordId}`),
-  deliver: CommandId.make(`server:workstream-notify:${recordId}`),
-  message: MessageId.make(`message:server:workstream-notify:${recordId}`),
-  mark: CommandId.make(`server:workstream-notify-mark:${recordId}`),
+  deliver: CommandId.make(notifyCommandId(recordId)),
+  message: MessageId.make(`message:${notifyCommandId(recordId)}`),
+  mark: CommandId.make(notifyMarkCommandId(recordId)),
 });
+
+/** The immediate delivery of one record — under the rail's id, so the second of the two to land is a receipted no-op. */
+export const notifyDeliveryCommand = (input: {
+  readonly recordId: string;
+  readonly senderThreadId: ThreadId;
+  readonly senderTitle: string;
+  readonly targetThreadId: ThreadId;
+  readonly framedMessage: string;
+}) =>
+  ({
+    type: "message.dispatch",
+    commandId: notifyIds(input.recordId).deliver,
+    threadId: input.targetThreadId,
+    messageId: notifyIds(input.recordId).message,
+    text: input.framedMessage,
+    attachments: [],
+    createdBy: "agent",
+    creationSource: "mcp",
+    senderThreadId: input.senderThreadId,
+    deliveryIntent: "auto",
+    dispatchMode: { type: "queue_after_active" },
+    loom: {
+      origin: "notify",
+      controlPayload: {
+        kind: "notice",
+        notice: "notify",
+        heading: "A message from another thread.",
+        items: [{ threadId: input.senderThreadId, title: `From ${input.senderTitle}` }],
+      },
+    },
+  }) satisfies OrchestrationV2ServerCommand;
 
 export const notifyThread = Effect.fn("LoomToolkit.notifyThread")(function* (
   input: LoomToolInput<"notify_thread">,
@@ -112,28 +152,15 @@ export const notifyThread = Effect.fn("LoomToolkit.notifyThread")(function* (
     framedMessage,
   });
 
-  const delivered = yield* dispatch({
-    type: "message.dispatch",
-    commandId: ids.deliver,
-    threadId: target.id,
-    messageId: ids.message,
-    text: framedMessage,
-    attachments: [],
-    createdBy: "agent",
-    creationSource: "mcp",
-    senderThreadId: caller.threadId,
-    deliveryIntent: "auto",
-    dispatchMode: { type: "queue_after_active" },
-    loom: {
-      origin: "notify",
-      controlPayload: {
-        kind: "notice",
-        notice: "notify",
-        heading: "A message from another thread.",
-        items: [{ threadId: caller.threadId, title: `From ${self.title || caller.threadId}` }],
-      },
-    },
-  }).pipe(
+  const delivered = yield* dispatch(
+    notifyDeliveryCommand({
+      recordId,
+      senderThreadId: caller.threadId,
+      senderTitle: self.title || caller.threadId,
+      targetThreadId: target.id,
+      framedMessage,
+    }),
+  ).pipe(
     Effect.map((result) => committed(result, "run.created")),
     Effect.tapError((cause) =>
       Effect.logWarning("loom.notify.immediate-delivery-failed", { recordId, cause }),
