@@ -319,3 +319,22 @@ deployed.
   or migration change in this round. Open for Carl from DL-800: whether graph nodes or quick
   facts should show the per-thread tool count, the subtree cost or a human dependency editor,
   which only board cards showed.
+- **DL-613 — Cut-over pre-flight (researcher `b43298d9`, read-only).** Report:
+  `~/.t3/cockpit/userdata/workstream-reports/b43298d9-d8a4-4e15-bdcf-27417293f16c.md`.
+  (1) **Blocker: the Slack bridge crashes on the new contracts** — its release links
+  `@t3tools/contracts` and `effect` from `~/loom-releases/current`, so after the flip it hits
+  moved Effect paths (`effect/unstable/rpc` → `effect/rpc`) and a missing
+  `ORCHESTRATION_WS_METHODS`; every wire shape it reads changed (`getThreadActivities` gone,
+  `thread-upserted` → `thread.updated`/`thread.removed`, `snapshot.thread.*` → `projection`,
+  `OrchestrationV2Command`). Stage two of `deployctl promote` can never pass, so the promote
+  auto-rolls back. The bridge must be ported to V2 and flipped jointly with the cockpit; an
+  old-cockpit rollback then reads `ROLLBACK UNHEALTHY` until bridge `current` is pointed back.
+  (2) Stage one probes `POST /api/auth/websocket-ticket`, which is held until command-ready,
+  i.e. after the Loom import: QA needed ~219 s on a warm 6.15 GB DB; `deployd.env` sets 240 s.
+  Set 900 s for the cut-over promote (deployd reads its own env; restart it with the spool
+  idle). (3) `rollbackTo` restores only `state.sqlite*`; a stale `statev2.sqlite*` (and any
+  `.v2-import-*`) must be moved aside before a re-cut. After cut-over, `DEPLOYCTL_DB_FILE`
+  must become `statev2.sqlite`. (4) Safe: pi 0.99.2 and 1.0.2 share session format v3
+  (`session-manager.js` byte-identical); `settings.json`, `keybindings.json`, `secrets/` are
+  additive or decodable by the old server. Disk: ~26 GB free at the end of a promote from
+  47 GB; the QA home (40 GB) is reclaimable once Carl is done with it.
