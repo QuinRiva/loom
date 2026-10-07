@@ -2,9 +2,10 @@
  * "Show me where this happened" (W3, V1's scroll-to-dispatch): a Workstream
  * surface parks a one-shot anchor — a thread and an instant — and opens that
  * thread; its timeline consumes the anchor on arrival. It pages back until the
- * anchored moment is loaded, unfolds the turn that holds it, scrolls the row
- * at or before that instant into view and flashes it once. The anchor of a
- * dispatch is the child's creation, inside the parent's spawn call.
+ * anchored moment is loaded, unfolds the turn and opens the tool group that
+ * hold it, scrolls the row at or before that instant into view and flashes it
+ * once. A dispatch's anchor is the child's creation, inside the parent's
+ * spawn call.
  *
  * @module loom/conversationJump
  */
@@ -49,6 +50,7 @@ export function useConversationJump({
   routeThreadKey,
   history,
   onExpandRun,
+  onExpandWorkGroup,
   onManualNavigation,
 }: {
   readonly rows: ReadonlyArray<MessagesTimelineRow>;
@@ -57,6 +59,7 @@ export function useConversationJump({
   readonly routeThreadKey: string;
   readonly history: MessagesTimelineHistoryControls | undefined;
   readonly onExpandRun: (runId: RunId) => void;
+  readonly onExpandWorkGroup: (groupId: string, rowId: string) => void;
   readonly onManualNavigation: () => void;
 }): boolean {
   const request = useConversationJumpStore((store) => store.request);
@@ -65,13 +68,13 @@ export function useConversationJump({
     [routeThreadKey],
   );
   // Per request: the history cursors already paged and the turns already unfolded.
-  const tried = useRef({ request, pages: new Set<string>(), runs: new Set<RunId>() });
+  const tried = useRef({ request, pages: new Set<string>(), opened: new Set<string>() });
   const pending = request !== null && request.threadId === threadId;
 
   useEffect(() => {
     if (request === null || request.threadId !== threadId || rows.length === 0) return;
     if (tried.current.request !== request)
-      tried.current = { request, pages: new Set(), runs: new Set() };
+      tried.current = { request, pages: new Set(), opened: new Set() };
     const { at } = request;
     const target = entries.findLast((entry) => entry.createdAt <= at);
     if (target === undefined && history?.hasMoreHistory) {
@@ -86,10 +89,10 @@ export function useConversationJump({
     const runId = target === undefined ? null : entryRunId(target);
     if (
       runId !== null &&
-      !tried.current.runs.has(runId) &&
+      !tried.current.opened.has(runId) &&
       rows.some((row) => row.kind === "turn-fold" && row.runId === runId && !row.expanded)
     ) {
-      tried.current.runs.add(runId);
+      tried.current.opened.add(runId);
       onExpandRun(runId);
       return;
     }
@@ -98,6 +101,12 @@ export function useConversationJump({
       rows.findLastIndex((row) => row.createdAt !== null && row.createdAt <= at),
     );
     const row = rows[index]!;
+    // A collapsed tool group opens, so the very call shows.
+    if (row.kind === "work-toggle" && !row.expanded && !tried.current.opened.has(row.groupId)) {
+      tried.current.opened.add(row.groupId);
+      onExpandWorkGroup(row.groupId, row.id);
+      return;
+    }
     // Stop live-follow first, then scroll two frames later: the timeline must
     // have re-rendered without pinning to the end, or it snaps straight back.
     onManualNavigation();
@@ -123,7 +132,17 @@ export function useConversationJump({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [entries, history, listRef, onExpandRun, onManualNavigation, request, rows, threadId]);
+  }, [
+    entries,
+    history,
+    listRef,
+    onExpandRun,
+    onExpandWorkGroup,
+    onManualNavigation,
+    request,
+    rows,
+    threadId,
+  ]);
 
   return pending;
 }

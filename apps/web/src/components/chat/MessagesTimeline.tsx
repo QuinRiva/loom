@@ -821,6 +821,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     routeThreadKey: listIdentityKey,
     history: historyControls,
     onExpandRun: expandCitedRun,
+    onExpandWorkGroup: onToggleWorkGroup,
     onManualNavigation,
   });
   // Run status/timestamps churn on every stream event; the shared row context
