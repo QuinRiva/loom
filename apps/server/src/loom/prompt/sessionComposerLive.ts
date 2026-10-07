@@ -7,7 +7,9 @@
  * context, and — appended per launch, never recorded — the relocation clause.
  * Everything but the relocation clause is the thread's launch identity: written
  * once at its first compose and replayed verbatim by every later compose, and
- * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23).
+ * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
+ * that first launch only: the fork's next compose is its own (DL-740, V1's
+ * fork-once replay).
  * Two drafter exceptions (DL-450): a `retro-reviewer` diverges in role from the thread it reviews, so
  * it composes its own identity with its server-owned overlay (V1's
  * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
@@ -138,6 +140,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
 
   /**
    * Own record → the fork source's record verbatim → a fresh composition; first one written.
+   * A replayed record serves the fork's first launch only; its next compose is fresh and final.
    * The source is a `forkFrom` child's sibling, which must have a record, or a V2 fork's
    * lineage parent (thread_fork, a UI fork), which composes fresh as a root when it has none
    * (a V1-imported source never relaunched under V2).
@@ -149,16 +152,24 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
-      if (Option.isSome(own)) return own.value;
+      if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
+      const firstLaunch = Option.isNone(own);
       const forkFrom =
-        workstream?.role === RETRO_REVIEWER_ROLE ? null : (workstream?.forkFromThreadId ?? null);
+        !firstLaunch || workstream?.role === RETRO_REVIEWER_ROLE
+          ? null
+          : (workstream?.forkFromThreadId ?? null);
       const sourceThreadId =
         forkFrom ??
-        (thread.lineage.relationshipToParent === "fork" ? thread.lineage.parentThreadId : null);
+        (firstLaunch && thread.lineage.relationshipToParent === "fork"
+          ? thread.lineage.parentThreadId
+          : null);
       const source =
         sourceThreadId === null
           ? Option.none<LaunchIdentityRecord>()
-          : yield* readLaunchIdentity(identityDir, sourceThreadId);
+          : Option.map(yield* readLaunchIdentity(identityDir, sourceThreadId), (record) => ({
+              ...record,
+              replayedFrom: sourceThreadId,
+            }));
       if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
         return yield* Effect.fail(
           new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),

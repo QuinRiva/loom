@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - fixture role files on disk.
 /**
  * The real composer over the real orchestrator and Loom store: byte-stable
- * output, the write-once launch identity, `forkFrom` replay and the drafter
+ * output, the write-once launch identity, first-launch fork replay and the drafter
  * exceptions to it, the child
  * readership clause, cache retention, the extension path and the relocation
  * clause.
@@ -190,7 +190,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect(
-    "replays a forkFrom child from its source's record verbatim, leaving the source's untouched",
+    "replays a forkFrom child from its source's record on its first launch only, leaving the source's untouched",
     () =>
       withComposer("short", (composer, identityDir) =>
         Effect.gen(function* () {
@@ -240,14 +240,22 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
 
           assert.deepEqual(yield* composer.compose(fork), sourceFields);
           assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
-          // The fork keeps its own copy, so a fork of the fork replays the same bytes.
-          assert.equal(yield* fs.readFileString(identityFile(identityDir, fork)), sourceBytes);
+
+          // Its relaunch is its own child identity, written once from then on (DL-740).
+          const relaunched = yield* composer.compose(fork);
+          assert.isTrue(
+            relaunched.appendSystemPrompt.startsWith(
+              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork)}\n\nYou are a researcher sub-thread.`,
+            ),
+          );
+          assert.deepEqual(yield* composer.compose(fork), relaunched);
+          assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
         }),
       ),
   );
 
   it.effect(
-    "replays a V2 fork (thread_fork) from its source as a root, or composes it fresh as a root when the source has no record",
+    "replays a V2 fork (thread_fork) from its source as a root on its first launch only, or composes it fresh as a root when the source has no record",
     () =>
       withComposer("long", (composer) =>
         Effect.gen(function* () {
@@ -292,10 +300,21 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(freshFields.env, { PI_CACHE_RETENTION: "long" });
 
           const sourceFields = yield* composer.compose(source);
-          const forked = yield* composer.compose(yield* forkOf("thread:composer-v2-fork-target"));
+          const target = yield* forkOf("thread:composer-v2-fork-target");
+          const forked = yield* composer.compose(target);
           assert.deepEqual(forked, sourceFields);
           assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
           assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long" });
+
+          // Its relaunch is its own root identity, written once from then on (DL-740).
+          const relaunched = yield* composer.compose(target);
+          assert.isTrue(
+            relaunched.appendSystemPrompt.startsWith(
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(target)}\n\nYou orchestrate`,
+            ),
+          );
+          assert.deepEqual(yield* composer.compose(target), relaunched);
+          assert.deepEqual(yield* composer.compose(source), sourceFields);
         }),
       ),
   );
