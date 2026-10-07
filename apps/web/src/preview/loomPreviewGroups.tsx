@@ -171,7 +171,7 @@ const timelineRows: ReadonlyArray<LoomTimelineRow> = [
 ];
 
 /**
- * DL-610: V1 rows as the importer (and migration 1053) stamp them, from the
+ * DL-610: V1 rows as the importer (and migration 1052) stamp them, from the
  * QA copy: V1 payloads carry no item `kind`, `notice` or `synthesised`.
  */
 const IMPORTED_V1_TEXT =

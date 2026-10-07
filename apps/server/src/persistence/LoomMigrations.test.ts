@@ -646,7 +646,7 @@ describe("adding future fork migrations does not break reconciliation", () => {
 
         // The grown fork lane then applies its new migration on top, after the
         // upstream lane as at boot (`runAllMigrations`): fork migrations may read
-        // upstream tables (1053 reads the V2 projections).
+        // upstream tables (1052 reads the V2 projections).
         yield* runMigrations();
         yield* withSyntheticFork();
         assert.deepStrictEqual(
