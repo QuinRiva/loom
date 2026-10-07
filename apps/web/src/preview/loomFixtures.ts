@@ -313,6 +313,7 @@ export const loomPreviewThreads = {
         id: RuntimeRequestId.make("loom-ask:preview"),
         kind: "user_input",
         createdAt: NOW,
+        header: "Parser",
       },
     },
   ),
