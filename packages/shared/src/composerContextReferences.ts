@@ -289,7 +289,9 @@ export function projectComposerContextForProvider(input: {
     const record = recordsById.get(occurrence.contextId);
     // loom: a thread goes inline as `[Title](thread://<id>)`, the form Loom's
     // consult_thread documents; Loom withholds upstream's t3_thread_read (DL-752).
-    if (record?.kind === "thread") return `[${occurrence.label}](thread://${record.threadId})`;
+    // (`"threadId" in record` also narrows away the open unknown-kind record.)
+    if (record?.kind === "thread" && "threadId" in record)
+      return `[${occurrence.label}](thread://${record.threadId})`;
     return formatComposerContextProviderMarker(
       record?.kind ?? occurrence.kind,
       occurrence.label,
@@ -302,7 +304,7 @@ export function projectComposerContextForProvider(input: {
     if (seen.has(occurrence.contextId)) continue;
     seen.add(occurrence.contextId);
     const record = recordsById.get(occurrence.contextId);
-    if (record?.kind === "thread") continue; // loom: the inline link is the whole payload (DL-752)
+    if (record?.kind === "thread" && "threadId" in record) continue; // loom: the link is the payload (DL-752)
     const entry = formatEnvelopeEntry(
       record?.kind ?? occurrence.kind,
       occurrence.contextId,
