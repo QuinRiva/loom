@@ -132,6 +132,7 @@ const workstreamJson = {
     at: now,
   },
   reportPath: null,
+  handoffDestinations: [],
   archivedAt: null,
   deletedAt: null,
   createdAt: now,
@@ -231,6 +232,31 @@ describe("Loom sidecar contract splices", () => {
     });
     expect(isLoomGoalShellStreamItem(item)).toBe(true);
     expect(item).not.toHaveProperty("sequence");
+  });
+
+  it("carries an optional role on thread.create", () => {
+    const create = {
+      type: "thread.create",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: "command-1",
+      threadId: "root-1",
+      projectId: "project-1",
+      title: "Inbox",
+      modelSelection: { instanceId: "pi", model: "model" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+    };
+    const encode = Schema.encodeSync(OrchestrationV2Command);
+    const withRole = decodeCommand({ ...create, role: "slack-inbox" });
+    expect(withRole.type === "thread.create" && withRole.role).toBe("slack-inbox");
+    expect(encode(withRole)).toEqual({ ...create, role: "slack-inbox" });
+    const without = decodeCommand(create);
+    expect(without).not.toHaveProperty("role");
+    expect(encode(without)).toEqual(create);
+    expect(() => decodeCommand({ ...create, role: " " })).toThrow();
   });
 
   it("isLoomCommand refuses an unknown or upstream command type", () => {
