@@ -236,6 +236,7 @@ import {
   threadContextReference,
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
+import { isVisibleHandoffDrafter } from "~/loom/handoffDrafter"; // loom: hide healthy /handoff drafters
 import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
 import { readThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
@@ -2632,7 +2633,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // is far more specific than a fuzzy path hit, so the few threads lead the list.
       return [
         ...matchComposerThreadItems({
-          shells: environmentThreadShells,
+          shells: environmentThreadShells.filter(isVisibleHandoffDrafter), // loom: hide healthy /handoff drafters
           environmentId,
           excludeThreadId: activeThreadId,
           query: composerTrigger.query,

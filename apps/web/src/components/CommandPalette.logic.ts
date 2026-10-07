@@ -15,6 +15,7 @@ import { getThreadSortTimestamp, sortThreads } from "../lib/threadSort";
 import { normalizeSearchText } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
+import { isVisibleHandoffDrafter } from "../loom/handoffDrafter"; // loom: hide healthy /handoff drafters
 
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
@@ -307,6 +308,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "runtime"
   | "title"
   | "worktreePath"
+  | "source" // loom: handoff-drafter visibility
 > & {
   pullRequests?: SidebarThreadSummary["pullRequests"];
   updatedAt: string;
@@ -330,7 +332,10 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter(
+      // loom: healthy /handoff drafters stay hidden; broken (flagged) ones surface.
+      (thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread),
+    ),
     input.sortOrder,
   );
   const visibleThreads =

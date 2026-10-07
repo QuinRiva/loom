@@ -24,6 +24,7 @@ import {
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
+import { isVisibleHandoffDrafter } from "../loom/handoffDrafter"; // loom: hide healthy /handoff drafters
 import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 
@@ -568,7 +569,8 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
 }
 
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
+  // loom: `source` for handoff-drafter visibility
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "source"> & {
     environmentId: string;
     projectId: string;
   },
@@ -577,6 +579,7 @@ export function filterSidebarV2VisibleThreads<
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
+      isVisibleHandoffDrafter(thread) && // loom: healthy /handoff drafters stay hidden
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
@@ -1391,7 +1394,7 @@ export function sortLogicalProjectsForSidebar<
 
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
-  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage">,
+  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage" | "source">, // loom: + source
 >(
   projects: readonly TProject[],
   threads: readonly TThread[],

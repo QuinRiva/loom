@@ -100,6 +100,7 @@ import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
+import { useArchiveMembershipRefresh } from "../../loom/useArchiveMembershipRefresh"; // loom
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -3402,6 +3403,8 @@ export function ArchivedThreadsPanel() {
     isLoading: isLoadingArchive,
     refresh: refreshArchivedThreads,
   } = useArchivedThreadSnapshots(scope.environmentIds);
+  // loom: follow archive changes made elsewhere (another client, a Loom cascade)
+  useArchiveMembershipRefresh(scope.environmentIds, archivedSnapshots, refreshArchivedThreads);
 
   const archivedGroups = useMemo(() => {
     const selectedProjectKeys =

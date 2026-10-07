@@ -677,7 +677,9 @@ export function MdxPlanAnnotationLayer({
       sectionId: anchor.sectionId ?? `file:${filePath}`,
       sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
       rangeLabel:
-        anchor.anchorKind === "text" ? "annotation" : `${anchor.blockType ?? "block"} block`,
+        anchor.anchorKind === "text"
+          ? "annotation"
+          : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`,
       text,
       anchor,
       quotedText: composer.quotedText,
