@@ -180,3 +180,16 @@ deployed.
 - **DL-608 — The timeline-cards coder (`b02eb3bd`) was released before the control-notice
   gate resolved and was paused,** so it does not build on card code still in review. It
   resumes once that fix merges.
+- **DL-609 — QA rebuild 1 (2026-10-07 02:05–02:12Z) at `86045ecb8f`.** In-place rebuild per
+  the QA guide §3: `stop.sh`; in `<qa>/build/loom` fetch the branch, detach,
+  `CI=true vp i --no-frozen-lockfile`, `pnpm build`; `probe.sh` (PROBE PASSED, sandbox
+  `94bbf00311cbb81b`, unchanged); `start.sh`. Loom migrations ran to 1052 (control-message
+  repair). Before the rebuild, the integrated branch had typecheck green after an
+  integration fix (`86045ecb8f`: the slash-menu hunk still referenced `_isServerThread`
+  after DL-700 renamed the prop), `vp check` 0 errors, the unmarked sweep clean, and
+  2538/2539 Loom and orchestration tests passing; the one failure is DL-263's known
+  `AcpRegistryAdapterV2` flake. QA's pi agent dir also gained copies of the pi-craft skills
+  (`handoff`, `authored-document`, `seek-manager-guidance`, `grill-me`,
+  `presentation-authoring`, `fix-codex-session`, `mattpocock/*`) so pi slash commands can be
+  exercised, and the bridge tool-change patch (DL-632). Not in this build: `!` thread
+  references, the timeline, board, sidebar and fork-turn restores (still in progress).
