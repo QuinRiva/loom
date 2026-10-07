@@ -289,3 +289,4 @@ deployed.
   `apps/web`), and live on the dev-verify seed: one Workstream tab showing the graph, the
   node timeline drawer opens, the "+" menu lists Workstream only, and a planted v14 state
   (board + graph + diff, graph active) reloads as Workstream + Diff with the graph active.
+  Commit `d2716f9d64`.
