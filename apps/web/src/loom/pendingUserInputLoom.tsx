@@ -19,6 +19,23 @@ import { unified } from "unified";
 import { create } from "zustand";
 
 import ChatMarkdown from "../components/ChatMarkdown";
+import { useNowMinute } from "../hooks/useNowMinute";
+import { formatElapsedDurationLabel } from "../timestampFormat";
+
+/**
+ * S4 — the sidebar Input label's suffix: how long the question has waited
+ * ("· 3h"). Ticks on the shared minute clock, whose value feeds the label so
+ * the React Compiler cannot memoise it stale; reads up to a minute low.
+ */
+export function PendingQuestionWaitAge({ since }: { since: string }) {
+  const label = formatElapsedDurationLabel(since, Date.parse(`${useNowMinute()}:00Z`));
+  if (label === "") return null;
+  return (
+    <span className="font-normal">
+      · {label === "just now" || label.endsWith("s") ? "now" : label}
+    </span>
+  );
+}
 
 export interface LoomPendingInputHost {
   /** Where the body's relative paths resolve and which panel their chips open in. */

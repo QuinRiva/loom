@@ -9,6 +9,7 @@
  */
 import type { LoomAttentionReason, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
+import * as DateTime from "effect/DateTime";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 
 import {
@@ -70,6 +71,20 @@ export function attentionReasonsOf(
     reasons.push("brief-needed");
   }
   return reasons.sort((left, right) => ATTENTION_PRIORITY[right] - ATTENTION_PRIORITY[left]);
+}
+
+/**
+ * The question a thread waits on (S4): its first header, when the request
+ * carries one, and when it was asked. Null unless the pending request is a
+ * `user_input` one. The sidebar row, the input alert and the mobile card read it.
+ */
+export function pendingQuestionOf(
+  thread: Pick<OrchestrationV2ThreadShell, "pendingRuntimeRequest">,
+): { readonly header: string | null; readonly since: string } | null {
+  const request = thread.pendingRuntimeRequest;
+  return request?.kind === "user_input"
+    ? { header: request.header ?? null, since: DateTime.formatIso(request.createdAt) }
+    : null;
 }
 
 export interface PlanRollup {

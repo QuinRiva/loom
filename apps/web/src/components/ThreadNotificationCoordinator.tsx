@@ -1,4 +1,5 @@
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
@@ -166,6 +167,9 @@ function EnvironmentNotifications({
               : status === "failed"
                 ? "Thread failed"
                 : "Input needed";
+      // loom: S4 — an input alert names the waiting question: "header — thread title".
+      const header = status === "input" ? pendingQuestionOf(rawThread)?.header : null;
+      const body = header ? `${header} — ${thread.title}` : thread.title;
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -180,7 +184,7 @@ function EnvironmentNotifications({
         const toastId = toastManager.add({
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
           title,
-          description: thread.title,
+          description: body, // loom: S4
           data: {
             hideCopyButton: true,
             leadingIcon:
@@ -216,7 +220,7 @@ function EnvironmentNotifications({
         continue;
       try {
         const notification = new Notification(title, {
-          body: thread.title,
+          body, // loom: S4
           tag: `${environmentId}:${thread.id}`,
           silent: true,
         });
