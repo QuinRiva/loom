@@ -12,16 +12,18 @@ import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { asToolError, childrenOf, dispatch, fail, nowIso, stripThreadRef } from "./shared.ts";
+import { asToolError, childrenOf, dispatch, fail, nowIso, threadRefIds } from "./shared.ts";
 
 export const workstreamBrief = Effect.fn("LoomToolkit.workstreamBrief")(function* (
   input: LoomToolInput<"workstream_brief">,
   caller: WorkstreamCaller,
 ) {
   if (input.markdown.trim().length === 0) return yield* fail("markdown is required.");
-  const ref = stripThreadRef(input.node);
+  const ids = threadRefIds(input.node);
   const target = (yield* childrenOf(caller.threadId)).find(
-    (child) => child.archivedAt === null && (child.threadId === ref || child.graphKey === ref),
+    (child) =>
+      child.archivedAt === null &&
+      (ids.includes(child.threadId) || child.graphKey === input.node.trim()),
   );
   if (target === undefined)
     return yield* fail(

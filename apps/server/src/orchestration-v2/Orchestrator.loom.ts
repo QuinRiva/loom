@@ -360,7 +360,9 @@ export const loomSettleBlockers = Effect.fn("loom.settleBlockers")(function* (
   return {
     blocker: null,
     finishedRootAt:
-      workstream.parentThreadId === null && workstream.outcomeAt !== null
+      workstream.parentThreadId === null &&
+      workstream.outcome !== null &&
+      workstream.outcomeAt !== null
         ? DateTime.makeUnsafe(workstream.outcomeAt)
         : null,
   };
@@ -1137,7 +1139,26 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
           threadIds: source === null ? [command.threadId] : [command.threadId, source.threadId],
         });
       }
-      if (command.outcome === null) yield* warnStartedDependents(row);
+      if (command.outcome === null) {
+        yield* warnStartedDependents(row);
+        // A reopened thread is live work again: undo the settle its outcome caused, as
+        // upstream's activity wake does (override back to automatic, so a later done re-settles).
+        const thread = yield* requireThread(command.threadId);
+        if (thread.settledOverride === "settled")
+          yield* emit({
+            type: "thread.unsettled",
+            threadId: thread.id,
+            providerInstanceId: thread.providerInstanceId,
+            occurredAt: now,
+            payload: {
+              ...thread,
+              settledOverride: null,
+              settledAt: null,
+              unsettledAt: now,
+              updatedAt: now,
+            },
+          });
+      }
       if (command.outcome !== "cancelled") return {};
       // The thread's own blocking run stops and its queued runs never start (DL-246);
       // descendants are re-driven (§4).

@@ -118,6 +118,60 @@ it.layer(TestLayer)("quiescence rail", (it) => {
     }),
   );
 
+  it.effect("a reopened child that submitted is not quiet: its report stands (DL-681)", () =>
+    Effect.gen(function* () {
+      const [root, child] = ["reopen-root", "reopen-x"].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: root! });
+      yield* spawnChild({ parentThreadId: root!, threadId: child!, graphKey: "x" });
+      yield* brief(child!);
+      yield* runPass; // kickoff
+      yield* submit(child!);
+      const run = (yield* completeOpenRuns(child!))!;
+      const { reportPath } = yield* row(child!);
+      yield* dispatch({
+        type: "thread.outcome.set",
+        commandId: CommandId.make("reopen-x"),
+        threadId: child!,
+        createdAt,
+        outcome: null,
+      });
+
+      yield* runPass;
+      yield* runPass;
+      assert.isNull(yield* receipt(quiescentSubmitCommandId(child!, run.id)));
+      const reopened = yield* row(child!);
+      assert.equal(reopened.reportPath, reportPath);
+      assert.deepEqual(reopened.attention, []);
+      assert.lengthOf(yield* yields(root!), 0);
+    }),
+  );
+
+  it.effect("a board clear on a yielded child does not re-yield it (row 7)", () =>
+    Effect.gen(function* () {
+      const [root, child] = ["clear-root", "clear-x"].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: root! });
+      yield* spawnChild({ parentThreadId: root!, threadId: child!, graphKey: "x" });
+      yield* brief(child!);
+      yield* runPass; // kickoff
+      yield* submit(child!, "blocked_on_parent"); // unmatched: yields
+      const run = (yield* completeOpenRuns(child!))!;
+      yield* runPass; // the yield rail wakes the root
+      assert.deepEqual((yield* row(child!)).attention, ["awaiting_orchestrator"]);
+      yield* dispatch({
+        type: "thread.attention.clear",
+        commandId: CommandId.make("clear-x-flags"),
+        threadId: child!,
+        createdAt,
+      });
+
+      yield* runPass;
+      yield* runPass;
+      assert.isNull(yield* receipt(quiescentSubmitCommandId(child!, run.id)));
+      assert.deepEqual((yield* row(child!)).attention, []);
+      assert.lengthOf(yield* yields(root!), 1);
+    }),
+  );
+
   it.effect("a human-started last turn and a child with a live child are not candidates", () =>
     Effect.gen(function* () {
       const [root, human, lead, grandchild] = [

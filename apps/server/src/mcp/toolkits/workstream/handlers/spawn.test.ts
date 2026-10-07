@@ -154,7 +154,7 @@ it.layer(HandlerTestLayer)("workstream spawn, scaffold and brief", (it) => {
   );
 
   it.effect(
-    "scaffold: keys and thread: references resolve; nodes are created unbriefed; brief writes the file",
+    "scaffold: keys and thread ids (as printed or `thread:`-prefixed) resolve; nodes are created unbriefed; brief writes the file",
     () =>
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;
@@ -166,7 +166,8 @@ it.layer(HandlerTestLayer)("workstream spawn, scaffold and brief", (it) => {
 
         const result = yield* callAs(parent, "workstream_scaffold", {
           nodes: [
-            { key: "coder", ...spawnNode("Coder"), blockedBy: [`thread:${existing}`] },
+            // The id as printed (a spawned child's id already starts with `thread:`).
+            { key: "coder", ...spawnNode("Coder"), blockedBy: [existing] },
             {
               key: "review",
               ...spawnNode("Review", { role: "reviewer", gate: { rework: "coder" } }),
@@ -182,7 +183,7 @@ it.layer(HandlerTestLayer)("workstream spawn, scaffold and brief", (it) => {
         assert.isNull(coder.kickoffBriefPath);
 
         const briefed = yield* callAs(parent, "workstream_brief", {
-          node: "coder",
+          node: coder.threadId,
           markdown: "# Do the work",
         });
         assert.isFalse(briefed.isError, briefed.text);
