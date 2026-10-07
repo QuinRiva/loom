@@ -310,3 +310,12 @@ deployed.
   source. Verified live in the dev-verify recipe with a fresh browser: chat chip `.md`,
   tree `.md`, `.mdx` and `.artifacts/*.html`, and the Mod+P picker open rendered, `.ts`
   opens as source, and the source choice sticks. Commit `7beef37b14`.
+- **DL-612 — QA rebuild 3 (2026-10-07 05:00–05:05Z) at `1807e32fc8`: DL-800 and DL-810.**
+  Both gates resolved clean. DL-800's fan-in conflicted only on this log (both entries kept,
+  DL-800 first). On the merged branch: typecheck exit 0, `vp check` 0 errors, unmarked sweep
+  clean, and the Loom, orchestration, MCP, persistence, web-Loom and shared suites 3776/3777,
+  the one failure being the DL-263 `AcpRegistryAdapterV2` mode-picker load flake (6/6 on
+  rerun). QA rebuilt per the guide §3 (PROBE PASSED, sandbox `94bbf00311cbb81b`); no server
+  or migration change in this round. Open for Carl from DL-800: whether graph nodes or quick
+  facts should show the per-thread tool count, the subtree cost or a human dependency editor,
+  which only board cards showed.
