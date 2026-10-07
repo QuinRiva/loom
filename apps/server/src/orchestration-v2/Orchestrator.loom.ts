@@ -285,12 +285,6 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 });
 
 /**
- * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
- * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
- * its tool result, so upstream's answer message is withheld. With no live
- * waiter (pi died, the server restarted) upstream's message delivery stands.
- */
-/**
  * The `runtime-request.respond` hunk's answer read (DL-720). Upstream's message
  * path takes only string answers — its one producer, Codex's async questions,
  * is never multi-select — but a `loom-ask:` question can be, and the panel
@@ -303,6 +297,12 @@ export const loomAskAnswer = (requestId: string, answer: unknown) =>
     ? answer.join(", ")
     : answer;
 
+/**
+ * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
+ * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
+ * its tool result, so upstream's answer message is withheld. With no live
+ * waiter (pi died, the server restarted) upstream's message delivery stands.
+ */
 export const loomAskTakesAnswer = (requestId: string) =>
   Effect.gen(function* () {
     if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
