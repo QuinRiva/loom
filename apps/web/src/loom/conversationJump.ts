@@ -98,24 +98,28 @@ export function useConversationJump({
       rows.findLastIndex((row) => row.createdAt !== null && row.createdAt <= at),
     );
     const row = rows[index]!;
+    // Stop live-follow first, then scroll two frames later: the timeline must
+    // have re-rendered without pinning to the end, or it snaps straight back.
     onManualNavigation();
-    const frame = window.requestAnimationFrame(() => {
-      useConversationJumpStore.getState().setRequest(null);
-      void Promise.resolve(
-        listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 }),
-      ).then(() => {
-        // One-shot fade, not a looping animation: the row the jump landed on
-        // has to stand out in a wall of transcript.
-        listRef.current
-          ?.getScrollableNode()
-          ?.querySelector(`[data-timeline-row-id="${CSS.escape(row.id)}"]`)
-          ?.animate(
-            [
-              { backgroundColor: "color-mix(in srgb, var(--color-info) 22%, transparent)" },
-              { backgroundColor: "transparent" },
-            ],
-            { duration: 1400, easing: "ease-out" },
-          );
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        useConversationJumpStore.getState().setRequest(null);
+        void Promise.resolve(
+          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.3 }),
+        ).then(() => {
+          // One-shot fade, not a looping animation: the row the jump landed on
+          // has to stand out in a wall of transcript.
+          listRef.current
+            ?.getScrollableNode()
+            ?.querySelector(`[data-timeline-row-id="${CSS.escape(row.id)}"]`)
+            ?.animate(
+              [
+                { backgroundColor: "color-mix(in srgb, var(--color-info) 22%, transparent)" },
+                { backgroundColor: "transparent" },
+              ],
+              { duration: 1400, easing: "ease-out" },
+            );
+        });
       });
     });
     return () => window.cancelAnimationFrame(frame);

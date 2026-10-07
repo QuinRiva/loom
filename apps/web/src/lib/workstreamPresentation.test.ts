@@ -165,7 +165,7 @@ describe("buildTimelineRows", () => {
     const rows = buildTimelineRows(reviewer, (id) => `title of ${id}`, [
       { type: "route-taken", ...event(1), to: T.gateCoder, round: 1, kind: "loop" },
       { type: "attention-raised", ...event(2), reason: "awaiting_orchestrator" },
-      { type: "attention-cleared", ...event(3), reason: "awaiting_orchestrator" },
+      { type: "attention-cleared", ...event(3), reason: null },
       { type: "attention-raised", ...event(4), reason: "needs_guidance" },
       { type: "outcome-set", ...event(5), outcome: null },
     ]);

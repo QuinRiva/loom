@@ -51,6 +51,7 @@ import {
   type WorkstreamCommands,
 } from "../loom/workstreamState";
 import {
+  LoomContextChip,
   WorkstreamEnvironmentContext,
   WorkstreamSpendSlot,
   WorkstreamTotalSpend,
@@ -174,9 +175,11 @@ function WorkstreamCard({
                   />
                 }
               >
-                {context.percent}%
+                ctx {context.percent}%
               </TooltipTrigger>
-              <TooltipPopup>Context window used</TooltipPopup>
+              <TooltipPopup>
+                <LoomContextChip usage={node.contextUsage} />
+              </TooltipPopup>
             </Tooltip>
           ) : null}
           <span>{formatRelativeAge(node.lastActivityAt)}</span>

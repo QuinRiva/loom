@@ -370,8 +370,9 @@ export function getActivity(node: WorkstreamNode): string {
 }
 
 /**
- * The card's context-window figure (V1's thresholds): hidden below 20 % used,
- * hot above 50 %. Null without a known window.
+ * The card's context-window figure: the share of the window used, hot above
+ * 50 % (V1's threshold). Unlike V1 it never hides a low figure: with 1M-token
+ * windows nearly every card sat below V1's 20 % floor. Null without a window.
  */
 export function getContextChip(
   node: Pick<WorkstreamNode, "contextUsage">,
@@ -379,7 +380,7 @@ export function getContextChip(
   const max = node.contextUsage?.maxTokens;
   if (!node.contextUsage || !max) return null;
   const percent = Math.min(100, Math.round((node.contextUsage.usedTokens / max) * 100));
-  return percent < 20 ? null : { percent, hot: percent > 50 };
+  return { percent, hot: percent > 50 };
 }
 
 /** A thread's dispatch site: the moment its parent spawned it, in the parent's conversation. */
@@ -587,10 +588,15 @@ const ATTENTION_TONES: Record<string, Tone> = {
   awaiting_acceptance: "info",
 };
 
-/** One history entry's copy: flags (a yield is `awaiting_orchestrator`), routes, outcomes. */
+/**
+ * One history entry's copy: flags (a yield is `awaiting_orchestrator`, and the
+ * clear that ends it — usually a clear-all — is its resume), routes, outcomes.
+ * `raised` is the set of flags standing before the entry.
+ */
 function historyRowBody(
   entry: LoomThreadHistoryEntry,
   titleOf: (threadId: ThreadId) => string,
+  raised: ReadonlySet<string>,
 ): RowBody {
   switch (entry.type) {
     case "outcome":
@@ -604,7 +610,10 @@ function historyRowBody(
             tone: ATTENTION_TONES[entry.reason] ?? "warning",
           };
     case "attention-cleared":
-      if (entry.reason === "awaiting_orchestrator")
+      if (
+        (entry.reason ?? "awaiting_orchestrator") === "awaiting_orchestrator" &&
+        raised.has("awaiting_orchestrator")
+      )
         return { label: "Resumed", detail: "picked back up by the orchestrator", tone: "info" };
       return entry.reason === null
         ? { label: "Flags cleared", detail: null, tone: "neutral" }
@@ -685,14 +694,21 @@ export function buildTimelineRows(
     ...(reportPath === undefined ? {} : { reportPath }),
     jump: here(at),
   });
-  const historyRows = history?.map((entry) =>
-    historyRow(
+  const raised = new Set<string>();
+  const historyRows = history?.map((entry) => {
+    const row = historyRow(
       `${entry.type}:${entry.eventId ?? entry.at}`,
       entry.at,
-      historyRowBody(entry, titleOf),
+      historyRowBody(entry, titleOf, raised),
       entry.type === "outcome" ? entry.reportPath : undefined,
-    ),
-  ) ?? [
+    );
+    if (entry.type === "attention-raised") raised.add(entry.reason);
+    if (entry.type === "attention-cleared") {
+      if (entry.reason === null) raised.clear();
+      else raised.delete(entry.reason);
+    }
+    return row;
+  }) ?? [
     ...(node.lastOutcome === null
       ? []
       : [
