@@ -98,3 +98,15 @@ deployed.
   child. A lineage fork whose source has no V2 identity record (every V1-imported thread not
   yet relaunched) composes fresh as a root. `forkFrom` children are unchanged. Gate clean
   after one rework round (`2a5bd30082`).
+- **DL-660–663 — Messages sent in a thread's first seconds are delivered, not bounced.**
+  `workstream_prompt` and `notify_thread` drop `deliveryIntent: "auto"` and use Loom's steered
+  tier (as `controlMessage()` does): in the window between run start and provider-turn
+  start, the message is queued instead of hitting upstream's
+  `No running provider turn found` refusal. A Loom dispatcher step (`queuedSteerPromotion`)
+  then promotes queued Loom-origin messages into the running turn via upstream's
+  `queued-message.promote-to-steer`, in delivery order, never past an earlier queued one
+  and never through a human-held queue. No upstream validation changed. The tool result
+  names what happened (steered, queued, kickoff, next turn). Gate clean; fan-in conflict
+  in `Orchestrator.ts` (an import list, beside DL-720's `loomAskAnswer`) resolved by hand
+  in `6513bf8093`, with typecheck, `vp check`, the Orchestrator tests and the
+  unmarked-hunk sweep green.
