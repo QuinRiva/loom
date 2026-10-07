@@ -181,11 +181,12 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
   Layer.provide(PlatformTestLayer),
 );
 
-/** Creates the project (idempotently by id) and a root thread through the real services. */
+/** Creates the project (idempotently by id) and a root thread (with `role`, a Loom root) through the real services. */
 export const seedThread = Effect.fn("loom.testkit.seedThread")(function* (input: {
   readonly threadId: ThreadId;
   readonly projectId?: ProjectId;
   readonly title?: string;
+  readonly role?: string;
 }) {
   const projectId = input.projectId ?? ProjectId.make("project:loom-test");
   const projects = yield* ProjectService.ProjectService;
@@ -196,7 +197,7 @@ export const seedThread = Effect.fn("loom.testkit.seedThread")(function* (input:
     title: "Loom test project",
     workspaceRoot: `/workspace/${projectId}`,
   });
-  yield* orchestrator.dispatch({
+  const { storedEvents } = yield* orchestrator.dispatch({
     type: "thread.create",
     createdBy: "user",
     creationSource: "web",
@@ -209,8 +210,9 @@ export const seedThread = Effect.fn("loom.testkit.seedThread")(function* (input:
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    ...(input.role === undefined ? {} : { role: input.role }),
   });
-  return { threadId: input.threadId, projectId };
+  return { threadId: input.threadId, projectId, storedEvents };
 });
 
 /** Ids of the run `seedRunningRun` writes, derived from the thread and ordinal. */

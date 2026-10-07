@@ -5,7 +5,7 @@
  * all-or-nothing, and the child's V2 row is an explicit field list.
  */
 import { assert, it } from "@effect/vitest";
-import { CommandId, type OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
+import { CommandId, type OrchestrationV2AppThread, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -26,6 +26,50 @@ const causeOf = (error: { readonly _tag: string }) =>
     : error._tag;
 
 it.layer(LoomOrchestratorTestLayer)("Loom spawn and scaffold", (it) => {
+  it.effect(
+    "a client thread.create naming a role writes the root's sidecar row; without, none",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const root = ThreadId.make("create-role-root");
+        const { storedEvents } = yield* seedThread({ threadId: root, role: "slack-inbox" });
+        assert.deepEqual(
+          storedEvents.map((stored) => [stored.event.type, stored.event.threadId]),
+          [
+            ["thread.created", root],
+            ["thread.workstream-created", root],
+          ],
+        );
+        const sidecar = storedEvents[1]!.event;
+        assert.deepEqual(sidecar.type === "thread.workstream-created" ? sidecar.payload : null, {
+          parentThreadId: null,
+          rootThreadId: root,
+          projectId: ProjectId.make("project:loom-test"),
+          goalId: null,
+          anchorTaskId: null,
+          role: "slack-inbox",
+          purpose: null,
+          graphKey: null,
+          kickoffBriefPath: null,
+          held: false,
+          blockedBy: [],
+          routes: [],
+          spawnGeneration: null,
+          forkFromThreadId: null,
+          continuesThreadId: null,
+        });
+        assert.equal((yield* store.getWorkstream(root))?.role, "slack-inbox");
+
+        const plain = ThreadId.make("create-plain-root");
+        const created = yield* seedThread({ threadId: plain });
+        assert.deepEqual(
+          created.storedEvents.map((stored) => stored.event.type),
+          ["thread.created"],
+        );
+        assert.isNull(yield* store.getWorkstream(plain));
+      }),
+  );
+
   it.effect("spawn locks the parent, creates its sidecar, and writes an explicit child row", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

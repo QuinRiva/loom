@@ -260,6 +260,23 @@ it.layer(TestLayer)("Loom projector", (it) => {
     }),
   );
 
+  it.effect("goal-set on a root created with a role keeps the role", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const threadId = ThreadId.make("goalset-role-root");
+      yield* seedThread({ threadId, role: "slack-inbox" });
+      yield* writeEvents([
+        yield* loomEvent("thread.goal-set", threadId, { goalId: GoalId.make("goal:role") }),
+      ]);
+      assert.deepInclude((yield* store.getWorkstream(threadId))!, {
+        goalId: GoalId.make("goal:role"),
+        role: "slack-inbox",
+        parentThreadId: null,
+        rootThreadId: threadId,
+      });
+    }),
+  );
+
   it.effect(
     "mirrors upstream archive / unarchive / rename / delete and runs the goal cascades",
     () =>

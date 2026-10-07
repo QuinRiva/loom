@@ -68,7 +68,7 @@ const withComposer = <A, E, R>(
   }).pipe(Effect.provide(composerDeps(rootCacheRetention)));
 
 /** A root on a real checkout (so `.t3code/roles/` can be written under it). */
-const seedRoot = (name: string, worktreePath: string) =>
+const seedRoot = (name: string, worktreePath: string, role?: string) =>
   Effect.gen(function* () {
     const projectId = ProjectId.make(`project:composer-${name}`);
     const threadId = ThreadId.make(`thread:composer-${name}`);
@@ -91,6 +91,7 @@ const seedRoot = (name: string, worktreePath: string) =>
       interactionMode: "default",
       branch: null,
       worktreePath,
+      ...(role === undefined ? {} : { role }),
     });
     return { projectId, threadId };
   });
@@ -167,6 +168,23 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.lengthOf(extensions, 1);
         assert.equal(NodePath.basename(extensions[0]!), LOOM_EXTENSION_FILENAME);
         assert.isTrue(NodeFS.existsSync(extensions[0]!));
+      }),
+    ),
+  );
+
+  it.effect("composes a root created with a role under that role's project overlay", () =>
+    withComposer("long", (composer) =>
+      Effect.gen(function* () {
+        const checkout = tempCheckout();
+        writeProjectRole(checkout, "slack-inbox", "- SLACK INBOX RULE");
+        const { threadId } = yield* seedRoot("inbox", checkout, "slack-inbox");
+        const { appendSystemPrompt } = yield* composer.compose(threadId);
+        assert.isTrue(
+          appendSystemPrompt.startsWith(
+            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId)}\n\n- SLACK INBOX RULE\n\n`,
+          ),
+        );
+        assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
       }),
     ),
   );

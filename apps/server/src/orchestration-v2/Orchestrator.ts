@@ -128,6 +128,7 @@ import {
   isPromotableLoomQueuedRun,
   loomAskAnswer,
   loomAskTakesAnswer,
+  loomBareWorkstreamCreated,
   LoomDispatchDeferredError,
   loomContinuationVetoed,
   loomHumanStopRaise,
@@ -2213,6 +2214,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: thread,
     });
+    // loom: a client root naming a role gets its sidecar row now, before its first session composes
+    if (command.role !== undefined) {
+      yield* emitEvent(loomBareWorkstreamCreated(thread, command.role, now));
+    }
     if (command.importedNativeThread !== undefined) {
       yield* emitEvent({
         type: "provider-thread.updated",

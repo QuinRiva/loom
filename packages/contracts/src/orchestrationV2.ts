@@ -2639,6 +2639,7 @@ export const OrchestrationV2Command = Schema.Union([
     interactionMode: ProviderInteractionMode,
     branch: Schema.NullOr(TrimmedNonEmptyString),
     worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+    role: Schema.optional(TrimmedNonEmptyString), // loom: a root's role overlay (writes its sidecar row on create)
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({

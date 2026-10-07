@@ -129,6 +129,33 @@ const loomEvent = <T extends LoomEventType>(
   payload: LoomEventOf<T>["payload"],
 ) => ({ type, threadId, occurredAt, payload }) as unknown as Omit<LoomEventOf<T>, "id">;
 
+/**
+ * The sidecar row of a thread with no Loom graph state: a row-less parent a
+ * spawn adopts (role null), or a client `thread.create` root naming its role.
+ */
+export const loomBareWorkstreamCreated = (
+  thread: OrchestrationV2AppThread,
+  role: string | null,
+  occurredAt: DateTime.Utc,
+) =>
+  loomEvent("thread.workstream-created", thread.id, occurredAt, {
+    parentThreadId: thread.lineage.parentThreadId,
+    rootThreadId: thread.lineage.rootThreadId,
+    projectId: thread.projectId,
+    goalId: null,
+    anchorTaskId: null,
+    role,
+    purpose: null,
+    graphKey: null,
+    kickoffBriefPath: null,
+    held: false,
+    blockedBy: [],
+    routes: [],
+    spawnGeneration: null,
+    forkFromThreadId: null,
+    continuesThreadId: null,
+  });
+
 // A copy of upstream's non-exported `isBlockingRun` (one rule; no upstream hunk to export it).
 const isBlockingRun = (run: Pick<OrchestrationV2Run, "status">) =>
   run.status === "preparing" ||
@@ -606,25 +633,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       return { parent, parentWorkstream: yield* workstreamOf(parentThreadId) };
     });
   const ensureParentRow = (parent: OrchestrationV2AppThread, row: LoomThreadWorkstream | null) =>
-    row !== null
-      ? Effect.void
-      : on("thread.workstream-created", parent.id, {
-          parentThreadId: parent.lineage.parentThreadId,
-          rootThreadId: parent.lineage.rootThreadId,
-          projectId: parent.projectId,
-          goalId: null,
-          anchorTaskId: null,
-          role: null,
-          purpose: null,
-          graphKey: null,
-          kickoffBriefPath: null,
-          held: false,
-          blockedBy: [],
-          routes: [],
-          spawnGeneration: null,
-          forkFromThreadId: null,
-          continuesThreadId: null,
-        });
+    row !== null ? Effect.void : emit(loomBareWorkstreamCreated(parent, null, now));
 
   // -------------------------------------------------------------------------
   // Multi-step cases
