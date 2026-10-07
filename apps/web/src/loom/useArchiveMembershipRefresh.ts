@@ -5,7 +5,7 @@ import {
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import { environmentSnapshotAtom } from "../state/shell";
 
@@ -38,19 +38,17 @@ export function useArchiveMembershipRefresh(
 ) {
   const live = useAtomValue(liveThreadKeysAtom(makeArchivedThreadsEnvironmentKey(environmentIds)));
   const previous = useRef<ReadonlySet<string> | null>(null);
-  const archivedRef = useRef(archived);
-  archivedRef.current = archived;
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
-  useEffect(() => {
-    if (live === null) return;
-    const current = new Set(live.split("\n"));
+  // An effect event, so only a live-membership change triggers it, never a refetched list.
+  const onLiveChange = useEffectEvent((current: ReadonlySet<string>) => {
     const left =
       previous.current !== null && [...previous.current].some((key) => !current.has(key));
     previous.current = current;
-    const unarchived = archivedRef.current.some(({ environmentId, snapshot }) =>
+    const unarchived = archived.some(({ environmentId, snapshot }) =>
       snapshot.threads.some((thread) => current.has(`${environmentId}:${thread.id}`)),
     );
-    if (left || unarchived) refreshRef.current();
+    if (left || unarchived) refresh();
+  });
+  useEffect(() => {
+    if (live !== null) onLiveChange(new Set(live.split("\n")));
   }, [live]);
 }
