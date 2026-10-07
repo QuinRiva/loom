@@ -281,6 +281,8 @@ import {
 import { loomAttentionOf, loomTopStatus } from "./Sidebar.logic.loom";
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { LoomRollupBadge } from "../loom/LoomRollupBadge";
+import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
+import { PendingQuestionWaitAge } from "../loom/pendingUserInputLoom"; // loom: S4
 import { readLoomGoal } from "../loom/loomGoalState";
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
 
@@ -1321,6 +1323,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     : null;
   // loom: 3d-3 — Loom attention outranks every upstream state (Sidebar.logic.loom.ts).
   const topStatus = loomAttention === null ? upstreamTopStatus : loomTopStatus(loomAttention);
+  // loom: S4 — which question waits, and since when (under the upstream Input pill only).
+  const pendingQuestion =
+    status === "input" && loomAttention === null ? pendingQuestionOf(thread.source) : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -2036,6 +2041,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             wrapper around the ticking duration would make
                             screen readers announce every second. */}
                           <span role="status">{topStatus.label}</span>
+                          {pendingQuestion ? ( // loom: S4
+                            <PendingQuestionWaitAge since={pendingQuestion.since} />
+                          ) : null}
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -2124,7 +2132,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
-              {thread.branch ? (
+              {pendingQuestion?.header ? (
+                // loom: S4 — except while a question waits: its header matters more,
+                // and this is the row's only full-width line.
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-info-foreground/80">
+                  {pendingQuestion.header}
+                </span>
+              ) : thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
                   <span className="flex min-w-0 flex-1 text-muted-foreground/40">

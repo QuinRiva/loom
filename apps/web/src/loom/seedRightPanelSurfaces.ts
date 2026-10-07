@@ -8,18 +8,22 @@
 // `isOpen` (docs/architecture/loom-ui-state-tiers.md, seed-not-override).
 import type { RightPanelSurface, ThreadRightPanelState } from "../rightPanelStore";
 
-/** Seedable surface kinds, highest activation priority first. */
-export const SEEDABLE_SURFACE_KINDS = ["tasks", "workstream", "graph"] as const;
-export type SeedableSurfaceKind = (typeof SEEDABLE_SURFACE_KINDS)[number];
-
 const LOOM_SURFACES = {
   tasks: { id: "tasks", kind: "tasks" },
   workstream: { id: "workstream", kind: "workstream" },
   graph: { id: "graph", kind: "graph" },
-} as const satisfies Record<SeedableSurfaceKind, RightPanelSurface>;
+} as const satisfies Record<string, RightPanelSurface>;
+
+/**
+ * Seedable surface kinds, highest activation priority first. Goal tasks is
+ * never seeded: the panel reopens as the user left it (G3).
+ */
+export const SEEDABLE_SURFACE_KINDS = ["workstream", "graph"] as const;
+export type SeedableSurfaceKind = (typeof SEEDABLE_SURFACE_KINDS)[number];
 
 /** The singleton surface descriptor for a Loom kind. */
-export const loomSurface = (kind: SeedableSurfaceKind): RightPanelSurface => LOOM_SURFACES[kind];
+export const loomSurface = (kind: keyof typeof LOOM_SURFACES): RightPanelSurface =>
+  LOOM_SURFACES[kind];
 
 /**
  * Add `kinds` to the thread's right panel in a single transition.

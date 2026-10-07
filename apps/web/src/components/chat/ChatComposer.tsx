@@ -236,6 +236,7 @@ import {
   threadContextReference,
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
+import { matchThreadMentionItems } from "~/loom/threadMention"; // loom: the `!` thread menu (DL-750)
 import { isVisibleHandoffDrafter } from "~/loom/handoffDrafter"; // loom: hide healthy /handoff drafters
 import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
 import { readThreadShell, useThreadShells } from "~/state/entities";
@@ -2547,7 +2548,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestTextQuery === debouncedPullRequestTextQuery ? pullRequestTextQuery : null;
   const isPathTrigger = composerTriggerKind === "path";
   // Thread shells only feed `@` thread matches, so skip shell updates otherwise.
-  const environmentThreadShells = useThreadShells(isPathTrigger);
+  // loom: `!` thread matches read the shells too (DL-750).
+  const environmentThreadShells = useThreadShells(
+    isPathTrigger || composerTriggerKind === "thread",
+  );
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
@@ -2628,6 +2632,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
+    // loom: `!` lists threads by multi-word title (DL-750).
+    if (composerTrigger.kind === "thread") {
+      return matchThreadMentionItems({
+        shells: environmentThreadShells,
+        environmentId,
+        excludeThreadId: activeThreadId,
+        query: composerTrigger.query,
+      });
+    }
     if (composerTrigger.kind === "path") {
       // Threads only surface for a typed query so `@` alone stays a file picker. A title match
       // is far more specific than a fuzzy path hit, so the few threads lead the list.
@@ -2803,7 +2816,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     workspaceEntries.entries,
   ]);
 
-  const composerMenuOpen = Boolean(composerTrigger);
+  // loom: the `!` query spans spaces, so it closes once nothing matches (DL-750).
+  const composerMenuOpen =
+    Boolean(composerTrigger) && (composerTriggerKind !== "thread" || composerMenuItems.length > 0);
   const composerMenuSearchKey = composerTrigger
     ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
@@ -4077,7 +4092,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "thread") {
-        if (trigger.kind !== "path") return;
+        if (trigger.kind !== "path" && trigger.kind !== "thread") return; // loom: `!` too
         const shell = readThreadShell(item.thread);
         if (!shell) return;
         const record = threadContextRecord(item.thread, shell.title);

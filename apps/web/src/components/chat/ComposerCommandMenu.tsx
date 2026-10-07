@@ -242,6 +242,7 @@ const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
   "pull-request": "Pull requests",
   "slash-command": "Commands",
   skill: "Skills",
+  thread: "Threads", // loom: the `!` thread menu (DL-750)
 };
 
 const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {

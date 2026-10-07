@@ -285,19 +285,26 @@ export function projectComposerContextForProvider(input: {
     // Even callers that bypass the wire schema must not silently select an ambiguous payload.
     recordsById.set(record.contextId, recordsById.has(record.contextId) ? undefined : record);
   }
-  const body = replaceComposerContextReferences(input.text, (occurrence) =>
-    formatComposerContextProviderMarker(
-      recordsById.get(occurrence.contextId)?.kind ?? occurrence.kind,
+  const body = replaceComposerContextReferences(input.text, (occurrence) => {
+    const record = recordsById.get(occurrence.contextId);
+    // loom: a thread goes inline as `[Title](thread://<id>)`, the form Loom's
+    // consult_thread documents; Loom withholds upstream's t3_thread_read (DL-752).
+    // (`"threadId" in record` also narrows away the open unknown-kind record.)
+    if (record?.kind === "thread" && "threadId" in record)
+      return `[${occurrence.label}](thread://${record.threadId})`;
+    return formatComposerContextProviderMarker(
+      record?.kind ?? occurrence.kind,
       occurrence.label,
       occurrence.contextId,
-    ),
-  );
+    );
+  });
   const seen = new Set<ComposerContextId>();
   const entries: string[] = [];
   for (const occurrence of occurrences) {
     if (seen.has(occurrence.contextId)) continue;
     seen.add(occurrence.contextId);
     const record = recordsById.get(occurrence.contextId);
+    if (record?.kind === "thread" && "threadId" in record) continue; // loom: the link is the payload (DL-752)
     const entry = formatEnvelopeEntry(
       record?.kind ?? occurrence.kind,
       occurrence.contextId,

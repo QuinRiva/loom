@@ -924,6 +924,7 @@ type ShellThreadRow = {
   readonly blocking_failure_payload_json: string | null;
   readonly pending_request_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
+  readonly pending_question_header: string | null; // loom: S4
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
@@ -1331,6 +1332,17 @@ function secretRequestAsPendingInput(
   };
 }
 
+// loom: S4 — names a pending question by its first header (its request's turn item).
+const pendingQuestionHeader = (
+  requestId: RuntimeRequestId,
+  items: ReadonlyArray<OrchestrationV2TurnItem>,
+) => {
+  const header = items.flatMap((item) =>
+    item.type === "user_input_request" && item.requestId === requestId ? item.questions : [],
+  )[0]?.header;
+  return header === undefined ? {} : { header };
+};
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadShell {
@@ -1440,6 +1452,7 @@ export function threadShellFromProjection(
             id: pendingRuntimeRequest.id,
             kind: pendingRuntimeRequest.kind,
             createdAt: pendingRuntimeRequest.createdAt,
+            ...pendingQuestionHeader(pendingRuntimeRequest.id, projection.turnItems), // loom: S4
           },
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
@@ -1542,6 +1555,7 @@ type ShellThreadState = {
   readonly lastErrorClass: OrchestrationV2ThreadShell["lastErrorClass"];
   readonly usageLimitResetAt: OrchestrationV2ThreadShell["usageLimitResetAt"];
   readonly pendingRuntimeRequest: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null;
+  readonly pendingQuestionHeader?: string | null; // loom: S4
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
@@ -1706,6 +1720,9 @@ function shellFromState(input: {
             id: input.state.pendingRuntimeRequest.id,
             kind: input.state.pendingRuntimeRequest.kind,
             createdAt: input.state.pendingRuntimeRequest.createdAt,
+            ...(input.state.pendingQuestionHeader // loom: S4
+              ? { header: input.state.pendingQuestionHeader }
+              : {}),
           },
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
@@ -5016,6 +5033,21 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY secret.updated_at DESC, secret.turn_item_id DESC
                 LIMIT 1
               ) AS pending_secret_request_payload_json,
+              -- loom: S4 — the pending question's first header, from its request node's turn item
+              (
+                SELECT json_extract(item.payload_json, '$.questions[0].header')
+                FROM orchestration_v2_projection_turn_items item
+                WHERE item.node_id = (
+                    SELECT json_extract(request.payload_json, '$.nodeId')
+                    FROM orchestration_v2_projection_runtime_requests request
+                    WHERE request.thread_id = t.thread_id
+                      AND request.status = 'pending'
+                    ORDER BY request.created_at DESC, request.runtime_request_id DESC
+                    LIMIT 1
+                  )
+                  AND item.type = 'user_input_request'
+                LIMIT 1
+              ) AS pending_question_header,
               (
                 SELECT message.updated_at
                 FROM orchestration_v2_projection_messages message
@@ -5480,6 +5512,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.last_error,
           ),
           pendingRuntimeRequest,
+          pendingQuestionHeader: row.pending_question_header, // loom: S4
           latestUserMessageAt:
             row.latest_user_message_at === null
               ? null

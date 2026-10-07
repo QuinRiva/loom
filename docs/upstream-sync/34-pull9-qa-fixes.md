@@ -180,3 +180,42 @@ deployed.
 - **DL-608 — The timeline-cards coder (`b02eb3bd`) was released before the control-notice
   gate resolved and was paused,** so it does not build on card code still in review. It
   resumes once that fix merges.
+- **DL-609 — QA rebuild 1 (2026-10-07 02:05–02:12Z) at `86045ecb8f`.** In-place rebuild per
+  the QA guide §3: `stop.sh`; in `<qa>/build/loom` fetch the branch, detach,
+  `CI=true vp i --no-frozen-lockfile`, `pnpm build`; `probe.sh` (PROBE PASSED, sandbox
+  `94bbf00311cbb81b`, unchanged); `start.sh`. Loom migrations ran to 1052 (control-message
+  repair). Before the rebuild, the integrated branch had typecheck green after an
+  integration fix (`86045ecb8f`: the slash-menu hunk still referenced `_isServerThread`
+  after DL-700 renamed the prop), `vp check` 0 errors, the unmarked sweep clean, and
+  2538/2539 Loom and orchestration tests passing; the one failure is DL-263's known
+  `AcpRegistryAdapterV2` flake. QA's pi agent dir also gained copies of the pi-craft skills
+  (`handoff`, `authored-document`, `seek-manager-guidance`, `grill-me`,
+  `presentation-authoring`, `fix-codex-session`, `mattpocock/*`) so pi slash commands can be
+  exercised, and the bridge tool-change patch (DL-632). Not in this build: `!` thread
+  references, the timeline, board, sidebar and fork-turn restores (still in progress).
+- **DL-790 — `thread_fork` includes the turn it was called from (row O3, closes DL-344).**
+  The fork's pi session now ends at the batch holding the `thread_fork` call and its tool
+  results, matching V1's cut point (`git show main:apps/server/src/mcp/ThreadForkHttp.ts`),
+  so the fork knows what the caller was doing; the source session is untouched and the
+  tool result's "loses the calling turn" caveat is gone. Gate clean (`5079d9cc2b`).
+- **DL-750–752 — Thread references are back, on `!` (row C1).** `!` was unbound in the
+  composer (pi treats a leading `!` as shell only in its own TUI, not in what Loom sends).
+  `!` lists threads only; pull requests stay on upstream's `#`, and `@` (files) is unchanged.
+  Matching and query rules are V1's, so multi-word titles match; the tiebreak is most
+  recently updated, consistent with upstream's `@`. A thread reference reaches the agent as
+  `[Title](thread://<id>)` again. On V2 it had gone as `[Thread: Title; ref=thread_<id>]`
+  with an instruction to call `t3_thread_read`, a tool Loom withholds from agents, and in
+  the live test the agent passed the wrong id to `consult_thread`. The reviewer reverted
+  three unrequested lint rewrites of upstream lines, one of which failed the ship gate. Gate
+  `fixed_inline` (`737607414d`).
+- **DL-780–786 — Sidebar and panel restores (rows S2, S4, G3).** S2: a root's rollup badge
+  opens a clickable popover listing the flagged children, built on V2's existing rollup
+  (`attention.nodes`) rather than V1's `WorkstreamGraphIndicator`; the badge keeps V2's
+  "3/8 · 2!" look. S4: a pending question's topic and age show on every surface V1 showed
+  them: sidebar row, notification, mobile row, question panel, and board card, active strip
+  and quick facts. The header is joined onto the shell by an indexed subquery, run only for
+  threads with a pending request, and the age is minute-resolution from the request's
+  `createdAt`. G3: the existing persisted per-thread right-panel state already restores
+  what the user left; Goal tasks is no longer an auto-open kind, and the unused
+  `autoOpenGoalTasksPanel` setting is deleted. Gate clean after one rework round
+  (`79b5451199`).

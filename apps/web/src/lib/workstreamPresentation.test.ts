@@ -9,6 +9,7 @@ import {
   buildTimelineRows,
   buildWorkstreamNodes,
   describeOutcomeVerdict,
+  getActivity,
   getGateWaitLabel,
   getNodeStateWord,
   outcomeActionsOf,
@@ -47,6 +48,12 @@ describe("buildWorkstreamNodes", () => {
     expect(nodes.get("seed-thread-awaiting-input" as ThreadId)!.reasons).toEqual([
       "awaiting_input",
     ]);
+  });
+
+  it("names a waiting question and its age on the card (S4)", () => {
+    expect(getActivity(nodes.get("seed-thread-awaiting-input" as ThreadId)!)).toMatch(
+      /^waiting for your input · Parser · \d+[smhd]$/,
+    );
   });
 
   it("an archived unfinished dependency still gates; an archived done one releases", () => {

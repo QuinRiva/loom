@@ -68,6 +68,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom runtime-request.create", (it) => {
       const shell = (yield* orchestrator.getThreadShell(threadId))!;
       assert.equal(shell.pendingRuntimeRequest?.id, requestId);
       assert.equal(shell.pendingRuntimeRequest?.kind, "user_input");
+      assert.equal(shell.pendingRuntimeRequest?.header, "Ship"); // S4: the row and alert name it
       const projection = yield* orchestrator.getThreadProjection(threadId);
       const request = projection.runtimeRequests.find((entry) => entry.id === requestId)!;
       assert.deepEqual(request.responseCapability, { type: "message" });

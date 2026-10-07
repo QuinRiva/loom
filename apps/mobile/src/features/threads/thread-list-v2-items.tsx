@@ -19,6 +19,8 @@ import type {
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
+import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
+import { relativeTime } from "../../lib/time"; // loom: S4
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
@@ -583,6 +585,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
   const status = resolveThreadListV2Status(thread);
+  const pendingQuestion = pendingQuestionOf(thread.source); // loom: S4
   // "Done" marks a completion the user has not opened yet — same emerald
   // label as the web sidebar, sourced from the server-side visited watermark
   // so checking a thread on any device clears it everywhere.
@@ -1003,6 +1006,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             numberOfLines={1}
           >
             {thread.runtime.lastError}
+          </Text>
+        ) : status === "input" && pendingQuestion ? (
+          // loom: S4 — like a failure's error, a waiting question names itself and its age.
+          <Text
+            className={cn(
+              "flex-1 text-xs",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : "text-adaptive-indigo-600-300",
+            )}
+            numberOfLines={1}
+          >
+            {[pendingQuestion.header, relativeTime(pendingQuestion.since)]
+              .filter(Boolean)
+              .join(" · ")}
           </Text>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits

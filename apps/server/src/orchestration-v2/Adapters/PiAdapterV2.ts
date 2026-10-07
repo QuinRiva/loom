@@ -76,6 +76,7 @@ import {
   passthroughLoomPiAdapterHooks,
   type LoomPiAdapterHooksShape,
 } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
+import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
 import * as IdAllocator from "../IdAllocator.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
 import {
@@ -2815,8 +2816,16 @@ export function makePiAdapterV2(
             if (forkInput.providerTurnId !== undefined && target === undefined) {
               return yield* protocolError("Pi fork target turn is missing");
             }
+            // loom: a thread_fork fork ends at the call that made it, not at a run boundary (O3);
+            // an unreadable source is left to fail pi's own --fork below
+            const forkCallPath = piThreadForkPath(
+              yield* options.fileSystem
+                .readFileString(sourceFile)
+                .pipe(Effect.orElseSucceed(() => "")),
+              forkInput.targetThreadId,
+            );
             const beforeEntry =
-              target === undefined
+              target === undefined || forkCallPath !== undefined // loom: (O3)
                 ? null
                 : piRollbackForkEntry({
                     target: { type: "provider_turn", providerTurn: target },
@@ -2866,6 +2875,14 @@ export function makePiAdapterV2(
                 return file;
               }),
             ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, options.spawner));
+            // loom: keep the fork's own header, end its entries at the thread_fork call (O3)
+            if (forkCallPath !== undefined) {
+              const [header] = (yield* options.fileSystem.readFileString(nativeId)).split("\n", 1);
+              yield* options.fileSystem.writeFileString(
+                nativeId,
+                `${[header, ...forkCallPath].join("\n")}\n`,
+              );
+            }
             const now = yield* DateTime.now;
             return yield* registerThread(
               {

@@ -33,11 +33,6 @@ describe("rightPanelStore.seedSurfaces", () => {
     });
   });
 
-  it("tasks outranks the workstream surfaces", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream", "tasks"]);
-    expect(panel().activeSurfaceId).toBe("tasks");
-  });
-
   it("adds a tab without stealing focus or visibility when panel state exists", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().close(refA);

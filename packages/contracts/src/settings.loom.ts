@@ -168,11 +168,10 @@ export const LoomModelPreferenceFields = {
 
 // Spread into `ClientSettingsSchema`.
 export const LoomClientSettingsFields = {
-  // One-shot durable auto-open of the goal-tasks / Workstream right-panel
-  // surfaces (loom UI, plan W1). Both default on: first-visit discovery is
-  // wanted without a manual + → tab per thread, and the per-thread one-shot
-  // flags make the cost a single non-overriding seed per thread.
-  autoOpenGoalTasksPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // One-shot durable auto-open of the Workstream / Graph right-panel surfaces
+  // (loom UI, plan W1). Default on: first-visit discovery is wanted without a
+  // manual + → tab per thread, and the per-thread one-shot flags make the cost
+  // a single non-overriding seed per thread. Goal tasks never auto-opens (G3).
   autoOpenWorkstreamPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Thread content search returns archived roots too unless this is off. A
   // per-device view preference, sent with every `orchestration.searchThreads`.
@@ -183,7 +182,6 @@ export const LoomClientSettingsFields = {
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
-  autoOpenGoalTasksPanel: Schema.optionalKey(Schema.Boolean),
   autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
   threadSearchIncludeArchived: Schema.optionalKey(Schema.Boolean),
 } as const;
