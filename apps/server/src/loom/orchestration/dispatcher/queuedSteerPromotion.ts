@@ -9,19 +9,26 @@
  * uses), this rail moves the message into the turn with upstream's own
  * `queued-message.promote-to-steer`.
  *
+ * Which queued runs qualify is `isPromotableLoomQueuedRun`, shared with the
+ * decider's steer conversion: while one is queued, a later Loom message queues
+ * behind it instead of steering past it (DL-663), and this rail promotes them in
+ * upstream's delivery order, so the turn reads them in send order. A message
+ * with a `notification` or a delegated completion is upstream's to deliver
+ * queued, a human-held queue stays held, and anything a human queued is theirs.
+ *
  * The id is one per queued run, so a promotion is tried once. It is dispatched
  * directly rather than through `PassContext.dispatch`: a refusal (the turn ended
  * in between) is no dead episode to report, because the message simply stays
- * queued and starts the next turn. A message carrying a `notification` or a
- * delegated completion is upstream's to deliver queued and is left alone, as is
- * anything a human queued.
+ * queued and starts the next turn.
  *
  * @module loom/orchestration/dispatcher/queuedSteerPromotion
  */
 import { CommandId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { isPromotableLoomQueuedRun } from "../../../orchestration-v2/Orchestrator.loom.ts";
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
+import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import type { PassStep } from "./WorkstreamDispatcher.ts";
 
 export const promoteSteerCommandId = (queuedRunId: string) =>
@@ -54,14 +61,10 @@ export const queuedSteerPromotion: PassStep = {
         )
       )
         continue;
-      for (const run of runs.filter((candidate) => candidate.status === "queued")) {
-        const message = messages.find((candidate) => candidate.id === run.userMessageId);
-        if (
-          message?.loom?.origin === undefined ||
-          message.notification !== undefined ||
-          message.delegatedCompletion !== undefined
-        )
-          continue;
+      const queued = queuedRunsInDeliveryOrder({ runs, messages }).filter((run) =>
+        isPromotableLoomQueuedRun(run, messages),
+      );
+      for (const run of queued) {
         yield* orchestrator
           .dispatch({
             type: "queued-message.promote-to-steer",

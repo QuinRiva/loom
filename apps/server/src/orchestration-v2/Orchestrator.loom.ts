@@ -31,6 +31,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2Command,
   type OrchestrationV2ContextSourcePoint,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
   RESERVED_OUTCOMES,
@@ -178,6 +179,26 @@ export const loomMessageFields = (
     "createdBy" | "usageLimitContinuationOfRunId" | "scheduledTaskId" | "loom"
   >,
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
+
+/**
+ * A queued run whose message is a steered-tier Loom message the dispatcher's
+ * promotion rail will steer in once the target's turn is up (DL-662): Loom origin,
+ * not upstream's to deliver queued (notification, delegated completion), not held
+ * by a human stop. While one is queued, a later Loom message must queue behind it
+ * rather than steer past it (DL-663), so the turn reads them in send order.
+ */
+export const isPromotableLoomQueuedRun = (
+  run: OrchestrationV2Run,
+  messages: ReadonlyArray<OrchestrationV2ConversationMessage>,
+) => {
+  if (run.status !== "queued" || run.queueHeld === true) return false;
+  const message = messages.find((candidate) => candidate.id === run.userMessageId);
+  return (
+    message?.loom?.origin !== undefined &&
+    message.notification === undefined &&
+    message.delegatedCompletion === undefined
+  );
+};
 
 /** Rule 4's clearing origins: a human, or the parent's `mcp__t3-code__workstream_prompt`. */
 export const loomClearsAttention = (loom: LoomMessageFields | undefined) =>

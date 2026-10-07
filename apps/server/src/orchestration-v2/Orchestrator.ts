@@ -125,6 +125,7 @@ import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
 import { joinLoomShellFields, joinLoomThreadShell } from "../loom/projection/loomShellJoin.ts"; // loom:
 import {
   decideLoomCommand,
+  isPromotableLoomQueuedRun,
   loomAskTakesAnswer,
   LoomDispatchDeferredError,
   loomContinuationVetoed,
@@ -4732,7 +4733,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           active !== undefined &&
           activeTurn !== undefined &&
           providerThread?.providerSessionId != null &&
-          (activeMessage === undefined || !isNativeMaintenanceCommand(activeMessage))
+          (activeMessage === undefined || !isNativeMaintenanceCommand(activeMessage)) &&
+          // loom: never steer past an earlier Loom message still queued for promotion (DL-663)
+          !projection.runs.some((run) => isPromotableLoomQueuedRun(run, projection.messages))
         ) {
           const session = yield* providerSessions
             .get(providerThread.providerSessionId)

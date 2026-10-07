@@ -646,7 +646,7 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
   );
 
   it.effect(
-    "steer promotion: a Loom message queued before the turn was up steers once it is; a human's stays queued",
+    "steer promotion: Loom messages queued before the turn was up steer in send order once it is; a human's stays queued",
     () =>
       Effect.gen(function* () {
         const target = ThreadId.make("promote-steer-target");
@@ -697,14 +697,23 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
             },
           },
         ]);
+        // A later Loom message, sent before the pass, queues behind the earlier one (DL-663).
+        yield* queue("later-correction", true);
+        assert.deepEqual(yield* statuses, ["running", "queued", "queued", "queued"]);
         yield* runPass;
         const after = yield* projection(target);
         assert.deepEqual(
           after.runs.map((run) => run.status),
-          ["running", "cancelled", "queued"],
+          ["running", "cancelled", "queued", "cancelled"],
+        );
+        assert.deepEqual(
+          after.turnItems
+            .filter((item) => item.type === "user_message" && item.runId === ids.runId)
+            .toSorted((left, right) => left.ordinal - right.ordinal)
+            .map((item) => (item.type === "user_message" ? item.text : "")),
+          ["early-correction", "later-correction"],
         );
         const byText = (text: string) => after.messages.find((m) => m.text === text);
-        assert.equal(byText("early-correction")?.runId, ids.runId);
         assert.equal(byText("early-correction")?.loom?.origin, "orchestrator");
         assert.notEqual(byText("human-follow-up")?.runId, ids.runId);
       }),
