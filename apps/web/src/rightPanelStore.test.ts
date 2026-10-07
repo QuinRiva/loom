@@ -426,6 +426,36 @@ describe("rightPanelStore", () => {
     });
   });
 
+  // loom: the old workstream "graph" tab becomes the workstream tab, which is now the graph.
+  it("turns a persisted graph tab into the workstream tab, keeping it active", () => {
+    const graph = { id: "graph", kind: "graph" };
+    const workstream = { id: "workstream", kind: "workstream" };
+    const diff = { id: "diff", kind: "diff" };
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": { isOpen: true, activeSurfaceId: "graph", surfaces: [diff, graph] },
+          "env-1:thread-B": {
+            isOpen: true,
+            activeSurfaceId: "graph",
+            surfaces: [workstream, graph, diff],
+          },
+        },
+      }).byThreadKey,
+    ).toEqual({
+      "env-1:thread-A": {
+        isOpen: true,
+        activeSurfaceId: "workstream",
+        surfaces: [diff, workstream],
+      },
+      "env-1:thread-B": {
+        isOpen: true,
+        activeSurfaceId: "workstream",
+        surfaces: [workstream, diff],
+      },
+    });
+  });
+
   it("persists inline preference without restoring an open popover", () => {
     expect(
       migratePersistedRightPanelState({

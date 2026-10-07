@@ -146,13 +146,12 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
    cache in IndexedDB (`t3code:connection-runtime` → `shell`) mirrors it, so a
    `browser_evaluate` that reads that store and prints `snapshot.goals` and each
    thread's `workstream` is a quick check.
-4. On first visit the root opens the **Workstream** board with a **Graph** tab
-   beside it (the one-shot auto-open; a child opens them from the panel
-   launcher, `W` / `N`). The board shows held (the staged root), blocked,
-   in progress, done and cancelled; the seed has no ready thread, so untick
-   "Survey checkpoint refs" under "Document checkpoint refs" → Waits on to see
-   Ready. The Graph shows the gated pair's loop edge with its `⟲ 1/2` badge.
-5. Cards, the strip and the timeline drawer show each thread's spend, and the
+4. On first visit the root opens the **Workstream** tab, the orchestration's
+   graph (the one-shot auto-open; a child opens it from the panel launcher,
+   `W`). The graph shows the gated pair's loop edge with its `⟲ 1/2` badge;
+   hover a node for its quick facts, right-click for its actions (outcome,
+   timeline, report), middle-click for its timeline drawer.
+5. Quick facts, the strip and the timeline drawer show each thread's spend, and the
    Usage page's **Cost** tab lists **Top threads by cost** — from a
    deterministic fixture ledger until track 3c's usage ledger is wired
    (`apps/server/src/loom/economics/LoomUsageLedger.fixture.ts`). The timeline

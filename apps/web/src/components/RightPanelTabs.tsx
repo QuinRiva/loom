@@ -17,9 +17,8 @@ import type { LoomSurfaceAction } from "~/loom/useLoomRightPanelSurfaces"; // lo
 import {
   AppWindow, // loom: artefact surface
   FolderOpen, // loom: dir surface
-  GitBranch, // loom: 3d-2 workstream surface
   ListTodo, // loom: 3d-2 tasks surface (3d-3 mounts it)
-  Network, // loom: 3d-2 graph surface
+  Network, // loom: 3d-2 workstream surface (the graph)
   Smartphone,
   ChevronDown,
   ChevronLeft,
@@ -138,7 +137,7 @@ interface RightPanelTabsProps {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
-  /** loom: 3d-2 seam 18 — Loom's launcher / "+" menu entries (Workstream, Graph; 3d-3 Goal tasks). */
+  /** loom: 3d-2 seam 18 — Loom's launcher / "+" menu entries (Workstream; 3d-3 Goal tasks). */
   loomSurfaceActions?: ReadonlyArray<LoomSurfaceAction>;
   children: ReactNode;
 }
@@ -629,8 +628,6 @@ function surfaceTitle(
       return "Goal tasks";
     case "workstream": // loom: 3d-2 seam 18
       return "Workstream";
-    case "graph": // loom: 3d-2 seam 18
-      return "Graph";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -709,8 +706,6 @@ function SurfaceIcon({
     case "tasks": // loom: 3d-2 seam 18
       return <ListTodo className="size-3 shrink-0" />;
     case "workstream": // loom: 3d-2 seam 18
-      return <GitBranch className="size-3 shrink-0" />;
-    case "graph": // loom: 3d-2 seam 18
       return <Network className="size-3 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3 shrink-0" />;

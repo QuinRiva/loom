@@ -6,9 +6,10 @@ import type { SidebarThreadSummary } from "../types";
  * drafter (role `handoff-drafter`) is a throwaway fork the server archives once
  * it has drafted its brief, so while alive it stays hidden UNLESS it carries
  * attention. A broken drafter (zero handoffs, hung) raises `needs_guidance` on
- * its live source thread, where the drafter stays reachable from the source's
- * Workstream board; only when the source is gone is the drafter itself
- * flagged, and then it must surface here. Every other thread is always visible.
+ * its live source thread, where the drafter stays reachable from the "Open
+ * drafter" chip on the source timeline's handoff row; only when the source is
+ * gone is the drafter itself flagged, and then it must surface here. Every
+ * other thread is always visible.
  */
 export const isVisibleHandoffDrafter = ({
   source: { workstream },

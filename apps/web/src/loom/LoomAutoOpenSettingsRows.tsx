@@ -27,7 +27,7 @@ export function LoomAutoOpenSettingsRows({
   return (
     <SettingsRow
       title="Auto-open workstream"
-      description="On a thread with sub-threads, open the Workstream board and Graph once when you first visit it."
+      description="On a thread with sub-threads, open its Workstream graph once when you first visit it."
       resetAction={
         settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? (
           <SettingResetButton

@@ -256,6 +256,45 @@ deployed.
   Then 3781/3781 tests, typecheck, `vp check` 0 errors, unmarked sweep clean. QA rebuilt
   per the guide §3 (PROBE PASSED, sandbox unchanged); Loom migrations ran to 1054. Every
   fix and restore on the branch is now in QA except Q1 (semantic search, not started).
+- **DL-800 — The graph is the only workstream view; the board is deleted (Carl: "I don't
+  actually use the board any more").** V1 had one Workstream panel with a board/graph view
+  toggle; pull 9's 3d-2 split them into two right-panel tabs, "Workstream" (the board) and
+  "Graph". Now there is one tab, labelled **Workstream** (shortcut `W`, network icon), and it
+  renders the graph with its active strip, header (workstream total spend, settled count,
+  deadlocked badge, lineage breadcrumb) and node timeline drawer. The `graph` surface kind,
+  its launcher entry (`N`) and its auto-open flag are gone; the auto-open seeds one tab
+  (`seedWorkstream`). Persisted right-panel state is normalised in the store's own `migrate`
+  (storage version 14 → 15, a `// loom:` hunk; the next upstream bump must take 16): a stored
+  `graph` tab becomes the `workstream` tab, or is dropped if that tab is already there, and a
+  `graph` active selection becomes `workstream`, so a reload never shows a dead tab. Deleted:
+  the board (`WorkstreamBoard`, its cards and "Waits on" dependency editor), its presentation
+  helpers (`boardMembersOf`, `groupByColumn`, `getContextChip`, `outcomeActionsOf`, the
+  card-rule styles), the client `setDependencies` command, `WorkstreamSpendSlot`'s subtree
+  mode, the board preview fixture and the board/graph split in the surface code (about
+  1,000 lines removed, 250 added, all Loom-owned files or marked hunks; no server, contract or
+  migration change). Kept, because the graph, node menu, quick facts, active strip, timeline
+  or sidebar still use them: outcome set/reopen, clear flags, stop, "show where it was
+  dispatched" and open report (all on the node's right-click menu), the flag/yield/rework
+  history and jump-to-message (timeline drawer, W2/W3), the context chip (timeline header,
+  W5), per-thread spend (quick facts, strip, timeline) and the workstream total (header, W4).
+  **Left for Carl:** three W-row features rendered only on board cards and now render nowhere,
+  but their data paths stay — (1) the per-card **tool count** (W5: the shell's
+  `workstream.toolCalls`, `LoomStore`'s stats query and migration 1053 are untouched);
+  (2) the **subtree cost** (W4: a client-side sum, so no server cost to keeping it dormant);
+  (3) human editing of a child's **dependencies** (agents still set them with
+  `workstream_dependencies`; the `thread.dependencies.set` command is unchanged). Whether graph
+  nodes or quick facts should show any of them is his call. Verified: typecheck, `vp check`
+  0 errors, the unmarked sweep clean, `vp test run apps/web/src` 6140/6140 (the three ghostty
+  suites fail to import `.wasm?inline` from the repo root, as before, and pass from
+  `apps/web`), and live on the dev-verify seed: one Workstream tab showing the graph, the
+  node timeline drawer opens, the "+" menu lists Workstream only, and a planted v14 state
+  (board + graph + diff, graph active) reloads as Workstream + Diff with the graph active.
+  Commit `d2716f9d64`. **Review round 1:** the board also listed the parentless roots that
+  continue or fork the open thread, and that was the only place a hung `/handoff` drafter
+  could be reached. Its reactor flags the _source_, so the drafter stays hidden and its
+  handoff row reads "drafting". The "Open drafter" chip on the source timeline's handoff row
+  now shows on every live drafter row, not only failed ones. Other staged roots
+  (`goal_continue` successors, `thread_fork` forks) still show in the sidebar and goal panel.
 - **DL-810 — Markdown and MDX files open rendered by default.** Carl: opening a `.md` in QA
   showed source. Not a code regression: V1 (`8368a63b16`) had the same upstream default
   (#4853 keeps the choice in `localStorage["t3code.renderMarkdown"]`, default `false`).

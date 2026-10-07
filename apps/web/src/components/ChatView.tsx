@@ -694,12 +694,9 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
 const GoalTasksPanel = lazy(() => import("./GoalTasksPanel")); // loom: 3d-3
-// loom: 3d-2 seam 18 — the Workstream board and Graph surfaces.
+// loom: 3d-2 seam 18 — the Workstream surface (the graph).
 const WorkstreamPanel = lazy(() =>
   import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
-);
-const WorkstreamGraphPanel = lazy(() =>
-  import("./WorkstreamPanel").then((module) => ({ default: module.WorkstreamGraphPanel })),
 );
 const selectAutoShowFloatingPreview = (settings: { browserAutoShowFloatingPreview: boolean }) =>
   settings.browserAutoShowFloatingPreview;
@@ -10776,14 +10773,10 @@ export default function ChatView(props: ChatViewProps) {
       <Suspense fallback={null}>
         <GoalTasksPanel thread={activeThreadShell} />
       </Suspense>
-    ) : /* loom: 3d-2 seam 18 — the Workstream board and Graph surfaces. */
+    ) : /* loom: 3d-2 seam 18 — the Workstream surface (the graph). */
     renderedRightPanelSurface?.kind === "workstream" ? (
       <Suspense fallback={null}>
         <WorkstreamPanel threadRef={activeThreadRef} />
-      </Suspense>
-    ) : renderedRightPanelSurface?.kind === "graph" ? (
-      <Suspense fallback={null}>
-        <WorkstreamGraphPanel threadRef={activeThreadRef} />
       </Suspense>
     ) : /* loom: the artefact viewer and directory browser (fork-only surfaces). */
     renderedRightPanelSurface?.kind === "artifact" && activeProject ? (

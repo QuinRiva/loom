@@ -179,7 +179,7 @@ export const isTerminalForJoin = (node: TerminalForJoinNode): boolean => isTermi
 // Review gates (docs/design/workstream-review-gates.md §4–§6) — the pure gate
 // predicates + the submit routing decision, shared by the decider (authoritative
 // routing), the dispatcher (traversal/suppression), the submit endpoint
-// (response echo + per-round report naming), and the web board (waiting badges).
+// (response echo + per-round report naming), and the web graph (waiting badges).
 // ---------------------------------------------------------------------------
 
 /**

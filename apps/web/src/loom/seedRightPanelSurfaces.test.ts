@@ -11,32 +11,11 @@ beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });
 
-describe("rightPanelStore.seedSurfaces", () => {
-  it("first visit (no panel state): opens, adds, and activates the seeded surface", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["graph"]);
-    expect(panel()).toEqual({
-      isOpen: true,
-      activeSurfaceId: "graph",
-      surfaces: [{ id: "graph", kind: "graph" }],
-    });
-  });
-
-  it("seeds several surfaces in one transition and activates by priority, not order", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["graph", "workstream"]);
-    expect(panel()).toEqual({
-      isOpen: true,
-      activeSurfaceId: "workstream",
-      surfaces: [
-        { id: "graph", kind: "graph" },
-        { id: "workstream", kind: "workstream" },
-      ],
-    });
-  });
-
+describe("rightPanelStore.seedWorkstream", () => {
   it("adds a tab without stealing focus or visibility when panel state exists", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().close(refA);
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream"]);
+    useRightPanelStore.getState().seedWorkstream(refA);
     expect(panel()).toEqual({
       isOpen: false,
       activeSurfaceId: "diff",
@@ -49,15 +28,15 @@ describe("rightPanelStore.seedSurfaces", () => {
 
   it("is idempotent: reseeding an existing surface makes no change", () => {
     useRightPanelStore.getState().open(refA, "diff");
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream"]);
+    useRightPanelStore.getState().seedWorkstream(refA);
     const before = useRightPanelStore.getState().byThreadKey;
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream"]);
+    useRightPanelStore.getState().seedWorkstream(refA);
     expect(useRightPanelStore.getState().byThreadKey).toBe(before);
   });
 
   it("does not count as a user choice", () => {
     const revision = useRightPanelStore.getState().getUserActionRevision(refA);
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream"]);
+    useRightPanelStore.getState().seedWorkstream(refA);
     expect(useRightPanelStore.getState().getUserActionRevision(refA)).toBe(revision);
   });
 });

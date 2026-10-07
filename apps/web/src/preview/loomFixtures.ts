@@ -1,6 +1,6 @@
 /**
  * Loom preview fixture data (Phase 3 track 3d-1): V2 shell and message shapes
- * for the workstream board (`WorkstreamPanel`, one thread per derived column),
+ * for the workstream graph (`WorkstreamPanel`, one thread per derived column),
  * the goal panel (`GoalTasksPanel`, a nested tree with an anchored thread) and
  * the control cards (`ControlDigestCard`, every seam-6 kind — the same payloads
  * the dev seed writes). 3d-2/3d-3 register fixtures in `fixtures.tsx` that
@@ -83,7 +83,7 @@ export const loomPreviewGoal: LoomGoalShell = {
   archivedAt: null,
 };
 
-// ---- thread shells: one per derived board column, plus the attention cases ------
+// ---- thread shells: one per derived plan column, plus the attention cases -------
 
 const workstream = (
   threadId: ThreadId,

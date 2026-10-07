@@ -414,9 +414,9 @@ export type LoomContextUsage = typeof LoomContextUsage.Type;
 /**
  * What a client sees on `OrchestrationV2ThreadShell.workstream`: the record
  * minus the fields no client renders (the dispatcher reads those from the
- * store), plus the consult and peer-message edge summaries, and the board
- * card's tool-call count and context window (read with the shell, so a card
- * never subscribes to its thread's projection).
+ * store), plus the consult and peer-message edge summaries, and the thread's
+ * tool-call count and context window (read with the shell, so a workstream
+ * surface never subscribes to a thread's projection).
  */
 export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => ({
   ...Struct.omit(fields, [

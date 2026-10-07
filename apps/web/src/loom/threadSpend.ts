@@ -1,10 +1,10 @@
 /**
  * loom: per-thread spend from seam 11's usage ledger (`loom.threadSpend`) and
  * the Cost tab's top-spenders window (`loom.topSpend`), 3d-4. Cost is never a
- * shell field: board cards, quick facts and the active strip each ask for one
+ * shell field: quick facts, the active strip and the timeline each ask for one
  * thread, and the shared batched store coalesces every mounted ask into one RPC
- * per environment (revalidated on its TTL). Subtree and workstream totals sum
- * the same lookups.
+ * per environment (revalidated on its TTL). The workstream total sums the same
+ * lookups.
  *
  * @module loom/threadSpend
  */

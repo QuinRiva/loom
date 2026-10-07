@@ -21,7 +21,7 @@ export interface StartNode {
 export const dependenciesSatisfied = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
   areDependenciesSatisfied(node, byId);
 
-/** The one start rule: dispatcher promotion, first-turn gate and the board's "ready" column all read this. */
+/** The one start rule: dispatcher promotion, first-turn gate and the graph's "ready" column all read this. */
 export const isEligibleToStart = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
   node.parentThreadId !== null &&
   node.archivedAt === null &&

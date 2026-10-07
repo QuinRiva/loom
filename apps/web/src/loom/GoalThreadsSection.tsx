@@ -1,7 +1,7 @@
 /**
  * loom: the goal panel's Threads section (3d-3) — the goal's ROOT threads in
  * serial handoff order (`workstream.continuesThreadId`). Workstream children
- * belong to the workstream board, not here.
+ * belong to the Workstream graph, not here.
  *
  * One chip per row, in precedence order: what a human must act on outranks
  * what a machine is doing, which outranks where the thread rests.

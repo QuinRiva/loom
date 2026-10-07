@@ -5,7 +5,7 @@ import { isTerminal } from "./workstreamGraph.ts";
  * Minimal node shape the dependency gate needs; the sidecar record
  * (`LoomThreadWorkstream`, keyed `threadId`) maps onto it with `id`. The same
  * predicate drives the arm's first-turn gate, the dispatcher's promotion and
- * the board, so they never disagree.
+ * the graph, so they never disagree.
  */
 export interface DependencyGateThread {
   readonly id: ThreadId;
