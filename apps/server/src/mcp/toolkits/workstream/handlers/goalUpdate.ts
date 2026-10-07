@@ -1,12 +1,15 @@
 /**
  * `mcp__t3-code__goal_update`: the caller's active goal's title, objective and slug through
  * `LoomStoreV2.goals.upsert`, then published. A slug stays unique among the
- * project's goals (deleted ones included), as V1's decider required.
+ * project's goals (deleted ones included), as V1's decider required. Only the
+ * goal's owner may call it (DL-670): a child's edit would become every later
+ * child's "parent's objective".
  *
  * @module mcp/toolkits/workstream/handlers/goalUpdate
  */
 import * as Effect from "effect/Effect";
 
+import { resolveThreadAnchor } from "../../../../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
@@ -22,7 +25,12 @@ export const goalUpdate = Effect.fn("LoomToolkit.goalUpdate")(function* (
   if (slug === "") return yield* fail("slug must be a non-empty string.");
   if (title === undefined && slug === undefined && input.description === undefined)
     return yield* fail("Provide at least one of title, description, or slug.");
-  const { goal } = yield* requireActiveGoal(caller.threadId);
+  const { goal, row } = yield* requireActiveGoal(caller.threadId);
+  // The owner is the thread whose rewrite scope is the whole tree: a root with no live anchor.
+  if (row.parentThreadId !== null || resolveThreadAnchor(goal.tasks, row.anchorTaskId) !== null)
+    return yield* fail(
+      "Only the thread that owns this goal (its root orchestrator) or the human can change its title, description or slug.",
+    );
   const store = yield* LoomStore.LoomStoreV2;
   if (slug !== undefined && slug !== goal.slug) {
     const taken = yield* asToolError(

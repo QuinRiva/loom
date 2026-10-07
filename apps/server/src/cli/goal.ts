@@ -363,12 +363,13 @@ const goalTaskRewriteCommand = Command.make("rewrite", {
       Effect.gen(function* () {
         const goal = yield* resolveGoal(flags.goal);
         const current = flattenGoalTasks(goal.tasks);
+        const deleted = yield* (yield* store).tasks.listDeleted(goal.id);
         const parsed = parseGoalTaskMarkdown(
           yield* readRewriteMarkdown(flags.file),
-          new Set(current.map((task) => task.id)),
+          new Set([...current, ...deleted].map((task) => task.id)),
         );
         if ("error" in parsed) return yield* fail(parsed.error);
-        const textError = validateGoalTaskRewriteText(parsed.lines, current);
+        const textError = validateGoalTaskRewriteText(parsed.lines, [...current, ...deleted]);
         if (textError !== undefined) return yield* fail(textError);
         const minted = yield* Effect.forEach(
           parsed.lines.filter((line) => line.taskId === null),

@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../../../../config.ts";
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
+import { EmergentGoals } from "../../../../loom/orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcast.ts";
 import { LoomOrchestratorTestLayer } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
@@ -46,6 +47,8 @@ export const makeHandlerTestLayer = <E, R>(stubs: Layer.Layer<StubbedServices, E
       usage: Effect.succeed([]),
     }),
     LoomGoalBroadcast.layer,
+    // A goal-less root stays goal-less: no model behind the emergent goal here.
+    Layer.succeed(EmergentGoals, { derive: () => Effect.void }),
     stubs,
   ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 

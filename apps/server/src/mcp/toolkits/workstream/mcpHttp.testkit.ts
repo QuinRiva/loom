@@ -25,6 +25,7 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
+import { EmergentGoals } from "../../../loom/orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "../../../loom/projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "../../../loom/projection/LoomStore.ts";
 import { LoomThreadConsult } from "../../../loom/workstream/consult.ts";
@@ -74,6 +75,7 @@ export const loomToolkitServiceStubs = (loomStore: McpServiceStubs["loomStore"] 
     }),
     Layer.mock(ProviderHealthRegistry)({}),
     Layer.mock(LoomGoalBroadcast.LoomGoalBroadcast)({}),
+    Layer.mock(EmergentGoals)({ derive: () => Effect.void }),
     Layer.mock(LoomThreadConsult)({}),
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   );

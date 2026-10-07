@@ -82,6 +82,7 @@ const branchRewrite = (markdown: string, branchAnchor: LoomGoalTask = anchor) =>
     submitted: parseOrThrow(markdown),
     tasks: tree,
     anchor: branchAnchor,
+    deleted: [],
   });
   if ("error" in composed) return composed;
   let next = 0;

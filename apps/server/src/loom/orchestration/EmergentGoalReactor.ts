@@ -1,19 +1,22 @@
 /**
  * Emergent goal ("every session has a goal", Phase 3 plan P3-16; V1's
  * `deriveEmergentGoal` in `ProviderCommandReactor`). When a goal-less ROOT thread
- * completes one of its first two runs, the transcript so far is distilled into a
- * goal through `buildEmergentGoalPrompt`: written to `loom_goals` under the
- * deterministic id `goal:emergent:<threadId>`, published on the goal broadcast, and
- * attached with `thread.goal.set` under `server:loom:emergent-goal:<threadId>`.
- * Run 1 creates the goal only on a confident answer; run 2 takes the best guess.
- * Workstream children never derive one (they inherit the parent's goal).
+ * STARTS one of its first two runs — at the message, as V1 did (DL-671) — the
+ * transcript so far is distilled into a goal through `buildEmergentGoalPrompt`:
+ * written to `loom_goals` under the deterministic id `goal:emergent:<threadId>`,
+ * published on the goal broadcast, and attached with `thread.goal.set` under
+ * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
+ * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
+ * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
+ * first turn can lay out its plan. Workstream children never derive one (they
+ * inherit the parent's goal).
  *
  * Upstream's `TextGeneration` has no free-form op and Loom's structured op is not
  * re-added (DT-44/DT-54), so the generation is a Loom-owned one-shot over upstream's
  * exported Pi primitives — the same ephemeral, tools-off `pi --mode rpc` launch
  * upstream's `PiTextGeneration` uses — on the text-generation model selection.
  * No effect-outbox kind: at-most-once is the goal id plus the command receipt, and a
- * run is attempted once per process (a failure logs and waits for run 2).
+ * run is attempted once per process (a failure logs and waits for run 2 or a goal tool).
  *
  * @module loom/orchestration/EmergentGoalReactor
  */
@@ -164,19 +167,19 @@ export const EmergentGoalGeneratorPiLive = Layer.effect(
 );
 
 /**
- * Derives and attaches the emergent goal for one completed run. Returns without
- * effect for a child, a thread that already has a goal, or a run past the second.
+ * Derives and attaches the emergent goal; `force` takes the best guess, otherwise
+ * only a confident answer makes a goal. Returns without effect for a child or a
+ * thread that already has a goal.
  */
 export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function* (input: {
   readonly threadId: ThreadId;
-  readonly runOrdinal: number;
+  readonly force: boolean;
 }) {
   const orchestrator = yield* OrchestratorV2;
   const loomStore = yield* LoomStoreV2;
   const broadcast = yield* LoomGoalBroadcast;
   const generator = yield* EmergentGoalGenerator;
   const { threadId } = input;
-  if (input.runOrdinal > MAX_EMERGENT_GOAL_RUNS) return;
   const { thread, messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
     messageRoles: ["user", "assistant"],
   });
@@ -202,7 +205,7 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
     });
     const title = interpretation.goal.title.trim();
     if (title.length === 0) return;
-    if (input.runOrdinal === 1 && interpretation.confidence !== "high") return;
+    if (!input.force && interpretation.confidence !== "high") return;
     // `UNIQUE (project_id, slug)` reserves deleted goals' slugs too.
     const taken = new Set(
       (yield* loomStore.goals.listByProject(thread.projectId, { includeDeleted: true })).map(
@@ -231,45 +234,63 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
 });
 
 /**
- * Started post-activation: each completed run of a goal-less root is tried once per process,
- * serialised per thread, so a thread's goal is generated and written at most once.
+ * `deriveEmergentGoal`, serialised per thread and failure-logged: a caller arriving while
+ * a derivation is in flight waits for it, then finds the goal attached (or, after a
+ * low-confidence run 1, takes its own best guess when forced).
+ */
+export class EmergentGoals extends Context.Service<
+  EmergentGoals,
+  {
+    readonly derive: (input: {
+      readonly threadId: ThreadId;
+      readonly force: boolean;
+    }) => Effect.Effect<void>;
+  }
+>()("t3/loom/orchestration/EmergentGoalReactor/EmergentGoals") {}
+
+export const EmergentGoalsLive = Layer.effect(
+  EmergentGoals,
+  Effect.gen(function* () {
+    const services = yield* Effect.context<
+      OrchestratorV2 | LoomStoreV2 | LoomGoalBroadcast | EmergentGoalGenerator
+    >();
+    const threadLocks = yield* KeyedLock.make<ThreadId>();
+    return {
+      derive: (input) =>
+        threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
+          ),
+          Effect.provideContext(services),
+        ),
+    };
+  }),
+);
+
+/**
+ * Started post-activation: each of a goal-less root's first two runs is tried once per
+ * process, at its creation (the user's message), forked so a generation never holds up
+ * the event stream.
  */
 export const EmergentGoalReactorLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
-    const services = yield* Effect.context<
-      OrchestratorV2 | LoomStoreV2 | LoomGoalBroadcast | EmergentGoalGenerator
-    >();
+    const emergentGoals = yield* EmergentGoals;
     const scope = yield* Effect.scope;
     const attempted = new Set<RunId>();
-    // One derivation per thread at a time: run 2 completing while run 1's generation is in
-    // flight waits, then finds the goal attached (or, after a low-confidence run 1, guesses).
-    const threadLocks = yield* KeyedLock.make<ThreadId>();
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) => {
         if (
-          event.type !== "run.updated" ||
-          event.payload.status !== "completed" ||
+          event.type !== "run.created" ||
           event.payload.ordinal > MAX_EMERGENT_GOAL_RUNS ||
           attempted.has(event.payload.id)
         ) {
           return Effect.void;
         }
         attempted.add(event.payload.id);
-        // Forked: a generation can take minutes and must not hold up the event stream.
-        return threadLocks
-          .withLock(
-            event.threadId,
-            deriveEmergentGoal({ threadId: event.threadId, runOrdinal: event.payload.ordinal }),
-          )
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("loom.emergent-goal.failed", { threadId: event.threadId, cause }),
-            ),
-            Effect.provideContext(services),
-            Effect.forkIn(scope),
-            Effect.asVoid,
-          );
+        return emergentGoals
+          .derive({ threadId: event.threadId, force: event.payload.ordinal > 1 })
+          .pipe(Effect.forkIn(scope), Effect.asVoid);
       }),
     );
   }),

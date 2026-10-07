@@ -39,6 +39,7 @@ import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/Work
 import {
   EmergentGoalGeneratorPiLive,
   EmergentGoalReactorLive,
+  EmergentGoalsLive,
 } from "./orchestration/EmergentGoalReactor.ts";
 import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
@@ -152,12 +153,14 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
  * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
  * and publish/subscribe goal shell items. Pull 9 Phase 2 §4. (The Phase 2
  * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
- * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures.
+ * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures,
+ * and the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671).
  */
-export const LoomGoalBroadcastLive = Layer.mergeAll(
-  LoomGoalBroadcast.layerWithReactor,
-  LoomThreadConsult.layer,
-).pipe(Layer.provideMerge(LoomStore.layer));
+export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
+  Layer.provide(EmergentGoalGeneratorPiLive),
+  Layer.provideMerge(Layer.mergeAll(LoomGoalBroadcast.layerWithReactor, LoomThreadConsult.layer)),
+  Layer.provideMerge(LoomStore.layer),
+);
 
 /**
  * The workstream control plane (Phase 3 Track 3b), every worker started after
@@ -168,11 +171,8 @@ export const LoomGoalBroadcastLive = Layer.mergeAll(
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
   WorkstreamLivenessSweepLive, // loom: 3b-3 — the sweep hands slow-tool/spinning advisories to the dispatcher
-  EmergentGoalReactorLive.pipe(
-    Layer.provide(EmergentGoalGeneratorPiLive),
-    // The same layer reference as server.ts's entry, so the broadcast is one shared PubSub.
-    Layer.provide(LoomGoalBroadcastLive),
-  ),
+  // The same layer reference as server.ts's entry, so the broadcast and the deriver are shared.
+  EmergentGoalReactorLive.pipe(Layer.provide(LoomGoalBroadcastLive)),
   HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
 ).pipe(
   Layer.provideMerge(WorkstreamDispatcherStartedLive),
