@@ -496,7 +496,8 @@ export function followStreamInEnvironment<A, E, R>(
  * registry re-run a mounted query right away and only mark an idle one stale, which then
  * refreshes on its next read.
  */
-const refreshOnSignalWhileRead =
+// loom: exported for the web archive query (apps/web/src/loom/liveArchivedSnapshot.ts)
+export const refreshOnSignalWhileRead =
   (signal: Atom.Atom<unknown>) =>
   <A>(self: Atom.Atom<A>): Atom.Atom<A> => {
     // The signal value each registry's data was read under. Held outside the node because the
