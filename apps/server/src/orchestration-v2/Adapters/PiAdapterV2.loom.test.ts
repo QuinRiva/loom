@@ -647,16 +647,20 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
         return yield* PendingSteering.read(THREAD_ID);
       });
 
-      assert.equal(yield* queue(["first steer"]), "first steer");
-      assert.equal(yield* queue(["first steer", "second steer"]), "first steer\n\nsecond steer");
+      // Each mirror is stamped with the run whose turn pi holds the steers for.
+      assert.deepEqual(yield* queue(["first steer"]), { runId, text: "first steer" });
+      assert.deepEqual(yield* queue(["first steer", "second steer"]), {
+        runId,
+        text: "first steer\n\nsecond steer",
+      });
       // pi injects the first into the conversation: consumed, so never redelivered.
-      assert.equal(yield* queue(["second steer"]), "second steer");
+      assert.deepEqual(yield* queue(["second steer"]), { runId, text: "second steer" });
 
-      // The turn ends with the second still undelivered (a stop or restart cut it, DL-561):
-      // the stash keeps it for the restart to deliver.
+      // The turn ends with the second still undelivered (a stop or restart cut it, DL-561): the
+      // stash keeps it; startup recovery delivers it only if a restart cut this run (DL-694).
       yield* fake.emit({ type: "agent_settled" });
       while ((yield* Queue.take(events)).type !== "turn.terminal");
-      assert.equal(yield* PendingSteering.read(THREAD_ID), "second steer");
+      assert.deepEqual(yield* PendingSteering.read(THREAD_ID), { runId, text: "second steer" });
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

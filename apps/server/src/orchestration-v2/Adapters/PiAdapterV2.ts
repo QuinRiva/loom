@@ -1612,11 +1612,12 @@ export function makePiAdapterV2(
             turn.settleProbeGeneration += 1;
             return;
           }
-          // loom: mirror pi's undelivered steers to disk; pi drops one as it enters the conversation (seam 20, DL-691)
+          // loom: mirror pi's undelivered steers, stamped with their run; pi drops one as it enters the conversation (seam 20, DL-691/694)
           case "queue_update": {
             const steering = event["steering"];
             yield* loomHooks.steerStash.write(
               state?.providerThread.appThreadId ?? input.threadId,
+              turn?.turnInput.runId ?? null,
               Array.isArray(steering) ? steering.filter((text) => typeof text === "string") : [],
             );
             return;

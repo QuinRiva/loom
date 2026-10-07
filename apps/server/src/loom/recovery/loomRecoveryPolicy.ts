@@ -156,10 +156,42 @@ export const releaseHeldQueues = Effect.gen(function* () {
 );
 
 /**
+ * The run whose turn the stash was mirrored from, when this restart cut it (DL-694):
+ * reconciliation cancelled it, no Stop was asked of it, and nothing but its own continuation ran
+ * after it. A stash from any other run died with its pi — a Stop terminates pi, as can a pi
+ * death while the server stays up — or is older than the thread's later turns.
+ */
+const cutByRestart = (
+  threadId: ThreadId,
+  runs: OrchestrationV2ThreadProjection["runs"],
+  runId: string | null,
+) =>
+  Effect.gen(function* () {
+    const cut = runs.find((run) => run.id === runId);
+    if (
+      cut?.status !== "cancelled" ||
+      runs.some(
+        (run) =>
+          run.id !== cut.id &&
+          run.status !== "queued" &&
+          run.restartContinuationOfRunId !== cut.id &&
+          runRanAfter(run, cut),
+      )
+    )
+      return false;
+    const { turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["turnItems"], {
+      turnItemRunIds: [cut.id],
+      turnItemTypes: ["run_interrupt_request"],
+    });
+    return turnItems.length === 0;
+  });
+
+/**
  * Seam 20 (P3-24): each stashed steer — what the dead pi had accepted and never delivered
- * (DL-691) — reaches its thread once. A thread in rule 0's not-continued set keeps its stash,
- * handed to the dispatcher (`leaveStash`) for its `steerRedelivery` rail to carry into the next
- * human- or parent-started turn (DL-387). Otherwise upstream's restart continuation carries it
+ * (DL-691) — reaches its thread once, when the restart cut the turn it was stashed for; any other
+ * stash is discarded (DL-694). A thread in rule 0's not-continued set keeps its stash, handed to
+ * the dispatcher (`leaveStash`) for its `steerRedelivery` rail to carry into the next human- or
+ * parent-started turn (DL-387). Otherwise upstream's restart continuation carries it
  * (`withStashedSteer` in its prompt, DL-690): its effect is run here when still due, so the
  * steer is delivered first and never queues behind the continuation — where a human-held queue
  * would hold it too. With no continuation it goes out as a steered control message, which starts
@@ -171,26 +203,23 @@ export const redeliverStashedSteers = Effect.gen(function* () {
   const loomStore = yield* LoomStoreV2;
   for (const threadId of yield* PendingSteering.listStashed()) {
     yield* Effect.gen(function* () {
-      const steer = yield* PendingSteering.read(threadId);
-      if (steer === null) return yield* PendingSteering.clear(threadId, null);
-      const workstream = yield* loomStore.getWorkstream(threadId);
+      const stash = yield* PendingSteering.read(threadId);
       const projection = yield* orchestrator.getThreadProjection(threadId);
+      if (stash === null || !(yield* cutByRestart(threadId, projection.runs, stash.runId)))
+        return yield* PendingSteering.clear(threadId, stash?.text ?? null);
+      const steer = stash.text;
+      const workstream = yield* loomStore.getWorkstream(threadId);
       if (!isContinued(workstream, projection))
         return yield* (yield* WorkstreamDispatcher).leaveStash(threadId, {
           text: steer,
           afterOrdinal: Math.max(0, ...projection.runs.map((run) => run.ordinal)),
         });
       yield* runDueContinuation(threadId, projection);
-      // Carried: a continuation of this thread (the worker's or the one above) holds it.
+      // Carried: the cut run's continuation (the worker's or the one above) holds it.
       const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
-        messageIds: projection.runs.map((run) =>
-          MessageId.make(`message:restart-continuation:${run.id}`),
-        ),
+        messageIds: [MessageId.make(`message:restart-continuation:${stash.runId}`)],
       });
-      const carried = messages.some((message) =>
-        message.text.endsWith(redeliveredSteerText(steer)),
-      );
-      if (!carried)
+      if (!messages.some((message) => message.text.endsWith(redeliveredSteerText(steer))))
         yield* orchestrator.dispatch(
           controlMessage({
             threadId,

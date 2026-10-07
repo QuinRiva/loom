@@ -162,6 +162,7 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       // loom: a steer the cut turn's pi accepted but never delivered rides this prompt (DL-690)
       text: yield* withStashedSteer(
         input.threadId,
+        input.sourceRunId,
         noteText === undefined
           ? CONTINUE_PROMPT
           : note.settled

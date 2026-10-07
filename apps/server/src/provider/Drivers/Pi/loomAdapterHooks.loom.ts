@@ -30,8 +30,14 @@ export interface LoomPiAdapterHooksShape {
   readonly sanitiser: (sessionFilePath: string, modelSlug: string) => Effect.Effect<void>;
   /** Durable mirror of pi's undelivered steers (`loom/steering/pendingSteering`). */
   readonly steerStash: {
-    readonly write: (threadId: ThreadId, steering: ReadonlyArray<string>) => Effect.Effect<void>;
-    readonly read: (threadId: ThreadId) => Effect.Effect<string | null>;
+    readonly write: (
+      threadId: ThreadId,
+      runId: string | null,
+      steering: ReadonlyArray<string>,
+    ) => Effect.Effect<void>;
+    readonly read: (
+      threadId: ThreadId,
+    ) => Effect.Effect<{ readonly runId: string | null; readonly text: string } | null>;
   };
 }
 
