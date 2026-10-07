@@ -354,8 +354,8 @@ export const make = Effect.gen(function* () {
             : environment.CLAUDE_CONFIG_DIR?.trim() || path.join(NodeOS.homedir(), ".claude");
         } else if (driver === "pi") {
           // loom: already the sessions directory itself, resolved from this
-          // instance's HOME because that is what pi resolves its agent dir from.
-          home = piSessionsRoot(environment.HOME?.trim() || undefined);
+          // instance's environment the way pi resolves it.
+          home = piSessionsRoot(environment);
         } else {
           home = expandHomePath(
             environment.GROK_HOME?.trim() || path.join(NodeOS.homedir(), ".grok"),

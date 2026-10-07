@@ -25,14 +25,19 @@ export const piSessionIdForThread = (threadId: string): string =>
   threadId.replace(/[^a-zA-Z0-9_-]/g, "-");
 
 /**
- * Default pi sessions root: `~/.pi/agent/sessions`.
+ * pi's sessions root, resolved the way pi resolves it: `PI_CODING_AGENT_SESSION_DIR`,
+ * else `$PI_CODING_AGENT_DIR/sessions`, else `<HOME>/.pi/agent/sessions`.
  *
- * `homeDir` exists for callers holding a provider instance's own environment:
- * pi resolves its agent directory from `HOME`, so an instance that overrides it
- * genuinely writes its sessions elsewhere.
+ * `env` exists for callers holding a provider instance's own environment, which
+ * may genuinely point pi's sessions elsewhere than the server's own.
  */
-export const piSessionsRoot = (homeDir: string = NodeOS.homedir()): string =>
-  NodePath.join(homeDir, ".pi", "agent", "sessions");
+export const piSessionsRoot = (env: NodeJS.ProcessEnv = process.env): string =>
+  env.PI_CODING_AGENT_SESSION_DIR?.trim() ||
+  NodePath.join(
+    env.PI_CODING_AGENT_DIR?.trim() ||
+      NodePath.join(env.HOME?.trim() || NodeOS.homedir(), ".pi", "agent"),
+    "sessions",
+  );
 
 /**
  * Resolve a deterministic pi session id to its absolute `.jsonl` path by

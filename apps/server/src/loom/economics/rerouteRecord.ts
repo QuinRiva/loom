@@ -18,6 +18,7 @@ const ThreadReroute = Schema.Struct({
   reroutedAt: Schema.String,
   /** The tripped window ("5-hour", "weekly") when the registry knew it. */
   windowLabel: Schema.NullOr(Schema.String),
+  /** When the intended model's exhaustion marks lapse; re-marked after a restart (DL-484). */
   resetAt: Schema.NullOr(Schema.String),
 });
 export type ThreadReroute = typeof ThreadReroute.Type;

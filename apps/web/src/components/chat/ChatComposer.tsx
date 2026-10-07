@@ -1699,7 +1699,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
     promptHistoryMessages,
-    isServerThread: _isServerThread,
+    isServerThread, // loom: DL-700 settle effect
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -2153,6 +2153,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
   });
+  // loom: once the server thread holds the draft's pick, drop it so the composer
+  // follows later server-side model changes (quota reroute, move-back; DL-700).
+  const draftHeldSelection =
+    activeThreadModelSelection &&
+    composerDraft.modelSelectionByProvider[activeThreadModelSelection.instanceId];
+  useEffect(() => {
+    if (isServerThread && draftHeldSelection && activeThreadModelSelection)
+      useComposerDraftStore
+        .getState()
+        .settleModelSelection(composerDraftTarget, activeThreadModelSelection);
+  }, [isServerThread, draftHeldSelection, activeThreadModelSelection, composerDraftTarget]);
   const providerSendBlockReason = getAntigravitySendBlockReason(
     selectedProviderEntry?.snapshot,
     selectedModel,

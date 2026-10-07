@@ -1959,6 +1959,27 @@ describe("composerDraftStore modelSelection", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionExplicit).toBeUndefined();
   });
 
+  // loom: DL-700 — a pick the server holds is spent, so a server-side change wins after it.
+  it("settles a draft selection only once the server thread holds it", () => {
+    const store = useComposerDraftStore.getState();
+    const picked = modelSelection(CODEX_DRIVER, "gpt-5.4", { fastMode: true });
+    store.setModelSelection(threadRef, picked, { explicit: true });
+
+    // An unsent pick outranks a different server selection.
+    store.settleModelSelection(threadRef, modelSelection(CODEX_DRIVER, "gpt-5.3-codex"));
+    store.settleModelSelection(threadRef, modelSelection(CODEX_DRIVER, "gpt-5.4"));
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
+    ).toEqual(picked);
+
+    // Sent: the server holds it, so the draft drops it and follows the server from here on.
+    store.settleModelSelection(
+      threadRef,
+      modelSelection(CODEX_DRIVER, "gpt-5.4", { fastMode: true }),
+    );
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
   it("persists the explicit marker through storage round-trips", async () => {
     vi.useFakeTimers();
     try {

@@ -37,7 +37,11 @@ import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
 import * as Effect from "effect/Effect";
 import { DeepMutable } from "effect/Types";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  createModelSelection,
+  modelSelectionsEqual, // loom:
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
@@ -614,6 +618,11 @@ interface ComposerDraftStoreState {
       | undefined,
   ) => void;
   applyStickyState: (threadRef: ComposerThreadTarget) => void;
+  /**
+   * loom: drop the draft's selection once the server thread holds it, so a later
+   * server-side change (quota reroute, move-back) reaches the composer (DL-700).
+   */
+  settleModelSelection: (threadRef: ComposerThreadTarget, serverSelection: ModelSelection) => void;
   setProviderModelOptions: (
     threadRef: ComposerThreadTarget,
     provider: ProviderDriverKind,
@@ -3086,6 +3095,28 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        // loom: a pick the server thread already holds is spent (DL-700).
+        settleModelSelection: (threadRef, serverSelection) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey];
+            const held = existing?.modelSelectionByProvider[serverSelection.instanceId];
+            if (!existing || !held || !modelSelectionsEqual(held, serverSelection)) return state;
+            const { [serverSelection.instanceId]: _spent, ...modelSelectionByProvider } =
+              existing.modelSelectionByProvider;
+            const { modelSelectionExplicit: _explicit, ...unflagged } = existing;
+            const nextDraft: ComposerThreadDraftState =
+              existing.activeProvider === serverSelection.instanceId
+                ? { ...unflagged, modelSelectionByProvider, activeProvider: null }
+                : { ...existing, modelSelectionByProvider };
+            const { [threadKey]: _settled, ...rest } = state.draftsByThreadKey;
+            return {
+              draftsByThreadKey: shouldRemoveDraft(nextDraft)
+                ? rest
+                : { ...rest, [threadKey]: nextDraft },
+            };
           });
         },
         setPrompt: (threadRef, prompt) => {

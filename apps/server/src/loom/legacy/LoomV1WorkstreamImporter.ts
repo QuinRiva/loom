@@ -366,11 +366,6 @@ const piModelSelection = (json: string | null): ModelSelection => {
   };
 };
 
-/** pi's session root: `PI_CODING_AGENT_SESSION_DIR`, else `<PI_CODING_AGENT_DIR>/sessions`, else `~/.pi/agent/sessions`. */
-export const piSessionsRootFromEnv = (env: NodeJS.ProcessEnv = process.env) =>
-  env.PI_CODING_AGENT_SESSION_DIR ||
-  (env.PI_CODING_AGENT_DIR ? NodePath.join(env.PI_CODING_AGENT_DIR, "sessions") : piSessionsRoot());
-
 /**
  * `<sessionId>` → absolute path for every `<timestamp>_<sessionId>.jsonl` at depth 1
  * (a flat root) or 2 (pi's slug directories); the newest mtime wins a duplicate.
@@ -445,7 +440,7 @@ const makeReconcile = (
       SELECT li.thread_id FROM orchestration_v2_legacy_imports li
       WHERE NOT EXISTS (SELECT 1 FROM loom_legacy_imports l WHERE l.thread_id = li.thread_id))
     ORDER BY created_at ASC, thread_id ASC`);
-    const sessionsRoot = piSessionsRootFromEnv();
+    const sessionsRoot = piSessionsRoot();
     const counts = {
       considered: pending.length,
       sidecars: 0,

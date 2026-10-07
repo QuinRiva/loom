@@ -178,6 +178,13 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
     return marks.filter((mark) => accountKey !== null && matches(mark, accountKey, modelId));
   };
   const exhausted = (selection: ModelSelection) => marksFor(selection).length > 0;
+  /** When the marks on `selection` lapse; null while unmarked or when one is open-ended. */
+  const exhaustedUntil = (selection: ModelSelection) => {
+    const until = marksFor(selection).map((mark) => mark.until);
+    return until.length === 0 || until.includes(null)
+      ? null
+      : until.reduce((a, b) => (Date.parse(b!) > Date.parse(a!) ? b : a));
+  };
 
   const reroutes = new Map((yield* listReroutes).map((row) => [row.threadId, row] as const));
   const sweepThread = Effect.fn("loom.reroute.thread")(function* (
@@ -213,9 +220,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
 
     const ranUntil = DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
     if (reroute !== undefined) {
-      // The failure's own reset counts too: the registry is empty after a restart.
-      const resetPending = reroute.resetAt !== null && Date.parse(reroute.resetAt) > nowMs;
-      const intendedOut = exhausted(intended) || resetPending;
+      const intendedOut = exhausted(intended);
       // Clause 1 left half-done: the thread is still failed on the run it was rerouted from
       // (it ended before the reroute). Re-send its steps; receipted ids make each a no-op once landed.
       if (resumable && intendedOut && ranUntil <= Date.parse(reroute.reroutedAt)) {
@@ -263,7 +268,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
         reroutedSelection,
         reroutedAt: now,
         windowLabel: marksFor(intended).find((mark) => mark.windowLabel)?.windowLabel ?? null,
-        resetAt: shell.usageLimitResetAt ?? null,
+        resetAt: exhaustedUntil(intended) ?? shell.usageLimitResetAt ?? null,
       });
       if (!(yield* moveTo(threadId, idBase, reroutedSelection))) return;
       yield* resume(threadId, idBase, rerouteResumeText(fallback));
@@ -299,6 +304,30 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
 const isRunEnd = (event: OrchestrationV2DomainEvent) =>
   event.type === "run.updated" && TERMINAL_RUN_STATUSES.has(event.payload.status);
 
+/**
+ * Re-marks each rerouted thread's intended model until its recorded `resetAt`
+ * (DL-484). The health registry is in-memory, so after a restart a no-reset
+ * failure's error mark is gone and the move-back would read the exhausted model
+ * as healthy; the row is the persisted witness. Keyed as the classifier keys it.
+ */
+export const restoreRerouteMarks = Effect.gen(function* () {
+  const health = yield* ProviderHealthRegistry;
+  const nowMs = yield* Clock.currentTimeMillis;
+  for (const { intendedSelection, resetAt } of yield* listReroutes) {
+    const { accountKey, modelId } = subscriptionScopeForSelection(
+      intendedSelection,
+      new Set([intendedSelection.instanceId]),
+    );
+    if (accountKey !== null && resetAt !== null && Date.parse(resetAt) > nowMs)
+      yield* health.markExhausted({
+        accountKey,
+        modelScope: modelId,
+        until: resetAt,
+        source: "error",
+      });
+  }
+});
+
 /** The sweep: once after activation, every 60 s, and after every run ends. */
 export const RerouteSweepLive = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -307,13 +336,20 @@ export const RerouteSweepLive = Layer.effectDiscard(
       Effect.catchCause((cause) => Effect.logWarning("loom.reroute.pass-failed", { cause })),
     );
     yield* forkParked(
-      Stream.merge(
-        Stream.tick("60 seconds"),
-        orchestrator.streamDomainEvents.pipe(Stream.filter(isRunEnd)),
-      ).pipe(
-        Stream.debounce("200 millis"),
-        Stream.runForEach(() => pass),
-        Effect.catchCause((cause) => Effect.logWarning("loom.reroute.sweep-stopped", { cause })),
+      restoreRerouteMarks.pipe(
+        Effect.catchCause((cause) => Effect.logWarning("loom.reroute.restore-failed", { cause })),
+        Effect.andThen(
+          Stream.merge(
+            Stream.tick("60 seconds"),
+            orchestrator.streamDomainEvents.pipe(Stream.filter(isRunEnd)),
+          ).pipe(
+            Stream.debounce("200 millis"),
+            Stream.runForEach(() => pass),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("loom.reroute.sweep-stopped", { cause }),
+            ),
+          ),
+        ),
       ),
     );
   }),
