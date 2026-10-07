@@ -533,7 +533,6 @@ export function makePiAdapterV2(
       const pendingPromptResponses: Array<{
         readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
         readonly kind: "turn_start" | "steer";
-        readonly loomSteerText?: string; // loom: stashed once pi accepts the steer (3c-3, seam 20)
       }> = [];
       const pendingCompactResponses: Array<{
         readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
@@ -1496,7 +1495,6 @@ export function makePiAdapterV2(
                 }),
           },
         });
-        yield* loomHooks.steerStash.clear(turn.turnInput.threadId); // loom: the turn consumed its steers (seam 20)
         yield* updateProviderThread(state, {
           status: "idle",
           ...(treeRefs?.leafId == null
@@ -1612,6 +1610,16 @@ export function makePiAdapterV2(
             }
             turn.sawAgentActivity = true;
             turn.settleProbeGeneration += 1;
+            return;
+          }
+          // loom: mirror pi's undelivered steers, stamped with their run; pi drops one as it enters the conversation (seam 20, DL-691/694)
+          case "queue_update": {
+            const steering = event["steering"];
+            yield* loomHooks.steerStash.write(
+              state?.providerThread.appThreadId ?? input.threadId,
+              turn?.turnInput.runId ?? null,
+              Array.isArray(steering) ? steering.filter((text) => typeof text === "string") : [],
+            );
             return;
           }
           case "message_start": {
@@ -1902,12 +1910,6 @@ export function makePiAdapterV2(
             const responseTurn =
               pendingPrompt?.providerTurnId === turn?.providerTurn.id ? turn : null;
             if (event["success"] === true) {
-              // loom: pi accepted a steer into the live turn; stash it so a restart redelivers it (seam 20)
-              if (pendingPrompt?.loomSteerText !== undefined && responseTurn !== null)
-                yield* loomHooks.steerStash.append(
-                  responseTurn.turnInput.threadId,
-                  pendingPrompt.loomSteerText,
-                );
               // Deferred success ack. Command-only prompts (pure extension
               // slash commands) never start an agent run and never emit
               // `agent_settled`, so probe for idleness. The probe result is
@@ -2535,7 +2537,6 @@ export function makePiAdapterV2(
                   pendingPromptResponses.push({
                     providerTurnId: turn.providerTurn.id,
                     kind: "steer",
-                    loomSteerText: steerInput.message.text, // loom: seam 20
                   });
                 }
                 turn.settleProbeGeneration += 1;

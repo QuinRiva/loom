@@ -18,26 +18,36 @@ it.layer(layer)("pending-steer stash", (it) => {
     Effect.gen(function* () {
       const threadId = ThreadId.make("no-stash");
       assert.isNull(yield* PendingSteering.read(threadId));
-      yield* PendingSteering.clear(threadId);
+      yield* PendingSteering.clear(threadId, null);
       assert.deepEqual(yield* PendingSteering.listStashed(), []);
     }),
   );
 
-  it.effect("stores the text as one JSON string, joined in send order", () =>
+  it.effect("mirrors pi's queue with its run, read joined in send order", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("stashed");
-      yield* PendingSteering.append(threadId, "first");
-      yield* PendingSteering.append(threadId, "second");
+      yield* PendingSteering.write(threadId, "run-a", ["first"]);
+      yield* PendingSteering.write(threadId, "run-a", ["first", "second"]);
       const { stateDir } = yield* ServerConfig.ServerConfig;
       const file = (yield* Path.Path).join(stateDir, "pending-steering", `${threadId}.json`);
       assert.equal(
         yield* (yield* FileSystem.FileSystem).readFileString(file),
-        '"first\\n\\nsecond"',
+        '{"runId":"run-a","steering":["first","second"]}',
       );
-      assert.equal(yield* PendingSteering.read(threadId), "first\n\nsecond");
+      assert.deepEqual(yield* PendingSteering.read(threadId), {
+        runId: "run-a",
+        text: "first\n\nsecond",
+      });
       assert.deepEqual(yield* PendingSteering.listStashed(), [threadId]);
-      yield* PendingSteering.clear(threadId);
+      // A delivery clears only what it delivered: a newer mirror stays.
+      yield* PendingSteering.clear(threadId, "first");
+      assert.isNotNull(yield* PendingSteering.read(threadId));
+      yield* PendingSteering.clear(threadId, "first\n\nsecond");
       assert.isNull(yield* PendingSteering.read(threadId));
+      // pi consumed every steer: an empty queue removes the file.
+      yield* PendingSteering.write(threadId, "run-b", ["third"]);
+      yield* PendingSteering.write(threadId, "run-b", []);
+      assert.deepEqual(yield* PendingSteering.listStashed(), []);
     }),
   );
 });

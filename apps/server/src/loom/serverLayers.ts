@@ -126,9 +126,9 @@ export const LoomPiAdapterHooksLive = Layer.effect(
           ? Effect.sync(() => sanitisePiSessionFile(sessionFilePath))
           : Effect.void,
       steerStash: {
-        append: (threadId, text) =>
-          PendingSteering.append(threadId, text).pipe(Effect.provide(stashContext)),
-        clear: (threadId) => PendingSteering.clear(threadId).pipe(Effect.provide(stashContext)),
+        write: (threadId, runId, steering) =>
+          PendingSteering.write(threadId, runId, steering).pipe(Effect.provide(stashContext)),
+        read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
       },
     } satisfies LoomPiAdapterHooksShape;
   }),

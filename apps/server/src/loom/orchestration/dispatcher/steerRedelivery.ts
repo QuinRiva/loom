@@ -5,17 +5,15 @@
  * starts on that thread carries it. No `dispatchMessage` hunk is authorised for
  * this (P3-21), so it is a dispatcher rail over the stashes the startup pass
  * LEFT (`PassContext.leftStashes`) — never over the stash directory, which during
- * any live turn also holds that turn's own already-accepted steers (3c's adapter
- * appends on every acked steer and clears at `finalizeTurn`).
+ * any live turn also mirrors that turn's own undelivered steers (DL-691).
  *
- * The text comes from the startup snapshot, never read back from the file: the
- * carrying turn's `finalizeTurn` (or an earlier control turn's) may clear the file
- * before a pass sees the turn, and that clear never delivered the left steer. Once
- * a turn a human or the parent started after startup exists, the steer goes out as
- * the same steered control message the startup pass sends (same id, so the two
- * paths are mutually exclusive): upstream's conversion steers it into that turn
- * while it runs, and it starts the follow-up turn when that turn already ended.
- * The file then keeps only what the adapter appended after startup.
+ * The text comes from the startup snapshot, never read back from the file: pi's next
+ * `queue_update` on the thread overwrites the file, and that overwrite never delivered
+ * the left steer. Once a turn a human or the parent started after startup exists, the
+ * steer goes out as the same steered control message the startup pass sends (same id,
+ * so the two paths are mutually exclusive): upstream's conversion steers it into that
+ * turn while it runs, and it starts the follow-up turn when that turn already ended.
+ * The file is then removed only if it still holds the startup text.
  *
  * @module loom/orchestration/dispatcher/steerRedelivery
  */
@@ -72,12 +70,7 @@ export const steerRedelivery: PassStep = {
       );
       if (!landed(outcome)) continue;
       ctx.leftStashes.delete(threadId);
-      // Keep only what the adapter appended after startup (this turn's accepted steers).
-      const current = yield* PendingSteering.read(threadId);
-      if (current === null || !current.startsWith(left.text)) continue;
-      const rest = current.slice(left.text.length).replace(/^\n\n/, "");
-      yield* PendingSteering.clear(threadId);
-      if (rest.length > 0) yield* PendingSteering.append(threadId, rest);
+      yield* PendingSteering.clear(threadId, left.text);
     }
   }),
 };
