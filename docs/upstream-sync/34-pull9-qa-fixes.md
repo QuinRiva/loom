@@ -270,4 +270,4 @@ deployed.
   override). An explicit "Show markdown source" writes `false`, and later files open as
   source. Verified live in the dev-verify recipe with a fresh browser: chat chip `.md`,
   tree `.md`, `.mdx` and `.artifacts/*.html`, and the Mod+P picker open rendered, `.ts`
-  opens as source, and the source choice sticks. Commit: this entry's commit.
+  opens as source, and the source choice sticks. Commit `7beef37b14`.
