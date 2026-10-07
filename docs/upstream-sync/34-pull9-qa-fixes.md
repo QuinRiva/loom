@@ -81,3 +81,20 @@ deployed.
   This worktree had `vite-plus` 0.3.0 against a lockfile pinning 1.0.0; its formatter
   flagged an upstream test. After `CI=true vp i --no-frozen-lockfile`, `vp check` on
   `9d2efbf2e8`: 0 errors, 905 warnings. No file changed.
+- **DL-680–682 — Quiescence respects reopen and human clears.** The grace runs from the
+  later of the last run's end and the sidecar row's last change. After a run ends, only a
+  human or the parent touches that row (a reopen, "Clear flags", a re-plan), so both restart
+  the grace. A run the agent submitted from is never synthesised over, so a real report path
+  stands. Reopening a settled thread emits `thread.unsettled`, so the sidebar row leaves
+  Settled. Brief-by-id: `workstream_brief` and scaffold `thread:` references accept the ids
+  `workstream_list` prints. Gate clean (`b0759c0c10`).
+- **DL-683 — Restart re-stamping `updated_at` is upstream's and stays.** After a restart,
+  upstream's `ProviderRuntimeRecoveryService` emits `provider-session.updated` per open
+  session, and upstream's `ProjectionStore` re-stamps `updated_at` for it. Both files are
+  byte-identical to upstream. Sidebar ordering is unaffected; `workstream_list`'s
+  last-activity reads boot time for those threads (cosmetic). Doctrine §4.3: left alone.
+- **DL-710 — A `thread_fork` thread replays its source's launch identity** (role overlay,
+  skills, appended prompt, cache retention) and is composed as a root, never as an unread
+  child. A lineage fork whose source has no V2 identity record (every V1-imported thread not
+  yet relaunched) composes fresh as a root. `forkFrom` children are unchanged. Gate clean
+  after one rework round (`2a5bd30082`).
