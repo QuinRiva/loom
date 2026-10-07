@@ -123,6 +123,64 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
     }),
   );
 
+  it.effect(
+    "quiescenceCandidate: the grace restarts at a reopen (DL-680) and at a flag clear (DL-682)",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reopened = ThreadId.make("quiet-reopened");
+        yield* spawnChild({ parentThreadId: parent, threadId: reopened, graphKey: "reopened" });
+        yield* seedRunningRun({ threadId: reopened });
+        yield* writeEvents([
+          yield* loomEvent("thread.kickoff-recorded", reopened, {
+            kickoffAt: createdAt,
+            messageId: seededRunIds(reopened).messageId,
+            origin: "kickoff",
+          }),
+        ]);
+        yield* completeSeededRun({ threadId: reopened });
+        const ended = (yield* orchestrator.getThreadProjection(reopened)).runs[0]!.completedAt!;
+        // Cancelled, then reopened ten minutes after its last turn ended.
+        const reopenedAt = DateTime.add(ended, { minutes: 10 });
+        yield* writeEvents([
+          yield* loomEvent(
+            "thread.outcome-set",
+            reopened,
+            { outcome: "cancelled", cause: "set" },
+            { occurredAt: DateTime.add(ended, { minutes: 1 }) },
+          ),
+          yield* loomEvent(
+            "thread.outcome-set",
+            reopened,
+            { outcome: null, cause: "set" },
+            { occurredAt: reopenedAt },
+          ),
+        ]);
+        const projection = yield* orchestrator.getThreadProjection(reopened);
+        const candidateAt = (now: DateTime.Utc) =>
+          Effect.gen(function* () {
+            return quiescenceCandidate({
+              shell: (yield* orchestrator.getThreadShell(reopened))!,
+              runs: projection.runs,
+              userMessages: [],
+              children: [],
+              now,
+              grace: minute,
+            });
+          });
+        assert.isFalse(yield* candidateAt(DateTime.add(reopenedAt, { seconds: 30 })));
+        assert.isTrue(yield* candidateAt(DateTime.add(reopenedAt, { seconds: 60 })));
+        // A flag raised and cleared later (a human's board clear) restarts it again (DL-682).
+        const clearedAt = DateTime.add(reopenedAt, { minutes: 5 });
+        yield* writeEvents([
+          yield* loomEvent("thread.attention-raised", reopened, { reason: "needs_guidance" }),
+          yield* loomEvent("thread.attention-cleared", reopened, {}, { occurredAt: clearedAt }),
+        ]);
+        assert.isFalse(yield* candidateAt(DateTime.add(clearedAt, { seconds: 30 })));
+        assert.isTrue(yield* candidateAt(DateTime.add(clearedAt, { seconds: 60 })));
+      }),
+  );
+
   it.effect("t-quiescence: false for a thread with a held queued run", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

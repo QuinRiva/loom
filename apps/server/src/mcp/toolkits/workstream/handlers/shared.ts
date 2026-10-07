@@ -76,11 +76,19 @@ export const childrenOf = (parentThreadId: ThreadId) =>
 
 export const SCAFFOLD_THREAD_REF_PREFIX = "thread:";
 
-/** A `thread:`-prefixed reference's id, or the reference itself. */
-export const stripThreadRef = (ref: string) =>
-  ref.startsWith(SCAFFOLD_THREAD_REF_PREFIX)
-    ? ThreadId.make(ref.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim())
-    : ThreadId.make(ref.trim());
+/**
+ * The ids a thread reference may name: the reference as given (a spawned child's printed id
+ * already starts with `thread:`), then, for the documented `thread:<id>` form, the id after it.
+ */
+export const threadRefIds = (ref: string) => {
+  const text = ref.trim();
+  return [
+    text,
+    ...(text.startsWith(SCAFFOLD_THREAD_REF_PREFIX)
+      ? [text.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim()]
+      : []),
+  ].map((id) => ThreadId.make(id));
+};
 
 /**
  * The caller's active goal (live tasks included) and its sidecar row. The

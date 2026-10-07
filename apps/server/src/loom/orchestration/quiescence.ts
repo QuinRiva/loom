@@ -82,10 +82,24 @@ export const quiescenceCandidate = (input: {
     return false;
   const lastRun = latestUnheldRun(input.runs);
   if (lastRun?.completedAt == null) return false;
+  // A run the agent submitted from (after the run before it ended) did not go quiet: its report
+  // stands, so a reopened or flag-cleared child is never synthesised over (DL-681).
+  const previousEnd = latestUnheldRun(
+    input.runs.filter((run) => run.ordinal < lastRun.ordinal),
+  )?.completedAt;
+  if (
+    ws.lastOutcome !== null &&
+    ws.lastOutcome.synthesised !== true &&
+    (previousEnd == null || Date.parse(ws.lastOutcome.at) > DateTime.toEpochMillis(previousEnd))
+  )
+    return false;
   const humanStarted = turnStartedByHuman(input.runs, input.userMessages);
   const graceMs = humanStarted ? input.grace.humanStartedMs : input.grace.controlStartedMs;
-  return (
-    graceMs !== null &&
-    DateTime.toEpochMillis(input.now) - DateTime.toEpochMillis(lastRun.completedAt) >= graceMs
+  // The grace runs from the later of the run's end and the record's last change (DL-680/682): past
+  // a run's end only a human or the parent touches it — a reopen, a flag clear, a re-plan.
+  const quietSince = Math.max(
+    DateTime.toEpochMillis(lastRun.completedAt),
+    Date.parse(ws.updatedAt),
   );
+  return graceMs !== null && DateTime.toEpochMillis(input.now) - quietSince >= graceMs;
 };

@@ -31,7 +31,7 @@ import {
   nowIso,
   requireShell,
   SCAFFOLD_THREAD_REF_PREFIX,
-  stripThreadRef,
+  threadRefIds,
 } from "./shared.ts";
 
 const NOTHING = "Nothing was created.";
@@ -78,15 +78,13 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
   const liveIds = new Set(live.map((child) => child.threadId));
   const resolveRef = (key: string, field: string, ref: string) => {
     const text = ref.trim();
-    if (text.startsWith(SCAFFOLD_THREAD_REF_PREFIX)) {
-      const id = stripThreadRef(text);
-      return liveIds.has(id)
-        ? Effect.succeed(id)
-        : reject(
-            key,
-            `${field} "${ref}" does not name an active existing child of this parent. ${NOTHING}`,
-          );
-    }
+    const existing = threadRefIds(text).find((id) => liveIds.has(id));
+    if (existing !== undefined) return Effect.succeed(existing);
+    if (text.startsWith(SCAFFOLD_THREAD_REF_PREFIX))
+      return reject(
+        key,
+        `${field} "${ref}" does not name an active existing child of this parent. ${NOTHING}`,
+      );
     if (UUID_SHAPED.test(text))
       return reject(
         key,

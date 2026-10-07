@@ -32,7 +32,7 @@ import {
   writeEvents,
 } from "../loom/testkit/loomOrchestratorLayer.ts";
 import { EventSinkV2 } from "./EventSink.ts";
-import { isHumanAuthored, loomMessageFields } from "./Orchestrator.loom.ts";
+import { isHumanAuthored, loomMessageFields, loomSettleBlockers } from "./Orchestrator.loom.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -178,6 +178,35 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
       assert.deepEqual(yield* attentionOf(reopened), ["awaiting_acceptance"]);
       yield* setOutcome(null, "outcome-reopen");
       assert.deepEqual(yield* attentionOf(reopened), []);
+    }),
+  );
+
+  it.effect("a reopened root un-settles and no longer settles as finished (row 15)", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const root = ThreadId.make("attention-settled-root");
+      yield* spawnChild({ parentThreadId: null, threadId: root });
+      const setOutcome = (outcome: "done" | null) =>
+        dispatch({
+          type: "thread.outcome.set",
+          commandId: CommandId.make(`settled-root-${outcome}`),
+          threadId: root,
+          createdAt,
+          outcome,
+        });
+      yield* setOutcome("done");
+      // Auto-settle settles a finished root at its outcome time.
+      assert.isNotNull((yield* loomSettleBlockers(yield* LoomStoreV2, root)).finishedRootAt);
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("settled-root-settle"),
+        threadId: root,
+      });
+      yield* setOutcome(null);
+      const { thread } = yield* orchestrator.getThreadProjection(root);
+      assert.isNull(thread.settledOverride);
+      assert.isNull(thread.settledAt);
+      assert.isNull((yield* loomSettleBlockers(yield* LoomStoreV2, root)).finishedRootAt);
     }),
   );
 
