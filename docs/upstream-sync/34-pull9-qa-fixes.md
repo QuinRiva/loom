@@ -198,3 +198,13 @@ deployed.
   results, matching V1's cut point (`git show main:apps/server/src/mcp/ThreadForkHttp.ts`),
   so the fork knows what the caller was doing; the source session is untouched and the
   tool result's "loses the calling turn" caveat is gone. Gate clean (`5079d9cc2b`).
+- **DL-750–752 — Thread references are back, on `!` (row C1).** `!` was unbound in the
+  composer (pi treats a leading `!` as shell only in its own TUI, not in what Loom sends).
+  `!` lists threads only; pull requests stay on upstream's `#`, and `@` (files) is unchanged.
+  Matching and query rules are V1's, so multi-word titles match; the tiebreak is most
+  recently updated, consistent with upstream's `@`. A thread reference reaches the agent as
+  `[Title](thread://<id>)` again. On V2 it had gone as `[Thread: Title; ref=thread_<id>]`
+  with an instruction to call `t3_thread_read`, a tool Loom withholds from agents, and in
+  the live test the agent passed the wrong id to `consult_thread`. The reviewer reverted
+  three unrequested lint rewrites of upstream lines, one of which failed the ship gate. Gate
+  `fixed_inline` (`737607414d`).
