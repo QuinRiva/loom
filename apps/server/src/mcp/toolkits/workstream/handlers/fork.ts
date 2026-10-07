@@ -7,10 +7,11 @@
  * child of the caller (DL-344). Nothing runs until a human sends.
  *
  * The caller is always mid-turn when it calls this, so a mid-turn refusal
- * would refuse every call (V1 never gated creation either). `latest_stable`
- * is the guarantee instead: the fork copies the caller's last COMPLETED turn,
- * never a session file still being written — and so carries nothing of the
- * current turn. A thread still on its first turn has nothing stable to fork.
+ * would refuse every call (V1 never gated creation either). The transfer is
+ * pinned to the caller's last COMPLETED run, the latest one upstream can fork;
+ * pi's fork then ends the session at this call rather than at that run
+ * (`piThreadForkCut.loom.ts`), so the fork carries the calling turn up to and
+ * including the call (O3). A thread still on its first turn has no run to pin.
  *
  * @module mcp/toolkits/workstream/handlers/fork
  */
@@ -72,5 +73,5 @@ export const threadFork = Effect.fn("LoomToolkit.threadFork")(function* (
       held: true,
     });
   }
-  return `Forked this thread into staged session ${threadId} (${title}), carrying its context up to its last completed turn (this turn is not included). It launches — and forks the session — on the first send; no tokens are spent until then.`;
+  return `Forked this thread into staged session ${threadId} (${title}). It launches — and forks the session — on the first send; no tokens are spent until then.`;
 });

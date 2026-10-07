@@ -155,7 +155,6 @@ export const LOOM_TOOL_PROSE = {
     promptGuidelines: [
       "Use this to branch the CONVERSATION (keep the context, explore an alternate direction) — not to delegate sub-work (mcp__t3-code__workstream_spawn) and not to start a fresh-context next phase (mcp__t3-code__goal_continue).",
       "The fork carries no brief: its first message is the divergent continuation. It is created held; a single send from a human launches it and forks the session at that moment. Tell the user it is waiting.",
-      "Forking is refused while this thread is mid-turn (the session file is being written). Fork between turns.",
     ].join("\n"),
   },
   goal_task_list: {
