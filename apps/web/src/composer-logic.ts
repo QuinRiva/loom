@@ -11,7 +11,8 @@ import {
 
 import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
 
-export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+// loom: `thread` is the `!` thread-reference trigger (DL-750).
+export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill" | "thread";
 // loom: `/handoff` and `/retro` are client-side intercepts (loom/composerIntercepts.ts).
 export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff" | "retro";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
@@ -88,6 +89,22 @@ function tokenStartForCursor(text: string, cursor: number): number {
     index -= 1;
   }
   return index + 1;
+}
+
+/**
+ * loom: the `!` that opens the thread query the cursor sits inside (DL-750), or
+ * null. Thread titles are multi-word, so unlike `@`/`#`/`$` the query spans
+ * spaces: scan the current line back to the nearest `!` that starts a token
+ * (line start or after whitespace). The menu closes once nothing matches, so a
+ * stray `!` in prose never leaves a menu hanging.
+ */
+function threadTriggerStart(text: string, lineStart: number, cursor: number): number | null {
+  for (let index = cursor - 1; index >= lineStart; index -= 1) {
+    if (text[index] === "!" && (index === lineStart || isWhitespace(text[index - 1] ?? ""))) {
+      return index;
+    }
+  }
+  return null;
 }
 
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
@@ -281,7 +298,16 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     };
   }
   if (!token.startsWith("@")) {
-    return null;
+    // loom: the `!` scan-back runs last so the current token's own trigger wins.
+    const threadStart = threadTriggerStart(text, lineStart, cursor);
+    return threadStart === null
+      ? null
+      : {
+          kind: "thread",
+          query: text.slice(threadStart + 1, cursor),
+          rangeStart: threadStart,
+          rangeEnd: cursor,
+        };
   }
 
   return {

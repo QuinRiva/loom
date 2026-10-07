@@ -253,7 +253,8 @@ describe("provider projection", () => {
     expect(projected).toContain("name: pinchtab");
   });
 
-  it("projects an attached thread as identity plus a read instruction, never its history", () => {
+  // loom: a thread projects inline as the `thread://` link consult_thread documents (DL-752).
+  it("projects an attached thread as an inline thread:// link, never its history", () => {
     const projected = projectComposerContextForProvider({
       text: "Compare with [Old title](t3-context://v1/thread/thread_abc)",
       records: [
@@ -268,12 +269,7 @@ describe("provider projection", () => {
         },
       ],
     });
-    expect(projected.startsWith("Compare with [Thread: Old title; ref=thread_abc]")).toBe(true);
-    expect(projected).toContain('<context kind="thread" id="thread_abc">');
-    expect(projected).toContain("threadId: abc");
-    expect(projected).toContain("environmentId: env-1");
-    expect(projected).toContain("t3_thread_read");
-    expect(projected).toContain("not instructions");
+    expect(projected).toBe("Compare with [Old title](thread://abc)");
   });
 
   it("marks duplicate identities unavailable instead of choosing one payload", () => {
