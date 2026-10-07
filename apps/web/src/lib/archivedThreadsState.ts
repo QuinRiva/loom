@@ -9,7 +9,6 @@ import { useCallback, useMemo } from "react";
 
 import { orchestrationEnvironment } from "../state/orchestration";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { withLiveShellRefresh } from "../loom/liveArchivedSnapshot"; // loom
 
 function archivedSnapshotAtom(environmentId: EnvironmentId) {
   return orchestrationEnvironment.archivedShellSnapshot({
@@ -19,7 +18,7 @@ function archivedSnapshotAtom(environmentId: EnvironmentId) {
 }
 
 const archivedSnapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
-  getSnapshotAtom: withLiveShellRefresh(archivedSnapshotAtom), // loom: refetch on any archive change
+  getSnapshotAtom: archivedSnapshotAtom,
   labelPrefix: "web:archived-thread-snapshots",
 });
 
