@@ -11,7 +11,11 @@
  * them — carries no Loom props.
  */
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { Nodes } from "mdast";
 import { useEffect, useRef } from "react";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import { create } from "zustand";
 
 import ChatMarkdown from "../components/ChatMarkdown";
@@ -73,6 +77,21 @@ export function PendingQuestionBody({
     />
   );
 }
+
+const markdownParser = unified().use(remarkParse).use(remarkGfm);
+const BLOCK_PARENTS = new Set(["root", "list", "listItem", "blockquote", "table", "tableRow"]);
+const plainText = (node: Nodes): string =>
+  "value" in node
+    ? node.value
+    : node.type === "break"
+      ? " "
+      : "children" in node
+        ? node.children.map(plainText).join(BLOCK_PARENTS.has(node.type) ? " " : "")
+        : "";
+
+/** The question as one line of plain text, for the collapsed panel's header. */
+export const questionSummary = (markdown: string) =>
+  plainText(markdownParser.parse(markdown)).replace(/\s+/g, " ").trim();
 
 /** Answer the set in prose: the composer's text goes out as an ordinary message. */
 export function ReplyInChatInsteadButton({

@@ -9,9 +9,10 @@ import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
-// loom: 3d-4 — DT-36 additions (markdown body with file chips, reply in chat instead).
+// loom: 3d-4 — DT-36 additions (markdown body with file chips and its one-line summary, reply in chat instead).
 import {
   PendingQuestionBody,
+  questionSummary,
   ReplyInChatInsteadButton,
   useLoomPendingInputHost,
 } from "~/loom/pendingUserInputLoom";
@@ -205,7 +206,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           </span>
           {isCollapsed ? (
             <span className="min-w-0 flex-1 truncate text-secondary-label">
-              {activeQuestion.question}
+              {questionSummary(activeQuestion.question) /* loom: the body is markdown (DT-36) */}
             </span>
           ) : null}
         </ComposerBanner.Content>

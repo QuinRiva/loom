@@ -290,6 +290,19 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
  * its tool result, so upstream's answer message is withheld. With no live
  * waiter (pi died, the server restarted) upstream's message delivery stands.
  */
+/**
+ * The `runtime-request.respond` hunk's answer read (DL-720). Upstream's message
+ * path takes only string answers — its one producer, Codex's async questions,
+ * is never multi-select — but a `loom-ask:` question can be, and the panel
+ * answers it with the selected values. They join as upstream's own string-only
+ * adapters encode a multi-select answer (`claudeSdkUserInputAnswers`); the
+ * request keeps the array, which the live waiter renders as V1 did.
+ */
+export const loomAskAnswer = (requestId: string, answer: unknown) =>
+  requestId.startsWith(LOOM_ASK_REQUEST_PREFIX) && Array.isArray(answer)
+    ? answer.join(", ")
+    : answer;
+
 export const loomAskTakesAnswer = (requestId: string) =>
   Effect.gen(function* () {
     if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;

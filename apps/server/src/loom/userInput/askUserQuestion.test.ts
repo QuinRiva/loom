@@ -43,6 +43,16 @@ const QUESTIONS = [
       { label: "No", description: "Hold it." },
     ],
   },
+  {
+    header: "Extras",
+    question: "Which extras should ship with it?",
+    multiSelect: true,
+    options: [
+      { label: "Docs", description: "Document it." },
+      { label: "Tests", description: "Test it." },
+      { label: "Hints", description: "Type it." },
+    ],
+  },
 ];
 
 const callerOf = (threadId: ThreadId): WorkstreamCaller => ({
@@ -105,7 +115,7 @@ const respond = (threadId: ThreadId, requestId: RuntimeRequestId) =>
     commandId: CommandId.make(`command:respond:${requestId}`),
     threadId,
     requestId,
-    answers: { q1: "Yes" },
+    answers: { q1: "Yes", q2: ["Docs", "Hints"] },
   });
 
 const fresh = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -153,7 +163,12 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
         yield* respond(threadId, requestId);
 
         const outcome = yield* Fiber.join(polling);
-        assert.deepEqual(outcome, Option.some("The user answered:\n- Ship the change now?: Yes"));
+        assert.deepEqual(
+          outcome,
+          Option.some(
+            "The user answered:\n- Ship the change now?: Yes\n- Which extras should ship with it?: Docs, Hints",
+          ),
+        );
         const projection = yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(
           threadId,
         );
@@ -181,7 +196,10 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
           (message) => message.id === MessageId.make(`async-answer:${requestId}`),
         );
         assert.equal(answers.length, 1);
-        assert.equal(answers[0]?.text, "Ship the change now?\nYes");
+        assert.equal(
+          answers[0]?.text,
+          "Ship the change now?\nYes\n\nWhich extras should ship with it?\nDocs, Hints",
+        );
         assert.equal(answers[0]?.loom?.humanAuthored, true);
         // Resolution and message commit together, so the reactor reads no pending request.
         const supersede = yield* (yield* CommandReceiptStoreV2).getByCommandId(
