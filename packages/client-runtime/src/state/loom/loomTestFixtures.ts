@@ -40,6 +40,7 @@ export const workstreamFields = (
   pendingRework: false,
   lastOutcome: null,
   reportPath: null,
+  handoffDestinations: [],
   archivedAt: null,
   deletedAt: null,
   createdAt: "2026-10-05T00:00:00.000Z",

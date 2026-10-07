@@ -18,7 +18,7 @@
  * mark, so neither can ever mask the other.
  *
  * **Adding a fork migration:** create `Migrations/<id>_<Name>.ts` with the
- * next id at `1053+` and append it to `loomMigrationEntries`. Never number a
+ * next id at `1055+` and append it to `loomMigrationEntries`. Never number a
  * fork migration below `1000`.
  *
  * @module LoomMigrations
@@ -84,6 +84,7 @@ import Migration1050 from "./Migrations/1050_LoomThreadReroute.ts";
 import Migration1051 from "./Migrations/1051_LoomLegacyImports.ts";
 import Migration1052 from "./Migrations/1052_LoomControlMessageRows.ts";
 import Migration1053 from "./Migrations/1053_LoomCardMetrics.ts";
+import Migration1054 from "./Migrations/1054_LoomImportedConsultItems.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -142,6 +143,7 @@ export const loomMigrationEntries = [
   [1051, "LoomLegacyImports", Migration1051],
   [1052, "LoomControlMessageRows", Migration1052],
   [1053, "LoomCardMetrics", Migration1053],
+  [1054, "LoomImportedConsultItems", Migration1054],
 ] as const;
 
 const makeLoomMigrationLoader = (throughId?: number) =>

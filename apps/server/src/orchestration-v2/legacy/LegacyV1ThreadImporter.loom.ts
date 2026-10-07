@@ -9,7 +9,15 @@
  * as human the same way. A payload that does not decode is dropped: the card
  * falls back to the message's raw text.
  */
-import { ControlPayload, LoomMessageOrigin, type LoomMessageFields } from "@t3tools/contracts";
+import {
+  ControlPayload,
+  LoomMessageOrigin,
+  type LoomMessageFields,
+  type OrchestrationV2TurnItem,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -41,4 +49,79 @@ export function importedLoomFields(row: LegacyLoomMessageColumns): {
       ...(controlPayload === undefined ? {} : { controlPayload }),
     },
   };
+}
+
+/**
+ * loom: V1 `consult_thread` calls on import (T3). V1 rendered each consult from
+ * its `thread.consult-recorded` event; V2's card renders a consult turn item.
+ * The importer (and Loom migration 1054, for threads already imported) turns
+ * each V1 event into the completed `mcp__t3-code__consult_thread` item a V2
+ * consult is, placed among the thread's runless items by time.
+ */
+export interface LegacyConsultRow {
+  readonly event_id: string;
+  readonly thread_id: string;
+  readonly occurred_at: string;
+  readonly payload_json: string;
+}
+
+const decodeConsultPayload = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      targetThreadId: Schema.String,
+      question: Schema.String,
+      answer: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  ),
+);
+
+export const legacyConsultTurnItemId = (eventId: string) =>
+  TurnItemId.make(`migration:v1:turn-item:consult:${eventId}`);
+
+export function importedConsultTurnItem(
+  row: LegacyConsultRow,
+  ordinal: number,
+): OrchestrationV2TurnItem {
+  const { targetThreadId, question, answer } = decodeConsultPayload(row.payload_json);
+  const at = DateTime.makeUnsafe(row.occurred_at);
+  return {
+    id: legacyConsultTurnItemId(row.event_id),
+    threadId: ThreadId.make(row.thread_id),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal,
+    status: "completed",
+    title: null,
+    startedAt: at,
+    completedAt: at,
+    updatedAt: at,
+    type: "dynamic_tool",
+    toolName: "mcp__t3-code__consult_thread",
+    input: { threadId: targetThreadId, question },
+    output: answer ?? "",
+  };
+}
+
+/**
+ * A thread's runless items (in order) with its V1 consults (time-ordered)
+ * merged in: a consult goes before the first item strictly later than it, so
+ * the importer and migration 1054 place every consult identically.
+ */
+export function interleaveConsults<I>(
+  items: ReadonlyArray<I>,
+  at: (item: I) => string,
+  consults: ReadonlyArray<LegacyConsultRow>,
+): ReadonlyArray<{ readonly item: I } | { readonly consult: LegacyConsultRow }> {
+  const merged: Array<{ readonly item: I } | { readonly consult: LegacyConsultRow }> = [];
+  let next = 0;
+  for (const item of items) {
+    while (next < consults.length && consults[next]!.occurred_at < at(item))
+      merged.push({ consult: consults[next++]! });
+    merged.push({ item });
+  }
+  return [...merged, ...consults.slice(next).map((consult) => ({ consult }))];
 }

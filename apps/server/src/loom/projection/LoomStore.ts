@@ -421,7 +421,6 @@ const ThreadStatsRow = Schema.Struct({
 
 const SHELL_OMITTED = [
   "notifySendLog",
-  "handoffDestinations",
   "lastRoute",
   "outcomeEventId",
   "unarchivedEventId",

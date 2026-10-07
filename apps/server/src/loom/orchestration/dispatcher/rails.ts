@@ -57,6 +57,7 @@ import {
   FYI_DIGEST_FLUSH_MS,
   parentWorkstreamQuiet,
   renderDeadEpisodeDigestLine,
+  renderRecoveredDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
 import { boundedExcerpt, buildChildWakeMessage, workstreamLane } from "./wakes.ts";
@@ -103,18 +104,20 @@ const readReport = (path: string | null) =>
   path === null ? Effect.succeed(null) : Effect.map(readWorkstreamReportAt(path), Option.getOrNull);
 
 /**
- * The parent was told how `threadId` ended, at or after `sinceMs`: a
- * `terminal` / `gate-resolved` digest item (standalone or piggybacked), a yield
- * card or an attention notice named it.
+ * A delivered item that told the parent how its child stands: a `terminal` /
+ * `gate-resolved` / `recovered` digest item (standalone or piggybacked), a
+ * yield card or an attention notice.
  */
+const isStatusWord = ({ payload, item }: DeliveredItem) =>
+  item.kind === "terminal" ||
+  item.kind === "gate-resolved" ||
+  item.kind === "recovered" ||
+  (item.kind === undefined && (payload.kind === "yield" || payload.notice === "attention"));
+
+/** The parent was told how `threadId` ended, at or after `sinceMs`. */
 const toldAbout = (delivered: ReadonlyArray<DeliveredItem>, threadId: ThreadId, sinceMs: number) =>
   delivered.some(
-    ({ payload, item, atMs }) =>
-      item.threadId === threadId &&
-      atMs >= sinceMs &&
-      (item.kind === "terminal" ||
-        item.kind === "gate-resolved" ||
-        (item.kind === undefined && (payload.kind === "yield" || payload.notice === "attention"))),
+    (word) => word.item.threadId === threadId && word.atMs >= sinceMs && isStatusWord(word),
   );
 
 const stash = (ctx: PassContext, parentId: ThreadId, item: PendingDigestItem) =>
@@ -168,7 +171,8 @@ const childItem = (
  * Terminal deltas → FYI items: a child with a recorded submit (`lastOutcome.eventId`)
  * and an outcome the parent has not heard of since that submit, held back while
  * it is a party of an unresolved gate (a resolved pair reports together as one
- * `gate-resolved` item plus the coder's reference); plus dead episodes and the
+ * `gate-resolved` item plus the coder's reference) — or as `recovered` when the
+ * parent last heard of it through an `error` notice; plus dead episodes and the
  * liveness advisories. Imported rows (null stamps) never qualify.
  */
 export const terminalDeltas: PassStep = {
@@ -182,7 +186,35 @@ export const terminalDeltas: PassStep = {
       const siblings = siblingNodes(ctx, parentId);
       if (isMemberOfUnresolvedGate(nodeOf(ctx, child), siblings)) continue;
       const sinceMs = Date.parse(lastOutcome.at);
-      if (toldAbout(yield* ctx.delivered(parentId), child.threadId, sinceMs)) continue;
+      const delivered = yield* ctx.delivered(parentId);
+      if (toldAbout(delivered, child.threadId, sinceMs)) continue;
+      // V1's `recovered`: when the parent's last word on this child was its `error`
+      // notice, a `done` supersedes that alarm instead of reporting one more completion.
+      const lastWord = delivered.findLast(
+        (word) =>
+          word.item.threadId === child.threadId && word.atMs < sinceMs && isStatusWord(word),
+      );
+      if (
+        child.outcome === "done" &&
+        lastWord?.payload.notice === "attention" &&
+        lastWord.item.status === "error"
+      ) {
+        stash(ctx, parentId, {
+          key: terminalEpisodeKey(child),
+          eventAtMs: sinceMs,
+          extra: {
+            kind: "recovered",
+            line: renderRecoveredDigestLine({
+              ...child,
+              id: child.threadId,
+              eventAt: lastOutcome.at,
+            }),
+            childId: child.threadId,
+            role: child.role,
+          },
+        });
+        continue;
+      }
       const resolvedRoute =
         lastOutcome.decision === "resolve" && child.lastRoute?.kind === "resolve"
           ? child.lastRoute

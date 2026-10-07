@@ -1,91 +1,111 @@
 /**
- * loom: the two shell-derived Loom timeline rows (3d-3, see
- * `loomTimelineRows.ts`): a consult row (who this thread consulted, how often,
- * the last question) and a handoff receipt (a root that continues this thread,
- * and whether it is staged, launched or settled). Both link to the other
- * thread with the same chip the chat uses for thread references.
+ * loom: the handoff receipt (`loomTimelineRows.ts`) — where this thread's work
+ * went: a `/handoff` drafting, failed or handed off, or the thread's own
+ * `goal_handoff` / `goal_continue`. Its grammar is deliberately non-message (a
+ * kicker, full width) because none of it entered this thread's conversation.
+ * The `/handoff` explanation is shown in full and copyable: on a failure it is
+ * the second copy that makes the handoff recoverable.
  */
 import type { EnvironmentId } from "@t3tools/contracts";
-import { ArrowRightIcon, MessageCircleQuestionMarkIcon } from "lucide-react";
+import { GitBranchIcon, HourglassIcon, TriangleAlertIcon } from "lucide-react";
 
+import { MessageCopyButton } from "~/components/chat/MessageCopyButton";
 import { cn } from "~/lib/utils";
 
-import type { LoomTimelineRow as LoomTimelineRowData } from "./loomTimelineRows";
+import type { LoomReceiptState, LoomTimelineRow } from "./loomTimelineRows";
 import { ThreadLinkChip } from "./verifiedFileChips";
 
-const HANDOFF_STATE_LABEL = {
-  staged: "staged",
-  launched: "launched",
-  done: "done",
-  cancelled: "cancelled",
-} as const;
+export const HANDOFF_FAILURE_REASON =
+  "The drafter stopped without placing a handoff, so no goal was created.";
+
+const STATE: Record<
+  LoomReceiptState,
+  { kicker: string; icon: typeof GitBranchIcon; box: string; tone: string }
+> = {
+  drafting: {
+    kicker: "Handing off",
+    icon: HourglassIcon,
+    box: "border-l-info/65 bg-info/5",
+    tone: "text-info-foreground",
+  },
+  failed: {
+    kicker: "Handoff needs you",
+    icon: TriangleAlertIcon,
+    box: "border-l-warning bg-warning/8",
+    tone: "text-warning-foreground",
+  },
+  "handed-off": {
+    kicker: "Handed off",
+    icon: GitBranchIcon,
+    box: "border-l-success/55 bg-success/5",
+    tone: "text-success-foreground",
+  },
+};
 
 /** Context-free (the preview mounts it directly). */
 export function LoomTimelineRowView({
   row,
   environmentId,
 }: {
-  row: LoomTimelineRowData;
+  row: LoomTimelineRow;
   environmentId: EnvironmentId;
 }) {
-  if (row.kind === "loom-consult") {
-    const { consult } = row;
-    return (
-      <section
-        className="-mx-1 min-w-0 px-1 py-0.5"
-        aria-label={`Consulted ${consult.targetTitle}`}
-        data-loom-consult={consult.targetThreadId}
-      >
-        <div className="flex items-center gap-1.5 rounded-lg border border-info/25 bg-info/[0.06] px-2 py-1.5 text-xs leading-5">
-          <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
-          <span className="text-foreground/82 shrink-0">Consulted</span>
-          <span className="min-w-0 shrink-0">
-            <ThreadLinkChip
-              label={consult.targetTitle}
-              threadId={consult.targetThreadId}
-              environmentId={environmentId}
-            />
-          </span>
-          <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">
-            — {consult.lastQuestionPreview}
-          </span>
-          {consult.count > 1 ? (
-            <span className="text-info-foreground/80 shrink-0 text-3xs tabular-nums">
-              {consult.count}×
-            </span>
-          ) : null}
-        </div>
-      </section>
-    );
-  }
-  const { successor } = row;
+  const state = STATE[row.state];
+  const Icon = state.icon;
   return (
     <section
       className="-mx-1 min-w-0 px-1 py-0.5"
-      aria-label={`Handed off to ${successor.title}`}
-      data-loom-handoff={successor.threadId}
+      aria-label={state.kicker}
+      data-loom-handoff={row.state}
     >
-      <div className="flex items-center gap-1.5 rounded-lg border border-success/25 bg-success/[0.06] px-2 py-1.5 text-xs leading-5">
-        <ArrowRightIcon className="size-3.5 shrink-0 text-success-foreground" />
-        <span className="text-foreground/82 shrink-0">Handed off to</span>
-        <span className="min-w-0 truncate">
-          <ThreadLinkChip
-            label={successor.title}
-            threadId={successor.threadId}
-            environmentId={environmentId}
-          />
-        </span>
-        <span className="flex-1" />
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-l-2 border-border px-2.5 py-1.5 text-xs leading-5 text-muted-foreground",
+          state.box,
+        )}
+      >
+        <Icon className={cn("size-3.5 shrink-0", state.tone)} />
         <span
-          className={cn(
-            "shrink-0 text-3xs tracking-wide uppercase",
-            successor.state === "cancelled"
-              ? "text-muted-foreground/70"
-              : "text-success-foreground",
-          )}
+          className={cn("shrink-0 text-3xs font-semibold tracking-widest uppercase", state.tone)}
         >
-          {HANDOFF_STATE_LABEL[successor.state]}
+          {state.kicker}
         </span>
+        {row.state === "drafting" ? (
+          <span>A drafter is writing the brief</span>
+        ) : row.state === "failed" ? (
+          <span>{HANDOFF_FAILURE_REASON}</span>
+        ) : null}
+        {row.destinations.map((destination) => (
+          <span key={destination.threadId} className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate">
+              <ThreadLinkChip
+                label={destination.title ?? "an archived goal"}
+                threadId={destination.threadId}
+                environmentId={environmentId}
+              />
+            </span>
+            {destination.state ? (
+              <span className="shrink-0 text-3xs tracking-wide uppercase">{destination.state}</span>
+            ) : null}
+          </span>
+        ))}
+        {row.state === "failed" && row.drafterThreadId ? (
+          <span className="shrink-0">
+            <ThreadLinkChip
+              label="Open drafter"
+              threadId={row.drafterThreadId}
+              environmentId={environmentId}
+            />
+          </span>
+        ) : null}
+        {row.explanation ? (
+          <span className="flex basis-full items-start gap-1.5">
+            <span className="min-w-0 flex-1 font-medium wrap-break-word text-foreground/85">
+              {row.explanation}
+            </span>
+            <MessageCopyButton text={row.explanation} size="icon-xs" variant="ghost" />
+          </span>
+        ) : null}
       </div>
     </section>
   );

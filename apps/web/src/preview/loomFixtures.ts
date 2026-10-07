@@ -115,6 +115,7 @@ const workstream = (
   pendingRework: false,
   lastOutcome: null,
   reportPath: null,
+  handoffDestinations: [],
   archivedAt: null,
   deletedAt: null,
   createdAt: AT,

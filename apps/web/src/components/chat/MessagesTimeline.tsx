@@ -291,7 +291,9 @@ import {
   formatReviewCommentFence,
   type LineReviewCommentContext, // loom:
 } from "../../reviewCommentContext";
-// loom: 3d-3 — control cards, consult rows and handoff receipts.
+// loom: 3d-3 — control cards, consult cards and handoff receipts.
+import { ConsultCardRow } from "../../loom/ConsultCardRow";
+import { isConsultToolItem } from "../../loom/consultTool";
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
@@ -808,7 +810,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     supportsConversationRollback,
     worktreeSetup,
   ]);
-  // loom: 3d-3 — consult rows and handoff receipts, spliced in by time.
+  // loom: 3d-3 — handoff receipts, spliced in by time.
   const loomRows = useLoomTimelineRows(listIdentityKey);
   const rows = useStableRows(
     useMemo(() => insertLoomTimelineRows(rawRows, loomRows), [rawRows, loomRows]), // loom: 3d-3
@@ -1865,7 +1867,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           fallback={(bubble) => <UserTimelineRow row={row} loomBubble={bubble} />}
         />
       ) : null}
-      {row.kind === "loom-consult" || row.kind === "loom-handoff" ? (
+      {row.kind === "loom-handoff" ? (
         <LoomTimelineRow row={row} /> // loom: 3d-3
       ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
@@ -2899,6 +2901,7 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
       />
     );
   }
+  if (isConsultToolItem(item)) return <ConsultCardRow projectedItem={row.projectedItem} />; // loom:
   const presentation = v2EventPresentation(item);
   const Icon = presentation.icon;
   if (item.type === "error") {

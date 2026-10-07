@@ -1,22 +1,30 @@
 /**
- * loom: the Loom rows spliced into a thread's timeline (3d-3) — consult rows
- * and handoff receipts, both derived from the V2 shell alone:
+ * loom: the handoff receipts spliced into a thread's timeline, derived from
+ * the V2 shell alone, so they survive a reload and reach every client:
  *
- * - **consult** — one row per target this thread consulted
- *   (`shell.workstream.consults`, newest exchange's question), placed at the
- *   last consult. The per-call question and answer stay on the tool row.
- * - **handoff receipt** — one row per root that continues this thread
- *   (`workstream.continuesThreadId === this`, the `mcp__t3-code__goal_continue` shape),
- *   placed at its creation, naming where the work went and whether it is
- *   staged, launched or settled. V1 read the source's `handoffDestinations`,
- *   which the shell no longer carries (DL-435).
+ * - **`/handoff`** — one row per drafter forked from this thread (role
+ *   `handoff-drafter`, `forkFromThreadId === this`): drafting while its run is
+ *   live, failed when the run ended without placing a handoff, handed off once
+ *   it did. An archived (settled) drafter leaves the snapshot; its row then
+ *   reads from the `handoffDestinations` markers `goal_handoff` copies onto
+ *   this thread, attributed to the drafter.
+ * - **`goal_handoff`** — one row per marker this thread's own agent placed.
+ * - **`goal_continue`** — one row per root that continues this thread
+ *   (`workstream.continuesThreadId === this`).
+ *
+ * A `consult_thread` call is not a row here: it is a turn item, rendered as
+ * its own card (`ConsultCardRow.tsx`).
  *
  * Placement is insertion, not a re-sort: each row lands before the first
  * strictly later row, above the working indicator when nothing later exists.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { LoomThreadConsultSummary, LoomThreadShellFields, ThreadId } from "@t3tools/contracts";
+import type {
+  LoomThreadShellFields,
+  OrchestrationV2ThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 
@@ -24,29 +32,129 @@ import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.log
 import { environmentSnapshotAtom } from "~/state/shell";
 
 export type LoomHandoffState = "staged" | "launched" | "done" | "cancelled";
+export type LoomReceiptState = "drafting" | "failed" | "handed-off";
 
-export type LoomTimelineRow =
-  | {
-      readonly kind: "loom-consult";
-      readonly id: string;
-      readonly createdAt: string;
-      readonly consult: LoomThreadConsultSummary;
-    }
-  | {
-      readonly kind: "loom-handoff";
-      readonly id: string;
-      readonly createdAt: string;
-      readonly successor: {
-        readonly threadId: ThreadId;
-        readonly title: string;
-        readonly state: LoomHandoffState;
-      };
-    };
+export interface LoomHandoffDestination {
+  readonly threadId: ThreadId;
+  /** Null when the destination is not in the snapshot (archived, deleted). */
+  readonly title: string | null;
+  readonly state: LoomHandoffState | null;
+}
+
+export interface LoomTimelineRow {
+  readonly kind: "loom-handoff";
+  readonly id: string;
+  readonly createdAt: string;
+  readonly sourceThreadId: ThreadId;
+  readonly state: LoomReceiptState;
+  /** The `/handoff` drafter; null for the thread's own `goal_handoff` / `goal_continue`. */
+  readonly drafterThreadId: ThreadId | null;
+  /** The human's `/handoff` explanation (the drafter's purpose) while the drafter is live. */
+  readonly explanation: string | null;
+  readonly destinations: ReadonlyArray<LoomHandoffDestination>;
+}
 
 const EMPTY_ROWS: ReadonlyArray<LoomTimelineRow> = Object.freeze([]);
 
 const handoffState = (workstream: LoomThreadShellFields): LoomHandoffState =>
   workstream.outcome ?? (workstream.held ? "staged" : "launched");
+
+/** Every receipt row of `sourceId`, oldest first (also the toast coordinator's input). */
+export function handoffReceiptRows(
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  sourceId: ThreadId,
+): ReadonlyArray<LoomTimelineRow> {
+  const source = threads.find((thread) => thread.id === sourceId);
+  const destination = (threadId: ThreadId): LoomHandoffDestination => {
+    const shell = threads.find((thread) => thread.id === threadId);
+    return {
+      threadId,
+      title: shell?.title ?? null,
+      state: shell?.workstream ? handoffState(shell.workstream) : null,
+    };
+  };
+  const row = (
+    key: ThreadId,
+    fields: Omit<LoomTimelineRow, "kind" | "id" | "sourceThreadId">,
+  ): LoomTimelineRow => ({
+    kind: "loom-handoff",
+    id: `loom-handoff:${key}`,
+    sourceThreadId: sourceId,
+    ...fields,
+  });
+  const markers = (source?.workstream?.handoffDestinations ?? []).flatMap((marker) =>
+    marker.createdAt === null ? [] : [{ ...marker, createdAt: marker.createdAt }],
+  );
+  const drafters = threads.filter(
+    (thread) =>
+      thread.workstream?.role === "handoff-drafter" &&
+      thread.workstream.forkFromThreadId === sourceId,
+  );
+  const liveDrafterIds = new Set(drafters.map((drafter) => drafter.id));
+  // A settled drafter is archived out of the snapshot: its markers carry the row.
+  const settled = new Map<ThreadId, typeof markers>();
+  for (const marker of markers) {
+    const drafterId = marker.drafterThreadId;
+    if (drafterId === null || drafterId === sourceId || liveDrafterIds.has(drafterId)) continue;
+    settled.set(drafterId, [...(settled.get(drafterId) ?? []), marker]);
+  }
+  return [
+    ...drafters.map((drafter) => {
+      // The drafter's own markers: what the reactor settles on (the source's copy is best-effort).
+      const placed = drafter.workstream!.handoffDestinations.filter(
+        (marker) => marker.drafterThreadId === drafter.id,
+      );
+      const ended = drafter.latestRunId !== null && drafter.activityRunStatus == null;
+      return row(drafter.id, {
+        createdAt: DateTime.formatIso(drafter.createdAt),
+        state:
+          ended && placed.length > 0
+            ? "handed-off"
+            : ended || drafter.workstream!.attention.length > 0
+              ? "failed"
+              : "drafting",
+        drafterThreadId: drafter.id,
+        explanation: drafter.workstream!.purpose,
+        destinations: placed.map((marker) => destination(marker.threadId)),
+      });
+    }),
+    ...[...settled].map(([drafterId, placed]) =>
+      row(drafterId, {
+        createdAt: placed[0]!.createdAt,
+        state: "handed-off",
+        drafterThreadId: drafterId,
+        explanation: null,
+        destinations: placed.map((marker) => destination(marker.threadId)),
+      }),
+    ),
+    ...markers
+      .filter((marker) => marker.drafterThreadId === null || marker.drafterThreadId === sourceId)
+      .map((marker) =>
+        row(marker.threadId, {
+          createdAt: marker.createdAt,
+          state: "handed-off",
+          drafterThreadId: null,
+          explanation: null,
+          destinations: [destination(marker.threadId)],
+        }),
+      ),
+    ...threads
+      .filter(
+        (thread) =>
+          thread.workstream?.continuesThreadId === sourceId &&
+          thread.lineage.parentThreadId === null,
+      )
+      .map((thread) =>
+        row(thread.id, {
+          createdAt: DateTime.formatIso(thread.createdAt),
+          state: "handed-off",
+          drafterThreadId: null,
+          explanation: null,
+          destinations: [destination(thread.id)],
+        }),
+      ),
+  ].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
 
 const loomRowsAtom = Atom.family((threadKey: string) => {
   const ref = parseScopedThreadKey(threadKey);
@@ -55,31 +163,7 @@ const loomRowsAtom = Atom.family((threadKey: string) => {
   return Atom.make((get) => {
     const threads = ref === null ? null : get(environmentSnapshotAtom(ref.environmentId))?.threads;
     if (!ref || !threads) return EMPTY_ROWS;
-    const self = threads.find((thread) => thread.id === ref.threadId);
-    const rows: LoomTimelineRow[] = [
-      ...(self?.workstream?.consults ?? []).map((consult) => ({
-        kind: "loom-consult" as const,
-        id: `loom-consult:${consult.targetThreadId}`,
-        createdAt: consult.lastConsultAt,
-        consult,
-      })),
-      ...threads
-        .filter(
-          (thread) =>
-            thread.workstream?.continuesThreadId === ref.threadId &&
-            thread.lineage.parentThreadId === null,
-        )
-        .map((thread) => ({
-          kind: "loom-handoff" as const,
-          id: `loom-handoff:${thread.id}`,
-          createdAt: DateTime.formatIso(thread.createdAt),
-          successor: {
-            threadId: thread.id,
-            title: thread.title,
-            state: handoffState(thread.workstream!),
-          },
-        })),
-    ];
+    const rows = handoffReceiptRows(threads, ref.threadId);
     // Shell churn is constant; hand back the same array unless a row changed.
     const key = JSON.stringify(rows);
     if (key !== previousKey) {

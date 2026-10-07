@@ -32,7 +32,6 @@ const node = (
 ): WorkstreamListThread => {
   const {
     notifySendLog,
-    handoffDestinations,
     lastRoute,
     outcomeEventId,
     unarchivedEventId,

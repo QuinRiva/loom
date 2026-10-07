@@ -14,6 +14,7 @@ import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -539,6 +540,44 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       yield* runPass;
       assert.lengthOf(yield* notices, 2);
     }),
+  );
+
+  it.effect(
+    "recovered: a done child the parent last heard of as `error` digests once as recovered",
+    () =>
+      Effect.gen(function* () {
+        const [root, child] = ["recov-root", "recov-child"].map((id) => ThreadId.make(id));
+        yield* seedThread({ threadId: root! });
+        yield* spawnChild({ parentThreadId: root!, threadId: child!, graphKey: "child" });
+        const attention = (type: "thread.attention.raise" | "thread.attention.clear") =>
+          dispatch({
+            type,
+            commandId: CommandId.make(`server:recov-${type}`),
+            threadId: child!,
+            createdAt,
+            reason: "error",
+          });
+        yield* attention("thread.attention.raise");
+        yield* runPass;
+        assert.lengthOf(yield* withPayload(root!, "notice", "attention"), 1);
+
+        // Resumed, then finished after the notice.
+        yield* TestClock.adjust("1 minute");
+        yield* attention("thread.attention.clear");
+        yield* submit(child!, undefined, "/reports/recov.md");
+        yield* completeOpenRuns(root!);
+        yield* runPass;
+        yield* completeOpenRuns(root!);
+        yield* runPass;
+        yield* runFreshPass;
+        const [digest, ...rest] = yield* withPayload(root!, "digest");
+        assert.isEmpty(rest);
+        assert.deepEqual(
+          digest!.loom!.controlPayload!.items.map((item) => [item.kind, item.threadId]),
+          [["recovered", child!]],
+        );
+        assert.include(digest!.text, "recovered (earlier `error` superseded by `done`");
+      }),
   );
 
   it.effect("notify: a pending record becomes one notify message and leaves the queue", () =>

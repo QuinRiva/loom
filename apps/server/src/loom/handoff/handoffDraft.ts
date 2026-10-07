@@ -81,6 +81,8 @@ export interface DraftForkInput {
   readonly role: string;
   readonly title: string;
   readonly kickoff: string;
+  /** The human's `/handoff` explanation: the source's receipt row shows it (copyable) while the drafter lives. */
+  readonly purpose?: string;
   readonly createdAt: string;
 }
 
@@ -112,7 +114,7 @@ export const buildDraftForkCommands = (
       branch: source.branch,
       worktreePath: source.worktreePath,
       role: input.role,
-      purpose: null,
+      purpose: input.purpose ?? null,
       goalId: input.sourceGoalId,
       forkFromThreadId: source.id,
     },
@@ -142,6 +144,7 @@ export const buildHandoffDraftTurnStart = (
     role: HANDOFF_DRAFTER_ROLE,
     title: buildDrafterTitle(input.explanation),
     kickoff: buildDrafterKickoffPrompt(input.explanation),
+    purpose: input.explanation,
   });
 
 /**
