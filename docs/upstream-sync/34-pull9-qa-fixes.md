@@ -138,3 +138,45 @@ deployed.
   healthy `/handoff` drafter threads are hidden from the sidebar, palette and mentions per
   V1's rule; the annotation chip label no longer reads "block block". Gate `fixed_inline`
   (`6e05d26853`).
+- **DL-606 — Carl's review of the 32 pull-9 drops is the authority for restores.** His
+  verdicts: `/home/Carl/.t3/cockpit/worktrees/loom/t3code-8575c5e1/recaps/pull9-agent-drops/carl-decisions.md`
+  (from the post-mortem thread `e1aab7f0`). Twelve rows restored on this branch: C1 thread
+  references; T3 consult card shows its answer; T4 handoff progress, failure toast and
+  `goal_handoff` receipt; T5 the `recovered` digest item; W2 node-timeline flag, yield and
+  rework rows; W3 jump-to-message (reversed from DROP); W4 workstream cost total; W5 tool
+  count and context on board cards (reversed from DROP); S2 clickable rollup popover; S4
+  pending-question topic and age; O3 `thread_fork` includes the calling turn; G3 the right
+  panel reopens as the user left it. Q1 (semantic search plus include-archived toggle) is
+  agreed, but its timing is Carl's call.
+- **DL-750 — Thread references get their own trigger, `!`, not `#`** (Carl: "`@` is
+  already searching files, which is heavy … `#` is now used by PRs … the big gap … is that
+  spaces are escaped and almost all threads have spaces in their names"). `@` (files) and
+  `#` (pull requests) stay upstream's; multi-word queries are the core requirement.
+- **DL-607 — Two review gates deadlocked in production (V1) on the re-verify hop.** The
+  consult and control-notice coders submitted round-1 rework (10:52 and 11:15 local) and
+  were told "routed to the reviewer for re-verification", but neither reviewer was woken.
+  Prompting them by hand was refused: "cannot start its first turn: dependency … is not
+  done yet (lane: in_progress)". The gate's auto-added `blockedBy` on the coder is still
+  enforced on the reviewer's re-verify turn, while a coder in rework stays `in_progress` by
+  design. Cleared each reviewer's `blockedBy` (the gate's routing is separate) and prompted
+  them with the round-1 report paths; both resumed. Same family as DL-604 (production
+  control plane, not PR #333); folded into the after-cut-over check.
+- **DL-630–635 — `consult_thread` answers on V2-started threads (closes the consult 400).**
+  Consult forks keep the target's own tools (DL-634, Carl's direction); read-only is one
+  sentence in the consult turn, and the fork still carries no MCP credential, so it cannot
+  act as the target. The only tools a fork now removes are `mcp__t3-code__*`, which the
+  `pi-anthropic-messages` bridge never renames, so the provider accepts the request with the
+  **unpatched** bridge production has (checked byte for byte: `cmp` against
+  `~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-anthropic-messages/dist/transform.js`).
+  A failed consult carries the provider's own error text (DL-631). The bridge patch
+  (`scripts/pull9-qa/pi-anthropic-messages-tool-changes.patch`, applied by
+  `build-pi-agent.sh`) stays for QA agent dirs as insurance against other tool-shrinking
+  paths (an extension tool unregistered mid-thread, or a role's `tools:` edited under a
+  launched thread); patching production is optional, not a cut-over blocker. The 15:15
+  contradiction: Carl's plan was right. That imported fork did declare
+  `toolsRemoved=[bash, …]`, but its transcript put pi-ai on the full-tool-list path rather
+  than native tool-change blocks, so there was nothing for the bridge to mis-rename. Gate
+  clean after one rework round (`edf809a9d7`).
+- **DL-608 — The timeline-cards coder (`b02eb3bd`) was released before the control-notice
+  gate resolved and was paused,** so it does not build on card code still in review. It
+  resumes once that fix merges.

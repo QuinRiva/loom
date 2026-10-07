@@ -7,7 +7,9 @@
 #   models.json    generated: pi-craft's cliproxy provider (cliproxy.ts) re-expressed against the
 #                  bundled pi's own anthropic catalogue (cliproxy.ts calls getBuiltinModels("anthropic"))
 #   extensions/pi-anthropic-messages/   a COPY of the global package (without it every cliproxy/*
-#                  request fails "400 Third-party apps now draw from extra usage")
+#                  request fails "400 Third-party apps now draw from extra usage"), patched with
+#                  pi-anthropic-messages-tool-changes.patch (pi 1.0's tool_removal/tool_addition
+#                  blocks; production's global copy needs the same patch before cut-over)
 # Nothing else: no pi-intercom or other global extension (run-starting ones would wake QA pi
 # processes), no skills (Loom's composer passes role skills with --skill from the build).
 #   usage: build-pi-agent.sh <target-dir> [<loom checkout for the bundled pi-ai catalogue>]
@@ -26,6 +28,7 @@ mkdir -p "$target/extensions"
 install -m 600 "$PROD_PI_AGENT/auth.json" "$target/auth.json"
 jq 'del(.packages, .subagents, .memory)' "$PROD_PI_AGENT/settings.json" >"$target/settings.json"
 cp -r "$bridge_ext" "$target/extensions/pi-anthropic-messages"
+patch --quiet -p1 -d "$target/extensions/pi-anthropic-messages" <"$QA_TOOLKIT/pi-anthropic-messages-tool-changes.patch"
 
 # cliproxy.ts is the source of truth for the provider's base URL, auth and headers;
 # read them from it so a change there cannot silently diverge from this copy.

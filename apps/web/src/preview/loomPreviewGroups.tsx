@@ -170,6 +170,64 @@ const timelineRows: ReadonlyArray<LoomTimelineRow> = [
   },
 ];
 
+/**
+ * DL-610: V1 rows as the importer (and migration 1052) stamp them, from the
+ * QA copy: V1 payloads carry no item `kind`, `notice` or `synthesised`.
+ */
+const IMPORTED_V1_TEXT =
+  '[T3 Workstream control plane \u2014 automated notice, not from the user]\n\nThe flattened notice the model received, behind "show raw payload".';
+
+const IMPORTED_V1_CONTROL: ReadonlyArray<{
+  readonly title: string;
+  readonly loom: LoomMessageFields;
+}> = [
+  {
+    title: "Imported V1 yield",
+    loom: {
+      origin: "control_notice",
+      controlPayload: {
+        kind: "yield",
+        heading: "A sub-thread yielded to you (unmatched outcome).",
+        items: [
+          {
+            threadId: loomPreviewThreads.reviewerInGate.id,
+            role: "reviewer",
+            title: "Yielded to you \u2014 outcome `fixed_inline`",
+            status: "yielded",
+            icon: "\u21a9\ufe0f",
+            reportPath: "/home/dev/.t3/userdata/workstream-reports/a61d9843.md",
+            excerpt:
+              "# Gate check: the theme-token change is clean\n\nI found no code problems, so the shipper can go ahead.",
+          },
+        ],
+      },
+    },
+  },
+  {
+    title: "Imported V1 digest",
+    loom: {
+      origin: "control_notice",
+      controlPayload: {
+        kind: "digest",
+        heading:
+          "FYI digest \u2014 the following items completed and were fully routed since you last heard.",
+        items: [
+          {
+            threadId: loomPreviewThreads.done.id,
+            role: "shipper",
+            title: "Completed",
+            status: "done",
+            icon: "\u2611\ufe0f",
+            reportPath: "/home/dev/.t3/userdata/workstream-reports/97c74d3b.md",
+            excerpt: "Pull 8 is landed on `origin/main`: #323, #324 and #325 are all merged.",
+            timestamp: "2026-10-05 10:42Z",
+          },
+        ],
+      },
+    },
+  },
+];
+
 export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "loom-control-cards",
@@ -185,6 +243,16 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         render: () => (
           <TimelineLayoutFrame>
             <ControlCard loom={message.loom} text={message.text} />
+          </TimelineLayoutFrame>
+        ),
+      })),
+      ...IMPORTED_V1_CONTROL.map(({ title, loom }) => ({
+        id: `loom-control-${title.toLowerCase().replaceAll(" ", "-")}`,
+        title,
+        description: "A V1 control message after import: the same card as a new one (DL-610).",
+        render: () => (
+          <TimelineLayoutFrame>
+            <ControlCard loom={loom} text={IMPORTED_V1_TEXT} />
           </TimelineLayoutFrame>
         ),
       })),
