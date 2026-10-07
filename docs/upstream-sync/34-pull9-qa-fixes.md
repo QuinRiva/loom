@@ -161,3 +161,22 @@ deployed.
   design. Cleared each reviewer's `blockedBy` (the gate's routing is separate) and prompted
   them with the round-1 report paths; both resumed. Same family as DL-604 (production
   control plane, not PR #333); folded into the after-cut-over check.
+- **DL-630–635 — `consult_thread` answers on V2-started threads (closes the consult 400).**
+  Consult forks keep the target's own tools (DL-634, Carl's direction); read-only is one
+  sentence in the consult turn, and the fork still carries no MCP credential, so it cannot
+  act as the target. The only tools a fork now removes are `mcp__t3-code__*`, which the
+  `pi-anthropic-messages` bridge never renames, so the provider accepts the request with the
+  **unpatched** bridge production has (checked byte for byte: `cmp` against
+  `~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-anthropic-messages/dist/transform.js`).
+  A failed consult carries the provider's own error text (DL-631). The bridge patch
+  (`scripts/pull9-qa/pi-anthropic-messages-tool-changes.patch`, applied by
+  `build-pi-agent.sh`) stays for QA agent dirs as insurance against other tool-shrinking
+  paths (an extension tool unregistered mid-thread, or a role's `tools:` edited under a
+  launched thread); patching production is optional, not a cut-over blocker. The 15:15
+  contradiction: Carl's plan was right. That imported fork did declare
+  `toolsRemoved=[bash, …]`, but its transcript put pi-ai on the full-tool-list path rather
+  than native tool-change blocks, so there was nothing for the bridge to mis-rename. Gate
+  clean after one rework round (`edf809a9d7`).
+- **DL-608 — The timeline-cards coder (`b02eb3bd`) was released before the control-notice
+  gate resolved and was paused,** so it does not build on card code still in review. It
+  resumes once that fix merges.
