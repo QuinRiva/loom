@@ -45,18 +45,13 @@ export function useThreadTabsSync(
   const refRef = useRef(threadRef);
   refRef.current = threadRef;
   // Lineage kept in a ref so the seed fires once per navigation (keyed on the
-  // thread) without re-seeding when lineage changes; regrouping is the effect
-  // below. A thread the index does not know yet is its own group.
+  // thread) without re-seeding when lineage changes; regrouping is the first
+  // effect below. A thread the index does not know yet is its own group.
   const lineageRef = useRef(lineage);
   lineageRef.current = lineage;
 
-  useEffect(() => {
-    if (!key || !bootstrapComplete || !routeThreadExists) return;
-    const ref = refRef.current;
-    if (ref) seedActiveTab(ref, resolveThreadGroupKey(lineageRef.current, ref) ?? key);
-  }, [key, bootstrapComplete, routeThreadExists, seedActiveTab]);
-
-  // Re-runs only when the lineage index changes or the route thread does.
+  // Runs before the seed, so a mixed bucket splits in its own order. Re-runs
+  // only when the lineage index changes or the route thread does.
   useEffect(() => {
     regroupTabs((ref) => resolveThreadGroupKey(lineage, ref));
     const { groups, recentlyClosed, removeThread } = useThreadTabsStore.getState();
@@ -67,6 +62,12 @@ export function useThreadTabsSync(
       if (scopedThreadKey(ref) !== key && isThreadGone(lineage, ref)) removeThread(ref);
     }
   }, [lineage, key, regroupTabs]);
+
+  useEffect(() => {
+    if (!key || !bootstrapComplete || !routeThreadExists) return;
+    const ref = refRef.current;
+    if (ref) seedActiveTab(ref, resolveThreadGroupKey(lineageRef.current, ref) ?? key);
+  }, [key, bootstrapComplete, routeThreadExists, seedActiveTab]);
 }
 
 export interface ThreadTabActions {
