@@ -211,10 +211,15 @@ function delegatedCompletionNotification(
 /** Keep the delivery message intact while projecting its trigger as an activity. */
 export function notificationTurnItem(
   item: OrchestrationV2TurnItem,
-  message: Pick<OrchestrationV2ConversationMessage, "notification" | "delegatedCompletion">,
+  message: Pick<
+    OrchestrationV2ConversationMessage,
+    "notification" | "delegatedCompletion" | "loom"
+  >, // loom: DL-613
   tasks: ReadonlyArray<OrchestrationV2Subagent>,
 ): OrchestrationV2TurnItem {
   if (item.type !== "user_message") return item;
+  // loom: DL-613 — a Loom control wake keeps its message row; the timeline renders it as its card.
+  if (message.loom?.origin !== undefined) return item;
   const notification =
     message.delegatedCompletion === undefined
       ? message.notification

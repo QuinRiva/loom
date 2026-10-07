@@ -34,6 +34,7 @@ import {
   GoalTaskId,
   type LoomMessageFields,
   MessageId,
+  type OrchestrationV2Notification,
   PI_DEFAULT_MODEL,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -58,6 +59,7 @@ import {
   runReDrivePass,
   type GateLegComposer,
 } from "../loom/orchestration/redrive.ts";
+import { wakeNotification } from "../loom/orchestration/dispatcher/controlMessage.ts";
 import { makeGateLegComposer } from "../loom/orchestration/dispatcher/gateLegs.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
@@ -288,6 +290,7 @@ const seedProgram = Effect.gen(function* () {
     text: string,
     loom?: LoomMessageFields,
     human = false,
+    notification?: OrchestrationV2Notification,
   ) =>
     dispatch({
       type: "message.dispatch",
@@ -300,6 +303,7 @@ const seedProgram = Effect.gen(function* () {
       creationSource: human ? "web" : "server",
       dispatchMode: { type: human ? "start_immediately" : "queue_after_active" },
       ...(loom === undefined ? {} : { loom }),
+      ...(notification === undefined ? {} : { notification }),
     }).pipe(Effect.andThen(settle(threadId)));
 
   const createRoot = (threadId: ThreadId, title: string, anchorTaskId?: GoalTaskId) =>
@@ -627,6 +631,7 @@ const seedProgram = Effect.gen(function* () {
   });
 
   // ---- control cards on the root (seam 6): one digest, one synthesised yield, every notice ----
+  // Yields, digests and gate legs carry the wake notification production sends with them.
   const quiet = (yield* loomStore.getWorkstream(SEED.quiescent))!;
   const controlMessages = loomSeedControlMessages({
     quiescent: quiet.reportPath!,
@@ -639,10 +644,20 @@ const seedProgram = Effect.gen(function* () {
         ? // 3b's yield id, so its rail finds this episode already delivered.
           `server:workstream-yield:${SEED.quiescent}:${quiet.lastOutcome!.eventId}`
         : `server:seed:control:${control.key}`;
-    yield* message(SEED.root, id, control.text, {
-      origin: control.payload.notice === "notify" ? "notify" : "control_notice",
-      controlPayload: control.payload,
-    });
+    const { kind, notice, heading } = control.payload;
+    yield* message(
+      SEED.root,
+      id,
+      control.text,
+      {
+        origin: notice === "notify" ? "notify" : "control_notice",
+        controlPayload: control.payload,
+      },
+      false,
+      kind !== "notice" || notice === "gate-rework" || notice === "gate-reverify"
+        ? wakeNotification(heading ?? control.key)
+        : undefined,
+    );
   }
 
   // ---- inert on boot: nothing left for the re-drive pass, nothing in the outbox ----

@@ -293,6 +293,7 @@ import {
 } from "../../reviewCommentContext";
 // loom: 3d-3 — control cards, consult rows and handoff receipts.
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
+import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
 
@@ -1847,7 +1848,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <ControlDigestRow
           messageId={row.message.id}
           text={row.message.text}
-          fallback={<UserTimelineRow row={row} />}
+          fallback={(bubble) => <UserTimelineRow row={row} loomBubble={bubble} />}
         />
       ) : null}
       {row.kind === "loom-consult" || row.kind === "loom-handoff" ? (
@@ -1978,7 +1979,13 @@ function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
 }
 
-function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function UserTimelineRow({
+  row,
+  loomBubble, // loom: a kickoff, steer or short notice is not the human (V1 parity)
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  loomBubble?: ControlBubble | null; // loom:
+}) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
@@ -2178,8 +2185,24 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ) : null}
       {/* loom: chat-user-bubble lets the bubble itself bleed when it holds a
           wide table (see the .chat-user-bubble rules in index.css). */}
-      <div className="chat-user-bubble relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+      <div
+        className={cn(
+          "chat-user-bubble relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground",
+          loomBubble && CHANNEL_CLASSES[loomBubble.channel].bubble, // loom: the accent, as in V1
+        )}
+      >
+        <MessageAuthorHeading>{loomBubble?.label ?? "You"}</MessageAuthorHeading>
+        {/* loom: who is talking, as in V1 */}
+        {loomBubble ? (
+          <div
+            className={cn(
+              "mb-1.5 text-3xs font-medium tracking-wide uppercase",
+              CHANNEL_CLASSES[loomBubble.channel].kicker,
+            )}
+          >
+            {loomBubble.label}
+          </div>
+        ) : null}
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
