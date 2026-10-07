@@ -525,5 +525,9 @@ it.effect("shell failure lookups stay on the thread's own turn items", () =>
     const secretLookups = plan.filter((row) => row.detail.startsWith("SEARCH secret "));
     assert.lengthOf(secretLookups, 1);
     assert.include(secretLookups[0]!.detail, "turn_items_thread_run_idx");
+    // loom: S4 — the pending question header joins from the thread's pending request.
+    const questionLookups = plan.filter((row) => row.detail.startsWith("SEARCH question "));
+    assert.lengthOf(questionLookups, 1);
+    assert.include(questionLookups[0]!.detail, "turn_items_node_ordinal_idx (node_id=?)");
   }).pipe(Effect.provide(layerSql)),
 );

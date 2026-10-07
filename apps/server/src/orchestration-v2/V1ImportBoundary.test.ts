@@ -96,6 +96,7 @@ it("keeps the legacy importer out of reach of new code", () => {
   assert.deepEqual(importers, [
     "orchestration-v2/ThreadManagementService.ts",
     "orchestration-v2/runtimeLayer.ts",
+    "persistence/Migrations/1054_LoomImportedConsultItems.ts", // loom: T3 one-off repair of imported threads reuses the importer's consult builder
     "project/ProjectService.ts",
     "serverRuntimeStartup.ts",
   ]);

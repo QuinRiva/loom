@@ -5033,19 +5033,19 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY secret.updated_at DESC, secret.turn_item_id DESC
                 LIMIT 1
               ) AS pending_secret_request_payload_json,
-              -- loom: S4 — the pending question's first header, from its request node's turn item
+              -- loom: S4 — the pending question's first header. Driven by the thread's pending
+              -- request, so threads with none never touch turn items.
               (
-                SELECT json_extract(item.payload_json, '$.questions[0].header')
-                FROM orchestration_v2_projection_turn_items item
-                WHERE item.node_id = (
-                    SELECT json_extract(request.payload_json, '$.nodeId')
-                    FROM orchestration_v2_projection_runtime_requests request
-                    WHERE request.thread_id = t.thread_id
-                      AND request.status = 'pending'
-                    ORDER BY request.created_at DESC, request.runtime_request_id DESC
-                    LIMIT 1
-                  )
-                  AND item.type = 'user_input_request'
+                SELECT json_extract(question.payload_json, '$.questions[0].header')
+                FROM orchestration_v2_projection_runtime_requests request
+                JOIN orchestration_v2_projection_turn_items question
+                  INDEXED BY orchestration_v2_projection_turn_items_node_ordinal_idx
+                  ON question.node_id = request.node_id
+                  AND question.thread_id = request.thread_id
+                  AND question.type = 'user_input_request'
+                WHERE request.thread_id = t.thread_id
+                  AND request.status = 'pending'
+                ORDER BY request.created_at DESC, request.runtime_request_id DESC
                 LIMIT 1
               ) AS pending_question_header,
               (
