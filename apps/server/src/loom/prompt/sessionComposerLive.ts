@@ -138,7 +138,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
 
   /**
    * Own record → the fork source's record verbatim → a fresh composition; first one written.
-   * The source is a `forkFrom` child's sibling, or a V2 fork's lineage parent (thread_fork).
+   * The source is a `forkFrom` child's sibling, which must have a record, or a V2 fork's
+   * lineage parent (thread_fork, a UI fork), which composes fresh as a root when it has none
+   * (a V1-imported source never relaunched under V2).
    */
   const launchIdentity = (
     thread: OrchestrationV2AppThread,
@@ -148,24 +150,18 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
       if (Option.isSome(own)) return own.value;
+      const forkFrom =
+        workstream?.role === RETRO_REVIEWER_ROLE ? null : (workstream?.forkFromThreadId ?? null);
       const sourceThreadId =
-        workstream?.role === RETRO_REVIEWER_ROLE
-          ? null
-          : (workstream?.forkFromThreadId ??
-            (thread.lineage.relationshipToParent === "fork"
-              ? thread.lineage.parentThreadId
-              : null));
+        forkFrom ??
+        (thread.lineage.relationshipToParent === "fork" ? thread.lineage.parentThreadId : null);
       const source =
         sourceThreadId === null
           ? Option.none<LaunchIdentityRecord>()
           : yield* readLaunchIdentity(identityDir, sourceThreadId);
-      if (
-        sourceThreadId !== null &&
-        Option.isNone(source) &&
-        workstream?.role !== HANDOFF_DRAFTER_ROLE
-      )
+      if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
         return yield* Effect.fail(
-          new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId }),
+          new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
         );
       const record = Option.isSome(source)
         ? source.value

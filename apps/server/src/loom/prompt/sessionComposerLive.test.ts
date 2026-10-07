@@ -246,43 +246,58 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
       ),
   );
 
-  it.effect("replays a V2 fork (thread_fork) from its source as a root, not as its child", () =>
-    withComposer("long", (composer) =>
-      Effect.gen(function* () {
-        const { threadId: source } = yield* seedRoot("v2-fork", tempCheckout());
-        const sourceFields = yield* composer.compose(source);
-        yield* seedRunningRun({ threadId: source });
-        yield* completeSeededRun({ threadId: source });
-        // `latest_stable` forks the last completed run with a checkpoint.
-        const run = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(source))
-          .runs[0]!;
-        yield* writeEvents([
-          {
-            id: EventId.make("event:composer-v2-fork:checkpoint"),
-            type: "run.updated",
-            threadId: source,
-            runId: seededRunIds(source).runId,
-            occurredAt: yield* DateTime.now,
-            payload: { ...run, checkpointId: CheckpointId.make("checkpoint:composer-v2-fork") },
-          },
-        ]);
-        const fork = ThreadId.make("thread:composer-v2-fork-target");
-        yield* dispatch({
-          type: "thread.fork",
-          commandId: CommandId.make(`server:test-fork:${fork}`),
-          createdBy: "agent",
-          creationSource: "mcp",
-          sourceThreadId: source,
-          targetThreadId: fork,
-          sourcePoint: { type: "latest_stable" },
-        });
+  it.effect(
+    "replays a V2 fork (thread_fork) from its source as a root, or composes it fresh as a root when the source has no record",
+    () =>
+      withComposer("long", (composer) =>
+        Effect.gen(function* () {
+          const { threadId: source } = yield* seedRoot("v2-fork", tempCheckout());
+          yield* seedRunningRun({ threadId: source });
+          yield* completeSeededRun({ threadId: source });
+          // `latest_stable` forks the last completed run with a checkpoint.
+          const run = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(source))
+            .runs[0]!;
+          yield* writeEvents([
+            {
+              id: EventId.make("event:composer-v2-fork:checkpoint"),
+              type: "run.updated",
+              threadId: source,
+              runId: seededRunIds(source).runId,
+              occurredAt: yield* DateTime.now,
+              payload: { ...run, checkpointId: CheckpointId.make("checkpoint:composer-v2-fork") },
+            },
+          ]);
+          const forkOf = (id: string) =>
+            Effect.as(
+              dispatch({
+                type: "thread.fork",
+                commandId: CommandId.make(`server:test-fork:${id}`),
+                createdBy: "agent",
+                creationSource: "mcp",
+                sourceThreadId: source,
+                targetThreadId: ThreadId.make(id),
+                sourcePoint: { type: "latest_stable" },
+              }),
+              ThreadId.make(id),
+            );
 
-        const forked = yield* composer.compose(fork);
-        assert.deepEqual(forked, sourceFields);
-        assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
-        assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long" });
-      }),
-    ),
+          // A source that never composed under V2 (a V1 import): the fork composes fresh, as a root.
+          const fresh = yield* forkOf("thread:composer-v2-fork-fresh");
+          const freshFields = yield* composer.compose(fresh);
+          assert.isTrue(
+            freshFields.appendSystemPrompt.startsWith(
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
+            ),
+          );
+          assert.deepEqual(freshFields.env, { PI_CACHE_RETENTION: "long" });
+
+          const sourceFields = yield* composer.compose(source);
+          const forked = yield* composer.compose(yield* forkOf("thread:composer-v2-fork-target"));
+          assert.deepEqual(forked, sourceFields);
+          assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
+          assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long" });
+        }),
+      ),
   );
 
   it.effect(
