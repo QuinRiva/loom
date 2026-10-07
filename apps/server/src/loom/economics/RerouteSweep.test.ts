@@ -47,7 +47,7 @@ import {
 } from "../testkit/loomOrchestratorLayer.ts";
 import { LoomPiAdapterHooks } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { LoomProviderHealthLive } from "../serverLayers.ts";
-import { runRerouteSweepPass } from "./RerouteSweep.ts";
+import { restoreRerouteMarks, runRerouteSweepPass } from "./RerouteSweep.ts";
 import { insertReroute, listReroutes } from "./rerouteRecord.ts";
 
 const INSTANCE = ProviderInstanceId.make("codex");
@@ -285,6 +285,42 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
         assert.deepEqual(yield* sweepMessages(threadId), []); // idle: nothing to resume
       }),
     ),
+  );
+
+  it.effect("keeps a reroute across a restart until its recorded reset passes (DL-484)", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("reroute-restart");
+      // Before the restart: a no-reset failure marks the intended model for the default TTL.
+      const resetAt = yield* withHealth(
+        Effect.gen(function* () {
+          yield* (yield* ProviderHealthRegistry).markExhausted({
+            accountKey: "codex",
+            modelScope: "gpt-6.1-sol",
+            until: null,
+            source: "error",
+          });
+          yield* seedLimited(threadId, null);
+          yield* pass;
+          assert.deepEqual((yield* shellOf(threadId)).modelSelection, FALLBACK);
+          return (yield* listReroutes).find((entry) => entry.threadId === threadId)!.resetAt;
+        }),
+      );
+      assert.isNotNull(resetAt);
+      // After it: a fresh, empty registry, restored from the row.
+      yield* withHealth(
+        Effect.gen(function* () {
+          yield* restoreRerouteMarks;
+          yield* TestClock.adjust("1 minute");
+          yield* pass;
+          assert.deepEqual((yield* shellOf(threadId)).modelSelection, FALLBACK);
+          // The restored mark lapses with the original, so the move-back rule fires as before.
+          const health = yield* ProviderHealthRegistry;
+          assert.isTrue(yield* health.isExhausted("codex", "gpt-6.1-sol"));
+          yield* TestClock.adjust("30 minutes");
+          assert.isFalse(yield* health.isExhausted("codex", "gpt-6.1-sol"));
+        }),
+      );
+    }),
   );
 
   it.effect("leaves a thread holding awaiting_acceptance alone", () =>

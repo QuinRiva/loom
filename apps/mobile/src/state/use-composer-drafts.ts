@@ -34,6 +34,7 @@ import {
 } from "@t3tools/shared/composerContextReferences";
 import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
+import { modelSelectionsEqual } from "@t3tools/shared/model"; // loom:
 import { DraftComposerAttachmentSchema } from "../lib/composer-image-schema";
 import {
   composerAttachmentFileReferenceKey,
@@ -1505,6 +1506,26 @@ export function updateComposerDraftSettings(
       ...normalizeDraft(current[draftKey]),
       ...settings,
     };
+    return withComposerDraft(current, draftKey, draft);
+  });
+}
+
+/**
+ * loom: drop the draft's model once the server thread holds it, so a later
+ * server-side change (quota reroute, move-back) reaches the composer (DL-700).
+ */
+export function settleComposerDraftModelSelection(
+  draftKey: string,
+  serverSelection: ModelSelection,
+): void {
+  updateComposerDrafts((current) => {
+    const existing = current[draftKey];
+    if (
+      !existing?.modelSelection ||
+      !modelSelectionsEqual(existing.modelSelection, serverSelection)
+    )
+      return current;
+    const { modelSelection: _spent, ...draft } = existing;
     return withComposerDraft(current, draftKey, draft);
   });
 }
