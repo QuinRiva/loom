@@ -246,6 +246,21 @@ describe("composerSubmissionIntentForKey", () => {
 });
 
 describe("detectComposerTrigger", () => {
+  // loom: the `!` thread trigger spans spaces (DL-750).
+  it("keeps spaces in a ! thread query back to its token-start !", () => {
+    const text = "see !pull 9 qa";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "thread",
+      query: "pull 9 qa",
+      rangeStart: "see ".length,
+      rangeEnd: text.length,
+    });
+    expect(detectComposerTrigger("Hi! there", 9)).toBeNull();
+    expect(detectComposerTrigger("!a\nnext line", 11)).toBeNull();
+    expect(detectComposerTrigger("!pull #12", 9)?.kind).toBe("pull-request");
+    expect(detectComposerTrigger("!pull @src", 10)?.kind).toBe("path");
+  });
+
   it("detects @path trigger at cursor", () => {
     const text = "Please check @src/com";
     const trigger = detectComposerTrigger(text, text.length);
