@@ -7,8 +7,8 @@
  * context, and — appended per launch, never recorded — the relocation clause.
  * Everything but the relocation clause is the thread's launch identity: written
  * once at its first compose and replayed verbatim by every later compose, and
- * by a `forkFrom` child's first compose (P3-23). Two drafter exceptions
- * (DL-450): a `retro-reviewer` diverges in role from the thread it reviews, so
+ * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23).
+ * Two drafter exceptions (DL-450): a `retro-reviewer` diverges in role from the thread it reviews, so
  * it composes its own identity with its server-owned overlay (V1's
  * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
  * source has a record and composes fresh when it has none (an upstream-only
@@ -92,7 +92,8 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     projectRoot: string,
   ) =>
     Effect.gen(function* () {
-      const isChild = thread.lineage.parentThreadId !== null;
+      // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
+      const isChild = thread.lineage.relationshipToParent === "subagent";
       const overlay =
         workstream?.role === RETRO_REVIEWER_ROLE
           ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT, delegation: false }
@@ -135,7 +136,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       } satisfies LaunchIdentityRecord;
     });
 
-  /** Own record → the fork source's record verbatim → a fresh composition; first one written. */
+  /**
+   * Own record → the fork source's record verbatim → a fresh composition; first one written.
+   * The source is a `forkFrom` child's sibling, or a V2 fork's lineage parent (thread_fork).
+   */
   const launchIdentity = (
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
@@ -145,7 +149,12 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
       if (Option.isSome(own)) return own.value;
       const sourceThreadId =
-        workstream?.role === RETRO_REVIEWER_ROLE ? null : (workstream?.forkFromThreadId ?? null);
+        workstream?.role === RETRO_REVIEWER_ROLE
+          ? null
+          : (workstream?.forkFromThreadId ??
+            (thread.lineage.relationshipToParent === "fork"
+              ? thread.lineage.parentThreadId
+              : null));
       const source =
         sourceThreadId === null
           ? Option.none<LaunchIdentityRecord>()

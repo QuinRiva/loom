@@ -67,7 +67,8 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
     { messageRoles: ["user"] },
   );
   const humanEngaged = messages.some((message) => message.loom?.humanAuthored === true);
-  const hasParent = thread.lineage.parentThreadId !== null;
+  // A V2 `fork` (thread_fork) is a root the human drives, not a child.
+  const hasParent = thread.lineage.relationshipToParent === "subagent";
   const config = yield* ServerConfig.ServerConfig;
   const promptDebugDir = loomPaths(config).workstreamPromptDebugDir;
   // The prompt-debug part writes with plain fs and swallows every failure, so the directory exists first.
