@@ -56,6 +56,8 @@ export const workstreamList = Effect.fn("LoomToolkit.workstreamList")(function* 
               }),
               consults: [],
               peerMessages: [],
+              toolCalls: 0,
+              contextUsage: null,
             },
           },
         ];

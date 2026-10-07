@@ -25,10 +25,10 @@ const at = "2026-01-01T00:00:00.000Z";
 // t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
 // (upstream lane at 054, Loom lane at 1045, with 1045's search triggers on the
 // goal tables) is copied to `statev2.sqlite` by `initializeV2Database` and
-// migrated by the live Sqlite layer: the Loom lane ends at 1067, V1's goal,
+// migrated by the live Sqlite layer: the Loom lane ends at 1054, V1's goal,
 // consult, peer-message and usage-ledger rows survive the renames (1048, 1049),
 // and upstream's ledger is exactly upstream's manifest.
-it.effect("migrates a copied V1 database to 1067 with the renamed tables' rows intact", () => {
+it.effect("migrates a copied V1 database to 1054 with the renamed tables' rows intact", () => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-v1copy-"));
   const seed = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -64,13 +64,15 @@ it.effect("migrates a copied V1 database to 1067 with the renamed tables' rows i
       const sql = yield* SqlClient.SqlClient;
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
-      assert.deepEqual(loomLedger.slice(-6), [
+      assert.deepEqual(loomLedger.slice(-8), [
+        { id: 1047, name: "LoomGoalTables" },
         { id: 1048, name: "LoomConsultAndPeerMessageTables" },
         { id: 1049, name: "LoomUsageLedger" },
         { id: 1050, name: "LoomThreadReroute" },
         { id: 1051, name: "LoomLegacyImports" },
         { id: 1052, name: "LoomControlMessageRows" },
-        { id: 1067, name: "LoomImportedConsultItems" },
+        { id: 1053, name: "LoomCardMetrics" },
+        { id: 1054, name: "LoomImportedConsultItems" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;

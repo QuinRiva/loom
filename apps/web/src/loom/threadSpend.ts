@@ -3,7 +3,8 @@
  * the Cost tab's top-spenders window (`loom.topSpend`), 3d-4. Cost is never a
  * shell field: board cards, quick facts and the active strip each ask for one
  * thread, and the shared batched store coalesces every mounted ask into one RPC
- * per environment (revalidated on its TTL).
+ * per environment (revalidated on its TTL). Subtree and workstream totals sum
+ * the same lookups.
  *
  * @module loom/threadSpend
  */
@@ -43,6 +44,18 @@ export function useThreadSpend(
   threadId: ThreadId,
 ): LoomThreadSpend | null | undefined {
   return spendStore.useLookup(environmentId, [threadId])(threadId);
+}
+
+/**
+ * The summed lifetime cost of `threadIds` (a subtree or a whole workstream),
+ * from the same batched lookups the cards make — one RPC for the lot.
+ */
+export function useTotalSpend(
+  environmentId: EnvironmentId | null,
+  threadIds: ReadonlyArray<ThreadId>,
+): number {
+  const lookup = spendStore.useLookup(environmentId, threadIds);
+  return threadIds.reduce((sum, threadId) => sum + (lookup(threadId)?.costUsd ?? 0), 0);
 }
 
 export interface EnvironmentTopSpendRow extends LoomTopSpendRow {

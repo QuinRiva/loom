@@ -51,7 +51,14 @@ const node = (
     updatedAt: DateTime.makeUnsafe(AT),
     latestVisibleMessage: null,
     pendingRuntimeRequest: null,
-    workstream: { ...base, consults: [], peerMessages: [], ...fields },
+    workstream: {
+      ...base,
+      consults: [],
+      peerMessages: [],
+      toolCalls: 0,
+      contextUsage: null,
+      ...fields,
+    },
     ...shell,
   };
 };

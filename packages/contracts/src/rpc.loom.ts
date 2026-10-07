@@ -10,14 +10,21 @@ import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import {
+  EventId,
   GoalId,
   GoalTaskId,
   IsoDateTime,
+  NonNegativeInt,
   PositiveInt,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { LoomGoalShell, WorkOutcomeRecord } from "./orchestrationV2.loom.ts";
+import {
+  LoomGoalShell,
+  LoomOutcome,
+  LoomRouteKind,
+  WorkOutcomeRecord,
+} from "./orchestrationV2.loom.ts";
 import {
   HandoffDraftInput,
   HandoffDraftResult,
@@ -36,8 +43,8 @@ export const LOOM_WS_METHODS = {
   // 3d-4 — seam 11's spend reads (DL-438).
   threadSpend: "loom.threadSpend",
   topSpend: "loom.topSpend",
-  // QA fix — the timeline's per-round report links (V1's lifecycle pull, outcomes only).
-  threadOutcomes: "loom.threadOutcomes",
+  // QA fixes — the node timeline's event history (V1's lifecycle pull).
+  threadHistory: "loom.threadHistory",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -154,14 +161,57 @@ export const LoomThreadOutcome = Schema.Struct({
 });
 export type LoomThreadOutcome = typeof LoomThreadOutcome.Type;
 
-/** `loom.threadOutcomes`: every outcome a thread submitted, oldest first. */
-export const LoomThreadOutcomesInput = Schema.Struct({ threadId: ThreadId });
-export type LoomThreadOutcomesInput = typeof LoomThreadOutcomesInput.Type;
+const historyEvent = { eventId: EventId, at: IsoDateTime } as const;
 
-export const LoomThreadOutcomesResult = Schema.Struct({
-  outcomes: Schema.Array(LoomThreadOutcome),
+/**
+ * One entry of a thread's event history: each submitted outcome, flag raised
+ * and cleared (a yield is the `awaiting_orchestrator` flag, its resume the
+ * clear), gate route taken or rework round accepted, and plan outcome set or
+ * cleared. Reasons stay strings: V1-imported events carry V1's reasons.
+ */
+export const LoomThreadHistoryEntry = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("outcome"), ...LoomThreadOutcome.fields }),
+  Schema.Struct({
+    type: Schema.Literal("attention-raised"),
+    ...historyEvent,
+    reason: TrimmedNonEmptyString,
+  }),
+  /** A null `reason` cleared every flag. */
+  Schema.Struct({
+    type: Schema.Literal("attention-cleared"),
+    ...historyEvent,
+    reason: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("route-taken"),
+    ...historyEvent,
+    to: ThreadId,
+    round: NonNegativeInt,
+    kind: LoomRouteKind,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("rework-accepted"),
+    ...historyEvent,
+    sourceThreadId: ThreadId,
+    round: NonNegativeInt,
+  }),
+  /** A null `outcome` reopened the thread. */
+  Schema.Struct({
+    type: Schema.Literal("outcome-set"),
+    ...historyEvent,
+    outcome: Schema.NullOr(LoomOutcome),
+  }),
+]);
+export type LoomThreadHistoryEntry = typeof LoomThreadHistoryEntry.Type;
+
+/** `loom.threadHistory`: a thread's event history, oldest first. */
+export const LoomThreadHistoryInput = Schema.Struct({ threadId: ThreadId });
+export type LoomThreadHistoryInput = typeof LoomThreadHistoryInput.Type;
+
+export const LoomThreadHistoryResult = Schema.Struct({
+  entries: Schema.Array(LoomThreadHistoryEntry),
 });
-export type LoomThreadOutcomesResult = typeof LoomThreadOutcomesResult.Type;
+export type LoomThreadHistoryResult = typeof LoomThreadHistoryResult.Type;
 
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
@@ -194,9 +244,9 @@ export const LoomWsRpcs = [
     success: LoomTopSpendResult,
     error: LoomWsError,
   }),
-  Rpc.make(LOOM_WS_METHODS.threadOutcomes, {
-    payload: LoomThreadOutcomesInput,
-    success: LoomThreadOutcomesResult,
+  Rpc.make(LOOM_WS_METHODS.threadHistory, {
+    payload: LoomThreadHistoryInput,
+    success: LoomThreadHistoryResult,
     error: LoomWsError,
   }),
 ] as const;

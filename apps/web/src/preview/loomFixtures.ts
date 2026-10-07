@@ -122,6 +122,8 @@ const workstream = (
   updatedAt: AT,
   consults: [],
   peerMessages: [],
+  toolCalls: 0,
+  contextUsage: null,
   ...fields,
 });
 

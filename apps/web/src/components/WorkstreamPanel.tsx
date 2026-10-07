@@ -8,6 +8,7 @@ import {
   GitBranchIcon,
   GitForkIcon,
   HistoryIcon,
+  LocateFixedIcon,
   NetworkIcon,
   RotateCcwIcon,
   SquareIcon,
@@ -23,8 +24,11 @@ import {
   COLUMN_LABELS,
   COLUMN_ORDER,
   COLUMN_STYLES,
+  type ConversationAnchor,
+  dispatchAnchorOf,
   formatRelativeAge,
   getActivity,
+  getContextChip,
   getGateWaitLabel,
   getPurpose,
   getRoleLabel,
@@ -39,13 +43,19 @@ import {
   type WorkstreamNodeIndex,
 } from "../lib/workstreamPresentation";
 import { readLocalApi } from "../localApi";
+import { useConversationJumpStore } from "../loom/conversationJump";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
 import {
   useWorkstreamCommands,
   useWorkstreamNodes,
   type WorkstreamCommands,
 } from "../loom/workstreamState";
-import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import {
+  LoomContextChip,
+  WorkstreamEnvironmentContext,
+  WorkstreamSpendSlot,
+  WorkstreamTotalSpend,
+} from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadLineage } from "../threadRouteLineage";
@@ -57,7 +67,7 @@ import { Spinner } from "./ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamActiveStrip } from "./WorkstreamActiveStrip";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
-import { useThreadOutcomes, WorkstreamTimelineDrawer } from "./WorkstreamTimeline";
+import { useThreadHistory, WorkstreamTimelineDrawer } from "./WorkstreamTimeline";
 
 // The graph (own SVG renderer + fork–join layout) is its own chunk.
 const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
@@ -68,6 +78,8 @@ export interface WorkstreamBoardActions {
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onOpenReport: (reportPath: string) => void;
+  /** "Show me where this happened": open the anchor's thread at that moment. */
+  readonly onJump: (anchor: ConversationAnchor) => void;
 }
 
 /**
@@ -84,6 +96,19 @@ export function WorkstreamBoard({
 }: { readonly threadId: ThreadId; readonly nodes: WorkstreamNodeIndex } & WorkstreamBoardActions) {
   const members = boardMembersOf(threadId, nodes);
   const groups = groupByColumn(members);
+  // Each card's subtree (archived descendants too: their spend is theirs), walked
+  // from one parent → children index per render, not one index per card.
+  const childrenOf = new Map<ThreadId | null, WorkstreamNode[]>();
+  for (const node of nodes.values()) {
+    const siblings = childrenOf.get(node.parentThreadId);
+    if (siblings) siblings.push(node);
+    else childrenOf.set(node.parentThreadId, [node]);
+  }
+  const subtreeIds = (id: ThreadId, seen = new Set<ThreadId>()): ThreadId[] => {
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [id, ...(childrenOf.get(id) ?? []).flatMap((child) => subtreeIds(child.id, seen))];
+  };
   return (
     <div className="flex flex-col gap-4">
       {COLUMN_ORDER.map((column) => (
@@ -106,6 +131,7 @@ export function WorkstreamBoard({
                   sibling.id !== node.id && sibling.parentThreadId === node.parentThreadId,
               )}
               nodes={nodes}
+              subtree={subtreeIds(node.id)}
               {...actions}
             />
           ))}
@@ -119,16 +145,22 @@ function WorkstreamCard({
   node,
   siblings,
   nodes,
+  subtree,
   commands,
   onOpenThread,
   onOpenTimeline,
   onOpenReport,
+  onJump,
 }: {
   readonly node: WorkstreamNode;
   readonly siblings: ReadonlyArray<WorkstreamNode>;
   readonly nodes: WorkstreamNodeIndex;
+  /** The thread and every descendant, for the subtree spend. */
+  readonly subtree: ReadonlyArray<ThreadId>;
 } & WorkstreamBoardActions) {
   const style = COLUMN_STYLES[node.column];
+  const context = getContextChip(node);
+  const dispatch = dispatchAnchorOf(node);
   const verdict = getVerdictChip(node);
   const gateWait = getGateWaitLabel(node, nodes);
   const running = isRunning(node);
@@ -142,9 +174,25 @@ function WorkstreamCard({
         <Badge size="sm" variant="outline" className="max-w-36">
           <span className="truncate font-mono">{getRoleLabel(node)}</span>
         </Badge>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-1.5 font-mono text-2xs text-muted-foreground">
           <WorkstreamModelPill selection={node.modelSelection} />
-          <WorkstreamSpendSlot threadId={node.id} />
+          <WorkstreamSpendSlot threadId={node.id} subtree={subtree} />
+          {context ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`tabular-nums ${context.hot ? "text-destructive-foreground" : ""}`}
+                  />
+                }
+              >
+                ctx {context.percent}%
+              </TooltipTrigger>
+              <TooltipPopup>
+                <LoomContextChip usage={node.contextUsage} />
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
           <span>{formatRelativeAge(node.lastActivityAt)}</span>
         </span>
       </button>
@@ -172,6 +220,11 @@ function WorkstreamCard({
             <span className={`size-2 rounded-full ${style.dotClass}`} aria-label="running" />
           ) : null}
           <span>{getActivity(node)}</span>
+          {node.toolCalls > 0 ? (
+            <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums">
+              {node.toolCalls} {node.toolCalls === 1 ? "tool" : "tools"}
+            </span>
+          ) : null}
         </div>
       </button>
 
@@ -239,6 +292,23 @@ function WorkstreamCard({
           </Button>
         ) : null}
         <span className="ml-auto flex items-center gap-1">
+          {dispatch ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label="Show where it was dispatched"
+                    size="icon-xs"
+                    variant="ghost"
+                    onClick={() => onJump(dispatch)}
+                  />
+                }
+              >
+                <LocateFixedIcon />
+              </TooltipTrigger>
+              <TooltipPopup>Show where it was dispatched</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {node.reportPath ? (
             <Tooltip>
               <TooltipTrigger
@@ -376,22 +446,32 @@ function useWorkstreamSurface(threadRef: ScopedThreadRef) {
     [threadRef],
   );
   const titleOf = useCallback((id: ThreadId) => nodes.get(id)?.title ?? id, [nodes]);
+  // Park the anchor, then open its thread: that timeline scrolls to it (loom/conversationJump).
+  const onJump = useCallback(
+    (anchor: ConversationAnchor) => {
+      useConversationJumpStore.getState().setRequest(anchor);
+      onOpenThread(anchor.threadId);
+    },
+    [onOpenThread],
+  );
   const actions: WorkstreamBoardActions = {
     commands,
     onOpenThread,
     onOpenReport,
+    onJump,
     onOpenTimeline: (node) => setTimelineId(node.id),
   };
   const timelineNode = timelineId === null ? undefined : nodes.get(timelineId);
-  const outcomes = useThreadOutcomes(threadRef.environmentId, timelineNode);
+  const history = useThreadHistory(threadRef.environmentId, timelineNode);
   const timeline = (
     <WorkstreamTimelineDrawer
       node={timelineNode}
-      outcomes={outcomes}
+      history={history}
       titleOf={titleOf}
       onClose={() => setTimelineId(null)}
       onOpenThread={onOpenThread}
       onOpenReport={onOpenReport}
+      onJump={onJump}
     />
   );
   return { nodes, rollupOf, titleOf, actions, timeline, setTimelineId };
@@ -415,6 +495,12 @@ function SurfaceHeader({
   children?: ReactNode;
 }) {
   const lineage = useMemo(() => (node ? buildThreadLineage(nodes, node.id) : []), [nodes, node]);
+  // The whole workstream, archived threads included: its root and every descendant.
+  const workstream = useMemo(() => {
+    if (!node) return [];
+    const all = [...nodes.values()];
+    return subtreeOf(rootOf(node.id, all), all).map((member) => member.id);
+  }, [nodes, node]);
   const forkedFrom = node?.forkFromThreadId
     ? {
         threadId: node.forkFromThreadId,
@@ -429,7 +515,10 @@ function SurfaceHeader({
         <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">
           · {threadTitle}
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">{children}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <WorkstreamTotalSpend threadIds={workstream} />
+          {children}
+        </span>
       </div>
       <ThreadLineageBreadcrumb
         lineage={lineage}
@@ -486,7 +575,7 @@ export function WorkstreamGraphPanel({ threadRef }: { readonly threadRef: Scoped
   const subtree = useMemo(() => (rootId ? subtreeOf(rootId, live) : []), [live, rootId]);
   const rollup = rootId ? rollupOf(rootId) : null;
   const root = rootId ? nodes.get(rootId) : undefined;
-  const { commands, onOpenThread, onOpenReport } = actions;
+  const { commands, onOpenThread, onOpenReport, onJump } = actions;
 
   // Right-click / keyboard menu on a node: the app's canonical context menu.
   const onNodeContextMenu = async (node: WorkstreamNode, position: { x: number; y: number }) => {
@@ -495,8 +584,10 @@ export function WorkstreamGraphPanel({ threadRef }: { readonly threadRef: Scoped
       position,
     );
     if (action === "open") onOpenThread(node.id);
-    else if (action === "parent" && node.parentThreadId) onOpenThread(node.parentThreadId);
-    else if (action === "history") setTimelineId(node.id);
+    else if (action === "dispatch") {
+      const dispatch = dispatchAnchorOf(node);
+      if (dispatch) onJump(dispatch);
+    } else if (action === "history") setTimelineId(node.id);
     else if (action === "report" && node.reportPath) onOpenReport(node.reportPath);
     else if (action === "outcome:done") commands.setOutcome(node.id, "done");
     else if (action === "outcome:cancelled") commands.setOutcome(node.id, "cancelled");

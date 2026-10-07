@@ -54,7 +54,7 @@ export function importedLoomFields(row: LegacyLoomMessageColumns): {
 /**
  * loom: V1 `consult_thread` calls on import (T3). V1 rendered each consult from
  * its `thread.consult-recorded` event; V2's card renders a consult turn item.
- * The importer (and Loom migration 1067, for threads already imported) turns
+ * The importer (and Loom migration 1054, for threads already imported) turns
  * each V1 event into the completed `mcp__t3-code__consult_thread` item a V2
  * consult is, placed among the thread's runless items by time.
  */
@@ -109,7 +109,7 @@ export function importedConsultTurnItem(
 /**
  * A thread's runless items (in order) with its V1 consults (time-ordered)
  * merged in: a consult goes before the first item strictly later than it, so
- * the importer and migration 1067 place every consult identically.
+ * the importer and migration 1054 place every consult identically.
  */
 export function interleaveConsults<I>(
   items: ReadonlyArray<I>,

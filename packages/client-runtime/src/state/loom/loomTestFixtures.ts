@@ -47,6 +47,8 @@ export const workstreamFields = (
   updatedAt: "2026-10-05T00:00:00.000Z",
   consults: [],
   peerMessages: [],
+  toolCalls: 0,
+  contextUsage: null,
   ...overrides,
 });
 

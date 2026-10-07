@@ -160,6 +160,51 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
+  it.effect("shell stats add V1's imported tool count to V2's and fall back to V1's context", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LoomStore.LoomStoreV2;
+      const thread = (id: string, activeProviderThreadId: string | null) =>
+        Effect.andThen(
+          row(id),
+          sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title,
+              default_provider, runtime_mode, interaction_mode, active_provider_thread_id,
+              created_at, updated_at, payload_json)
+            VALUES (${id}, ${projectId}, ${id}, 'pi', 'full-access', 'default',
+              ${activeProviderThreadId}, ${T(0)}, ${T(0)}, '{}')`,
+        );
+      const item = (id: string, threadId: string, type: string) =>
+        sql`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, ordinal,
+            type, status, updated_at, payload_json)
+          VALUES (${id}, ${threadId}, 1, ${type}, 'completed', ${T(0)}, '{}')`;
+      // Imported and still running under V2: both counts, V2's context wins.
+      yield* thread("stats-spans", "pt-spans");
+      yield* sql`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id,
+          thread_id, provider, status, updated_at, payload_json)
+        VALUES ('pt-spans', 'stats-spans', 'pi', 'idle', ${T(0)},
+          '{"contextUsage":{"usedTokens":500,"maxTokens":1000}}')`;
+      yield* item("i-1", "stats-spans", "command_execution");
+      yield* item("i-2", "stats-spans", "assistant_message");
+      // Imported, never run under V2: V1's figures alone.
+      yield* thread("stats-v1", null);
+      yield* sql`INSERT INTO loom_thread_imported_metrics (thread_id, tool_calls, used_tokens, max_tokens)
+        VALUES ('stats-spans', 40, 9000, 1000000), ('stats-v1', 7, 250000, 1000000)`;
+      // New under V2, nothing reported yet.
+      yield* thread("stats-new", null);
+
+      const fields = yield* store.shellFields(
+        ["stats-spans", "stats-v1", "stats-new"].map((id) => ThreadId.make(id)),
+      );
+      const stats = (id: string) => {
+        const entry = fields.get(ThreadId.make(id));
+        return [entry?.toolCalls, entry?.contextUsage];
+      };
+      assert.deepEqual(stats("stats-spans"), [41, { usedTokens: 500, maxTokens: 1000 }]);
+      assert.deepEqual(stats("stats-v1"), [7, { usedTokens: 250000, maxTokens: 1000000 }]);
+      assert.deepEqual(stats("stats-new"), [0, null]);
+    }),
+  );
+
   it.effect("goal and task CRUD assembles the live tree and soft-deletes by project", () =>
     Effect.gen(function* () {
       const store = yield* LoomStore.LoomStoreV2;
@@ -223,11 +268,11 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
-  it.effect("pairs each outcome with the report its submit set, across V1 and V2 events", () =>
+  it.effect("folds the thread's history across V1 and V2 events", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const store = yield* LoomStore.LoomStoreV2;
-      const threadId = "outcomes-thread";
+      const threadId = "history-thread";
       const event = (version: number, n: number, type: string, payload: object) =>
         sql`INSERT INTO orchestration_events ${sql.insert({
           event_id: `event:${n}`,
@@ -241,7 +286,8 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
           metadata_json: "{}",
           application_event_version: version,
         })}`;
-      // V1 payloads carry `threadId` / `updatedAt` besides the V2 fields.
+      // V1 payloads carry `threadId` / `updatedAt` besides the V2 fields; V1's
+      // route-taken has no kind and its yield is a lane.
       const v1 = { threadId, updatedAt: T(1) };
       yield* event(1, 1, "thread.report-set", { ...v1, reportPath: "/r/t.round-1.md" });
       yield* event(1, 2, "thread.outcome-recorded", {
@@ -251,54 +297,46 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
         round: 1,
         counts: { mustFix: 1, niceToHave: 0 },
       });
-      yield* event(2, 3, "thread.title-set", { title: "noise" });
-      yield* event(2, 4, "thread.outcome-recorded", {
-        outcome: "ask",
-        decision: "yield",
-        round: 1,
-      });
-      yield* event(2, 5, "thread.report-set", { reportPath: "/r/t.md" });
-      yield* event(2, 6, "thread.outcome-recorded", {
+      yield* event(1, 3, "thread.route-taken", { ...v1, to: "coder", round: 1 });
+      yield* event(1, 4, "thread.plan-lane-set", { ...v1, planLane: "yielded" });
+      yield* event(1, 5, "thread.plan-lane-set", { ...v1, planLane: "in_progress" });
+      yield* event(2, 6, "thread.title-set", { title: "noise" });
+      yield* event(2, 7, "thread.attention-raised", { reason: "needs_guidance" });
+      yield* event(2, 8, "thread.attention-cleared", {});
+      yield* event(2, 9, "thread.report-set", { reportPath: "/r/t.md" });
+      yield* event(2, 10, "thread.outcome-recorded", {
         outcome: "clean",
         decision: "resolve",
         round: 1,
       });
+      yield* event(2, 11, "thread.outcome-set", { outcome: "done", cause: "submit" });
 
-      const outcomes = yield* store.outcomeHistory(ThreadId.make(threadId));
+      const history = yield* store.history(ThreadId.make(threadId));
       assert.deepEqual(
-        outcomes.map(({ outcome, round, reportPath, eventId, at }) => ({
-          outcome,
-          round,
-          reportPath,
-          eventId,
-          at,
-        })),
+        history.map((entry) => [entry.type, entry.at]),
         [
-          {
-            outcome: "needs_rework",
-            round: 1,
-            reportPath: "/r/t.round-1.md",
-            eventId: EventId.make("event:2"),
-            at: T(2),
-          },
-          {
-            outcome: "ask",
-            round: 1,
-            reportPath: null,
-            eventId: EventId.make("event:4"),
-            at: T(4),
-          },
-          {
-            outcome: "clean",
-            round: 1,
-            reportPath: "/r/t.md",
-            eventId: EventId.make("event:6"),
-            at: T(6),
-          },
+          ["outcome", T(2)],
+          ["route-taken", T(3)],
+          ["attention-raised", T(4)],
+          ["attention-cleared", T(5)],
+          ["attention-raised", T(7)],
+          ["attention-cleared", T(8)],
+          ["outcome", T(10)],
+          ["outcome-set", T(11)],
         ],
       );
-      assert.deepEqual(outcomes[0]?.counts, { mustFix: 1, niceToHave: 0 });
-      assert.deepEqual(yield* store.outcomeHistory(ThreadId.make("no-events")), []);
+      const [rework, route, yielded, resumed, , clearedAll, clean] = history;
+      assert.deepInclude(rework, {
+        reportPath: "/r/t.round-1.md",
+        eventId: EventId.make("event:2"),
+        counts: { mustFix: 1, niceToHave: 0 },
+      });
+      assert.deepInclude(route, { kind: "loop", round: 1 });
+      assert.deepInclude(yielded, { reason: "awaiting_orchestrator" });
+      assert.deepInclude(resumed, { reason: "awaiting_orchestrator" });
+      assert.deepInclude(clearedAll, { reason: null });
+      assert.deepInclude(clean, { outcome: "clean", reportPath: "/r/t.md" });
+      assert.deepEqual(yield* store.history(ThreadId.make("no-events")), []);
     }),
   );
 });
