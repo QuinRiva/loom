@@ -208,3 +208,14 @@ deployed.
   the live test the agent passed the wrong id to `consult_thread`. The reviewer reverted
   three unrequested lint rewrites of upstream lines, one of which failed the ship gate. Gate
   `fixed_inline` (`737607414d`).
+- **DL-780–786 — Sidebar and panel restores (rows S2, S4, G3).** S2: a root's rollup badge
+  opens a clickable popover listing the flagged children, built on V2's existing rollup
+  (`attention.nodes`) rather than V1's `WorkstreamGraphIndicator`; the badge keeps V2's
+  "3/8 · 2!" look. S4: a pending question's topic and age show on every surface V1 showed
+  them: sidebar row, notification, mobile row, question panel, and board card, active strip
+  and quick facts. The header is joined onto the shell by an indexed subquery, run only for
+  threads with a pending request, and the age is minute-resolution from the request's
+  `createdAt`. G3: the existing persisted per-thread right-panel state already restores
+  what the user left; Goal tasks is no longer an auto-open kind, and the unused
+  `autoOpenGoalTasksPanel` setting is deleted. Gate clean after one rework round
+  (`79b5451199`).
