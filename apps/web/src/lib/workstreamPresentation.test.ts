@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { loomPreviewThreads } from "../preview/loomFixtures";
 import {
-  boardMembersOf,
   buildNodeContextMenuItems,
   buildTimelineRows,
   buildWorkstreamNodes,
@@ -12,7 +11,6 @@ import {
   getActivity,
   getGateWaitLabel,
   getNodeStateWord,
-  outcomeActionsOf,
   wrapLabel,
 } from "./workstreamPresentation";
 
@@ -32,7 +30,7 @@ const patch = (
 });
 
 describe("buildWorkstreamNodes", () => {
-  it("derives every board column from the fixture", () => {
+  it("derives every plan column from the fixture", () => {
     expect(node(T.stagedRoot).column).toBe("held");
     expect(node(T.blocked).column).toBe("blocked");
     expect(node(T.unbriefed).column).toBe("blocked");
@@ -69,27 +67,8 @@ describe("buildWorkstreamNodes", () => {
   });
 });
 
-describe("boardMembersOf", () => {
-  it("is the root's lineage children plus the staged root that continues it", () => {
-    const members = boardMembersOf(T.root, nodes).map((member) => member.id);
-    expect(members).toContain(T.stagedRoot);
-    expect(members).toContain(T.coderDone);
-    expect(members).not.toContain(T.cancelledGrandchild);
-    expect(members).not.toContain(T.needsGuidanceRoot);
-  });
-});
-
 describe("outcome controls", () => {
-  it("offers accept done and cancel on an open thread, reopen on a settled one", () => {
-    expect(outcomeActionsOf(node(T.gateCoder)).map((action) => action.outcome)).toEqual([
-      "done",
-      "cancelled",
-    ]);
-    expect(outcomeActionsOf(node(T.coderDone)).map((action) => action.outcome)).toEqual([null]);
-    expect(outcomeActionsOf(node(T.cancelledLead)).map((action) => action.outcome)).toEqual([null]);
-  });
-
-  it("puts them in the graph node menu with no release or lane item", () => {
+  it("puts accept done and cancel in an open node's menu, reopen in a settled one's, and no release or lane item", () => {
     const ids = buildNodeContextMenuItems(node(T.quiescent)).map((item) => item.id);
     expect(ids).toEqual([
       "open",

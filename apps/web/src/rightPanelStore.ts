@@ -14,11 +14,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
-import {
-  loomSurface,
-  seedRightPanelSurfaces,
-  type SeedableSurfaceKind,
-} from "./loom/seedRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { loomSurface, seedWorkstreamSurface } from "./loom/seedRightPanelSurfaces"; // loom: 3d-2 seam 18
 import type { ChatFileAttachment } from "./types";
 
 const RIGHT_PANEL_KINDS = [
@@ -31,8 +27,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "artifact", // loom: HTML artefact viewer
   "tasks", // loom: 3d-2 seam 18 — goal tasks (3d-3 mounts it)
-  "workstream", // loom: 3d-2 seam 18 — workstream board
-  "graph", // loom: 3d-2 seam 18 — workstream graph
+  "workstream", // loom: 3d-2 seam 18 — workstream graph
   "pull-request",
   "pull-requests",
 ] as const;
@@ -58,10 +53,9 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
-  // loom: 3d-2 seam 18 — the Loom singleton surfaces (seeded by `seedSurfaces`)
+  // loom: 3d-2 seam 18 — the Loom singleton surfaces (seeded by `seedWorkstream`)
   | { id: "tasks"; kind: "tasks" }
   | { id: "workstream"; kind: "workstream" }
-  | { id: "graph"; kind: "graph" }
   // loom: files reveal fields, `dir` and `artifact` surfaces, absolute file paths
   | {
       id: "files";
@@ -145,7 +139,9 @@ const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
 // v14 removes the agents surface; lineage lives in the thread title bar.
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+// loom: v15 removes the workstream "graph" surface; the "workstream" surface is the graph
+// (the next upstream bump takes 16).
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -188,7 +184,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (ref: ScopedThreadRef, kind: SingletonSurfaceKind | "preview") => void; // loom: SingletonSurfaceKind
   /** loom: 3d-2 — the one-shot auto-open seed: one automatic transition, never overriding a user choice. */
-  seedSurfaces: (ref: ScopedThreadRef, kinds: readonly SeedableSurfaceKind[]) => void;
+  seedWorkstream: (ref: ScopedThreadRef) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
@@ -300,7 +296,6 @@ const singletonSurface = (kind: SingletonSurfaceKind): RightPanelSurface => {
       return { id: "device", kind };
     case "tasks": // loom: 3d-2 seam 18
     case "workstream": // loom: 3d-2 seam 18
-    case "graph": // loom: 3d-2 seam 18
       return loomSurface(kind); // loom: 3d-2 seam 18
   }
 };
@@ -569,6 +564,11 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                     // Removed surfaces: plans render inline, agents in thread lineage.
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
+                    // loom: the old "graph" tab becomes the workstream tab, which is now the graph.
+                    if (kind === "graph")
+                      return validThreadState.surfaces.some((other) => other.kind === "workstream")
+                        ? []
+                        : [loomSurface("workstream")];
                     if (surface.kind === "file") {
                       const revealLine =
                         typeof surface.revealLine === "number" &&
@@ -689,7 +689,10 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                     ];
                   })
                 : [];
-              const rawActiveSurfaceId = validThreadState?.activeSurfaceId;
+              const rawActiveSurfaceId =
+                validThreadState?.activeSurfaceId === "graph" // loom: see "graph" above
+                  ? "workstream"
+                  : validThreadState?.activeSurfaceId;
               const persistedActiveSurfaceId = surfaces.some(
                 (surface) => surface.id === rawActiveSurfaceId,
               )
@@ -790,12 +793,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           }),
         ),
       // loom: 3d-2 seam 18 "seed, don't override"
-      seedSurfaces: (ref, kinds) =>
-        set((state) =>
-          automaticUpdate(state, scopedThreadKey(ref), (current) =>
-            seedRightPanelSurfaces(current, kinds),
-          ),
-        ),
+      seedWorkstream: (ref) =>
+        set((state) => automaticUpdate(state, scopedThreadKey(ref), seedWorkstreamSurface)),
       openDevice: (ref, target, automatic = false) =>
         set((state) =>
           (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), (current) => {

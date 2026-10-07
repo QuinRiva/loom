@@ -168,7 +168,7 @@ export const LoomModelPreferenceFields = {
 
 // Spread into `ClientSettingsSchema`.
 export const LoomClientSettingsFields = {
-  // One-shot durable auto-open of the Workstream / Graph right-panel surfaces
+  // One-shot durable auto-open of the Workstream (graph) right-panel surface
   // (loom UI, plan W1). Default on: first-visit discovery is wanted without a
   // manual + → tab per thread, and the per-thread one-shot flags make the cost
   // a single non-overriding seed per thread. Goal tasks never auto-opens (G3).

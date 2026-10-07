@@ -1,7 +1,6 @@
 import {
   type ContextMenuItem,
   DEFAULT_GATE_MAX_ROUNDS,
-  type LoomOutcome,
   type LoomThreadHistoryEntry,
   type LoomThreadOutcome,
   type LoomThreadShellFields,
@@ -23,9 +22,9 @@ import { gateSourceFor, isWaitingInGate } from "@t3tools/shared/workstreamGraph"
 import * as DateTime from "effect/DateTime";
 
 /**
- * Pure presentation logic for the Workstream board, graph, timeline, quick
- * facts and active strip (Phase 3 track 3d-2: the V1 module re-hung on the V2
- * shell). JSX-free so the lazily-loaded graph chunk and the board share one
+ * Pure presentation logic for the Workstream graph, timeline, quick facts and
+ * active strip (Phase 3 track 3d-2: the V1 module re-hung on the V2 shell).
+ * JSX-free so the lazily-loaded graph chunk and the panel share one
  * vocabulary.
  *
  * Three axes, never fused: a thread sits in ONE derived plan column
@@ -103,21 +102,6 @@ export const liveNodes = (nodes: Iterable<WorkstreamNode>) =>
     .filter((node) => !node.archived)
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 
-/**
- * The board's members for `threadId`: its lineage children plus the staged
- * (held) roots that continue or fork it — `mcp__t3-code__goal_continue` and `mcp__t3-code__thread_fork`,
- * the two writers of `held` (P3-19b). Staged roots have no parent, so the held
- * column would otherwise never show them.
- */
-export const boardMembersOf = (threadId: ThreadId, nodes: WorkstreamNodeIndex) =>
-  liveNodes(nodes.values()).filter(
-    (node) =>
-      node.parentThreadId === threadId ||
-      (node.parentThreadId === null &&
-        node.id !== threadId &&
-        (node.continuesThreadId === threadId || node.forkFromThreadId === threadId)),
-  );
-
 /** A running turn (the activity axis): preparing, starting or running. */
 export const isRunning = (node: Pick<WorkstreamNode, "activity">) =>
   node.activity === "preparing" || node.activity === "starting" || node.activity === "running";
@@ -154,8 +138,6 @@ export const COLUMN_SHORT_LABELS = {
 } satisfies Record<WorkstreamBoardColumn, string>;
 
 export interface ColumnStyle {
-  /** Card left rule. */
-  readonly ruleClass: string;
   readonly dotClass: string;
   readonly textClass: string;
   /** The same token as a CSS colour, for SVG strokes and fills. */
@@ -166,55 +148,36 @@ export interface ColumnStyle {
 // ready is info, in-progress the primary accent, done success.
 export const COLUMN_STYLES = {
   held: {
-    ruleClass: "border-l-muted-foreground/60",
     dotClass: "bg-muted-foreground/60",
     textClass: "text-muted-foreground",
     color: "var(--color-muted-foreground)",
   },
   blocked: {
-    ruleClass: "border-l-warning",
     dotClass: "bg-warning",
     textClass: "text-warning-foreground",
     color: "var(--color-warning)",
   },
   ready: {
-    ruleClass: "border-l-info",
     dotClass: "bg-info",
     textClass: "text-info-foreground",
     color: "var(--color-info)",
   },
   in_progress: {
-    ruleClass: "border-l-primary",
     dotClass: "bg-primary",
     textClass: "text-primary",
     color: "var(--color-primary)",
   },
   done: {
-    ruleClass: "border-l-success",
     dotClass: "bg-success",
     textClass: "text-success-foreground",
     color: "var(--color-success)",
   },
   cancelled: {
-    ruleClass: "border-l-border",
     dotClass: "bg-muted-foreground/40",
     textClass: "text-muted-foreground",
     color: "var(--color-muted-foreground)",
   },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
-
-export function groupByColumn(nodes: ReadonlyArray<WorkstreamNode>) {
-  const groups: Record<WorkstreamBoardColumn, WorkstreamNode[]> = {
-    held: [],
-    blocked: [],
-    ready: [],
-    in_progress: [],
-    done: [],
-    cancelled: [],
-  };
-  for (const node of nodes) groups[node.column].push(node);
-  return groups;
-}
 
 // ---------------------------------------------------------------------------
 // Attention
@@ -382,20 +345,6 @@ export function getActivity(node: WorkstreamNode): string {
   return COLUMN_SHORT_LABELS[node.column].toLowerCase();
 }
 
-/**
- * The card's context-window figure: the share of the window used, hot above
- * 50 % (V1's threshold). Unlike V1 it never hides a low figure: with 1M-token
- * windows nearly every card sat below V1's 20 % floor. Null without a window.
- */
-export function getContextChip(
-  node: Pick<WorkstreamNode, "contextUsage">,
-): { readonly percent: number; readonly hot: boolean } | null {
-  const max = node.contextUsage?.maxTokens;
-  if (!node.contextUsage || !max) return null;
-  const percent = Math.min(100, Math.round((node.contextUsage.usedTokens / max) * 100));
-  return { percent, hot: percent > 50 };
-}
-
 /** A thread's dispatch site: the moment its parent spawned it, in the parent's conversation. */
 export const dispatchAnchorOf = (
   node: Pick<WorkstreamNode, "parentThreadId" | "createdAt">,
@@ -491,37 +440,8 @@ export function getNodeStateWord(node: WorkstreamNode, byId: WorkstreamNodeIndex
 }
 
 // ---------------------------------------------------------------------------
-// Controls — outcome (replaces V1's lane select) and the node menu
+// Controls — the node menu (outcome replaces V1's lane select)
 // ---------------------------------------------------------------------------
-
-export interface OutcomeAction {
-  readonly outcome: LoomOutcome | null;
-  readonly label: string;
-  readonly hint: string;
-}
-
-/**
- * The outcome controls a thread offers, each with its reverse: an open thread
- * can be accepted done or cancelled; a done or cancelled one can be reopened.
- */
-export function outcomeActionsOf(node: Pick<WorkstreamNode, "outcome">): OutcomeAction[] {
-  if (node.outcome !== null)
-    return [
-      {
-        outcome: null,
-        label: "Reopen",
-        hint: `Clear the ${node.outcome} outcome so the thread is open again`,
-      },
-    ];
-  return [
-    {
-      outcome: "done",
-      label: "Accept done",
-      hint: "Record this thread as done; it releases dependents",
-    },
-    { outcome: "cancelled", label: "Cancel", hint: "Record this thread as cancelled" },
-  ];
-}
 
 export type WorkstreamNodeMenuAction =
   | "open"
@@ -533,12 +453,6 @@ export type WorkstreamNodeMenuAction =
   | "outcome:reopen"
   | "clear-flags"
   | "stop";
-
-const OUTCOME_MENU_IDS = {
-  done: "outcome:done",
-  cancelled: "outcome:cancelled",
-  reopen: "outcome:reopen",
-} as const;
 
 /**
  * The graph node's right-click menu: navigation first, then the outcome
@@ -555,10 +469,13 @@ export function buildNodeContextMenuItems(
       : [{ id: "dispatch" as const, label: "Show where it was dispatched" }]),
     { id: "history", label: "View timeline" },
     ...(node.reportPath === null ? [] : [{ id: "report" as const, label: "Open report" }]),
-    ...outcomeActionsOf(node).map((action) => ({
-      id: OUTCOME_MENU_IDS[action.outcome ?? "reopen"],
-      label: action.label,
-    })),
+    // Each outcome with its reverse: accept done or cancel an open thread, reopen a settled one.
+    ...(node.outcome === null
+      ? [
+          { id: "outcome:done" as const, label: "Accept done" },
+          { id: "outcome:cancelled" as const, label: "Cancel" },
+        ]
+      : [{ id: "outcome:reopen" as const, label: "Reopen" }]),
     ...(node.attention.length > 0 ? [{ id: "clear-flags" as const, label: "Clear flags" }] : []),
     ...(isRunning(node) ? [{ id: "stop" as const, label: "Stop", destructive: true }] : []),
   ];

@@ -1,6 +1,6 @@
 // Loom workstream state for the web surfaces (Phase 3 track 3d-2): every
 // sidecar-bearing V2 shell of one environment as `WorkstreamNode`s, and the
-// board's controls dispatched as Loom commands through upstream's V2
+// graph's node controls dispatched as Loom commands through upstream's V2
 // `orchestration.dispatchCommand` (no Loom ws method).
 import {
   CommandId,
@@ -15,7 +15,7 @@ import { useCallback, useMemo } from "react";
 
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { randomUUID } from "../lib/utils";
-import { buildWorkstreamNodes, type WorkstreamNode } from "../lib/workstreamPresentation";
+import { buildWorkstreamNodes } from "../lib/workstreamPresentation";
 import { useThreadShells } from "../state/entities";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { threadEnvironment } from "../state/threads";
@@ -61,7 +61,7 @@ const commandMeta = () => ({
   createdAt: new Date().toISOString(),
 });
 
-/** The board's and graph's controls for one environment. */
+/** The graph node menu's controls for one environment. */
 export function useWorkstreamCommands(environmentId: EnvironmentId | null) {
   const dispatchCommand = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand);
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
@@ -76,17 +76,6 @@ export function useWorkstreamCommands(environmentId: EnvironmentId | null) {
       /** Accept done / cancel (`outcome`), or reopen (`null`). */
       setOutcome: (threadId: ThreadId, outcome: LoomOutcome | null) =>
         dispatch({ type: "thread.outcome.set", ...commandMeta(), threadId, outcome }),
-      /** Replace a child's sibling dependencies; carries the parent the arm locks. */
-      setDependencies: (node: WorkstreamNode, blockedBy: ReadonlyArray<ThreadId>) => {
-        if (node.parentThreadId === null) return;
-        dispatch({
-          type: "thread.dependencies.set",
-          ...commandMeta(),
-          threadId: node.id,
-          parentThreadId: node.parentThreadId,
-          blockedBy: [...blockedBy],
-        });
-      },
       /** Clear every stored attention reason (an absent `reason`). */
       clearAttention: (threadId: ThreadId) =>
         dispatch({ type: "thread.attention.clear", ...commandMeta(), threadId }),
@@ -97,5 +86,3 @@ export function useWorkstreamCommands(environmentId: EnvironmentId | null) {
     [dispatch, environmentId, interruptTurn],
   );
 }
-
-export type WorkstreamCommands = ReturnType<typeof useWorkstreamCommands>;

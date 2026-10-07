@@ -20,27 +20,23 @@ beforeEach(() => {
 });
 
 describe("auto-open seed", () => {
-  it("a workstream root with no panel state opens the board, with the graph beside it", () => {
+  it("a workstream root with no panel state opens the Workstream tab", () => {
     seed(true);
     expect(panel()).toEqual({
       isOpen: true,
       activeSurfaceId: "workstream",
-      surfaces: [
-        { id: "workstream", kind: "workstream" },
-        { id: "graph", kind: "graph" },
-      ],
+      surfaces: [{ id: "workstream", kind: "workstream" }],
     });
     expect(selectAutoOpenedSurfaces(useWorkstreamUiStore.getState(), refA)).toEqual({
       workstream: true,
-      graph: true,
     });
   });
 
-  it("another surface active → tabs added, active surface and visibility unchanged", () => {
+  it("another surface active → tab added, active surface and visibility unchanged", () => {
     useRightPanelStore.getState().open(refA, "diff");
     seed(true);
     expect(panel().activeSurfaceId).toBe("diff");
-    expect(panel().surfaces.map((surface) => surface.id)).toEqual(["diff", "workstream", "graph"]);
+    expect(panel().surfaces.map((surface) => surface.id)).toEqual(["diff", "workstream"]);
   });
 
   it("not a root, or the setting off → no store write", () => {
@@ -57,7 +53,7 @@ describe("auto-open seed", () => {
     expect(useRightPanelStore.getState().byThreadKey).toBe(before);
   });
 
-  it("closing the seeded tabs and re-firing does not bring them back", () => {
+  it("closing the seeded tab and re-firing does not bring them back", () => {
     seed(true);
     useRightPanelStore.getState().closeAllSurfaces(refA);
     seed(true);

@@ -2,7 +2,7 @@
 // docs/architecture/loom-ui-state-tiers.md).
 //
 // - `autoOpenedByThreadKey` (tier 1, persisted): the durable "auto-open
-//   already fired" record per surface, so a remount can never resurrect an
+//   already fired" record per thread, so a remount can never resurrect an
 //   auto-open over a user's choice.
 // - `graphViewByKey` (session-scoped, NOT persisted): the graph's last
 //   zoom/pan per orchestration, keyed by the scoped ROOT-thread key. A viewBox
@@ -18,9 +18,9 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { ViewBox } from "../lib/forkJoinLayout";
 import { resolveStorage } from "../lib/storage";
-import type { SeedableSurfaceKind } from "./seedRightPanelSurfaces";
 
-export type AutoOpenedSurfaces = Partial<Record<SeedableSurfaceKind, true>>;
+/** Keyed by surface for the persisted shape; the Workstream tab is the only seeded one. */
+export type AutoOpenedSurfaces = { readonly workstream?: true };
 
 export interface WorkstreamGraphView {
   readonly viewBox: ViewBox;
@@ -33,7 +33,7 @@ interface WorkstreamUiStoreState {
   /** Session-scoped; excluded from persistence via `partialize`. */
   graphViewByKey: Readonly<Record<string, WorkstreamGraphView>>;
   setGraphView: (key: string, view: WorkstreamGraphView) => void;
-  markAutoOpened: (ref: ScopedThreadRef, kinds: readonly SeedableSurfaceKind[]) => void;
+  markAutoOpened: (ref: ScopedThreadRef) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -44,20 +44,13 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
       graphViewByKey: {},
       setGraphView: (key, view) =>
         set((state) => ({ graphViewByKey: { ...state.graphViewByKey, [key]: view } })),
-      markAutoOpened: (ref, kinds) =>
-        set((state) => {
-          if (kinds.length === 0) return state;
-          const threadKey = scopedThreadKey(ref);
-          return {
-            autoOpenedByThreadKey: {
-              ...state.autoOpenedByThreadKey,
-              [threadKey]: {
-                ...state.autoOpenedByThreadKey[threadKey],
-                ...Object.fromEntries(kinds.map((kind) => [kind, true])),
-              },
-            },
-          };
-        }),
+      markAutoOpened: (ref) =>
+        set((state) => ({
+          autoOpenedByThreadKey: {
+            ...state.autoOpenedByThreadKey,
+            [scopedThreadKey(ref)]: { workstream: true },
+          },
+        })),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -67,8 +60,8 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
         }),
     }),
     {
-      // v2: the V1 panel slice (board/graph view, spawn draft) is gone — graph
-      // is its own surface and manual spawn has no V2 command.
+      // v2: the V1 panel slice (board/graph view, spawn draft) is gone — the
+      // workstream surface is the graph and manual spawn has no V2 command.
       name: "t3code:loom-workstream-ui:v1",
       version: 2,
       storage: createJSONStorage(() =>

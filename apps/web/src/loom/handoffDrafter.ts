@@ -7,7 +7,7 @@ import type { SidebarThreadSummary } from "../types";
  * it has drafted its brief, so while alive it stays hidden UNLESS it carries
  * attention. A broken drafter (zero handoffs, hung) raises `needs_guidance` on
  * its live source thread, where the drafter stays reachable from the source's
- * Workstream board; only when the source is gone is the drafter itself
+ * Workstream graph; only when the source is gone is the drafter itself
  * flagged, and then it must surface here. Every other thread is always visible.
  */
 export const isVisibleHandoffDrafter = ({

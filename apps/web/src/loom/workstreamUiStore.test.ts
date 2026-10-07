@@ -13,25 +13,11 @@ beforeEach(() => {
 });
 
 describe("workstreamUiStore auto-open flags", () => {
-  it("marks surfaces per thread, merging repeated calls", () => {
-    expect(flags(refA)).toEqual({});
-    useWorkstreamUiStore.getState().markAutoOpened(refA, ["workstream"]);
-    useWorkstreamUiStore.getState().markAutoOpened(refA, ["graph"]);
-    expect(flags(refA)).toEqual({ workstream: true, graph: true });
-    expect(flags(refB)).toEqual({});
-  });
-
-  it("marking with no kinds is a no-op", () => {
-    const before = useWorkstreamUiStore.getState();
-    useWorkstreamUiStore.getState().markAutoOpened(refA, []);
-    expect(useWorkstreamUiStore.getState()).toBe(before);
-  });
-
-  it("removeThread drops only that thread's flags", () => {
-    useWorkstreamUiStore.getState().markAutoOpened(refA, ["workstream"]);
-    useWorkstreamUiStore.getState().markAutoOpened(refB, ["graph"]);
+  it("marks per thread; removeThread drops only that thread's flag", () => {
+    useWorkstreamUiStore.getState().markAutoOpened(refA);
+    useWorkstreamUiStore.getState().markAutoOpened(refB);
     useWorkstreamUiStore.getState().removeThread(refA);
     expect(flags(refA)).toEqual({});
-    expect(flags(refB)).toEqual({ graph: true });
+    expect(flags(refB)).toEqual({ workstream: true });
   });
 });
