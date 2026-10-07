@@ -224,7 +224,7 @@ pull request is older than the recent list. Type a single word after `#` to sear
 the repository by text. Choose a result to insert it as a chip.
 
 Another thread can be context too. Type `@` followed by part of its title to pick one from
-the same server. On web and desktop, `!` searches threads only and its query can span several
+the same server. <!-- loom: the `!` thread search (DL-750) --> On web and desktop, `!` searches threads only and its query can span several
 words, so `!review the parser` finds "Review the parser"; Escape closes the list. You can also
 drag a thread out of the sidebar and drop it on the composer; a multi-selection drops together. The chip shows the thread's current title and
 opens it when selected. Your prompt only carries a reference: the agent reads the thread's
