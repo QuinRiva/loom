@@ -219,3 +219,19 @@ deployed.
   what the user left; Goal tasks is no longer an auto-open kind, and the unused
   `autoOpenGoalTasksPanel` setting is deleted. Gate clean after one rework round
   (`79b5451199`).
+- **DL-770–777 — Board and node-panel restores (rows W2–W5).** W2: `loom.threadOutcomes` is
+  replaced by `loom.threadHistory`, a single read of the event log that covers outcomes with
+  their reports, flags, routes, accepted rework and outcome set or reopened. A V2 "clear all
+  flags" over a standing yield shows as **Resumed**. W4: the workstream total and subtree
+  cost are client-side sums, archived descendants included. W5: `toolCalls` and
+  `contextUsage` ride the shell's `workstream` fields, which add no shell updates. The tool
+  count covers command, file-change, file-search, web-search and dynamic-tool items. Context
+  % is always shown, a deliberate change from V1's "hide under 20%", which hides nearly
+  every card under 1M-token windows. W3: "Show where it was dispatched" is a one-shot stored
+  target the timeline consumes, landing on the row at or before that moment. Gate clean;
+  the fan-in conflicted with DL-610's migration 1052 and was merged by hand (`fadc2b110f`),
+  renumbering the coder's 1068 to **1053** so the Loom ledger stays contiguous. Migration and
+  projection tests 40/40, typecheck and `vp check` green, unmarked sweep clean.
+- **DL-610 — The Loom migration ledger must stay contiguous.** The loader refuses a ledger
+  with a gap, so the per-coder numbers assigned in briefs (1053–1071) were wrong. Order of
+  landing decides: 1052 control-message rows, 1053 card metrics, and the next one takes 1054.
