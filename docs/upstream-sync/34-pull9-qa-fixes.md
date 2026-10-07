@@ -193,3 +193,8 @@ deployed.
   `presentation-authoring`, `fix-codex-session`, `mattpocock/*`) so pi slash commands can be
   exercised, and the bridge tool-change patch (DL-632). Not in this build: `!` thread
   references, the timeline, board, sidebar and fork-turn restores (still in progress).
+- **DL-790 — `thread_fork` includes the turn it was called from (row O3, closes DL-344).**
+  The fork's pi session now ends at the batch holding the `thread_fork` call and its tool
+  results, matching V1's cut point (`git show main:apps/server/src/mcp/ThreadForkHttp.ts`),
+  so the fork knows what the caller was doing; the source session is untouched and the
+  tool result's "loses the calling turn" caveat is gone. Gate clean (`5079d9cc2b`).
