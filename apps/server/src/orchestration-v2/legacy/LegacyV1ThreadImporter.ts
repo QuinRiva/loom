@@ -33,9 +33,12 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "../RandomUuid.ts";
 import {
+  importedConsultTurnItem,
   importedLoomFields,
+  interleaveConsults,
+  type LegacyConsultRow,
   type LegacyLoomMessageColumns,
-} from "./LegacyV1ThreadImporter.loom.ts"; // loom: DL-610
+} from "./LegacyV1ThreadImporter.loom.ts"; // loom: DL-610, T3 consults
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
 const TRANSCRIPT_EVENT_BATCH_SIZE = 100;
@@ -379,6 +382,25 @@ const make = Effect.gen(function* () {
       ORDER BY created_at ASC, message_id ASC
     `;
 
+  // loom: T3 — a thread's V1 `consult_thread` calls, imported as consult turn items.
+  const legacyConsults = sql`
+    consult.application_event_version = 1
+    AND consult.aggregate_kind = 'thread'
+    AND consult.event_type = 'thread.consult-recorded'
+  `;
+  const earlierConsults = sql`(
+    SELECT COUNT(*) FROM orchestration_events AS consult
+    WHERE ${legacyConsults} AND consult.stream_id = message.thread_id
+      AND consult.occurred_at < message.created_at
+  )`;
+  const listConsults = (threadId: ThreadId) =>
+    sql<LegacyConsultRow>`
+      SELECT consult.event_id, consult.stream_id AS thread_id, consult.occurred_at, consult.payload_json
+      FROM orchestration_events AS consult
+      WHERE ${legacyConsults} AND consult.stream_id = ${threadId}
+      ORDER BY consult.occurred_at ASC, consult.event_id ASC
+    `;
+
   const listShellMessages = (threadId: ThreadId) =>
     Effect.gen(function* () {
       const latest = yield* sql<LegacyMessageRow>`
@@ -406,7 +428,7 @@ const make = Effect.gen(function* () {
                   AND earlier.message_id <= message.message_id
                 )
               )
-          ) AS ordinal
+          ) + ${earlierConsults} AS ordinal -- loom: T3 consults share the runless sequence
         FROM projection_thread_messages AS message
         WHERE message.thread_id = ${threadId}
           AND message.role IN ('user', 'assistant')
@@ -438,7 +460,7 @@ const make = Effect.gen(function* () {
                   AND earlier.message_id <= message.message_id
                 )
               )
-          ) AS ordinal
+          ) + ${earlierConsults} AS ordinal -- loom: T3 consults share the runless sequence
         FROM projection_thread_messages AS message
         WHERE message.thread_id = ${threadId}
           AND message.role = 'user'
@@ -727,16 +749,49 @@ const make = Effect.gen(function* () {
           WHERE application_event_version = 2
             AND aggregate_kind = 'thread'
             AND stream_id = ${threadId}
-            AND event_id LIKE ${`${IMPORT_EVENT_PREFIX}:message:%`}
+            AND (event_id LIKE ${`${IMPORT_EVENT_PREFIX}:message:%`}
+              OR event_id LIKE ${`${IMPORT_EVENT_PREFIX}:turn-item:consult:%`}) -- loom: T3
         `;
         const existing = new Set(existingRows.map((row) => row.event_id));
-        const missing = messages.filter(
-          (message) => !existing.has(`${IMPORT_EVENT_PREFIX}:message:${message.message_id}`),
-        );
+        // loom: T3 — V1 consults join the messages' runless sequence, by time.
+        const entries = interleaveConsults(
+          messages,
+          (message) => message.created_at,
+          yield* listConsults(threadId),
+        ).map((entry, index) => {
+          const ordinal = index + 1;
+          if ("consult" in entry) {
+            const item = importedConsultTurnItem(entry.consult, ordinal);
+            return {
+              eventId: item.id,
+              turnItemId: item.id,
+              ordinal,
+              isMessage: false,
+              events: (): ReadonlyArray<OrchestrationV2DomainEvent> => [
+                {
+                  id: EventId.make(item.id),
+                  type: "turn-item.updated",
+                  threadId,
+                  occurredAt: item.updatedAt,
+                  payload: item,
+                },
+              ],
+            };
+          }
+          const message = { ...entry.item, ordinal };
+          return {
+            eventId: `${IMPORT_EVENT_PREFIX}:message:${message.message_id}`,
+            turnItemId: TurnItemId.make(`${IMPORT_EVENT_PREFIX}:turn-item:${message.message_id}`),
+            ordinal,
+            isMessage: true,
+            events: () => messageEvents(message),
+          };
+        });
+        const missing = entries.filter((entry) => !existing.has(entry.eventId));
         for (const batch of chunks(missing, TRANSCRIPT_EVENT_BATCH_SIZE / 2)) {
           yield* Effect.forEach(
             batch,
-            (message) =>
+            (entry) =>
               sql`
                 INSERT INTO orchestration_v2_turn_item_positions (
                   thread_id,
@@ -745,14 +800,14 @@ const make = Effect.gen(function* () {
                 )
                 VALUES (
                   ${threadId},
-                  ${TurnItemId.make(`${IMPORT_EVENT_PREFIX}:turn-item:${message.message_id}`)},
-                  ${message.ordinal}
+                  ${entry.turnItemId},
+                  ${entry.ordinal}
                 )
                 ON CONFLICT(thread_id, turn_item_id) DO NOTHING
               `,
             { discard: true },
           );
-          yield* eventSink.write({ events: batch.flatMap(messageEvents) });
+          yield* eventSink.write({ events: batch.flatMap((entry) => entry.events()) });
           yield* Effect.yieldNow;
         }
         const now = DateTime.formatIso(yield* DateTime.now);
@@ -767,7 +822,7 @@ const make = Effect.gen(function* () {
         confirmedTranscriptThreadIds.add(threadId);
         return {
           importedThreadCount: 1,
-          importedMessageCount: missing.length,
+          importedMessageCount: missing.filter((entry) => entry.isMessage).length,
         };
       }),
     );
