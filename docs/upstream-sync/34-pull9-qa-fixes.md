@@ -65,3 +65,10 @@ deployed.
   `EmergentGoals` service (at most once) instead of refusing, so an orchestrator can lay out
   tasks and anchor children in its first turn. Landed with DL-670 in `dd1ca303ab`
   (gate clean).
+- **DL-720 — Multi-select `ask_user_question` answers are joined with ", " on Loom's
+  `loom-ask:` path only.** Upstream's answer contract already allows arrays and its live
+  adapters accept them; the one string-only path is the message-capability answer in
+  `Orchestrator.ts`, whose upstream producer (Codex async questions) is never multi-select.
+  Loom's asks ride that path, so `loomAskAnswer` joins an array the way upstream's own
+  string-only Claude adapter does; upstream validation is unchanged. The agent sees V1's
+  outcome rendering. Gate `fixed_inline` (`c53da13f4b`).
