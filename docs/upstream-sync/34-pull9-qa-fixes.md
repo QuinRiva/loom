@@ -72,3 +72,12 @@ deployed.
   Loom's asks ride that path, so `loomAskAnswer` joins an array the way upstream's own
   string-only Claude adapter does; upstream validation is unchanged. The agent sees V1's
   outcome rendering. Gate `fixed_inline` (`c53da13f4b`).
+- **DL-650–654 — The tab strip is scoped per root again (Phase 3 had deferred it; Carl
+  ruled the flat strip unacceptable).** The group key walks `lineage.parentThreadId` across
+  `subagent` links only, so a V2 fork is its own root. Every entry point funnels through the
+  thread route, the one place tabs are seeded. Archived or deleted threads are pruned from
+  the strip, a deliberate change from V1, which left them as raw-id tabs. Gate clean.
+- **DL-605 — "`vp check` fails on the base" (DL-655) was a stale install, not the branch.**
+  This worktree had `vite-plus` 0.3.0 against a lockfile pinning 1.0.0; its formatter
+  flagged an upstream test. After `CI=true vp i --no-frozen-lockfile`, `vp check` on
+  `9d2efbf2e8`: 0 errors, 905 warnings. No file changed.
