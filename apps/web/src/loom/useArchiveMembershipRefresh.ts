@@ -1,6 +1,7 @@
 import {
   type ArchivedSnapshotEntry,
   makeArchivedThreadsEnvironmentKey,
+  parseArchivedThreadsEnvironmentKey,
 } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -14,7 +15,7 @@ import { environmentSnapshotAtom } from "../state/shell";
 const liveThreadKeysAtom = Atom.family((environmentKey: string) =>
   Atom.make((get) => {
     const keys: string[] = [];
-    for (const environmentId of environmentKey.split("\u001f") as EnvironmentId[]) {
+    for (const environmentId of parseArchivedThreadsEnvironmentKey(environmentKey)) {
       const snapshot = get(environmentSnapshotAtom(environmentId));
       if (!snapshot) return null;
       keys.push(...snapshot.threads.map((thread) => `${environmentId}:${thread.id}`));
