@@ -110,3 +110,16 @@ deployed.
   in `Orchestrator.ts` (an import list, beside DL-720's `loomAskAnswer`) resolved by hand
   in `6513bf8093`, with typecheck, `vp check`, the Orchestrator tests and the
   unmarked-hunk sweep green.
+- **DL-700–703 — Quota reroutes stick.** A draft model pick the server thread already holds
+  is spent and dropped, so the composer follows `thread.modelSelection`: server-side
+  reroutes and move-backs reach what the composer sends, and an unsent human pick still
+  wins (web and mobile; closes DL-477b). At boot the reroute sweep restores exhaustion marks
+  from `loom_thread_reroute` before its first pass, so a restart no longer moves rerouted
+  threads back (closes DL-484); `reset_at` now means "when the intended model's exhaustion
+  lapses". One sessions-root resolver, `piSessionsRoot(env)`, serves the importer and the
+  Usage page, which now shows real spend under a relocated session dir. DL-477d (live pi
+  hides `Retry-After`) remains open. Gate clean (`99b7d1a141`).
+- **DL-740 — Forks take their own identity after their first launch (V1's fork-once
+  replay).** A `thread_fork` or UI fork, and a `forkFrom` child, replay the source's launch
+  identity byte for byte on first launch only (cache prefix intact), then compose their own,
+  with their own `You are thread <id>` and root or child framing. Gate clean (`8f7273fc27`).
