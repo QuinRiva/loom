@@ -13,9 +13,9 @@
  * its bound pi session) for upstream to resolve natively at the drafter's first run
  * (P3-28's mechanism); then the kickoff as a Loom control message. A mid-turn
  * source defers the fork, and `HandoffDrafterReactor` sends the fork and kickoff
- * once the turn ends, so the drafter carries that turn too. V2's bare `thread.fork` would leave the drafter without a sidecar
- * row, and the role is what `mcp__t3-code__goal_handoff`, the composer's overlay and the
- * reactor key on.
+ * once the turn ends, so the drafter carries that turn too. V2's bare
+ * `thread.fork` would leave the drafter without a sidecar row, and the role is
+ * what `mcp__t3-code__goal_handoff`, the composer's overlay and the reactor key on.
  *
  * `/retro` (`retroDraft.ts`) reuses `launchDraftFork` with its own role and kickoff.
  *
@@ -92,7 +92,7 @@ export interface DraftForkInput {
 /**
  * The fork and kickoff that follow a drafter's spawn. Ids hang off the drafter's
  * id (`server:loom:draft:<id>:<step>`), so a launch deferred behind a busy source
- * is re-sent under the same ids (`continueDraftFork`).
+ * is re-sent under the same ids (`HandoffDrafterReactor`).
  */
 export const buildDraftForkLaunch = (input: {
   readonly drafterThreadId: ThreadId;
