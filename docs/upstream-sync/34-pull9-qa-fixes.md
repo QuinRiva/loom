@@ -123,3 +123,18 @@ deployed.
   replay).** A `thread_fork` or UI fork, and a `forkFrom` child, replay the source's launch
   identity byte for byte on first launch only (cache prefix intact), then compose their own,
   with their own `You are thread <id>` and root or child framing. Gate clean (`8f7273fc27`).
+- **DL-690–694 — Steers survive a server restart (closes DL-561).** The pending-steer stash
+  is a durable mirror of pi's own steering queue (the adapter writes pi's
+  `queue_update.steering` list on every change), so a steer the model already consumed is
+  never redelivered, and shutdown no longer erases an undelivered one. A stashed steer rides
+  upstream's restart continuation (one `// loom:` hunk in `RestartContinuation.ts` appends it
+  to the continuation prompt), so it reaches the model first and is never parked behind a
+  held human queue. Only a restart that cut the stash's own run delivers it, so a steer
+  stays dropped after a deliberate Stop. Threads without a Loom sidecar (plain UI threads)
+  are covered too. Verified live: the DL-561 scenario's steer reached the model exactly
+  once. Gate clean after one rework round (`fbfe4efa9e`).
+- **DL-730s — Small web fixes.** `lint-plan.mjs` runs again under vite-plus 1.0; Settings →
+  Archive updates live on archive and unarchive (via the shared archived-threads query);
+  healthy `/handoff` drafter threads are hidden from the sidebar, palette and mentions per
+  V1's rule; the annotation chip label no longer reads "block block". Gate `fixed_inline`
+  (`6e05d26853`).
