@@ -17,7 +17,6 @@ import {
   NodeId,
   ProviderInstanceId,
   ProviderSessionId,
-  type ProviderTurnId,
   RunAttemptId,
   RunId,
   ThreadId,
