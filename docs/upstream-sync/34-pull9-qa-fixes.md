@@ -289,4 +289,9 @@ deployed.
   `apps/web`), and live on the dev-verify seed: one Workstream tab showing the graph, the
   node timeline drawer opens, the "+" menu lists Workstream only, and a planted v14 state
   (board + graph + diff, graph active) reloads as Workstream + Diff with the graph active.
-  Commit `d2716f9d64`.
+  Commit `d2716f9d64`. **Review round 1:** the board also listed the parentless roots that
+  continue or fork the open thread, and that was the only place a hung `/handoff` drafter
+  could be reached. Its reactor flags the _source_, so the drafter stays hidden and its
+  handoff row reads "drafting". The "Open drafter" chip on the source timeline's handoff row
+  now shows on every live drafter row, not only failed ones. Other staged roots
+  (`goal_continue` successors, `thread_fork` forks) still show in the sidebar and goal panel.

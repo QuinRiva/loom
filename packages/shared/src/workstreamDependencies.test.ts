@@ -10,7 +10,7 @@ import {
 } from "./workstreamDependencies.ts";
 
 // The shared predicate consumed by BOTH the decider's first-turn invariant and
-// the dispatcher's promote-ready pass, so execution gating and the client board
+// the dispatcher's promote-ready pass, so execution gating and the client graph
 // can never disagree. These tests pin its sibling-scoped contract.
 
 const parent = "parent-1" as ThreadId;

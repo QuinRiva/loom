@@ -89,7 +89,8 @@ export function LoomTimelineRowView({
             ) : null}
           </span>
         ))}
-        {row.state === "failed" && row.drafterThreadId ? (
+        {/* Every live drafter, not only a failed one: a hung kickoff flags the source and still reads "drafting". */}
+        {row.state !== "handed-off" && row.drafterThreadId ? (
           <span className="shrink-0">
             <ThreadLinkChip
               label="Open drafter"

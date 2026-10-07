@@ -125,7 +125,7 @@ export const LoomThreadSpend = Schema.Struct({
 });
 export type LoomThreadSpend = typeof LoomThreadSpend.Type;
 
-/** `loom.threadSpend`: lifetime spend for a batch of threads (the board's and chips' lookup). */
+/** `loom.threadSpend`: lifetime spend for a batch of threads (the workstream surface's and chips' lookup). */
 export const LoomThreadSpendInput = Schema.Struct({
   threadIds: Schema.Array(ThreadId).check(Schema.isMaxLength(200)),
 });
