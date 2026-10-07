@@ -41,27 +41,6 @@ export interface ServerDerivedPaths {
   readonly providerStatusCacheDir: string;
   readonly worktreesDir: string;
   readonly attachmentsDir: string;
-  // Stable per-thread Workstream completion reports (markdown). Lives under the
-  // durable state dir, NOT the ephemeral worktree which gets reclaimed.
-  readonly workstreamReportsDir: string;
-  // Scaffold-first graph authoring: stable per-thread kickoff-brief markdown
-  // files. Durable state dir (never the ephemeral worktree); the dispatcher
-  // reads the brief here at a child's first launch.
-  readonly workstreamBriefsDir: string;
-  // loom: forkFrom launch-identity sidecars + kickoff-delivered markers. Stable
-  // per-thread JSON files written by the pi driver at the createPiRpcProcess
-  // boundary and read at a fork child's first launch to replay the source's
-  // byte-identical argv/selection. Durable state dir (never the ephemeral
-  // worktree); survives restarts because the marker is not a projection.
-  readonly workstreamLaunchIdentityDir: string;
-  // Debugging-only: per-thread effective-prompt debug sidecars (markdown). The
-  // pi capture extension writes the fully assembled LLM prompt here, broken
-  // down by section, fire-and-forget on each agent start. Durable state dir
-  // (never the ephemeral worktree); the web UI opens it via the file viewer.
-  readonly workstreamPromptDebugDir: string;
-  // Retained read-only consult_thread fork session jsonls (deep-inspection
-  // artefacts). Sibling of workstreamReportsDir under the durable state dir.
-  readonly workstreamConsultsDir: string;
   /** Screenshots the agent asks the collaborative browser to keep for the user. */
   readonly browserArtifactsDir: string;
   readonly logsDir: string;
@@ -115,6 +94,7 @@ export class ServerConfig extends Context.Service<
     readonly noBrowser: boolean;
     readonly startupPresentation: StartupPresentation;
     readonly desktopBootstrapToken: string | undefined;
+    readonly desktopBootstrapSecret?: string | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
@@ -158,15 +138,8 @@ export const deriveServerPaths = Effect.fn(function* (
     baseDir,
     devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
   );
-  const dbPath = join(stateDir, "state.sqlite");
+  const dbPath = join(stateDir, "statev2.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
-  const workstreamReportsDir = join(stateDir, "workstream-reports");
-  const workstreamBriefsDir = join(stateDir, "workstream-briefs");
-  // loom: forkFrom launch-identity sidecars + kickoff-delivered markers.
-  const workstreamLaunchIdentityDir = join(stateDir, "workstream-launch-identity");
-  // Debugging-only effective-prompt debug sidecars (see ServerDerivedPaths).
-  const workstreamPromptDebugDir = join(stateDir, "prompt-debug");
-  const workstreamConsultsDir = join(stateDir, "workstream-consults");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
   const providerStatusCacheDir = join(baseDir, "caches");
@@ -179,11 +152,6 @@ export const deriveServerPaths = Effect.fn(function* (
     providerStatusCacheDir,
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
-    workstreamReportsDir,
-    workstreamBriefsDir,
-    workstreamLaunchIdentityDir, // loom:
-    workstreamPromptDebugDir,
-    workstreamConsultsDir,
     browserArtifactsDir: join(stateDir, "browser-artifacts"),
     logsDir,
     serverTracePath: join(logsDir, "server.trace.ndjson"),
@@ -208,12 +176,6 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.providerLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
-      fs.makeDirectory(derivedPaths.workstreamReportsDir, { recursive: true }),
-      fs.makeDirectory(derivedPaths.workstreamBriefsDir, { recursive: true }),
-      // loom:
-      fs.makeDirectory(derivedPaths.workstreamLaunchIdentityDir, { recursive: true }),
-      fs.makeDirectory(derivedPaths.workstreamPromptDebugDir, { recursive: true }),
-      fs.makeDirectory(derivedPaths.workstreamConsultsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),

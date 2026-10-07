@@ -8,14 +8,13 @@ import {
   createShellEnvironmentAtoms,
   type EnvironmentShellState,
 } from "@t3tools/client-runtime/state/shell";
-import type { OrchestrationGoalShell } from "@t3tools/contracts";
 import {
   type EnvironmentCatalogState,
   enabledEnvironmentIds,
 } from "@t3tools/client-runtime/state/connections";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -24,22 +23,6 @@ import { isHostedStaticApp } from "../hostedPairing";
 export const shellEnvironment = createShellEnvironmentAtoms(connectionAtomRuntime);
 export const environmentShell = createEnvironmentShellAtoms(connectionAtomRuntime);
 export const environmentSnapshotAtom = createEnvironmentSnapshotAtom(environmentShell.stateAtom);
-
-const EMPTY_GOALS: ReadonlyArray<OrchestrationGoalShell> = Object.freeze([]);
-
-// loom: DB-authoritative goals, flattened across every connected environment (the
-// fork's `selectGoalsAcrossEnvironments`). Goals ride the shell snapshot, so
-// this recomputes whenever any environment's snapshot changes.
-export const goalsAtom = Atom.make((get): ReadonlyArray<OrchestrationGoalShell> => {
-  const goals: OrchestrationGoalShell[] = [];
-  for (const environmentId of get(environmentCatalog.catalogValueAtom).entries.keys()) {
-    const snapshot = get(environmentSnapshotAtom(environmentId));
-    if (snapshot) {
-      goals.push(...snapshot.goals);
-    }
-  }
-  return goals.length === 0 ? EMPTY_GOALS : goals;
-}).pipe(Atom.withLabel("web-goals"));
 
 export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
   const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));

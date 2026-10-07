@@ -20,7 +20,6 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
-import { ThreadSearchArchivedToggle } from "~/loom/ThreadSearchArchivedToggle"; // loom:
 import { Button } from "../ui/button";
 import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -105,7 +104,6 @@ export function SidebarThreadHeader({
           }
           className="min-w-0 flex-1"
         />
-        {isSearching ? <ThreadSearchArchivedToggle /> : null /* loom: */}
         {isSearching ? (
           <Button
             type="button"

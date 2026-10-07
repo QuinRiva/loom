@@ -1,33 +1,29 @@
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { buildThreadLineage } from "./threadRouteLineage";
-import type { ThreadShell } from "./types";
+import { buildThreadLineage, type LineageThread } from "./threadRouteLineage";
 
 const tid = (value: string) => ThreadId.make(value);
 
-// The helper only reads parentThreadId / title / archivedAt, so a partial cast
-// keeps the fixtures focused on the lineage-relevant fields.
-function shell(
+function thread(
   id: string,
   parentThreadId: string | null,
-  overrides: Partial<ThreadShell> = {},
-): ThreadShell {
-  return {
-    id: tid(id),
-    parentThreadId: parentThreadId === null ? null : tid(parentThreadId),
-    title: `title-${id}`,
-    archivedAt: null,
-    ...overrides,
-  } as ThreadShell;
+  archived = false,
+): [ThreadId, LineageThread] {
+  return [
+    tid(id),
+    {
+      parentThreadId: parentThreadId === null ? null : tid(parentThreadId),
+      title: `title-${id}`,
+      archived,
+    },
+  ];
 }
 
-function byId(...shells: ThreadShell[]): Record<ThreadId, ThreadShell> {
-  return Object.fromEntries(shells.map((s) => [s.id, s])) as Record<ThreadId, ThreadShell>;
-}
+const byId = (...threads: Array<[ThreadId, LineageThread]>) => new Map(threads);
 
 describe("buildThreadLineage", () => {
   it("returns ancestors root → parent for a nested chain", () => {
-    const map = byId(shell("root", null), shell("mid", "root"), shell("leaf", "mid"));
+    const map = byId(thread("root", null), thread("mid", "root"), thread("leaf", "mid"));
     expect(buildThreadLineage(map, tid("leaf")).map((s) => s.threadId)).toEqual([
       tid("root"),
       tid("mid"),
@@ -35,12 +31,11 @@ describe("buildThreadLineage", () => {
   });
 
   it("returns an empty chain for a top-level thread", () => {
-    expect(buildThreadLineage(byId(shell("root", null)), tid("root"))).toEqual([]);
+    expect(buildThreadLineage(byId(thread("root", null)), tid("root"))).toEqual([]);
   });
 
   it("marks a missing immediate parent and stops the walk", () => {
-    const result = buildThreadLineage(byId(shell("leaf", "ghost")), tid("leaf"));
-    expect(result).toEqual([
+    expect(buildThreadLineage(byId(thread("leaf", "ghost")), tid("leaf"))).toEqual([
       {
         threadId: tid("ghost"),
         title: "parent unavailable",
@@ -52,25 +47,20 @@ describe("buildThreadLineage", () => {
   });
 
   it("flags archived ancestors", () => {
-    const map = byId(
-      shell("root", null, { archivedAt: "2026-01-02T00:00:00.000Z" }),
-      shell("leaf", "root"),
-    );
+    const map = byId(thread("root", null, true), thread("leaf", "root"));
     expect(buildThreadLineage(map, tid("leaf"))[0]?.archived).toBe(true);
   });
 
   it("does not loop on a cycle", () => {
-    const map = byId(shell("a", "b"), shell("b", "a"));
-    const result = buildThreadLineage(map, tid("a"));
+    const result = buildThreadLineage(byId(thread("a", "b"), thread("b", "a")), tid("a"));
     expect(result.length).toBeLessThanOrEqual(2);
     expect(result.map((s) => s.threadId)).not.toContain(tid("a"));
   });
 
   it("caps very deep chains at maxDepth", () => {
-    const shells = Array.from({ length: 50 }, (_, i) =>
-      shell(`t${i}`, i === 0 ? null : `t${i - 1}`),
+    const threads = Array.from({ length: 50 }, (_, i) =>
+      thread(`t${i}`, i === 0 ? null : `t${i - 1}`),
     );
-    const result = buildThreadLineage(byId(...shells), tid("t49"), { maxDepth: 16 });
-    expect(result).toHaveLength(16);
+    expect(buildThreadLineage(byId(...threads), tid("t49"), { maxDepth: 16 })).toHaveLength(16);
   });
 });

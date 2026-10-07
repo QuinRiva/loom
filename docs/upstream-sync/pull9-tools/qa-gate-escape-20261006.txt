@@ -1,0 +1,103 @@
+# QA-scripts containment gate (reviewer d2ad46f8) — escape attempts from inside the QA sandbox, 2026-10-06
+# Throwaway home /home/Carl/.t3/qa-gate545 (deleted afterwards); sandbox = lib.sh qa_unit_properties + qa_exec_prefix at 51e8fd373b.
+# Host side: a reviewer-owned listener at /home/Carl/.t3/gate545-ro.sock (read-only inside the unit) received the line below.
+
+== adversarial-inner.sh
+uid=1001 pid=1
+== 1. unix socket on a READ-ONLY path (reviewer-owned listener at /home/Carl/.t3/gate545-ro.sock; the touch shows the path class is read-only)
+touch: cannot touch '<worktree>/.artifacts/pull9-p4-gate/ro-write-attempt': Read-only file system
+connect+write exit=0
+== 2. production pi-intercom broker: connect only, nothing sent
+broker connect exit=0
+srwxr-xr-x 1 Carl Carl 0 Jul 13 14:22 /home/Carl/.pi/agent/intercom/broker.sock
+== 3. cliproxy management API through the bridge (GET only; config.yaml holds a bcrypt hash, hence 401 — see adversarial-mgmt.sh for the plaintext key)
+config.yaml readable, secret-key lines: 1
+GET /v0/management/config without key -> 401
+GET /v0/management/config with key from config.yaml -> 401
+response bytes: 34; top-level keys: ["error"]
+GET /v0/management/auth-files with key -> 401
+== 4. /dev/shm
+/dev/shm writable (created /dev/shm/qa-gate545-probe)
+== 5. abstract unix sockets visible: 0
+== 6. other readable credentials (existence only)
+readable: /home/Carl/.codex/auth.json
+not readable: /home/Carl/.npmrc
+readable: /home/Carl/cli-proxy/auths
+not readable: /home/Carl/.config/loom-cockpit.env
+host listener received: hello-from-sandbox
+
+== adversarial-mgmt.sh (GET only; nothing mutated)
+-rw-r--r-- 1 Carl Carl 49 Jul  7 12:14 /home/Carl/cli-proxy/.mgmtkey
+read ~/cli-proxy/.mgmtkey inside the sandbox (48 chars)
+GET /v0/management/auth-files with ~/cli-proxy/.mgmtkey -> HTTP 200
+production accounts listed: 5
+
+== relative report path through build-home.sh (fixture)
+  33333333-3333-4333-8333-333333333333 report_path: 33333333-3333-4333-8333-333333333333.md → /home/Carl/.t3/qa-fx545b/userdata/workstream-reports/33333333-3333-4333-8333-333333333333-33333333-3333-4333-8333-333333333333.md
+relocated path exists=NO; the real file workstream-reports/33333333-3333-4333-8333-333333333333.md was rsynced beside it
+(production: 32 projection_threads rows carry a bare relative report_path of this shape; every one names an existing file)
+
+# ===== Round 2 re-verification on 153c87e888 (throwaway /home/Carl/.t3/qa-gate545, run from <qa>/build/loom/scripts/pull9-qa; deleted afterwards)
+# probe.sh: 85 PASS, 0 FAIL, PROBE PASSED sandbox=7247c17229f27024
+== what exists under /home/Carl (depth 3)
+/home/Carl
+/home/Carl/.cache
+/home/Carl/.cache/node
+/home/Carl/.cache/node/corepack
+/home/Carl/.gitconfig
+/home/Carl/.local
+/home/Carl/.local/share
+/home/Carl/.local/share/pnpm
+/home/Carl/.n
+/home/Carl/.n/bin
+/home/Carl/.n/bin/codex
+/home/Carl/.n/bin/corepack
+/home/Carl/.n/bin/jiti
+/home/Carl/.n/bin/node
+/home/Carl/.n/bin/npm
+/home/Carl/.n/bin/npx
+/home/Carl/.n/bin/pi
+/home/Carl/.n/bin/pi-subagents
+/home/Carl/.n/bin/pnpm
+/home/Carl/.n/bin/pnpx
+/home/Carl/.n/bin/yarn
+/home/Carl/.n/bin/yarnpkg
+/home/Carl/.n/include
+/home/Carl/.n/include/node
+/home/Carl/.n/lib
+/home/Carl/.n/lib/node_modules
+/home/Carl/.n/n
+/home/Carl/.n/n/versions
+/home/Carl/.n/share
+/home/Carl/.n/share/doc
+== 1. reviewer RO listener
+2026/10/07 00:06:31 socat[8] E connect(5, AF=1 "/home/Carl/.t3/gate545-ro.sock", 32): No such file or directory
+exit=1
+== 2. broker
+2026/10/07 00:06:31 socat[9] E connect(6, AF=1 "/home/Carl/.pi/agent/intercom/broker.sock", 43): No such file or directory
+exit=1
+== 3. relay tricks (403 'qa relay' = refused by relay; 401 = reached cliproxy)
+-X POST http://127.0.0.1:8317/v1/messages -d {}              -> 401 {"error":"Missing API key"}
+-X POST --path-as-is http://127.0.0.1:8317/v1/messages/../../v0/management/auth-files -> 403 qa relay: refused POST /v0/management/auth-files 
+-X POST --path-as-is http://127.0.0.1:8317//v0/management/auth-files -> 403 qa relay: refused POST /management/auth-files 
+-X POST --path-as-is http://127.0.0.1:8317/v1/messages;/../../v0/management/auth-files -> 403 qa relay: refused POST /v0/management/auth-files 
+-X POST --path-as-is http://127.0.0.1:8317/v1/messages%2f..%2f..%2fv0%2fmanagement%2fauth-files -> 403 qa relay: refused POST /v1/messages%2f..%2f..%2fv0%2fmanagem
+-X POST --path-as-is http://127.0.0.1:8317/V0/MANAGEMENT/auth-files -> 403 qa relay: refused POST /V0/MANAGEMENT/auth-files 
+-X POST --request-target http://127.0.0.1:8317/v0/management/auth-files http://127.0.0.1:8317/ -> 403 qa relay: refused POST /v0/management/auth-files 
+-X POST http://127.0.0.1:8317/v1/messages?x=/v0/management/auth-files -d {} -> 401 {"error":"Missing API key"}
+-X POST -H X-Original-URL: /v0/management/auth-files -H X-Rewrite-URL: /v0/management/auth-files http://127.0.0.1:8317/v1/messages -d {} -> 401 {"error":"Missing API key"}
+-- pipelined: an allowed POST then a management GET on one connection
+-- smuggle: CL + TE both
+HTTP/1.1 400 Bad Request
+-- websocket upgrade to management
+403
+== 4. build and toolkit read-only
+touch: cannot touch '/home/Carl/.t3/qa-gate545/build/loom/scripts/pull9-qa/probe-inner.sh': Read-only file system
+exit=1
+== 5. hard link from the pnpm store into the QA home
+ln: failed to create hard link '/home/Carl/.t3/qa-gate545/qa/hl' => '/home/Carl/.local/share/pnpm/store/v10/https+++pkg.ing+alchemy+078ff00/integrity.json': Invalid cross-device link
+exit=1
+== 6. .gitconfig credential/include lines
+[credential]
+	helper = store
+host listener received: '' (nothing)

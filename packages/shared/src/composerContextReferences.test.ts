@@ -1,4 +1,3 @@
-import { ThreadId } from "@t3tools/contracts";
 import type { ComposerContextId, ComposerContextRecord } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -201,25 +200,6 @@ describe("provider projection", () => {
     expect(project("a\n")).toContain("3 | a\n4 | \n</context>");
   });
 
-  // loom: a mentioned thread projects as the `thread://` link the pi-side
-  // tools document, and carries no envelope entry (the link IS the payload).
-  it("projects a thread reference as a thread:// link with no envelope entry", () => {
-    const thread: ComposerContextRecord = {
-      version: 1,
-      contextId: ctx("ctx_th"),
-      kind: "thread",
-      label: "Sidebar re-home",
-      threadId: ThreadId.make("11111111-1111-4111-8111-111111111111"),
-    };
-    const projected = projectComposerContextForProvider({
-      text: "ask [Sidebar re-home](t3-context://v1/thread/ctx_th) and [T1](t3-context://v1/terminal/ctx_t)",
-      records: [thread, terminal],
-    });
-    expect(projected).toContain("[Sidebar re-home](thread://11111111-1111-4111-8111-111111111111)");
-    expect(projected).not.toContain('kind="thread"');
-    expect(projected).toContain('<context kind="terminal" id="ctx_t">');
-  });
-
   it("formats markers with kind, label and ref", () => {
     expect(formatComposerContextProviderMarker("review-comment", "File.ts L4", ctx("ctx_9"))).toBe(
       "[Review comment: File.ts L4; ref=ctx_9]",
@@ -271,6 +251,25 @@ describe("provider projection", () => {
     });
     expect(projected).toContain("path: src/nested/index.ts");
     expect(projected).toContain("name: pinchtab");
+  });
+
+  // loom: a thread projects inline as the `thread://` link consult_thread documents (DL-752).
+  it("projects an attached thread as an inline thread:// link, never its history", () => {
+    const projected = projectComposerContextForProvider({
+      text: "Compare with [Old title](t3-context://v1/thread/thread_abc)",
+      records: [
+        {
+          version: 1,
+          kind: "thread",
+          contextId: ctx("thread_abc"),
+          label: "Old title",
+          environmentId: "env-1" as never,
+          threadId: "abc" as never,
+          title: "Fix login flow",
+        },
+      ],
+    });
+    expect(projected).toBe("Compare with [Old title](thread://abc)");
   });
 
   it("marks duplicate identities unavailable instead of choosing one payload", () => {

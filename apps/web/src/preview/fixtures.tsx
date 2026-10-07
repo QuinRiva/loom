@@ -1,12 +1,7 @@
 import { type ReactNode, useState } from "react";
 
-import {
-  EnvironmentId,
-  ThreadId,
-  type ControlPayload,
-  type ProjectPathKind,
-} from "@t3tools/contracts";
-import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type ProjectPathKind } from "@t3tools/contracts";
+import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
   derivePendingUserInputProgress,
   setPendingUserInputCustomAnswer,
@@ -17,14 +12,10 @@ import {
 import { cn } from "~/lib/utils";
 
 import ChatMarkdown from "../components/ChatMarkdown";
-import WorkstreamGraph from "../components/WorkstreamGraph";
 import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
-import type { SidebarThreadSummary } from "../types";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
-import { ControlDigestCardView } from "../loom/ControlDigestCard";
-import { CHANNEL_CLASSES, type ControlChannel } from "../loom/controlMessages";
 import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
 import { SubscriptionMeterChipView, SubscriptionMeterView } from "../loom/SubscriptionMeter";
 import {
@@ -33,6 +24,8 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
+import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
+import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
 /**
  * A single previewable case. `render` returns the component already wrapped in
@@ -392,7 +385,7 @@ const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 
 // loom: guards the `thread:` sanitiser allow-list — without it the mention
 // renders as an href-less `<a>` that does nothing on click.
-const THREAD_MENTION_MARKDOWN = `Ask [Use the ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
+const THREAD_MENTION_MARKDOWN = `Ask [Use the mcp__t3-code__ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
 
 A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
 `;
@@ -508,145 +501,8 @@ function userBubbleFixture(
 }
 
 // ---------------------------------------------------------------------------
-// Workstream graph fixture — a representative orchestration exercising the C2
-// node card's states (docs/design/workstream-graph-node-redesign.html): a live
-// coder mid-rework with its gated reviewer, a blocked coder→reviewer wave, a
-// done (receded) node, and an attention-flagged node. The layout only reads
-// lineage/generation/deps/routes; the card reads status/gate/footer fields —
-// build the minimal shape and cast, like the layout unit tests do.
-// ---------------------------------------------------------------------------
-
-const wsThread = (over: Record<string, unknown>): SidebarThreadSummary =>
-  ({
-    parentThreadId: "root",
-    spawnGeneration: "g1",
-    blockedBy: [],
-    routes: [],
-    consults: [],
-    attention: [],
-    planLane: "in_progress",
-    gateRounds: 0,
-    pendingRework: false,
-    lastOutcome: null,
-    latestTurn: null,
-    session: null,
-    isolation: "shared",
-    fanInState: "none",
-    forkFromThreadId: null,
-    continuesThreadId: null,
-    kickoffBriefPath: "/brief.md",
-    toolUses: null,
-    role: "coder",
-    purpose: "Preview fixture thread.",
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-    archivedAt: null,
-    lastActivityPreview: null,
-    cumulativeCostUsd: null,
-    reportPath: null,
-    modelSelection: { instanceId: "pi", model: "google-vertex-claude/claude-opus-4-8" },
-    updatedAt: "2026-07-21T04:00:00.000Z",
-    ...over,
-  }) as unknown as SidebarThreadSummary;
-
-const WS_GRAPH_THREADS: ReadonlyArray<SidebarThreadSummary> = [
-  wsThread({
-    id: "root",
-    parentThreadId: null,
-    title: "v2.20 sweep + trace analysis",
-    createdAt: "2026-07-21T00:00:00.000Z",
-  }),
-  // Wave 1: a gate pair mid-rework — live coder, waiting reviewer with verdict.
-  wsThread({
-    id: "coder-1",
-    title: "P2 patch-apply retry hardening",
-    createdAt: "2026-07-21T01:00:00.000Z",
-    planLane: "in_progress",
-    pendingRework: true,
-    lastOutcome: { outcome: "needs_rework", decision: "loop", round: 1 },
-    latestTurn: { state: "running" },
-    toolUses: 67,
-  }),
-  wsThread({
-    id: "reviewer-1",
-    role: "reviewer",
-    title: "P2 P3 adversarial review",
-    createdAt: "2026-07-21T01:00:01.000Z",
-    blockedBy: ["coder-1"],
-    routes: [{ kind: "loop", on: ["needs_rework"], to: "coder-1", maxRounds: 2 }],
-    gateRounds: 1,
-    lastOutcome: { outcome: "needs_rework", decision: "loop", round: 1 },
-    toolUses: 37,
-  }),
-  // Wave 2: a blocked pair — not-yet-run coder + its gated reviewer.
-  wsThread({
-    id: "coder-2",
-    spawnGeneration: "g2",
-    title: "tenant_id priming migration",
-    createdAt: "2026-07-21T02:00:00.000Z",
-    planLane: "ready",
-    blockedBy: ["coder-1"],
-  }),
-  wsThread({
-    id: "reviewer-2",
-    spawnGeneration: "g2",
-    role: "reviewer",
-    title: "tenant_id migration review",
-    createdAt: "2026-07-21T02:00:01.000Z",
-    planLane: "ready",
-    blockedBy: ["coder-2"],
-    routes: [{ kind: "loop", on: ["needs_rework"], to: "coder-2", maxRounds: 2 }],
-  }),
-  // Wave 3: terminal recession + attention pulse + a long title wrapping.
-  wsThread({
-    id: "done-1",
-    spawnGeneration: "g3",
-    title: "Receipt-dedup merge",
-    createdAt: "2026-07-21T03:00:00.000Z",
-    planLane: "done",
-    isolation: "isolated",
-    fanInState: "completed",
-  }),
-  wsThread({
-    id: "stuck-1",
-    spawnGeneration: "g3",
-    role: "researcher",
-    title: "Spawn-generation dispatch ordering investigation",
-    createdAt: "2026-07-21T03:00:01.000Z",
-    planLane: "yielded",
-    attention: ["needs_guidance"],
-    toolUses: 112,
-  }),
-];
-
-const WS_GRAPH_INDEX: ReadonlyMap<string, SidebarThreadSummary> = new Map(
-  WS_GRAPH_THREADS.map((thread) => [thread.id, thread]),
-);
-
-const workstreamGraphFixture: PreviewFixture = {
-  id: "workstream-graph-c2",
-  title: "Node card states (C2)",
-  description:
-    "The C2 header-band node card across its states: live coder mid-rework, gated reviewer with verdict chip, blocked wave, receded done node with fan-in badge, attention-pulsing yielded node with a wrapped two-line title.",
-  render: () => (
-    <div className="h-full overflow-auto bg-background p-6">
-      <WorkstreamGraph
-        viewKey="preview"
-        threads={WS_GRAPH_THREADS}
-        threadById={WS_GRAPH_INDEX as never}
-        onOpenThread={() => {}}
-        onOpenHistory={() => {}}
-        onNodeContextMenu={() => {}}
-        onOpenDispatch={() => {}}
-      />
-    </div>
-  ),
-};
-
-// ---------------------------------------------------------------------------
 // Pending user-input panel — upstream's composer question wizard, driven by pi's
-// `ask_user_question`. One question at a time, Next/Submit on the last, and a
+// `mcp__t3-code__ask_user_question`. One question at a time, Next/Submit on the last, and a
 // Dismiss affordance whenever the request declares itself dismissible.
 // ---------------------------------------------------------------------------
 
@@ -683,41 +539,6 @@ const PENDING_USER_INPUT_MULTI: ReadonlyArray<UserInputQuestion> = [
  * plus an independent second question: a markdown body whose workspace path is
  * a file chip, the agent's pick badged, and a two-question set strip.
  */
-const PENDING_USER_INPUT_COLD_READER: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "covers",
-    header: "Insurance covers lost their source links",
-    question: [
-      "I'm on AIT-35 (moving each lease's insurance covers into a new nested field and migrating the buildings already extracted). Martin's review found a regression: each cover in the lease view and the tenant-audit grid has **no link back to the lease clause it came from**, and for building 002351 the grid cell reads `<NOT_FOUND>` instead of \"Public and Products liability; …\".",
-      "",
-      "The walkthrough on that building is in `recaps/ait-35-cover-provenance/decision.mdx`. I recommend the small server-side fix now.",
-    ].join("\n"),
-    multiSelect: false,
-    options: [
-      {
-        label: "Answered in the document",
-        description: "You have recorded all three choices there.",
-      },
-      {
-        label: "Go with your recommendation",
-        description: "One shared source link per cover list now (~5 lines, no client change).",
-        recommended: true,
-      },
-      { label: "Hold the PR", description: "Discuss in chat before anything merges." },
-    ],
-  },
-  {
-    id: "notice",
-    header: "Tell Martin when it lands",
-    question: "Should I post the fix to Martin's review thread once it merges?",
-    multiSelect: false,
-    options: [
-      { label: "Yes", description: "He sees the outcome without asking.", recommended: true },
-      { label: "No", description: "Quieter; he finds it in the PR." },
-    ],
-  },
-];
-
 const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
   ...PENDING_USER_INPUT_SINGLE,
   {
@@ -759,9 +580,13 @@ function PendingUserInputPreview({
       <ComposerPendingUserInputPanel
         pendingUserInputs={[
           {
-            requestId: "preview-request" as ApprovalRequestId,
+            requestId: "preview-request" as RuntimeRequestId,
             createdAt,
-            questions,
+            questions: questions.map((question) => ({
+              ...question,
+              multiSelect: question.multiSelect ?? false,
+            })),
+            responseCapability: "live",
             dismissible,
           },
         ]}
@@ -784,20 +609,11 @@ function PendingUserInputPreview({
           setQuestionIndex((current) => Math.min(current + 1, questions.length - 1));
         }}
         onDismiss={() => {}}
-        onSelectQuestion={setQuestionIndex}
-        onReplyInChat={() => {}}
-        markdown={{
-          cwd: FILE_CHIP_STATES_CWD,
-          threadRef: {
-            environmentId: EnvironmentId.make("preview-environment"),
-            threadId: ThreadId.make("preview-thread"),
-          },
-        }}
       />
       {/* Stand-in for the composer, which is the custom-answer field in the app. */}
       <textarea
         aria-label="Composer text"
-        placeholder="Composer stand-in: type to enable Reply in chat instead"
+        placeholder="Composer stand-in: the custom answer"
         className="mt-2 rounded-md border border-border bg-transparent p-2 text-sm"
         value={progress.customAnswer}
         onChange={(event) => {
@@ -1259,149 +1075,6 @@ const mdxQuestionRefsFixture: PreviewFixture = {
   ),
 };
 
-// ---------------------------------------------------------------------------
-// loom: control-plane arrival cards — the collapsed digest/notification rows and
-// the origin-tinted bubbles they are distinguished from.
-// ---------------------------------------------------------------------------
-
-const DIGEST_PAYLOAD: ControlPayload = {
-  kind: "digest",
-  heading: "FYI digest — 3 items completed and were fully routed since you last heard.",
-  items: [
-    {
-      threadId: ThreadId.make("preview-coder-alpha"),
-      role: "coder",
-      title: "Config loader landed",
-      status: "done",
-      icon: "☑️",
-      reportPath: "reports/preview-coder-alpha.md",
-      excerpt:
-        "# Config loader\n\nImplemented the loader module and wired it into startup. `vp run typecheck` clean across 15 packages.",
-      timestamp: "2026-09-22 02:15Z",
-    },
-    {
-      threadId: ThreadId.make("preview-reviewer"),
-      role: "reviewer",
-      title: "Gate resolved (clean)",
-      status: "clean",
-      icon: "✅",
-      reportPath: "reports/preview-reviewer.md",
-      excerpt: "Verified the rework: every finding addressed, no new issues.",
-      timestamp: "2026-09-22 02:16Z",
-    },
-    {
-      title: "Slow tool on the parallel branch — still executing",
-      status: "running",
-      icon: "⏳",
-    },
-  ],
-};
-
-const YIELD_PAYLOAD: ControlPayload = {
-  kind: "yield",
-  heading: "ws-preview-coder yielded to you — needs_decision.",
-  items: [
-    {
-      threadId: ThreadId.make("preview-coder-yield"),
-      role: "coder",
-      title: "Two viable schemas; the pick changes the migration",
-      status: "needs_decision",
-      icon: "⚠️",
-      reportPath: "reports/preview-coder-yield.md",
-      excerpt: LONG_PROSE_MARKDOWN,
-      timestamp: "2026-09-22 03:02Z",
-    },
-  ],
-};
-
-/** The live titles `ControlDigestRow` resolves from each item's `threadId`. */
-const PREVIEW_SENDER_LABELS = new Map<ThreadId, string>([
-  [ThreadId.make("preview-coder-alpha"), "Add config loader"],
-  [ThreadId.make("preview-reviewer"), "Review the loader rework"],
-  [ThreadId.make("preview-coder-yield"), "Migrate the session schema"],
-]);
-
-const NOTIFY_TEXT = `**ws-preview-researcher → you** (notify_thread)\n\n${LONG_PROSE_MARKDOWN}`;
-
-const ORCHESTRATOR_TEXT =
-  "Park the migration question for now — land the loader first and report back before touching the schema.";
-
-function controlCardFixture(
-  id: string,
-  title: string,
-  description: string,
-  channel: ControlChannel,
-  label: string,
-  payload: ControlPayload | null,
-  text: string,
-): PreviewFixture {
-  return {
-    id,
-    title,
-    description,
-    render: () => (
-      <TimelineLayoutFrame>
-        <ControlDigestCardView
-          key={id}
-          channel={channel}
-          label={label}
-          payload={payload}
-          senderLabels={PREVIEW_SENDER_LABELS}
-          text={text}
-          cwd={undefined}
-          threadRef={null}
-          skills={[]}
-          onOpenThread={null}
-        />
-      </TimelineLayoutFrame>
-    ),
-  };
-}
-
-/** The three accents side by side: human, inter-thread bubble, control-plane card. */
-function ControlChannelPaletteFixture() {
-  const bubble = (channel: ControlChannel, label: string, text: string) => (
-    <div className="group flex flex-col items-end gap-1 pb-4">
-      <div className={cn("relative max-w-[80%] rounded-2xl p-3", CHANNEL_CLASSES[channel].bubble)}>
-        <div
-          className={cn(
-            "mb-1.5 text-3xs font-medium tracking-wide uppercase",
-            CHANNEL_CLASSES[channel].kicker,
-          )}
-        >
-          {label}
-        </div>
-        <ChatMarkdown text={text} cwd={undefined} />
-      </div>
-    </div>
-  );
-  return (
-    <TimelineLayoutFrame>
-      <div className="flex flex-col items-end gap-1 pb-4">
-        <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-          <ChatMarkdown
-            text="Ship the loader, then tell me what the schema pick costs."
-            cwd={undefined}
-          />
-        </div>
-      </div>
-      {bubble("inter-thread", "Kickoff brief", "Re-home the digest cards onto today's timeline.")}
-      {bubble("inter-thread", "Orchestrator", ORCHESTRATOR_TEXT)}
-      <ControlDigestCardView
-        channel="control-plane"
-        label="Control plane"
-        payload={DIGEST_PAYLOAD}
-        senderLabels={PREVIEW_SENDER_LABELS}
-        text={`FYI digest\n\n${LONG_PROSE_MARKDOWN}`}
-        cwd={undefined}
-        threadRef={null}
-        skills={[]}
-        onOpenThread={null}
-      />
-    </TimelineLayoutFrame>
-  );
-}
-
 /**
  * The usage meter in the sidebar footer's real slot: a 16rem sidebar with the
  * footer's inset, so the axis column is the width the app gives it.
@@ -1468,14 +1141,6 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "One question at a time with a Next affordance; the last question submits. Answered questions collapse to their summary rather than stacking full height.",
       ),
       pendingUserInputFixture(
-        "pending-user-input-cold-reader",
-        "Cold reader: markdown body, pick badge, set strip, age",
-        PENDING_USER_INPUT_COLD_READER,
-        "A pointer question at a decision document (the path is a file chip), the agent's pick badged Recommended, both headers in the set strip, and the age since asked. Picking on the last question selects without submitting; type in the stand-in to enable Reply in chat instead.",
-        true,
-        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      ),
-      pendingUserInputFixture(
         "pending-user-input-not-dismissible",
         "Not dismissible",
         PENDING_USER_INPUT_SINGLE,
@@ -1483,11 +1148,6 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         false,
       ),
     ],
-  },
-  {
-    id: "workstream-graph",
-    title: "Workstream graph",
-    fixtures: [workstreamGraphFixture],
   },
   {
     id: "chat-markdown",
@@ -1583,46 +1243,6 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     ],
   },
   {
-    id: "control-plane-cards",
-    title: "Control-plane arrivals (loom)",
-    fixtures: [
-      controlCardFixture(
-        "control-digest-card",
-        "Completion digest (collapsed)",
-        "A control-plane FYI digest. Collapsed it is one line per item and renders NO markdown — expanding reveals each item's report path, excerpt and timestamp; 'Show raw payload' reveals the verbatim bytes the model received.",
-        "control-plane",
-        "Control plane",
-        DIGEST_PAYLOAD,
-        `FYI digest — the following items completed.\n\n${LONG_PROSE_MARKDOWN}`,
-      ),
-      controlCardFixture(
-        "control-yield-card",
-        "Yield hand-back (one item, long excerpt)",
-        "A child yielding to its parent. The excerpt is a full report, which is exactly the payload the card keeps out of the timeline until it is asked for.",
-        "control-plane",
-        "Control plane",
-        YIELD_PAYLOAD,
-        `ws-preview-coder yielded to you.\n\n${LONG_PROSE_MARKDOWN}`,
-      ),
-      controlCardFixture(
-        "control-notify-card",
-        "Thread notification (no structured payload)",
-        "An inter-thread `notify_thread` arrival: blue accent, and with no structured items the summary is the first line of the message and expanding renders the whole body.",
-        "inter-thread",
-        "Thread notification",
-        null,
-        NOTIFY_TEXT,
-      ),
-      {
-        id: "control-channel-palette",
-        title: "Three channels side by side",
-        description:
-          "The colour rule: a human message is upstream's untinted bubble, another thread's message takes the blue inter-thread accent, and the control plane's own notices take the emerald accent and collapse to a card.",
-        render: () => <ControlChannelPaletteFixture />,
-      },
-    ],
-  },
-  {
     id: "user-message",
     title: "User message bubble",
     fixtures: [
@@ -1660,6 +1280,8 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       subscriptionMeterFixture(METER_FIXTURE_STATES[1]!, "tokenFiles"),
     ],
   },
+  ...LOOM_PREVIEW_GROUPS, // loom: 3d-3 control cards, timeline rows, goal panel
+  WORKSTREAM_PREVIEW_GROUP,
 ];
 
 export const PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = PREVIEW_GROUPS.flatMap(

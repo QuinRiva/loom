@@ -1,1040 +1,183 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
-import { rootOf, subtreeCostOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  ArrowUpRightIcon,
-  BugIcon,
-  GitBranchIcon,
-  LayoutDashboardIcon,
-  Loader2Icon,
-  NetworkIcon,
-  PlusIcon,
-} from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { NetworkIcon } from "lucide-react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 
-import { selectWorkstreamPanelState, useWorkstreamUiStore } from "../loom/workstreamUiStore";
-
-import { newThreadId } from "../lib/utils";
-import { formatCostUsd } from "../loom/costFormat";
 import {
-  ATTENTION_STYLES,
   buildNodeContextMenuItems,
-  type ChildIndex,
-  COLUMN_LABELS,
-  COLUMN_ORDER,
-  COLUMN_SHORT_LABELS,
-  formatContextPercent,
-  FAN_IN_CHIP_STYLES,
-  formatDiffMetric,
-  formatModelLabel,
-  formatRelativeAge,
-  getActivity,
-  getAttentionBadges,
-  getFanInChip,
-  getGateWaitLabel,
-  getLastActivityAt,
-  getPurpose,
-  getRoleLabel,
-  getThreadStatus,
-  getVerdictChip,
-  groupChildrenByColumn,
-  hasRunningSignal,
-  SETTABLE_LANES,
-  STATUS_STYLES,
-  truncateLabel,
+  type ConversationAnchor,
+  dispatchAnchorOf,
+  liveNodes,
+  type WorkstreamNode,
 } from "../lib/workstreamPresentation";
-import { useThreadLifecycle, WorkstreamLifecycleDrawer } from "./WorkstreamTimeline";
-import { WorkstreamActiveStrip } from "./WorkstreamActiveStrip";
-import { useThreadShells } from "../state/entities";
-import { threadEnvironment } from "../state/threads";
-import { useAtomCommand } from "../state/use-atom-command";
-import { buildThreadRouteParams } from "../threadRoutes";
-import type { SidebarThreadSummary, Thread } from "../types";
-import { useLoomScrollStore } from "../loom/loomScrollStore";
-import { useRightPanelStore } from "../rightPanelStore";
-import { isAbsolutePreviewablePath } from "../markdown-links";
 import { readLocalApi } from "../localApi";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { useConversationJumpStore } from "../loom/conversationJump";
+import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
+import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
+import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
+import { isAbsolutePreviewablePath } from "../markdown-links";
+import { useRightPanelStore } from "../rightPanelStore";
+import { buildThreadLineage } from "../threadRouteLineage";
+import { buildThreadRouteParams } from "../threadRoutes";
+import { Badge } from "./ui/badge";
+import { Spinner } from "./ui/spinner";
+import { WorkstreamActiveStrip } from "./WorkstreamActiveStrip";
+import { useThreadHistory, WorkstreamTimelineDrawer } from "./WorkstreamTimeline";
 
-type WorkstreamView = "board" | "graph";
-
-// The graph subtree (own SVG renderer + hand-rolled fork–join layout) is
-// lazy-loaded so it lands in its own chunk and never bloats the board render path.
+// The graph (own SVG renderer + fork–join layout) is its own chunk.
 const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
 
-// The board manages THIS thread's direct children (sibling dependency editing,
-// per-lane kanban). The graph instead renders the WHOLE orchestration, so the
-// two views read different slices of the same shell list. Both operate over the
-// thread shells already filtered to the active environment.
-function selectWorkstreamChildren(
-  shells: ReadonlyArray<EnvironmentThreadShell>,
-  parentThreadId: ThreadId,
-): ReadonlyArray<SidebarThreadSummary> {
-  return shells
-    .filter((thread) => thread.parentThreadId === parentThreadId)
-    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-interface WorkstreamPanelProps {
-  activeThread: Thread | undefined;
-  activeProjectId: ProjectId | undefined;
-}
-
-export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPanelProps) {
+/**
+ * The `workstream` right-panel surface (seam 18): the graph of the whole
+ * orchestration the open thread belongs to, with its active strip, header
+ * (total spend, settled count, lineage) and the node timeline drawer.
+ */
+export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const navigate = useNavigate();
-  const allShells = useThreadShells();
-  const environmentShells = useMemo(
-    () =>
-      activeThread
-        ? allShells.filter((thread) => thread.environmentId === activeThread.environmentId)
-        : [],
-    [allShells, activeThread],
+  const { nodes, rollupOf } = useWorkstreamNodes(threadRef.environmentId);
+  const commands = useWorkstreamCommands(threadRef.environmentId);
+  const [timelineId, setTimelineId] = useState<ThreadId | null>(null);
+  const onOpenThread = useCallback(
+    (threadId: ThreadId) =>
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
+      }),
+    [navigate, threadRef.environmentId],
   );
-  const children = useMemo(
-    () => (activeThread ? selectWorkstreamChildren(environmentShells, activeThread.id) : []),
-    [environmentShells, activeThread],
-  );
-  const childById = useMemo<ChildIndex>(
-    () => new Map(children.map((thread) => [thread.id, thread])),
-    [children],
-  );
-  // The whole orchestration as seen from the active thread: walk lineage up to
-  // the root orchestrator, then return its full descendant subtree,
-  // time-ordered. The shell list holds every thread in the environment, so
-  // grandchildren are present.
-  const rootThreadId = useMemo(
-    () => (activeThread ? rootOf(activeThread.id, environmentShells) : null),
-    [environmentShells, activeThread],
-  );
-  const subtree = useMemo(
-    () =>
-      rootThreadId
-        ? subtreeOf(rootThreadId, environmentShells).toSorted((left, right) =>
-            left.createdAt.localeCompare(right.createdAt),
-          )
-        : [],
-    [environmentShells, rootThreadId],
-  );
-  const subtreeById = useMemo<ChildIndex>(
-    () => new Map(subtree.map((thread) => [thread.id, thread])),
-    [subtree],
-  );
-  const requestScrollToDispatch = useLoomScrollStore((store) => store.requestScrollToDispatch);
-  const spawnThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
-  const setPlanLane = useAtomCommand(threadEnvironment.setPlanLane);
-  const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
-  const clearThreadAttention = useAtomCommand(threadEnvironment.clearAttention);
-  const setThreadDependencies = useAtomCommand(threadEnvironment.setDependencies);
-  // Durable per-thread panel state (plan W2): view and the half-typed spawn
-  // form survive tab switches and navigation like every upstream per-thread
-  // surface. `isSpawning`/`error` and everything inside WorkstreamGraph
-  // (viewBox, drag refs) stay component-local (tier 4). Node SELECTION no
-  // longer exists: the redesign made node-click enter the thread, so the only
-  // panel-level per-thread UI state is the drawer target below.
-  const panelRef = useMemo(
-    () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
-    [activeThread],
-  );
-  const panelState = useWorkstreamUiStore((store) =>
-    selectWorkstreamPanelState(store.panelByThreadKey, panelRef),
-  );
-  const setViewState = useWorkstreamUiStore((store) => store.setView);
-  const updateSpawnDraft = useWorkstreamUiStore((store) => store.updateSpawnDraft);
-  const clearSpawnDraft = useWorkstreamUiStore((store) => store.clearSpawnDraft);
-  const view = panelState.view;
-  const setView = (next: WorkstreamView) => {
-    if (panelRef) setViewState(panelRef, next);
+  // Reports are absolute paths outside any worktree: open them read-only in
+  // THIS panel (the open thread's right panel).
+  const onOpenReport = (reportPath: string) => {
+    if (isAbsolutePreviewablePath(reportPath))
+      useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath);
   };
-  // Graph gesture map (redesign): clicking a node ENTERS its thread (the cheapest
-  // gesture for the primary need); middle-clicking a node opens its history
-  // drawer directly (the frequent "View history" action, no menu round-trip — and
-  // middle-clicking a different node re-points the same drawer, switching
-  // histories without reselecting); other secondary actions (Open report,
-  // Release, Clear flags, Stop) live in a right-click context menu
-  // (`handleNodeContextMenu` below). "View history" also opens the right-side
-  // lifecycle drawer. `inspectedThreadId` is the drawer target — deliberately
-  // component-local (tier 4), a transient inspection, unlike the durable
-  // view/spawn-draft state above.
-  const [inspectedThreadId, setInspectedThreadId] = useState<ThreadId | null>(null);
-  // Lifecycle fetch + per-thread cache lives HERE (panel scope), not in the
-  // drawer component, so it survives Board⇄Graph view switches and drawer
-  // open/close (the graph subtree unmounts on Board; the panel does not).
-  // Guard the drawer against a stale target: when the active workstream or
-  // environment changes (or the inspected thread leaves the subtree), the
-  // inspected id no longer belongs to what's on screen — reset it so the drawer
-  // never opens blank or queries the old thread against a new environment.
-  const inspectedInSubtree =
-    inspectedThreadId !== null && subtreeById.has(inspectedThreadId) ? inspectedThreadId : null;
-  useEffect(() => {
-    if (inspectedThreadId !== null && inspectedInSubtree === null) setInspectedThreadId(null);
-  }, [inspectedThreadId, inspectedInSubtree]);
-  const lifecycleState = useThreadLifecycle(
-    activeThread?.environmentId ?? null,
-    inspectedInSubtree,
-  );
-  const { role, title, purpose } = panelState.spawnDraft;
-  const setRole = (next: string) => panelRef && updateSpawnDraft(panelRef, { role: next });
-  const setTitle = (next: string) => panelRef && updateSpawnDraft(panelRef, { title: next });
-  const setPurpose = (next: string) => panelRef && updateSpawnDraft(panelRef, { purpose: next });
-  const [isSpawning, setIsSpawning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const titleOf = useCallback((id: ThreadId) => nodes.get(id)?.title ?? id, [nodes]);
+  // Park the anchor, then open its thread: that timeline scrolls to it (loom/conversationJump).
+  const onJump = (anchor: ConversationAnchor) => {
+    useConversationJumpStore.getState().setRequest(anchor);
+    onOpenThread(anchor.threadId);
+  };
+  const timelineNode = timelineId === null ? undefined : nodes.get(timelineId);
+  const history = useThreadHistory(threadRef.environmentId, timelineNode);
 
-  if (!activeThread || !activeProjectId) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        Open a thread to manage its workstream.
-      </div>
+  const node = nodes.get(threadRef.threadId);
+  const live = useMemo(() => liveNodes(nodes.values()), [nodes]);
+  const rootId = node ? rootOf(node.id, live) : null;
+  const subtree = useMemo(() => (rootId ? subtreeOf(rootId, live) : []), [live, rootId]);
+  const rollup = rootId ? rollupOf(rootId) : null;
+  const lineage = useMemo(() => (node ? buildThreadLineage(nodes, node.id) : []), [nodes, node]);
+  // The whole workstream, archived threads included: its root and every descendant.
+  const workstream = useMemo(() => {
+    if (!node) return [];
+    const all = [...nodes.values()];
+    return subtreeOf(rootOf(node.id, all), all).map((member) => member.id);
+  }, [nodes, node]);
+  const forkedFrom = node?.forkFromThreadId
+    ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
+    : null;
+
+  // Right-click / keyboard menu on a node: the app's canonical context menu.
+  const onNodeContextMenu = async (target: WorkstreamNode, position: { x: number; y: number }) => {
+    const action = await readLocalApi()?.contextMenu.show(
+      buildNodeContextMenuItems(target),
+      position,
     );
-  }
-
-  const environmentId = activeThread.environmentId;
-  // Saved-view identity for the graph: every thread of an orchestration shares
-  // one graph, so the view follows the user across sibling threads.
-  const graphViewKey = scopedThreadKey(
-    scopeThreadRef(environmentId, rootThreadId ?? activeThread.id),
-  );
-
-  const openThread = (thread: SidebarThreadSummary) =>
-    navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-    });
-
-  // "Show me where this happened": route to the thread that owns the moment and
-  // park a one-shot anchor its timeline consumes on arrival, so a click lands on
-  // the dispatching turn instead of the bottom of a long transcript. Without an
-  // anchor (a lifecycle row with no unambiguous turn) it is a plain open.
-  const openDispatch = (threadId: ThreadId, anchorAtIso?: string) => {
-    if (anchorAtIso) requestScrollToDispatch(threadId, anchorAtIso);
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
-    });
-  };
-
-  // A sub-thread's dispatch site: the turn in its PARENT's chat that spawned it.
-  const openSpawnSite = (thread: SidebarThreadSummary) => {
-    if (thread.parentThreadId) openDispatch(thread.parentThreadId, thread.createdAt);
-  };
-
-  // Open a sub-thread's completion report (an absolute markdown path outside any
-  // worktree) in the read-only file preview surface. Keyed to THIS panel's
-  // thread ref — the report belongs to a sub-thread, but the right panel shown
-  // is the open (parent) thread's, so its surface is where the artefact lands.
-  const openReport = (reportPath: string) => {
-    if (panelRef === null || !isAbsolutePreviewablePath(reportPath)) return;
-    useRightPanelStore.getState().openFileAbsolute(panelRef, reportPath);
-  };
-
-  // The root orchestrator's shell (with its `promptDebugPath` sidecar), for the
-  // header Prompt button. The root is in the subtree the panel already built.
-  const rootShell = rootThreadId ? subtreeById.get(rootThreadId) : undefined;
-  const workstreamCost = formatCostUsd(rootThreadId ? subtreeCostOf(rootThreadId, subtree) : null);
-
-  // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
-  // control plane at kickoff and `blocked` is derived from dependencies, so
-  // neither is offered here.
-  const setLane = (threadId: ThreadId, planLane: ThreadPlanLane) => {
-    void setPlanLane({ environmentId, input: { threadId, planLane } });
-  };
-
-  // Human stop: interrupting the active turn. The decider raises
-  // `needs_guidance` on a human-issued interrupt so the halted thread surfaces
-  // immediately (no-silent-halt).
-  const stopThread = (threadId: ThreadId) => {
-    void interruptTurn({ environmentId, input: { threadId } });
-  };
-
-  // Dismiss all stored attention flags on a thread (human/parent acknowledge).
-  // An omitted `reason` clears every stored flag.
-  const clearAttention = (threadId: ThreadId) => {
-    void clearThreadAttention({ environmentId, input: { threadId } });
-  };
-
-  const setDependencies = (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => {
-    void setThreadDependencies({ environmentId, input: { threadId, blockedBy: [...blockedBy] } });
-  };
-
-  // Graph node right-click / keyboard-menu handler. Reuses the app's canonical
-  // context-menu mechanism (`localApi.contextMenu.show` → native desktop menu /
-  // DOM fallback with Escape, outside-click, viewport clamp), exactly like
-  // ThreadTabsStrip — so there is no bespoke menu component and no menu-open
-  // state. Every action maps to a handler this panel already owns.
-  const handleNodeContextMenu = async (
-    thread: SidebarThreadSummary,
-    position: { x: number; y: number },
-  ) => {
-    const api = readLocalApi();
-    if (!api) return;
-    const action = await api.contextMenu.show(buildNodeContextMenuItems(thread), position);
-    switch (action) {
-      case "open":
-        openThread(thread);
-        break;
-      case "dispatch":
-        openSpawnSite(thread);
-        break;
-      case "history":
-        setInspectedThreadId(thread.id);
-        break;
-      case "report":
-        if (thread.reportPath) openReport(thread.reportPath);
-        break;
-      case "release":
-        setLane(thread.id, "ready");
-        break;
-      case "clear-flags":
-        clearAttention(thread.id);
-        break;
-      case "stop":
-        stopThread(thread.id);
-        break;
-      case null:
-        break;
-    }
-  };
-
-  const spawnChild = async () => {
-    const trimmedPurpose = purpose.trim();
-    const trimmedRole = role.trim();
-    const trimmedTitle = title.trim();
-    if (!trimmedPurpose || !trimmedTitle || isSpawning) {
-      return;
-    }
-    setIsSpawning(true);
-    setError(null);
-    const childThreadId = newThreadId();
-
-    // A sub-thread is created directly via `thread.create` (rather than the
-    // usual draft -> bootstrap path in useHandleNewThread): a draft thread is
-    // not a persisted server thread, so it would never surface on this board
-    // until promoted by a first turn. Spawning eagerly is what acceptance
-    // criterion 3 (children visible in the Workstream board) requires.
-    const result = await spawnThread({
-      environmentId,
-      input: {
-        threadId: childThreadId,
-        projectId: activeProjectId,
-        parentThreadId: activeThread.id,
-        role: trimmedRole || null,
-        purpose: trimmedPurpose,
-        goalId: activeThread.goalId ?? null,
-        title: trimmedTitle,
-        modelSelection: activeThread.modelSelection,
-        runtimeMode: activeThread.runtimeMode,
-        interactionMode: activeThread.interactionMode,
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-      },
-    });
-    if (result._tag === "Failure") {
-      setError("Failed to spawn sub-thread.");
-      setIsSpawning(false);
-      return;
-    }
-    if (panelRef) clearSpawnDraft(panelRef);
-    setIsSpawning(false);
-    await navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(environmentId, childThreadId)),
-    });
+    if (action === "open") onOpenThread(target.id);
+    else if (action === "dispatch") {
+      const dispatch = dispatchAnchorOf(target);
+      if (dispatch) onJump(dispatch);
+    } else if (action === "history") setTimelineId(target.id);
+    else if (action === "report" && target.reportPath) onOpenReport(target.reportPath);
+    else if (action === "outcome:done") commands.setOutcome(target.id, "done");
+    else if (action === "outcome:cancelled") commands.setOutcome(target.id, "cancelled");
+    else if (action === "outcome:reopen") commands.setOutcome(target.id, null);
+    else if (action === "clear-flags") commands.clearAttention(target.id);
+    else if (action === "stop") commands.stop(target.id);
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <GitBranchIcon className="size-4 text-info-foreground" />
-              Workstream
-              <span className="text-xs font-normal text-muted-foreground">
-                · {activeThread.title}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Sub-threads stay out of the sidebar and live here.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {/* Debugging-only: open the ROOT orchestrator's effective-prompt
-                debug sidecar. The root never renders as a graph node (only as
-                bridge nodes that jump to the dispatch turn), so the header is
-                its one UI path to the capture. Same gating/open path as the
-                lifecycle drawer's per-thread Prompt button. */}
-            {rootShell?.promptDebugPath && isAbsolutePreviewablePath(rootShell.promptDebugPath) ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring/70"
-                      onClick={() => openReport(rootShell.promptDebugPath!)}
-                    />
-                  }
-                >
-                  <BugIcon className="size-3" />
-                  Prompt
-                </TooltipTrigger>
-                <TooltipPopup>
-                  Open the root orchestrator&rsquo;s effective-prompt debug capture
-                </TooltipPopup>
-              </Tooltip>
-            ) : null}
-            {workstreamCost ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-2xs tabular-nums text-muted-foreground" />
-                  }
-                >
-                  Workstream {workstreamCost}
-                </TooltipTrigger>
-                <TooltipPopup>Own spend across the root and every descendant</TooltipPopup>
-              </Tooltip>
-            ) : null}
-            <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-2xs tabular-nums text-muted-foreground">
-              {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
+    <WorkstreamEnvironmentContext value={threadRef.environmentId}>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <NetworkIcon className="size-4 text-muted-foreground" />
+            Workstream
+            <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">
+              · {(rootId && nodes.get(rootId)?.title) ?? "this thread"}
+            </span>
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              <WorkstreamTotalSpend threadIds={workstream} />
+              {rollup ? (
+                <Badge size="sm" variant="outline">
+                  {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total}{" "}
+                  settled
+                </Badge>
+              ) : null}
+              {rollup?.plan.deadlocked ? (
+                <Badge size="sm" variant="error">
+                  deadlocked
+                </Badge>
+              ) : null}
             </span>
           </div>
-        </div>
-
-        <div className="mt-3 inline-flex rounded-lg border border-border bg-muted p-1">
-          <button
-            type="button"
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition ${
-              view === "board"
-                ? "bg-background text-foreground shadow-xs dark:bg-input"
-                : "text-muted-foreground hover:text-foreground/70"
-            }`}
-            onClick={() => setView("board")}
-          >
-            <LayoutDashboardIcon className="size-3.5" />
-            Board
-          </button>
-          <button
-            type="button"
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition ${
-              view === "graph"
-                ? "bg-background text-foreground shadow-xs dark:bg-input"
-                : "text-muted-foreground hover:text-foreground/70"
-            }`}
-            onClick={() => setView("graph")}
-          >
-            <NetworkIcon className="size-3.5" />
-            Graph
-          </button>
-        </div>
-      </div>
-
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto px-3 py-3">
-          {view === "board" ? (
-            <WorkstreamBoard
-              threads={children}
-              workstreamThreads={subtree}
-              childById={childById}
-              onOpenThread={openThread}
-              onOpenSpawnSite={openSpawnSite}
-              onSetLane={setLane}
-              onStop={stopThread}
-              onClearAttention={clearAttention}
-              onSetDependencies={setDependencies}
-            />
-          ) : (
-            <>
-              <WorkstreamActiveStrip
-                threads={subtree}
-                threadById={subtreeById}
-                onOpenThread={openThread}
-              />
-              <Suspense
-                fallback={
-                  <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
-                    <Loader2Icon className="size-4 animate-spin" />
-                  </div>
-                }
-              >
-                <WorkstreamGraph
-                  key={graphViewKey}
-                  viewKey={graphViewKey}
-                  threads={subtree}
-                  threadById={subtreeById}
-                  onOpenThread={openThread}
-                  onOpenHistory={(thread) => setInspectedThreadId(thread.id)}
-                  onNodeContextMenu={(thread, pos) => void handleNodeContextMenu(thread, pos)}
-                  onOpenDispatch={openDispatch}
-                />
-              </Suspense>
-            </>
-          )}
-        </div>
-        {view === "graph" ? (
-          <WorkstreamLifecycleDrawer
-            open={inspectedInSubtree !== null}
-            thread={inspectedInSubtree ? subtreeById.get(inspectedInSubtree) : undefined}
-            state={lifecycleState}
-            onClose={() => setInspectedThreadId(null)}
-            onOpenThread={openThread}
-            onOpenDispatch={openDispatch}
-            onOpenReport={openReport}
+          <ThreadLineageBreadcrumb
+            lineage={lineage}
+            forkedFrom={forkedFrom}
+            onNavigateToThread={onOpenThread}
           />
-        ) : null}
-      </div>
-
-      <div className="border-t border-border bg-muted px-3 py-3">
-        <details className="group rounded-lg border border-border bg-muted">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-foreground/80 marker:hidden">
-            <span className="inline-flex items-center gap-2">
-              <PlusIcon className="size-3.5 text-primary" />
-              Manual spawn
-            </span>
-            <span className="text-xs font-normal text-muted-foreground group-open:hidden">
-              role + title + purpose
-            </span>
-          </summary>
-          <div className="border-t border-border p-3">
-            <label
-              className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-              htmlFor="workstream-role"
-            >
-              Role
-            </label>
-            <input
-              id="workstream-role"
-              className="mt-1 w-full rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
-              placeholder="Reviewer, implementer, researcher…"
-              value={role}
-              onChange={(event) => setRole(event.target.value)}
-            />
-            <label
-              className="mt-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-              htmlFor="workstream-title"
-            >
-              Title
-            </label>
-            <input
-              id="workstream-title"
-              className="mt-1 w-full rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
-              placeholder="Short label, e.g. Fix spawn title fallback"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-            <label
-              className="mt-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-              htmlFor="workstream-purpose"
-            >
-              Purpose
-            </label>
-            <textarea
-              id="workstream-purpose"
-              className="mt-1 min-h-20 w-full resize-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-ring"
-              placeholder="What should this sub-thread do?"
-              value={purpose}
-              onChange={(event) => setPurpose(event.target.value)}
-            />
-            {error ? <div className="mt-2 text-xs text-destructive-foreground">{error}</div> : null}
-            <button
-              type="button"
-              className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!purpose.trim() || !title.trim() || isSpawning}
-              onClick={() => void spawnChild()}
-            >
-              {isSpawning ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <GitBranchIcon className="size-3.5" />
-              )}
-              Spawn sub-thread
-            </button>
-          </div>
-        </details>
-      </div>
-    </div>
-  );
-}
-
-interface CardControls {
-  readonly childById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onOpenSpawnSite: (thread: SidebarThreadSummary) => void;
-  readonly onSetLane: (threadId: ThreadId, planLane: ThreadPlanLane) => void;
-  readonly onStop: (threadId: ThreadId) => void;
-  readonly onClearAttention: (threadId: ThreadId) => void;
-  readonly onSetDependencies: (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => void;
-}
-
-function WorkstreamBoard({
-  threads,
-  workstreamThreads,
-  childById,
-  onOpenThread,
-  onOpenSpawnSite,
-  onSetLane,
-  onStop,
-  onClearAttention,
-  onSetDependencies,
-}: {
-  readonly threads: ReadonlyArray<SidebarThreadSummary>;
-  readonly workstreamThreads: ReadonlyArray<SidebarThreadSummary>;
-} & CardControls) {
-  const groups = groupChildrenByColumn(threads, childById);
-  return (
-    <div className="flex flex-col gap-4">
-      {COLUMN_ORDER.map((column) => {
-        const items = groups[column];
-        const style = STATUS_STYLES[column];
-        return (
-          <section className="flex flex-col gap-2" key={column}>
-            <div className="flex items-center gap-2 px-1">
-              <span className={`size-2.5 rounded-full ${style.dotClass}`} />
-              <h3 className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
-                {COLUMN_LABELS[column]}
-              </h3>
-              <span className="ml-auto rounded-full border border-border bg-muted px-2 py-0.5 text-2xs tabular-nums text-muted-foreground">
-                {items.length}
-              </span>
-            </div>
-            {items.length > 0 &&
-              items.map((thread) => (
-                <WorkstreamCard
-                  key={thread.id}
-                  thread={thread}
-                  siblings={threads}
-                  workstreamThreads={workstreamThreads}
-                  childById={childById}
-                  onOpenThread={onOpenThread}
-                  onOpenSpawnSite={onOpenSpawnSite}
-                  onSetLane={onSetLane}
-                  onStop={onStop}
-                  onClearAttention={onClearAttention}
-                  onSetDependencies={onSetDependencies}
-                />
-              ))}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-function WorkstreamCard({
-  thread,
-  siblings,
-  workstreamThreads,
-  childById,
-  onOpenThread,
-  onOpenSpawnSite,
-  onSetLane,
-  onStop,
-  onClearAttention,
-  onSetDependencies,
-}: {
-  readonly thread: SidebarThreadSummary;
-  readonly siblings: ReadonlyArray<SidebarThreadSummary>;
-  readonly workstreamThreads: ReadonlyArray<SidebarThreadSummary>;
-} & CardControls) {
-  const status = getThreadStatus(thread, childById);
-  const activity = getActivity(thread, status.column);
-  const isRunning = hasRunningSignal(thread);
-  const isBlocked = status.column === "blocked";
-  const badges = getAttentionBadges(thread);
-  // Review-gate overlays (design §10): the gate source's verdict chip from its
-  // last submitted outcome, and the "waiting in gate" badge on whichever party
-  // is idle-by-design while its counterpart holds the active leg.
-  const verdictChip = getVerdictChip(thread);
-  const gateWait = getGateWaitLabel(thread, childById);
-  const fanInChip = getFanInChip(thread);
-  const diffMetric = formatDiffMetric(thread.diffAdditions, thread.diffDeletions);
-  // Quiet metadata (model · spend · context) rides in the header next to the age.
-  // Parents distinguish their own spend from the descendant roll-up; leaves keep
-  // the compact single figure. Context% is hidden below 20%, muted at 20–50%, red
-  // above 50%.
-  const ownCost = formatCostUsd(thread.cumulativeCostUsd);
-  // The roll-up shows only when descendants actually spent something, so a leaf
-  // (or a parent whose children are free) keeps the compact single figure.
-  const subtreeTotal = subtreeCostOf(thread.id, workstreamThreads);
-  const subtreeCost =
-    subtreeTotal > (thread.cumulativeCostUsd ?? 0) ? formatCostUsd(subtreeTotal) : null;
-  const contextPercentRaw =
-    thread.usedTokens !== null && thread.maxTokens !== null && thread.maxTokens > 0
-      ? (thread.usedTokens / thread.maxTokens) * 100
-      : null;
-  const contextPercent =
-    contextPercentRaw !== null && contextPercentRaw >= 20
-      ? formatContextPercent(thread.usedTokens, thread.maxTokens)
-      : null;
-  const isContextHot = contextPercentRaw !== null && contextPercentRaw > 50;
-  const open = () => onOpenThread(thread);
-  return (
-    <div
-      className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-card p-3 text-left shadow-xs/25 transition hover:border-input hover:bg-accent`}
-    >
-      <button
-        type="button"
-        className="flex w-full items-start gap-2 text-left outline-none"
-        onClick={open}
-      >
-        <span
-          className={`inline-flex max-w-[9rem] items-center gap-1 rounded-md border px-2 py-1 font-mono text-2xs ${status.borderClass} ${status.bgClass} ${status.textClass}`}
-        >
-          <span className="truncate">{getRoleLabel(thread)}</span>
-        </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-muted-foreground">
-          <Tooltip>
-            <TooltipTrigger render={<span className="max-w-[7.5rem] truncate" />}>
-              {formatModelLabel(thread.modelSelection)}
-            </TooltipTrigger>
-            <TooltipPopup>{`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}</TooltipPopup>
-          </Tooltip>
-          {ownCost || subtreeCost ? (
-            <>
-              <span className="text-muted-foreground/70">·</span>
-              <Tooltip>
-                <TooltipTrigger render={<span className="tabular-nums" />}>
-                  {subtreeCost ? `own ${ownCost ?? "—"} · subtree ${subtreeCost}` : ownCost}
-                </TooltipTrigger>
-                <TooltipPopup>
-                  {subtreeCost
-                    ? "This sub-thread's own spend and its whole descendant subtree"
-                    : "This sub-thread's own spend"}
-                </TooltipPopup>
-              </Tooltip>
-            </>
-          ) : null}
-          {contextPercent ? (
-            <>
-              <span className="text-muted-foreground/70">·</span>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      className={`tabular-nums ${isContextHot ? "text-destructive-foreground" : ""}`}
-                    />
+        </div>
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto px-3 py-3">
+            {rootId === null ? (
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                This thread is not part of a workstream.
+              </div>
+            ) : (
+              <>
+                {rollup ? (
+                  <WorkstreamActiveStrip
+                    nodes={subtree.filter((member) => member.id !== rootId)}
+                    rollup={rollup}
+                    onOpenThread={onOpenThread}
+                  />
+                ) : null}
+                <Suspense
+                  fallback={
+                    <div className="flex h-40 items-center justify-center">
+                      <Spinner />
+                    </div>
                   }
                 >
-                  {contextPercent}
-                </TooltipTrigger>
-                <TooltipPopup>Context window used</TooltipPopup>
-              </Tooltip>
-            </>
-          ) : null}
-          <span className="text-muted-foreground/70">·</span>
-          <span>{formatRelativeAge(getLastActivityAt(thread))}</span>
-        </div>
-      </button>
-
-      <button type="button" className="mt-2 block w-full text-left outline-none" onClick={open}>
-        <div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
-          {thread.title}
-        </div>
-        <div className={`mt-2 border-l-2 pl-2 text-xs leading-relaxed ${status.borderClass}`}>
-          <span className="mr-1 text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Goal
-          </span>
-          <span className="line-clamp-3 text-foreground/65">{getPurpose(thread)}</span>
-        </div>
-        {thread.lastActivityPreview ? (
-          <div className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
-            <span aria-hidden className="mt-px shrink-0 text-muted-foreground/70">
-              ›
-            </span>
-            <span className="line-clamp-1 italic">{thread.lastActivityPreview}</span>
+                  <WorkstreamGraph
+                    key={rootId}
+                    viewKey={scopedThreadKey(scopeThreadRef(threadRef.environmentId, rootId))}
+                    nodes={subtree}
+                    byId={nodes}
+                    rollupOf={rollupOf}
+                    titleOf={titleOf}
+                    onOpenThread={onOpenThread}
+                    onOpenTimeline={(member) => setTimelineId(member.id)}
+                    onNodeContextMenu={(member, position) =>
+                      void onNodeContextMenu(member, position)
+                    }
+                  />
+                </Suspense>
+              </>
+            )}
           </div>
-        ) : null}
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-          {isRunning ? <LiveDots /> : null}
-          {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}
-          <span>{activity}</span>
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
-            {diffMetric ? (
-              <Tooltip>
-                <TooltipTrigger render={<span />}>{diffMetric}</TooltipTrigger>
-                <TooltipPopup>
-                  Lines changed across this sub-thread&rsquo;s checkpoints
-                </TooltipPopup>
-              </Tooltip>
-            ) : null}
-            {diffMetric && thread.toolUses && thread.toolUses > 0 ? (
-              <span className="text-muted-foreground/70">·</span>
-            ) : null}
-            {thread.toolUses && thread.toolUses > 0 ? (
-              <span>
-                {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
-              </span>
-            ) : null}
-          </span>
+          <WorkstreamTimelineDrawer
+            node={timelineNode}
+            history={history}
+            titleOf={titleOf}
+            onClose={() => setTimelineId(null)}
+            onOpenThread={onOpenThread}
+            onOpenReport={onOpenReport}
+            onJump={onJump}
+          />
         </div>
-      </button>
-
-      {badges.length > 0 || verdictChip || gateWait || fanInChip ? (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {fanInChip ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-2xs ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
-                  />
-                }
-              >
-                {fanInChip.label}
-              </TooltipTrigger>
-              <TooltipPopup>
-                Fan-in merge of this isolated child&rsquo;s branch into its parent
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {badges.map(({ reason, label }) => {
-            const style = ATTENTION_STYLES[reason];
-            return (
-              <span
-                key={reason}
-                className={`rounded-full border px-2 py-0.5 text-2xs ${style.borderClass} ${style.bgClass} ${style.textClass}`}
-              >
-                {label}
-              </span>
-            );
-          })}
-          {verdictChip ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-2xs ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
-                  />
-                }
-              >
-                {verdictChip.label}
-              </TooltipTrigger>
-              <TooltipPopup>Latest review verdict submitted by this gate source</TooltipPopup>
-            </Tooltip>
-          ) : null}
-          {gateWait ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-2xs ${
-                      gateWait.active
-                        ? "border-info/40 bg-info/10 text-info-foreground"
-                        : "border-border bg-muted text-muted-foreground"
-                    }`}
-                  />
-                }
-              >
-                {gateWait.label}
-              </TooltipTrigger>
-              <TooltipPopup>
-                {gateWait.active
-                  ? "This party holds the active gate leg right now"
-                  : "Idle by design — the gate counterpart holds the active leg"}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <label className="inline-flex items-center gap-1.5 text-3xs uppercase tracking-wide text-muted-foreground">
-          Lane
-          <select
-            className="rounded-md border border-border bg-muted px-1.5 py-1 text-2xs text-foreground outline-none focus:border-ring"
-            value={thread.planLane}
-            onChange={(event) => onSetLane(thread.id, event.target.value as ThreadPlanLane)}
-          >
-            {SETTABLE_LANES.map((lane) => (
-              <option key={lane} value={lane} className="bg-card text-foreground">
-                {COLUMN_SHORT_LABELS[lane]}
-              </option>
-            ))}
-            {thread.planLane === "in_progress" ? (
-              // Control-plane-set (kickoff): shown so the select has a matching
-              // value, but never user-assignable.
-              <option disabled value="in_progress" className="bg-card text-muted-foreground">
-                {COLUMN_SHORT_LABELS.in_progress}
-              </option>
-            ) : null}
-            {thread.planLane === "yielded" ? (
-              // Control-plane-set (submit routing): shown so the select has a
-              // matching value, but never user-assignable — a message resumes it.
-              <option disabled value="yielded" className="bg-card text-muted-foreground">
-                {COLUMN_SHORT_LABELS.yielded}
-              </option>
-            ) : null}
-          </select>
-        </label>
-        {thread.planLane === "planned" ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="rounded-md border border-info/40 bg-info/10 px-2 py-1 text-2xs text-info-foreground transition hover:bg-info/20"
-                  onClick={() => onSetLane(thread.id, "ready")}
-                />
-              }
-            >
-              Release
-            </TooltipTrigger>
-            <TooltipPopup>
-              Release this held sub-thread so it runs once dependencies clear and a kickoff brief is
-              attached
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {isRunning ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-2xs text-destructive-foreground transition hover:bg-destructive/20"
-                  onClick={() => onStop(thread.id)}
-                />
-              }
-            >
-              Stop
-            </TooltipTrigger>
-            <TooltipPopup>
-              Stop the active turn (flags it needs_guidance so it doesn&rsquo;t sit silently halted)
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {badges.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground transition hover:bg-accent"
-                  onClick={() => onClearAttention(thread.id)}
-                />
-              }
-            >
-              Clear flags
-            </TooltipTrigger>
-            <TooltipPopup>Dismiss the attention flags on this sub-thread</TooltipPopup>
-          </Tooltip>
-        ) : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label="Go to where this sub-thread was dispatched"
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-2xs text-muted-foreground transition hover:bg-accent"
-                onClick={() => onOpenSpawnSite(thread)}
-              />
-            }
-          >
-            <ArrowUpRightIcon className="size-3" />
-            Dispatch
-          </TooltipTrigger>
-          <TooltipPopup>
-            Jump to the turn in this conversation that dispatched this sub-thread
-          </TooltipPopup>
-        </Tooltip>
       </div>
-
-      <DependencyEditor
-        thread={thread}
-        siblings={siblings}
-        childById={childById}
-        onSetDependencies={onSetDependencies}
-      />
-    </div>
-  );
-}
-
-function DependencyEditor({
-  thread,
-  siblings,
-  childById,
-  onSetDependencies,
-}: {
-  readonly thread: SidebarThreadSummary;
-  readonly siblings: ReadonlyArray<SidebarThreadSummary>;
-  readonly childById: ChildIndex;
-  readonly onSetDependencies: (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => void;
-}) {
-  const options = siblings.filter((sibling) => sibling.id !== thread.id);
-  const selected = new Set(thread.blockedBy);
-  const deps = thread.blockedBy
-    .map((id) => childById.get(id))
-    .filter((dep): dep is SidebarThreadSummary => dep !== undefined);
-  const toggle = (depId: ThreadId) => {
-    const next = new Set(selected);
-    if (next.has(depId)) next.delete(depId);
-    else next.add(depId);
-    onSetDependencies(thread.id, [...next]);
-  };
-  return (
-    <details className="mt-2 rounded-md border border-border bg-muted">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-2xs text-muted-foreground marker:hidden">
-        <span className="shrink-0">Waits on</span>
-        {deps.length === 0 ? (
-          <span className="ml-auto rounded-full border border-border bg-muted px-1.5 text-3xs tabular-nums text-muted-foreground">
-            0
-          </span>
-        ) : (
-          <span className="flex flex-1 flex-wrap items-center justify-end gap-1">
-            {deps.map((dep) => {
-              const depStatus = getThreadStatus(dep, childById);
-              return (
-                <span
-                  key={dep.id}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-3xs text-foreground/60"
-                >
-                  <span className={`size-1.5 rounded-full ${depStatus.dotClass}`} />
-                  <span className="max-w-[8rem] truncate">{dep.title}</span>
-                </span>
-              );
-            })}
-          </span>
-        )}
-      </summary>
-      <div className="flex flex-col gap-1 border-t border-border px-2.5 py-2">
-        {options.length === 0 ? (
-          <span className="text-2xs text-muted-foreground/70">No sibling sub-threads.</span>
-        ) : (
-          options.map((sibling) => {
-            const depStatus = getThreadStatus(sibling, childById);
-            return (
-              <label
-                key={sibling.id}
-                className="flex cursor-pointer items-center gap-2 text-2xs text-foreground/70"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(sibling.id)}
-                  onChange={() => toggle(sibling.id)}
-                />
-                <span className={`size-2 rounded-full ${depStatus.dotClass}`} />
-                <span className="truncate">{truncateLabel(sibling.title, 28)}</span>
-              </label>
-            );
-          })
-        )}
-      </div>
-    </details>
-  );
-}
-
-function LiveDots() {
-  return (
-    <span className="inline-flex gap-1" aria-label="running">
-      <span className="size-1.5 animate-pulse rounded-full bg-info-foreground" />
-      <span
-        className="size-1.5 animate-pulse rounded-full bg-info-foreground"
-        style={{ animationDelay: "150ms" }}
-      />
-      <span
-        className="size-1.5 animate-pulse rounded-full bg-info-foreground"
-        style={{ animationDelay: "300ms" }}
-      />
-    </span>
+    </WorkstreamEnvironmentContext>
   );
 }

@@ -7,50 +7,22 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import type { Thread } from "../types";
+import { makeThreadFixture, type ThreadFixtureOverrides } from "../test-fixtures";
 import { getLatestThreadForProject, sortThreads } from "./threadSort";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
 
-function makeThread(overrides: Partial<Thread> = {}): Thread {
-  return {
+function makeThread(overrides: ThreadFixtureOverrides = {}): Thread {
+  return makeThreadFixture({
     id: ThreadId.make("thread-1"),
     environmentId: LOCAL_ENVIRONMENT_ID,
     projectId: PROJECT_ID,
-    // loom: workstream fields on the thread shape.
-    goalId: null,
-    parentThreadId: null,
-    role: null,
-    purpose: null,
-    brief: null,
-    planLane: "planned" as const,
-    attention: [],
-    blockedBy: [],
-    spawnGeneration: null,
-    forkFromThreadId: null,
-    anchorTaskId: null,
-    continuesThreadId: null,
-    reportPath: null,
-    graphKey: null,
-    kickoffBriefPath: null,
-    routes: [],
-    gateRounds: 0,
-    pendingRework: false,
-    lastOutcome: null,
-    isolation: "shared" as const,
-    fanInState: "none" as const,
-    toolUses: null,
-    usedTokens: null,
-    maxTokens: null,
-    diffAdditions: null,
-    diffDeletions: null,
-    handoffDestinations: [],
-    notifySendLog: [],
     title: "Thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: "default",
-    session: null,
+    runtime: null,
     messages: [],
     proposedPlans: [],
     createdAt: "2026-03-09T10:00:00.000Z",
@@ -59,14 +31,11 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     settledAt: null,
     deletedAt: null,
     updatedAt: "2026-03-09T10:00:00.000Z",
-    latestTurn: null,
+    latestRun: null,
     branch: null,
     worktreePath: null,
-    checkpoints: [],
-    pullRequests: [],
-    activities: [],
     ...overrides,
-  };
+  });
 }
 
 describe("sortThreads", () => {
@@ -81,7 +50,7 @@ describe("sortThreads", () => {
               id: "message-1" as never,
               role: "user",
               text: "older",
-              turnId: null,
+              runId: null,
               createdAt: "2026-03-09T10:01:00.000Z",
               updatedAt: "2026-03-09T10:01:00.000Z",
               streaming: false,
@@ -97,7 +66,7 @@ describe("sortThreads", () => {
               id: "message-2" as never,
               role: "user",
               text: "newer",
-              turnId: null,
+              runId: null,
               createdAt: "2026-03-09T10:06:00.000Z",
               updatedAt: "2026-03-09T10:06:00.000Z",
               streaming: false,
@@ -125,7 +94,7 @@ describe("sortThreads", () => {
               id: "message-1" as never,
               role: "assistant",
               text: "assistant only",
-              turnId: null,
+              runId: null,
               createdAt: "2026-03-09T10:02:00.000Z",
               updatedAt: "2026-03-09T10:02:00.000Z",
               streaming: false,
@@ -136,56 +105,6 @@ describe("sortThreads", () => {
           id: ThreadId.make("thread-2"),
           createdAt: "2026-03-09T10:05:00.000Z",
           updatedAt: "2026-03-09T10:05:00.000Z",
-          messages: [],
-        }),
-      ],
-      "updated_at",
-    );
-
-    expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.make("thread-2"),
-      ThreadId.make("thread-1"),
-    ]);
-  });
-
-  it("falls back to createdAt when updatedAt is invalid", () => {
-    const sorted = sortThreads(
-      [
-        makeThread({
-          id: ThreadId.make("thread-1"),
-          createdAt: "2026-03-09T10:00:00.000Z",
-          updatedAt: "invalid-date" as never,
-          messages: [],
-        }),
-        makeThread({
-          id: ThreadId.make("thread-2"),
-          createdAt: "2026-03-09T09:00:00.000Z",
-          updatedAt: "2026-03-09T09:30:00.000Z",
-          messages: [],
-        }),
-      ],
-      "updated_at",
-    );
-
-    expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.make("thread-1"),
-      ThreadId.make("thread-2"),
-    ]);
-  });
-
-  it("falls back to id ordering when threads have no sortable timestamps", () => {
-    const sorted = sortThreads(
-      [
-        makeThread({
-          id: ThreadId.make("thread-1"),
-          createdAt: "invalid-created-at" as never,
-          updatedAt: "invalid-updated-at" as never,
-          messages: [],
-        }),
-        makeThread({
-          id: ThreadId.make("thread-2"),
-          createdAt: "invalid-created-at" as never,
-          updatedAt: "invalid-updated-at" as never,
           messages: [],
         }),
       ],

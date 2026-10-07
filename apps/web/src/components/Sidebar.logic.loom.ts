@@ -1,53 +1,39 @@
-// loom: fork-added sidebar helpers, split out of the upstream-owned
-// Sidebar.logic.ts so upstream edits to that file never collide with the fork's
-// additions. Pure and generic over the thread type; consumed by both sidebars
-// and the goal panel.
-import type { SidebarThreadSummary } from "../types";
+// loom: 3d-3 — Loom's sidebar helpers, split out of the upstream-owned
+// Sidebar.logic.ts so upstream edits there never collide with the fork's
+// additions. Pure; consumed by Sidebar.tsx's marked hunks.
+import {
+  attentionReasonsOf,
+  type WorkstreamAttentionReason,
+} from "@t3tools/client-runtime/state/loom/rollup";
+import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
+
+import { attentionLabel } from "../loom/loomAttention";
+
+/** The reasons upstream's own status already shows (its Approval / Input pills). */
+const UPSTREAM_SHOWN: ReadonlySet<WorkstreamAttentionReason> = new Set([
+  "awaiting_approval",
+  "awaiting_input",
+]);
 
 /**
- * Picks the goal's canonical worktree to join when creating a new thread under
- * an existing goal: the most recently updated, non-archived goal thread that
- * still has a worktree. Returns null when the goal has no living worktree.
+ * The Loom attention a row shows instead of its upstream state, or null.
+ * Attention outranks state: the highest reason by `attentionReasonsOf`'s
+ * priority (error > approval > input > acceptance > guidance > orchestrator >
+ * brief-needed) wins; when that is a request upstream already renders
+ * (approval / input) upstream's own pill stays.
  */
-export function resolveGoalWorktreeSeed(input: {
-  goalId: string;
-  threads: ReadonlyArray<{
-    goalId: string | null;
-    branch: string | null;
-    worktreePath: string | null;
-    archivedAt: string | null;
-    updatedAt: string;
-  }>;
-}): { branch: string | null; worktreePath: string } | null {
-  const canonical = input.threads
-    .filter(
-      (thread) =>
-        thread.goalId === input.goalId &&
-        thread.worktreePath !== null &&
-        thread.archivedAt === null,
-    )
-    .reduce<(typeof input.threads)[number] | null>(
-      (best, thread) =>
-        best === null || Date.parse(thread.updatedAt) > Date.parse(best.updatedAt) ? thread : best,
-      null,
-    );
-  return canonical?.worktreePath
-    ? { branch: canonical.branch, worktreePath: canonical.worktreePath }
-    : null;
+export function loomAttentionOf(
+  thread: Pick<OrchestrationV2ThreadShell, "workstream" | "pendingRuntimeRequest">,
+): WorkstreamAttentionReason | null {
+  const top = attentionReasonsOf(thread)[0];
+  return top === undefined || UPSTREAM_SHOWN.has(top) ? null : top;
 }
 
-/**
- * A parent-less handoff root that carries a kickoff brief and has not been
- * launched yet (still held at `planned`, no turn started). Distinguishes a
- * staged handoff from a normal idle root so the sidebar can flag it.
- */
-export function isStagedHandoffThread(
-  thread: Pick<SidebarThreadSummary, "parentThreadId" | "planLane" | "brief" | "latestTurn">,
-): boolean {
-  return (
-    thread.parentThreadId === null &&
-    thread.planLane === "planned" &&
-    (thread.brief?.trim().length ?? 0) > 0 &&
-    thread.latestTurn === null
-  );
+/** The row's top-status override for a Loom attention reason (theme tokens only). */
+export function loomTopStatus(reason: WorkstreamAttentionReason) {
+  return {
+    label: attentionLabel(reason),
+    icon: null,
+    className: reason === "error" ? "text-error" : "text-warning-foreground",
+  };
 }

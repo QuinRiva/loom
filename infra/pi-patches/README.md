@@ -20,9 +20,16 @@ automatically at install time via pnpm's `patchedDependencies`:
 - `pnpm-workspace.yaml` → `patchedDependencies` maps that exact version to
   `patches/@earendil-works__pi-coding-agent@<version>.patch` (generated from the
   patch below — see "Re-deriving").
-- `apps/server`'s `resolveBundledPiCliPath()` (`src/provider/Layers/Pi/Cli.ts`)
-  prefers this node_modules copy, so the running RPC process is the bundled,
-  patched binary — not whatever `pi` is on `PATH`.
+- `apps/server`'s `resolveLoomPiBinaryPath()`
+  (`src/provider/Drivers/Pi/bundledPi.loom.ts`) rewrites the default `pi`
+  binary path to this copy's `bin.pi` once, where `PiDriver` builds its config,
+  so every pi spawn — the RPC session, discovery, the version probe, text
+  generation — and the update resolver run the bundled, patched binary, not
+  whatever `pi` is on `PATH`. The path is spawned directly through its
+  `#!/usr/bin/env node` shebang (POSIX only); an explicit `binaryPath` setting
+  overrides it. Upstream's maintenance resolver treats the `node_modules` path
+  as manual-only, so `pi update --self` is never offered for the bundled copy
+  (`src/provider/providerMaintenance.loom.test.ts`).
 
 ## ⚠️ Since pi 0.84, `bin.pi` is a pre-bundled file
 
@@ -81,9 +88,19 @@ The atomic-write harness in step 3 imports the global install by default, so
 for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
-Authored against pi **0.82.1**; both diffs were re-derived against **0.99.2**
+Authored against pi **0.82.1**; both diffs were re-derived against **1.0.2**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
+
+**The global pi is still 0.99.2** (with its 0.99.2 patches) at the 1.0.2 bump:
+the bump landed in the pull-9 branch, and moving the global install is part of
+the human deploy, not of the bump commit. Until then `apply.sh` results on the
+global install say nothing about the bundled copy (the diffs are derived
+against 1.0.2), and the global pi lacks the RPC half of 0001 — harmless, since
+only Loom's server sends `cwdOverride`, and it spawns the bundled copy.
+pi 1.0.2's startup migrations touch only legacy layouts and skip when
+`auth.json` exists, so the bundled 1.0.2 and the global 0.99.2 share
+`~/.pi/agent` safely (settings/auth hashes unchanged across the 1.0.2 smoke).
 
 ## Re-deriving after a pi version bump
 
@@ -103,6 +120,15 @@ Not optional, and it has paid off twice. Against the new pristine tarball
 
 Record the outcome here either way.
 
+**1.0.2 outcomes.** 0002: still needed — both `withLock` and `withLockAsync`
+write `auth.json` with plain `writeFileSync`, no `renameSync` anywhere.
+0001: still needed — stock `args.js` has no `--cwd`, and the contract test
+against the stock 1.0.2 bundle fails 7 of 9 (the five CLI cases that need the
+flag, and both RPC `cwdOverride` cases: stock ignores the unknown field, so
+`switch_session` resumes into the dead recorded cwd and errors with "Stored
+session working directory does not exist"). The two passing cases are the
+controls (no override → refusal), which hold either way.
+
 ### 1. Move the version pins
 
 Both places matter:
@@ -118,6 +144,10 @@ installed**, and both `pnpm install` and `pnpm patch` refuse while
 `patchedDependencies` names a patch file that does not exist yet. So the new
 version has to land unpatched first, and the entry stays out until
 `patch-commit` writes it:
+
+Use a worktree-local editable dir (e.g. `.artifacts/pi-patch-<newVersion>`)
+rather than `/tmp`, and install with `CI=true vp i --no-frozen-lockfile`; the
+`/tmp` paths below are the historical form.
 
 ```bash
 # patchedDependencies entry removed (or commented out) until patch-commit:
@@ -184,7 +214,7 @@ the **old** pi, and the model probes pass on it anyway (builtin models come from
 `grep '"version"' "$(readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`
 before trusting any result.
 
-## 0001 — `--cwd <dir>` for headless session resume
+## 0001 — `--cwd <dir>` for headless session resume, and `cwdOverride` on RPC `switch_session`
 
 **Problem.** Loom deletes a completed sub-thread's worktree after fan-in. pi
 welds a session to its birth cwd twice: the session directory is derived from
@@ -218,15 +248,46 @@ headless path never exposed the parameter. The patch adds `--cwd <dir>`:
   faithful record of where the work originally happened, and the conversation
   continues by append. Relocation is per-launch and runtime-only.
 - Absent the flag, behaviour is unchanged (including `--fork`, which
-  `consult_thread` depends on).
+  `mcp__t3-code__consult_thread` depends on).
 
-Files: `dist/cli/args.js`, `dist/cli/args.d.ts`, `dist/main.js`.
+**The RPC half (added at 1.0.2).** Orchestration V2's `PiAdapterV2` does not
+resume with `--session`: it starts pi fresh and sends `switch_session
+{ sessionPath }`, and pi builds the resumed runtime in the session's _recorded_
+cwd — so a reaped worktree fails the resume, and a recorded cwd that still
+exists but differs from the thread's runs the thread's tools in the wrong
+place. The runtime host already accepts `switchSession(path, { cwdOverride })`
+(`core/agent-session-runtime.js` → `SessionManager.open(path, undefined,
+cwdOverride)`); only the RPC command handler never passed it. The patch adds an
+optional `cwdOverride` field to the `switch_session` command
+(`modes/rpc/rpc-types.d.ts`) and passes it through (`modes/rpc/rpc-mode.js`):
+
+- resolved against the pi process's cwd with pi's `resolvePath`, exactly as
+  `--cwd` is;
+- a missing or non-directory target throws, which the RPC command loop turns
+  into an error response for that command id ("cwdOverride directory does not
+  exist: …"); the process stays up and the current session is untouched;
+- when valid, the same relocation semantics as `--cwd`: header never rewritten,
+  conversation continues by append, tools run in the override;
+- absent the field, behaviour is unchanged. A stock pi ignores the unknown
+  field, so an unpatched bundle degrades silently to the old behaviour — only
+  the contract test notices.
+
+In the bundle the RPC edit lands in the same chunk as `main()` (since 0.99 the
+CLI and the RPC loop share it), behind the helper `__loomResolveRpcCwdOverride`
+in the 0001 header; that helper is now the 0001 idempotency marker, so a chunk
+patched by an older copy of `patch-bundle.mjs` (CLI half only) reads as
+unpatched.
+
+Files: `dist/cli/args.js`, `dist/cli/args.d.ts`, `dist/main.js`,
+`dist/modes/rpc/rpc-mode.js`, `dist/modes/rpc/rpc-types.d.ts`.
 
 Pinned by the contract test
-`apps/server/src/provider/Layers/Pi/PiCwdOverride.contract.test.ts`, which
-drives the bundled binary over RPC. Because pi is now a workspace dependency it
-is always present, so the test runs (never skips) and **fails loudly** if the
-bundled copy is unpatched — exactly the upstream drift we want to hear about.
+`apps/server/src/provider/Drivers/Pi/PiCwdOverride.contract.test.ts` — six CLI
+`--cwd` cases plus three RPC `switch_session` cases — which drives the bundled
+`bin.pi` resolved by `resolveBundledPiCliPath()`. Because pi is a workspace
+dependency it is always present, so the test never skips and **fails loudly**
+if the bundled copy is unresolvable or unpatched — exactly the upstream drift we
+want to hear about.
 
 Upstreamable as-is: "headless resume after the working directory moved" is
 needed by any daemon embedding pi, and interactive mode's prompt shows the
@@ -245,6 +306,14 @@ it), so there is still no `--cwd` on the headless path. The only cosmetic differ
 bundle is that the two usage errors are plain text rather than chalk-red, since
 chalk's binding there is mangled by esbuild; path resolution and every accepted
 `--cwd` form are identical, because both forms call pi's `resolvePath`.
+1.0.2 drift: `args.js` hunk 1 failed only because its context line
+`result.models = args[++i].split(",")…` became a four-line chain (re-derived);
+`args.js` hunk 2 moved three lines and two `main.js` hunks six; `args.d.ts` was
+clean. The bundle's chunk layout is the 0.99 one (`main()` and the RPC loop in
+`chunk-ZSBPJAJ2.js`, auth storage in `chunk-PDFMCAOZ.js`), all eight existing
+0001 anchors matched exactly once, and the new RPC anchor
+(`case"switch_session":{let result=await runtimeHost.switchSession(command.sessionPath);`)
+matches once — `patch-bundle.mjs` reports `0001 … patched (9 edits)`.
 
 ## 0002 — atomic `auth.json` write
 
@@ -294,9 +363,12 @@ File: `dist/core/auth-storage.js` (plus the bundle). Not yet filed upstream;
 confirmed still present in 0.87.1 — that file is byte-identical to 0.86.0, so
 the patch applied unchanged and retirement was never on the table. Still present
 in 0.99.2: both lock paths still `writeFileSync` with no rename, and the stored
-diff re-derived byte-identical.
+diff re-derived byte-identical. Still present in 1.0.2 (same two call
+sites, chunk `chunk-PDFMCAOZ.js`); the stored diff re-derived byte-identical
+again, and `atomic-window.mjs` against the resolved 1.0.2 copy read ~6.9 k good
+and zero zero-byte/unparseable/empty per reader.
 
 > Note: `pnpm patch` byte-compares the whole package, so
-> `patches/@earendil-works__pi-coding-agent@0.99.2.patch` is ~625 KB — the
+> `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~650–700 KB — the
 > edited minified chunk lines dominate it. The readable diffs in this directory
 > are the reviewable form of the same change.

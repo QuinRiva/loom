@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Scaffold-first graph authoring (workstream-scaffold plan §3): a nullable
 // timestamp column recording each thread's most recent fan-in-settlement

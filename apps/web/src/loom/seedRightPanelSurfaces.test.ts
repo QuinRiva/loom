@@ -5,61 +5,38 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
+const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
 
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });
 
-describe("rightPanelStore.seedSurfaces", () => {
-  it("first visit (no panel state): opens, adds, and activates the seeded surface", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["tasks"], "tasks");
-    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
-      isOpen: true,
-      activeSurfaceId: "tasks",
-      surfaces: [{ id: "tasks", kind: "tasks" }],
-    });
-  });
-
-  it("seeds both surfaces in one transition and activates tasks over workstream", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["tasks", "workstream"], "tasks");
-    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
-      isOpen: true,
-      activeSurfaceId: "tasks",
-      surfaces: [
-        { id: "tasks", kind: "tasks" },
-        { id: "workstream", kind: "workstream" },
-      ],
-    });
-  });
-
-  it("activates the only seeded surface when the preferred one is not seeded", () => {
-    useRightPanelStore.getState().seedSurfaces(refA, ["workstream"], "tasks");
-    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
-      isOpen: true,
-      activeSurfaceId: "workstream",
-      surfaces: [{ id: "workstream", kind: "workstream" }],
-    });
-  });
-
+describe("rightPanelStore.seedWorkstream", () => {
   it("adds a tab without stealing focus or visibility when panel state exists", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().close(refA);
-    useRightPanelStore.getState().seedSurfaces(refA, ["tasks"], "tasks");
-    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+    useRightPanelStore.getState().seedWorkstream(refA);
+    expect(panel()).toEqual({
       isOpen: false,
       activeSurfaceId: "diff",
       surfaces: [
         { id: "diff", kind: "diff" },
-        { id: "tasks", kind: "tasks" },
+        { id: "workstream", kind: "workstream" },
       ],
     });
   });
 
   it("is idempotent: reseeding an existing surface makes no change", () => {
     useRightPanelStore.getState().open(refA, "diff");
-    useRightPanelStore.getState().seedSurfaces(refA, ["tasks"], "tasks");
+    useRightPanelStore.getState().seedWorkstream(refA);
     const before = useRightPanelStore.getState().byThreadKey;
-    useRightPanelStore.getState().seedSurfaces(refA, ["tasks"], "tasks");
+    useRightPanelStore.getState().seedWorkstream(refA);
     expect(useRightPanelStore.getState().byThreadKey).toBe(before);
+  });
+
+  it("does not count as a user choice", () => {
+    const revision = useRightPanelStore.getState().getUserActionRevision(refA);
+    useRightPanelStore.getState().seedWorkstream(refA);
+    expect(useRightPanelStore.getState().getUserActionRevision(refA)).toBe(revision);
   });
 });

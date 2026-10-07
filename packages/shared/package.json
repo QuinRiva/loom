@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./orchestrationV2ThreadError": {
+      "types": "./src/orchestrationV2ThreadError.ts",
+      "import": "./src/orchestrationV2ThreadError.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
@@ -99,6 +103,10 @@
       "types": "./src/KeyedCoalescingWorker.ts",
       "import": "./src/KeyedCoalescingWorker.ts"
     },
+    "./KeyedLock": {
+      "types": "./src/KeyedLock.ts",
+      "import": "./src/KeyedLock.ts"
+    },
     "./schemaJson": {
       "types": "./src/schemaJson.ts",
       "import": "./src/schemaJson.ts"
@@ -110,6 +118,14 @@
     "./toolActivity": {
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
+    },
+    "./toolOutput": {
+      "types": "./src/toolOutput.ts",
+      "import": "./src/toolOutput.ts"
+    },
+    "./htmlRender": {
+      "types": "./src/htmlRender.ts",
+      "import": "./src/htmlRender.ts"
     },
     "./favicon": {
       "types": "./src/favicon.ts",
@@ -147,26 +163,6 @@
       "types": "./src/orchestrationTiming.ts",
       "import": "./src/orchestrationTiming.ts"
     },
-    "./workstreamDependencies": {
-      "types": "./src/workstreamDependencies.ts",
-      "import": "./src/workstreamDependencies.ts"
-    },
-    "./workstreamIsolation": {
-      "types": "./src/workstreamIsolation.ts",
-      "import": "./src/workstreamIsolation.ts"
-    },
-    "./threadSettled": {
-      "types": "./src/threadSettled.ts",
-      "import": "./src/threadSettled.ts"
-    },
-    "./workstreamGraph": {
-      "types": "./src/workstreamGraph.ts",
-      "import": "./src/workstreamGraph.ts"
-    },
-    "./notify": {
-      "types": "./src/notify.ts",
-      "import": "./src/notify.ts"
-    },
     "./remote": {
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
@@ -178,6 +174,10 @@
     "./dpop": {
       "types": "./src/dpop.ts",
       "import": "./src/dpop.ts"
+    },
+    "./desktopBootstrapToken": {
+      "types": "./src/desktopBootstrapToken.ts",
+      "import": "./src/desktopBootstrapToken.ts"
     },
     "./dpopCommon": {
       "types": "./src/dpopCommon.ts",
@@ -214,6 +214,10 @@
     "./connectAuth": {
       "types": "./src/connectAuth.ts",
       "import": "./src/connectAuth.ts"
+    },
+    "./symlink": {
+      "types": "./src/symlink.ts",
+      "import": "./src/symlink.ts"
     },
     "./path": {
       "types": "./src/path.ts",
@@ -254,10 +258,6 @@
     "./planCommentAnchor.loom": {
       "types": "./src/planCommentAnchor.loom.ts",
       "import": "./src/planCommentAnchor.loom.ts"
-    },
-    "./consultActivity.loom": {
-      "types": "./src/consultActivity.loom.ts",
-      "import": "./src/consultActivity.loom.ts"
     },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
@@ -331,21 +331,9 @@
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
     },
-    "./providerFailover": {
-      "types": "./src/providerFailover.ts",
-      "import": "./src/providerFailover.ts"
-    },
     "./userInputQuestions": {
       "types": "./src/userInputQuestions.ts",
       "import": "./src/userInputQuestions.ts"
-    },
-    "./openRequests": {
-      "types": "./src/openRequests.ts",
-      "import": "./src/openRequests.ts"
-    },
-    "./userInputOutcome": {
-      "types": "./src/userInputOutcome.ts",
-      "import": "./src/userInputOutcome.ts"
     },
     "./devHome": {
       "types": "./src/devHome.ts",
@@ -387,6 +375,22 @@
       "types": "./src/nodeSqliteClient.ts",
       "import": "./src/nodeSqliteClient.ts"
     },
+    "./orchestrationV2Timeline": {
+      "types": "./src/orchestrationV2Timeline.ts",
+      "import": "./src/orchestrationV2Timeline.ts"
+    },
+    "./t3McpToolPresentation": {
+      "types": "./src/t3McpToolPresentation.ts",
+      "import": "./src/t3McpToolPresentation.ts"
+    },
+    "./Array": {
+      "types": "./src/Array.ts",
+      "import": "./src/Array.ts"
+    },
+    "./orchestrationV2PendingBackgroundWork": {
+      "types": "./src/orchestrationV2PendingBackgroundWork.ts",
+      "import": "./src/orchestrationV2PendingBackgroundWork.ts"
+    },
     "./hostClassification": {
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"
@@ -414,6 +418,22 @@
     "./codexAuthHandoff": {
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
+    },
+    "./workstreamGraph": {
+      "types": "./src/workstreamGraph.ts",
+      "import": "./src/workstreamGraph.ts"
+    },
+    "./workstreamDependencies": {
+      "types": "./src/workstreamDependencies.ts",
+      "import": "./src/workstreamDependencies.ts"
+    },
+    "./loomSeedFixture.loom": {
+      "types": "./src/loomSeedFixture.loom.ts",
+      "import": "./src/loomSeedFixture.loom.ts"
+    },
+    "./workstreamStart.loom": {
+      "types": "./src/workstreamStart.loom.ts",
+      "import": "./src/workstreamStart.loom.ts"
     }
   },
   "scripts": {

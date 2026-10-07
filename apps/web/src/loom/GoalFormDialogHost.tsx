@@ -1,10 +1,9 @@
 /**
- * loom: the one mounted renderer for `promptGoalForm` (see goalFormDialogStore).
- * Root-level so goal create/rename can be driven from native context menus and
- * panel overflow menus without any of them owning dialog state — and so no
- * attachment is needed inside upstream's SidebarV2 render tree.
+ * loom: the one mounted renderer for `promptGoalForm` (3d-3). Mounted once by
+ * the sidebar so goal rename can be driven from the thread context menu
+ * without any menu owning dialog state.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -19,37 +18,11 @@ import {
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 
-import { slugifyGoalTitle, useGoalFormDialogStore } from "./goalFormDialogStore";
+import { type GoalFormValues, useGoalFormDialogStore } from "./goalFormDialogStore";
 
 export function GoalFormDialogHost() {
   const request = useGoalFormDialogStore((state) => state.request);
   const resolveGoalForm = useGoalFormDialogStore((state) => state.resolveGoalForm);
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [slugDirty, setSlugDirty] = useState(false);
-  const [description, setDescription] = useState("");
-
-  // Re-seed on each new request; the drafts are deliberately request-local.
-  useEffect(() => {
-    if (!request) return;
-    setTitle(request.initial.title);
-    setSlug(request.initial.slug);
-    setSlugDirty(request.initial.slug.length > 0);
-    setDescription(request.initial.description);
-  }, [request]);
-
-  const isCreate = request?.mode === "create";
-  const effectiveSlug = (slugDirty ? slug : slugifyGoalTitle(title)).trim();
-  const canSubmit = title.trim().length > 0 && (!isCreate || effectiveSlug.length > 0);
-  const submit = () => {
-    if (!canSubmit) return;
-    resolveGoalForm({
-      title: title.trim(),
-      slug: effectiveSlug,
-      description: description.trim() || title.trim(),
-    });
-  };
-
   return (
     <Dialog
       open={request !== null}
@@ -57,62 +30,69 @@ export function GoalFormDialogHost() {
         if (!open) resolveGoalForm(null);
       }}
     >
-      <DialogPopup className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isCreate ? "Create goal from thread" : "Rename goal"}</DialogTitle>
-          <DialogDescription>
-            {isCreate
-              ? "A goal tracks a larger piece of work across the threads that carry it."
-              : "The title and paragraph shown wherever this goal appears."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <label className="grid gap-1.5">
-            <span className="text-xs font-medium text-foreground">Title</span>
-            <Input
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                submit();
-              }}
-              placeholder={"What this goal is trying to achieve\u2026"}
-            />
-          </label>
-          {isCreate ? (
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Slug</span>
-              <Input
-                value={slugDirty ? slug : slugifyGoalTitle(title)}
-                onChange={(event) => {
-                  setSlugDirty(true);
-                  setSlug(event.target.value);
-                }}
-                placeholder="short-stable-handle"
-              />
-            </label>
-          ) : null}
-          <label className="grid gap-1.5">
-            <span className="text-xs font-medium text-foreground">Paragraph</span>
-            <Textarea
-              size="sm"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder={"The objective, and why it matters\u2026"}
-            />
-          </label>
-        </DialogPanel>
-        <DialogFooter>
-          <Button type="button" variant="outline" size="sm" onClick={() => resolveGoalForm(null)}>
-            Cancel
-          </Button>
-          <Button type="button" size="sm" disabled={!canSubmit} onClick={submit}>
-            {isCreate ? "Create goal" : "Save"}
-          </Button>
-        </DialogFooter>
+      <DialogPopup>
+        {request ? (
+          // Keyed per request: the drafts are deliberately request-local.
+          <GoalForm key={request.id} initial={request.initial} onResolve={resolveGoalForm} />
+        ) : null}
       </DialogPopup>
     </Dialog>
+  );
+}
+
+function GoalForm({
+  initial,
+  onResolve,
+}: {
+  initial: GoalFormValues;
+  onResolve: (values: GoalFormValues | null) => void;
+}) {
+  const [title, setTitle] = useState(initial.title);
+  const [description, setDescription] = useState(initial.description);
+  const canSubmit = title.trim().length > 0;
+  const submit = () => {
+    if (canSubmit) onResolve({ title: title.trim(), description: description.trim() });
+  };
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Rename goal</DialogTitle>
+        <DialogDescription>
+          The title and paragraph shown wherever this Loom goal appears.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogPanel>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-medium text-foreground">Title</span>
+          <Input
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              submit();
+            }}
+          />
+        </label>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-medium text-foreground">Paragraph</span>
+          <Textarea
+            size="sm"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder={"The objective, and why it matters\u2026"}
+          />
+        </label>
+      </DialogPanel>
+      <DialogFooter>
+        <Button type="button" variant="outline" size="sm" onClick={() => onResolve(null)}>
+          Cancel
+        </Button>
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={submit}>
+          Save
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

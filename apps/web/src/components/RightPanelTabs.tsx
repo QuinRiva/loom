@@ -13,25 +13,23 @@ import type {
   PullRequestState,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import type { LoomSurfaceAction } from "~/loom/useLoomRightPanelSurfaces"; // loom: 3d-2
 import {
-  AppWindow,
-  Bot,
-  ClipboardList,
-  FileDiff,
-  Files,
-  FolderOpen,
-  GitBranch,
+  AppWindow, // loom: artefact surface
+  FolderOpen, // loom: dir surface
+  ListTodo, // loom: 3d-2 tasks surface (3d-3 mounts it)
+  Network, // loom: 3d-2 workstream surface (the graph)
   Smartphone,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  FileDiff,
+  Files,
   Globe2,
-  ListTodo,
   Plus,
   TerminalSquare,
-  Volume2,
-  VolumeOff,
 } from "lucide-react";
+import { Volume2, VolumeOff } from "lucide";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -50,6 +48,7 @@ import type { RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Button } from "~/components/ui/button";
+import { MorphIcon } from "~/components/MorphIcon";
 import { AndroidIcon, AppleIcon } from "~/components/Icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Kbd } from "~/components/ui/kbd";
@@ -69,6 +68,7 @@ import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { faviconUrlForOrigin } from "~/lib/favicon";
 import { useTheme } from "~/hooks/useTheme";
 import { useDeviceState } from "~/state/device";
+import type { PreviewPanelInlineSize } from "~/hooks/usePreviewPanelInlineSize";
 import {
   newestPullRequestSummary,
   pullRequestEnvironment,
@@ -92,6 +92,7 @@ interface RightPanelTabsProps {
   widthStorageKey?: string;
   /** Forwarded to PreviewPanelShell as the initial width before a user resize. */
   defaultWidth?: number;
+  inlineSize?: PreviewPanelInlineSize;
   layoutControls?: ReactNode;
   surfaces: readonly RightPanelSurface[];
   /** Fallback environment for surfaces that do not carry their own. */
@@ -126,23 +127,18 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
-  onAddAgents: () => void;
   onAddDevice: () => void;
-  onAddTasks: () => void; // loom:
-  onAddWorkstream: () => void; // loom:
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
-  agentsAvailable: boolean;
   deviceAvailable: boolean;
-  tasksAvailable: boolean; // loom:
-  workstreamAvailable: boolean; // loom:
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
-  /** Running + waiting subagents; badges the Agents card in the empty state. */
-  liveAgentCount: number;
+  /** loom: 3d-2 seam 18 — Loom's launcher / "+" menu entries (Workstream; 3d-3 Goal tasks). */
+  loomSurfaceActions?: ReadonlyArray<LoomSurfaceAction>;
   children: ReactNode;
 }
 
@@ -169,10 +165,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
-  agents: "Agents are only available from a thread.",
   device: "Devices are only available from a thread.",
-  tasks: "Goal tasks are only available for threads linked to a goal.", // loom:
-  workstream: "Workstream is only available for server threads.", // loom:
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -195,10 +188,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
-  agents: "Available from a thread.",
   device: "Available from a thread.",
-  tasks: "Available when the thread has a goal.", // loom:
-  workstream: "Available from a server thread.", // loom:
 } as const;
 
 type TabContextMenuAction =
@@ -337,21 +327,16 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
-  onAddAgents: () => void;
   onAddDevice: () => void;
-  onAddTasks: () => void; // loom:
-  onAddWorkstream: () => void; // loom:
+  onAddTasks?: (() => void) | undefined; // loom: 3d-3 — present when the thread has a Loom goal
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
-  agentsAvailable: boolean;
   deviceAvailable: boolean;
-  tasksAvailable: boolean; // loom:
-  workstreamAvailable: boolean; // loom:
-  liveAgentCount: number;
+  loomSurfaceActions?: ReadonlyArray<LoomSurfaceAction> | undefined; // loom: 3d-2
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -364,7 +349,6 @@ function RightPanelEmptyState(props: {
       available: props.browserAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
       onClick: props.onAddBrowser,
-      badgeCount: 0,
     },
     {
       label: "Terminal",
@@ -373,7 +357,6 @@ function RightPanelEmptyState(props: {
       available: props.terminalAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.terminal,
       onClick: props.onAddTerminal,
-      badgeCount: 0,
     },
     {
       label: "Files",
@@ -382,7 +365,6 @@ function RightPanelEmptyState(props: {
       available: props.filesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
       onClick: props.onAddFiles,
-      badgeCount: 0,
     },
     {
       label: "Diff",
@@ -391,7 +373,15 @@ function RightPanelEmptyState(props: {
       available: props.diffAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
       onClick: props.onAddDiff,
-      badgeCount: 0,
+    },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
     },
     {
       label: "Pull request",
@@ -400,36 +390,14 @@ function RightPanelEmptyState(props: {
       available: props.pullRequestAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequest,
       onClick: props.onAddPullRequest,
-      badgeCount: 0,
     },
     {
-      label: "Goal tasks",
-      description: "Track this goal's task tree.",
-      icon: ListTodo,
-      shortcut: "G",
-      available: props.tasksAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.tasks,
-      onClick: props.onAddTasks,
-      badgeCount: 0,
-    },
-    {
-      label: "Workstream",
-      description: "See this thread's sub-thread graph.",
-      icon: ClipboardList,
-      shortcut: "W",
-      available: props.workstreamAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.workstream,
-      onClick: props.onAddWorkstream,
-      badgeCount: 0,
-    },
-    {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
-      onClick: props.onAddAgents,
-      badgeCount: props.liveAgentCount,
+      label: "Linked pull requests",
+      icon: PullRequestGlyph.link,
+      shortcut: "L",
+      available: props.pullRequestsAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
+      onClick: props.onAddPullRequests,
     },
     {
       label: "Device",
@@ -439,8 +407,8 @@ function RightPanelEmptyState(props: {
       available: props.deviceAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
       onClick: props.onAddDevice,
-      badgeCount: 0,
     },
+    ...(props.loomSurfaceActions ?? []), // loom: 3d-2
   ] as const;
 
   type SurfaceAction = (typeof actions)[number];
@@ -513,14 +481,6 @@ function RightPanelEmptyState(props: {
     return (
       <span className="relative inline-flex shrink-0">
         <Icon className={iconClassName} />
-        {action.badgeCount > 0 ? (
-          <span
-            aria-hidden
-            className="absolute -top-1.5 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-1 text-3xs font-semibold tabular-nums text-white"
-          >
-            {action.badgeCount}
-          </span>
-        ) : null}
       </span>
     );
   };
@@ -644,13 +604,17 @@ function surfaceTitle(
     case "files":
       return "Files";
     case "file":
-      return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
+      return surface.relativePath.slice(
+        Math.max(surface.relativePath.lastIndexOf("/"), surface.relativePath.lastIndexOf("\\")) + 1,
+      );
     case "dir": // loom:
       return surface.absolutePath.slice(
         surface.absolutePath.replace(/\/+$/, "").lastIndexOf("/") + 1,
       );
     case "artifact": // loom:
       return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
+    case "tasks": // loom: 3d-3 — Loom's goal, not the provider-native /goal chip
+      return "Goal tasks";
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -660,14 +624,12 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
-    case "agents":
-      return "Agents";
+    case "tasks": // loom: 3d-2 seam 18
+      return "Goal tasks";
+    case "workstream": // loom: 3d-2 seam 18
+      return "Workstream";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
-    case "tasks": // loom:
-      return "Goal tasks";
-    case "workstream": // loom:
-      return "Workstream";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -741,10 +703,10 @@ function SurfaceIcon({
       return <FolderOpen className="size-3 shrink-0" />;
     case "artifact": // loom:
       return <AppWindow className="size-3 shrink-0" />;
-    case "tasks": // loom:
+    case "tasks": // loom: 3d-2 seam 18
       return <ListTodo className="size-3 shrink-0" />;
-    case "workstream": // loom:
-      return <GitBranch className="size-3 shrink-0" />;
+    case "workstream": // loom: 3d-2 seam 18
+      return <Network className="size-3 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3 shrink-0" />;
     case "pull-request":
@@ -757,8 +719,6 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
-    case "agents":
-      return <Bot className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -945,6 +905,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
     },
+    // loom: 3d-3 — Loom's goal task tree (not the provider-native /goal).
+    {
+      label: "Goal tasks",
+      icon: ListTodo,
+      shortcut: "G",
+      available: props.onAddTasks !== undefined,
+      disabledReason: "This thread has no Loom goal.",
+      onClick: () => props.onAddTasks?.(),
+    },
     {
       label: "Pull request",
       icon: PullRequestGlyph.pullRequest,
@@ -954,28 +923,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequest,
     },
     {
-      label: "Goal tasks",
-      icon: ListTodo,
-      shortcut: "G",
-      available: props.tasksAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.tasks,
-      onClick: props.onAddTasks,
-    },
-    {
-      label: "Workstream",
-      icon: ClipboardList,
-      shortcut: "W",
-      available: props.workstreamAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.workstream,
-      onClick: props.onAddWorkstream,
-    },
-    {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.agents,
-      onClick: props.onAddAgents,
+      label: "Linked pull requests",
+      icon: PullRequestGlyph.link,
+      shortcut: "L",
+      available: props.pullRequestsAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
+      onClick: props.onAddPullRequests,
     },
     {
       label: "Device",
@@ -985,6 +938,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
     },
+    ...(props.loomSurfaceActions ?? []), // loom: 3d-2
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1157,6 +1111,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       {...(props.open !== undefined ? { open: props.open } : {})}
       {...(props.widthStorageKey !== undefined ? { widthStorageKey: props.widthStorageKey } : {})}
       {...(props.defaultWidth !== undefined ? { defaultWidth: props.defaultWidth } : {})}
+      {...(props.inlineSize ? { inlineSize: props.inlineSize } : {})}
     >
       <div
         className={cn(
@@ -1244,11 +1199,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                                 .catch(() => undefined);
                             }}
                           >
-                            {audio === "muted" ? (
-                              <VolumeOff className="size-3" />
-                            ) : (
-                              <Volume2 className="size-3" />
-                            )}
+                            <MorphIcon
+                              className="size-3"
+                              icon={audio === "muted" ? VolumeOff : Volume2}
+                            />
                           </button>
                         }
                       />
@@ -1466,21 +1420,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
-            onAddAgents={props.onAddAgents}
-            onAddTasks={props.onAddTasks}
-            onAddWorkstream={props.onAddWorkstream}
             onAddDevice={props.onAddDevice}
-            deviceAvailable={props.deviceAvailable}
+            onAddTasks={props.onAddTasks} // loom: 3d-3
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
             pullRequestsAvailable={props.pullRequestsAvailable}
-            agentsAvailable={props.agentsAvailable}
-            tasksAvailable={props.tasksAvailable}
-            workstreamAvailable={props.workstreamAvailable}
-            liveAgentCount={props.liveAgentCount}
+            deviceAvailable={props.deviceAvailable}
+            loomSurfaceActions={props.loomSurfaceActions} // loom: 3d-2
           />
         ) : (
           props.children

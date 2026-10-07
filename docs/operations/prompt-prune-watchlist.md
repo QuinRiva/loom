@@ -1,7 +1,7 @@
 # Prompt-prune watch-list
 
 On 2026-09-30 the orchestrator role (`roles/orchestrator.md`), the planner
-naming rule (`roles/planner.md`) and the `ask_user_question` tool prose
+naming rule (`roles/planner.md`) and the `mcp__t3-code__ask_user_question` tool prose
 (`apps/server/src/provider/Drivers/Pi/providerToolDefs.ts`) were cut from
 ~3,700 to ~1,000 resident tokens. A sentence-by-sentence audit classified
 every deletion as _carried by a resident tool contract_, _generic coaching a
@@ -33,7 +33,7 @@ cross-family wording review.
 | 7   | A child's result was accepted without being folded back into the tree/plan; or the human was escalated to for something routine                | "Fold results back… Escalate to the human only when human judgment is genuinely needed." (63)                                                                                                                        |
 | 8   | A non-trivial review/decision arrived as a long chat message rather than an MDX document                                                       | "Communicate through artefacts, not chat walls… commission it in a child's brief when it requires fresh investigation" (65) — the shorter bullet survives; watch for the _commission from a child_ half being missed |
 | 9   | A thread's title or goal drifted from what it was actually doing and wasn't renamed                                                            | "Keep your thread title and goal consistent with the actual goal…" (54)                                                                                                                                              |
-| 10  | A question to you used an agent-coined code as an option label, an acronym it never explained, or lifted figures from a report you hadn't seen | Guidelines 1–3 of `ask_user_question` — **still present**, compressed. If it recurs, the wording is too weak, not missing                                                                                            |
+| 10  | A question to you used an agent-coined code as an option label, an acronym it never explained, or lifted figures from a report you hadn't seen | Guidelines 1–3 of `mcp__t3-code__ask_user_question` — **still present**, compressed. If it recurs, the wording is too weak, not missing                                                                              |
 | 11  | A question asked you to approve a plan or reconfirm scope you already gave                                                                     | "Never ask to reconfirm scope or for approval you do not need." — **restored**; recurrence means the model is reading "irreversible" too loosely                                                                     |
 | 12  | An orchestrator did the work itself because its kickoff brief read like a to-do list                                                           | "Your kickoff brief frames work to orchestrate, not a to-do list…" — **restored**; recurrence is a real regression                                                                                                   |
 | 13  | A planner's plan minted ids (D1, must-fix #2) that then appeared in questions or reports to you                                                | `roles/planner.md` naming rule — present, compressed; the _'Phase 2' / 'when quoted'_ examples were cut                                                                                                              |
@@ -56,7 +56,7 @@ git commit f773653414 (roles/orchestrator.md, roles/planner.md,
 apps/server/src/provider/Drivers/Pi/providerToolDefs.ts).
 
 Before changing anything, consult thread 8256e5f2-9c8e-445c-b870-82f0eb060030 with
-consult_thread: describe the incident and ask (a) why that sentence was cut, (b) whether
+mcp__t3-code__consult_thread: describe the incident and ask (a) why that sentence was cut, (b) whether
 the incident matches the risk the audit foresaw, and (c) whether to restore the baseline
 sentence verbatim or draft new minimal wording. Then make the smallest change that fixes
 it — restore or redraft, never re-add the whole deleted block — get a cross-family
@@ -77,7 +77,7 @@ Read docs/operations/prompt-prune-watchlist.md in the loom repo. Diff the pre-pr
 at git commit f773653414 against HEAD for roles/orchestrator.md, roles/planner.md and
 apps/server/src/provider/Drivers/Pi/providerToolDefs.ts and identify which deleted
 sentence, if any, would have prevented this. Consult thread
-8256e5f2-9c8e-445c-b870-82f0eb060030 with consult_thread for why it was cut and whether to
+8256e5f2-9c8e-445c-b870-82f0eb060030 with mcp__t3-code__consult_thread for why it was cut and whether to
 restore it verbatim or redraft. If no deleted sentence explains it, say so — it may be a
 pre-existing behaviour, not a regression. Fix with the smallest change, get a cross-family
 wording review, run vp check and vp run typecheck, and ship through the guarded flow.
@@ -88,7 +88,7 @@ wording review, run vp check and vp run typecheck, and ship through the guarded 
 ```
 Revert the prompt pruning in the loom repo: git revert the commit that added
 docs/operations/prompt-prune-watchlist.md (it carries roles/orchestrator.md,
-roles/planner.md and the ask_user_question prose in providerToolDefs.ts). Keep the
+roles/planner.md and the mcp__t3-code__ask_user_question prose in providerToolDefs.ts). Keep the
 watch-list page but add a line saying the prune was reverted and why. Run vp check and
 vp run typecheck, ship through the guarded flow. The pre-prune text is f773653414 if the
 revert conflicts.

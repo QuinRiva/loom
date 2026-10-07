@@ -12,7 +12,7 @@
 
 import type { ThreadId } from "@t3tools/contracts";
 
-import type { SidebarThreadSummary } from "../types";
+import type { WorkstreamNode } from "./workstreamPresentation";
 
 const BRIDGE_W = 150;
 const BRIDGE_H = 46;
@@ -90,7 +90,7 @@ export type LaidNode =
   | {
       readonly kind: "thread";
       readonly key: string;
-      readonly thread: SidebarThreadSummary;
+      readonly thread: WorkstreamNode;
       x: number;
       y: number;
       readonly w: number;
@@ -153,13 +153,13 @@ function translate(block: Block, dx: number, dy: number): Block {
  * self deps don't count; cycles are broken by a visiting guard.
  */
 function dependencyColumns(
-  members: ReadonlyArray<SidebarThreadSummary>,
-): ReadonlyArray<ReadonlyArray<SidebarThreadSummary>> {
+  members: ReadonlyArray<WorkstreamNode>,
+): ReadonlyArray<ReadonlyArray<WorkstreamNode>> {
   const ids = new Set(members.map((m) => m.id));
   const byId = new Map(members.map((m) => [m.id, m]));
   const depthCache = new Map<ThreadId, number>();
   const visiting = new Set<ThreadId>();
-  const depth = (member: SidebarThreadSummary): number => {
+  const depth = (member: WorkstreamNode): number => {
     const cached = depthCache.get(member.id);
     if (cached !== undefined) return cached;
     if (visiting.has(member.id)) return 0;
@@ -174,7 +174,7 @@ function dependencyColumns(
     return d;
   };
   const maxDepth = members.reduce((max, m) => Math.max(max, depth(m)), 0);
-  const columns: SidebarThreadSummary[][] = Array.from({ length: maxDepth + 1 }, () => []);
+  const columns: WorkstreamNode[][] = Array.from({ length: maxDepth + 1 }, () => []);
   for (const member of members) columns[depth(member)]!.push(member);
   // Barycentre pass: order each dependent column by the mean row of its in-wave
   // dependencies in earlier columns, so parallel chains (coder→reviewer pairs)
@@ -183,7 +183,7 @@ function dependencyColumns(
   const rowById = new Map<ThreadId, number>();
   columns.forEach((column, colIndex) => {
     if (colIndex > 0) {
-      const barycentre = (member: SidebarThreadSummary): number => {
+      const barycentre = (member: WorkstreamNode): number => {
         const rows = member.blockedBy
           .map((dep) => rowById.get(dep))
           .filter((row): row is number => row !== undefined);
@@ -200,7 +200,7 @@ function dependencyColumns(
   return columns;
 }
 
-const minCreatedAt = (members: ReadonlyArray<SidebarThreadSummary>): string =>
+const minCreatedAt = (members: ReadonlyArray<WorkstreamNode>): string =>
   members.reduce((min, m) => (m.createdAt < min ? m.createdAt : min), members[0]!.createdAt);
 
 /**
@@ -211,14 +211,14 @@ const minCreatedAt = (members: ReadonlyArray<SidebarThreadSummary>): string =>
 function layoutOrchestrator(
   orchestratorId: ThreadId,
   title: string,
-  childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<SidebarThreadSummary>>,
+  childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
 ): Block {
   const children = childrenByParent.get(orchestratorId) ?? [];
   if (children.length === 0) return { nodes: [], edges: [], w: 0, h: 0 };
 
   // Group strictly by (parentThreadId, spawnGeneration); out-of-turn spawns
   // (null generation) degrade to singleton waves keyed by the child's own id.
-  const waves = new Map<string, SidebarThreadSummary[]>();
+  const waves = new Map<string, WorkstreamNode[]>();
   for (const child of children) {
     const key = child.spawnGeneration ?? `solo:${child.id}`;
     const group = waves.get(key);
@@ -402,7 +402,7 @@ function layoutOrchestrator(
   // top-down order already encodes it. An inversion is the opposite: the spine
   // implies the wrong order, so this is the one cross-wave edge that carries
   // information and must be drawn (it arises when a node is re-gated after
-  // spawn, e.g. workstream_set_dependencies pointing an early node at a
+  // spawn, e.g. mcp__t3-code__workstream_set_dependencies pointing an early node at a
   // later-spawned replacement). Routed vertically through a clear side gutter
   // (the long span rules out the below-channel route used for same-wave pairs;
   // the dependency itself sits between the endpoints), deconflicted against the
@@ -479,8 +479,8 @@ function layoutOrchestrator(
  * sub-orchestrator. A short solid connector ties the card to its first bridge.
  */
 function layoutMember(
-  member: SidebarThreadSummary,
-  childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<SidebarThreadSummary>>,
+  member: WorkstreamNode,
+  childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
   // A gate participant (loop source or target) routes its review loop in the
   // channel just below its card; reserve that lane ABOVE its nested block so the
   // loop can never cut through the member's own spawned descendants.
@@ -527,14 +527,14 @@ function layoutMember(
  * Build the whole-orchestration layout from a flat subtree (root + all
  * descendants). The root is the member whose parent is absent from the set.
  */
-export function computeForkJoinLayout(threads: ReadonlyArray<SidebarThreadSummary>): {
+export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
   nodes: ReadonlyArray<LaidNode>;
   edges: ReadonlyArray<LaidEdge>;
 } {
   const ids = new Set(threads.map((t) => t.id));
   const root = threads.find((t) => !t.parentThreadId || !ids.has(t.parentThreadId)) ?? threads[0];
   if (!root) return { nodes: [], edges: [] };
-  const childrenByParent = new Map<ThreadId, SidebarThreadSummary[]>();
+  const childrenByParent = new Map<ThreadId, WorkstreamNode[]>();
   for (const thread of threads) {
     if (!thread.parentThreadId) continue;
     const siblings = childrenByParent.get(thread.parentThreadId);
@@ -545,7 +545,7 @@ export function computeForkJoinLayout(threads: ReadonlyArray<SidebarThreadSummar
 }
 
 // ---------------------------------------------------------------------------
-// consult_thread observability: cross-edges + out-of-tree annotations derived
+// mcp__t3-code__consult_thread observability: cross-edges + out-of-tree annotations derived
 // from thread shells' consult summaries. Kept OUT of the memoised structural
 // layout (consults change at runtime and are additive) and resolved live from
 // the laid-out node positions — the same live-overlay pattern the renderer uses
@@ -764,7 +764,7 @@ function routeUnderChannel(
  */
 export function deriveConsultOverlay(
   nodes: ReadonlyArray<LaidNode>,
-  threadById: ReadonlyMap<ThreadId, SidebarThreadSummary>,
+  threadById: ReadonlyMap<ThreadId, WorkstreamNode>,
   laidEdges: ReadonlyArray<LaidEdge> = [],
 ): { edges: ConsultEdge[]; externalByAskerId: Map<ThreadId, ExternalConsult> } {
   const centerById = new Map<ThreadId, Extract<LaidNode, { kind: "thread" }>>();

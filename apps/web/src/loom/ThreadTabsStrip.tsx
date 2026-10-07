@@ -31,7 +31,7 @@ import { ThreadStatusLabel } from "~/components/ThreadStatusIndicators";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
-import { useThreadShells } from "~/state/entities";
+import { useThreadShell } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
@@ -49,12 +49,9 @@ type TabContextMenuAction = "copy-link" | "close" | "close-others" | "close-to-r
 interface TabModel {
   ref: ScopedThreadRef;
   key: string;
-  title: string;
   isPreview: boolean;
   isActive: boolean;
-  isUnavailable: boolean;
   environmentLabel: string | null;
-  status: ReturnType<typeof resolveThreadStatusPill>;
 }
 
 export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThreadRef | null }) {
@@ -64,23 +61,13 @@ export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThre
   const activeGroup = useThreadTabsStore(selectActiveGroup);
   const tabs = activeGroup?.tabs ?? EMPTY_TABS;
   const previewKey = activeGroup?.previewKey ?? null;
-  const shells = useThreadShells();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const lastVisitedById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const actions = useThreadTabActions(activeRouteRef);
   const reorderTab = useThreadTabsStore((state) => state.reorderTab);
 
   const tabListRef = useRef<HTMLDivElement>(null);
   const activeRouteKey = activeRouteRef ? scopedThreadKey(activeRouteRef) : null;
-
-  const shellByKey = useMemo(() => {
-    const map = new Map<string, (typeof shells)[number]>();
-    for (const shell of shells) {
-      map.set(scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }), shell);
-    }
-    return map;
-  }, [shells]);
 
   const environmentLabelById = useMemo(() => {
     const map = new Map<EnvironmentId, string>();
@@ -93,38 +80,18 @@ export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThre
   const models = useMemo<TabModel[]>(() => {
     return tabs.map((ref) => {
       const key = scopedThreadKey(ref);
-      const shell = shellByKey.get(key) ?? null;
       const isRemote = primaryEnvironmentId !== null && ref.environmentId !== primaryEnvironmentId;
-      const lastVisitedAt = lastVisitedById[key];
       return {
         ref,
         key,
-        title: shell?.title ?? ref.threadId,
         isPreview: previewKey === key,
         isActive: activeRouteKey === key,
-        isUnavailable: shell === null,
         environmentLabel: isRemote
           ? (environmentLabelById.get(ref.environmentId) ?? "Remote")
           : null,
-        status: shell
-          ? resolveThreadStatusPill({
-              thread: {
-                ...shell,
-                ...(lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-              },
-            })
-          : null,
       };
     });
-  }, [
-    tabs,
-    shellByKey,
-    previewKey,
-    activeRouteKey,
-    primaryEnvironmentId,
-    environmentLabelById,
-    lastVisitedById,
-  ]);
+  }, [tabs, previewKey, activeRouteKey, primaryEnvironmentId, environmentLabelById]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -246,6 +213,15 @@ function ThreadTab({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: model.key,
   });
+  // Each tab reads only its own shell, so a shell update re-renders one tab, not the strip.
+  const shell = useThreadShell(model.ref);
+  const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[model.key]);
+  const title = shell?.title ?? model.ref.threadId;
+  const status = shell
+    ? resolveThreadStatusPill({
+        thread: { ...shell, ...(lastVisitedAt !== undefined ? { lastVisitedAt } : {}) },
+      })
+    : null;
 
   const handleMouseDown = useCallback((event: ReactMouseEvent) => {
     if (event.button === 1) event.preventDefault();
@@ -260,7 +236,7 @@ function ThreadTab({
     [onClose],
   );
 
-  const label = model.environmentLabel ? `${model.title} · ${model.environmentLabel}` : model.title;
+  const label = model.environmentLabel ? `${title} · ${model.environmentLabel}` : title;
 
   return (
     <div
@@ -276,7 +252,7 @@ function ThreadTab({
         model.isActive
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-        model.isUnavailable && "opacity-50",
+        shell === null && "opacity-50",
       )}
       {...attributes}
       {...listeners}
@@ -289,19 +265,19 @@ function ThreadTab({
               className="flex min-w-0 flex-1 items-center gap-1.5"
               onClick={onActivate}
             >
-              {model.status ? <ThreadStatusLabel status={model.status} compact /> : null}
+              {status ? <ThreadStatusLabel status={status} compact /> : null}
               <span className={cn("truncate", model.isPreview && "italic")}>{label}</span>
             </button>
           }
         />
         <TooltipPopup>
-          {model.isUnavailable ? `${label} — thread unavailable on this connection` : label}
+          {shell === null ? `${label} — thread unavailable on this connection` : label}
         </TooltipPopup>
       </Tooltip>
       <button
         type="button"
         className="relative flex size-4 shrink-0 items-center justify-center rounded opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100"
-        aria-label={`Close ${model.title}`}
+        aria-label={`Close ${title}`}
         onClick={(event) => {
           event.stopPropagation();
           onClose();

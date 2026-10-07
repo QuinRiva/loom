@@ -1,50 +1,41 @@
 /**
- * The Goal surface: the single place a goal is managed, always anchored to the
- * open thread's goal (there is no goal switcher, no goals list, and no way to
- * open a goal other than through a thread that carries it — see
- * plans/sidebar-v2-rehome/plan.mdx).
+ * loom: the Goal surface (3d-3) — the single place a Loom goal is managed,
+ * always anchored to the open thread's goal (`workstream.goalId`; never the
+ * provider-native `/goal`, which upstream shows as its own status chip).
  *
- * It renders the goal's task tree from the DB-authoritative orchestration store,
- * the goal's edit-in-place title/description, the goal's threads in handoff
- * order, and goal CRUD behind the overflow menu.
- *
- * Tasks are read-only here: they are written by agents through the goal-task
- * provider tools (`goal_tasks_rewrite` for the whole tree, `goal_task_add` /
- * `goal_task_update` for targeted appends and done-marks) and by humans through
- * `t3 goal task …`. Both surfaces dispatch the same commands and land in the
- * same projection, so this panel needs no write path of its own — it just
- * re-renders the projected tree.
+ * It renders the goal's edit-in-place title/description, the task tree with
+ * each anchored thread's chip on its task row, and the goal's root threads in
+ * handoff order. Every write goes through a `loom.goal.*` ws method that
+ * writes `LoomStoreV2` and publishes on the goal stream, so the panel never
+ * patches local state: the edit round-trips and arrives like an agent's.
  */
-import { type EnvironmentId } from "@t3tools/contracts";
-import { MoreHorizontalIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { TaskTree, countGoalTasks, useGoalById } from "../goals/goalState";
-import { GoalThreadsSection } from "../loom/GoalThreadsSection";
-import { useAnchoredThreadsByTask } from "../loom/TaskThreadChips";
-import { useGoalPanelActions } from "../loom/useGoalPanelActions";
-import type { GoalShell, SidebarThreadSummary } from "../types";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";
+import { MoreHorizontalIcon, PlusIcon, XIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Everything the goal surface needs from the thread it is anchored to. */
-type GoalPanelThread = Pick<SidebarThreadSummary, "id" | "projectId" | "branch" | "worktreePath">;
-import { goalEnvironment } from "../state/threads";
+import { LinkifiedText } from "../loom/referenceLinks";
+import { GoalThreadsSection } from "../loom/GoalThreadsSection";
+import { goalTaskRewriteFor, type GoalTaskEdit } from "../loom/goalTaskEdits";
+import { countGoalTasks, loomCommands, useLoomGoal } from "../loom/loomGoalState";
+import { useLoomGoalActions } from "../loom/sidebarGoalActions";
+import {
+  type AnchoredThreadsByTask,
+  anchoredThreadsByTask,
+  TaskThreadChip,
+} from "../loom/TaskThreadChips";
+import { readLocalApi } from "../localApi";
+import { useThreadShells } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
 
 /**
- * Decides what a blur (commit) should do for an edit-in-place field, given the
- * current draft, the authoritative server value, and whether the user actually
- * edited this field during the focus session.
- *
- * - `emptyReverts` (title): an empty draft is a revert, never a commit.
- * - No local edits ⇒ resync to the server value. This is the fix: an external
- *   goal update that arrived while the field was focused (and therefore was not
- *   applied to the draft) is picked up on blur instead of the stale draft being
- *   committed back over it.
- * - A genuine, changed edit ⇒ commit it (last write wins for an active editor).
- * - An edit that ends up equal to the server value ⇒ resync (no-op dispatch).
- *
- * `dispatch` non-null ⇒ send that value and keep the draft; null ⇒ set the
- * draft back to `serverValue`.
+ * What a blur (commit) does for an edit-in-place field: commit a genuine,
+ * changed edit; otherwise resync to the server value (an external update that
+ * arrived while the field was focused is picked up instead of the stale draft
+ * being committed back over it). `emptyReverts`: an empty draft is a revert.
  */
 export function resolveEditBlur(params: {
   draft: string;
@@ -52,99 +43,95 @@ export function resolveEditBlur(params: {
   dirty: boolean;
   emptyReverts: boolean;
 }): { dispatch: string | null } {
-  const { draft, serverValue, dirty, emptyReverts } = params;
-  const candidate = emptyReverts ? draft.trim() : draft;
-  if (emptyReverts && candidate.length === 0) return { dispatch: null };
-  if (!dirty) return { dispatch: null };
-  return candidate !== serverValue ? { dispatch: candidate } : { dispatch: null };
+  const candidate = params.emptyReverts ? params.draft.trim() : params.draft;
+  if (params.emptyReverts && candidate.length === 0) return { dispatch: null };
+  if (!params.dirty) return { dispatch: null };
+  return { dispatch: candidate !== params.serverValue ? candidate : null };
 }
 
-// Editable goal surface: title/description are edit-in-place controlled inputs
-// that commit via `goal.meta.update` (no Approve button — an untouched goal
-// simply keeps its auto-created interpretation). Title commits on blur; Enter
-// blurs/commits; Escape reverts; an empty title reverts. Description commits on
-// blur when changed.
-//
-// Edit-session write policy (tier-4 state, corrected writer): while a field is
-// focused, an external goal update must not overwrite the in-flight draft —
-// otherwise a server-side `goal update` clobbers what the user is typing. The
-// resync effects are therefore focus-guarded (they only apply server changes
-// while the field is blurred), and blur reconciles via `resolveEditBlur`.
-// Drafts stay component-local by design: persisting them would resurrect stale
-// edits across reloads.
+/** A focus-guarded edit-in-place draft: server updates apply only while blurred. */
+function useEditDraft(serverValue: string, emptyReverts: boolean, commit: (value: string) => void) {
+  const [draft, setDraft] = useState(serverValue);
+  const focused = useRef(false);
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setDraft(serverValue);
+  }, [serverValue]);
+  return {
+    props: {
+      value: draft,
+      onFocus: () => {
+        focused.current = true;
+        dirty.current = false;
+      },
+      onChange: (event: { target: { value: string } }) => {
+        dirty.current = true;
+        setDraft(event.target.value);
+      },
+      onBlur: () => {
+        focused.current = false;
+        const { dispatch } = resolveEditBlur({
+          draft,
+          serverValue,
+          dirty: dirty.current,
+          emptyReverts,
+        });
+        if (dispatch !== null) commit(dispatch);
+        else setDraft(serverValue);
+      },
+    },
+    revert: () => {
+      dirty.current = false;
+      setDraft(serverValue);
+    },
+  };
+}
+
 function GoalHeader({
   goal,
   environmentId,
-  onOpenOverflow,
 }: {
-  goal: GoalShell;
+  goal: LoomGoalShell;
   environmentId: EnvironmentId;
-  onOpenOverflow: (position: { x: number; y: number }) => void;
 }) {
-  const updateMeta = useAtomCommand(goalEnvironment.updateMeta);
-  const [titleDraft, setTitleDraft] = useState(goal.title);
-  const [descriptionDraft, setDescriptionDraft] = useState(goal.description);
-  const titleFocusedRef = useRef(false);
-  const descriptionFocusedRef = useRef(false);
-  const titleDirtyRef = useRef(false);
-  const descriptionDirtyRef = useRef(false);
-  // Apply external goal updates to the draft only while the field is blurred; a
-  // focused field keeps the user's in-flight draft (blur reconciles).
-  useEffect(() => {
-    if (!titleFocusedRef.current) setTitleDraft(goal.title);
-  }, [goal.title]);
-  useEffect(() => {
-    if (!descriptionFocusedRef.current) setDescriptionDraft(goal.description);
-  }, [goal.description]);
+  const update = useAtomCommand(loomCommands.goalUpdate);
+  const { renameGoal, setArchived } = useLoomGoalActions();
+  const commit = (fields: { title?: string; description?: string }) =>
+    void update({ environmentId, input: { goalId: goal.id, ...fields } });
+  const title = useEditDraft(goal.title, true, (value) => commit({ title: value }));
+  const description = useEditDraft(goal.description, false, (value) =>
+    commit({ description: value }),
+  );
   const progress = countGoalTasks(goal.tasks);
+  const archived = goal.archivedAt !== null;
 
-  const dispatchGoalMeta = (fields: { title?: string; description?: string }) =>
-    void updateMeta({ environmentId, input: { goalId: goal.id, ...fields } });
-
-  const commitTitle = () => {
-    titleFocusedRef.current = false;
-    const { dispatch } = resolveEditBlur({
-      draft: titleDraft,
-      serverValue: goal.title,
-      dirty: titleDirtyRef.current,
-      emptyReverts: true,
-    });
-    if (dispatch !== null) dispatchGoalMeta({ title: dispatch });
-    else setTitleDraft(goal.title);
-  };
-  const commitDescription = () => {
-    descriptionFocusedRef.current = false;
-    const { dispatch } = resolveEditBlur({
-      draft: descriptionDraft,
-      serverValue: goal.description,
-      dirty: descriptionDirtyRef.current,
-      emptyReverts: false,
-    });
-    if (dispatch !== null) dispatchGoalMeta({ description: dispatch });
-    else setDescriptionDraft(goal.description);
+  const openOverflow = async (position: { x: number; y: number }) => {
+    const clicked = await readLocalApi()?.contextMenu.show(
+      [
+        { id: "rename", label: "Rename goal\u2026" },
+        archived
+          ? { id: "unarchive", label: "Unarchive goal" }
+          : { id: "archive", label: "Archive goal" },
+      ],
+      position,
+    );
+    if (clicked === "rename") void renameGoal(environmentId, goal);
+    if (clicked === "archive" || clicked === "unarchive") {
+      void setArchived(environmentId, goal, clicked === "archive");
+    }
   };
 
   return (
     <div className="mb-3 border-b border-border/60 pb-3">
       <div className="flex items-start justify-between gap-3">
         <input
-          value={titleDraft}
-          onFocus={() => {
-            titleFocusedRef.current = true;
-            titleDirtyRef.current = false;
-          }}
-          onChange={(event) => {
-            titleDirtyRef.current = true;
-            setTitleDraft(event.target.value);
-          }}
-          onBlur={commitTitle}
+          {...title.props}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
               event.currentTarget.blur();
             } else if (event.key === "Escape") {
-              titleDirtyRef.current = false;
-              setTitleDraft(goal.title);
+              title.revert();
               event.currentTarget.blur();
             }
           }}
@@ -152,39 +139,28 @@ function GoalHeader({
           placeholder={goal.slug}
           className="min-w-0 flex-1 truncate bg-transparent text-sm font-semibold text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
         />
+        {archived ? (
+          <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs text-muted-foreground">
+            Archived
+          </span>
+        ) : null}
         <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
           {progress.done}/{progress.total}
         </span>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label="Goal actions"
-                onClick={(event) => {
-                  const box = event.currentTarget.getBoundingClientRect();
-                  onOpenOverflow({ x: box.left, y: box.bottom });
-                }}
-                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              />
-            }
-          >
-            <MoreHorizontalIcon className="size-4" />
-          </TooltipTrigger>
-          <TooltipPopup>Goal actions</TooltipPopup>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Goal actions"
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            void openOverflow({ x: box.left, y: box.bottom });
+          }}
+        >
+          <MoreHorizontalIcon />
+        </Button>
       </div>
       <textarea
-        value={descriptionDraft}
-        onFocus={() => {
-          descriptionFocusedRef.current = true;
-          descriptionDirtyRef.current = false;
-        }}
-        onChange={(event) => {
-          descriptionDirtyRef.current = true;
-          setDescriptionDraft(event.target.value);
-        }}
-        onBlur={commitDescription}
+        {...description.props}
         aria-label="Goal description"
         placeholder={"Describe this goal\u2026"}
         rows={1}
@@ -194,72 +170,226 @@ function GoalHeader({
   );
 }
 
-function GoalPanelBody({
-  goal,
-  environmentId,
-  activeThread,
+/** One line of new-task text; Enter submits, Escape or an empty blur cancels. */
+function TaskTextInput({
+  initial,
+  placeholder,
+  onSubmit,
+  onCancel,
 }: {
-  goal: GoalShell;
-  environmentId: EnvironmentId;
-  activeThread: GoalPanelThread | null;
+  initial: string;
+  placeholder: string;
+  onSubmit: (text: string) => void;
+  onCancel: () => void;
 }) {
-  const { createGoalSession, openOverflowMenu } = useGoalPanelActions({
-    goal,
-    environmentId,
-    activeThread,
-  });
-  // loom: anchored sub-threads chip their own task row (task→thread navigation).
-  const anchors = useAnchoredThreadsByTask(goal.id, environmentId);
+  const [text, setText] = useState(initial);
+  const submit = () =>
+    text.trim().length > 0 && text.trim() !== initial ? onSubmit(text.trim()) : onCancel();
+  return (
+    <Input
+      size="sm"
+      autoFocus
+      value={text}
+      placeholder={placeholder}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={submit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        } else if (event.key === "Escape") {
+          onCancel();
+        }
+      }}
+    />
+  );
+}
+
+type Editing =
+  | { readonly kind: "rename" | "add-child"; readonly taskId: string }
+  | { readonly kind: "add-root" }
+  | null;
+
+function TaskTree({
+  tasks,
+  anchors,
+  activeThreadId,
+  editing,
+  setEditing,
+  onEdit,
+}: {
+  tasks: ReadonlyArray<LoomGoalTask>;
+  anchors: AnchoredThreadsByTask;
+  activeThreadId: string | null;
+  editing: Editing;
+  setEditing: (editing: Editing) => void;
+  onEdit: (edit: GoalTaskEdit) => void;
+}) {
+  const subtree = { anchors, activeThreadId, editing, setEditing, onEdit };
+  return (
+    <ul className="space-y-1 pl-1 text-sm text-foreground/85">
+      {tasks.map((task) => {
+        const renaming = editing?.kind === "rename" && editing.taskId === task.id;
+        const addingChild = editing?.kind === "add-child" && editing.taskId === task.id;
+        return (
+          <li key={task.id}>
+            <div className="group flex items-start gap-2">
+              <span className="pt-0.5">
+                <Checkbox
+                  checked={task.done}
+                  aria-label={task.done ? "Mark not done" : "Mark done"}
+                  onCheckedChange={() => onEdit({ kind: "toggle", taskId: task.id })}
+                />
+              </span>
+              {renaming ? (
+                <TaskTextInput
+                  initial={task.text}
+                  placeholder="Task"
+                  onSubmit={(text) => {
+                    setEditing(null);
+                    onEdit({ kind: "rename", taskId: task.id, text });
+                  }}
+                  onCancel={() => setEditing(null)}
+                />
+              ) : (
+                // Chips flow with the text so a long task wraps as one paragraph.
+                <span
+                  className={
+                    task.done
+                      ? "min-w-0 flex-1 text-muted-foreground line-through"
+                      : "min-w-0 flex-1"
+                  }
+                  onDoubleClick={() => setEditing({ kind: "rename", taskId: task.id })}
+                >
+                  <LinkifiedText text={task.text} />
+                  {anchors.get(task.id)?.map((thread) => (
+                    <TaskThreadChip
+                      key={thread.id}
+                      thread={thread}
+                      current={thread.id === activeThreadId}
+                    />
+                  ))}
+                </span>
+              )}
+              <span className="flex shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="icon-tiny"
+                  aria-label="Add a subtask"
+                  onClick={() => setEditing({ kind: "add-child", taskId: task.id })}
+                >
+                  <PlusIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-tiny"
+                  aria-label="Remove task"
+                  onClick={() => onEdit({ kind: "remove", taskId: task.id })}
+                >
+                  <XIcon />
+                </Button>
+              </span>
+            </div>
+            {task.children.length > 0 || addingChild ? (
+              <div className="ml-6 mt-1 border-l border-border/50 pl-3">
+                <TaskTree tasks={task.children} {...subtree} />
+                {addingChild ? (
+                  <TaskTextInput
+                    initial=""
+                    placeholder="New subtask"
+                    onSubmit={(text) => {
+                      setEditing(null);
+                      onEdit({ kind: "add", parentTaskId: task.id, text });
+                    }}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The panel for one goal, given every thread shell held (the preview mounts it directly). */
+export function GoalPanelView({
+  goal,
+  thread,
+  shells,
+}: {
+  goal: LoomGoalShell;
+  thread: Pick<EnvironmentThreadShell, "id" | "environmentId">;
+  shells: ReadonlyArray<EnvironmentThreadShell>;
+}) {
+  const rewrite = useAtomCommand(loomCommands.goalTaskRewrite);
+  const anchors = useMemo(
+    () => anchoredThreadsByTask(shells, goal.id, thread.environmentId),
+    [shells, goal.id, thread.environmentId],
+  );
+  const [editing, setEditing] = useState<Editing>(null);
+  const onEdit = (edit: GoalTaskEdit) => {
+    const input = goalTaskRewriteFor(goal.tasks, edit);
+    if (input)
+      void rewrite({ environmentId: thread.environmentId, input: { goalId: goal.id, ...input } });
+  };
   return (
     <>
-      <GoalHeader
-        goal={goal}
-        environmentId={environmentId}
-        onOpenOverflow={(position) => void openOverflowMenu(position)}
-      />
+      <GoalHeader goal={goal} environmentId={thread.environmentId} />
       {goal.tasks.length > 0 ? (
-        <TaskTree tasks={goal.tasks} anchors={anchors} />
+        <TaskTree
+          tasks={goal.tasks}
+          anchors={anchors}
+          activeThreadId={thread.id}
+          editing={editing}
+          setEditing={setEditing}
+          onEdit={onEdit}
+        />
       ) : (
         <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
       )}
+      <div className="mt-2">
+        {editing?.kind === "add-root" ? (
+          <TaskTextInput
+            initial=""
+            placeholder="New task"
+            onSubmit={(text) => {
+              setEditing(null);
+              onEdit({ kind: "add", parentTaskId: null, text });
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        ) : (
+          <Button variant="ghost" size="xs" onClick={() => setEditing({ kind: "add-root" })}>
+            <PlusIcon />
+            Add task
+          </Button>
+        )}
+      </div>
       <GoalThreadsSection
         goalId={goal.id}
-        environmentId={environmentId}
-        activeThreadId={activeThread?.id ?? null}
-        onCreateSession={() => void createGoalSession()}
+        environmentId={thread.environmentId}
+        activeThreadId={thread.id}
+        shells={shells}
       />
     </>
   );
 }
 
-export function GoalTasksPanel({
-  goalId,
-  environmentId,
-  activeThread,
-}: {
-  goalId: string | null;
-  environmentId: EnvironmentId | null;
-  activeThread?: GoalPanelThread | null;
-}) {
-  const goal = useGoalById(goalId);
-
+export default function GoalTasksPanel({ thread }: { thread: EnvironmentThreadShell | null }) {
+  const goalId = thread?.source.workstream?.goalId ?? null;
+  const goal = useLoomGoal(thread?.environmentId ?? null, goalId);
+  const shells = useThreadShells();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
-      {!goalId ? (
-        // The panel is always the open thread's goal, so a goal-less thread gets
-        // the one hint that can change that — no goal picker, by design.
-        <p className="text-sm text-muted-foreground/70">
-          This thread has no goal. Right-click it in the sidebar to create a goal from it, or assign
-          it to an existing one.
-        </p>
-      ) : !goal || !environmentId ? (
+      {thread === null || goalId === null ? (
+        // The panel is always the open thread's Loom goal: no goal picker, by design.
+        <p className="text-sm text-muted-foreground/70">This thread has no Loom goal.</p>
+      ) : goal === null ? (
         <p className="text-sm text-muted-foreground/70">Missing goal: {goalId}</p>
       ) : (
-        <GoalPanelBody
-          goal={goal}
-          environmentId={environmentId}
-          activeThread={activeThread ?? null}
-        />
+        <GoalPanelView goal={goal} thread={thread} shells={shells} />
       )}
     </div>
   );

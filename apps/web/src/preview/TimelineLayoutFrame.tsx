@@ -8,7 +8,8 @@ import {
 /**
  * Reproduces the exact layout chain a `ChatMarkdown` renders inside on a real
  * thread: a scrolling viewport that publishes `--timeline-available-width` from
- * a ResizeObserver, wrapping the centred `max-w-3xl` prose column. Wide-block
+ * a ResizeObserver, wrapping each row's `messages-timeline-row-frame` and its
+ * centred `chat-content-lane` column (`MessagesTimeline` `renderItem`). Wide-block
  * bleed keys off that variable, so previewing a component here matches what the
  * timeline produces — rendering it bare would misreport table layout.
  *
@@ -22,8 +23,10 @@ export function TimelineLayoutFrame({ children }: { children: ReactNode }) {
   return (
     <div ref={setViewport} className="relative h-full min-h-0">
       <div className="scrollbar-gutter-both h-full min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-5">
-        <div className={TIMELINE_ROW_CLASS_NAME} data-timeline-root="true">
-          {children}
+        <div className="messages-timeline-row-frame">
+          <div className={TIMELINE_ROW_CLASS_NAME} data-timeline-root="true">
+            {children}
+          </div>
         </div>
       </div>
     </div>

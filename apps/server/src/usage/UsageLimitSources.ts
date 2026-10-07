@@ -33,7 +33,8 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import * as Settings from "../serverSettings.ts";
 import { carriedAccounts, makeCliproxyApi } from "./cliproxyApi.ts"; // loom: carriedAccounts
 
 export class UsageLimitSources extends Context.Service<
@@ -62,7 +63,8 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
-  const settingsService = yield* ServerSettingsService;
+  const settingsService = yield* Settings.ServerSettingsService;
+  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),

@@ -1,7 +1,7 @@
 import type { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { SidebarThreadSummary } from "../types";
+import type { WorkstreamNode } from "./workstreamPresentation";
 import {
   BackEdgeLanes,
   computeForkJoinLayout,
@@ -34,7 +34,7 @@ function thread(props: {
   title?: string;
   loopTo?: string;
   consults?: ReturnType<typeof consult>[];
-}): SidebarThreadSummary {
+}): WorkstreamNode {
   return {
     id: tid(props.id),
     parentThreadId: props.parentThreadId ? tid(props.parentThreadId) : null,
@@ -44,7 +44,7 @@ function thread(props: {
     title: props.title ?? props.id,
     routes: props.loopTo ? [{ on: ["needs_rework"], kind: "loop", to: tid(props.loopTo) }] : [],
     consults: props.consults ?? [],
-  } as unknown as SidebarThreadSummary;
+  } as unknown as WorkstreamNode;
 }
 
 // A point lies inside a node's rectangle (used to assert channels stay clear).
@@ -635,8 +635,8 @@ describe("back-edge routing", () => {
 
 // Small helper: run the layout and return nodes plus a byId map for consult
 // overlay derivation.
-function computeForkJoinLayoutWith(threads: ReadonlyArray<SidebarThreadSummary>): {
-  nodes: { all: ReadonlyArray<LaidNode>; byId: Map<ThreadId, SidebarThreadSummary> };
+function computeForkJoinLayoutWith(threads: ReadonlyArray<WorkstreamNode>): {
+  nodes: { all: ReadonlyArray<LaidNode>; byId: Map<ThreadId, WorkstreamNode> };
 } {
   const { nodes } = computeForkJoinLayout(threads);
   return { nodes: { all: nodes, byId: new Map(threads.map((t) => [t.id, t])) } };

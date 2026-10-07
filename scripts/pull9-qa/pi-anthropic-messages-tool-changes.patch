@@ -1,0 +1,56 @@
+pi-anthropic-messages 0.3.4: rename tools inside pi >= 1.0's native tool-change blocks.
+
+The bridge renames payload.tools (bash -> Bash, fd -> mcp__pi__fd, ...) and historical
+tool_use blocks, but not the tool_removal / tool_addition blocks pi-ai 1.0 sends for a
+mid-conversation tool-set change. A removal then names a tool payload.tools does not
+declare, and Anthropic answers 400 "tool_addition/tool_removal references unknown tool
+'bash'". Any pi 1.0 session whose transcript leads with its system message and whose
+tool set later drops a renamed tool hits it. Applies with `patch -p1 -d <package dir>`;
+not yet upstream.
+
+--- a/dist/transform.js
++++ b/dist/transform.js
+@@ -75,7 +75,7 @@
+     const mapped = nameMap.get(name) ?? nameMap.get(lower(name));
+     return mapped ? { ...toolChoice, name: mapped } : toolChoice;
+ }
+-function remapMessageToolNames(messages, nameMap) {
++function remapMessageToolNames(messages, nameMap, rename) {
+     let anyChange = false;
+     const next = messages.map((msg) => {
+         if (!isPlainObject(msg) || !Array.isArray(msg.content))
+@@ -84,6 +84,25 @@
+         const content = msg.content.map((block) => {
+             if (!isPlainObject(block))
+                 return block;
++            // pi >= 1.0 native mid-conversation tool changes: a tool_removal references a
++            // declared tool by name and a tool_addition defines one by value, so both must
++            // carry the same wire name as payload.tools, or Anthropic rejects the reference.
++            if (block.type === "tool_removal" && isPlainObject(block.tool) && typeof block.tool.name === "string") {
++                const mapped = rename(block.tool.name);
++                if (mapped !== block.tool.name) {
++                    msgChanged = true;
++                    return { ...block, tool: { ...block.tool, name: mapped } };
++                }
++            }
++            if (block.type === "tool_addition" && isPlainObject(block.tool) && isPlainObject(block.tool.definition) && typeof block.tool.definition.name === "string") {
++                const mapped = rename(block.tool.definition.name);
++                if (mapped !== block.tool.definition.name) {
++                    nameMap.set(block.tool.definition.name, mapped);
++                    nameMap.set(lower(block.tool.definition.name), mapped);
++                    msgChanged = true;
++                    return { ...block, tool: { ...block.tool, definition: { ...block.tool.definition, name: mapped } } };
++                }
++            }
+             if ((block.type === "tool_use" || block.type === "tool_result") && typeof block.name === "string") {
+                 const mapped = nameMap.get(block.name) ?? nameMap.get(lower(block.name));
+                 if (mapped && mapped !== block.name) {
+@@ -126,7 +145,7 @@
+         payload.tool_choice = remapToolChoice(payload.tool_choice, nameMap);
+     }
+     if (Array.isArray(payload.messages)) {
+-        payload.messages = remapMessageToolNames(payload.messages, nameMap);
++        payload.messages = remapMessageToolNames(payload.messages, nameMap, rename);
+     }
+     return { payload, nameMap };
+ }

@@ -4,7 +4,6 @@ import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
-  type OrchestrationThreadSearchMatch, // loom
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -13,10 +12,10 @@ import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { type ReactNode } from "react";
 import { getThreadSortTimestamp, sortThreads } from "../lib/threadSort";
-import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
 import { normalizeSearchText } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
+import { isVisibleHandoffDrafter } from "../loom/handoffDrafter"; // loom: hide healthy /handoff drafters
 
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
@@ -123,15 +122,11 @@ export function reduceCommandPaletteUiState(
   }
 }
 
-// loom: every indexed source, the sub-thread that produced the hit, and the
-// root's position in the server's fused ranking.
-export type CommandPaletteThreadContentMatch = Pick<
-  OrchestrationThreadSearchMatch,
-  "source" | "snippet" | "matchedThreadTitle"
-> & {
+export interface CommandPaletteThreadContentMatch {
+  readonly source: "user" | "assistant";
+  readonly snippet: string;
   readonly query: string;
-  readonly position: number;
-};
+}
 
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
@@ -176,6 +171,65 @@ export interface CommandPaletteView {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+}
+
+export type CommandPaletteRow =
+  | {
+      readonly kind: "label";
+      readonly key: string;
+      readonly label: string;
+      readonly first: boolean;
+    }
+  | {
+      readonly kind: "item";
+      readonly key: string;
+      readonly item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
+      /** Position among enabled items, or null for disabled rows the keyboard skips. */
+      readonly itemIndex: number | null;
+    };
+
+/**
+ * Flattens groups into the rows a virtualized list renders. `itemValues` is the
+ * highlightable item order Base UI navigates; `rowIndexByItemIndex` maps a
+ * highlight back to its row for scrolling.
+ */
+export function buildCommandPaletteRows(groups: ReadonlyArray<CommandPaletteGroup>) {
+  const rows: CommandPaletteRow[] = [];
+  const itemValues: string[] = [];
+  const rowIndexByItemIndex: number[] = [];
+  for (const group of groups) {
+    if (group.label) {
+      rows.push({
+        kind: "label",
+        key: `group:${group.value}`,
+        label: group.label,
+        first: rows.length === 0,
+      });
+    }
+    for (const item of group.items) {
+      const itemIndex = item.disabled ? null : itemValues.length;
+      if (itemIndex !== null) {
+        itemValues.push(item.value);
+        rowIndexByItemIndex.push(rows.length);
+      }
+      rows.push({ kind: "item", key: `${group.value}:${item.value}`, item, itemIndex });
+    }
+  }
+  return { rows, itemValues, rowIndexByItemIndex };
+}
+
+/** The enabled item Enter should run for a highlight, whether or not its row is mounted. */
+export function findHighlightedCommandPaletteItem(
+  groups: ReadonlyArray<CommandPaletteGroup>,
+  highlightedItemValue: string | null,
+): CommandPaletteActionItem | CommandPaletteSubmenuItem | null {
+  if (highlightedItemValue === null) return null;
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (item.value === highlightedItemValue && !item.disabled) return item;
+    }
+  }
+  return null;
 }
 
 export function enumerateCommandPaletteItems(
@@ -249,15 +303,12 @@ export type BuildThreadActionItemsThread = Pick<
   | "createdAt"
   | "environmentId"
   | "id"
-  | "projectId"
-  | "title"
-  | "role"
-  | "attention"
   | "modelSelection"
   | "projectId"
-  | "session"
+  | "runtime"
   | "title"
   | "worktreePath"
+  | "source" // loom: handoff-drafter visibility
 > & {
   pullRequests?: SidebarThreadSummary["pullRequests"];
   updatedAt: string;
@@ -281,8 +332,10 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    // Hide healthy handoff-drafter roots; surface only broken ones (plan D6).
-    input.threads.filter((thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread)),
+    input.threads.filter(
+      // loom: healthy /handoff drafters stay hidden; broken (flagged) ones surface.
+      (thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread),
+    ),
     input.sortOrder,
   );
   const visibleThreads =
@@ -445,12 +498,7 @@ export function filterCommandPaletteGroups(input: {
   return searchableGroups.flatMap((group) => {
     const items = Arr.filterMap(group.items, (item, index) => {
       const haystack = normalizeSearchText(item.searchTerms.join(" "));
-      // loom: a content hit was already judged by the server — stemmed or
-      // semantic, so it may contain none of the typed words.
-      if (
-        item.threadContentMatch === undefined &&
-        !queryTokens.every((token) => haystack.includes(token))
-      ) {
+      if (!queryTokens.every((token) => haystack.includes(token))) {
         return Result.failVoid;
       }
 
@@ -463,11 +511,6 @@ export function filterCommandPaletteGroups(input: {
       .toSorted(
         (left, right) =>
           Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
-          // loom: items whose title holds every token lead (the only way to
-          // find a sub-thread); content hits then follow the server's order.
-          Number(right.rank >= 1_000) - Number(left.rank >= 1_000) ||
-          (left.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) -
-            (right.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) ||
           right.rank - left.rank ||
           (right.item.searchRecency ?? 0) - (left.item.searchRecency ?? 0) ||
           left.index - right.index,

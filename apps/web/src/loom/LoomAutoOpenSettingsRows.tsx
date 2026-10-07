@@ -1,94 +1,50 @@
-// Loom-owned settings rows for the durable one-shot auto-open toggles (plan
-// W1). Kept out of the upstream-owned `SettingsPanels.tsx` so upstream merges
-// touch only splice points: the row markup, the dirty-label enumeration, and
-// the restore-defaults patch each integrate through the small exports here.
+// loom: 3d-4 (DT-77) — the way out of the Workstream auto-open seed: a Settings
+// row for `autoOpenWorkstreamPanel` (read by `useLoomRightPanelSurfaces`).
+// Kept out of the upstream-owned `SettingsPanels.tsx`, which splices in the row,
+// its dirty label and its restore-defaults key.
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 
 import { SettingResetButton, SettingsRow } from "../components/settings/settingsLayout";
 import { Switch } from "../components/ui/switch";
 
-type AutoOpenPatch = Partial<
-  Pick<UnifiedSettings, "autoOpenGoalTasksPanel" | "autoOpenWorkstreamPanel">
->;
+const DEFAULT_AUTO_OPEN = DEFAULT_UNIFIED_SETTINGS.autoOpenWorkstreamPanel;
 
-// Restore-defaults patch: spread into the upstream `restoreDefaults` update.
-export const LOOM_AUTO_OPEN_RESTORE_DEFAULTS = {
-  autoOpenGoalTasksPanel: DEFAULT_UNIFIED_SETTINGS.autoOpenGoalTasksPanel,
-  autoOpenWorkstreamPanel: DEFAULT_UNIFIED_SETTINGS.autoOpenWorkstreamPanel,
-} as const;
+/** Spread into the restore-defaults patch. */
+export const LOOM_AUTO_OPEN_RESTORE_DEFAULTS = { autoOpenWorkstreamPanel: DEFAULT_AUTO_OPEN };
 
-// Dirty labels for the "changed settings" summary/enumeration.
-export function loomAutoOpenChangedLabels(settings: UnifiedSettings): string[] {
-  return [
-    ...(settings.autoOpenGoalTasksPanel !== DEFAULT_UNIFIED_SETTINGS.autoOpenGoalTasksPanel
-      ? ["Auto-open goal tasks"]
-      : []),
-    ...(settings.autoOpenWorkstreamPanel !== DEFAULT_UNIFIED_SETTINGS.autoOpenWorkstreamPanel
-      ? ["Auto-open workstream"]
-      : []),
-  ];
-}
+/** Spread into the changed-settings labels. */
+export const loomAutoOpenChangedLabels = (
+  settings: Pick<UnifiedSettings, "autoOpenWorkstreamPanel">,
+) => (settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? ["Auto-open workstream"] : []);
 
 export function LoomAutoOpenSettingsRows({
   settings,
   updateSettings,
 }: {
-  settings: UnifiedSettings;
-  updateSettings: (patch: AutoOpenPatch) => void;
+  readonly settings: Pick<UnifiedSettings, "autoOpenWorkstreamPanel">;
+  readonly updateSettings: (patch: { autoOpenWorkstreamPanel: boolean }) => void;
 }) {
   return (
-    <>
-      <SettingsRow
-        title="Auto-open goal tasks"
-        description="On a goal-bound thread, open the Goal Tasks panel once when you first visit it."
-        resetAction={
-          settings.autoOpenGoalTasksPanel !== DEFAULT_UNIFIED_SETTINGS.autoOpenGoalTasksPanel ? (
-            <SettingResetButton
-              label="auto-open goal tasks"
-              onClick={() =>
-                updateSettings({
-                  autoOpenGoalTasksPanel: DEFAULT_UNIFIED_SETTINGS.autoOpenGoalTasksPanel,
-                })
-              }
-            />
-          ) : null
-        }
-        control={
-          <Switch
-            checked={settings.autoOpenGoalTasksPanel}
-            onCheckedChange={(checked) =>
-              updateSettings({ autoOpenGoalTasksPanel: Boolean(checked) })
-            }
-            aria-label="Open the goal tasks panel automatically"
+    <SettingsRow
+      title="Auto-open workstream"
+      description="On a thread with sub-threads, open its Workstream graph once when you first visit it."
+      resetAction={
+        settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? (
+          <SettingResetButton
+            label="auto-open workstream"
+            onClick={() => updateSettings({ autoOpenWorkstreamPanel: DEFAULT_AUTO_OPEN })}
           />
-        }
-      />
-
-      <SettingsRow
-        title="Auto-open workstream"
-        description="On a thread that has a parent or sub-threads, open the Workstream panel once when you first visit it."
-        resetAction={
-          settings.autoOpenWorkstreamPanel !== DEFAULT_UNIFIED_SETTINGS.autoOpenWorkstreamPanel ? (
-            <SettingResetButton
-              label="auto-open workstream"
-              onClick={() =>
-                updateSettings({
-                  autoOpenWorkstreamPanel: DEFAULT_UNIFIED_SETTINGS.autoOpenWorkstreamPanel,
-                })
-              }
-            />
-          ) : null
-        }
-        control={
-          <Switch
-            checked={settings.autoOpenWorkstreamPanel}
-            onCheckedChange={(checked) =>
-              updateSettings({ autoOpenWorkstreamPanel: Boolean(checked) })
-            }
-            aria-label="Open the workstream panel automatically"
-          />
-        }
-      />
-    </>
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.autoOpenWorkstreamPanel}
+          onCheckedChange={(checked) =>
+            updateSettings({ autoOpenWorkstreamPanel: Boolean(checked) })
+          }
+          aria-label="Open the workstream panel automatically"
+        />
+      }
+    />
   );
 }

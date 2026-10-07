@@ -1,7 +1,7 @@
 /**
  * loom: serial handoff order for a goal's threads.
  *
- * `goal_continue` stamps `continuesThreadId` on the successor (migration 1035),
+ * `mcp__t3-code__goal_continue` stamps `workstream.continuesThreadId` on the successor,
  * which makes "this goal's threads, in the order the work actually flowed"
  * answerable from stored data rather than from prose inside a brief. This module
  * is the walk: chain heads first (ordered by creation), each head followed

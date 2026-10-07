@@ -11,18 +11,19 @@ import {
 import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
-  OrchestrationThread,
   ProjectContentMatch,
+  ProjectEntry,
   ProjectEntryKind,
+  ThreadId,
+  TurnItemId,
   VcsListRefsResult,
   VcsRef,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useClientSettings } from "../hooks/useSettings"; // loom:
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { orchestrationEnvironment } from "./orchestration";
 import { isPaginatedBranchesNextPagePending } from "./paginatedBranches";
@@ -37,6 +38,7 @@ const PROJECT_CONTENT_SEARCH_LIMIT = 500;
 const THREAD_SEARCH_DEBOUNCE_MS = 200;
 const VCS_REF_LIST_LIMIT = 100;
 const EMPTY_REFS: ReadonlyArray<VcsRef> = [];
+const EMPTY_PROJECT_ENTRIES: ReadonlyArray<ProjectEntry> = [];
 const EMPTY_CONTENT_MATCHES: ReadonlyArray<ProjectContentMatch> = [];
 const INITIAL_BRANCH_CURSORS = [undefined] as const;
 const EMPTY_THREAD_SEARCH_MATCHES: ReadonlyArray<EnvironmentThreadSearchMatch> = Object.freeze([]);
@@ -46,22 +48,14 @@ const EMPTY_THREAD_SEARCH_ATOM = Atom.make({
 }).pipe(Atom.withLabel("web:thread-search:empty"));
 
 const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
-  getSearchAtom: (environmentId, query, includeArchived) =>
+  getSearchAtom: (environmentId, query) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query, limit: 30, includeArchived }, // loom: 30 roots (plans/thread-content-search)
+      input: { query },
     }),
   labelPrefix: "web:thread-search",
 });
 
-export interface ThreadDetailView {
-  readonly data: OrchestrationThread | null;
-  readonly error: string | null;
-  readonly isPending: boolean;
-  readonly isDeleted: boolean;
-}
-
-/** Shared with the pull requests page, which debounces its search the same way. */
 export function useDebouncedValue<A>(value: A, delayMs: number): A {
   const [debounced, setDebounced] = useState(value);
 
@@ -82,20 +76,17 @@ export function useThreadSearch(
   query: string,
 ): {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
+  /** The settled query `matches` came from; it only changes when results do. */
+  readonly query: string;
   readonly isPending: boolean;
 } {
-  // loom: a per-device preference, so the sidebar and the palette agree.
-  const includeArchived = useClientSettings((settings) => settings.threadSearchIncludeArchived);
   const normalizedQuery = query.trim();
   const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_SEARCH_DEBOUNCE_MS);
   const canSearch = environmentIds.length > 0 && normalizedQuery.length >= 2;
   const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
   const searchKey = useMemo(
-    () =>
-      settledQuery === null
-        ? null
-        : makeThreadSearchKey(environmentIds, settledQuery, includeArchived), // loom:
-    [environmentIds, settledQuery, includeArchived],
+    () => (settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery)),
+    [environmentIds, settledQuery],
   );
   const result = useAtomValue(
     searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),
@@ -103,6 +94,7 @@ export function useThreadSearch(
   const isDebouncing = canSearch && normalizedQuery !== debouncedQuery;
   return {
     matches: isDebouncing ? EMPTY_THREAD_SEARCH_MATCHES : result.matches,
+    query: settledQuery ?? "",
     isPending: canSearch && (isDebouncing || result.isLoading),
   };
 }
@@ -264,7 +256,7 @@ export function useProjectPathSearch(
   );
 
   return {
-    entries: result.data?.entries ?? [],
+    entries: result.data?.entries ?? EMPTY_PROJECT_ENTRIES,
     error: result.error,
     isPending:
       !areProjectPathSearchTargetsEqual(normalizedTarget, debouncedTarget) || result.isPending,
@@ -362,4 +354,23 @@ export function useCheckpointDiff(
     turnTarget === null ? null : orchestrationEnvironment.turnDiff(turnTarget),
   );
   return fullThreadTarget === null ? turn : fullThread;
+}
+
+/** Full input and output of one timeline item, fetched only while its row is open. */
+export function useTurnItemDetail(
+  target: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+    readonly itemId: TurnItemId;
+    readonly revision: string;
+  } | null,
+) {
+  return useEnvironmentQuery(
+    target === null
+      ? null
+      : orchestrationEnvironment.turnItem({
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId, itemId: target.itemId, revision: target.revision },
+        }),
+  );
 }

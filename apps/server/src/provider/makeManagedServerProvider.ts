@@ -16,13 +16,13 @@ import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   applyUsageLimitsUpdate,
-  removeUsageLimitWindows,
+  removeUsageLimitWindows, // loom: retraction for the subscription-usage feeder
   resolveUsageLimitsAfterProbe,
 } from "./providerUsageLimits.ts";
-import type { ServerProviderShape } from "./Services/ServerProvider.ts";
+import type { ServerProviderShape } from "./ServerProvider.ts";
 
 interface ProviderSnapshotState {
   readonly snapshot: ServerProvider;
@@ -55,11 +55,10 @@ export type EnrichableField = "models" | "slashCommands" | "skills";
  * provider:
  *
  *  - Fields the enrichment step **owns** (`enrichmentOwnedFields`) are ones
- *    the base probe cannot see at all — pi's base snapshot reports a
- *    placeholder model shortlist and no commands, and only
- *    `enrichPiSnapshot`'s throwaway `pi --mode rpc` knows the real values. The
- *    previous value always wins there, because the base's is a placeholder
- *    rather than an observation.
+ *    the base probe cannot see at all (Loom's quarantined pi driver, DT-23, was
+ *    the one caller; no live driver passes any in pull 9 Phase 1). The previous
+ *    value always wins there, because the base's is a placeholder rather than
+ *    an observation.
  *  - Every other field stays **base-authoritative**, so live changes surface
  *    immediately (Claude re-reads `~/.claude/skills` from disk and Codex
  *    re-runs `skills/list` on every check). Those only carry forward when the
@@ -74,9 +73,7 @@ export type EnrichableField = "models" | "slashCommands" | "skills";
  * probe that failed to see anything.
  *
  * Genuine loss still propagates: `enrichSnapshot` publishes its own
- * observations directly (pi now omits the palette fields when `get_commands`
- * fails or comes back empty, so its last good palette stands rather than being
- * overwritten with an empty one), a base-authoritative provider surfaces any
+ * observations directly, a base-authoritative provider surfaces any
  * non-empty change immediately, and a disabled provider reports its emptiness
  * verbatim. The residual corner is a base-authoritative provider losing *all*
  * of its skills at once, which is indistinguishable from a failed probe and so
@@ -118,7 +115,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   /**
    * Fields `enrichSnapshot` re-probes and republishes itself, so the base
    * check's values for them are placeholders to be ignored rather than
-   * observations. Only pi qualifies; every other driver's enrichment merely
+   * observations. No live driver passes this in pull 9 Phase 1 (Loom's
+   * quarantined pi driver did, DT-23); every other driver's enrichment merely
    * attaches a version advisory and passes these fields through untouched.
    */
   readonly enrichmentOwnedFields?: ReadonlyArray<EnrichableField>;
@@ -128,10 +126,10 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 }): Effect.fn.Return<
   ServerProviderShape,
   ServerSettingsError,
-  Scope.Scope | BackgroundPolicy.BackgroundPolicy | ServerSettingsService
+  Scope.Scope | BackgroundPolicy.BackgroundPolicy | ServerSettings.ServerSettingsService
 > {
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
-  const serverSettings = yield* ServerSettingsService;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const refreshSemaphore = yield* Semaphore.make(1);
   const changesPubSub = yield* Effect.acquireRelease(
     PubSub.unbounded<ServerProvider>(),

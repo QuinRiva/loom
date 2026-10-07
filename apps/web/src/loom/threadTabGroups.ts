@@ -1,70 +1,100 @@
 /**
- * loom: thread-tab group-key derivation.
+ * loom: thread-tab group keys and tab liveness, from V2 lineage.
  *
- * Centre-panel tabs are grouped per orchestration tree (see `threadTabsStore`).
- * A tab's group key is the `scopedThreadKey` of its **lineage root** — the
- * highest ancestor reached by walking `parentThreadId` within the thread's own
- * environment. This is the one place lineage is turned into a group key; the
- * store never computes it (it takes a group key as an argument), so this stays
- * the single source of that mapping, shared by the sync hook and the sidebar.
+ * Centre-panel tabs are grouped per workstream (see `threadTabsStore`): a tab's
+ * group key is the `scopedThreadKey` of its **workstream root**, reached by
+ * walking V2 `lineage.parentThreadId` across `subagent` edges within the
+ * thread's own environment. A fork (`relationshipToParent: "fork"`) is a root
+ * in Loom's graph (DL-344), as in V1 where a fork had no parent, so the walk
+ * stops there. This is the one place lineage becomes a group key; the store
+ * takes keys as arguments.
  *
- * Provisional vs resolved: on a cold load / deep link into a subthread, ancestor
- * shells may not have replayed yet, so the walk stops early and the derived key
- * is the topmost *reachable* thread (often the thread itself) — a provisional
- * group. Once the ancestors arrive, this resolver returns the real root key and
- * the sync hook coalesces the provisional group into it. The mapping is pure, so
- * re-deriving on every shell change is exactly what drives coalescing.
+ * The index covers environments whose shell snapshot has loaded (cached or
+ * live). V2 shells carry only unarchived threads, so a thread missing from a
+ * **live** snapshot — one past the server's catch-up `synchronized` marker
+ * (`shellResumeCompletionMarker`) — has been archived or deleted and its tab
+ * has nothing to show; a cached snapshot may lag, so it never prunes. The
+ * index keeps its identity until an edge, the thread set or liveness changes,
+ * so its readers do not re-render on ordinary shell updates.
  */
+import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import { useCallback, useMemo } from "react";
+import * as Option from "effect/Option";
+import { Atom } from "effect/reactivity";
 
-import { useThreadShells } from "~/state/entities";
-import { buildThreadLineage } from "../threadRouteLineage";
+import { environmentCatalog } from "../connection/catalog";
+import { environmentShell } from "../state/shell";
 
-export type ThreadGroupResolver = (ref: ScopedThreadRef) => string;
-
-/**
- * Derive the group key for `ref` from a per-environment shell map. Walks to the
- * lineage root via `buildThreadLineage`; the group key is the root's (or, when
- * the root has not replayed yet, the topmost reachable ancestor's)
- * `scopedThreadKey`. A thread with no parent — or one whose own shell is absent —
- * is its own group.
- */
-export function resolveThreadGroupKey(
-  shellMap: Record<ThreadId, EnvironmentThreadShell>,
-  ref: ScopedThreadRef,
-): string {
-  const lineage = buildThreadLineage(shellMap, ref.threadId);
-  const rootThreadId = lineage.length > 0 ? lineage[0]!.threadId : ref.threadId;
-  return scopedThreadKey({ environmentId: ref.environmentId, threadId: rootThreadId });
+interface EnvironmentLineage {
+  /** Past the catch-up marker: absence from `parents` means archived or deleted. */
+  readonly live: boolean;
+  /** Each unarchived thread's `subagent` parent (null for a root). */
+  readonly parents: ReadonlyMap<ThreadId, ThreadId | null>;
 }
 
-/**
- * A stable resolver that maps any `ScopedThreadRef` to its current group key,
- * backed by the live thread-shell list (bucketed per environment). Its identity
- * changes when the shells change, so an effect depending on it re-runs to
- * coalesce groups as lineage resolves.
- */
-export function useThreadGroupResolver(): ThreadGroupResolver {
-  const shells = useThreadShells();
-  const shellMapByEnv = useMemo(() => {
-    const byEnv = new Map<EnvironmentId, Record<ThreadId, EnvironmentThreadShell>>();
-    for (const shell of shells) {
-      let map = byEnv.get(shell.environmentId);
-      if (!map) {
-        map = {};
-        byEnv.set(shell.environmentId, map);
-      }
-      map[shell.id] = shell;
-    }
-    return byEnv;
-  }, [shells]);
+/** Per environment whose shell snapshot has loaded. */
+export type ThreadTabLineage = ReadonlyMap<EnvironmentId, EnvironmentLineage>;
 
-  return useCallback(
-    (ref: ScopedThreadRef) =>
-      resolveThreadGroupKey(shellMapByEnv.get(ref.environmentId) ?? {}, ref),
-    [shellMapByEnv],
-  );
+const sameLineage = (left: EnvironmentLineage, right: EnvironmentLineage | undefined) =>
+  right !== undefined &&
+  left.live === right.live &&
+  left.parents.size === right.parents.size &&
+  [...left.parents].every(([id, parent]) => right.parents.get(id) === parent);
+
+const lineageAtom = (() => {
+  let previous: ThreadTabLineage = new Map();
+  return Atom.make((get) => {
+    const next: ThreadTabLineage = new Map(
+      [...enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))].flatMap(
+        (environmentId) => {
+          const { snapshot, status } = get(environmentShell.stateValueAtom(environmentId));
+          if (Option.isNone(snapshot)) return [];
+          const parents = new Map(
+            snapshot.value.threads.map(
+              ({ id, lineage }) =>
+                [
+                  id,
+                  lineage.relationshipToParent === "subagent" ? lineage.parentThreadId : null,
+                ] as const,
+            ),
+          );
+          return [[environmentId, { live: status === "live", parents }] as const];
+        },
+      ),
+    );
+    if (
+      next.size !== previous.size ||
+      [...next].some(([environmentId, entry]) => !sameLineage(entry, previous.get(environmentId)))
+    ) {
+      previous = next;
+    }
+    return previous;
+  }).pipe(Atom.withLabel("loom-thread-tab-lineage"));
+})();
+
+export const useThreadTabLineage = (): ThreadTabLineage => useAtomValue(lineageAtom);
+
+/** The root's group key for a live thread (an unloaded ancestor is still named), else null. */
+export function resolveThreadGroupKey(
+  lineage: ThreadTabLineage,
+  ref: ScopedThreadRef,
+): string | null {
+  const parents = lineage.get(ref.environmentId)?.parents;
+  if (!parents?.has(ref.threadId)) return null;
+  const seen = new Set([ref.threadId]);
+  let rootId = ref.threadId;
+  for (let parent = parents.get(rootId); parent && !seen.has(parent);) {
+    seen.add(parent);
+    rootId = parent;
+    parent = parents.get(rootId);
+  }
+  return scopedThreadKey({ environmentId: ref.environmentId, threadId: rootId });
+}
+
+/** Whether the thread is absent from its environment's live snapshot (archived or deleted). */
+export function isThreadGone(lineage: ThreadTabLineage, ref: ScopedThreadRef): boolean {
+  const entry = lineage.get(ref.environmentId);
+  return entry?.live === true && !entry.parents.has(ref.threadId);
 }

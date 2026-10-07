@@ -1,165 +1,122 @@
+import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
+import type { ThreadId } from "@t3tools/contracts";
+
 import {
-  type ChildIndex,
-  getActivity,
-  getLastActivityAt,
-  getRoleLabel,
-  getThreadStatus,
+  ATTENTION_COLORS,
+  ATTENTION_LABELS,
+  COLUMN_STYLES,
   formatRelativeAge,
+  getActivity,
+  getRoleLabel,
+  isRunning,
   legibleHue,
+  type WorkstreamNode,
 } from "../lib/workstreamPresentation";
-import { formatCostUsd } from "../loom/costFormat";
-import { attentionReasonsOf, hasRunningSignal } from "../lib/workstreamRollup";
-import type { SidebarThreadSummary } from "../types";
+import { WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { Badge } from "./ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
 
 /**
- * Active-now strip (step 1–2 of the hierarchy of needs): one chip per in-flight
- * sub-thread — running or human-blocking — so the very first glance answers
- * "what is happening now", and a single click ENTERS the thread (the board's
- * real `openThread` navigation). Attention-flagged threads sort first and take an
- * amber treatment; a subtle pulse marks liveness. Renders nothing when the whole
- * workstream is idle, so it never adds noise to a settled run.
+ * Active-now strip: one chip per descendant that is running (the activity
+ * rollup) or flagged (the attention rollup) — the two read separately, never
+ * fused into one state. Flagged threads sort first; one click enters the
+ * thread. Renders nothing for an idle, unflagged workstream.
  */
 export function WorkstreamActiveStrip({
-  threads,
-  threadById,
+  nodes,
+  rollup,
   onOpenThread,
 }: {
-  readonly threads: ReadonlyArray<SidebarThreadSummary>;
-  readonly threadById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly nodes: ReadonlyArray<WorkstreamNode>;
+  readonly rollup: WorkstreamRollup;
+  readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const inflight = threads
-    .filter((thread) => hasRunningSignal(thread) || attentionReasonsOf(thread).length > 0)
-    // Attention-flagged first (needs a human), then the rest; stable by recency.
-    .toSorted((left, right) => {
-      const leftAttn = attentionReasonsOf(left).length > 0 ? 1 : 0;
-      const rightAttn = attentionReasonsOf(right).length > 0 ? 1 : 0;
-      if (leftAttn !== rightAttn) return rightAttn - leftAttn;
-      return getLastActivityAt(right).localeCompare(getLastActivityAt(left));
-    });
-
+  const flagged = new Map(rollup.attention.nodes.map((entry) => [entry.id, entry.reason]));
+  const inflight = nodes
+    .filter((node) => flagged.has(node.id) || isRunning(node))
+    .toSorted(
+      (left, right) =>
+        Number(flagged.has(right.id)) - Number(flagged.has(left.id)) ||
+        right.lastActivityAt.localeCompare(left.lastActivityAt),
+    );
   if (inflight.length === 0) return null;
 
   return (
     <div className="mb-3">
       <div className="mb-2 flex items-center gap-2 px-0.5 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
-        <span className="size-1.5 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
         Active now
+        {rollup.activity.running > 0 ? (
+          <Badge size="sm" variant="info">
+            {rollup.activity.running} running
+          </Badge>
+        ) : null}
+        {rollup.attention.count > 0 ? (
+          <Badge size="sm" variant="warning">
+            {rollup.attention.count} flagged
+          </Badge>
+        ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        {inflight.map((thread) => (
-          <ActiveChip
-            key={thread.id}
-            thread={thread}
-            threadById={threadById}
-            onOpenThread={onOpenThread}
-          />
-        ))}
+        {inflight.map((node) => {
+          const reason = flagged.get(node.id);
+          const color = reason ? ATTENTION_COLORS[reason] : COLUMN_STYLES[node.column].color;
+          return (
+            <Tooltip key={node.id}>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => onOpenThread(node.id)}
+                    className="flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
+                    style={
+                      reason
+                        ? { borderColor: `color-mix(in srgb, ${color} 45%, transparent)` }
+                        : undefined
+                    }
+                  />
+                }
+              >
+                <span
+                  className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-4xs font-semibold uppercase"
+                  style={{
+                    color: legibleHue(color),
+                    borderColor: `color-mix(in srgb, ${color} 50%, transparent)`,
+                    backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)`,
+                  }}
+                >
+                  {getRoleLabel(node).slice(0, 3)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                      {node.title}
+                    </span>
+                    <span className="shrink-0 text-3xs text-muted-foreground">
+                      {formatRelativeAge(node.lastActivityAt)}
+                    </span>
+                  </span>
+                  <span className="mt-1 flex gap-1.5 text-2xs leading-snug text-muted-foreground">
+                    <span
+                      className="mt-1 size-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="line-clamp-2 min-w-0">
+                      {reason ? `${ATTENTION_LABELS[reason]} · ` : ""}
+                      {node.preview ? <i>› {node.preview}</i> : getActivity(node)}
+                    </span>
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-3xs text-muted-foreground">
+                    <WorkstreamModelPill selection={node.modelSelection} />
+                    <WorkstreamSpendSlot threadId={node.id} />
+                  </span>
+                </span>
+              </TooltipTrigger>
+              <TooltipPopup>{`Open ${node.title} · ${getRoleLabel(node)}`}</TooltipPopup>
+            </Tooltip>
+          );
+        })}
       </div>
     </div>
-  );
-}
-
-function ActiveChip({
-  thread,
-  threadById,
-  onOpenThread,
-}: {
-  readonly thread: SidebarThreadSummary;
-  readonly threadById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-}) {
-  const needsHuman = attentionReasonsOf(thread).length > 0;
-  const status = getThreadStatus(thread, threadById);
-  const color = needsHuman ? "#fb923c" : status.graphStroke;
-  const preview = thread.lastActivityPreview;
-  const running = hasRunningSignal(thread);
-  const cost = formatCostUsd(thread.cumulativeCostUsd);
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            onClick={() => onOpenThread(thread)}
-            className={`flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition active:translate-y-px ${
-              needsHuman
-                ? "border-warning/45 bg-gradient-to-b from-warning/10 to-warning/4 hover:from-warning/15"
-                : "border-border bg-muted hover:border-input hover:bg-accent"
-            }`}
-          />
-        }
-      >
-        {/* Role as a word, not a glyph (workstream-graph-node-redesign §3c):
-          the abstract role glyphs were indistinguishable and roles are
-          open-ended strings, so a three-letter monogram + tint carries the
-          role (two letters made reviewer/researcher both “RE”) and the hover
-          title has the rest. */}
-        <span
-          className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-4xs font-semibold uppercase"
-          style={{
-            color: legibleHue(color),
-            borderColor: `${color}80`,
-            backgroundColor: `${color}29`,
-          }}
-        >
-          {getRoleLabel(thread).slice(0, 3)}
-        </span>
-        <span className="min-w-0 flex-1">
-          {/* Top row: title + age, right-aligned. */}
-          <span className="flex items-baseline gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-              {thread.title}
-            </span>
-            <span className="shrink-0 text-3xs text-muted-foreground/70">
-              {formatRelativeAge(getLastActivityAt(thread))}
-            </span>
-          </span>
-          {/* Turn line: pulse dot + the recent turn action (the "why"). Falls back
-            to starting… while running with no preview, and to the short
-            getActivity() phrase for a rare attention-flagged, preview-less chip
-            so it is never blank. */}
-          <span className="mt-1 flex gap-1.5 text-2xs italic leading-snug text-muted-foreground">
-            <span
-              className="mt-1 size-1.5 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
-              style={{ backgroundColor: color }}
-            />
-            <span className="line-clamp-2 min-w-0">
-              {preview ? (
-                `› ${preview}`
-              ) : running ? (
-                <span className="not-italic text-muted-foreground/70">starting…</span>
-              ) : (
-                <span className="not-italic text-muted-foreground">
-                  {getActivity(thread, status.column)}
-                </span>
-              )}
-            </span>
-          </span>
-          {/* Meta row: provider pill · cost · tools, omitting any null segment (and
-            its separator) — the strip is a glance surface. */}
-          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-3xs text-muted-foreground">
-            <WorkstreamModelPill selection={thread.modelSelection} />
-            {cost ? (
-              <>
-                <span className="text-muted-foreground/70">·</span>
-                <span>{cost}</span>
-              </>
-            ) : null}
-            {thread.toolUses !== null ? (
-              <>
-                <span className="text-muted-foreground/70">·</span>
-                <span>⚒ {thread.toolUses}</span>
-              </>
-            ) : null}
-          </span>
-        </span>
-      </TooltipTrigger>
-      {/* One hover surface for the whole chip: what it opens, plus the full role
-          word the three-letter monogram abbreviates. */}
-      <TooltipPopup>{`Open ${thread.title} · ${getRoleLabel(thread)}`}</TooltipPopup>
-    </Tooltip>
   );
 }

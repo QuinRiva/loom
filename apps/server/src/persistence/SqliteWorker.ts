@@ -16,7 +16,7 @@ import * as NodeWorkerRunner from "@effect/platform-node/NodeWorkerRunner";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as RpcServer from "effect/unstable/rpc/RpcServer";
+import * as RpcServer from "effect/rpc/RpcServer";
 
 import { makeRawConnection, SqliteWorkerRpcs } from "./NodeSqliteConnection.ts";
 import type { SqliteWorkerData } from "./NodeSqliteConnection.ts";

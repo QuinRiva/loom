@@ -1,129 +1,236 @@
 /**
- * Dev fixture verifier — API-level proof that the seeded workstream is
- * correct. Reads the same read model the server's HTTP snapshot handler serves
- * (`ProjectionSnapshotQuery`) and resolves a per-turn checkpoint diff the same
- * way DiffPanel does (`CheckpointDiffQuery`), asserting a non-empty patch.
+ * Dev fixture verifier — proves the seeded workstream reads back as the web
+ * shell serves it: every seeded thread's `workstream` on the joined shell with
+ * the column and attention the seed meant, the goal and its tree, the control
+ * cards on the root, a real checkpoint ref per started thread, and nothing a
+ * booting server would act on (an empty effect outbox, and nothing 3b's
+ * dispatcher pass would send, now or a day later). Read-only: the effect worker
+ * does not run and the pass's dispatches are intercepted.
  *
  * Run: `T3CODE_HOME=<scratch> node apps/server/src/dev/verifySeed.ts`
  *
  * @module dev/verifySeed
  */
 // Dev-only fixture tooling (not shipped); see seedWorkstream.ts.
-// @effect-diagnostics globalErrorInEffectFailure:off preferSchemaOverJson:off
+// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off preferSchemaOverJson:off globalDateInEffect:off globalDate:off
+import * as NodeChildProcess from "node:child_process";
+
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import type { LoomThreadShellFields, ThreadId } from "@t3tools/contracts";
+import { isEligibleToStart, type StartNode } from "@t3tools/shared/workstreamStart.loom";
+import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as References from "effect/References";
+import * as SqlClient from "effect/sql/SqlClient";
 
-import * as CheckpointDiffQuery from "../checkpointing/CheckpointDiffQuery.ts";
-import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
-import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
-import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
+import {
+  WorkstreamDispatcher,
+  WorkstreamDispatcherLive,
+} from "../loom/orchestration/dispatcher/WorkstreamDispatcher.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts";
+import { LoomDispatchDeferredError } from "../orchestration-v2/Orchestrator.loom.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { buildSeedConfig } from "./seedConfig.ts";
+import { SEED, seedDatabaseLayer, seedRuntimeLayer } from "./seedWorkstream.ts";
 
-const ORCHESTRATOR_ID = ThreadId.make("seed-thread-orchestrator");
-const REWORK_ID = ThreadId.make("seed-thread-coder-rework");
+/** What each seeded thread must read as: board column and stored attention. */
+const EXPECTED: Record<string, { readonly column: string; readonly attention?: string }> = {
+  [SEED.root]: { column: "in_progress" },
+  [SEED.coderDone]: { column: "done" },
+  [SEED.gateCoder]: { column: "in_progress" },
+  [SEED.gateReviewer]: { column: "in_progress" },
+  [SEED.quiescent]: { column: "in_progress", attention: "awaiting_orchestrator" },
+  [SEED.blocked]: { column: "blocked" },
+  [SEED.unbriefed]: { column: "blocked" },
+  [SEED.cancelledLead]: { column: "cancelled" },
+  [SEED.cancelledGrandchild]: { column: "cancelled" },
+  [SEED.needsGuidanceRoot]: { column: "in_progress", attention: "needs_guidance" },
+  [SEED.stagedRoot]: { column: "held" },
+};
+
+const startNode = (ws: LoomThreadShellFields): StartNode => ({ ...ws, id: ws.threadId });
+// The web's deriveBoardColumn (client-runtime state/loom/workstream.ts), on the same predicate.
+const columnOf = (ws: LoomThreadShellFields, byId: ReadonlyMap<ThreadId, StartNode>) =>
+  ws.outcome ??
+  (ws.held
+    ? "held"
+    : ws.kickoffAt !== null
+      ? "in_progress"
+      : isEligibleToStart(startNode(ws), byId)
+        ? "ready"
+        : "blocked");
+
+/**
+ * The `server:` commands one dispatcher pass at `atMs` tries to dispatch. Read-only: the
+ * orchestrator's `dispatch` records the command and answers `LoomDispatchDeferredError` (a
+ * receipted episode never reaches it), so nothing is written.
+ */
+const dispatcherWouldSend = (atMs: number) =>
+  Effect.gen(function* () {
+    const real = yield* Orchestrator.OrchestratorV2;
+    const attempted: string[] = [];
+    const recording = Orchestrator.OrchestratorV2.of({
+      ...real,
+      dispatch: (command) =>
+        Effect.fail(
+          new LoomDispatchDeferredError({
+            commandId: command.commandId,
+            commandType: command.type,
+            threadId: (command as { readonly threadId: ThreadId }).threadId,
+            reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
+          }),
+        ),
+    });
+    const clock = yield* Clock.Clock;
+    yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
+      Effect.provide(WorkstreamDispatcherLive),
+      Effect.provideService(Orchestrator.OrchestratorV2, recording),
+      Effect.provide(ServerSettings.layerTest()),
+      Effect.provideService(Clock.Clock, {
+        ...clock,
+        currentTimeMillisUnsafe: () => atMs,
+        currentTimeMillis: Effect.succeed(atMs),
+        currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
+        currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
+      }),
+    );
+    return attempted;
+  });
 
 const verifyProgram = Effect.gen(function* () {
-  const snapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const diffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-  const snapshot = yield* snapshotQuery.getSnapshot();
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const loomStore = yield* LoomStore.LoomStoreV2;
+  const sql = yield* SqlClient.SqlClient;
+  const failures: string[] = [];
+  const check = (ok: boolean, detail: string) => {
+    if (!ok) failures.push(detail);
+  };
 
-  const coders = snapshot.threads.filter(
-    (thread) => thread.parentThreadId === ORCHESTRATOR_ID && thread.role === "coder",
+  const shell = yield* orchestrator.getShellSnapshot({ location: "active" });
+  const threads = shell.threads.filter((thread) => thread.projectId === SEED.projectId);
+  const byId = new Map(
+    threads.flatMap((thread) =>
+      thread.workstream === undefined ? [] : [[thread.id, startNode(thread.workstream)] as const],
+    ),
   );
-  if (coders.length < 3) {
-    return yield* Effect.fail(new Error(`Expected >=3 coder descendants, found ${coders.length}.`));
+  const rows = threads.map((thread) => {
+    const ws = thread.workstream;
+    const expected = EXPECTED[thread.id];
+    const column = ws === undefined ? "(no workstream)" : columnOf(ws, byId);
+    check(expected !== undefined, `unexpected thread ${thread.id}`);
+    check(
+      column === expected?.column,
+      `${thread.id}: column ${column}, expected ${expected?.column}`,
+    );
+    check(
+      (ws?.attention ?? []).join(",") === (expected?.attention ?? ""),
+      `${thread.id}: attention [${ws?.attention.join(",")}], expected [${expected?.attention ?? ""}]`,
+    );
+    check(
+      thread.lineage.parentThreadId === (ws?.parentThreadId ?? null),
+      `${thread.id}: lineage parent differs from the sidecar's`,
+    );
+    return {
+      threadId: thread.id,
+      column,
+      attention: ws?.attention ?? [],
+      parent: thread.lineage.parentThreadId,
+      goalId: ws?.goalId ?? null,
+      pendingRework: ws?.pendingRework ?? false,
+      gateRounds: ws?.gateRounds ?? 0,
+      lastOutcome: ws?.lastOutcome === null || ws === undefined ? null : ws.lastOutcome.outcome,
+      synthesised: ws?.lastOutcome?.synthesised === true,
+      reportPath: ws?.reportPath ?? null,
+    };
+  });
+  check(rows.length === Object.keys(EXPECTED).length, `found ${rows.length} seeded threads`);
+  const ws = (id: ThreadId) => threads.find((thread) => thread.id === id)?.workstream;
+  check(ws(SEED.gateCoder)?.pendingRework === true, "gate coder holds no rework round");
+  check(ws(SEED.gateReviewer)?.lastOutcome?.decision === "loop", "reviewer did not loop");
+  check(ws(SEED.quiescent)?.lastOutcome?.synthesised === true, "quiescent outcome not synthesised");
+  check(ws(SEED.coderDone)?.reportPath != null, "done coder has no report");
+  check(ws(SEED.stagedRoot)?.kickoffBriefPath != null, "staged root has no brief");
+
+  const goal = yield* loomStore.goals.get(SEED.goalId);
+  check(goal !== null && goal.tasks.length > 0, "goal or its task tree is missing");
+
+  // Control cards on the root.
+  const root = yield* orchestrator.getThreadProjection(SEED.root);
+  const payloads = root.messages.flatMap((message) => message.loom?.controlPayload ?? []);
+  const cards: ReadonlyArray<string> = payloads.map((payload) => payload.notice ?? payload.kind);
+  check(
+    payloads.filter((payload) => payload.kind === "digest").length === 1,
+    "expected one digest",
+  );
+  check(
+    payloads.some((payload) => payload.kind === "yield" && payload.synthesised === true),
+    "expected a synthesised yield",
+  );
+  for (const notice of [
+    "gate-rework",
+    "gate-reverify",
+    "brief-needed",
+    "deadlock",
+    "stall-nudge",
+    "attention",
+    "notify",
+  ]) {
+    check(cards.includes(notice), `missing ${notice} notice card`);
   }
 
-  const report: Array<Record<string, unknown>> = [];
-  let firstDiffSample: string | null = null;
-
-  for (const coder of coders) {
-    const context = yield* snapshotQuery.getThreadCheckpointContext(coder.id);
-    const checkpoints = Option.isSome(context) ? context.value.checkpoints : [];
-    report.push({
-      threadId: coder.id,
-      title: coder.title,
-      isolation: coder.isolation,
-      planLane: coder.planLane,
-      attention: coder.attention,
-      checkpointTurnCounts: checkpoints.map((cp) => cp.checkpointTurnCount),
-    });
-
-    // Prove the first coder's turn-1 diff resolves to a real, non-empty patch —
-    // exactly the range DiffPanel requests (fromTurnCount = n-1, toTurnCount = n).
-    if (firstDiffSample === null && checkpoints.length > 0) {
-      const diff = yield* diffQuery.getTurnDiff({
-        threadId: coder.id,
-        fromTurnCount: 0,
-        toTurnCount: 1,
-        ignoreWhitespace: true,
-      });
-      if (diff.diff.trim().length === 0) {
-        return yield* Effect.fail(
-          new Error(`Turn-1 diff for coder '${coder.id}' was empty; fixture is not usable.`),
-        );
-      }
-      firstDiffSample = diff.diff;
-    }
+  // A real checkpoint ref per started thread (the Diff surface).
+  const checkpoints: Record<string, number> = {};
+  for (const row of rows.filter((entry) => entry.column !== "held" && entry.column !== "blocked")) {
+    const projection = yield* orchestrator.getThreadProjection(row.threadId);
+    const ready = projection.checkpoints.filter((checkpoint) => checkpoint.status === "ready");
+    checkpoints[row.threadId] = ready.length;
+    const cwd = projection.thread.worktreePath;
+    const ref = ready.at(-1)?.ref;
+    check(
+      cwd !== null &&
+        ref !== undefined &&
+        NodeChildProcess.spawnSync("git", ["rev-parse", "--verify", "--quiet", ref], { cwd })
+          .status === 0,
+      `${row.threadId}: no resolvable checkpoint ref`,
+    );
   }
 
-  if (firstDiffSample === null) {
-    return yield* Effect.fail(new Error("No coder produced a non-empty per-turn diff."));
-  }
-
-  const reworkContext = yield* snapshotQuery.getThreadCheckpointContext(REWORK_ID);
-  const reworkTurns = Option.isSome(reworkContext) ? reworkContext.value.checkpoints.length : 0;
+  // Inert on boot: no outbox work, and nothing 3b's dispatcher pass (the startup pass and every
+  // tick) would send — now, or a day on, when every grace window and brief-needed rung has passed.
+  const [outbox] = yield* sql<{ open: number }>`
+    SELECT count(*) AS open FROM orchestration_v2_effect_outbox WHERE status IN ('pending', 'running')
+  `;
+  check(outbox?.open === 0, `${outbox?.open} effects pending in the outbox`);
+  const nowMs = Date.now();
+  const owed = {
+    now: yield* dispatcherWouldSend(nowMs),
+    dayLater: yield* dispatcherWouldSend(nowMs + 24 * 60 * 60 * 1000),
+  };
+  for (const [when, commands] of Object.entries(owed))
+    check(commands.length === 0, `re-drive would send on boot (${when}): ${commands.join(", ")}`);
 
   yield* Console.log(
     JSON.stringify(
-      {
-        ok: true,
-        orchestrator: ORCHESTRATOR_ID,
-        coderCount: coders.length,
-        multiTurnReworkCoderTurns: reworkTurns,
-        sharedCoder: coders.some((c) => c.isolation === "shared"),
-        cancelledCoder: coders.some((c) => c.planLane === "cancelled"),
-        coders: report,
-      },
+      { ok: failures.length === 0, failures, goal: goal?.title, threads: rows, cards, checkpoints },
       null,
       2,
     ),
   );
-  yield* Console.log("\n--- sample turn-1 diff (first coder) ---\n" + firstDiffSample);
+  if (failures.length > 0) return yield* Effect.fail(new Error(failures.join("\n")));
 });
 
 const main = Effect.gen(function* () {
   const config = yield* buildSeedConfig;
-  const orchestrationLayer = OrchestrationLayerLive.pipe(
-    Layer.provideMerge(RepositoryIdentityResolver.layer),
-    Layer.provideMerge(SqlitePersistenceLayerLive),
+  yield* verifyProgram.pipe(
+    Effect.provide(seedRuntimeLayer(config, seedDatabaseLayer(config), { runEffectWorker: false })),
   );
-  const checkpointStoreLayer = CheckpointStore.layer.pipe(
-    Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
-  );
-  const layer = Layer.mergeAll(
-    orchestrationLayer,
-    CheckpointDiffQuery.layer.pipe(
-      Layer.provide(Layer.mergeAll(orchestrationLayer, checkpointStoreLayer)),
-    ),
-  ).pipe(
-    Layer.provideMerge(ServerConfig.layer(config)),
-    Layer.provide(Layer.succeed(References.MinimumLogLevel, "Error")),
-  );
-
-  yield* verifyProgram.pipe(Effect.provide(layer));
-}).pipe(Effect.provide(NodeServices.layer));
+}).pipe(
+  Effect.provide(NodeServices.layer),
+  Effect.provideService(References.MinimumLogLevel, "Error"),
+);
 
 if (import.meta.main) {
   NodeRuntime.runMain(main);

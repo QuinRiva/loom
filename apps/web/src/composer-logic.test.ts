@@ -1,3 +1,4 @@
+import { resolveComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import { filterComposerPullRequestMatches } from "@t3tools/shared/composerPullRequestMatches";
 import { EnvironmentId, MessageId, ThreadId, type AssistantCitation } from "@t3tools/contracts";
 import {
@@ -5,13 +6,18 @@ import {
   expandAssistantCitationsForProvider,
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
+import {
+  DEFAULT_RESOLVED_KEYBINDINGS,
+  compileResolvedKeybindingsConfig,
+  mergeWithDefaultKeybindings,
+} from "@t3tools/shared/keybindings";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   clampCollapsedComposerCursor,
   collapseExpandedComposerCursor,
+  composerSubmissionIntentForKey,
   composerStateAtPromptEnd,
-  composerSubmissionIntentForEnter,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
@@ -62,7 +68,15 @@ describe("formatAssistantCitationForComposer", () => {
   });
 });
 
-describe("composerSubmissionIntentForEnter", () => {
+describe("composerSubmissionIntentForKey", () => {
+  const input = {
+    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+    platform: "Linux",
+    isMobileViewport: false,
+    isDraftThread: false,
+  };
+  const enter = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+
   it.each([
     ["enter", "one line", false, "foreground"],
     ["enter", "two\nlines", false, "foreground"],
@@ -71,100 +85,182 @@ describe("composerSubmissionIntentForEnter", () => {
     ["mod-enter-multiline", "two\nlines", true, "foreground"],
     ["mod-enter", "one line", false, null],
     ["mod-enter", "one line", true, "foreground"],
-  ] as const)("uses %s for %j with modifier=%s", (sendShortcut, prompt, modifierKey, expected) => {
+  ] as const)("honors %s for %j", (sendShortcut, prompt, ctrlKey, expected) => {
     expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: false,
-        shiftKey: false,
-        modifierKey,
-        isDraftThread: false,
+      composerSubmissionIntentForKey({
+        ...input,
+        event: { ...enter, ctrlKey },
         sendShortcut,
         prompt,
       }),
     ).toBe(expected);
   });
 
-  it.each([
-    ["enter", false, "alternate"],
-    ["enter", true, null],
-    ["mod-enter-multiline", false, "foreground"],
-    ["mod-enter-multiline", true, "alternate"],
-    ["mod-enter", false, "foreground"],
-    ["mod-enter", true, "alternate"],
-  ] as const)(
-    "resolves running follow-ups with %s and shift=%s",
-    (sendShortcut, shiftKey, expected) => {
+  it.each(["MacIntel", "Win32", "Linux"])("uses the configured actions on %s", (platform) => {
+    const modEnter = {
+      ...enter,
+      metaKey: platform === "MacIntel",
+      ctrlKey: platform !== "MacIntel",
+    };
+    for (const sendShortcut of ["enter", "mod-enter", "mod-enter-multiline"] as const) {
+      const running = { ...input, platform, sendShortcut, prompt: "two\nlines", isRunning: true };
+      const intent = composerSubmissionIntentForKey({ ...running, event: modEnter });
+      expect(intent).toBe("alternate");
+      for (const activeTurnDefault of ["queue", "steer"] as const) {
+        expect(
+          resolveComposerDispatchMode({
+            running: true,
+            alternateModifier: intent === "alternate",
+            activeTurnDefault,
+          }),
+        ).toBe(activeTurnDefault === "queue" ? "steer" : "queue");
+      }
       expect(
-        composerSubmissionIntentForEnter({
-          isMobileViewport: false,
-          shiftKey,
-          modifierKey: true,
-          isDraftThread: false,
-          isRunning: true,
+        composerSubmissionIntentForKey({
+          ...input,
+          platform,
           sendShortcut,
-          prompt: "two\nlines",
+          isDraftThread: true,
+          event: { ...modEnter, altKey: true },
         }),
-      ).toBe(expected);
-    },
-  );
-
-  it("submits plain Enter on desktop", () => {
-    expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: false,
-        shiftKey: false,
-        modifierKey: false,
-        isDraftThread: true,
-      }),
-    ).toBe("foreground");
+      ).toBe("background");
+      expect(
+        composerSubmissionIntentForKey({
+          ...input,
+          platform,
+          sendShortcut,
+          event: { ...modEnter, altKey: true },
+        }),
+      ).toBe("background");
+      expect(
+        composerSubmissionIntentForKey({
+          ...input,
+          platform,
+          sendShortcut,
+          isDraftThread: true,
+          event: modEnter,
+        }),
+      ).toBe("background");
+      expect(
+        composerSubmissionIntentForKey({ ...running, event: { ...enter, shiftKey: true } }),
+      ).toBeNull();
+    }
   });
 
-  it("inserts a newline for plain Enter on mobile", () => {
+  it("leaves queued-message steering on Mod+Shift+Enter outside a draft", () => {
     expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: true,
-        shiftKey: false,
-        modifierKey: false,
-        isDraftThread: true,
-      }),
-    ).toBeNull();
-  });
-
-  it("inserts a newline for Shift+Enter", () => {
-    expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: false,
-        shiftKey: true,
-        modifierKey: false,
-        isDraftThread: true,
+      composerSubmissionIntentForKey({
+        ...input,
+        isRunning: true,
+        event: { ...enter, ctrlKey: true, shiftKey: true },
       }),
     ).toBeNull();
   });
 
-  it("submits a new thread in the background with Mod+Enter", () => {
+  it("does not start a background thread with the queued-message shortcut", () => {
     expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: false,
-        shiftKey: false,
-        modifierKey: true,
+      composerSubmissionIntentForKey({
+        ...input,
         isDraftThread: true,
+        event: { ...enter, ctrlKey: true, shiftKey: true },
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["mod+arrowup", { key: "ArrowUp", ctrlKey: true }],
+    ["shift+tab", { key: "Tab", shiftKey: true }],
+  ] as const)("accepts a remapped %s action", (key, event) => {
+    const keybindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        { key, command: "composer.sendBackground", when: "composerFocus && draftThreadRoute" },
+      ]),
+    );
+    expect(
+      composerSubmissionIntentForKey({
+        ...input,
+        keybindings,
+        isDraftThread: true,
+        event: { ...enter, ...event },
       }),
     ).toBe("background");
   });
 
-  it("keeps Mod+Enter in the foreground for an active thread", () => {
+  it("uses remapped keys and removes the old action bindings", () => {
+    const keybindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([
+        {
+          key: "alt+q",
+          command: "composer.sendAlternate",
+          when: "composerFocus && turnRunning",
+        },
+        {
+          key: "alt+b",
+          command: "composer.sendBackground",
+          when: "composerFocus && draftThreadRoute",
+        },
+      ]),
+    );
+    const custom = { ...input, keybindings };
     expect(
-      composerSubmissionIntentForEnter({
-        isMobileViewport: false,
-        shiftKey: false,
-        modifierKey: true,
-        isDraftThread: false,
+      composerSubmissionIntentForKey({
+        ...custom,
+        isRunning: true,
+        event: { ...enter, key: "q", altKey: true },
+      }),
+    ).toBe("alternate");
+    expect(
+      composerSubmissionIntentForKey({
+        ...custom,
+        isDraftThread: true,
+        event: { ...enter, key: "b", altKey: true },
+      }),
+    ).toBe("background");
+    expect(
+      composerSubmissionIntentForKey({
+        ...custom,
+        isRunning: true,
+        event: { ...enter, ctrlKey: true },
       }),
     ).toBe("foreground");
+    expect(
+      composerSubmissionIntentForKey({
+        ...custom,
+        isDraftThread: true,
+        event: { ...enter, ctrlKey: true, shiftKey: true },
+      }),
+    ).toBeNull();
+    expect(
+      composerSubmissionIntentForKey({ ...custom, event: { ...enter, key: "b", altKey: true } }),
+    ).toBeNull();
+  });
+
+  it.each([
+    { isMobileViewport: true },
+    { event: { ...enter, isComposing: true } },
+    { event: { ...enter, keyCode: 229 } },
+    { event: { ...enter, repeat: true } },
+  ])("does not submit with %j", (override) => {
+    expect(composerSubmissionIntentForKey({ ...input, event: enter, ...override })).toBeNull();
   });
 });
 
 describe("detectComposerTrigger", () => {
+  // loom: the `!` thread trigger spans spaces (DL-750).
+  it("keeps spaces in a ! thread query back to its token-start !", () => {
+    const text = "see !pull 9 qa";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "thread",
+      query: "pull 9 qa",
+      rangeStart: "see ".length,
+      rangeEnd: text.length,
+    });
+    expect(detectComposerTrigger("Hi! there", 9)).toBeNull();
+    expect(detectComposerTrigger("!a\nnext line", 11)).toBeNull();
+    expect(detectComposerTrigger("!pull #12", 9)?.kind).toBe("pull-request");
+    expect(detectComposerTrigger("!pull @src", 10)?.kind).toBe("path");
+  });
+
   it("detects @path trigger at cursor", () => {
     const text = "Please check @src/com";
     const trigger = detectComposerTrigger(text, text.length);
@@ -251,106 +347,49 @@ describe("detectComposerTrigger", () => {
     const text = "Compare this with #8737";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "hash",
+      kind: "pull-request",
       query: "8737",
       rangeStart: "Compare this with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("opens hash completion from a bare hash", () => {
+  it("opens pull request completion from a bare hash", () => {
     const text = "Compare with #";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "hash",
+      kind: "pull-request",
       query: "",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("detects a one-word hash search", () => {
+  it("detects a one-word pull request search", () => {
     const text = "Compare with #composer";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "hash",
+      kind: "pull-request",
       query: "composer",
       rangeStart: "Compare with ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("supports hyphenated hash search terms", () => {
+  it("supports hyphenated pull request search terms", () => {
     const text = "Find #inline-context";
 
     expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "hash",
+      kind: "pull-request",
       query: "inline-context",
       rangeStart: "Find ".length,
       rangeEnd: text.length,
     });
   });
 
-  it("ignores a hash that does not start a token", () => {
+  it("does not keep pull request completion active for headings or embedded hashes", () => {
+    expect(detectComposerTrigger("# Heading", "# Heading".length)).toBeNull();
     expect(detectComposerTrigger("issue#123", "issue#123".length)).toBeNull();
-  });
-
-  // loom: (plan D-D) the unified `#` menu lists pull requests AND threads, and
-  // thread titles are multi-word, so the query scans back over spaces to the
-  // nearest token-starting `#`. The composer closes the menu once both sections
-  // settle empty, which is what keeps a stray `#` in prose from hanging.
-  it("scans a multi-word hash query back to the opening hash", () => {
-    const text = "Consult #upstream sync doctrine";
-
-    expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "hash",
-      query: "upstream sync doctrine",
-      rangeStart: "Consult ".length,
-      rangeEnd: text.length,
-    });
-  });
-
-  it("treats a line-leading hash as a hash query", () => {
-    expect(detectComposerTrigger("# Heading", "# Heading".length)).toEqual({
-      kind: "hash",
-      query: " Heading",
-      rangeStart: 0,
-      rangeEnd: "# Heading".length,
-    });
-  });
-
-  it("gives the current token's @path trigger precedence over an earlier hash", () => {
-    const text = "#old text @file";
-
-    expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "path",
-      query: "file",
-      rangeStart: "#old text ".length,
-      rangeEnd: text.length,
-    });
-  });
-
-  it("gives the current token's $skill trigger precedence over an earlier hash", () => {
-    const text = "#old text $skill";
-
-    expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "skill",
-      query: "skill",
-      rangeStart: "#old text ".length,
-      rangeEnd: text.length,
-    });
-  });
-
-  it("keeps a slash command ahead of a hash later on the line", () => {
-    const text = "/plan";
-
-    expect(detectComposerTrigger(text, text.length)?.kind).toBe("slash-command");
-  });
-
-  it("scopes the hash query to the cursor's own line", () => {
-    const text = "#earlier query\nplain";
-
-    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("detects @path trigger in the middle of existing text", () => {

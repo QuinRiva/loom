@@ -1,14 +1,19 @@
 import type { ThreadId } from "@t3tools/contracts";
-import type { ThreadShell } from "./types";
+
+/** What the lineage walk reads from a thread: its V2 lineage parent and title. */
+export interface LineageThread {
+  readonly title: string;
+  /** `lineage.parentThreadId` (authoritative in V2). */
+  readonly parentThreadId: ThreadId | null;
+  readonly archived: boolean;
+}
 
 export interface LineageSegment {
   threadId: ThreadId;
   title: string;
   archived: boolean;
   missing: boolean;
-  /** True only for the segment whose own `parentThreadId` is null (the real
-   * orchestrator root). Stays false if the walk stopped on a missing parent or
-   * the depth cap, so the UI never mislabels a mid-chain ancestor as the root. */
+  /** True only for the segment whose own parent is null (the real root). */
   isRoot: boolean;
 }
 
@@ -16,28 +21,24 @@ export interface LineageSegment {
 export const EMPTY_LINEAGE: ReadonlyArray<LineageSegment> = [];
 
 /**
- * Walk `parentThreadId` upward from `childThreadId` through a single
- * environment's `threadShellById`, returning the ancestor chain ordered
- * root → immediate parent.
- *
- * Pure and bounded: a `visited` set guards against cycles and a hard
- * `maxDepth` cap stops runaway chains. A parent id with no shell in the map
- * (missing / archived-away / cross-environment) becomes a single trailing
- * `missing` segment and ends the walk.
+ * Walk the lineage parent upward from `childThreadId`, returning the ancestor
+ * chain ordered root → immediate parent. Bounded: a `visited` set breaks
+ * cycles and `maxDepth` caps runaway chains. A parent with no entry (missing,
+ * archived away, another environment) becomes one trailing `missing` segment.
  */
 export function buildThreadLineage(
-  threadShellById: Record<ThreadId, ThreadShell>,
+  threads: ReadonlyMap<ThreadId, LineageThread>,
   childThreadId: ThreadId,
   { maxDepth = 16 }: { maxDepth?: number } = {},
 ): LineageSegment[] {
   const segments: LineageSegment[] = [];
   const visited = new Set<ThreadId>([childThreadId]);
-  let parentId = threadShellById[childThreadId]?.parentThreadId ?? null;
+  let parentId = threads.get(childThreadId)?.parentThreadId ?? null;
 
   while (parentId !== null && !visited.has(parentId) && segments.length < maxDepth) {
     visited.add(parentId);
-    const shell = threadShellById[parentId];
-    if (!shell) {
+    const thread = threads.get(parentId);
+    if (!thread) {
       segments.push({
         threadId: parentId,
         title: "parent unavailable",
@@ -49,12 +50,12 @@ export function buildThreadLineage(
     }
     segments.push({
       threadId: parentId,
-      title: shell.title,
-      archived: shell.archivedAt != null,
+      title: thread.title,
+      archived: thread.archived,
       missing: false,
-      isRoot: shell.parentThreadId == null,
+      isRoot: thread.parentThreadId === null,
     });
-    parentId = shell.parentThreadId;
+    parentId = thread.parentThreadId;
   }
 
   return segments.toReversed();

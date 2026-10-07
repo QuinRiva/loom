@@ -1,7 +1,7 @@
 import type {
-  AttentionReason,
+  LoomAttentionReason,
+  LoomOutcome,
   ThreadId,
-  ThreadPlanLane,
   WorkOutcomeDecision,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -9,12 +9,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   childrenOf,
   descendantsOf,
-  type FanInHoldbackNode,
   type GateNode,
   graphViewFor,
   type GraphViewThread,
   holdErasedByCompletion,
-  isHeldForCounterpartFanIn,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
   isWaitingInGate,
@@ -32,7 +30,9 @@ const node = (
 ): GraphViewThread => ({
   parentThreadId: null,
   spawnGeneration: null,
-  planLane: "planned" as ThreadPlanLane,
+  outcome: null,
+  held: false,
+  kickoffAt: null,
   attention: [],
   role: null,
   title: null,
@@ -42,7 +42,6 @@ const node = (
   blockedBy: [],
   lastActivityAt: null,
   lastActivitySummary: null,
-  fanInState: "none",
   ...overrides,
   id: tid(overrides.id),
 });
@@ -146,21 +145,21 @@ describe("subtreeCostOf", () => {
   });
 });
 
-// Join nodes carry the runtime-executing projection (session/latestTurn) the
-// terminal-for-join predicate reads, on top of plan lane + attention.
+// Join nodes carry runtime state the terminal-for-join predicate must ignore,
+// on top of outcome + attention.
 const joinNode = (overrides: {
   readonly id?: string;
   readonly parentThreadId?: ThreadId | null;
   readonly spawnGeneration?: string | null;
-  readonly planLane?: ThreadPlanLane;
-  readonly attention?: ReadonlyArray<AttentionReason>;
+  readonly outcome?: LoomOutcome | null;
+  readonly attention?: ReadonlyArray<LoomAttentionReason>;
   readonly executing?: boolean;
 }) => ({
   id: tid(overrides.id ?? "n"),
   parentThreadId:
     overrides.parentThreadId === undefined ? tid("parent-1") : overrides.parentThreadId,
   spawnGeneration: overrides.spawnGeneration ?? null,
-  planLane: overrides.planLane ?? "planned",
+  outcome: overrides.outcome ?? null,
   attention: overrides.attention ?? [],
   session: overrides.executing ? { status: "running" } : null,
   latestTurn: overrides.executing ? { state: "running" } : null,
@@ -168,26 +167,18 @@ const joinNode = (overrides: {
 
 describe("isTerminalForJoin", () => {
   it("treats done and cancelled as terminal", () => {
-    expect(isTerminalForJoin(joinNode({ planLane: "done" }))).toBe(true);
-    expect(isTerminalForJoin(joinNode({ planLane: "cancelled" }))).toBe(true);
+    expect(isTerminalForJoin(joinNode({ outcome: "done" }))).toBe(true);
+    expect(isTerminalForJoin(joinNode({ outcome: "cancelled" }))).toBe(true);
   });
 
   it("does NOT treat an attention-flagged node as terminal — a pause is not a result", () => {
-    expect(
-      isTerminalForJoin(joinNode({ planLane: "in_progress", attention: ["needs_guidance"] })),
-    ).toBe(false);
-    expect(isTerminalForJoin(joinNode({ planLane: "ready", attention: ["error"] }))).toBe(false);
-    expect(
-      isTerminalForJoin(
-        joinNode({ planLane: "in_progress", attention: ["error"], executing: true }),
-      ),
-    ).toBe(false);
+    expect(isTerminalForJoin(joinNode({ attention: ["needs_guidance"] }))).toBe(false);
+    expect(isTerminalForJoin(joinNode({ attention: ["awaiting_orchestrator"] }))).toBe(false);
+    expect(isTerminalForJoin(joinNode({ attention: ["error"], executing: true }))).toBe(false);
   });
 
-  it("does NOT treat a pre-terminal, unflagged node as terminal", () => {
-    expect(isTerminalForJoin(joinNode({ planLane: "planned" }))).toBe(false);
-    expect(isTerminalForJoin(joinNode({ planLane: "ready" }))).toBe(false);
-    expect(isTerminalForJoin(joinNode({ planLane: "in_progress" }))).toBe(false);
+  it("does NOT treat an open, unflagged node as terminal", () => {
+    expect(isTerminalForJoin(joinNode({}))).toBe(false);
   });
 });
 
@@ -292,7 +283,7 @@ describe("graphViewFor", () => {
 // ---------------------------------------------------------------------------
 
 const gnode = (overrides: Omit<Partial<GateNode>, "id"> & { readonly id: string }): GateNode => ({
-  planLane: "in_progress" as ThreadPlanLane,
+  outcome: null,
   routes: [],
   gateRounds: 0,
   pendingRework: false,
@@ -321,7 +312,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("routes needs_human to attention even for a gate source (reserved token wins)", () => {
-    const coder = gnode({ id: "coder", planLane: "done" });
+    const coder = gnode({ id: "coder", outcome: "done" });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_human")).toMatchObject({
       decision: "attention",
@@ -329,7 +320,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("loops needs_rework to the coder while rounds remain, advancing the round", () => {
-    const coder = gnode({ id: "coder", planLane: "done" });
+    const coder = gnode({ id: "coder", outcome: "done" });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toEqual({
       decision: "loop",
@@ -340,7 +331,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("breaches at the cap: needs_rework with gateRounds === maxRounds yields as cap-breach", () => {
-    const coder = gnode({ id: "coder", planLane: "in_progress" });
+    const coder = gnode({ id: "coder", outcome: null });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder", 2), gateRounds: 2 });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toMatchObject({
       decision: "cap-breach",
@@ -350,7 +341,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("R4: a cancelled (or missing) loop target degrades needs_rework to a yield", () => {
-    const coder = gnode({ id: "coder", planLane: "cancelled" });
+    const coder = gnode({ id: "coder", outcome: "cancelled" });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toMatchObject({
       decision: "yield",
@@ -361,7 +352,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("resolves clean/fixed_inline, completing a non-terminal counterpart alongside", () => {
-    const coder = gnode({ id: "coder", planLane: "in_progress" });
+    const coder = gnode({ id: "coder", outcome: null });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
       decision: "resolve",
@@ -374,7 +365,7 @@ describe("routeWorkSubmit", () => {
   });
 
   it("resolve leaves an already-done counterpart alone (round 0, no loop ever taken)", () => {
-    const coder = gnode({ id: "coder", planLane: "done" });
+    const coder = gnode({ id: "coder", outcome: "done" });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
       decision: "resolve",
@@ -396,10 +387,25 @@ describe("routeWorkSubmit", () => {
   });
 
   it("does NOT intercept when the gate dissolved (source terminal) — done is plain terminal", () => {
-    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), planLane: "done" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), outcome: "done" });
     const coder = gnode({ id: "coder", pendingRework: true });
     expect(routeWorkSubmit(coder, [reviewer, coder], "done")).toMatchObject({
       decision: "terminal",
+    });
+  });
+
+  it("routes the reserved quiescent outcome to yield, before the rework interception", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({ id: "coder", pendingRework: true });
+    expect(routeWorkSubmit(coder, [reviewer, coder], "quiescent")).toEqual({
+      decision: "yield",
+      round: 0,
+      routeTo: null,
+      resolveWith: null,
+    });
+    // A quiet gate source never loops or resolves its gate either.
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "quiescent")).toMatchObject({
+      decision: "yield",
     });
   });
 
@@ -447,7 +453,7 @@ describe("isWaitingInGate", () => {
       gateRounds: 1,
       lastOutcome: { decision: "loop" },
     });
-    const coder = gnode({ id: "coder", planLane: "done", pendingRework: false });
+    const coder = gnode({ id: "coder", outcome: "done", pendingRework: false });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
   });
 
@@ -460,7 +466,7 @@ describe("isWaitingInGate", () => {
     });
     const coder = gnode({
       id: "coder",
-      planLane: "done",
+      outcome: "done",
       pendingRework: false,
       lastOutcome: { decision: "loop" },
     });
@@ -474,7 +480,7 @@ describe("isWaitingInGate", () => {
       gateRounds: 1,
       lastOutcome: { decision: "loop" },
     });
-    const coder = gnode({ id: "coder", planLane: "done", pendingRework: true });
+    const coder = gnode({ id: "coder", outcome: "done", pendingRework: true });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
   });
 
@@ -485,7 +491,7 @@ describe("isWaitingInGate", () => {
       gateRounds: 1,
       lastOutcome: { decision: "loop" },
     });
-    const coder = gnode({ id: "coder", planLane: "cancelled", pendingRework: true });
+    const coder = gnode({ id: "coder", outcome: "cancelled", pendingRework: true });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
   });
 
@@ -499,7 +505,7 @@ describe("isWaitingInGate", () => {
     const reviewer = gnode({
       id: "reviewer",
       routes: loopRoutes("coder"),
-      planLane: "done",
+      outcome: "done",
       gateRounds: 1,
     });
     const coder = gnode({ id: "coder", lastOutcome: { decision: "loop" } });
@@ -507,101 +513,31 @@ describe("isWaitingInGate", () => {
   });
 });
 
-describe("isHeldForCounterpartFanIn (pair fan-in coherence, notice-coalescing §4.1)", () => {
-  const fnode = (
-    overrides: Omit<Partial<FanInHoldbackNode>, "id"> & { readonly id: string },
-  ): FanInHoldbackNode & { readonly id: ThreadId } => ({
-    planLane: "done" as ThreadPlanLane,
-    routes: [],
-    isolation: "isolated",
-    fanInState: "none",
-    ...overrides,
-    id: tid(overrides.id),
-  });
-  const mapOf = (nodes: ReadonlyArray<FanInHoldbackNode & { readonly id: ThreadId }>) =>
-    new Map(nodes.map((n) => [n.id, n] as const));
-
-  it("holds a terminal source while its isolated target's fan-in is pending (none)", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
-    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "none" });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(true);
-  });
-
-  it("releases once the target fan-in settles completed", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
-    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "completed" });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
-  });
-
-  it("releases once the target fan-in settles conflicted (settled-for-wake)", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
-    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "conflicted" });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
-  });
-
-  it("never holds a non-terminal source", () => {
-    const reviewer = fnode({
-      id: "reviewer",
-      planLane: "in_progress",
-      routes: loopRoutes("coder"),
-    });
-    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "none" });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
-  });
-
-  it("never holds a source with no loop route", () => {
-    const solo = fnode({ id: "solo", routes: [] });
-    expect(isHeldForCounterpartFanIn(solo, mapOf([solo]))).toBe(false);
-  });
-
-  it("does not hold when the target is shared (never fans in)", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
-    const coder = fnode({ id: "coder", isolation: "shared", fanInState: "none" });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
-  });
-
-  it("does not hold when the target is a cancelled isolated child (never fans in)", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
-    const coder = fnode({
-      id: "coder",
-      planLane: "cancelled",
-      isolation: "isolated",
-      fanInState: "none",
-    });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
-  });
-
-  it("does not hold when the target is absent from the map", () => {
-    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
-    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer]))).toBe(false);
-  });
-});
-
 describe("isMemberOfUnresolvedGate (generation-join gating)", () => {
   it("marks both parties while the source is non-terminal", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
-    const coder = gnode({ id: "coder", planLane: "done" });
+    const coder = gnode({ id: "coder", outcome: "done" });
     const all = [reviewer, coder];
     expect(isMemberOfUnresolvedGate(reviewer, all)).toBe(true);
     expect(isMemberOfUnresolvedGate(coder, all)).toBe(true);
   });
 
   it("clears once the source is terminal (resolution or parent dissolution)", () => {
-    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), planLane: "done" });
-    const coder = gnode({ id: "coder", planLane: "done" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), outcome: "done" });
+    const coder = gnode({ id: "coder", outcome: "done" });
     const all = [reviewer, coder];
     expect(isMemberOfUnresolvedGate(reviewer, all)).toBe(false);
     expect(isMemberOfUnresolvedGate(coder, all)).toBe(false);
   });
 
   it("never marks gate-free threads", () => {
-    const solo = gnode({ id: "solo", planLane: "done" });
+    const solo = gnode({ id: "solo", outcome: "done" });
     expect(isMemberOfUnresolvedGate(solo, [solo])).toBe(false);
   });
 });
 
 describe("holdErasedByCompletion (raise-then-complete guard predicate)", () => {
-  const held = (attention: ReadonlyArray<AttentionReason>, decision: WorkOutcomeDecision) =>
+  const held = (attention: ReadonlyArray<LoomAttentionReason>, decision: WorkOutcomeDecision) =>
     holdErasedByCompletion({ attention, decision });
 
   it("names the raised reason a completing submit would erase", () => {
@@ -619,7 +555,7 @@ describe("holdErasedByCompletion (raise-then-complete guard predicate)", () => {
 
   it("ignores flags an agent cannot raise, so a liveness `error` never blocks a completion", () => {
     expect(held(["error"], "terminal")).toBeNull();
-    expect(held(["awaiting_approval", "awaiting_input"], "terminal")).toBeNull();
+    expect(held(["awaiting_orchestrator"], "terminal")).toBeNull();
     expect(held([], "terminal")).toBeNull();
   });
 });
@@ -632,7 +568,7 @@ describe("requiresSubmitToComplete (§5.3 bypass guard predicate)", () => {
 
   it("allows terminal threads and gate-free threads", () => {
     expect(
-      requiresSubmitToComplete(gnode({ id: "r", routes: loopRoutes("c"), planLane: "done" })),
+      requiresSubmitToComplete(gnode({ id: "r", routes: loopRoutes("c"), outcome: "done" })),
     ).toBe(false);
     expect(requiresSubmitToComplete(gnode({ id: "plain" }))).toBe(false);
   });

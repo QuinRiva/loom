@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Effort/health meter: per-thread latest context-window snapshot, folded from
 // the durable activity log (the newest `context-window.updated` activity's

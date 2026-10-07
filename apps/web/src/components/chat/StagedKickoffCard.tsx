@@ -3,59 +3,35 @@ import { PencilIcon, RocketIcon } from "lucide-react";
 
 import type { EnvironmentId } from "@t3tools/contracts";
 import ChatMarkdown from "../ChatMarkdown";
+import { useProjectAbsoluteFileQuery } from "../files/projectFilesQueryState";
 import { Button } from "../ui/button";
 import { StagedCard } from "./StagedCard";
 
-/**
- * Whether the staged-kickoff card should be offered for a thread: a parent-less
- * handoff root carrying a stored brief whose conversation has not begun, and
- * whose composer the human has not taken over (Edit first seeds the draft, as
- * does typing). Keying off the persisted draft rather than an in-memory
- * "already seeded" flag is what makes the offer survive reloads.
- *
- * `hasStarted` must reflect the conversation as RENDERED — including the
- * optimistic user message and the in-flight send — not just durable server
- * state. This card is an overlay drawn in front of the timeline, so a
- * server-only test would let it reappear over the launching conversation for
- * the whole turn-start round-trip. See `stagedOverlayConversationStarted`.
- */
-export function shouldShowStagedKickoff(input: {
-  parentThreadId: string | null;
-  brief: string | null;
-  hasStarted: boolean;
-  composerDraftPrompt: string;
-}): boolean {
-  return (
-    input.parentThreadId === null &&
-    (input.brief?.trim().length ?? 0) > 0 &&
-    !input.hasStarted &&
-    input.composerDraftPrompt.trim().length === 0
-  );
-}
-
 interface StagedKickoffCardProps {
-  /** Resolves the brief's `thread://` chips — without it every one reads as archived. */
   readonly environmentId: EnvironmentId;
-  readonly brief: string;
+  /** The held thread's `workstream.kickoffBriefPath`, read through the absolute file RPC. */
+  readonly kickoffBriefPath: string;
   readonly markdownCwd?: string | undefined;
   readonly launchDisabled?: boolean;
   /** Why the composer cannot send yet; Launch waits, showing this, until it clears. */
   readonly launchBlockedReason?: string | null;
   /** Space to reserve at the bottom so the card clears the composer overlay. */
   readonly bottomInset?: number;
-  readonly onLaunch: () => void;
-  readonly onEditFirst: () => void;
+  readonly onLaunch: (brief: string) => void;
+  readonly onEditFirst: (brief: string) => void;
 }
 
 /**
- * The empty-conversation offer shown for a not-yet-launched handoff root: the
- * kickoff brief rendered as markdown, with Launch (send it as the first message
- * through the normal composer path) and Edit first (drop it into the composer as
- * a draft) actions.
+ * loom: the empty-conversation offer on a staged (held) root — a `mcp__t3-code__goal_continue`
+ * successor or a `mcp__t3-code__thread_fork` root (Phase 2 D10, plan P3-19b): its kickoff
+ * brief rendered as markdown, with Launch (send it as the first message through
+ * the composer's ordinary send — that human message is what clears `held`) and
+ * Edit first (drop it into the composer as a draft). There is no release
+ * control: the first human message is the release.
  */
 export const StagedKickoffCard = memo(function StagedKickoffCard({
   environmentId,
-  brief,
+  kickoffBriefPath,
   markdownCwd,
   launchDisabled,
   launchBlockedReason,
@@ -63,9 +39,12 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
   onLaunch,
   onEditFirst,
 }: StagedKickoffCardProps) {
+  const { data, error, isPending } = useProjectAbsoluteFileQuery(environmentId, kickoffBriefPath);
+  const brief = data?.contents.trim() ? data.contents : null;
   return (
     <StagedCard
       badgeLabel="Staged"
+      badgeIcon={<RocketIcon className="size-3" />}
       title="Staged kickoff"
       bottomInset={bottomInset}
       footer={
@@ -73,18 +52,35 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
           {launchBlockedReason ? (
             <span className="mr-auto text-muted-foreground text-xs">{launchBlockedReason}</span>
           ) : null}
-          <Button variant="outline" size="sm" onClick={onEditFirst}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={brief === null}
+            onClick={() => brief && onEditFirst(brief)}
+          >
             <PencilIcon />
             Edit first
           </Button>
-          <Button size="sm" onClick={onLaunch} disabled={launchDisabled || !!launchBlockedReason}>
+          <Button
+            size="sm"
+            disabled={brief === null || launchDisabled || !!launchBlockedReason}
+            onClick={() => brief && onLaunch(brief)}
+          >
             <RocketIcon />
             Launch
           </Button>
         </>
       }
     >
-      <ChatMarkdown text={brief} cwd={markdownCwd} environmentId={environmentId} />
+      {brief !== null ? (
+        <ChatMarkdown text={brief} cwd={markdownCwd} environmentId={environmentId} />
+      ) : error !== null ? (
+        <p className="text-destructive text-sm">Could not read the brief: {error}</p>
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          {isPending ? "Loading brief…" : "This brief is empty."}
+        </p>
+      )}
     </StagedCard>
   );
 });

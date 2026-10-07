@@ -9,10 +9,12 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import {
-  ChatAttachment,
-  ModelSelection,
   getProviderAttachmentLimitError,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  ChatAttachment,
+} from "./chatAttachment.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import {
   ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderInteractionMode,
@@ -21,9 +23,8 @@ import {
   ProviderUserInputAnswers,
   UserInputAttachments,
   RuntimeMode,
-} from "./orchestration.ts";
+} from "./providerPolicy.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
-import { RuntimeErrorClass, UserInputResolvedOutcome } from "./providerRuntime.ts";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -49,10 +50,6 @@ export const ProviderSession = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastError: Schema.optional(TrimmedNonEmptyString),
-  // loom: classification of the last error (set alongside `lastError`). Lets the
-  // exhaustion resume sweep find `quota_exhausted`-stalled sessions without
-  // re-parsing the raw string. Absent for sessions that never errored.
-  lastErrorClass: Schema.optional(RuntimeErrorClass),
 });
 export type ProviderSession = typeof ProviderSession.Type;
 
@@ -65,33 +62,9 @@ export const ProviderSessionStartInput = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
-  // loom: standing instruction appended to the session's system prompt once at
-  // session spawn (e.g. the active-goal context). Not part of any turn input.
-  appendSystemPrompt: Schema.optional(TrimmedNonEmptyString),
-  // loom: role-driven pi options: skill paths (absolute, repeated `--skill`) and a
-  // tool-name allowlist (`--tools`). Pi-only — other drivers drop them.
-  skills: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
-  tools: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
-  // loom: thread fork (MVP) — when set, the driver forks this source thread's pi
-  // session at the child's FIRST launch (native `pi --fork`) so the child
-  // starts with a full copy of the source context, then diverges. Applied once
-  // — every later resume launches normally (the child's own session file now
-  // exists). Pi-only; other drivers ignore it.
-  forkFromThreadId: Schema.optional(ThreadId),
-  // loom: how a fork's FIRST launch resolves its system-prompt/tool identity.
-  // "replay" (default, and the only prior behaviour) replays the source's
-  // captured launch argv verbatim to preserve the shared cacheable prefix.
-  // "compose" uses this thread's OWN reactor-composed identity instead — for
-  // forks whose role diverges from the source (e.g. a retro reviewer) and
-  // whose system-level policy must differ. Deliberately forfeits the fork
-  // cache-prefix optimisation. Pi-only; ignored without forkFromThreadId.
-  forkIdentity: Schema.optional(Schema.Literals(["replay", "compose"])),
-  // loom: Anthropic prompt-cache retention for this session (pi's
-  // PI_CACHE_RETENTION). Absent means "short". Pi-only; other drivers ignore it.
-  cacheRetention: Schema.optional(Schema.Literals(["short", "long"])),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
@@ -138,17 +111,10 @@ export const ProviderRespondToRequestInput = Schema.Struct({
 });
 export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
 
-// loom: the question is already settled durably by the time this input exists (the
-// server settles first, then delivers), so `outcome` tells the adapter WHICH
-// terminal outcome to hand its waiting tool call — not whether to settle.
-// Absent means `answered`; `message` carries the plain text that superseded the
-// form.
 export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   answers: ProviderUserInputAnswers,
-  outcome: Schema.optional(UserInputResolvedOutcome),
-  message: Schema.optional(Schema.String),
   attachmentsByQuestionId: Schema.optional(UserInputAttachments),
 });
 export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;

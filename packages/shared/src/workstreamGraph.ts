@@ -1,14 +1,11 @@
 import {
   DEFAULT_GATE_MAX_ROUNDS,
-  type AttentionReason,
-  type ThreadFanInState,
+  type LoomAttentionReason,
+  type LoomOutcome,
   type ThreadId,
-  type ThreadIsolation,
-  type ThreadPlanLane,
   type WorkOutcomeDecision,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
-import { isFanInPending } from "./workstreamIsolation.ts";
 
 /**
  * workstreamGraph - the single pure source of truth for the workstream graph:
@@ -25,15 +22,15 @@ import { isFanInPending } from "./workstreamIsolation.ts";
  */
 
 /**
- * Minimal structural node shape. Both `OrchestrationThread` and
- * `OrchestrationThreadShell` satisfy it. Lineage (`parentThreadId`) is the only
- * edge needed for structure + membership; generation grouping reads
- * `spawnGeneration`/`status`.
+ * Minimal structural node shape; the sidecar record (`LoomThreadWorkstream`,
+ * keyed `threadId`) maps onto it with `id`. Lineage (`parentThreadId`) is the
+ * only edge needed for structure + membership; generation grouping reads
+ * `spawnGeneration`/`outcome`.
  */
 export interface GraphThread extends GraphLineageNode {
   readonly spawnGeneration: string | null;
-  readonly planLane: ThreadPlanLane;
-  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly outcome: LoomOutcome | null;
+  readonly attention: ReadonlyArray<LoomAttentionReason>;
   readonly role: string | null;
   readonly title: string | null;
 }
@@ -161,42 +158,38 @@ export const subtreeCostOf = <T extends CostGraphNode>(
   threads: ReadonlyArray<T>,
 ): number => subtreeOf(id, threads).reduce((sum, node) => sum + (node.cumulativeCostUsd ?? 0), 0);
 
+/** An outcome is set — `done` or `cancelled`: the thread's work is settled. */
+export const isTerminal = (outcome: LoomOutcome | null): boolean => outcome !== null;
+
 /**
- * A child is "terminal" for parent noticing ONLY when its plan lane is
- * `done`/`cancelled`. Attention flags and runtime state never count: a flagged,
- * non-executing child (a human stop, `awaiting_acceptance`, a stall escalation)
- * is PAUSED, not finished — the parent hears about the pause promptly through
- * the per-child notice rail in `WorkstreamDispatcher`, never through the
- * terminal-child delta rail. Only `done` releases dependents (that stays
- * done-only in `workstreamDependencies`).
+ * A child is "terminal" for parent noticing ONLY when it has an outcome.
+ * Attention flags and runtime state never count: a flagged, non-executing child
+ * (a human stop, `awaiting_acceptance`, a quiet yield) is PAUSED, not finished
+ * — the parent hears about the pause through the per-child notice rail, never
+ * through the terminal-child delta rail. Only `done` releases dependents (that
+ * stays done-only in `workstreamDependencies`).
  */
 export interface TerminalForJoinNode {
-  readonly planLane: ThreadPlanLane;
+  readonly outcome: LoomOutcome | null;
 }
 
-export const isTerminalForJoin = (node: TerminalForJoinNode): boolean =>
-  node.planLane === "done" || node.planLane === "cancelled";
+export const isTerminalForJoin = (node: TerminalForJoinNode): boolean => isTerminal(node.outcome);
 
 // ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §4–§6) — the pure gate
 // predicates + the submit routing decision, shared by the decider (authoritative
 // routing), the dispatcher (traversal/suppression), the submit endpoint
-// (response echo + per-round report naming), and the web board (waiting badges).
+// (response echo + per-round report naming), and the web graph (waiting badges).
 // ---------------------------------------------------------------------------
 
-/** `done`/`cancelled` — the lanes whose work is settled and released. */
-export const isTerminalLane = (lane: ThreadPlanLane): boolean =>
-  lane === "done" || lane === "cancelled";
-
 /**
- * The minimal gate-party shape. Both `OrchestrationThread` (read model) and
- * `OrchestrationThreadShell` satisfy it. A GATE is not stored: it is the
- * derived pair (source = the thread carrying a loop route, target = that
- * route's `to`), unresolved while the source is non-terminal.
+ * The minimal gate-party shape. A GATE is not stored: it is the derived pair
+ * (source = the thread carrying a loop route, target = that route's `to`),
+ * unresolved while the source is non-terminal.
  */
 export interface GateNode {
   readonly id: ThreadId;
-  readonly planLane: ThreadPlanLane;
+  readonly outcome: LoomOutcome | null;
   readonly routes: ReadonlyArray<WorkstreamRoute>;
   readonly gateRounds: number;
   readonly pendingRework: boolean;
@@ -216,7 +209,7 @@ export const gateSourceFor = <T extends GateNode>(
 ): T | null =>
   threads.find(
     (thread) =>
-      !isTerminalLane(thread.planLane) &&
+      !isTerminal(thread.outcome) &&
       thread.routes.some((route) => route.kind === "loop" && route.to === threadId),
   ) ?? null;
 
@@ -232,13 +225,13 @@ export const gateSourceFor = <T extends GateNode>(
  * incident): the round's rework leg is receipt-deduped, so nothing re-drives
  * the loop — the source's idle wake must surface it. A terminal target that
  * ROUTED BACK (`lastOutcome.decision === "loop"`) still suppresses: the
- * re-verify leg is owed and delivers regardless of the target's lane.
+ * re-verify leg is owed and delivers regardless of the target's outcome.
  */
 export const isWaitingInGate = (
   thread: GateNode,
   threadsById: ReadonlyMap<ThreadId, GateNode>,
 ): boolean => {
-  if (isTerminalLane(thread.planLane)) return false;
+  if (isTerminal(thread.outcome)) return false;
   // Source waiting: the target holds the open rework round, or the source has
   // looped and the target is either still active/yielded or has routed back for
   // re-verify. A plain terminal target with no routed-back outcome is a dead
@@ -248,10 +241,10 @@ export const isWaitingInGate = (
     const target = threadsById.get(loopTo);
     if (
       target !== undefined &&
-      target.planLane !== "cancelled" &&
-      ((target.pendingRework && !isTerminalLane(target.planLane)) ||
+      target.outcome !== "cancelled" &&
+      ((target.pendingRework && !isTerminal(target.outcome)) ||
         (thread.lastOutcome?.decision === "loop" &&
-          (target.lastOutcome?.decision === "loop" || !isTerminalLane(target.planLane))))
+          (target.lastOutcome?.decision === "loop" || !isTerminal(target.outcome))))
     ) {
       return true;
     }
@@ -262,7 +255,7 @@ export const isWaitingInGate = (
     for (const other of threadsById.values()) {
       if (
         other.id !== thread.id &&
-        !isTerminalLane(other.planLane) &&
+        !isTerminal(other.outcome) &&
         other.routes.some((route) => route.kind === "loop" && route.to === thread.id)
       ) {
         return true;
@@ -273,43 +266,6 @@ export const isWaitingInGate = (
 };
 
 /**
- * The minimal node shape the fan-in-coherence holdback reads: plan lane +
- * routes on the source, plus the isolation/fan-in fields on the target that
- * `isFanInPending` consults. Both `OrchestrationThread` and
- * `OrchestrationThreadShell` satisfy it.
- */
-export interface FanInHoldbackNode {
-  readonly planLane: ThreadPlanLane;
-  readonly routes: ReadonlyArray<WorkstreamRoute>;
-  readonly isolation: ThreadIsolation;
-  readonly fanInState: ThreadFanInState;
-}
-
-/**
- * Pair fan-in coherence (notice-coalescing design §4.1): a terminal gate
- * SOURCE (the reviewer carrying the loop route) is held back from the delta
- * rail while its loop TARGET (the coder) is a done isolated child whose fan-in
- * has not settled. This keeps a cleanly-resolved gate over an isolated coder
- * (the default — writers are isolated) from splitting into two wakes: the
- * reviewer's verdict now, the coder's terminal notice after the fan-in reactor
- * merges. Held until `thread.fanin-set`, both parties land in one batch → one
- * notice that can truthfully say the coder's branch is merged and its
- * dependents released. `conflicted` is settled-for-wake (`isFanInPending` is
- * false), so the holdback releases and the pair reports together with the
- * conflict block. The holdback only ever waits on exactly the condition the
- * coder's own report already waits on, so it introduces no new liveness class.
- */
-export const isHeldForCounterpartFanIn = (
-  thread: FanInHoldbackNode,
-  threadsById: ReadonlyMap<ThreadId, FanInHoldbackNode>,
-): boolean => {
-  const loopTo = gateLoopTargetOf(thread);
-  if (loopTo === null || !isTerminalForJoin(thread)) return false;
-  const target = threadsById.get(loopTo);
-  return target !== undefined && isFanInPending(target);
-};
-
-/**
  * Generation-join gating (design §6): true when the thread is a party of an
  * unresolved gate — a non-terminal loop-route source, or the target of a loop
  * route whose source is non-terminal. The dispatcher holds back any joined
@@ -317,38 +273,35 @@ export const isHeldForCounterpartFanIn = (
  * mid-loop (its round-0 `done` is reopenable until the gate resolves).
  */
 export const isMemberOfUnresolvedGate = (
-  thread: Pick<GateNode, "id" | "planLane" | "routes">,
-  threads: ReadonlyArray<Pick<GateNode, "id" | "planLane" | "routes">>,
+  thread: Pick<GateNode, "id" | "outcome" | "routes">,
+  threads: ReadonlyArray<Pick<GateNode, "id" | "outcome" | "routes">>,
 ): boolean =>
-  (!isTerminalLane(thread.planLane) && gateLoopTargetOf(thread) !== null) ||
+  (!isTerminal(thread.outcome) && gateLoopTargetOf(thread) !== null) ||
   unresolvedGateSourcesOf(thread.id, threads).length > 0;
 
 /**
- * Every non-terminal gate source (reviewer) whose loop route names `threadId` —
- * the reviewers an isolated target's fan-in waits on (the fan-in reactor skips
- * a target while any of these is unresolved), and so the reviewers a thread
- * waiting on that target's fan-in implicitly waits on too.
+ * Every non-terminal gate source (reviewer) whose loop route names `threadId`.
  */
-export const unresolvedGateSourcesOf = <T extends Pick<GateNode, "id" | "planLane" | "routes">>(
+export const unresolvedGateSourcesOf = <T extends Pick<GateNode, "id" | "outcome" | "routes">>(
   threadId: ThreadId,
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T> =>
   threads.filter(
     (other) =>
-      !isTerminalLane(other.planLane) &&
+      !isTerminal(other.outcome) &&
       other.routes.some((route) => route.kind === "loop" && route.to === threadId),
   );
 
 /**
  * Bypass guard (design §5.3): a gate party may not SELF-set `done` around the
  * routing — an open rework round or an unresolved gate as source must complete
- * through `workstream_submit`. Applies only to self-sets at the lane endpoint;
+ * through `mcp__t3-code__workstream_submit`. Applies only to self-sets of the outcome;
  * parent/human overrides deliberately bypass it (decision 9).
  */
 export const requiresSubmitToComplete = (
-  thread: Pick<GateNode, "planLane" | "routes" | "pendingRework">,
+  thread: Pick<GateNode, "outcome" | "routes" | "pendingRework">,
 ): boolean =>
-  !isTerminalLane(thread.planLane) && (thread.pendingRework || gateLoopTargetOf(thread) !== null);
+  !isTerminal(thread.outcome) && (thread.pendingRework || gateLoopTargetOf(thread) !== null);
 
 /** The routing verdict for one `thread.work.submit`, decided purely (§4.3). */
 export interface WorkSubmitRouting {
@@ -366,7 +319,11 @@ export interface WorkSubmitRouting {
  * by the decider (authoritative — the emitted events follow it) and mirrored by
  * the submit endpoint (response echo, per-round report naming):
  *
- * - `needs_human` → `attention` (the reserved human flag; lane untouched).
+ * - `quiescent` (the dispatcher's synthesised submit for a child that went
+ *   quiet) → `yield`, first — before the rework interception, so a coder that
+ *   goes quiet mid-rework yields to the orchestrator and is never read as
+ *   having handed back.
+ * - `needs_human` → `attention` (the reserved human flag; outcome untouched).
  * - A source outcome matching a loop route → `loop` while rounds remain
  *   (round = gateRounds + 1), `cap-breach` at the cap; a cancelled/missing
  *   loop target degrades to `yield` (risk R4 — never route into a dead thread).
@@ -383,12 +340,13 @@ export const routeWorkSubmit = <T extends GateNode>(
   outcome: string,
 ): WorkSubmitRouting => {
   const base = { round: thread.gateRounds, routeTo: null, resolveWith: null };
+  if (outcome === "quiescent") return { ...base, decision: "yield" };
   if (outcome === "needs_human") return { ...base, decision: "attention" };
   if (outcome !== "done") {
     const route = thread.routes.find((entry) => entry.on.includes(outcome));
     if (route?.kind === "loop" && route.to !== undefined) {
       const target = threads.find((entry) => entry.id === route.to);
-      if (target === undefined || target.planLane === "cancelled") {
+      if (target === undefined || target.outcome === "cancelled") {
         return { ...base, decision: "yield" };
       }
       return thread.gateRounds < (route.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS)
@@ -403,9 +361,7 @@ export const routeWorkSubmit = <T extends GateNode>(
         ...base,
         decision: "resolve",
         resolveWith:
-          counterpart !== undefined && !isTerminalLane(counterpart.planLane)
-            ? counterpart.id
-            : null,
+          counterpart !== undefined && !isTerminal(counterpart.outcome) ? counterpart.id : null,
       };
     }
   }
@@ -420,10 +376,10 @@ export const routeWorkSubmit = <T extends GateNode>(
 
 /**
  * The attention reasons an agent may raise (for itself or a child it parents).
- * `error` is server-only and the two `awaiting_*` request reasons are derived
- * from open approval/input requests — the decider rejects all three.
+ * `error` and `awaiting_orchestrator` are server-only — the arm rejects them
+ * without a `server:` command id.
  */
-export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<AttentionReason> = [
+export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<LoomAttentionReason> = [
   "awaiting_acceptance",
   "needs_guidance",
 ];
@@ -435,28 +391,31 @@ export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<AttentionReason> = [
  * clears stored attention and releases dependents); every other decision keeps
  * it non-terminal, so a raise still holds.
  *
- * A turn-start clears stored attention, so a standing raisable reason is never a
- * stale flag from an earlier turn: it was raised against THIS turn — usually by
- * the thread itself (the contradiction), otherwise by a parent raising on a
- * running child, the liveness sweep parking a frozen turn, or a parent flagging
- * an already-terminal thread. Completing is wrong in every one of those cases,
- * which is why the reason is reported rather than attributed. The 2026-08-21
+ * Keyed on STANDING attention (D19): only a human or the parent clears a hold,
+ * so a raisable reason may predate this turn — raised by the thread itself (the
+ * contradiction), by a parent on a running child, or surviving a notify or
+ * control-notice turn. Completing is wrong in every one of those cases, which
+ * is why the reason is reported rather than attributed. The 2026-08-21
  * attention audit found 10 of 20 recent `awaiting_acceptance` raises erased by
  * the raiser's own submit seconds later, releasing the very work the sign-off
  * was meant to gate.
  */
 export const holdErasedByCompletion = (input: {
-  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly attention: ReadonlyArray<LoomAttentionReason>;
   readonly decision: WorkOutcomeDecision;
-}): AttentionReason | null =>
+}): LoomAttentionReason | null =>
   input.decision === "terminal" || input.decision === "resolve"
     ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.includes(reason)) ?? null)
     : null;
 
 /** The richer node shape the discovery view needs (lineage + report + waits-on). */
 export interface GraphViewThread extends GraphThread {
+  /** Staging hold; with `kickoffAt` and `outcome` it derives the board column. */
+  readonly held: boolean;
+  /** When the first turn was delivered; null = not started. */
+  readonly kickoffAt: string | null;
   /**
-   * Fork provenance (thread_fork / handoff drafter / retro reviewer). A
+   * Fork provenance (mcp__t3-code__thread_fork / handoff drafter / retro reviewer). A
    * parentless fork root carries its source here; `graphViewFor` treats the
    * fork edge as lineage FOR SCOPE ONLY, so a fork root can inspect its
    * source's workstream graph (and the source tree sees the fork). Absent /
@@ -473,8 +432,6 @@ export interface GraphViewThread extends GraphThread {
   readonly lastActivityAt: string | null;
   /** One-line preview of the most recent activity (full detail lives in the jsonl). */
   readonly lastActivitySummary: string | null;
-  /** Worktree isolation fan-in settlement state (plan §3): "none", "completed", or "conflicted". */
-  readonly fanInState: ThreadFanInState;
 }
 
 export interface GraphViewNode {
@@ -486,8 +443,10 @@ export interface GraphViewNode {
   readonly purpose: string | null;
   /** Symbolic scaffold key (unique-forever per parent), null for legacy/spawned nodes. */
   readonly graphKey: string | null;
-  readonly planLane: ThreadPlanLane;
-  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly outcome: LoomOutcome | null;
+  readonly held: boolean;
+  readonly kickoffAt: string | null;
+  readonly attention: ReadonlyArray<LoomAttentionReason>;
   readonly spawnGeneration: string | null;
   readonly hasReport: boolean;
   /** Absolute path to the thread's curated report, or null if none filed. */
@@ -498,8 +457,6 @@ export interface GraphViewNode {
   readonly lastActivityAt: string | null;
   /** One-line preview of the most recent activity. */
   readonly lastActivitySummary: string | null;
-  /** Worktree isolation fan-in settlement state (plan §3): "none" (no fan-in pending or not isolated), "completed" (merged cleanly), or "conflicted" (merge aborted, awaiting resolution). */
-  readonly fanInState: ThreadFanInState;
 }
 
 export interface GraphEdge {
@@ -552,7 +509,9 @@ export const graphViewFor = <T extends GraphViewThread>(
     title: thread.title,
     purpose: thread.purpose,
     graphKey: thread.graphKey,
-    planLane: thread.planLane,
+    outcome: thread.outcome,
+    held: thread.held,
+    kickoffAt: thread.kickoffAt,
     attention: thread.attention,
     spawnGeneration: thread.spawnGeneration,
     hasReport: thread.reportPath !== null,
@@ -560,7 +519,6 @@ export const graphViewFor = <T extends GraphViewThread>(
     sessionPath: sessionPathFor ? sessionPathFor(thread.id) : null,
     lastActivityAt: thread.lastActivityAt,
     lastActivitySummary: thread.lastActivitySummary,
-    fanInState: thread.fanInState,
   }));
   const lineageEdges = members.flatMap((thread) =>
     thread.parentThreadId !== null && memberIds.has(thread.parentThreadId)

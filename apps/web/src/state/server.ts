@@ -4,16 +4,17 @@ import {
   type EnvironmentTheme,
   type ServerConfig,
   type ServerConfigStreamEvent,
+  type ServerLifecycleLegacyThreadMigrationPayload,
   type ServerLifecycleWelcomePayload,
   type ServerProvider,
   type ServerSettings,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
 import { createServerEnvironmentAtoms } from "@t3tools/client-runtime/state/server";
+import { createOutdatedServerUpdateCommand } from "@t3tools/client-runtime/state/outdatedServerUpdate";
 import { createEnvironmentServerConfigsAtom } from "@t3tools/client-runtime/state/shell";
 import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -32,6 +33,8 @@ export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRunt
   usageLimitSources: true,
   usageLimitsCommand: true,
 });
+/** Updates a host whose protocol is too old for this client to connect to. */
+export const updateOutdatedServer = createOutdatedServerUpdateCommand(connectionAtomRuntime);
 export const environmentServerConfigsAtom = createEnvironmentServerConfigsAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   serverConfigValueAtom: serverEnvironment.configValueAtom,
@@ -82,6 +85,18 @@ export const primaryServerWelcomeAtom = Atom.make(
   (get): ServerLifecycleWelcomePayload | null => get(primaryServerStateAtom).welcome,
 ).pipe(Atom.withLabel("web-primary-server-welcome"));
 
+export const primaryServerLegacyThreadMigrationAtom = Atom.make(
+  (get): ServerLifecycleLegacyThreadMigrationPayload | null => {
+    const environmentId = get(primaryEnvironmentIdAtom);
+    if (environmentId === null) {
+      return null;
+    }
+    return Option.getOrNull(
+      AsyncResult.value(get(serverEnvironment.legacyThreadMigration({ environmentId, input: {} }))),
+    );
+  },
+).pipe(Atom.withLabel("web-primary-server-legacy-thread-migration"));
+
 export const primaryServerSettingsAtom = Atom.make(
   (get): ServerSettings => get(primaryServerConfigAtom)?.settings ?? DEFAULT_SERVER_SETTINGS,
 ).pipe(Atom.withLabel("web-primary-server-settings"));
@@ -99,11 +114,6 @@ export const primaryServerAvailableEditorsAtom = Atom.make(
   (get): ReadonlyArray<EditorId> =>
     get(primaryServerConfigAtom)?.availableEditors ?? EMPTY_AVAILABLE_EDITORS,
 ).pipe(Atom.withLabel("web-primary-server-available-editors"));
-
-export const primaryServerObservabilityAtom = Atom.make(
-  (get): ServerConfig["observability"] | null =>
-    get(primaryServerConfigAtom)?.observability ?? null,
-).pipe(Atom.withLabel("web-primary-server-observability"));
 
 const EMPTY_ENVIRONMENT_THEMES: ReadonlyArray<EnvironmentTheme> = [];
 

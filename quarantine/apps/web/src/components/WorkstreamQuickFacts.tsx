@@ -1,0 +1,178 @@
+import { subtreeCostOf } from "@t3tools/shared/workstreamGraph";
+import { forwardRef, type ReactNode } from "react";
+
+import { formatCostUsd } from "../loom/costFormat";
+import {
+  type ChildIndex,
+  formatRelativeAge,
+  getAttentionBadges,
+  getFanInChip,
+  getGateLoopCap,
+  getGateWaitLabel,
+  getLastActivityAt,
+  getPurpose,
+  getRoleLabel,
+  getThreadStatus,
+  getVerdictChip,
+  hasRunningSignal,
+} from "../lib/workstreamPresentation";
+import type { SidebarThreadSummary } from "../types";
+import { WorkstreamModelPill } from "./WorkstreamModelPill";
+
+/**
+ * Quick-facts hover card for a graph node — the cheap glance before committing to
+ * a click (open) or a right-click (actions). Purely presentational; the graph owns the
+ * dwell timing and positions this imperatively via the forwarded ref (so pointer
+ * tracking never re-renders the SVG). Every field rides on the thread shell
+ * already, so this reads live state without any extra fetch.
+ */
+export const WorkstreamQuickFacts = forwardRef<
+  HTMLDivElement,
+  {
+    readonly thread: SidebarThreadSummary;
+    readonly threads: ReadonlyArray<SidebarThreadSummary>;
+    readonly threadById: ChildIndex;
+  }
+>(function WorkstreamQuickFacts({ thread, threads, threadById }, ref) {
+  const status = getThreadStatus(thread, threadById);
+  const verdictChip = getVerdictChip(thread);
+  const gateWait = getGateWaitLabel(thread, threadById);
+  const fanInChip = getFanInChip(thread);
+  const badges = getAttentionBadges(thread);
+  const hasGate = thread.routes.some((route) => route.kind === "loop");
+  const running = hasRunningSignal(thread);
+  // "Never run" per plan §3.3: still in a pre-run column and no tool snapshot yet.
+  const notStarted =
+    (status.column === "planned" ||
+      status.column === "awaiting_brief" ||
+      status.column === "ready" ||
+      status.column === "blocked") &&
+    thread.toolUses === null;
+  const cost = formatCostUsd(thread.cumulativeCostUsd);
+  // Roll-up only when descendants actually spent something (see WorkstreamCard).
+  const subtreeTotal = subtreeCostOf(thread.id, threads);
+  const subtreeCost =
+    subtreeTotal > (thread.cumulativeCostUsd ?? 0) ? formatCostUsd(subtreeTotal) : null;
+  const preview = thread.lastActivityPreview;
+  const forkedFrom = thread.forkFromThreadId
+    ? (threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId)
+    : null;
+
+  return (
+    <div
+      ref={ref}
+      className="pointer-events-none absolute z-20 max-h-[40vh] w-[256px] overflow-hidden rounded-xl border border-border bg-popover/95 p-3 text-popover-foreground shadow-lg backdrop-blur"
+    >
+      <div className="text-3xs uppercase tracking-widest text-muted-foreground/70">
+        {getRoleLabel(thread)}
+      </div>
+      <div className="mt-0.5 line-clamp-2 text-sm font-semibold leading-snug text-foreground">
+        {thread.title}
+      </div>
+      {/* The goal used to live in a native <title> tooltip on the node, which
+          fought this card (two simultaneous tooltips); it belongs here — shown in
+          full (purposes are 1–3 sentences), bounded only by the card's max-h. */}
+      <div className="mt-1 text-2xs leading-snug text-muted-foreground">{getPurpose(thread)}</div>
+
+      <dl className="mt-2 flex flex-col gap-1">
+        <FactRow label="Status">
+          <span style={{ color: status.graphStroke }}>● {status.label}</span>
+        </FactRow>
+        <FactRow label="Tool calls">
+          {notStarted ? (
+            <span className="italic text-muted-foreground/70">not started yet</span>
+          ) : thread.toolUses !== null ? (
+            <span className="font-mono">⚒ {thread.toolUses}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </FactRow>
+        <FactRow label="Model">
+          <WorkstreamModelPill selection={thread.modelSelection} />
+        </FactRow>
+        <FactRow label="Cost">
+          <span className="font-mono">
+            {subtreeCost ? `own ${cost ?? "—"} · subtree ${subtreeCost}` : (cost ?? "—")}
+          </span>
+        </FactRow>
+        {hasGate || thread.gateRounds > 0 ? (
+          <FactRow label="Gate rounds">
+            <span>
+              ⟲ {thread.gateRounds}/{getGateLoopCap(thread)}
+            </span>
+          </FactRow>
+        ) : null}
+        {fanInChip ? <FactRow label="Fan-in">{fanInChip.label}</FactRow> : null}
+        {forkedFrom ? <FactRow label="Forked from">{forkedFrom}</FactRow> : null}
+      </dl>
+
+      {/* Turn line — the most recent assistant action IS the activity read (it
+          replaces the old generic getActivity() phrase). Degrades honestly per
+          plan §3.3: starting… only while actually running, no turns yet before
+          the first run, — for an idle non-pi narration gap. */}
+      <div className="mt-2 flex gap-1.5 border-t border-border pt-2 text-2xs leading-snug text-foreground/60">
+        <span aria-hidden className="shrink-0 text-muted-foreground/70">
+          ›
+        </span>
+        {preview ? (
+          <span className="min-w-0">
+            <span className="italic">{preview}</span>
+            <span className="ml-1 not-italic text-muted-foreground/70">
+              · {formatRelativeAge(getLastActivityAt(thread))}
+            </span>
+          </span>
+        ) : running ? (
+          <span className="italic text-muted-foreground/70">starting…</span>
+        ) : notStarted ? (
+          <span className="italic text-muted-foreground/70">no turns yet</span>
+        ) : (
+          <span className="text-muted-foreground/70">—</span>
+        )}
+      </div>
+
+      {verdictChip || gateWait || badges.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {verdictChip ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-2xs ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
+            >
+              {verdictChip.label}
+            </span>
+          ) : null}
+          {badges.map(({ reason, label }) => (
+            <span
+              key={reason}
+              className="rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-2xs text-warning-foreground"
+            >
+              {label}
+            </span>
+          ))}
+          {gateWait ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-2xs ${
+                gateWait.active
+                  ? "border-info/40 bg-info/10 text-info-foreground"
+                  : "border-border bg-muted text-muted-foreground"
+              }`}
+            >
+              {gateWait.label}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-2 text-2xs text-info-foreground/80">
+        click to enter · right-click for actions
+      </div>
+    </div>
+  );
+});
+
+function FactRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2 text-xs">
+      <dt className="w-[74px] shrink-0 text-muted-foreground/70">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate text-foreground/80">{children}</dd>
+    </div>
+  );
+}

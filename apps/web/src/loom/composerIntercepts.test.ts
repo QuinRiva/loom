@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import * as Cause from "effect/Cause";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
@@ -125,7 +125,7 @@ describe("runComposerDraftIntercept", () => {
           terminalContextCount: 0,
           previewAnnotationCount: 0,
           reviewCommentCount: 0,
-          threadReferenceCount: 0,
+          threadContextCount: 0,
         }),
         restoreComposer: (prompt) => {
           state.prompt = prompt;
@@ -254,7 +254,7 @@ describe("shouldRestoreSubmittedDraft", () => {
     terminalContextCount: 0,
     previewAnnotationCount: 0,
     reviewCommentCount: 0,
-    threadReferenceCount: 0,
+    threadContextCount: 0,
   };
 
   it("restores into a completely empty composer", () => {
@@ -268,7 +268,7 @@ describe("shouldRestoreSubmittedDraft", () => {
       { terminalContextCount: 1 },
       { previewAnnotationCount: 1 },
       { reviewCommentCount: 1 },
-      { threadReferenceCount: 1 },
+      { threadContextCount: 1 },
     ];
     for (const overlay of occupied) {
       expect(shouldRestoreSubmittedDraft({ ...emptyComposer, ...overlay })).toBe(false);
@@ -315,7 +315,7 @@ describe("draft command intercepts: no non-success exit loses the draft", () => 
         terminalContextCount: 0,
         previewAnnotationCount: 0,
         reviewCommentCount: 0,
-        threadReferenceCount: 0,
+        threadContextCount: 0,
       }),
       restoreComposer: (prompt) => {
         state.prompt = prompt;
@@ -395,7 +395,7 @@ describe("draft command intercepts: no non-success exit loses the draft", () => 
         terminalContextCount: 0,
         previewAnnotationCount: 0,
         reviewCommentCount: 0,
-        threadReferenceCount: 0,
+        threadContextCount: 0,
       }),
       restoreComposer: (prompt) => {
         state.prompt = prompt;

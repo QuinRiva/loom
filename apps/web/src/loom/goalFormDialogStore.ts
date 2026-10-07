@@ -1,11 +1,9 @@
 /**
- * loom: imperative, promise-shaped goal form.
+ * loom: imperative, promise-shaped goal rename form (3d-3).
  *
- * Goal create/rename are invoked from native context menus and overflow menus —
- * callers that are plain async handlers, not React trees. `window.prompt` used
- * to serve that (three prompts in a row for create); this store keeps the
- * imperative call shape while the rendered form is a real dialog, mounted once
- * at the app root (`GoalFormDialogHost`).
+ * Goal rename is invoked from native context menus — plain async handlers, not
+ * React trees. This store keeps that imperative call shape while the rendered
+ * form is a real dialog, mounted once (`GoalFormDialogHost`, in the sidebar).
  *
  * Tier-1 ephemeral UI state: never persisted, one request at a time (a second
  * request supersedes the first, resolving it null).
@@ -14,30 +12,20 @@ import { create } from "zustand";
 
 export interface GoalFormValues {
   readonly title: string;
-  readonly slug: string;
   readonly description: string;
 }
 
-export interface GoalFormRequest {
-  readonly mode: "create" | "rename";
-  readonly initial: GoalFormValues;
-}
-
 interface GoalFormDialogState {
-  readonly request:
-    | (GoalFormRequest & { readonly resolve: (v: GoalFormValues | null) => void })
-    | null;
-  readonly openGoalForm: (request: GoalFormRequest) => Promise<GoalFormValues | null>;
+  readonly request: {
+    readonly id: number;
+    readonly initial: GoalFormValues;
+    readonly resolve: (values: GoalFormValues | null) => void;
+  } | null;
   readonly resolveGoalForm: (values: GoalFormValues | null) => void;
 }
 
 export const useGoalFormDialogStore = create<GoalFormDialogState>()((set, get) => ({
   request: null,
-  openGoalForm: (request) =>
-    new Promise<GoalFormValues | null>((resolve) => {
-      get().request?.resolve(null);
-      set({ request: { ...request, resolve } });
-    }),
   resolveGoalForm: (values) => {
     const pending = get().request;
     if (!pending) return;
@@ -47,13 +35,9 @@ export const useGoalFormDialogStore = create<GoalFormDialogState>()((set, get) =
 }));
 
 /** Imperative entry point for handlers outside the React tree. */
-export const promptGoalForm = (request: GoalFormRequest): Promise<GoalFormValues | null> =>
-  useGoalFormDialogStore.getState().openGoalForm(request);
-
-/** Slug proposal shared by the dialog and its callers: lowercase, dash-joined. */
-export function slugifyGoalTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+let nextRequestId = 0;
+export const promptGoalForm = (initial: GoalFormValues): Promise<GoalFormValues | null> =>
+  new Promise((resolve) => {
+    useGoalFormDialogStore.getState().request?.resolve(null);
+    useGoalFormDialogStore.setState({ request: { id: ++nextRequestId, initial, resolve } });
+  });

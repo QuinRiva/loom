@@ -3,9 +3,10 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type * as Schema from "effect/Schema";
+import * as Migrator from "effect/sql/Migrator";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 import {
   loomMigrationEntries,
@@ -14,7 +15,7 @@ import {
   runAllMigrations,
   runLoomMigrations,
 } from "./LoomMigrations.ts";
-import { migrationEntries } from "./Migrations.ts";
+import { migrationEntries, runMigrations } from "./Migrations.ts";
 import * as NodeSqliteClient from "./NodeSqliteClient.ts";
 import * as NodeSqliteWorkerClient from "./NodeSqliteWorkerClient.ts";
 
@@ -115,7 +116,11 @@ const PRODUCTION_FORK_TAIL: ReadonlyArray<readonly [id: number, name: string]> =
  * grow when a new fork migration is added.
  */
 const historicalLedger: ReadonlyArray<
-  readonly [id: number, name: string, body: Effect.Effect<void, SqlError, SqlClient.SqlClient>]
+  readonly [
+    id: number,
+    name: string,
+    body: Effect.Effect<void, SqlError | Schema.SchemaError, SqlClient.SqlClient>,
+  ]
 > = [
   ...migrationEntries.filter(([id]) => id <= 32),
   ...loomMigrationEntries
@@ -639,7 +644,10 @@ describe("adding future fork migrations does not break reconciliation", () => {
         );
         assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), range(1, 34));
 
-        // The grown fork lane then applies its new migration on top.
+        // The grown fork lane then applies its new migration on top, after the
+        // upstream lane as at boot (`runAllMigrations`): fork migrations may read
+        // upstream tables (1052 reads the V2 projections).
+        yield* runMigrations();
         yield* withSyntheticFork();
         assert.deepStrictEqual(
           yield* ledgerIds(loomMigrationsTable),

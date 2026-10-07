@@ -1,0 +1,557 @@
+---
+manager_sessions:
+  - id: 2fee82a8-f5f7-4567-a04f-410f5e893829
+    role: plan
+    authored_at: 2026-10-05T11:23:55.660Z
+---
+
+# Upstream's orchestration toolkit beside Loom's tools — coexistence verdicts
+
+<Callout tone="decision">
+**What is being decided.** Pull 9 adopts upstream's Orchestration V2 as Loom's substrate. Upstream ships 41 agent-facing orchestration tools across five MCP toolkits (`OrchestratorToolkit` 15, `ThreadToolkit` 17, `t3_thread_launch`, `PullRequestsToolkit` 5, `WorktreeToolkit` 3), plus six project-administration tools in `ProjectToolkit` that are judged as one group; Loom ships 23 of its own. The pull-9 strategy plan proposes withholding upstream's whole set so a model sees one delegation model per prompt. This document compares the two sets by the *move an agent is making*, gives one verdict card per upstream tool with the concrete failure if a model had both, and recommends what the plan should say instead.
+
+**How to record a verdict.** Each card ends in an Accept / Reject / Discuss control. Accepting a card means the plan's Area B list of later-exposable tools carries that tool's verdict ("open when revisited", with what it needs, or "closed" with the reason). **Silence is acceptance of the card's recommendation.** The two preference questions this recap posed are now answered in §5, together with the follow-ups Carl raised while reviewing it.
+
+**Evidence base.** Upstream facts are taken from the code-grounded account in `docs/upstream-sync/28-pull9-v2-alignment/05-upstream-toolkit-account.md` ("05") at `upstream/main` `7812230572`, and Loom facts from `/home/Carl/.t3/cockpit/worktrees/loom/t3code-87358b97/docs/upstream-sync/28-pull9-v2-alignment/02-loom-inventory.md` ("02"; its sibling `03-pi-driver-comparison.md` is "03") at `131166c11d`, re-checked against source where a verdict hinges on a line. References of the form `file:line` are into `upstream/main` for upstream files and this checkout for Loom files. The plan under discussion is `/home/Carl/.t3/cockpit/worktrees/loom/t3code-87358b97/plans/upstream-pull9-strategy/plan.mdx` at **revision 2** (`7903b325c5`), which already records Carl's decisions "no upstream orchestration tools visible at first; revisit after cut-over" and "prefixed `mcp__t3-code__` names"; §4 is written as edits to its Area B list of what could be exposed later.
+
+**Three of Carl's stated preferences shape the verdicts and are treated as given, not re-argued:** worktree isolation is not a Loom requirement (it exists to keep the diff panel coherent; Carl would rather children shared the parent's checkout), so a shared checkout counts for nothing against upstream and fan-in counts for nothing in Loom's favour; staged release is probably an artefact now that an unbriefed scaffold node is already held, so it is not listed as a Loom advantage and is noted as a retirement candidate; and upstream's quiescence-as-completion semantic is considered as something to adopt (§4). One framing correction carried throughout: an upstream delegated child receives exactly what a Loom child receives — a parent-written brief and no transcript — so "the child gets no context" is not a difference; `consult_thread` and `forkFrom` are.
+</Callout>
+
+## 1. The two models, side by side
+
+Upstream's toolkit follows from one sentence (05 §1.1): *an agent is a thread mid-turn; while its turn is live it may start other agents, talk to any thread, and change threads that run within its own permissions; results come back as a pointer to read, not pushed text; the app owns workspaces, queues, schedules and durable records.* Everything a Loom reader needs to know about its lifecycle is in 05 §1.9's 21 checkable sentences. The ones that matter for coexistence:
+
+- A delegated task exists only inside the parent's live turn (`parent_not_active`, L1). The child receives the parent-written task text, as a Loom child receives its brief (L2); it runs in the parent's checkout (L3), which matches where Carl wants Loom's children to run.
+- Its result is published **once** — the child's most recently finished run at the moment the child first goes quiet (not "the first run"; L5, 05 §1.10 claim 2) — and never reopens (L6). The parent learns of it through a generic pointer message telling it to call `task_status` (L8); reading the result mid-turn cancels the queued wake (L12).
+- Waiting is a first-class move: `delegate_task mode=wait` and `t3_thread_wait` poll until terminal or timeout (L10).
+- Any thread in the environment can be read; writing to another thread needs the caller mid-turn and the target within the caller's permission modes (L14, L15 — widened by #15219 after the inventory's snapshot).
+- Interrupting a thread **holds its queue** until a client issues `queue.resume`, which no agent tool can do (L17). Interrupting a parent means none of its delegated tasks will ever wake it (L11).
+- Thread-toolkit decider refusals reach the agent as the opaque "The operation could not be completed." (05 §2.2).
+- Tools are listed to every credential; capabilities are enforced only at call time (L20).
+
+Loom's model (02, "What Loom is actually for"): a child is a **durable, inspectable thread** with its own role, model and transcript; work starts only when its dependencies are `done` and its brief is present (lane release is a third hold that Carl is minded to retire); plan, runtime and "needs a human" are three axes of which agents may write only plan intent and agent-raised attention; a human hold actually holds; review runs as a gated coder–reviewer loop in the control plane; results come back as a **report file plus a routed outcome** through one terminal call; the orchestrator is woken by the dispatcher with digests rather than polling; information moves cheapest first — report, graph, frozen-fork consult, and only then raw history; and the tool surface is lean per role with dormant families one `enable_toolset` away.
+
+Where the two agree is the substrate: a child is a real app thread a human can open; parentage is recorded; a child starts from a brief, not a transcript; launching into a prepared workspace is a server workflow. Where they disagree is every tool that *moves* a thread through its life — and that is what the next two sections sort out.
+
+## 2. Intent map
+
+One row per move an agent makes. The outcome column uses four classes: **same move, different name**; **upstream-only move**; **Loom-only move**; **same name, different meaning**.
+
+<Table
+  filterable
+  density="compact"
+  columns={["Move", "Upstream tools", "Loom tools", "Outcome", "The subtle part"]}
+  rows={[
+    ["Delegate owned sub-work", "delegate_task (+ task_status, task_cancel)", "workstream_spawn; workstream_scaffold + workstream_brief", "same move, different name — incompatible lifecycle", "Both children start from a parent-written brief (upstream's always in the parent's checkout; Loom's in the parent's or, for an isolated child, a provisioned worktree — Carl would rather both shared). Upstream: created only inside the parent's live turn; result is a pointer to task_status. Loom: control-plane-created when dependencies are done, dependency and gate edges, report file + routed outcome, consult_thread and forkFrom."],
+    ["Start independent top-level work", "create_threads; t3_thread_launch", "goal_handoff; goal_continue", "same move, different name", "Upstream threads start immediately and carry no goal and no lineage. Loom's are goal-bound roots held for the human's first send."],
+    ["Check on a child", "task_status; t3_thread_read; t3_thread_list", "workstream_list + the report file; dispatcher digests", "same move, different name", "Loom's list carries lane, attention, generation and report/session paths; upstream's status is one task's published summary."],
+    ["Wait for a child", "t3_thread_wait; delegate_task mode=wait", "— (children wake you)", "upstream-only move", "Loom's doctrine is the opposite: end the turn, the dispatcher wakes the parent once per meaningful event, coalesced."],
+    ["Steer or resume a child", "t3_thread_send (auto / queue / steer / restart); t3_queue_* ", "workstream_prompt; workstream_brief (pre-start)", "same move, different name", "Loom: direct children only, never interrupts, appends to an unstarted node's brief, rejects a done child. Upstream: any writable thread, restart interrupts, send to a done thread re-engages it silently."],
+    ["Stop or cancel", "task_cancel; t3_thread_interrupt", "workstream_stop; workstream_set_lane cancelled", "same move, different name", "Loom's stop is an orchestrator pause (no flag; idle backstop catches a forgotten resume); cancel cascades to the subtree. Upstream's interrupt holds the target's queue with no agent release."],
+    ["Hand a result back", "— (implicit: last assistant message, published once)", "workstream_submit (report + outcome routed by the control plane)", "Loom-only move", "Upstream has no completion call; the child just stops. Loom's single terminal call is what makes gates, yields and holds possible."],
+    ["Ask a human", "— (provider-native user_input request)", "ask_user_question; workstream_request_attention", "Loom-only move", "The attention flag is the one axis the human machinery watches and it holds dependents; upstream has a question but no hold."],
+    ["Answer another thread's question", "t3_pending_request_list / read / respond", "— (a human answers; a human message supersedes)", "upstream-only move", "Loom's awaiting-input wake tells the parent a child is blocked; the parent has no tool to answer. Decided (§5, decision 2): closed; the child consults its parent instead."],
+    ["Read another thread's context", "t3_thread_read; t3_thread_search; t3_thread_list", "consult_thread (frozen fork); workstream_list (report + session paths)", "same move, different name — complementary", "consult spends the target model's tokens and keeps the raw history out of the asker's context; t3_thread_read is cheaper and provider-neutral but loads the transcript into the reader."],
+    ["Push information to another thread", "t3_thread_send", "notify_thread", "same move, different name", "notify never interrupts, refuses terminal/archived targets, caps an ordered pair hourly, frames the relationship, leaves provenance. t3_thread_send has none of those rules."],
+    ["Organise or tidy threads", "t3_thread_organize; t3_thread_update (rename, regenerate_title)", "set_thread_title (self only)", "mostly upstream-only move", "Loom deliberately lets a thread rename only itself. Explicit settle/archive on a Loom child or root have cascade and plan consequences."],
+    ["Branch context", "t3_thread_fork; t3_thread_merge_back; t3_thread_transfers", "thread_fork; forkFrom (spawn parameter)", "same move for fork; upstream-only for merge-back", "Both forks become V2 thread.fork under pull 9 (plan Area F). Loom's wrapper adds goal inheritance and refuses mid-turn. Loom's forks never merge back by design."],
+    ["Schedule recurring work", "schedule_task; list / update / delete_scheduled_task; run_scheduled_task_now", "—", "upstream-only move", "Orthogonal as a capability; its delivery (a queued turn start on a timer) collides with Loom's turn-start rules. Decided (§5, decision 1): a Loom-wrapped unbound schedule."],
+    ["Track a pull request", "link / unlink / list_thread / watch / unwatch_pull_request; t3_thread_update link_pull_request", "— (shipper role + ship skill; no tracking)", "upstream-only move", "Loom roots babysit PRs by polling gh in bash — a turn held open for the whole watch. A watch wake is a turn start, so it meets Loom's clear-all-attention rule."],
+    ["Get or inspect a worktree", "t3_worktree_handoff / status / list", "— (roots are bootstrapped into worktrees; children run in the parent's, or in a provisioned worktree when isolated)", "upstream-only tool", "Nearly every Loom thread already sits in a worktree, so handoff fails already_in_worktree and the two reads say what git already says. Loom's per-child isolation is a diff-panel convenience Carl is minded to drop, so neither side's worktree handling is an advantage."],
+    ["Choose or change a model", "orchestrator_capabilities; t3_thread_configuration / configure", "taskShape / modelPreset / modelSelection at spawn; workstream_list presets", "same move at spawn; mid-flight change is upstream-only", "Loom resolves a shape against an operator matrix and never shows the catalogue; the session model is pinned at birth for failover."],
+    ["Author the plan graph", "—", "workstream_set_dependencies; workstream_set_lane; gate / blockedBy parameters (staged / workstream_release are retirement candidates)", "Loom-only move", "Upstream has no ordering, gates or lanes between children; the hold Loom actually relies on is 'unbriefed node does not start'."],
+    ["Goal and task tree", "—", "goal_task_list / add / update; goal_tasks_rewrite; goal_update", "Loom-only move", "Upstream's 'task' means a delegated child or a scheduled prompt."],
+    ["Widen your own tool surface", "— (everything active)", "enable_toolset", "Loom-only move", "This is also the mechanism that can keep upstream's tools out of a Loom prompt — see §4."],
+    ["The word 'task'", "task_status, task_cancel, schedule_task, run_scheduled_task_now", "goal_task_list, goal_task_add, goal_task_update, goal_tasks_rewrite", "same name, different meaning", "Upstream: a delegated child or a recurring prompt. Loom: a node of the goal's task tree. Both families in one prompt invite task_status on a task-tree id."],
+    ["The word 'role'", "delegate_task.role (six-value enum; prefixes one sentence)", "workstream_spawn.role (full overlay: prompt, skills, tool profile, isolation default)", "same name, different meaning", "05 D16. A model that has seen Loom's roles would expect upstream's to carry doctrine; it carries one sentence."],
+    ["Fork", "t3_thread_fork", "thread_fork", "same name, different meaning (narrowly)", "Upstream forks any writable thread from latest_stable / run / checkpoint into an idle sibling; Loom forks only itself, only between turns, into a staged root that inherits the goal."],
+  ]}
+/>
+
+What a model would actually be told, if both sets were active, is worth stating once: upstream's descriptions open with "Needs an agent running inside a T3 thread", point at `orchestrator_capabilities` for model ids, and (in `delegate_task`, `create_threads` and the shared `T3_CODE_ORCHESTRATION_INSTRUCTIONS`) tell the model to **prefer native subagent tools for same-provider work** — a third delegation model (pi's own in-turn subagent) that Loom's doctrine explicitly rejects (02 §A intent: "the tool-call subagent and the spawn-a-session subagent are different primitives"). Loom's descriptions are the opposite register: `workstream_spawn` says a child is durable, gated, isolated by role and reports through `workstream_submit`. Those two instructions cannot both be true of "the way to delegate" in one prompt.
+
+## 3. Per-tool coexistence verdicts
+
+Verdict classes and their colours: **COMPLEMENTARY** (green) — overlaps a Loom move but adds a trade-off Loom lacks; open when the list is revisited, with a description guard. **ORTHOGONAL** (blue) — no overlap with any Loom move; could be opened as-is, though several are not worth a hunk. **REDUNDANT** (amber) — same move, Loom's covers it; nothing breaks but the prompt gets a second name for one move; keep dormant. **CONTRADICTORY** (red) — same move with an incompatible lifecycle; a model using it produces work Loom's graph, gates or reports cannot see, or trips a Loom rail; keep dormant *and* denied.
+
+<Table
+  filterable
+  density="compact"
+  columns={["Tool", "Toolkit", "Verdict", "Recommendation", "One-line reason"]}
+  rows={[
+    ["orchestrator_capabilities", "Orchestrator", "REDUNDANT", "dormant + denied", "Model catalogue by name; Loom resolves shapes server-side and deliberately omits the catalogue."],
+    ["delegate_task", "Orchestrator", "CONTRADICTORY", "dormant + denied", "Live-turn-only child with a pointer result and no graph edges; under Area A's lineage adoption it becomes a Loom child stuck in_progress forever."],
+    ["task_status", "Orchestrator", "REDUNDANT", "dormant + denied", "Meaningful only with delegate_task; not read-only (acknowledges a wake)."],
+    ["task_cancel", "Orchestrator", "CONTRADICTORY", "dormant + denied", "Interrupts the child and holds its queue; no cascade; meaningful only with delegate_task."],
+    ["schedule_task", "Orchestrator", "CONTRADICTORY (delivery)", "Loom-wrapped unbound schedule — decision 1 (§5)", "Bound: a timed turn start that clears stored attention each fire. Unbound: a goal-less top-level thread per run in a fresh worktree."],
+    ["list_scheduled_tasks", "Orchestrator", "ORTHOGONAL", "follows schedule_task", "Read of a thing Loom threads would not create."],
+    ["update_scheduled_task", "Orchestrator", "ORTHOGONAL", "follows schedule_task", "As above."],
+    ["delete_scheduled_task", "Orchestrator", "ORTHOGONAL", "follows schedule_task", "As above."],
+    ["create_threads", "Orchestrator", "CONTRADICTORY", "dormant + denied", "Up to 20 goal-less, lineage-less threads that never report back and each mint an emergent goal."],
+    ["t3_thread_list", "Orchestrator", "COMPLEMENTARY", "open when revisited (read; capability hunk)", "Threads outside the caller's tree; workstream_list stays the view of your own graph."],
+    ["t3_thread_read", "Orchestrator", "COMPLEMENTARY", "open when revisited (read; capability hunk; rewritten snippet)", "Provider-neutral paginated timeline; replaces the raw-jsonl tier of Loom's cheapest-first ladder."],
+    ["t3_thread_update", "Orchestrator", "REDUNDANT", "dormant + denied", "Loom renames self only by design; PR actions duplicate the PR toolkit."],
+    ["t3_thread_send", "Orchestrator", "CONTRADICTORY", "dormant + denied", "restart silently aborts another thread's in-flight provider turn with no flag and no Loom record; re-engages done children; self-queues turns; no notify rules."],
+    ["t3_thread_wait", "Orchestrator", "CONTRADICTORY", "dormant + denied", "Polling for up to 60 min holds the parent's turn open; Loom's wakes defer the whole time and a waiting child spams its parent with slow-tool notices."],
+    ["t3_thread_interrupt", "Orchestrator", "CONTRADICTORY", "dormant + denied", "Any-thread interrupt that holds the queue and raises needs_guidance under Loom's command-id rule."],
+    ["t3_thread_organize", "Thread", "CONTRADICTORY", "dormant + denied", "Explicit settle outranks Loom's blockers; archive cascades; opaque refusals."],
+    ["t3_queue_list", "Thread", "REDUNDANT", "dormant + denied", "Loom never puts control-plane wakes in the V2 queue; the queue holds human follow-ups."],
+    ["t3_queue_read", "Thread", "REDUNDANT", "dormant + denied", "As above."],
+    ["t3_queue_edit", "Thread", "REDUNDANT", "dormant + denied", "An agent rewriting a human's queued message to its child."],
+    ["t3_queue_cancel", "Thread", "REDUNDANT", "dormant + denied", "As above."],
+    ["t3_queue_reorder", "Thread", "REDUNDANT", "dormant + denied", "As above."],
+    ["t3_queue_promote_to_steer", "Thread", "REDUNDANT", "dormant + denied", "As above; workstream_prompt is the steer."],
+    ["t3_pending_request_list", "Thread", "COMPLEMENTARY", "closed — decision 2 (§5)", "Lets the parent see the structured question its child is blocked on; Carl prefers the child consult_thread its parent instead."],
+    ["t3_pending_request_read", "Thread", "COMPLEMENTARY", "as above", "As above."],
+    ["t3_pending_request_respond", "Thread", "COMPLEMENTARY (preference)", "closed — decision 2 (§5)", "Mechanically sound against Loom's V2-era ask_user_question, but Carl's doctrine is that a child asks its parent via consult_thread, not the human via ask_user_question."],
+    ["t3_thread_configuration", "Thread", "REDUNDANT", "dormant + denied", "Shows model names Loom never shows."],
+    ["t3_thread_configure", "Thread", "CONTRADICTORY", "dormant + denied", "Mid-flight model change bypasses the capability matrix, sensitivity exclusion and the pinned failover model."],
+    ["t3_thread_fork", "Thread", "REDUNDANT", "dormant + denied", "Loom's thread_fork becomes a wrapper over the same V2 command with goal inheritance; two names for one move."],
+    ["t3_thread_merge_back", "Thread", "CONTRADICTORY", "dormant + denied", "Loom forks never merge back; a pending merge-back makes queued dispatches on the target fail."],
+    ["t3_thread_transfers", "Thread", "ORTHOGONAL", "dormant (no hunk either way)", "Ids and statuses only; nothing Loom reads."],
+    ["t3_thread_search", "Thread", "COMPLEMENTARY", "open when revisited (read; capability hunk)", "Global title + content search; consult_thread's name match is title-only."],
+    ["run_scheduled_task_now", "Thread", "ORTHOGONAL", "follows schedule_task", "Needs a full-access/default mid-turn caller."],
+    ["t3_thread_launch", "Project", "CONTRADICTORY", "dormant + denied", "A goal-less, lineage-less top-level thread that never reports; its workspace choice is not the issue."],
+    ["t3_project_list / read / create / update / delete / clone (grouped)", "Project", "ORTHOGONAL", "dormant + denied (one group)", "Environment administration, not orchestration; nothing Loom does; writes need a full-access mid-turn caller."],
+    ["link_pull_request", "PullRequests", "ORTHOGONAL", "on by default from pull 9 — decision 3 (§5)", "Loom has no PR tracking; settle-on-merge must pass Loom's settle blockers (port item)."],
+    ["unlink_pull_request", "PullRequests", "ORTHOGONAL", "on by default from pull 9", "Reverse of link."],
+    ["list_thread_pull_requests", "PullRequests", "ORTHOGONAL", "on by default from pull 9", "Read."],
+    ["watch_pull_request", "PullRequests", "COMPLEMENTARY", "on by default from pull 9 + one Loom guideline + port item", "Replaces bash sleep-polling; its wake is a turn start that clears a stored attention flag."],
+    ["unwatch_pull_request", "PullRequests", "ORTHOGONAL", "on by default from pull 9", "Reverse of watch."],
+    ["t3_worktree_handoff", "Worktree", "REDUNDANT", "dormant + denied", "Inert for Loom threads (nearly every one is already in a worktree → already_in_worktree); if it ever ran it would end the caller's turn."],
+    ["t3_worktree_status", "Worktree", "ORTHOGONAL", "dormant (no value)", "git rev-parse says the same."],
+    ["t3_worktree_list", "Worktree", "ORTHOGONAL", "dormant (no value)", "Exists to feed t3_thread_launch; needs orchestration too."],
+  ]}
+/>
+
+### 3.1 `OrchestratorToolkit` (15)
+
+<Card id="tool-orchestrator-capabilities" heading="orchestrator_capabilities" tone="warning" badge="REDUNDANT" meta={["Orchestrator", "read", "dormant + denied"]}>
+Lists every provider instance and model with option descriptors, `canRunChildTask` and `maxBatchThreads` (05 §2.1). Loom's model selection is deliberately shape-based: a parent passes `taskShape`, `modelPreset` or nothing, the server resolves against the operator's capability matrix and headroom, and `workstream_list` omits the raw catalogue because "on deployments with large catalogues it dwarfs the graph itself" (`apps/server/src/mcp/WorkstreamSpawnHttp.ts:3446–3452`; 02 §H). Without `delegate_task`, `create_threads` and `t3_thread_configure` it has no consumer.
+
+**If a model had both:** it would read model ids here and pass them as `modelSelection` to `workstream_spawn`, bypassing `taskShape`, the `sensitive: security` exclusion and the usage-headroom buckets Loom resolves at spawn (02 §H). Nothing breaks in the control plane; the capability matrix is simply sidestepped.
+
+<ReviewChoice itemId="tool-orchestrator-capabilities" label="orchestrator_capabilities — keep dormant and denied" />
+</Card>
+
+<Card id="tool-delegate-task" heading="delegate_task" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "the core collision", "dormant + denied"]}>
+Starts a child owned by the calling thread, from inside the caller's live turn only (`parent_not_active`, `OrchestratorMcpService.ts:1504–1519`), in the parent's checkout (`Orchestrator.ts:6398–6412`, L3 — where Carl wants Loom's children too), from a parent-written task text plus a one-sentence role prefix (L2 — the same brief-not-transcript start a Loom child gets), and publishing one result — the child's latest finished run at first quiescence — exactly once (`SubagentProjection.ts:243–254`, `Orchestrator.ts:8946–8954`, L5–L6). The parent is woken with "Use task_status with taskId … to read the result" (`Orchestrator.ts:509–514`, L8). Loom's `workstream_spawn` creates a thread the dispatcher starts when its dependencies are `done` and its brief is present, with optional gate and dependency edges, `consult_thread`/`forkFrom` for context, and a report-plus-outcome hand-back (02 §A, §D).
+
+**If a model had both.** Two outcomes, depending on how pull 9 maps V2 lineage onto Loom's `parentThreadId` (plan Area A adopts V2 `lineage` as the parentage record):
+
+- *Lineage mapped.* The delegated child appears in Loom's graph with `parentThreadId` set and no Loom fields, so it takes `loomThreadDefaults.planLane: "in_progress"` (`packages/contracts/src/orchestration.loom.ts:600–611`). It never calls `workstream_submit`, so its lane never leaves `in_progress`. Consequences in today's rails: once its run ends the idle "forgot to finish" backstop classifies it `idle` (`apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts:1279–1312`) and raises `needs_guidance` after the grace window (`:2539–2591`) — a human flag on a child that is, by upstream's model, complete; the parent's auto-settle is blocked forever by a non-terminal descendant (`apps/server/src/orchestration/decider.ts:877–892`); a parent cancel cascades into it; and the parent is woken twice for the same event — once by upstream's `task_status` pointer and once by Loom's rails.
+- *Lineage not mapped.* The child is invisible to `workstream_list` (which reads Loom's graph, `WorkstreamSpawnHttp.ts:1999–2004, 3429`), has no plan lane, cannot be gated or depended on, writes no report file, and its completion reaches the parent only as a `task_status` pointer rather than a report path in a digest.
+
+In both cases the model's own instructions pull the other way: `delegate_task`'s description and the shared instructions say to prefer native subagents for same-provider work and to re-run `delegate_task` per review round (`orchestrator/tools.ts:59–70`; `T3OrchestrationInstructions.ts`), where Loom's review is a gated loop in the graph.
+
+<ReviewChoice itemId="tool-delegate-task" label="delegate_task — keep dormant and denied" placeholder="If rejecting: should Loom children instead be V2 delegated tasks? (That contradicts start gates and gate loops — see plan Area A.)" />
+</Card>
+
+<Card id="tool-task-status" heading="task_status" tone="warning" badge="REDUNDANT" meta={["Orchestrator", "not read-only", "dormant + denied"]}>
+Reads one delegated task of this thread; reading a terminal result acknowledges its delivery and removes or cancels the queued parent wake (`OrchestratorMcpService.ts:1240–1273`; `Orchestrator.ts:1952–2011`, L12). With `delegate_task` withheld there is nothing to read. Loom's equivalent is the report path in `workstream_list` and the dispatcher's digest.
+
+<ReviewChoice itemId="tool-task-status" label="task_status — keep dormant and denied" />
+</Card>
+
+<Card id="tool-task-cancel" heading="task_cancel" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "holds the child's queue", "dormant + denied"]}>
+Interrupts the child's newest active run and disposes the parent wake; no cascade to the child's own children (05 §1.3 "Cancellation"). The interrupt marks every queued run on the child `queueHeld` until a client `queue.resume` (`Orchestrator.ts:8082–8095`, L17). Loom's `workstream_set_lane cancelled` cascades through every non-terminal descendant and interrupts their turns in one transaction (`decider.loom.ts:455–716`); `workstream_stop` is a pause the orchestrator owns resuming. Follows `delegate_task`.
+
+<ReviewChoice itemId="tool-task-cancel" label="task_cancel — keep dormant and denied" />
+</Card>
+
+<Card id="tool-schedule-task" heading="schedule_task" tone="risk" badge="CONTRADICTORY (delivery)" meta={["Orchestrator", "capability Loom lacks", "decision 1: wrap the unbound form"]}>
+A persisted recurring prompt. **Bound** (the default in the caller's project) it sends the prompt into this thread with `mode: "queue"` on every fire (`ScheduledTaskService.ts:538–553`, L18); **unbound** it launches a fresh top-level thread per run, over MCP always in a new worktree from `main` fetched from origin (`OrchestratorMcpService.ts:196–203`). Loom has no recurring-work move at all, so as a *capability* this is orthogonal.
+
+**If a Loom thread used it.** The delivery is what collides. Every scheduled fire is a turn start, and Loom's §7 rule clears **all** stored attention on any turn start, origin-independent (`apps/server/src/orchestration/decider.ts:2128–2149`): a thread holding `needs_guidance` or `awaiting_acceptance` with an hourly bound schedule has its hold erased every hour, and a `yielded` lane reverts to `in_progress` (`:2170–2189`) without the orchestrator's decision. A bound schedule on a Loom child also starts turns the dispatcher never authorised, so the child runs while the plan says it is waiting. Every bound fire also passes the creator's copied `modelSelection` into the dispatch (`ScheduledTaskService.ts:538–553`), re-asserting the model the thread had when the schedule was created (a bound schedule's thread is always its creator, `OrchestratorMcpService.ts:1315–1374`), so every fire undoes any later failover reroute or model change (02 §H). An unbound schedule creates, each run, a top-level thread with no goal (Loom's emergent-goal generation then mints one per run — 02 §E) and no graph membership. The right shape for Loom would be a wrapper that schedules a *goal-bound root* or a wake that respects attention — not this tool as-is. Carl does want recurring agent work (decision 1, §5): the unbound form, wrapped so each fire launches a goal-bound root.
+
+<ReviewChoice itemId="tool-schedule-task" label="schedule_task — keep dormant and denied for pull 9" placeholder="If rejecting, say whether bound or unbound schedules are the use you want." />
+</Card>
+
+<Card id="tool-list-scheduled-tasks" heading="list_scheduled_tasks" tone="info" badge="ORTHOGONAL" meta={["Orchestrator", "read", "follows schedule_task"]}>
+Lists a project's scheduled tasks (`OrchestratorMcpService.ts:1375–1391`). Harmless; nothing to list if Loom threads cannot schedule. Follows `schedule_task`.
+
+<ReviewChoice itemId="tool-list-scheduled-tasks" label="list_scheduled_tasks — follows schedule_task" />
+</Card>
+
+<Card id="tool-update-scheduled-task" heading="update_scheduled_task" tone="info" badge="ORTHOGONAL" meta={["Orchestrator", "follows schedule_task"]}>
+Changes prompt, title, schedule, enabled or binding; never model or modes (`OrchestratorMcpService.ts:1392–1444`). Follows `schedule_task`.
+
+<ReviewChoice itemId="tool-update-scheduled-task" label="update_scheduled_task — follows schedule_task" />
+</Card>
+
+<Card id="tool-delete-scheduled-task" heading="delete_scheduled_task" tone="info" badge="ORTHOGONAL" meta={["Orchestrator", "follows schedule_task"]}>
+Deletes a scheduled task permanently (`OrchestratorMcpService.ts:1445–1458`). Follows `schedule_task`.
+
+<ReviewChoice itemId="tool-delete-scheduled-task" label="delete_scheduled_task — follows schedule_task" />
+</Card>
+
+<Card id="tool-create-threads" heading="create_threads" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "1–20 threads", "dormant + denied"]}>
+Opens up to 20 ordinary top-level threads that inherit the caller's project, branch and worktree, start immediately when given a prompt, and carry no lineage back to the caller (`OrchestratorMcpService.ts:1715–1859`, L19). Loom's moves for independent work are `goal_handoff` (a new goal plus a root held for the human's first send) and `goal_continue` (a held sibling on the same goal), and for parallel sub-work `workstream_scaffold` (02 §A, §E).
+
+**If a model had both:** asked to "do these five in parallel", it would fan out with `create_threads` — five agents with no dependencies, no gates and no report back, each minting its own emergent goal (02 §E "every session has a goal"), none visible in `workstream_list`. The description's guard ("Both require the user to request separate/new/top-level threads") is advisory text, not a check.
+
+<ReviewChoice itemId="tool-create-threads" label="create_threads — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-list" heading="t3_thread_list" tone="success" badge="COMPLEMENTARY" meta={["Orchestrator", "read", "open when revisited — needs the capability hunk"]}>
+Lists threads in any project (since #15219), newest first, with status, model, modes, linked PR, settled state and `relationshipToParent`, paginated (`OrchestratorMcpService.ts:1861–1902`). Loom's `workstream_list` is scoped to the caller's own tree and carries what upstream's cannot — lane, attention, spawn generation, report and session paths (`WorkstreamSpawnHttp.ts:3429–3470`). The two answer different questions: "what is in my graph" versus "what threads exist out there", the latter being exactly the case where the user points an agent at "the thread about X" and `consult_thread`'s fuzzy title match is not enough.
+
+**If a model had both:** the plausible error is orienting on its own children with `t3_thread_list` and missing lanes, attention and reports. One sentence in the snippet prevents it: *for threads outside your workstream; your own tree is `workstream_list`*. Worth it: yes — it is the only way an agent can find a thread by project or settled state.
+
+<ReviewChoice itemId="tool-t3-thread-list" label="t3_thread_list — open when revisited, as a read tool with the one-line guard" />
+</Card>
+
+<Card id="tool-t3-thread-read" heading="t3_thread_read" tone="success" badge="COMPLEMENTARY" meta={["Orchestrator", "read", "open when revisited — rewritten snippet; capability hunk"]}>
+Returns a thread's durable state, recent runs and a paginated timeline (`messages` or `activity` view) for **any live thread in the environment**, with long items pageable by offset (`OrchestratorMcpService.ts:1903–1993`). It reads the projection, so it works for any provider and for a thread whose worktree has been reaped or whose session file is gone. Loom's ladder is report → `workstream_list` → `consult_thread` → "the full thread history via the pi session jsonl" (work-model addendum, `PiDriver.ts:164`). `consult_thread` spends the *target* model's tokens on a frozen `pi --fork` and keeps the raw history out of the asker's context (02 §F); `t3_thread_read` costs no target tokens but loads the transcript into the reader. That is a genuine third trade-off, and it is a strictly better version of the jsonl tier Loom's addendum already sanctions.
+
+**If a model had both:** the failure is context economy — reading whole transcripts because it is cheap to call, where a consult would have returned a paragraph. The guard is the ladder in the snippet: *report first; a question goes to `consult_thread`; use this to read a specific passage or when the target cannot be consulted.* The acknowledgement side-effect (05 §2.1) only fires for app-owned children, so it is moot once `delegate_task` is withheld. Worth it: yes. The work-model addendum's jsonl sentence should point here instead.
+
+<ReviewChoice itemId="tool-t3-thread-read" label="t3_thread_read — open when revisited, with the ladder guard" />
+</Card>
+
+<Card id="tool-t3-thread-update" heading="t3_thread_update" tone="warning" badge="REDUNDANT" meta={["Orchestrator", "rename / regenerate / PR link", "dormant + denied"]}>
+Renames any writable thread, regenerates its title, or links/unlinks a PR in metadata (`ThreadMetadataMcpService.ts:139–249`). Loom's `set_thread_title` is self-only by design ("you can only ever rename yourself") and spawn stamps `titleSource: "manual"` so the auto-namer does not overwrite a deliberate title (`apps/server/src/mcp/WorkstreamSpawnHttp.ts:2320`); `regenerate_title` duplicates Loom's auto-naming; the PR actions duplicate the PR toolkit, which additionally records `source: "agent"` and drives watching (05 §2.4). Nothing breaks; it is a second name for moves Loom already has or deliberately lacks.
+
+<ReviewChoice itemId="tool-t3-thread-update" label="t3_thread_update — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-send" heading="t3_thread_send" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "auto / queue / steer / restart", "dormant + denied"]}>
+Puts a user-role message into any thread the caller may write to. `auto` steers a steerable turn, queues behind a non-steerable one, starts an idle thread; `queue` always queues; `steer` and `restart` fail without a steerable turn, and **`restart` interrupts the turn and restarts it with the message** (`ThreadManagementService.ts:535–621`, L16). A send to the caller's own thread skips the mid-turn check, so an agent can queue itself a follow-up turn (05 §2.1). Loom splits this move in two: `workstream_prompt` (direct children only; resumes idle, steers busy, appends to an unstarted node's brief, rejects a `done` child) and `notify_thread` (any thread; never interrupts; refuses terminal or archived targets; ordered-pair hourly cap; relationship framing; durable provenance — 02 §F).
+
+**If a model had both:**
+
+- `restart` silently aborts another thread's in-flight provider turn — including a running tool call — and starts a new attempt inside the same run. It is a `message.dispatch` with `restart_active`, not a `run.interrupt` (`ThreadManagementService.ts:556–561`; `Orchestrator.ts:4661–4687`), so neither of upstream's interrupt consequences applies (no queue hold) and neither does Loom's human-stop rule (which rides `run.interrupt`, plan Area C). What is left is worse in one way: no flag is raised and Loom keeps no record that another agent cut the turn. In Loom only `workstream_stop` on a *direct child* may do that, and the idle backstop catches a forgotten resume. (`auto` on a Pi target is a steer, not a restart — `PiAdapterV2.ts:144` declares `supportsActiveSteering: true`.)
+- A send to a `done` child re-engages it; its lane stays `done` (sticky terminal) and the new work is invisible to the plan. `notify_thread` refuses exactly this; `workstream_prompt` says "re-open its lane with workstream_set_lane first".
+- A send to a scaffolded, not-yet-started node is `message.dispatch` on an idle thread. Loom's first-turn dependency gate lives in a `thread.turn.start` hunk today (`apps/server/src/orchestration/decider.ts:1908–1929`; lane release and brief presence are dispatcher conditions a direct send never consults) and must move to the `message.dispatch` hunk cluster (plan Area C); until then this starts a node before its dependencies finish.
+- A self-send is an unsolicited turn with no control-plane owner — the thing the plan's "unsolicited-work guard" row exists to prevent.
+- No cap, no framing, no terminal-target refusal: the collision the notify rail was designed to avoid (02 §F `notify_thread`).
+
+The plan's Area F describes `t3_thread_send` as "never aborts a turn"; `restart` does.
+
+<ReviewChoice itemId="tool-t3-thread-send" label="t3_thread_send — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-wait" heading="t3_thread_wait" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "polls 250 ms, up to 60 min", "dormant + denied"]}>
+Blocks until a thread's run is terminal or a timeout (default 10 min, max 60), polling every 250 ms, returning status only (`ThreadManagementService.ts:623–675`). Loom's rule is the inverse: end the turn and let the dispatcher wake you, coalesced into a digest, once per child terminal episode (02 §C.2).
+
+**If a model had both:** a parent that waits is mid-turn for up to an hour. Loom's control-plane wakes are `requireIdle` / `start_if_idle` and defer while the parent is busy, so the digest the wait was standing in for is itself deferred until the wait ends; and a waiting *child* sends its parent informational slow-tool notices at 5, 15 and 30 minutes, then every 30 (`apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts:1139–1149`) — noise for a wait the control plane would have delivered as one digest. The stall detector itself does **not** fire: State C is suppressed while a tool call is in flight, and the sweep judges sub-threads only (`apps/server/src/orchestration/Layers/WorkstreamLivenessSweep.ts:164–168, 272, 872–877`), so a waiting root is simply invisible to Loom until it stops waiting. A timed-out wait invites the model to call it again. `delegate_task mode=wait` has the same shape and falls with `delegate_task`.
+
+<ReviewChoice itemId="tool-t3-thread-wait" label="t3_thread_wait — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-interrupt" heading="t3_thread_interrupt" tone="risk" badge="CONTRADICTORY" meta={["Orchestrator", "any writable thread", "dormant + denied"]}>
+Interrupts the newest active run of any thread within the caller's modes (`OrchestratorMcpService.ts:2065–2117`). Interrupting holds the target's queue until a client `queue.resume` (L17); interrupting a parent's spawning run means its delegated tasks never wake it (L11). Loom's `workstream_stop` is direct-children-only, uses a `server:` command id so no flag is raised, and the idle backstop surfaces a forgotten resume (02 §A stop/prompt).
+
+**If a model had both:** an MCP interrupt carries an ordinary command id, so Loom's hunk raises `needs_guidance` on the stopped child as if a human had pressed stop (`decider.ts:2264–2290`) — pulling a human in for an orchestrator's own pause — and the child's queued runs stay held with no agent-side release.
+
+<ReviewChoice itemId="tool-t3-thread-interrupt" label="t3_thread_interrupt — keep dormant and denied" />
+</Card>
+
+### 3.2 `ThreadToolkit` (17)
+
+Shared facts for the toolkit (05 §2.2): every tool needs `orchestration`; write tools need the caller mid-turn **for every target including itself**; none takes `clientRequestId`; decider refusals are flattened to "The operation could not be completed." (`threadAccess.ts:18–22`), so an agent never learns *why* Loom's decider refused.
+
+<Card id="tool-t3-thread-organize" heading="t3_thread_organize" tone="risk" badge="CONTRADICTORY" meta={["Thread", "pin / snooze / settle / archive / unread", "dormant + denied"]}>
+Dispatches the sidebar's own commands on any writable thread (`thread/handlers.ts:278–305`). Pin, snooze and mark-unread are harmless and pointless for an agent. Settle and archive are not: Loom blocks *auto*-settle on a `yielded` lane or a non-terminal descendant but an **explicit** settle "still outranks them and stays a legal action" (`decider.ts:872–892`), and a Loom archive of a workstream root sweeps its whole subtree (02 §A subtree cascade).
+
+**If a model had both:** an orchestrator tidying up would settle a `yielded` child that is owed its decision, hiding it from the active list while the plan still waits; or archive a finished child instead of marking it `done` — and `done` is the only lane that releases dependents, so the dependents wait forever. When Loom's decider refuses, the model sees only "could not be completed".
+
+<ReviewChoice itemId="tool-t3-thread-organize" label="t3_thread_organize — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-queue-list" heading="t3_queue_list" tone="warning" badge="REDUNDANT" meta={["Thread", "read", "dormant + denied"]}>
+Lists a thread's queued runs in delivery order — *including* automatic notification and delegated-completion runs, which upstream hides from the UI but not here (`QueuedRunOrder.ts`; `thread/handlers.ts:225–238`). Under plan Area F, Loom's control-plane wakes are **not** V2 queued runs (they are `start_if_idle` dispatches that defer rather than queue), so on a Loom thread the V2 queue holds human follow-ups, `t3_thread_send queue` messages, and PR-watch or schedule wakes. Loom has no queue-management move and needs none. The five siblings below follow this card.
+
+<ReviewChoice itemId="tool-t3-queue-list" label="t3_queue_list — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-queue-read" heading="t3_queue_read" tone="warning" badge="REDUNDANT" meta={["Thread", "read", "follows t3_queue_list"]}>
+Reads one queued message (`thread/handlers.ts:239–250`). Follows `t3_queue_list`.
+
+<ReviewChoice itemId="tool-t3-queue-read" label="t3_queue_read — follows t3_queue_list" />
+</Card>
+
+<Card id="tool-t3-queue-edit" heading="t3_queue_edit" tone="warning" badge="REDUNDANT" meta={["Thread", "write", "follows t3_queue_list"]}>
+Replaces a queued message's text (`thread/handlers.ts:251–257`). The only queued text on a Loom child an agent could reach is a human's follow-up or another agent's queued send; rewriting it is the wrong move in either case.
+
+<ReviewChoice itemId="tool-t3-queue-edit" label="t3_queue_edit — follows t3_queue_list" />
+</Card>
+
+<Card id="tool-t3-queue-cancel" heading="t3_queue_cancel" tone="warning" badge="REDUNDANT" meta={["Thread", "write", "follows t3_queue_list"]}>
+Drops a queued run (`thread/handlers.ts:258–263`). Same reasoning as edit; additionally a PR-watch wake sitting in the queue could be dropped before the thread sees it.
+
+<ReviewChoice itemId="tool-t3-queue-cancel" label="t3_queue_cancel — follows t3_queue_list" />
+</Card>
+
+<Card id="tool-t3-queue-reorder" heading="t3_queue_reorder" tone="warning" badge="REDUNDANT" meta={["Thread", "write", "follows t3_queue_list"]}>
+Moves a queued run before another or to the end (`thread/handlers.ts:264–270`). Follows `t3_queue_list`.
+
+<ReviewChoice itemId="tool-t3-queue-reorder" label="t3_queue_reorder — follows t3_queue_list" />
+</Card>
+
+<Card id="tool-t3-queue-promote" heading="t3_queue_promote_to_steer" tone="warning" badge="REDUNDANT" meta={["Thread", "write", "follows t3_queue_list"]}>
+Turns a queued message into a steer of the running turn (`thread/handlers.ts:271–277`). `workstream_prompt` on a busy child is Loom's steer.
+
+<ReviewChoice itemId="tool-t3-queue-promote" label="t3_queue_promote_to_steer — follows t3_queue_list" />
+</Card>
+
+<Card id="tool-t3-pending-request-list" heading="t3_pending_request_list" tone="success" badge="COMPLEMENTARY" meta={["Thread", "read", "closed — decision 2"]}>
+Lists the open `user_input` requests on a thread; approvals excluded (`thread/handlers.ts:197–205`). Loom already wakes a parent when a child is question-blocked (`classifyChildWake` returns `awaiting-input`, `WorkstreamDispatcher.ts:1289–1296`) and shows the question's header on the sidebar card (02 §I); what the parent cannot do today is read the structured options or answer. Read-only and harmless on its own; its value is as the first step of `t3_pending_request_respond`, so it follows decision 2 (§5): closed.
+
+<ReviewChoice itemId="tool-t3-pending-request-list" label="t3_pending_request_list — closed (decision 2): the child consults its parent instead" />
+</Card>
+
+<Card id="tool-t3-pending-request-read" heading="t3_pending_request_read" tone="success" badge="COMPLEMENTARY" meta={["Thread", "read", "follows t3_pending_request_list"]}>
+Returns the header, question, options, multi-select and custom-answer flags of one open request (`thread/handlers.ts:52–77, 206–210`). Follows the list tool.
+
+<ReviewChoice itemId="tool-t3-pending-request-read" label="t3_pending_request_read — follows t3_pending_request_list" />
+</Card>
+
+<Card id="tool-t3-pending-request-respond" heading="t3_pending_request_respond" tone="success" badge="COMPLEMENTARY (preference)" meta={["Thread", "write, mid-turn", "closed — decision 2"]}>
+Answers another thread's open user question with the same `runtime-request.respond` command the UI uses; it cannot approve permission requests (`thread/handlers.ts:211–224`; `thread/tools.ts:165–172`). Under pull 9 Loom's `ask_user_question` creates a V2 `user_input_request` on the calling thread and awaits its resolution (plan Area I), so this tool would answer a Loom child's question and resume its blocked turn. Today a parent woken by `awaiting-input` has no clean way to unblock the child: `workstream_prompt` is a steer that cannot penetrate the blocked long-poll, so it must `workstream_stop` then `workstream_prompt` with the answer — workable, clumsy, and the question is settled as cancelled rather than answered. Mechanically, then, this is sound and fills a real gap.
+
+**If every role had it:** leaves answering each other's questions; and `ask_user_question`'s own contract says it is for "an irreversible, destructive or preference-only decision not settled by the request, codebase or prior context" (`providerToolDefs.ts`), i.e. the child has already judged that the brief does not settle it. The guard, if exposed: orchestrator role only (dormant elsewhere; the delegation family already models this), and a rewritten description — *answer only when your brief or the goal already settles the question; otherwise leave it for the human and say so in your report.* Whether a parent may stand in for the human on a child's question is doctrine, not evidence — and Carl's answer (decision 2, §5) is that the question itself is mis-addressed: a child that lacks something its brief does not settle should `consult_thread` its parent, and `ask_user_question` is for a thread a human is engaging with.
+
+<ReviewChoice itemId="tool-t3-pending-request-respond" label="t3_pending_request_respond — closed (decision 2): a child asks its parent via consult_thread, not the human" />
+</Card>
+
+<Card id="tool-t3-thread-configuration" heading="t3_thread_configuration" tone="warning" badge="REDUNDANT" meta={["Thread", "read", "dormant + denied"]}>
+Reads a thread's model selection and modes (`thread/handlers.ts:168–179`). Loom's doctrine keeps model names away from the parent (02 §H); harmless and purposeless.
+
+<ReviewChoice itemId="tool-t3-thread-configuration" label="t3_thread_configuration — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-configure" heading="t3_thread_configure" tone="risk" badge="CONTRADICTORY" meta={["Thread", "any writable thread since #15219", "dormant + denied"]}>
+Sets provider, model and options for a thread's next turn; no catalogue check of its own (`thread/handlers.ts:180–196`; 05 C4). Loom chooses a child's model once, at spawn, from shape, preset and operator matrix, excludes models unsuitable for `sensitive: security` work, and pins the session model at birth because failover routes by it (02 §H; plan Area H).
+
+**If a model had both:** a parent "helping" a slow child by switching its model mid-flight bypasses the sensitivity exclusion (a security-adjacent child moved onto a model whose safety classifier reroutes mid-run), the headroom buckets, and the pinned model failover depends on. Nothing refuses it.
+
+<ReviewChoice itemId="tool-t3-thread-configure" label="t3_thread_configure — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-fork" heading="t3_thread_fork" tone="warning" badge="REDUNDANT" meta={["Thread", "fork", "dormant + denied"]}>
+Forks any writable thread from `latest_stable | run | checkpoint` into an idle sibling sharing the checkout, with a pending fork transfer resolved natively or by portable handoff on first message (`ThreadForkService.ts:77–136`; 05 §1.7). Under plan Area F Loom's `thread_fork` becomes a wrapper over the **same** V2 `thread.fork`, adding what Loom needs: the fork inherits the goal (otherwise the emergent-goal generator mints a duplicate), is created as a staged root, and is refused mid-turn (`providerToolDefs.ts` `thread_fork`; 02 §F). Two names for one move; upstream's `sourcePoint` and fork-another-thread are additions Loom's wrapper could grow later.
+
+<ReviewChoice itemId="tool-t3-thread-fork" label="t3_thread_fork — keep dormant and denied; Loom's thread_fork is the one fork surface" />
+</Card>
+
+<Card id="tool-t3-thread-merge-back" heading="t3_thread_merge_back" tone="risk" badge="CONTRADICTORY" meta={["Thread", "fork → parent only", "dormant + denied"]}>
+Creates a pending `merge_back` context transfer from a fork to the thread it forked from — context, not code — consumed by the target's next run (`Orchestrator.ts:3442–3583`). While it is pending, **a message that would be queued on the target fails** ("queued merge-back consumption is not implemented yet", `Orchestrator.ts:4703–4709`). The tool text says "a related thread in the same project"; the decider accepts only fork → its parent (05 D15). Loom's forks are "divergence, not delegation" and never merge back; conclusions travel by report or `notify_thread`.
+
+**If a model had both:** a fork merging back onto a busy orchestrator leaves a pending transfer that makes every queued dispatch to that orchestrator fail until its next run consumes it — including a human's queued message.
+
+<ReviewChoice itemId="tool-t3-thread-merge-back" label="t3_thread_merge_back — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-thread-transfers" heading="t3_thread_transfers" tone="info" badge="ORTHOGONAL" meta={["Thread", "read", "dormant — no hunk either way"]}>
+Lists a thread's context transfers as id, source, target and status — no type, points or resolution (`thread/handlers.ts:154–167`). Nothing in Loom reads it; nothing breaks if a model calls it. Not worth a line of description or a capability hunk; it simply stays dormant with the rest of the toolkit.
+
+<ReviewChoice itemId="tool-t3-thread-transfers" label="t3_thread_transfers — leave dormant" />
+</Card>
+
+<Card id="tool-t3-thread-search" heading="t3_thread_search" tone="success" badge="COMPLEMENTARY" meta={["Thread", "read", "open when revisited — capability hunk"]}>
+Searches active thread titles and content with the app's bounded search, filtered to one project after taking global top matches (`thread/handlers.ts:102–117`). Loom's agent-facing lookup is `consult_thread`'s fuzzy sidebar-title match; its lexical-plus-embedding search is human-facing only (02 §J). Content search is the missing piece when the user says "the thread where we decided X". Minimal collision risk; the snippet should say it finds threads to then `consult_thread` or `t3_thread_read`.
+
+<ReviewChoice itemId="tool-t3-thread-search" label="t3_thread_search — open when revisited, as a read tool" />
+</Card>
+
+<Card id="tool-run-scheduled-task-now" heading="run_scheduled_task_now" tone="info" badge="ORTHOGONAL" meta={["Thread", "environment tier", "follows schedule_task"]}>
+Fires any scheduled task in the environment now; requires a mid-turn caller that is itself `full-access` + `default` (`thread/handlers.ts:79–101`). Follows `schedule_task`.
+
+<ReviewChoice itemId="tool-run-scheduled-task-now" label="run_scheduled_task_now — follows schedule_task" />
+</Card>
+
+### 3.3 `t3_thread_launch` (from `ProjectToolkit`)
+
+<Card id="tool-t3-thread-launch" heading="t3_thread_launch" tone="risk" badge="CONTRADICTORY" meta={["Project", "the only agent tool that grants a worktree", "dormant + denied"]}>
+Starts one top-level thread bound to a chosen workspace — `root` (the project checkout, **not** the caller's worktree), an existing worktree, or a new worktree from `baseRef` — or a `scratch` folder outside any repository; requires the caller mid-turn and itself `full-access` + `default`; no lineage, no idempotency key (`project/handlers.ts:42–144`; 05 §2.3). Loom's equivalent for independent work is `goal_handoff`: a new goal plus a root held for the human's first send, bootstrapped into a worktree by the server (02 §A, §E; `apps/server/src/project/WorktreeProvisioner.ts` header). Where the new thread's files live is not the point of difference.
+
+**If a model had both:** "independent implementation" is how upstream's instructions describe this tool, and a model would reach for it where Loom wants `workstream_spawn` or `goal_handoff` — but the launched thread has no goal (an emergent one is minted), no dependencies, never reports, and is absent from `workstream_list`. Plan Area A already adopts the *machinery* under this tool (`defer_start` with a workspace strategy) for Loom's own kickoff, which is the right place for it. `scratch` (a thread outside any repository) is a capability Loom lacks; it would be a `goal_handoff` option, not a reason to expose this.
+
+<ReviewChoice itemId="tool-t3-thread-launch" label="t3_thread_launch — keep dormant and denied" />
+</Card>
+
+<Card id="tool-t3-project-crud" heading="t3_project_list · read · create · update · delete · clone" tone="info" badge="ORTHOGONAL" meta={["Project (6, grouped)", "environment administration", "dormant + denied"]}>
+The rest of `ProjectToolkit`: list and read registered projects; register, update or delete a project; clone a repository for registration (`project/tools.ts:43–100`). All six need `orchestration`; the four writes additionally need a full-access/default caller mid-turn (`project/handlers.ts:28–56`; 05 §4). They administer the *environment*, which no Loom tool touches — Loom's only cross-project move is `goal_handoff`'s optional `project` target, which names an existing project.
+
+**If a model had both:** nothing in Loom's graph is affected by a project being listed or read. A create/delete is an environment change an agent has no business making unprompted, and Loom's `project.delete` hunk refuses or cascades active goals (02 §E) so a deletion would at least be caught. Layer 1 denies them all; they are not worth a read-capability exception. One grouped verdict.
+
+<ReviewChoice itemId="tool-t3-project-crud" label="t3_project_* (six tools) — keep dormant and denied as a group" />
+</Card>
+
+### 3.4 `PullRequestsToolkit` (5)
+
+Shared facts (05 §2.4): capability `pull-requests`, not `orchestration`; the caller's own thread is always writable, another thread needs mid-turn and within-modes; every tool is idempotent by outcome. Loom pi threads do **not** have these today — Loom's `/mcp` is not bridged into pi (03 §2, last row) — so under pull 9 they are a net new capability, which the plan's Area B already counts as a user gain.
+
+<Card id="tool-link-pull-request" heading="link_pull_request" tone="info" badge="ORTHOGONAL" meta={["PullRequests", "open first, as-is", "port item: settle-on-merge"]}>
+Registers a PR against a thread so T3 shows its state and **settles the thread when it merges** (`pullRequests/handlers.ts:305–334`). Loom has no PR tracking; shipping ends at the merge (AGENTS.md) and the shipper reports a URL. No Loom move overlaps.
+
+**Port item, not a collision:** settle-on-merge must route through the path where Loom's settle blockers apply (`yielded` lane, non-terminal descendant — `decider.ts:877–892`, plan Area C "settlement blockers"), so a merged PR does not settle an orchestrator whose children are still running. Upstream's tip commit already stops subagents inheriting parent PR links (`7812230572`, #14918).
+
+<ReviewChoice itemId="tool-link-pull-request" label="link_pull_request — open first, as-is" />
+</Card>
+
+<Card id="tool-unlink-pull-request" heading="unlink_pull_request" tone="info" badge="ORTHOGONAL" meta={["PullRequests", "open first, as-is"]}>
+Removes a link; `wasLinked` reports whether there was one (`pullRequests/handlers.ts:335–367`). Reverse of link.
+
+<ReviewChoice itemId="tool-unlink-pull-request" label="unlink_pull_request — open first, as-is" />
+</Card>
+
+<Card id="tool-list-thread-pull-requests" heading="list_thread_pull_requests" tone="info" badge="ORTHOGONAL" meta={["PullRequests", "read", "open first, as-is"]}>
+Lists a thread's linked PRs with last-known host state and stack chains; any thread, no mid-turn check (`pullRequests/handlers.ts:368–371`).
+
+<ReviewChoice itemId="tool-list-thread-pull-requests" label="list_thread_pull_requests — open first, as-is" />
+</Card>
+
+<Card id="tool-watch-pull-request" heading="watch_pull_request" tone="success" badge="COMPLEMENTARY" meta={["PullRequests", "wakes the thread", "on by default from pull 9 + one Loom guideline + port item"]}>
+Polls an open PR every minute and wakes the thread on a failed check, required checks passing, someone else's comment or review, or a conflict; never wakes a settled thread; ends on merge, close, 15 minutes unreadable, or `unwatch` (`PullRequestWatchReactor.ts:67, 196–198, 275`). Loom roots babysit PRs today by polling `gh` in bash with sleeps — exactly what upstream's description says not to do. The Loom cost of that pattern is small but real: a polling *child* can trip the State D possible-spin advisory after ten minutes of repeated identical calls, or generate slow-tool notices from one long sleep (`WorkstreamLivenessSweep.ts`, `decideProgressLoop`; `WorkstreamDispatcher.ts:1139–1149`); a root is never swept, so it just sits mid-turn. This is the right tool for that job and nothing in Loom does it.
+
+**Where it meets Loom:** a watch wake is a turn start, and every turn start clears **all** stored attention (`decider.ts:2128–2149`). A shipper that opened a PR, raised `awaiting_acceptance`, and watches it, has its hold erased by the first failing check; it runs the wake turn and must re-raise. That is consistent with Loom's own rule ("a running thread is no longer halted awaiting a human") and the kickoff doctrine ("complete your work, or raise"), so it is tolerable — but the port should decide it explicitly: either accept, or have the `message.dispatch` hunk skip the clear for notification-source dispatches. Guideline to add: *watch from the thread that owns the follow-up (usually the shipper or the root), end the turn after calling it, and re-raise any hold at the end of a wake turn.*
+
+<ReviewChoice itemId="tool-watch-pull-request" label="watch_pull_request — open first, with the guideline; decide the attention-clear interaction in the port" />
+</Card>
+
+<Card id="tool-unwatch-pull-request" heading="unwatch_pull_request" tone="info" badge="ORTHOGONAL" meta={["PullRequests", "open first, as-is"]}>
+Stops the watch; the link stays (`pullRequests/handlers.ts:373`). Reverse of watch.
+
+<ReviewChoice itemId="tool-unwatch-pull-request" label="unwatch_pull_request — open first, as-is" />
+</Card>
+
+### 3.5 `WorktreeToolkit` (3)
+
+<Card id="tool-t3-worktree-handoff" heading="t3_worktree_handoff" tone="warning" badge="REDUNDANT" meta={["Worktree", "moves the calling thread", "dormant + denied (inert)"]}>
+Moves the **calling** thread out of the project checkout into a new worktree and branch, detaching the provider session so the turn ends; refuses a thread already in a worktree (`WorktreeMcpService.ts:145–473`; 05 §2.5). Nearly every Loom thread is already in one: roots are bootstrapped into cockpit worktrees, and every spawned child is created with its parent's `branch` and `worktreePath` (`apps/server/src/mcp/WorkstreamSpawnHttp.ts:2324–2325`). So for nearly every Loom thread this fails `already_in_worktree`; it is inert.
+
+**If it did succeed** (a thread registered against a bare project root) it would detach the provider session and end the caller's turn mid-work, which is the only Loom-relevant consequence. Since Carl is minded to drop per-child isolation altogether, there is no Loom use for an agent-initiated worktree move either way.
+
+<ReviewChoice itemId="tool-t3-worktree-handoff" label="t3_worktree_handoff — keep dormant and denied (inert for Loom threads)" />
+</Card>
+
+<Card id="tool-t3-worktree-status" heading="t3_worktree_status" tone="info" badge="ORTHOGONAL" meta={["Worktree", "read", "dormant — no value"]}>
+Reports the calling thread's worktree binding (`WorktreeMcpService.ts:475–494`). A Loom thread's cwd *is* its worktree and `git rev-parse --show-toplevel` says the same. Harmless; not worth exposing.
+
+<ReviewChoice itemId="tool-t3-worktree-status" label="t3_worktree_status — leave dormant" />
+</Card>
+
+<Card id="tool-t3-worktree-list" heading="t3_worktree_list" tone="info" badge="ORTHOGONAL" meta={["Worktree", "read; needs orchestration too", "dormant — no value"]}>
+Lists branch refs and checkout paths for a thread's workspace; exists to feed `t3_thread_launch {existing_worktree}` (`worktree/handlers.ts:13–36`). It also requires `orchestration` because it reads through `threadAccess.readThread`. With launch withheld it has no consumer; `git worktree list` covers an agent's real need.
+
+<ReviewChoice itemId="tool-t3-worktree-list" label="t3_worktree_list — leave dormant" />
+</Card>
+
+## 4. Recommendation
+
+**Carl has decided "no upstream orchestration tools visible at first; revisit after cut-over", and the plan's Area B (revision 2) carries a list of what could be exposed later and what each needs.** This recap does not reopen that decision. Its per-tool verdicts are the *content* of that list: which rows are safe to open when the revisit comes, in what order, what each actually needs, and which should be marked closed with the reason. In that frame the recommendation, as amended by Carl's decisions in §5, is: **the `PullRequestsToolkit` is on by default from pull 9 (decision 3); the three read tools (`t3_thread_read`, `t3_thread_list`, `t3_thread_search`) are the first later-exposure item, with rewritten descriptions; the unbound scheduling form is exposed through a Loom wrapper that launches a goal-bound root per fire (decision 1); the pending-request tools are closed, with child prompts rewritten so a child asks its parent rather than the human (decision 2); everything else closed.** Nothing upstream replaces a Loom *tool*; one upstream *semantic* (quiescence as completion) is worth adopting into Loom's own rails, below, with the human-engagement guard Carl added.
+
+### The withhold mechanism, verified against the plan
+
+Tools are listed to every credential and capabilities are enforced at call time (`McpHttpServer.ts:718–729`; `piT3McpExtensionSource.ts:189–203, 266–296`; 05 L20, C2). The plan's Area B and its `delegate_task vs workstream_spawn` collision row already say so and name both halves — the credential without `orchestration` makes calls fail; Loom's `setActiveTools` profile keeps the tools out of the prompt; the ordering after the bridge's `session_start` re-registration is to be verified. Verified: that is the right mechanism. Four refinements the plan does not yet carry:
+
+<Table
+  density="compact"
+  columns={["Refinement", "What it does", "Where", "Why"]}
+  rows={[
+    ["Withhold worktree too", "Loom pi sessions are issued workstream + pull-requests (+ preview when browser tools are allowed); NOT orchestration and NOT worktree. Upstream grants orchestration, worktree and pull-requests to every credential (McpSessionRegistry.ts:140–145).", "The same McpSessionRegistry.issue hunk the plan already has", "Without it t3_worktree_handoff and t3_worktree_status stay callable through enable_toolset all; both are judged dormant and the handoff is inert for Loom threads anyway."],
+    ["Read-capability hunk", "t3_thread_read, t3_thread_list, t3_thread_search (and the pending-request tools if adopted) accept workstream as well as orchestration.", "A Loom requireReadCapability helper used by those handlers and threadAccess.readThread; about ten lines", "The plan's later-exposure row already asks for 'a finer capability'; this names it. Without it the credential denies the read tools too."],
+    ["Instructions by server-level constant, not by capability", "Upstream's extension appends T3_CODE_ORCHESTRATION_INSTRUCTIONS on every before_agent_start (05 D5); it describes delegate_task, create_threads, t3_thread_launch and schedule_task and tells pi to prefer native subagents. Loom's generated extension omits it; the work-model addendum covers whatever is exposed.", "piT3McpExtensionSource.ts — one marked hunk making the appended constant empty in Loom's build", "The plan says 'keyed on the orchestration capability by a small hunk in piT3McpExtensionSource.ts' (Area B, and the hunk inventory). The extension holds only an endpoint and a bearer; it cannot read the credential's capabilities, and the file is generated per instance, not per thread. Every Loom pi thread is a Loom thread, so a constant is the same decision with no plumbing. (T3_CODE_BROWSER_TOOL_INSTRUCTIONS is Codex/ACP-only; Pi never appends it.)"],
+    ["enable_toolset all deny-list, and the ordering caveat", "Loom's enable_toolset all excludes a deny-list of upstream tool names; prefixed mcp__t3-code__… names per Carl's naming decision. pi activates tools registered after bind, and upstream's bridge re-registers on session_start after a failed first connection (piT3McpExtensionSource.ts:312–319), so in that path upstream's tools can land active after Loom's profile was applied.", "Loom's extension; roles/*.md tools: for whatever is exposed", "Layer-one denial still holds in both cases, so the failure is prompt noise and a wasted capability_denied call, not a wrong child — but the deny-list is one line and the plan already flags the ordering."],
+  ]}
+/>
+
+Rejected alternative: a server-side `tools/list` filter by credential capability. The MCP library's `EnabledWhen` sees only the client's protocol profile, not the bearer (05 §1.10), so the filter would be a hunk in `McpHttpServer` or every toolkit — more upstream surface than the profile plus denial for the same effect.
+
+What withholding `orchestration` also switches off: `t3_thread_launch` and project CRUD, the environment and attachment tools (including `t3_thread_send_attachments`), `t3_thread_update`, `t3_worktree_list` (05 §1.10). None is on the open list; each has a Loom equivalent or no Loom use.
+
+### A semantic worth adopting: quiescence as completion
+
+<Card id="semantic-quiescence" heading="Adopt upstream's quiescence-as-completion into Loom's idle rail" tone="success" badge="ADOPT SEMANTIC" meta={["Loom rail change, not a tool exposure", "Area C/D", "recommended with a yield route"]}>
+Upstream publishes a delegated child's result the moment the child thread first goes quiet — no active run, no live sub-children, no pending deliveries — from the latest finished run's last assistant message (`SubagentProjection.ts:210–255`; 05 L5). Loom children sometimes finish their work and forget `workstream_submit`; today the only rail is the idle "forgot to finish" backstop, which waits out a grace window and raises `needs_guidance` (`WorkstreamDispatcher.ts:1279–1312`, `:2539–2591`), pulling a human in for a child that may simply have stopped one call short. Carl wants the upstream semantic considered: *a child idle with no submit and no open user question → synthesise its report from its last assistant message and route a distinguishable outcome.*
+
+**Recommended shape.** Keep the existing detection (idle, no stored attention, lane in progress, activity-freshness grace window — all already in `classifyChildWake` and the idle rail) and add upstream's two quiescence conditions that Loom's rail does not check: no non-terminal children of its own, and no open user-input request (the awaiting-input wake already covers the latter). At that point, instead of raising `needs_guidance`: write the child's last assistant message to its report file with a synthesised header saying so, record `thread.work.submit` on the child's behalf with the reserved outcome **`quiescent`**, and let `routeWorkSubmit` route it as an *unmatched* outcome — i.e. **yield to the parent with the report**, never `done`. The parent then sees a distinguishable card ("went quiet; report synthesised from its last message") and decides: accept as done, re-prompt, or cancel.
+
+**Trade-offs, stated plainly:**
+
+- *False completion while a child merely paused.* A child that ended a turn to wait for a steer, or stopped on a provider error that recovery will resume, or was stopped by the orchestrator (`workstream_stop`) looks idle. The grace window and freshness check already exist for exactly this; `workstream_stop` leaves a `server:` interrupt the rail can recognise; an exhaustion-stalled turn carries `lastErrorClass: quota_exhausted` (02 §C.3). Routing to **yield rather than done** is what makes a residual false positive cheap: the parent reads one card and re-prompts, and dependents are not released on a guess. This is also why `done` is the wrong token — Loom's rule that "no outcome can ever silently become done" (02 §D) would otherwise be broken by the very mechanism meant to help.
+- *A human may be talking to the child.* Carl's guard: unlike upstream subagents, Loom children are real threads he opens and talks to. A child that answers his question and stops is not finished, and the parent should not be told for a good while — he may be reading for ten minutes. The rail must therefore key its grace window on **who started the child's last turn**: a turn started by a human send (the message's `createdBy` is the user) gets a long window or none; a turn started by the kickoff brief, a `workstream_prompt`, or a control notice gets the short one. Loom's messages already carry origin, so the two cases are distinguishable today; the classification is "quiescent after agent/control-plane input" versus "responded to a human", and only the former synthesises.
+- *Which outcome token.* `quiescent` (reserved alongside `done` and `needs_human`), so digests, the verdict chip and the parent's decision menu can name it. It must not be a gate verdict.
+- *Interaction with gates.* A gate member that goes quiet must never auto-resolve: a reviewer's synthesised "verdict" is not a verdict, and a coder's synthesised submit during `pendingRework` would be read as its rework hand-back. Rule: for a thread that is a member of an unresolved gate (`isMemberOfUnresolvedGate`, 02 §D), `quiescent` routes to yield as well — the orchestrator re-drives or dissolves the gate, as the orchestrator doctrine already says.
+- *Last message as report.* Upstream's choice of the latest assistant message is right because it is usually the model's own summary; when it is not ("I'll now run the tests…"), the synthesised header makes that obvious to the parent.
+- *Cost.* A dispatcher-rail change plus one reserved token in `workstreamGraph.ts`; no new tool, no upstream code. It supersedes the idle backstop's `needs_guidance` raise rather than adding to it.
+
+<ReviewChoice itemId="semantic-quiescence" label="Quiescence as completion — synthesised quiescent submit routed to yield, keyed on who started the last turn" placeholder="If rejecting: keep needs_guidance, or route quiescent straight to done?" />
+</Card>
+
+### Concrete edits to `/home/Carl/.t3/cockpit/worktrees/loom/t3code-87358b97/plans/upstream-pull9-strategy/plan.mdx` (revision 2, `7903b325c5`)
+
+**Area B — the later-exposure table (line 133 onward).** This is where the verdicts land. Row by row:
+
+<Table
+  density="compact"
+  columns={["Row", "Plan says", "Change to"]}
+  rows={[
+    ["t3_thread_read, t3_thread_list, t3_thread_search", "finer capability + role profile; no model change", "Keep; mark it the SECOND thing to open. Add: snippets must place them in the cheapest-first ladder (report → consult_thread → read a passage) and say 'your own tree is workstream_list'; the work-model addendum's 'session jsonl' sentence points at t3_thread_read instead."],
+    ["t3_pending_request_list / read / respond", "same capability split; a doctrine line", "Decision 2: mark closed. Instead (a) the child-role overlays and the work-model addendum say the brief was written by an agent and no human reads the thread unless one sends a message, so a question the brief does not settle goes to the parent via consult_thread; (b) ask_user_question stays for threads a human is engaging with. Was: conditional on question 2; orchestrator role only, description rewritten to 'answer only what the brief or goal already settles'."],
+    ["schedule_task family", "capability only; scheduled runs sit under Loom's attention and liveness rules unchanged", "Correct the claim: a bound fire is a turn start, and every turn start clears ALL stored attention and reverts yielded to in_progress (decider.ts:2128–2189), so a bound schedule erases a human hold on every fire; every fire re-asserts the model the thread had at schedule time, undoing any later failover reroute (ScheduledTaskService.ts:538–553); an unbound schedule mints a goal-less thread per run. Decision 1: Carl does want recurring work (the upstream merge is the first case) — expose the UNBOUND form through a Loom wrapper that schedules a goal-bound root launch (a scheduled goal_handoff) on upstream's scheduler; bound schedules stay closed until a dispatch can respect attention flags."],
+    ["watch_pull_request and the PullRequestsToolkit", "nothing; already issued; appear in pi as soon as Loom is on the bridge", "Decision 3: on by default from pull 9 for the roles that ship (orchestrator, shipper), not a later-exposure row. Correct 'appear as soon as': they appear only when the role profile lists them (the profile hides everything it does not name). Add two port items: a watch wake is a turn start that clears a stored attention flag (decide in the message.dispatch hunk whether notification-source dispatches clear agent-raised flags); settle-on-merge must pass Loom's settle blockers."],
+    ["preview_* toolkit", "nothing beyond the preview gate", "Unchanged (out of this recap's scope)."],
+    ["t3_thread_fork / t3_thread_merge_back / t3_thread_transfers", "capability; overlaps thread_fork and goal_continue — decide which stays", "Decide now: Loom's thread_fork stays as the one fork surface (a wrapper over V2 thread.fork that inherits the goal and refuses mid-turn); t3_thread_fork closed as redundant; t3_thread_merge_back closed — Loom forks never merge back and a pending merge-back makes queued dispatches on the target fail (Orchestrator.ts:4703–4709); t3_thread_transfers harmless, no reason to open."],
+    ["create_threads / t3_thread_launch", "capability; overlaps goal_handoff; lineage null", "Mark closed with delegate_task, not merely 'overlaps': goal-less (emergent goal minted per thread), lineage-less, never reports, absent from workstream_list. Note that t3_thread_launch's scratch option is a capability Loom lacks and would be a goal_handoff option."],
+    ["delegate_task / task_status / task_cancel", "closed unless Carl replaces Loom's delegation", "Keep closed. Rewrite the reason to drop the shared-worktree point (Carl does not count it) and add the concrete one: under Area A's lineage adoption a delegated child is a Loom child with the default in_progress lane that never submits, so the idle backstop flags it and the parent can never auto-settle. Add: the quiescence semantic is adopted separately (above)."],
+    ["(missing rows)", "—", "Add one grouped row 'closed — same move, incompatible lifecycle' naming t3_thread_send (restart silently aborts another thread's turn; re-engages done children; self-queues turns), t3_thread_wait (holds the parent's turn for up to 60 min; wakes defer; a waiting child spams slow-tool notices), t3_thread_interrupt (holds the queue; raises needs_guidance under Loom's command-id rule), t3_thread_organize (explicit settle outranks Loom's blockers; archive cascades), t3_thread_configure (bypasses the capability matrix and the pinned model), the six t3_queue_* tools (Loom never queues control-plane wakes; an agent would be editing a human's queued message), and one grouped row 'closed — redundant or inert' for orchestrator_capabilities, t3_thread_configuration, t3_thread_update, run_scheduled_task_now, t3_worktree_handoff / status / list and the six t3_project_* tools."],
+  ]}
+/>
+
+**Area B prose (line 131)**: replace "keyed on the `orchestration` capability by a small hunk in `piT3McpExtensionSource.ts`" with the server-level constant; add that `worktree` is withheld too; add the `enable_toolset all` deny-list beside the ordering caveat. The "Users gain … PR toolkits in pi for free" sentence should say *once the role profile lists them*.
+
+**Area A** (line 109): replace "publishes the first child run's output as the stable result" with *publishes, once, the child's most recently finished run at the moment the child first goes quiet, and never reopens* (`SubagentProjection.ts:243–254`; 05 C1); ownership is by provider *instance* (05 D9). Drop "shared worktree" from the list of contradictions — Carl does not count it; the live-turn requirement, the absence of edges and the pointer result are the contradictions. Note staged release as a retirement candidate where the start gates are listed.
+
+**Area C**: the `message.dispatch` hunk cluster must decide whether notification-source dispatches (PR-watch wakes; schedules if ever exposed) clear stored attention; it must carry Loom's first-turn dependency gate for every dispatch path; and — if the quiescence card is accepted — the idle rail's `needs_guidance` raise becomes a synthesised `quiescent` submit routed to yield (Area D's `routeWorkSubmit` gains the reserved token).
+
+**Area F** (line 222): "`t3_thread_send` (… never aborts a turn …)" is wrong for `restart`: `restart_active` aborts the in-flight attempt and starts a new one in the same run (`ThreadManagementService.ts:556–561`; `Orchestrator.ts:4661–4687`) — not a `run.interrupt`, so no queue hold and no flag, which is why it is closed. Record that `t3_thread_fork`/`t3_thread_merge_back` are closed and Loom's `thread_fork` is the one fork surface.
+
+**Hunk inventory** (line 410): "orchestration instructions keyed on the orchestration capability" → *orchestration instructions omitted (server-level constant)*.
+
+**"The genuine collisions" table** (line 379): fix the upstream column "always listed when the credential has orchestration" → *listed to every credential; capability enforced at call time*; in the resolution, "shared delegate_task instructions keyed on the capability" → *omitted by a server-level constant*. Add three rows:
+
+<Table
+  density="compact"
+  columns={["Collision", "Upstream", "Loom", "Resolution"]}
+  rows={[
+    ["Interrupt semantics (t3_thread_interrupt, task_cancel)", "run.interrupt on any writable thread; holds the target's queue until a client queue.resume; ordinary command ids", "workstream_stop on direct children with server: ids raises no flag; a non-server interrupt is a human stop and raises needs_guidance", "closed; workstream_stop and set_lane cancelled are the only interrupt surfaces"],
+    ["Silent turn abort (t3_thread_send restart)", "message.dispatch restart_active: aborts the in-flight attempt and starts a new one in the same run; no interrupt, no queue hold, no flag", "only workstream_stop (direct child, recorded, idle backstop catches a forgotten resume) may cut another thread's turn", "closed; workstream_prompt steers, never restarts"],
+    ["Automated wakes vs clear-all attention (watch_pull_request; bound schedules)", "a watch or schedule fire is a message.dispatch turn start", "every turn start clears all stored attention and reverts yielded/ready to in_progress", "PR watch on the open list; decide in the message.dispatch hunk whether notification-source dispatches clear agent-raised flags; schedules via the Loom wrapper (decision 1), unbound only"],
+  ]}
+/>
+
+**Phase 3a** (line 497): extend "`orchestration` capability withheld for Loom sessions" to *credential issued with workstream + pull-requests (+ preview); orchestration and worktree withheld; read-capability hunk ready for the later-exposure list; upstream orchestration instructions omitted; `enable_toolset all` deny-list.* Add to the smoke test: a coder calls `mcp__t3-code__delegate_task` after `enable_toolset all` and gets `capability_denied`; and, if the quiescence card is accepted, a child that ends its turn without submitting yields a synthesised `quiescent` report to the parent instead of raising `needs_guidance`.
+
+## 5. Carl's decisions (recorded 2026-10-05)
+
+<Callout tone="warning">
+**Two classes of approval, and they are not the same intent.** The three decisions and four follow-ups below are **explicit**: Carl stated each in his own words while reviewing the summary, so they can be treated as read and understood. The 43 per-tool verdicts above are **accepted by default**: Carl read the summary, said it "broadly looks good", and did not work through the cards individually. A later reader asking "what did Carl intend?" should weight the two accordingly — an explicit decision outranks a default-accepted verdict it conflicts with, and a default-accepted verdict is open to re-argument on evidence in a way the explicit ones are not.
+</Callout>
+
+The two preference questions this recap originally posed are answered; the verdict cards, intent map and §4 edits above have been updated to match. One further decision (PR toolkit by default) and three follow-ups came from Carl's review of the summary.
+
+<Table
+  density="compact"
+  columns={["Decision", "Carl's answer", "What it changes"]}
+  rows={[
+    ["1 · Recurring work", "Yes — there is recurring work Loom should schedule (the upstream merge is the first case). The mechanism was not fully understood when asked; the answer that fits it is the UNBOUND form: a fresh goal-bound root per fire. Bound schedules (a timed turn start into an existing thread, which erases any human hold) stay closed.", "schedule_task family → a Loom wrapper over upstream's scheduler that launches a goal-bound root per fire (a scheduled goal_handoff); list/update/delete/run_now follow the wrapper. Not pull 9 itself; first item after cut-over."],
+    ["2 · Parent answers a child's question", "No — the question is mis-addressed. ask_user_question is for a thread a human is engaging with. A child whose brief does not settle something should consult_thread its parent. Children should KNOW whether a human is in the loop: the opening prompt is written by an agent, and unless a human sends a message they never communicate with one.", "t3_pending_request_list / read / respond → closed. New plan item: the child-role overlays and the work-model addendum state the brief's authorship and the no-human-unless-they-write rule, and point an unsettled question at consult_thread (parent first). Optionally the server injects a 'human engaged' cue once a user message lands."],
+    ["3 · PR toolkit", "Include it by default rather than 'enable later'.", "link / unlink / list_thread / watch / unwatch_pull_request → on in pull 9 for the roles that ship (orchestrator, shipper); the two port items (watch wake vs clear-all attention; settle-on-merge vs Loom's settle blockers) move from the later-exposure list into Phase 3a."],
+  ]}
+/>
+
+### Follow-ups surfaced by the review, outside this recap's scope
+
+<Table
+  density="compact"
+  columns={["Item", "Carl's view", "Where it lands"]}
+  rows={[
+    ["goal_handoff is held and worktree-less", "Both are defects, not design: being held was a limitation that no longer exists and the new root was always supposed to get a worktree. (goal_continue sharing the caller's worktree is still right.)", "Loom bug/feature on GoalHandoffHttp.ts — start the new root immediately and provision its worktree from the target project. Under pull 9, t3_thread_launch's workspaceStrategy is the substrate call to make."],
+    ["Control-plane wakes are requireIdle", "No known reason to want it over steering; upstream's rule (steer into a steerable turn, else queue, never interrupt) is strictly more informative.", "Area C's message.dispatch hunk cluster: adopt upstream's auto delivery for Loom wakes, with a tier split — FYI digests queued, yields/attention/gate verdicts steered. The lane/attention bookkeeping that today rides the turn start must then also run on a steer."],
+    ["Digest excerpt size", "The ~600-character excerpt in FYI digests may want trimming slightly.", "workstreamRender.ts digest tier; a one-line change once the pointer-plus-path shape is confirmed enough."],
+    ["Quiescence grace keyed on last-turn origin", "A child that just answered a human is not finished; do not synthesise or notify the parent for a long while in that case.", "Folded into the quiescence card above; the rail needs the origin of the last user-role message."],
+  ]}
+/>

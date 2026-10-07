@@ -7,9 +7,9 @@ import {
   type ProjectEntry,
   type ProviderDriverKind,
   type PullRequestContextMetadata,
+  type ScopedThreadRef,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
-  type ThreadId,
 } from "@t3tools/contracts";
 import {
   BlocksIcon,
@@ -25,7 +25,7 @@ import { memo, useLayoutEffect, useRef } from "react";
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
+import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
@@ -69,26 +69,13 @@ export type ComposerCommandItem =
       label: string;
       description: string;
     }
-  // loom: the `#` menu's thread section (plan D-D).
   | {
       id: string;
       type: "thread";
-      threadId: ThreadId;
+      thread: ScopedThreadRef;
       label: string;
       description: string;
     };
-
-// loom: `#` lists two kinds at once, so its items render under section labels.
-function hashMenuSections(
-  items: ReadonlyArray<ComposerCommandItem>,
-): Array<{ label: string | null; items: ComposerCommandItem[] }> {
-  return (
-    [
-      { label: "Pull requests", items: items.filter((item) => item.type === "pull-request") },
-      { label: "Threads", items: items.filter((item) => item.type === "thread") },
-    ] as Array<{ label: string | null; items: ComposerCommandItem[] }>
-  ).filter((section) => section.items.length > 0);
-}
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   listId: string;
@@ -132,31 +119,20 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             aria-label={props.triggerKind ? LISTBOX_LABEL_BY_TRIGGER[props.triggerKind] : undefined}
             className="max-h-72 min-h-0 scroll-pb-6"
           >
-            {/* loom: `#` lists pull requests and threads, so it renders one
-                labelled group per section; every other trigger keeps upstream's
-                single unlabelled group. */}
-            {(props.triggerKind === "hash"
-              ? hashMenuSections(props.items)
-              : [{ label: null, items: props.items }]
-            ).map((section) => (
-              <CommandGroup key={section.label ?? "items"}>
-                {section.label === null ? null : (
-                  <CommandGroupLabel className="ms-1">{section.label}</CommandGroupLabel>
-                )}
-                {section.items.map((item) => (
-                  <ComposerCommandMenuItem
-                    key={item.id}
-                    optionId={composerSuggestionOptionId(props.listId, item.id)}
-                    item={item}
-                    triggerKind={props.triggerKind}
-                    resolvedTheme={props.resolvedTheme}
-                    isActive={props.activeItemId === item.id}
-                    onHighlight={props.onHighlightedItemChange}
-                    onSelect={props.onSelect}
-                  />
-                ))}
-              </CommandGroup>
-            ))}
+            <CommandGroup>
+              {props.items.map((item) => (
+                <ComposerCommandMenuItem
+                  key={item.id}
+                  optionId={composerSuggestionOptionId(props.listId, item.id)}
+                  item={item}
+                  triggerKind={props.triggerKind}
+                  resolvedTheme={props.resolvedTheme}
+                  isActive={props.activeItemId === item.id}
+                  onHighlight={props.onHighlightedItemChange}
+                  onSelect={props.onSelect}
+                />
+              ))}
+            </CommandGroup>
           </CommandList>
         ) : (
           <div className="px-5 pt-3.5 pb-7">
@@ -164,8 +140,8 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               {props.isLoading
                 ? props.triggerKind === "skill"
                   ? "Searching workspace skills..."
-                  : props.triggerKind === "hash"
-                    ? "Finding pull requests and threads..."
+                  : props.triggerKind === "pull-request"
+                    ? "Finding pull request..."
                     : "Searching workspace files..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
@@ -192,7 +168,6 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
 }) {
   const skillSourceKind =
     props.item.type === "skill" ? resolveProviderSkillSourceKind(props.item.skill) : null;
-  const isThreadItem = props.item.type === "thread"; // loom:
   const isSlashSkill =
     props.triggerKind === "slash-command" && props.item.type === "skill" ? props.item.skill : null;
   const pullRequestPresentation =
@@ -222,7 +197,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           theme={props.resolvedTheme}
         />
       ) : null}
-      {isThreadItem ? (
+      {props.item.type === "thread" ? (
         <MessagesSquareIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
       ) : null}
       {pullRequestPresentation ? (
@@ -264,9 +239,10 @@ export function composerSuggestionOptionId(listId: string, itemId: string): stri
 
 const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
   path: "Files and folders",
-  hash: "Pull requests and threads", // loom: `#` is the unified pull-request + thread trigger
+  "pull-request": "Pull requests",
   "slash-command": "Commands",
   skill: "Skills",
+  thread: "Threads", // loom: the `!` thread menu (DL-750)
 };
 
 const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {

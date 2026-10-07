@@ -1,11 +1,37 @@
 /**
  * loom: the client-side composer commands that never become a turn on the
- * source thread. `/handoff` and `/retro` are recognised, decided and sequenced
- * here; ChatView's send authority owns only the mount (one marked branch that
- * calls `decideHandoffSend` / `decideRetroSend` and hands the effects back to
- * `runComposerDraftIntercept`).
+ * source thread (3d-3, out of quarantine unchanged but for V2's
+ * `threadContexts`). `/handoff` and `/retro` are recognised, decided and
+ * sequenced here; `useLoomDraftIntercepts` calls 3b's `loom.handoffDraft` /
+ * `loom.retroDraft`, and ChatView's send authority owns only the mount (one
+ * marked branch).
  */
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+
+import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
+
+/**
+ * The `/` menu rows for the two intercepts. The composer offers them at the
+ * start of the prompt on a server thread that is not mid-turn (the intercept
+ * only recognises a leading command, and the server refuses a busy source);
+ * selecting one inserts the command for the human to finish.
+ */
+export const LOOM_DRAFT_SLASH_ITEMS = [
+  {
+    id: "slash:handoff",
+    type: "slash-command",
+    command: "handoff",
+    label: "/handoff",
+    description: "Hand off out-of-scope work without polluting this thread",
+  },
+  {
+    id: "slash:retro",
+    type: "slash-command",
+    command: "retro",
+    label: "/retro",
+    description: "Fork a retro reviewer over this thread\u2019s development process",
+  },
+] as const satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
 
 /**
  * Result of recognising a `/handoff <explanation>` composer draft (plan D2).
@@ -136,7 +162,7 @@ export interface ComposerContentSnapshot {
   readonly terminalContextCount: number;
   readonly previewAnnotationCount: number;
   readonly reviewCommentCount: number;
-  readonly threadReferenceCount: number;
+  readonly threadContextCount: number;
 }
 
 /**
@@ -152,7 +178,7 @@ export function shouldRestoreSubmittedDraft(snapshot: ComposerContentSnapshot): 
     snapshot.terminalContextCount === 0 &&
     snapshot.previewAnnotationCount === 0 &&
     snapshot.reviewCommentCount === 0 &&
-    snapshot.threadReferenceCount === 0
+    snapshot.threadContextCount === 0
   );
 }
 

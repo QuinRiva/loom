@@ -1,14 +1,16 @@
-import * as Encoding from "effect/Encoding";
+import * as Base64Url from "effect/encoding/Base64Url";
 import { CheckpointRef, ProjectId, type ThreadId } from "@t3tools/contracts";
 
 const CHECKPOINT_REFS_PREFIX = "refs/t3/checkpoints";
 
 export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number): CheckpointRef {
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/turn/${turnCount}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Base64Url.encode(threadId)}/turn/${turnCount}`,
   );
 }
 
+// loom: start-of-turn baseline ref (orphaned in pull 9 — its V1 writer and reader are
+// detached, DT-50; phase 2 re-expresses it on the V2 checkpoint consumer).
 // Start-of-turn baseline: "tree state when this thread's turn n began".
 // Lives in its own namespace so completed `turn/<n>` refs — the diff anchors
 // the UI has already shown — are never overwritten. Refreshed each turn, so a
@@ -19,11 +21,11 @@ export function checkpointBaselineRefForThreadTurn(
   turnCount: number,
 ): CheckpointRef {
   return CheckpointRef.make(
-    `${CHECKPOINT_REFS_PREFIX}/${Encoding.encodeBase64Url(threadId)}/baseline/${turnCount}`,
+    `${CHECKPOINT_REFS_PREFIX}/${Base64Url.encode(threadId)}/baseline/${turnCount}`,
   );
 }
 
-export function resolveThreadWorkspaceCwd(input: {
+function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
     readonly projectId: ProjectId;
     readonly worktreePath: string | null;

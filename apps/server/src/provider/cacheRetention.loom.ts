@@ -4,7 +4,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { ProviderSessionStartInput, ServerSettings } from "@t3tools/contracts";
+import type { ServerSettings } from "@t3tools/contracts";
 
 /**
  * Per-thread Anthropic prompt-cache retention (the 1h-cache A/B). pi reads
@@ -16,7 +16,7 @@ import type { ProviderSessionStartInput, ServerSettings } from "@t3tools/contrac
  * setting: `ab` splits roots 50/50 by a stable hash of the thread id, `long` /
  * `short` force every root. See docs/operations/prompt-cache-retention.md.
  */
-export type CacheRetention = NonNullable<ProviderSessionStartInput["cacheRetention"]>;
+export type CacheRetention = "long" | "short";
 
 /** Stable 50/50 arm: first byte of sha256(threadId) below 128 is `long`. */
 export const hashedCacheRetention = (threadId: string): CacheRetention =>

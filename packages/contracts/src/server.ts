@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { AcpRegistryUrlAuthAction } from "./acpRegistry.ts";
 import {
   type EnvironmentMachineKind,
   ExecutionEnvironmentDescriptor,
@@ -23,6 +24,7 @@ import {
 } from "./keybindings.ts";
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import { ServerSettings } from "./settings.ts";
@@ -63,6 +65,8 @@ export const ServerProviderAuth = Schema.Struct({
   type: Schema.optional(TrimmedNonEmptyString),
   label: Schema.optional(TrimmedNonEmptyString),
   email: Schema.optional(TrimmedNonEmptyString),
+  action: Schema.optional(AcpRegistryUrlAuthAction),
+  canLogout: Schema.optional(Schema.Boolean),
   subscriptionSharing: Schema.optional(Schema.Boolean),
   profileId: Schema.optional(TrimmedNonEmptyString),
 });
@@ -121,6 +125,8 @@ export const ServerProviderWorkspaceSnapshot = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   checkedAt: IsoDateTime,
   slashCommands: Schema.Array(ServerProviderSlashCommand),
+  /** Skills are available, but command discovery still needs a retry. */
+  slashCommandsPending: Schema.optional(Schema.Boolean),
   skills: Schema.Array(ServerProviderSkill),
 });
 export type ServerProviderWorkspaceSnapshot = typeof ServerProviderWorkspaceSnapshot.Type;
@@ -213,12 +219,16 @@ export const ServerProvider = Schema.Struct({
   driver: ProviderDriverKind,
   displayName: Schema.optional(TrimmedNonEmptyString),
   accentColor: Schema.optional(TrimmedNonEmptyString),
+  // Optional visual identity supplied by the owning provider driver. Clients
+  // must still validate remote URLs against that driver's trusted origin.
+  iconUrl: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2_048))),
   badgeLabel: Schema.optional(TrimmedNonEmptyString),
   continuation: Schema.optional(ServerProviderContinuation),
   showInteractionModeToggle: Schema.optional(Schema.Boolean),
   // The driver streams context window usage, so a started thread will have a
   // meter once its activities load. Clients reserve the meter's space on it.
   reportsContextWindow: Schema.optional(Schema.Boolean),
+  supportedRuntimeModes: Schema.optional(ForwardCompatibleArray(RuntimeMode)),
   requiresNewThreadForModelChange: Schema.optional(Schema.Boolean),
   supportsConversationRollback: Schema.optional(Schema.Boolean),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
@@ -226,8 +236,18 @@ export const ServerProvider = Schema.Struct({
     Schema.Struct({
       canAuthenticate: Schema.Boolean,
       canInstall: Schema.Boolean,
+      documentationUrl: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(2_048))),
     }),
   ),
+  nativeSessions: Schema.optional(
+    Schema.Struct({
+      canList: Schema.Boolean,
+      canLoad: Schema.Boolean,
+      canResume: Schema.Boolean,
+      canDelete: Schema.optional(Schema.Boolean),
+    }),
+  ),
+  configurableProviders: Schema.optional(Schema.Boolean),
   runtimePaths: Schema.optionalKey(
     Schema.Struct({
       homePath: TrimmedNonEmptyString,
@@ -279,6 +299,14 @@ export type ServerProviders = typeof ServerProviders.Type;
  */
 export const isProviderAvailable = (snapshot: ServerProvider): boolean =>
   snapshot.availability !== "unavailable";
+
+/**
+ * Treat an absent `supportsTextGeneration` as supported so legacy
+ * producers, which all support application text generation, keep working
+ * without resending the field.
+ */
+export const isProviderTextGenerationCapable = (snapshot: ServerProvider): boolean =>
+  snapshot.supportsTextGeneration !== false;
 
 export const ServerObservability = Schema.Struct({
   logsDirectoryPath: TrimmedNonEmptyString,
@@ -488,108 +516,7 @@ export const ServerSignalProcessResult = Schema.Struct({
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
 
-// loom: top-consuming threads, the Usage page's Cost-tab section. One grouped
-// read over `projection_usage_ledger` (migrations 1014/1019) joined to the
-// thread projection for a title; the window arrives as explicit UTC instants so
-// the server needs no zone arithmetic.
-export const ThreadSpendInput = Schema.Struct({
-  /** Inclusive UTC instant the window starts at. */
-  sinceTime: TrimmedNonEmptyString,
-  /** Exclusive UTC instant the window ends at. */
-  untilTime: TrimmedNonEmptyString,
-});
-export type ThreadSpendInput = typeof ThreadSpendInput.Type;
-
-export const ThreadSpendRow = Schema.Struct({
-  threadId: ThreadId,
-  /** Null when the thread is gone: the row then renders by id and does not link. */
-  title: Schema.NullOr(Schema.String),
-  costUsd: Schema.Number,
-  totalTokens: NonNegativeInt,
-  /** Distinct turns the spend landed across. */
-  turns: NonNegativeInt,
-});
-export type ThreadSpendRow = typeof ThreadSpendRow.Type;
-
-export const ThreadSpendResult = Schema.Struct({
-  /** Highest-spending threads in the window, descending by cost. */
-  threads: Schema.Array(ThreadSpendRow),
-});
-export type ThreadSpendResult = typeof ThreadSpendResult.Type;
-
-// loom: workstream worktrees maintenance surface (phase 3 visibility panel).
-// The wire vocabulary mirrors the server's `worktreeClassification` truth:
-// one disposition, plus a stale reason when the auto-reaper deliberately
-// declined to remove the worktree. The UI maps these to human labels.
-export const WorkstreamWorktreeDisposition = Schema.Literals(["active", "reapable", "stale"]);
-export type WorkstreamWorktreeDisposition = typeof WorkstreamWorktreeDisposition.Type;
-
-export const WorkstreamWorktreeStaleReason = Schema.Literals([
-  "orphaned",
-  "unmanaged",
-  "cancelled",
-  "conflicted",
-  "fanin-failed",
-  "fanin-pending",
-  "dirty",
-  "unmerged",
-  "recently-finished",
-]);
-export type WorkstreamWorktreeStaleReason = typeof WorkstreamWorktreeStaleReason.Type;
-
-export const WorkstreamWorktreeOwner = Schema.Struct({
-  threadId: ThreadId,
-  title: TrimmedNonEmptyString,
-  role: Schema.NullOr(TrimmedNonEmptyString),
-});
-export type WorkstreamWorktreeOwner = typeof WorkstreamWorktreeOwner.Type;
-
-export const WorkstreamWorktreeEntry = Schema.Struct({
-  worktreePath: TrimmedNonEmptyString,
-  projectName: TrimmedNonEmptyString,
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  isMain: Schema.Boolean,
-  disposition: WorkstreamWorktreeDisposition,
-  // Present exactly when disposition is `stale`.
-  reason: Schema.NullOr(WorkstreamWorktreeStaleReason),
-  // Null when no projection thread claims the path (a crash orphan).
-  owner: Schema.NullOr(WorkstreamWorktreeOwner),
-  // ms since the owner's last activity, else since the directory mtime.
-  ageMs: Schema.NullOr(NonNegativeInt),
-  // Branch fully merged into the parent branch; null when unknown/detached.
-  merged: Schema.NullOr(Schema.Boolean),
-  // Uncommitted changes (unknown dirty state is reported conservatively as dirty).
-  dirty: Schema.Boolean,
-  // Added by the query layer via `du`; null when sizing timed out or is unavailable.
-  sizeBytes: Schema.NullOr(NonNegativeInt),
-});
-export type WorkstreamWorktreeEntry = typeof WorkstreamWorktreeEntry.Type;
-
-export const WorkstreamWorktreesResult = Schema.Struct({
-  readAt: Schema.DateTimeUtc,
-  entries: Schema.Array(WorkstreamWorktreeEntry),
-});
-export type WorkstreamWorktreesResult = typeof WorkstreamWorktreesResult.Type;
-
-export const WorkstreamRemoveWorktreeInput = Schema.Struct({
-  worktreePath: TrimmedNonEmptyString,
-  // Per-fact acknowledgements, not a blanket force: the server re-classifies
-  // and refuses when the live state is riskier than what the human confirmed.
-  acknowledgeDirty: Schema.optional(Schema.Boolean),
-  acknowledgeUnmerged: Schema.optional(Schema.Boolean),
-});
-export type WorkstreamRemoveWorktreeInput = typeof WorkstreamRemoveWorktreeInput.Type;
-
-export const WorkstreamRemoveWorktreeResult = Schema.Struct({
-  removed: Schema.Boolean,
-  // The `ws/…` branch, when it was deleted (only ever when fully merged).
-  deletedBranch: Schema.NullOr(TrimmedNonEmptyString),
-  // A refusal reason or failure detail; null on a clean removal.
-  message: Schema.NullOr(TrimmedNonEmptyString),
-});
-export type WorkstreamRemoveWorktreeResult = typeof WorkstreamRemoveWorktreeResult.Type;
-
-// `/handoff` fork-drafter (plan D2/D4): the human's composer intercept sends
+// loom: `/handoff` fork-drafter (plan D2/D4): the human's composer intercept sends
 // this application operation; the message never becomes a turn on the source.
 // The server forks the source into a throwaway `handoff-drafter` root and
 // injects the drafter kickoff as its first turn.
@@ -706,6 +633,15 @@ export function environmentThemeFileHasColors(file: EnvironmentThemeFile): boole
   );
 }
 
+export const ServerDirectEndpointKind = Schema.Literals(["lan", "tailnet"]);
+export type ServerDirectEndpointKind = typeof ServerDirectEndpointKind.Type;
+
+export const ServerDirectEndpoint = Schema.Struct({
+  kind: ServerDirectEndpointKind,
+  httpBaseUrl: TrimmedNonEmptyString,
+});
+export type ServerDirectEndpoint = typeof ServerDirectEndpoint.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -724,9 +660,17 @@ export const ServerConfig = Schema.Struct({
    */
   remoteOpenTargets: Schema.optionalKey(ForwardCompatibleArray(RemoteOpenTarget)),
   /**
+   * Direct addresses this server listens on right now (LAN and tailnet), so a
+   * client connected one way can learn the others. Hints only: the client
+   * checks each address answers as this environment before using it. Absent on
+   * servers that predate the feature; empty when bound to loopback only.
+   */
+  directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
+  /**
    * SSH host the client uses to reach this server, for client-launched editors
    * (see CLIENT_LAUNCH_EDITORS). Null on a local install.
    */
+  // loom: client-launched editor SSH host
   remoteEditorSshHost: Schema.NullOr(TrimmedNonEmptyString),
   observability: ServerObservability,
   settings: ServerSettings,
@@ -953,6 +897,13 @@ export const ServerLifecycleWelcomePayload = Schema.Struct({
 });
 export type ServerLifecycleWelcomePayload = typeof ServerLifecycleWelcomePayload.Type;
 
+export const ServerLifecycleLegacyThreadMigrationPayload = Schema.Struct({
+  status: Schema.Union([Schema.Literal("running"), Schema.Literal("complete")]),
+  totalThreadCount: NonNegativeInt,
+});
+export type ServerLifecycleLegacyThreadMigrationPayload =
+  typeof ServerLifecycleLegacyThreadMigrationPayload.Type;
+
 export const ServerLifecycleStreamWelcomeEvent = Schema.Struct({
   version: Schema.Literal(1),
   sequence: NonNegativeInt,
@@ -969,9 +920,19 @@ export const ServerLifecycleStreamReadyEvent = Schema.Struct({
 });
 export type ServerLifecycleStreamReadyEvent = typeof ServerLifecycleStreamReadyEvent.Type;
 
+export const ServerLifecycleStreamLegacyThreadMigrationEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  sequence: NonNegativeInt,
+  type: Schema.Literal("legacyThreadMigration"),
+  payload: ServerLifecycleLegacyThreadMigrationPayload,
+});
+export type ServerLifecycleStreamLegacyThreadMigrationEvent =
+  typeof ServerLifecycleStreamLegacyThreadMigrationEvent.Type;
+
 export const ServerLifecycleStreamEvent = Schema.Union([
   ServerLifecycleStreamWelcomeEvent,
   ServerLifecycleStreamReadyEvent,
+  ServerLifecycleStreamLegacyThreadMigrationEvent,
 ]);
 export type ServerLifecycleStreamEvent = typeof ServerLifecycleStreamEvent.Type;
 

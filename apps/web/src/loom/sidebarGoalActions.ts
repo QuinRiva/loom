@@ -1,32 +1,28 @@
-// loom: fork-added goal actions, hoisted out of the upstream-owned Sidebar.tsx.
-// Two consumers share this module and neither duplicates the commands: the v2
-// thread context menu (create goal from thread / assign to goal) and the Goal
-// panel's overflow menu.
-import { useCallback } from "react";
-import {
-  type ContextMenuItem,
-  type EnvironmentId,
-  GoalId,
-  type ThreadId,
+// loom: Loom goal actions (3d-3), shared by the sidebar thread context menu and
+// the goal panel's overflow menu. Every write goes through a `loom.goal.*` ws
+// method; the result arrives on the shell's goal stream, so nothing here
+// patches local state. Vocabulary: "goal" here is Loom's goal, never the
+// provider-native `/goal` status chip upstream renders.
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+import type {
+  ContextMenuItem,
+  EnvironmentId,
+  LocalApi,
+  LoomGoalShell,
+  ScopedThreadRef,
 } from "@t3tools/contracts";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import { useAtomCommand } from "../state/use-atom-command";
-import { goalEnvironment } from "../state/threads";
-import { readLocalApi } from "../localApi";
-import { newGoalId } from "../lib/utils";
+import { useCallback } from "react";
+
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import type { GoalShell, SidebarThreadSummary } from "../types";
-import { promptGoalForm, slugifyGoalTitle } from "./goalFormDialogStore";
+import { useRightPanelStore } from "../rightPanelStore";
+import { useAtomCommand } from "../state/use-atom-command";
+import { promptGoalForm } from "./goalFormDialogStore";
+import { loomCommands } from "./loomGoalState";
 
-type UpdateThreadMetadata = (value: {
-  environmentId: EnvironmentId;
-  input: { threadId: ThreadId; goalId: GoalId | null };
-}) => Promise<unknown>;
-
-function reportFailure(title: string, error: unknown): void {
+const reportFailure = (title: string) => (result: AtomCommandResult<unknown, unknown>) => {
+  if (result._tag !== "Failure") return;
+  const error = squashAtomCommandFailure(result);
   toastManager.add(
     stackedThreadToast({
       type: "error",
@@ -34,169 +30,79 @@ function reportFailure(title: string, error: unknown): void {
       description: error instanceof Error ? error.message : "An error occurred.",
     }),
   );
-}
+};
 
-/**
- * Goal-related entries for a thread's context menu: "Create goal from thread"
- * plus the "Assign to goal" submenu (project-scoped goals + a "Clear goal" entry
- * when already attached). Empty submenu ⇒ no "Assign to goal" item.
- */
-export function buildGoalMenuItems(
-  projectGoals: readonly GoalShell[],
-  thread: Pick<SidebarThreadSummary, "projectId" | "goalId">,
-): ContextMenuItem<string>[] {
-  // Goals are project-scoped: only offer assignment to goals in this thread's
-  // project, plus a "Clear goal" entry when the thread is already attached.
-  const assignGoalItems: ContextMenuItem<string>[] = projectGoals
-    .filter((goal) => goal.projectId === thread.projectId)
-    .map((goal) => ({ id: `assign-goal:${goal.id}`, label: goal.title || goal.slug }));
-  if (thread.goalId) {
-    assignGoalItems.push({ id: "assign-goal:", label: "Clear goal" });
-  }
+type LoomGoalMenuId =
+  | "loom-goal:tasks"
+  | "loom-goal:rename"
+  | "loom-goal:archive"
+  | "loom-goal:unarchive";
+
+/** The goal entries of a thread's context menu; empty for a thread with no Loom goal. */
+export function buildGoalMenuItems(goal: LoomGoalShell | null): ContextMenuItem<LoomGoalMenuId>[] {
+  if (goal === null) return [];
   return [
-    { id: "create-goal", label: "Create goal from thread" },
-    ...(assignGoalItems.length > 0
-      ? [{ id: "assign-goal", label: "Assign to goal", children: assignGoalItems }]
-      : []),
+    { id: "loom-goal:tasks", label: "Open goal tasks" },
+    { id: "loom-goal:rename", label: "Rename goal\u2026" },
+    goal.archivedAt === null
+      ? { id: "loom-goal:archive", label: "Archive goal" }
+      : { id: "loom-goal:unarchive", label: "Unarchive goal" },
   ];
 }
 
-export function useLoomThreadGoalActions(): {
-  runThreadGoalMenuAction: (
-    clicked: string | null | undefined,
-    deps: {
-      thread: Pick<SidebarThreadSummary, "id" | "environmentId" | "projectId" | "title">;
-      updateThreadMetadata: UpdateThreadMetadata;
-    },
-  ) => Promise<boolean>;
-} {
-  const createGoal = useAtomCommand(goalEnvironment.create, { reportFailure: false });
+/**
+ * `api.contextMenu.show` with the thread's goal entries first — the sidebar
+ * swaps its callee for this, so upstream's item list stays untouched.
+ */
+export const showWithLoomGoalMenu =
+  (api: LocalApi, goal: LoomGoalShell | null) =>
+  <Id extends string>(items: readonly ContextMenuItem<Id>[], position?: { x: number; y: number }) =>
+    api.contextMenu.show<Id | LoomGoalMenuId>([...buildGoalMenuItems(goal), ...items], position);
 
-  const runThreadGoalMenuAction = useCallback(
-    async (
-      clicked: string | null | undefined,
-      deps: {
-        thread: Pick<SidebarThreadSummary, "id" | "environmentId" | "projectId" | "title">;
-        updateThreadMetadata: UpdateThreadMetadata;
-      },
-    ): Promise<boolean> => {
-      const { thread, updateThreadMetadata } = deps;
-      if (clicked === "create-goal") {
-        const form = await promptGoalForm({
-          mode: "create",
-          initial: {
-            title: thread.title,
-            slug: slugifyGoalTitle(thread.title),
-            description: thread.title,
-          },
-        });
-        if (!form) return true;
-        const goalId = newGoalId();
-        const createResult = await createGoal({
-          environmentId: thread.environmentId,
-          input: {
-            goalId,
-            projectId: thread.projectId,
-            slug: form.slug,
-            title: form.title,
-            description: form.description,
-          },
-        });
-        if (createResult._tag === "Failure" && !isAtomCommandInterrupted(createResult)) {
-          reportFailure("Failed to create goal", squashAtomCommandFailure(createResult));
-          return true;
-        }
-        await updateThreadMetadata({
-          environmentId: thread.environmentId,
-          input: { threadId: thread.id, goalId },
-        });
-        return true;
-      }
-      if (clicked?.startsWith("assign-goal:")) {
-        const rawGoalId = clicked.slice("assign-goal:".length);
-        await updateThreadMetadata({
-          environmentId: thread.environmentId,
-          input: { threadId: thread.id, goalId: rawGoalId ? GoalId.make(rawGoalId) : null },
-        });
-        return true;
-      }
-      return false;
-    },
-    [createGoal],
-  );
+export function useLoomGoalActions() {
+  const update = useAtomCommand(loomCommands.goalUpdate, { reportFailure: false });
+  const archive = useAtomCommand(loomCommands.goalArchive, { reportFailure: false });
+  const unarchive = useAtomCommand(loomCommands.goalUnarchive, { reportFailure: false });
 
-  return { runThreadGoalMenuAction };
-}
-
-export interface GoalCrudActions {
-  /** Structured rename dialog + `goal.meta.update`. No-op when cancelled. */
-  renameGoal: (
-    environmentId: EnvironmentId,
-    goal: { id: GoalId; title: string; description: string },
-  ) => Promise<void>;
-  archiveGoal: (environmentId: EnvironmentId, goalId: GoalId) => Promise<void>;
-  /**
-   * Blast-radius confirm then `goal.delete`. `attachedThreadCount` must come
-   * from the UNFILTERED shells: the decider cascade-deletes every thread on the
-   * goal including workstream children that roots-only lists omit, and
-   * understating that in a destructive confirm is the failure mode.
-   */
-  deleteGoal: (
-    environmentId: EnvironmentId,
-    goal: { id: GoalId; title: string },
-    attachedThreadCount: number,
-  ) => Promise<void>;
-}
-
-export function useGoalCrudActions(): GoalCrudActions {
-  const updateGoalMeta = useAtomCommand(goalEnvironment.updateMeta, { reportFailure: false });
-  const archive = useAtomCommand(goalEnvironment.archive, { reportFailure: false });
-  const remove = useAtomCommand(goalEnvironment.delete, { reportFailure: false });
-
-  const renameGoal = useCallback<GoalCrudActions["renameGoal"]>(
-    async (environmentId, goal) => {
-      const form = await promptGoalForm({
-        mode: "rename",
-        initial: { title: goal.title, slug: "", description: goal.description },
-      });
+  const renameGoal = useCallback(
+    async (environmentId: EnvironmentId, goal: LoomGoalShell) => {
+      const form = await promptGoalForm({ title: goal.title, description: goal.description });
       if (!form || (form.title === goal.title && form.description === goal.description)) return;
-      await updateGoalMeta({
-        environmentId,
-        input: { goalId: goal.id, title: form.title, description: form.description },
-      });
-    },
-    [updateGoalMeta],
-  );
-
-  const archiveGoal = useCallback<GoalCrudActions["archiveGoal"]>(
-    async (environmentId, goalId) => {
-      await archive({ environmentId, input: { goalId } });
-    },
-    [archive],
-  );
-
-  const deleteGoal = useCallback<GoalCrudActions["deleteGoal"]>(
-    async (environmentId, goal, attachedThreadCount) => {
-      const api = readLocalApi();
-      if (!api) return;
-      const confirmed = await api.dialogs.confirm(
-        [
-          `Delete goal "${goal.title}"?`,
-          attachedThreadCount > 0
-            ? `This permanently deletes the goal and its ${attachedThreadCount} thread${
-                attachedThreadCount === 1 ? "" : "s"
-              }, clearing their conversation history.`
-            : "This permanently deletes the goal.",
-        ].join("\n"),
+      reportFailure("Could not rename the goal")(
+        await update({
+          environmentId,
+          input: { goalId: goal.id, title: form.title, description: form.description },
+        }),
       );
-      if (!confirmed) return;
-      const result = await remove({ environmentId, input: { goalId: goal.id } });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        reportFailure("Failed to delete goal", squashAtomCommandFailure(result));
-      }
     },
-    [remove],
+    [update],
   );
 
-  return { renameGoal, archiveGoal, deleteGoal };
+  const setArchived = useCallback(
+    async (environmentId: EnvironmentId, goal: LoomGoalShell, archived: boolean) =>
+      reportFailure(archived ? "Could not archive the goal" : "Could not unarchive the goal")(
+        await (archived ? archive : unarchive)({ environmentId, input: { goalId: goal.id } }),
+      ),
+    [archive, unarchive],
+  );
+
+  /** Runs a `buildGoalMenuItems` entry; false when `clicked` is not one of them. */
+  const runGoalMenuAction = useCallback(
+    (
+      clicked: string | null | undefined,
+      goal: LoomGoalShell | null,
+      threadRef: ScopedThreadRef,
+    ) => {
+      if (goal === null || !clicked?.startsWith("loom-goal:")) return false;
+      const { environmentId } = threadRef;
+      if (clicked === "loom-goal:tasks") useRightPanelStore.getState().open(threadRef, "tasks");
+      if (clicked === "loom-goal:rename") void renameGoal(environmentId, goal);
+      if (clicked === "loom-goal:archive") void setArchived(environmentId, goal, true);
+      if (clicked === "loom-goal:unarchive") void setArchived(environmentId, goal, false);
+      return true;
+    },
+    [renameGoal, setArchived],
+  );
+
+  return { renameGoal, setArchived, runGoalMenuAction };
 }

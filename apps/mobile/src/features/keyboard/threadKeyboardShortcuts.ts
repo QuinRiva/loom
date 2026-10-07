@@ -3,16 +3,12 @@ import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import { useCallback } from "react";
 
 import type { ThreadListV2ListItem } from "../threads/threadListV2";
-import type { ThreadSearchArchivedItem } from "../threads/threadSearch.loom";
 import {
   useHardwareKeyboardCommand,
   type HardwareKeyboardCommand,
 } from "./hardwareKeyboardCommands";
 
-type ThreadShortcutListItem =
-  | ThreadListV2ListItem
-  | { readonly type: "v2-show-more" }
-  | ThreadSearchArchivedItem; // loom: archived search hits jump like any row
+type ThreadShortcutListItem = ThreadListV2ListItem | { readonly type: "v2-show-more" };
 
 export function threadJumpIndex(command: HardwareKeyboardCommand) {
   return THREAD_JUMP_KEYBINDING_COMMANDS.findIndex((candidate) => candidate === command);
@@ -26,12 +22,7 @@ export function threadJumpTarget(
   let index = threadJumpIndex(command);
   if (index < 0) return null;
   for (const item of items) {
-    const thread =
-      item.type === "v2-thread"
-        ? item.item.thread
-        : item.type === "search-archived" // loom
-          ? { environmentId: item.match.environmentId, id: item.match.threadId }
-          : null;
+    const thread = item.type === "v2-thread" ? item.item.thread : null;
     if (thread !== null && index-- === 0) return thread;
   }
   return null;
@@ -39,7 +30,7 @@ export function threadJumpTarget(
 
 export function useThreadJumpShortcuts(
   items: ReadonlyArray<ThreadShortcutListItem>,
-  onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void, // loom: archived hits have no shell
+  onSelectThread: (thread: EnvironmentThreadShell) => void,
 ) {
   const jumpToThread = useCallback(
     (command: HardwareKeyboardCommand) => {

@@ -27,6 +27,7 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+/audits/
 dist-electron/
 .electron-runtime/
 .showcase/
@@ -49,3 +50,6 @@ node_modules/
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
 __pycache__/
+
+# loom: consult_manager fork transcripts are scratch, never source
+.pi/manager/consult-sessions/

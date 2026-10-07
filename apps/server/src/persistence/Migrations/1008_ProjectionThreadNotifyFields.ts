@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // D-notify: durable per-thread fields for upward completion propagation.
 // - spawn_generation: the parent's turn id at spawn time, grouping sibling

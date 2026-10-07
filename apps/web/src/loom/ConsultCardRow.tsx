@@ -1,49 +1,85 @@
-import { type ConsultStatus } from "@t3tools/shared/consultActivity.loom";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  turnItemDetailRevision,
+  turnItemOutputText,
+} from "@t3tools/client-runtime/work-log/item-detail";
+import type { OrchestrationV2ProjectedTurnItem, ThreadId } from "@t3tools/contracts";
+import { compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
 import { ChevronDownIcon, MessageCircleQuestionMarkIcon } from "lucide-react";
 import { memo, use, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
-import { type MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import { cn } from "~/lib/utils";
+import { useThreadShell } from "~/state/entities";
+import { useTurnItemDetail } from "~/state/queries";
 
 import { ThreadLinkChip } from "./verifiedFileChips";
 
 /**
- * loom: the card a `consult_thread` call renders as.
+ * loom: the card a `mcp__t3-code__consult_thread` call renders as (pull 7's
+ * PR #270 card, on V2's turn items).
  *
- * A consult is a conversation between two threads, and both halves of it —
- * the question this thread asked and the answer the other one gave — are
+ * A consult is a conversation between two threads, and both halves of it are
  * content a reader needs. Upstream's grouped tool row shows neither: the call
- * becomes a "Consult_thread" line among the `echo`s, and the answer is a raw
- * result dump behind an expansion. The card restores the exchange: who was
- * asked (a navigable thread chip), what was asked, whether it answered, and
- * the answer itself as real chat markdown, so file paths in it stay clickable
- * chips rather than degrading to plain text.
+ * is one line among the `echo`s and the answer a raw dump behind an expansion.
+ * The card restores the exchange: who was asked (a navigable thread chip),
+ * what was asked, whether it answered, and the answer as chat markdown so file
+ * paths in it stay clickable. The wire withholds the answer, so it is fetched
+ * (`getTurnItem`) only while the card is open.
  */
 export const ConsultCardRow = memo(function ConsultCardRow({
-  row,
+  projectedItem,
 }: {
-  row: Extract<MessagesTimelineRow, { kind: "consult" }>;
+  projectedItem: OrchestrationV2ProjectedTurnItem;
 }) {
   const ctx = use(TimelineRowCtx);
   const [expanded, setExpanded] = useState(false);
   const [showFullAnswer, setShowFullAnswer] = useState(false);
-  const consult = row.consult;
-  const status = STATUS[consult.status];
-  const answer = consult.answer?.trim() ?? "";
+  const { item } = projectedItem;
+  const status: keyof typeof STATUS =
+    item.status === "completed"
+      ? item.type === "dynamic_tool" && compactDynamicToolOutput(item.output)?.isError
+        ? "failed"
+        : "answered"
+      : item.status === "failed" || item.status === "interrupted" || item.status === "cancelled"
+        ? "failed"
+        : "waiting";
+  const detail = useTurnItemDetail(
+    expanded && status !== "waiting"
+      ? {
+          environmentId: ctx.activeThreadEnvironmentId,
+          threadId: projectedItem.sourceThreadId,
+          itemId: projectedItem.sourceItemId,
+          revision: turnItemDetailRevision(item),
+        }
+      : null,
+  );
+  const fetched = detail.data?.item;
+  // The wire summarises a large input; the fetched item carries it whole.
+  const source = fetched ?? item;
+  const input = (source.type === "dynamic_tool" ? source.input : null) as Record<
+    string,
+    unknown
+  > | null;
+  const text = (key: string) =>
+    typeof input?.[key] === "string" && input[key].trim() ? input[key].trim() : null;
+  const [targetThreadId, targetName, question] = [text("threadId"), text("name"), text("question")];
+  const target = useThreadShell(
+    targetThreadId === null
+      ? null
+      : scopeThreadRef(ctx.activeThreadEnvironmentId, targetThreadId as ThreadId),
+  );
+  const answer = (fetched ? turnItemOutputText(fetched) : null)?.trim() ?? "";
   const clamped = !showFullAnswer && answer.length > ANSWER_CLAMP_CHARS;
   const toggle = () => setExpanded((value) => !value);
 
   return (
     <section
       className="-mx-1 min-w-0 px-1 py-0.5"
-      aria-label={`Consult — ${consult.targetTitle ?? "another thread"}, ${status.label}`}
+      aria-label={`Consult — ${target?.title ?? targetName ?? "another thread"}, ${STATUS[status].label}`}
     >
-      <div
-        className="rounded-lg border border-info/25 bg-info/6"
-        data-consult-card={consult.status}
-      >
+      <div className="rounded-lg border border-info/25 bg-info/6" data-consult-card={status}>
         <div
           role="button"
           tabIndex={0}
@@ -58,28 +94,25 @@ export const ConsultCardRow = memo(function ConsultCardRow({
         >
           <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
           <span className="text-foreground/82 shrink-0">Consulted</span>
-          {/* The chip navigates on click and goes inert when the thread is gone;
-              the card must not also toggle when it is used. */}
+          {/* The chip navigates on click; the card must not also toggle. */}
           <span className="min-w-0 shrink-0" onClick={(event) => event.stopPropagation()}>
-            {consult.targetThreadId ? (
+            {targetThreadId ? (
               <ThreadLinkChip
-                label={consult.targetTitle ?? "thread"}
-                threadId={consult.targetThreadId}
+                label={target?.title ?? targetThreadId}
+                threadId={targetThreadId}
                 environmentId={ctx.activeThreadEnvironmentId}
               />
             ) : (
-              <span className="text-muted-foreground/80 italic">a thread by name</span>
+              <span className="text-muted-foreground/80 italic">«{targetName ?? "a thread"}»</span>
             )}
           </span>
-          {!expanded && consult.question ? (
-            <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">
-              — {consult.question}
-            </span>
+          {!expanded && question ? (
+            <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">— {question}</span>
           ) : (
             <span className="flex-1" />
           )}
-          <span className={cn("shrink-0 text-3xs tracking-wide uppercase", status.tone)}>
-            {status.label}
+          <span className={cn("shrink-0 text-3xs tracking-wide uppercase", STATUS[status].tone)}>
+            {STATUS[status].label}
           </span>
           <ChevronDownIcon
             className={cn(
@@ -92,12 +125,12 @@ export const ConsultCardRow = memo(function ConsultCardRow({
 
         {expanded ? (
           <div className="space-y-2 border-t border-info/15 px-2.5 py-2">
-            {consult.question ? (
+            {question ? (
               <blockquote className="text-foreground/70 border-l-2 border-info/40 pl-2.5 text-xs leading-5 whitespace-pre-wrap">
-                {consult.question}
+                {question}
               </blockquote>
             ) : null}
-            {consult.status === "answered" && answer.length > 0 ? (
+            {status === "answered" && answer.length > 0 ? (
               <div>
                 <div className={cn("relative overflow-hidden", clamped && "max-h-64")}>
                   <ChatMarkdown
@@ -120,15 +153,11 @@ export const ConsultCardRow = memo(function ConsultCardRow({
                   </button>
                 ) : null}
               </div>
-            ) : consult.note ? (
-              <p className="text-muted-foreground/80 text-xs leading-5 whitespace-pre-wrap">
-                {consult.note}
-              </p>
             ) : (
-              <p className="text-muted-foreground/70 text-xs leading-5 italic">
-                {consult.status === "pending"
+              <p className="text-muted-foreground/80 text-xs leading-5 whitespace-pre-wrap">
+                {status === "waiting"
                   ? "Waiting for the answer."
-                  : "No answer was returned."}
+                  : answer || (detail.isPending ? "Loading…" : "No answer was returned.")}
               </p>
             )}
           </div>
@@ -141,9 +170,8 @@ export const ConsultCardRow = memo(function ConsultCardRow({
 /** Answers past this length get a clamped body with an explicit expand. */
 const ANSWER_CLAMP_CHARS = 600;
 
-const STATUS: Record<ConsultStatus, { label: string; tone: string }> = {
-  pending: { label: "waiting", tone: "text-warning-foreground/80" },
+const STATUS = {
+  waiting: { label: "waiting", tone: "text-warning-foreground/80" },
   answered: { label: "answered", tone: "text-info-foreground/80" },
-  unresolved: { label: "no match", tone: "text-muted-foreground/70" },
   failed: { label: "failed", tone: "text-destructive-foreground/80" },
-};
+} as const;

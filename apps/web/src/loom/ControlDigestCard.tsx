@@ -1,75 +1,64 @@
-import {
-  type ControlPayload,
-  type ControlPayloadItem,
-  type ScopedThreadRef,
-  type ServerProviderSkill,
-  type ThreadId,
-} from "@t3tools/contracts";
+/**
+ * loom: the card a control-plane arrival collapses to (3d-3) — a digest, a
+ * yield hand-back, a notice (gate legs, brief-needed, deadlock, stall nudge,
+ * attention, notify).
+ *
+ * Collapsed (the default) it says only *that* something arrived and from
+ * whom — one line per item naming the sender and its verdict, no markdown
+ * rendered, so the timeline pays nothing for a payload nobody is reading.
+ * Expanding reveals per-item detail and "show raw payload" (the exact bytes the
+ * model received). Everything shown comes from the persisted message, never
+ * live thread state, apart from the sender titles `senderLabels` resolves.
+ * Free of router and timeline context (`ControlDigestRow` supplies both), so
+ * `/preview` can mount it directly.
+ */
+import type { ScopedThreadRef, ServerProviderSkill, ThreadId } from "@t3tools/contracts";
 import { ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { cn } from "~/lib/utils";
 
-import { CHANNEL_CLASSES, controlSummaryLine, type ControlChannel } from "./controlMessages";
+import {
+  CHANNEL_CLASSES,
+  type ControlCardItem,
+  type ControlCardModel,
+  type ControlChannel,
+  controlSummaryLine,
+} from "./controlMessages";
 
-/**
- * loom: the card a control-plane arrival collapses to — a completion digest, a
- * yield hand-back, a gate resolution, a `notify_thread` push.
- *
- * These messages are how the workstream talks to a thread, and their payloads
- * are large: rendered as ordinary bubbles they bury the actual conversation. The
- * card inverts that. Collapsed (the default) it says only *that* something
- * arrived and from whom — one line per item naming the sender and its verdict,
- * with no markdown rendered at all, which is the point: the timeline pays
- * nothing for a payload nobody is reading. Expanding reveals the per-item detail
- * and the "show raw payload" toggle, which reveals the exact bytes the model
- * received; both are review affordances, so neither costs a collapsed row.
- *
- * One row per item rather than a single aggregate line is deliberate: the
- * collapsed card is the skimmable index of what the machinery did, and a
- * "3 items" aggregate would hide precisely the fact — which child delivered —
- * the card exists to surface.
- *
- * Everything shown comes from the persisted message (payload or `text`), never
- * live thread state, so the card can never surface something the model did not
- * see. Deliberately free of router and timeline context — `ControlDigestRow`
- * supplies both — so `/preview` and a unit test can mount it directly.
- */
 export function ControlDigestCardView({
-  channel,
-  label,
-  payload,
-  senderLabels,
+  model,
   text,
+  senderLabels,
   cwd,
   threadRef,
   skills,
   onOpenThread,
+  defaultExpanded = false,
 }: {
-  channel: ControlChannel;
-  label: string;
-  payload: ControlPayload | null;
+  model: ControlCardModel;
+  text: string;
   /** Live thread title per item `threadId`; absent ⇒ the id itself is the label. */
   senderLabels: ReadonlyMap<ThreadId, string>;
-  text: string;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | null;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   onOpenThread: ((threadId: ThreadId) => void) | null;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [showRaw, setShowRaw] = useState(false);
-  const classes = CHANNEL_CLASSES[channel];
-  const items = payload?.items ?? [];
-  const summary = payload?.heading ?? controlSummaryLine(text);
+  const classes = CHANNEL_CLASSES[model.channel];
+  const items = model.kind === "card" ? model.items : [];
+  const summary = model.kind === "card" ? model.summary : controlSummaryLine(text);
   const markdown = (body: string) => (
     <ChatMarkdown text={body} cwd={cwd} threadRef={threadRef ?? undefined} skills={skills} />
   );
 
   return (
-    <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${label} — ${summary}`}>
-      <div className={cn("rounded-lg border", classes.card)} data-control-card={channel}>
+    <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${model.label} — ${summary}`}>
+      <div className={cn("rounded-lg border", classes.card)} data-control-card={model.label}>
         <button
           type="button"
           className={cn(
@@ -81,26 +70,32 @@ export function ControlDigestCardView({
         >
           <InboxIcon className={cn("size-3.5 shrink-0", classes.kicker)} />
           <span className="text-foreground/82 min-w-0 flex-1 truncate font-medium">{summary}</span>
+          {model.kind === "card" && model.marker ? (
+            <span className="shrink-0 rounded border border-warning/30 bg-warning/10 px-1.5 text-3xs text-warning-foreground">
+              {model.marker}
+            </span>
+          ) : null}
           <span className={cn("shrink-0 text-3xs tracking-wide uppercase", classes.kicker)}>
-            {label}
+            {model.label}
           </span>
           <ChevronDownIcon
-            className={cn(
-              "size-3.5 shrink-0 opacity-60 transition-transform duration-200",
-              expanded && "rotate-180",
-            )}
+            className={cn("size-3.5 shrink-0 opacity-60", expanded && "rotate-180")}
             aria-hidden
           />
         </button>
 
         {items.length > 0 ? (
           <ul className={cn("space-y-px border-t p-1", classes.divider)}>
-            {items.map((item, index) => (
+            {items.map((entry, index) => (
               <ControlDigestItem
-                key={item.threadId ?? `item-${index}`}
-                item={item}
-                channel={channel}
-                sender={item.threadId ? (senderLabels.get(item.threadId) ?? item.threadId) : null}
+                key={entry.item.threadId ?? `item-${index}`}
+                entry={entry}
+                channel={model.channel}
+                sender={
+                  entry.item.threadId
+                    ? (senderLabels.get(entry.item.threadId) ?? entry.item.threadId)
+                    : null
+                }
                 expanded={expanded}
                 markdown={markdown}
                 onOpen={onOpenThread}
@@ -108,10 +103,11 @@ export function ControlDigestCardView({
             ))}
           </ul>
         ) : expanded ? (
+          // The raw-text fallback, and a card with no items: the message itself.
           <div className={cn("border-t p-2", classes.divider)}>{markdown(text)}</div>
         ) : null}
 
-        {expanded ? (
+        {expanded && items.length > 0 ? (
           <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
             <button
               type="button"
@@ -125,8 +121,7 @@ export function ControlDigestCardView({
         ) : null}
         {expanded && showRaw ? (
           <div className={cn("border-t p-2", classes.divider)}>
-            {/* The verbatim bytes the model received — never through markdown, which
-                would reformat the headings, lists and fences it is proof of. */}
+            {/* The verbatim bytes the model received — never through markdown. */}
             <pre className="bg-muted/40 text-foreground/80 max-h-[420px] overflow-auto rounded-md p-2 font-mono text-2xs leading-5 break-words whitespace-pre-wrap">
               {text}
             </pre>
@@ -138,14 +133,14 @@ export function ControlDigestCardView({
 }
 
 function ControlDigestItem({
-  item,
+  entry: { item, kindLabel },
   channel,
   sender,
   expanded,
   markdown,
   onOpen,
 }: {
-  item: ControlPayloadItem;
+  entry: ControlCardItem;
   channel: ControlChannel;
   sender: string | null;
   expanded: boolean;
@@ -197,6 +192,11 @@ function ControlDigestItem({
               {sender ? ` — ${item.title}` : item.title}
             </span>
           </span>
+          {kindLabel ? (
+            <span className="text-muted-foreground/70 shrink-0 text-3xs tracking-wide uppercase">
+              {kindLabel}
+            </span>
+          ) : null}
           {item.status ? (
             <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
           ) : null}

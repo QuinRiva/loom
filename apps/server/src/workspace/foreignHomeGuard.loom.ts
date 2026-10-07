@@ -25,6 +25,7 @@
 import * as NodePath from "node:path";
 
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /** The one refusal sentence every guarded call site reports. */
 export const FOREIGN_HOME_REFUSAL_DETAIL =
@@ -80,6 +81,33 @@ export const detectForeignDatabase = (input: {
   });
 
 export const isForeignDatabase = (): boolean => foreignHome !== null;
+
+/**
+ * Boot-time provenance check (pull 9, DL-81): every worktree path the database
+ * records — the V1 projection a copied database still carries (the legacy
+ * importer has not run on a first boot) and V2's thread projection, whose
+ * `worktreePath` lives in `payload_json` — fed to `detectForeignDatabase`. A
+ * failed read leaves the guard off, which is the pre-existing behaviour.
+ */
+export const detectForeignDatabaseAtBoot = (worktreesDir: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly path: string }>`
+      SELECT worktree_path AS path FROM projection_threads WHERE worktree_path IS NOT NULL
+      UNION
+      SELECT json_extract(payload_json, '$.worktreePath') AS path
+      FROM orchestration_v2_projection_threads
+      WHERE json_extract(payload_json, '$.worktreePath') IS NOT NULL
+    `;
+    yield* detectForeignDatabase({
+      worktreesDir,
+      recordedWorktreePaths: rows.map((row) => row.path),
+    });
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.logWarning("failed to check which home this database came from", { cause }),
+    ),
+  );
 
 /**
  * Gate for one mutating call site. Returns `true` when the caller must NOT act

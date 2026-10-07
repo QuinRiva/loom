@@ -92,6 +92,9 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false, watch: null },
   resolve: { alias: { "~": NodePath.join(webRoot, "src") } },
   optimizeDeps: { noDiscovery: true },
+  // `lucide` (reached via ChatMarkdown) ships CJS `main` with no `exports`; vite-plus
+  // inlines it into the ESM runner ("exports is not defined"). Node loads it natively.
+  ssr: { external: ["lucide"] },
 });
 
 /**
