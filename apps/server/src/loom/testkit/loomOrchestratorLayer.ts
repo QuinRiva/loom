@@ -229,12 +229,15 @@ export const seededRunIds = (threadId: ThreadId, ordinal = 1) => ({
  * so the thread has a blocking run exactly as a live turn would leave it. With
  * `live`, the provider thread is bound to an open (inert) provider session, so
  * upstream's `run.interrupt` takes its real path and enqueues
- * `provider-turn.interrupt`; without it upstream refuses the interrupt.
+ * `provider-turn.interrupt`; without it upstream refuses the interrupt. With
+ * `turn: false` the provider turn is left out: the gap between a run going
+ * `running` and its adapter reporting the turn started.
  */
 export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function* (input: {
   readonly threadId: ThreadId;
   readonly ordinal?: number;
   readonly live?: boolean;
+  readonly turn?: boolean;
   /** The provider thread's driver (default the test driver; `pi` for the drafter guards). */
   readonly driver?: ProviderDriverKind;
 }) {
@@ -352,28 +355,32 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
           completedAt: null,
         },
       },
-      {
-        ...base,
-        id: EventId.make(`event:seed-turn:${threadId}:${ordinal}`),
-        type: "provider-turn.updated",
-        runId: ids.runId,
-        nodeId: ids.nodeId,
-        payload: {
-          id: ids.providerTurnId,
-          providerThreadId: ids.providerThreadId,
-          nodeId: ids.nodeId,
-          runAttemptId: ids.attemptId,
-          nativeTurnRef: {
-            driver: testDriver,
-            nativeId: `native-turn:${threadId}:${ordinal}`,
-            strength: "strong",
-          },
-          ordinal,
-          status: "running",
-          startedAt: now,
-          completedAt: null,
-        },
-      },
+      ...(input.turn === false
+        ? []
+        : ([
+            {
+              ...base,
+              id: EventId.make(`event:seed-turn:${threadId}:${ordinal}`),
+              type: "provider-turn.updated",
+              runId: ids.runId,
+              nodeId: ids.nodeId,
+              payload: {
+                id: ids.providerTurnId,
+                providerThreadId: ids.providerThreadId,
+                nodeId: ids.nodeId,
+                runAttemptId: ids.attemptId,
+                nativeTurnRef: {
+                  driver: testDriver,
+                  nativeId: `native-turn:${threadId}:${ordinal}`,
+                  strength: "strong",
+                },
+                ordinal,
+                status: "running",
+                startedAt: now,
+                completedAt: null,
+              },
+            },
+          ] satisfies ReadonlyArray<OrchestrationV2DomainEvent>)),
       {
         ...base,
         id: EventId.make(`event:seed-message:${threadId}:${ordinal}`),

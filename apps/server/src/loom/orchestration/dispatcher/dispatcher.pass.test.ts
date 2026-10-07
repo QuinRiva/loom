@@ -7,7 +7,8 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, EventId, MessageId, ThreadId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
 import * as Effect from "effect/Effect";
@@ -33,6 +34,7 @@ import {
   seedRunningRun,
   seedThread,
   spawnChild,
+  writeEvents,
 } from "../../testkit/loomOrchestratorLayer.ts";
 import {
   attentionCommandId,
@@ -640,6 +642,80 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
           ),
         );
         assert.isEmpty(yield* (yield* LoomStoreV2).peerMessages.listPending());
+      }),
+  );
+
+  it.effect(
+    "steer promotion: Loom messages queued before the turn was up steer in send order once it is; a human's stays queued",
+    () =>
+      Effect.gen(function* () {
+        const target = ThreadId.make("promote-steer-target");
+        yield* seedThread({ threadId: target });
+        const ids = yield* seedRunningRun({ threadId: target, live: true, turn: false });
+        const queue = (id: string, loom: boolean) =>
+          dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(id),
+            threadId: target,
+            messageId: MessageId.make(`message:${id}`),
+            text: id,
+            attachments: [],
+            createdBy: loom ? "agent" : "user",
+            creationSource: loom ? "mcp" : "web",
+            dispatchMode: { type: "queue_after_active" },
+            ...(loom ? { loom: { origin: "orchestrator" as const } } : {}),
+          });
+        yield* queue("early-correction", true);
+        yield* queue("human-follow-up", false);
+        const statuses = Effect.map(projection(target), (p) => p.runs.map((run) => run.status));
+        assert.deepEqual(yield* statuses, ["running", "queued", "queued"]);
+
+        // No running provider turn yet: nothing moves.
+        yield* runPass;
+        assert.deepEqual(yield* statuses, ["running", "queued", "queued"]);
+
+        // The adapter reports its turn: the Loom message steers into it, the human's waits.
+        const now = yield* DateTime.now;
+        yield* writeEvents([
+          {
+            id: EventId.make("event:promote-steer:turn"),
+            type: "provider-turn.updated",
+            threadId: target,
+            runId: ids.runId,
+            nodeId: ids.nodeId,
+            occurredAt: now,
+            payload: {
+              id: ids.providerTurnId,
+              providerThreadId: ids.providerThreadId,
+              nodeId: ids.nodeId,
+              runAttemptId: ids.attemptId,
+              nativeTurnRef: null,
+              ordinal: 1,
+              status: "running",
+              startedAt: now,
+              completedAt: null,
+            },
+          },
+        ]);
+        // A later Loom message, sent before the pass, queues behind the earlier one (DL-663).
+        yield* queue("later-correction", true);
+        assert.deepEqual(yield* statuses, ["running", "queued", "queued", "queued"]);
+        yield* runPass;
+        const after = yield* projection(target);
+        assert.deepEqual(
+          after.runs.map((run) => run.status),
+          ["running", "cancelled", "queued", "cancelled"],
+        );
+        assert.deepEqual(
+          after.turnItems
+            .filter((item) => item.type === "user_message" && item.runId === ids.runId)
+            .toSorted((left, right) => left.ordinal - right.ordinal)
+            .map((item) => (item.type === "user_message" ? item.text : "")),
+          ["early-correction", "later-correction"],
+        );
+        const byText = (text: string) => after.messages.find((m) => m.text === text);
+        assert.equal(byText("early-correction")?.loom?.origin, "orchestrator");
+        assert.notEqual(byText("human-follow-up")?.runId, ids.runId);
       }),
   );
 

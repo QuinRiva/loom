@@ -3,8 +3,13 @@
  * `message.dispatch` with `loom.origin: "orchestrator"` — dispatched directly,
  * never through `ThreadManagementService.sendToThread` (which drops `loom`),
  * because the origin is what lets the arm's rule 4 clear the child's standing
- * hold when the turn starts. Delivery is `auto`: an idle child starts a turn,
- * a busy one is steered or queued.
+ * hold when the turn starts. Delivery is Loom's steered tier, as for every
+ * control message: an idle child starts a turn; a busy one is steered only once
+ * its run has a running provider turn on a live session, and otherwise queued
+ * — the dispatcher promotes it into that turn once the turn is up (DL-662), or
+ * it starts the next one (never upstream's `deliveryIntent: "auto"`, which picks a
+ * steer for a run whose turn has not started and is then rejected — DL-660).
+ * The result says which of the three happened.
  *
  * An UNSTARTED child (no `kickoffAt`) gets its kickoff in this message, as V1's
  * `kickoffTextForPrompt` did: the kickoff wrapper around its brief, then the
@@ -29,7 +34,7 @@ import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
 import { LoomToolError, type LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { requestKey } from "../idempotency.ts";
-import { childrenOf, dispatch, dispatchRefusal, fail, nowIso, requireShell } from "./shared.ts";
+import { childrenOf, committed, dispatch, dispatchRefusal, fail, nowIso } from "./shared.ts";
 
 /** The fork transfer for an unblocked fork child; a blocked one is left to rule 2's refusal. */
 const prepareFork = Effect.fn("LoomToolkit.prepareFork")(function* (
@@ -103,27 +108,30 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
     });
   }
 
-  const { activeRunId } = yield* requireShell(threadId);
   const id = yield* requestKey(undefined);
-  yield* dispatch({
-    type: "message.dispatch",
-    commandId: CommandId.make(`server:workstream-prompt:${threadId}:${id}`),
-    threadId,
-    messageId: MessageId.make(`message:workstream-prompt:${threadId}:${id}`),
-    text,
-    attachments: [],
-    createdBy: "agent",
-    creationSource: "mcp",
-    senderThreadId: caller.threadId,
-    deliveryIntent: "auto",
-    dispatchMode: { type: "queue_after_active" },
-    loom: { origin: "orchestrator" },
-  });
+  const runs = committed(
+    yield* dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(`server:workstream-prompt:${threadId}:${id}`),
+      threadId,
+      messageId: MessageId.make(`message:workstream-prompt:${threadId}:${id}`),
+      text,
+      attachments: [],
+      createdBy: "agent",
+      creationSource: "mcp",
+      senderThreadId: caller.threadId,
+      dispatchMode: { type: "queue_after_active" },
+      loom: { origin: "orchestrator" },
+    }),
+    "run.created",
+  );
   return `Sent prompt to Workstream child ${threadId} (${
-    row.kickoffAt === null
-      ? "delivered with its kickoff brief as its first turn"
-      : activeRunId === null
-        ? "starting its next turn"
-        : "steered or queued into its open turn"
+    runs.length === 0
+      ? "steered into its running turn"
+      : runs.every((event) => event.payload.status === "queued")
+        ? "queued: its run cannot take a steer yet; it is steered in once its turn is up, else it starts the next turn"
+        : row.kickoffAt === null
+          ? "delivered with its kickoff brief as its first turn"
+          : "starting its next turn"
   }).`;
 });

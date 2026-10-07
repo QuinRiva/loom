@@ -285,6 +285,7 @@ export const layerExecutor: Layer.Layer<
                       ...(message.senderThreadId === undefined
                         ? {}
                         : { senderThreadId: message.senderThreadId }),
+                      ...(message.loom === undefined ? {} : { loom: message.loom }), // loom: carry on follow-up
                     });
                   }),
                 ),

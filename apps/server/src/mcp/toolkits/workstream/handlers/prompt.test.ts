@@ -79,6 +79,51 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
   );
 
   it.effect(
+    "prompt: before the child's provider turn is up the message queues; once it is up it steers",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const root = ThreadId.make("early-prompt-root");
+        yield* seedThread({ threadId: root });
+        const [launching, running] = [
+          yield* spawn(root, "Launching"),
+          yield* spawn(root, "Running"),
+        ];
+        for (const child of [launching!, running!]) yield* markStarted(child);
+        // A live session and a `running` run, but the adapter has not reported its turn yet.
+        yield* seedRunningRun({ threadId: launching!, live: true, turn: false });
+        const { runId } = yield* seedRunningRun({ threadId: running!, live: true });
+
+        const early = yield* callAs(root, "workstream_prompt", {
+          threadId: launching!,
+          message: "Correction.",
+        });
+        assert.isFalse(early.isError, early.text);
+        assert.include(early.text, "queued");
+        const queued = yield* orchestrator.getThreadRecords(launching!, ["runs", "messages"]);
+        assert.deepEqual(
+          queued.runs.map((run) => run.status),
+          ["running", "queued"],
+        );
+        const correction = queued.messages.find((message) => message.text === "Correction.");
+        assert.equal(correction?.runId, queued.runs[1]!.id);
+        assert.equal(correction?.loom?.origin, "orchestrator");
+
+        const steered = yield* callAs(root, "workstream_prompt", {
+          threadId: running!,
+          message: "Correction.",
+        });
+        assert.include(steered.text, "steered into its running turn");
+        const live = yield* orchestrator.getThreadRecords(running!, ["runs", "messages"]);
+        assert.deepEqual(
+          live.runs.map((run) => run.status),
+          ["running"],
+        );
+        assert.equal(live.messages.find((message) => message.text === "Correction.")?.runId, runId);
+      }),
+  );
+
+  it.effect(
     "prompt: an unstarted briefed child starts with the kickoff wrapper before the message",
     () =>
       Effect.gen(function* () {

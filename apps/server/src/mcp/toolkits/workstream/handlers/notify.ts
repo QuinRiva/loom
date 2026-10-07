@@ -9,6 +9,9 @@
  * deferred-delivery rail uses for the same record, so whichever lands second
  * replays the receipt instead of delivering twice; a landed message is marked
  * delivered. A delivery that fails leaves the record pending for that rail.
+ * Like the rail's, the immediate delivery is Loom's steered tier with no
+ * `deliveryIntent`: upstream's `auto` steers a run whose provider turn has not
+ * started, and that rejection's receipt would expire the record (DL-660).
  *
  * @module mcp/toolkits/workstream/handlers/notify
  */
@@ -79,7 +82,6 @@ export const notifyDeliveryCommand = (input: {
     createdBy: "agent",
     creationSource: "mcp",
     senderThreadId: input.senderThreadId,
-    deliveryIntent: "auto",
     dispatchMode: { type: "queue_after_active" },
     loom: {
       origin: "notify",

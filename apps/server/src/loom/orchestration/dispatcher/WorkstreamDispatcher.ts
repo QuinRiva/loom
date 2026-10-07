@@ -69,6 +69,7 @@ import {
 } from "./controlMessage.ts";
 import type { DigestExtra } from "./digest.ts";
 import { makeGateLegComposer } from "./gateLegs.ts";
+import { queuedSteerPromotion } from "./queuedSteerPromotion.ts";
 import { quiescenceRail } from "./quiescenceRail.ts";
 import {
   attentionRail,
@@ -318,6 +319,7 @@ export const PASS_STEPS: ReadonlyArray<PassStep> = [
   deadlockRail,
   digestFlush,
   notifyDelivery,
+  queuedSteerPromotion,
   surfaceDeferredWakes,
 ];
 
