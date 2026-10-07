@@ -2676,7 +2676,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ] as const)
           : []),
         // loom: the `/handoff` and `/retro` intercepts.
-        ...(_isServerThread && phase !== "running" && composerTrigger.rangeStart === 0
+        ...(isServerThread && phase !== "running" && composerTrigger.rangeStart === 0
           ? LOOM_DRAFT_SLASH_ITEMS
           : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
@@ -2782,7 +2782,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
-    _isServerThread, // loom:
+    isServerThread, // loom:
     activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
