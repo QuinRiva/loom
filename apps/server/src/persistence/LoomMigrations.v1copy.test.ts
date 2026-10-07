@@ -64,13 +64,15 @@ it.effect("migrates a copied V1 database to 1052 with the renamed tables' rows i
       const sql = yield* SqlClient.SqlClient;
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
-      assert.deepEqual(loomLedger.slice(-6), [
+      assert.deepEqual(loomLedger.slice(-8), [
+        { id: 1046, name: "LoomThreadWorkstream" },
         { id: 1047, name: "LoomGoalTables" },
         { id: 1048, name: "LoomConsultAndPeerMessageTables" },
         { id: 1049, name: "LoomUsageLedger" },
         { id: 1050, name: "LoomThreadReroute" },
         { id: 1051, name: "LoomLegacyImports" },
         { id: 1052, name: "LoomControlMessageRows" },
+        { id: 1053, name: "LoomCardMetrics" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;

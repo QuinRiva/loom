@@ -83,6 +83,7 @@ import Migration1049 from "./Migrations/1049_LoomUsageLedger.ts";
 import Migration1050 from "./Migrations/1050_LoomThreadReroute.ts";
 import Migration1051 from "./Migrations/1051_LoomLegacyImports.ts";
 import Migration1052 from "./Migrations/1052_LoomControlMessageRows.ts";
+import Migration1053 from "./Migrations/1053_LoomCardMetrics.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -140,6 +141,7 @@ export const loomMigrationEntries = [
   [1050, "LoomThreadReroute", Migration1050],
   [1051, "LoomLegacyImports", Migration1051],
   [1052, "LoomControlMessageRows", Migration1052],
+  [1053, "LoomCardMetrics", Migration1053],
 ] as const;
 
 const makeLoomMigrationLoader = (throughId?: number) =>

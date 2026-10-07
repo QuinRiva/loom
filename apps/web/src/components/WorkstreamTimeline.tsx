@@ -1,9 +1,10 @@
-import type { EnvironmentId, LoomThreadOutcome, ThreadId } from "@t3tools/contracts";
-import { ExternalLinkIcon, FileTextIcon, XIcon } from "lucide-react";
+import type { EnvironmentId, LoomThreadHistoryEntry, ThreadId } from "@t3tools/contracts";
+import { ExternalLinkIcon, FileTextIcon, LocateFixedIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
   buildTimelineRows,
+  type ConversationAnchor,
   describeRoute,
   formatRelativeAge,
   getGateLoopCap,
@@ -18,58 +19,62 @@ import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
- * The inspected thread's outcome history (`loom.threadOutcomes`), so each
- * outcome row links its own round's report as V1's lifecycle drawer did. Lives
- * in the panel, not the drawer; fetched when the thread or its latest outcome
- * changes, and null until that fetch answers (the drawer then shows the
- * sidecar's latest outcome). Nothing polls.
+ * The inspected thread's event history (`loom.threadHistory`): outcomes with
+ * their round's report, flags (yield and resume included), gate routes and
+ * plan outcomes, as V1's lifecycle drawer showed. Lives in the panel, not the
+ * drawer; refetched when the thread or its sidecar changes (`updatedAt` moves
+ * with every Loom event of the thread), keeping the last answer for the same
+ * thread meanwhile. Null until the first answer for the thread (the drawer then
+ * shows the sidecar's milestones). Nothing polls.
  */
-export function useThreadOutcomes(
+export function useThreadHistory(
   environmentId: EnvironmentId,
   node: WorkstreamNode | undefined,
-): ReadonlyArray<LoomThreadOutcome> | null {
-  const load = useAtomCommand(loomCommands.threadOutcomes, { reportFailure: false });
+): ReadonlyArray<LoomThreadHistoryEntry> | null {
+  const load = useAtomCommand(loomCommands.threadHistory, { reportFailure: false });
   const [loaded, setLoaded] = useState<{
-    readonly key: string;
-    readonly outcomes: ReadonlyArray<LoomThreadOutcome>;
+    readonly threadId: ThreadId;
+    readonly entries: ReadonlyArray<LoomThreadHistoryEntry>;
   } | null>(null);
   const threadId = node?.id;
-  const latestAt = node?.lastOutcome?.at ?? null;
-  const key = `${threadId}@${latestAt}`;
+  const updatedAt = node?.updatedAt ?? null;
   useEffect(() => {
     if (threadId === undefined) return;
     let cancelled = false;
     void load({ environmentId, input: { threadId } }).then((result) => {
       if (!cancelled && result._tag === "Success")
-        setLoaded({ key: `${threadId}@${latestAt}`, outcomes: result.value.outcomes });
+        setLoaded({ threadId, entries: result.value.entries });
     });
     return () => {
       cancelled = true;
     };
-  }, [environmentId, threadId, latestAt, load]);
-  return loaded?.key === key ? loaded.outcomes : null;
+  }, [environmentId, threadId, updatedAt, load]);
+  return loaded !== null && loaded.threadId === threadId ? loaded.entries : null;
 }
 
 /**
  * A thread's timeline drawer: the milestones its sidecar records (created,
- * held, dependencies, kickoff, plan outcome), every submitted outcome with a
- * link to the report it wrote, and its gate routes. Reads the shell and updates
- * live. Overlays the panel; Esc or the backdrop dismisses it.
+ * held, dependencies, kickoff), its event history (`buildTimelineRows`) with
+ * each outcome's report, and its gate routes. A row that happened in a
+ * conversation jumps to it (the spawn row to the parent's dispatch). Reads the
+ * shell and updates live. Overlays the panel; Esc or the backdrop dismisses it.
  */
 export function WorkstreamTimelineDrawer({
   node,
-  outcomes,
+  history,
   titleOf,
   onClose,
   onOpenThread,
   onOpenReport,
+  onJump,
 }: {
   readonly node: WorkstreamNode | undefined;
-  readonly outcomes: ReadonlyArray<LoomThreadOutcome> | null;
+  readonly history: ReadonlyArray<LoomThreadHistoryEntry> | null;
   readonly titleOf: (threadId: ThreadId) => string;
   readonly onClose: () => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly onOpenReport: (reportPath: string) => void;
+  readonly onJump: (anchor: ConversationAnchor) => void;
 }) {
   const open = node !== undefined;
   const asideRef = useRef<HTMLElement | null>(null);
@@ -103,7 +108,7 @@ export function WorkstreamTimelineDrawer({
     };
   }, [open, onClose]);
 
-  const rows = node ? buildTimelineRows(node, titleOf, outcomes) : [];
+  const rows = node ? buildTimelineRows(node, titleOf, history) : [];
 
   return (
     <>
@@ -136,7 +141,7 @@ export function WorkstreamTimelineDrawer({
             {node ? (
               <div className="flex flex-wrap gap-x-2 font-mono text-2xs text-muted-foreground">
                 <WorkstreamSpendSlot threadId={node.id} />
-                <LoomContextChip threadId={node.id} />
+                <LoomContextChip usage={node.contextUsage} />
               </div>
             ) : null}
           </div>
@@ -189,6 +194,27 @@ export function WorkstreamTimelineDrawer({
                   </TooltipTrigger>
                   <TooltipPopup>{row.at}</TooltipPopup>
                 </Tooltip>
+                {row.jump ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="Show me where this happened"
+                          onClick={() => onJump(row.jump!)}
+                        />
+                      }
+                    >
+                      <LocateFixedIcon />
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      {row.key === "created"
+                        ? "Show where it was dispatched"
+                        : "Show me where this happened"}
+                    </TooltipPopup>
+                  </Tooltip>
+                ) : null}
                 {row.reportPath ? (
                   <Tooltip>
                     <TooltipTrigger

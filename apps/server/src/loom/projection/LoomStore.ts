@@ -20,12 +20,16 @@ import {
   IsoDateTime,
   LoomGoal,
   LoomGoalTask,
+  LoomContextUsage,
+  LoomOutcome,
+  LoomRouteKind,
   LoomRouteRecord,
   LoomThreadConsultSummary,
-  type LoomThreadOutcome,
+  type LoomThreadHistoryEntry,
   LoomThreadPeerMessageSummary,
   LoomThreadShellFields,
   LoomThreadWorkstream,
+  NonNegativeInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -35,6 +39,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -328,11 +333,12 @@ export interface LoomStoreV2Shape {
     threadIds: ReadonlyArray<ThreadId>,
   ) => Op<ReadonlyMap<ThreadId, LoomThreadShellFields>>;
   /**
-   * Every outcome the thread submitted, oldest first, each with the report its
-   * submit set. Read from the event log, V1-imported and V2 events alike (same
-   * types, compatible payloads): the sidecar keeps only the latest of each.
+   * The thread's event history, oldest first (`LoomThreadHistoryEntry`): each
+   * outcome with the report its submit set, flags, gate routes and plan
+   * outcomes. Read from the event log, V1-imported and V2 events alike: the
+   * sidecar keeps only the latest of each.
    */
-  readonly outcomeHistory: (threadId: ThreadId) => Op<ReadonlyArray<LoomThreadOutcome>>;
+  readonly history: (threadId: ThreadId) => Op<ReadonlyArray<LoomThreadHistoryEntry>>;
   readonly consults: {
     /** Per-target consult summaries for the asker, newest first. */
     readonly listByAsker: (askerThreadId: ThreadId) => Op<ReadonlyArray<LoomThreadConsultSummary>>;
@@ -369,20 +375,49 @@ const PendingPeerMessageRow = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const OutcomeEventRow = Schema.Union([
+const historyRow = <const Type extends string, Payload extends Schema.Struct.Fields>(
+  type: Type,
+  payload: Payload,
+) =>
   Schema.Struct({
-    type: Schema.Literal("thread.report-set"),
-    payload: Schema.fromJsonString(Schema.Struct({ reportPath: TrimmedNonEmptyString })),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("thread.outcome-recorded"),
+    type: Schema.Literal(type),
     eventId: EventId,
     at: IsoDateTime,
-    payload: Schema.fromJsonString(
-      Schema.Struct(Struct.omit(WorkOutcomeRecord.fields, ["eventId", "at"])),
-    ),
+    payload: Schema.fromJsonString(Schema.Struct(payload)),
+  });
+
+/** The event-log rows `history` folds. V1 rows carry extra payload fields and V1 reasons. */
+const HistoryEventRow = Schema.Union([
+  historyRow("thread.report-set", { reportPath: TrimmedNonEmptyString }),
+  historyRow("thread.outcome-recorded", Struct.omit(WorkOutcomeRecord.fields, ["eventId", "at"])),
+  historyRow("thread.attention-raised", { reason: TrimmedNonEmptyString }),
+  historyRow("thread.attention-cleared", { reason: Schema.optional(TrimmedNonEmptyString) }),
+  // V1's route-taken had no kind: every V1 route was a loop.
+  historyRow("thread.route-taken", {
+    to: ThreadId,
+    round: NonNegativeInt,
+    kind: Schema.optional(LoomRouteKind),
   }),
+  historyRow("thread.gate-rework-accepted", { sourceThreadId: ThreadId, round: NonNegativeInt }),
+  historyRow("thread.outcome-set", { outcome: Schema.NullOr(LoomOutcome) }),
+  // V1's lane axis: a yield was the `yielded` lane, done/cancelled were lanes.
+  historyRow("thread.plan-lane-set", { planLane: Schema.String }),
 ]);
+const decodeHistoryRow = Schema.decodeUnknownOption(HistoryEventRow);
+const HISTORY_EVENT_TYPES = HistoryEventRow.members.map((member) => member.fields.type.literal);
+
+/**
+ * The predicate `loom_turn_items_tool_calls_idx` (migration 1053) is partial on,
+ * as literal SQL: SQLite uses a partial index only for the identical term.
+ */
+const TOOL_CALL_ITEM_PREDICATE =
+  "type IN ('command_execution', 'file_change', 'file_search', 'web_search', 'dynamic_tool')";
+
+const ThreadStatsRow = Schema.Struct({
+  threadId: ThreadId,
+  toolCalls: NonNegativeInt,
+  contextUsage: Schema.NullOr(Schema.fromJsonString(LoomContextUsage)),
+});
 
 const SHELL_OMITTED = [
   "notifySendLog",
@@ -505,6 +540,30 @@ const make = Effect.gen(function* () {
         WHERE rn = 1
         ORDER BY "senderThreadId" ASC, "lastMessageAt" DESC`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PeerMessageSummaryRow))),
+    );
+
+  // The card's tool-call count: V1's imported count plus V2's tool items
+  // (index-only); and the context window: the active provider thread's, else
+  // V1's imported one (both migration 1053).
+  const threadStats = (threadIds: ReadonlyArray<ThreadId>) =>
+    sql`SELECT t.thread_id AS "threadId",
+          COALESCE(m.tool_calls, 0) + (SELECT COUNT(*) FROM orchestration_v2_projection_turn_items i
+            WHERE i.thread_id = t.thread_id AND ${sql.literal(TOOL_CALL_ITEM_PREDICATE)}
+          ) AS "toolCalls",
+          COALESCE(
+            (SELECT json_extract(p.payload_json, '$.contextUsage')
+              FROM orchestration_v2_projection_provider_threads p
+              WHERE p.provider_thread_id = t.active_provider_thread_id),
+            CASE WHEN m.used_tokens IS NULL THEN NULL
+              WHEN m.max_tokens > 0
+                THEN json_object('usedTokens', m.used_tokens, 'maxTokens', m.max_tokens)
+              ELSE json_object('usedTokens', m.used_tokens) END
+          ) AS "contextUsage"
+        FROM orchestration_v2_projection_threads t
+        LEFT JOIN loom_thread_imported_metrics m ON m.thread_id = t.thread_id
+        WHERE t.thread_id IN ${sql.in(threadIds)}`.pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ThreadStatsRow))),
+      Effect.map((rows) => new Map(rows.map((row) => [row.threadId, row]))),
     );
 
   const service: LoomStoreV2Shape = {
@@ -669,6 +728,7 @@ const make = Effect.gen(function* () {
           yield* peerMessageSummaries(rowIds),
           (row) => row.senderThreadId,
         );
+        const stats = yield* threadStats(rowIds);
         return new Map(
           rows.map(
             (row) =>
@@ -682,33 +742,74 @@ const make = Effect.gen(function* () {
                   peerMessages: (peerMessages.get(row.threadId) ?? []).map((summary) =>
                     Struct.omit(summary, ["senderThreadId"]),
                   ),
+                  toolCalls: stats.get(row.threadId)?.toolCalls ?? 0,
+                  contextUsage: stats.get(row.threadId)?.contextUsage ?? null,
                 },
               ] as const,
           ),
         );
       }).pipe(run("shellFields")),
-    outcomeHistory: (threadId) =>
+    history: (threadId) =>
       sql`SELECT event_id AS "eventId", event_type AS "type", occurred_at AS "at",
             payload_json AS "payload"
           FROM orchestration_events
           WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
-            AND event_type IN ('thread.report-set', 'thread.outcome-recorded')
+            AND event_type IN ${sql.in(HISTORY_EVENT_TYPES)}
           ORDER BY sequence`.pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(OutcomeEventRow))),
         Effect.map((rows) => {
           // A submit's `report-set` precedes its `outcome-recorded`: carry it onto that outcome.
           let reportPath: string | null = null;
-          return rows.flatMap((row) => {
-            if (row.type === "thread.report-set") {
-              reportPath = row.payload.reportPath;
-              return [];
+          let lane: string | null = null;
+          // An undecodable (foreign V1) row is skipped rather than failing the timeline.
+          return rows.flatMap((raw): ReadonlyArray<LoomThreadHistoryEntry> => {
+            const row = Option.getOrNull(decodeHistoryRow(raw));
+            if (row === null) return [];
+            const event = { eventId: row.eventId, at: row.at };
+            switch (row.type) {
+              case "thread.report-set":
+                reportPath = row.payload.reportPath;
+                return [];
+              case "thread.outcome-recorded": {
+                const outcome = { type: "outcome" as const, ...row.payload, ...event, reportPath };
+                reportPath = null;
+                return [outcome];
+              }
+              case "thread.attention-raised":
+                return [{ type: "attention-raised", ...event, reason: row.payload.reason }];
+              case "thread.attention-cleared":
+                return [
+                  { type: "attention-cleared", ...event, reason: row.payload.reason ?? null },
+                ];
+              case "thread.route-taken":
+                return [
+                  {
+                    type: "route-taken",
+                    ...event,
+                    ...row.payload,
+                    kind: row.payload.kind ?? "loop",
+                  },
+                ];
+              case "thread.gate-rework-accepted":
+                return [{ type: "rework-accepted", ...event, ...row.payload }];
+              case "thread.outcome-set":
+                return [{ type: "outcome-set", ...event, outcome: row.payload.outcome }];
+              case "thread.plan-lane-set": {
+                const previous = lane;
+                lane = row.payload.planLane;
+                if (lane === "yielded")
+                  return [{ type: "attention-raised", ...event, reason: "awaiting_orchestrator" }];
+                if (lane === "done" || lane === "cancelled")
+                  return [{ type: "outcome-set", ...event, outcome: lane }];
+                if (previous === "yielded")
+                  return [{ type: "attention-cleared", ...event, reason: "awaiting_orchestrator" }];
+                if (previous === "done" || previous === "cancelled")
+                  return [{ type: "outcome-set", ...event, outcome: null }];
+                return [];
+              }
             }
-            const outcome = { ...row.payload, eventId: row.eventId, at: row.at, reportPath };
-            reportPath = null;
-            return [outcome];
           });
         }),
-        run("outcomeHistory"),
+        run("history"),
       ),
     consults: {
       listByAsker: (askerThreadId) =>

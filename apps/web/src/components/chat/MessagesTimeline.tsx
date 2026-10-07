@@ -296,6 +296,7 @@ import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
+import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -813,6 +814,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     useMemo(() => insertLoomTimelineRows(rawRows, loomRows), [rawRows, loomRows]), // loom: 3d-3
     listIdentityKey,
   );
+  // loom: W3 — "show me where this happened" lands on its row (loom/conversationJump.ts).
+  const conversationJumpPending = useConversationJump({
+    rows,
+    entries: timelineEntries,
+    listRef,
+    routeThreadKey: listIdentityKey,
+    history: historyControls,
+    onExpandRun: expandCitedRun,
+    onExpandWorkGroup: onToggleWorkGroup,
+    onManualNavigation,
+  });
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -830,7 +842,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!restoringThreadPosition || rows.length === 0) return;
     const list = listRef.current;
     if (!list) return;
-    if (citationRequest !== null) {
+    if (citationRequest !== null || conversationJumpPending) {
+      // loom: W3 — a pending jump owns the scroll position
       setPositionedThreadKey(listIdentityKey);
       return;
     }
@@ -932,6 +945,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [
     citationRequest,
+    conversationJumpPending, // loom: W3
     cancelPositionRestoreRef,
     listIdentityKey,
     listRef,
