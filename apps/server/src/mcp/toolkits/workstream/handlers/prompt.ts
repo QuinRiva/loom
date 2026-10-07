@@ -6,7 +6,8 @@
  * hold when the turn starts. Delivery is Loom's steered tier, as for every
  * control message: an idle child starts a turn; a busy one is steered only once
  * its run has a running provider turn on a live session, and otherwise queued
- * as its next turn (never upstream's `deliveryIntent: "auto"`, which picks a
+ * — the dispatcher promotes it into that turn once the turn is up (DL-662), or
+ * it starts the next one (never upstream's `deliveryIntent: "auto"`, which picks a
  * steer for a run whose turn has not started and is then rejected — DL-660).
  * The result says which of the three happened.
  *
@@ -128,7 +129,7 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
     runs.length === 0
       ? "steered into its running turn"
       : runs.every((event) => event.payload.status === "queued")
-        ? "queued: its current run cannot take a steer yet, so this is its next turn"
+        ? "queued: its run cannot take a steer yet; it is steered in once its turn is up, else it starts the next turn"
         : row.kickoffAt === null
           ? "delivered with its kickoff brief as its first turn"
           : "starting its next turn"
