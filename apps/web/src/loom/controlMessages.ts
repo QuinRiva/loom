@@ -18,6 +18,7 @@ import type {
   LoomControlItemKind,
   LoomControlNoticeKind,
   LoomMessageFields,
+  LoomMessageOrigin,
 } from "@t3tools/contracts";
 
 export type ControlChannel = "inter-thread" | "control-plane";
@@ -25,7 +26,7 @@ export type ControlChannel = "inter-thread" | "control-plane";
 /** Tailwind classes per channel (upstream theme tokens only). */
 export const CHANNEL_CLASSES: Record<
   ControlChannel,
-  { card: string; hover: string; divider: string; kicker: string; chip: string }
+  { card: string; hover: string; divider: string; kicker: string; chip: string; bubble: string }
 > = {
   "inter-thread": {
     card: "border-info/25 bg-info/[0.06]",
@@ -33,6 +34,7 @@ export const CHANNEL_CLASSES: Record<
     divider: "border-info/15",
     kicker: "text-info-foreground",
     chip: "border-info/30 bg-info/10 text-info-foreground",
+    bubble: "border border-info/30 bg-info/10 text-foreground",
   },
   "control-plane": {
     card: "border-success/25 bg-success/[0.06]",
@@ -40,8 +42,30 @@ export const CHANNEL_CLASSES: Record<
     divider: "border-success/15",
     kicker: "text-success-foreground",
     chip: "border-success/30 bg-success/10 text-success-foreground",
+    bubble: "border border-success/30 bg-success/10 text-foreground",
   },
 };
+
+export interface ControlBubble {
+  readonly channel: ControlChannel;
+  /** Who is talking: the bubble's kicker and accessible author, in place of "You". */
+  readonly label: string;
+}
+
+const BUBBLES: Record<LoomMessageOrigin, ControlBubble> = {
+  kickoff: { channel: "inter-thread", label: "Kickoff brief" },
+  orchestrator: { channel: "inter-thread", label: "Orchestrator" },
+  notify: { channel: "inter-thread", label: "Thread notification" },
+  control_notice: { channel: "control-plane", label: "Control plane" },
+};
+
+/**
+ * A Loom message that stays a bubble (a kickoff, a steer, a short notice) is
+ * another thread or the control plane talking, never the human: it takes its
+ * channel's accent and label, as in V1. Null for a human's message.
+ */
+export const controlBubble = (loom: LoomMessageFields | null | undefined): ControlBubble | null =>
+  loom?.origin === undefined ? null : BUBBLES[loom.origin];
 
 const NOTICE_LABELS: Record<LoomControlNoticeKind, string> = {
   "gate-rework": "Rework round",

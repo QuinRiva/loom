@@ -2,7 +2,8 @@
  * loom: the user-row switch for control-plane arrivals (3d-3). A user message
  * whose Loom fields make it a control arrival (`controlCardModel`) renders as
  * a {@link ControlDigestCardView}; every other user message renders upstream's
- * row (`fallback`) untouched.
+ * row (`fallback`), told its {@link ControlBubble} when another thread or the
+ * control plane wrote it.
  *
  * It also resolves each item's sender: the dispatcher stamps a generic verdict
  * as the item title and carries identity only as `threadId`, so without the
@@ -18,7 +19,7 @@ import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { ControlDigestCardView } from "./ControlDigestCard";
-import { controlCardModel } from "./controlMessages";
+import { controlBubble, controlCardModel, type ControlBubble } from "./controlMessages";
 import { useLoomMessageFields } from "./loomMessageFields";
 
 export const ControlDigestRow = memo(function ControlDigestRow({
@@ -28,12 +29,16 @@ export const ControlDigestRow = memo(function ControlDigestRow({
 }: {
   messageId: MessageId;
   text: string;
-  fallback: ReactNode;
+  fallback: (bubble: ControlBubble | null) => ReactNode;
 }) {
   const ctx = use(TimelineRowCtx);
   const loom = useLoomMessageFields(ctx.displayThreadKey ?? ctx.routeThreadKey, messageId);
   const model = useMemo(() => controlCardModel(loom, text), [loom, text]);
-  return model === null ? fallback : <ConnectedCard model={model} text={text} />;
+  return model === null ? (
+    fallback(controlBubble(loom))
+  ) : (
+    <ConnectedCard model={model} text={text} />
+  );
 });
 
 function ConnectedCard({
