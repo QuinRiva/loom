@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import type { ProjectionRuntimeRecoveryState } from "./ProjectionStore.ts";
 
 import * as ServerSettings from "../serverSettings.ts";
+import { withStashedSteer } from "../loom/steering/pendingSteering.ts"; // loom: DL-690
 import { isNativeMaintenanceCommand } from "./Orchestrator.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import {
@@ -158,12 +159,15 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       commandId: CommandId.make(`command:restart-continuation:${input.sourceRunId}`),
       threadId: input.threadId,
       messageId,
-      text:
+      // loom: a steer the cut turn's pi accepted but never delivered rides this prompt (DL-690)
+      text: yield* withStashedSteer(
+        input.threadId,
         noteText === undefined
           ? CONTINUE_PROMPT
           : note.settled
             ? noteText
             : `${noteText}\n\n${CONTINUE_PROMPT}`,
+      ),
       attachments: [],
       modelSelection: source.modelSelection,
       dispatchMode: { type: "start_immediately" },

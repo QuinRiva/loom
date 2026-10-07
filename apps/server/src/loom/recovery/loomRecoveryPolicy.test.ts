@@ -6,11 +6,11 @@
  * held (and rule 0 makes its continuation an accepted no-op), and cancels a
  * dead thread's queued runs — on the real orchestrator and recovery service.
  *
- * Seam 20 (Phase 3 3b-4, smoke step 17): `loomStartupRecovery` redelivers a
- * continued thread's stashed steer behind its restart continuation, exactly once,
- * and leaves the stash of a flagged, done or cancelled thread on disk; the
- * dispatcher's redelivery rail then carries a flagged thread's stash into the next
- * human-started turn (DL-387).
+ * Seam 20 (Phase 3 3b-4, smoke step 17; DL-690): a continued thread's stashed steer
+ * rides its restart continuation exactly once — first, and past a human-held queue —
+ * or, with no continuation, starts as a control message; the stash of a flagged, done
+ * or cancelled thread stays on disk, and the dispatcher's redelivery rail then carries
+ * a flagged thread's stash into the next human-started turn (DL-387).
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -29,12 +29,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ServerConfig from "../../config.ts";
 import { ProviderRuntimeRecoveryService } from "../../orchestration-v2/ProviderRuntimeRecoveryService.ts";
+import { OrchestrationEffectWorkerV2 } from "../../orchestration-v2/EffectWorker.ts";
 import { ProviderSessionManagerV2 } from "../../orchestration-v2/ProviderSessionManager.ts";
 import { continueRestartedRun } from "../../orchestration-v2/RestartContinuation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -56,6 +56,7 @@ import {
   WorkstreamDispatcherLive,
 } from "../orchestration/dispatcher/WorkstreamDispatcher.ts";
 import * as PendingSteering from "../steering/pendingSteering.ts";
+import { LoomProviderHealthLive } from "../serverLayers.ts";
 import {
   loomStartupRecovery,
   redeliverStashedSteers,
@@ -195,22 +196,15 @@ it.layer(LoomOrchestratorTestLayer)("Loom restart recovery", (it) => {
 
 const StashTestLayer = WorkstreamDispatcherLive.pipe(
   Layer.provideMerge(LoomOrchestratorTestLayer),
+  // The live adapter hooks, whose stash read upstream's restart continuation makes (DL-690).
+  Layer.provideMerge(LoomProviderHealthLive),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-recovery-" })),
   Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provideMerge(NodeServices.layer),
 );
 
-const encodeStash = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
-
-/** Writes a stash file exactly as 3c's adapter hunk will: one JSON string. */
-const stash = (threadId: ThreadId, text: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const dir = path.join((yield* ServerConfig.ServerConfig).stateDir, "pending-steering");
-    yield* fs.makeDirectory(dir, { recursive: true });
-    yield* fs.writeFileString(path.join(dir, `${threadId}.json`), yield* encodeStash(text));
-  });
+/** What the adapter mirrored when the restart killed pi: one undelivered steer. */
+const stash = (threadId: ThreadId, text: string) => PendingSteering.write(threadId, [text]);
 const stashed = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -220,11 +214,10 @@ const stashed = (threadId: ThreadId) =>
 
 it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it) => {
   it.effect(
-    "a continued thread's steer lands behind its continuation once; flagged threads keep it",
+    "a continued thread's steer rides its continuation once, past a human-held queue; flagged threads keep it",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const receipts = yield* CommandReceiptStoreV2;
         const root = ThreadId.make("stash-root");
         yield* seedThread({ threadId: root });
         const child = Effect.fn("test.stashChild")(function* (key: string) {
@@ -238,9 +231,11 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             `message:${steerRedeliverCommandId(threadId, steerHash(steerText(threadId)))}`,
           );
 
-        // Live, mid-turn on a real session: upstream will continue it.
+        // Live, mid-turn on a real session (upstream will continue it), and a human queued a
+        // follow-up behind the turn: the restart holds it.
         const live = yield* child("live");
         yield* seedRunningRun({ threadId: live, live: true });
+        yield* queueBehind(live, "human");
         // Owed a human.
         const guided = yield* child("guided");
         yield* dispatch({
@@ -276,50 +271,113 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           yield* stash(threadId, steerText(threadId));
         }
 
+        const continuationOf = (threadId: ThreadId) =>
+          Effect.map(orchestrator.getThreadProjection(threadId), (projection) => {
+            const message = projection.messages.find(
+              (candidate) =>
+                candidate.id === `message:restart-continuation:${seededRunIds(threadId).runId}`,
+            )!;
+            return {
+              projection,
+              message,
+              run: projection.runs.find((run) => run.userMessageId === message.id)!,
+            };
+          });
         yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        // The effect worker reaches the continuation effect before Loom's startup pass: its
+        // continuation already carries the steer.
+        yield* (yield* OrchestrationEffectWorkerV2).drain();
+        assert.include((yield* continuationOf(live)).message.text, steerText(live));
         yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
 
-        // The live thread: upstream's continuation first, then the steer behind it.
-        const projection = yield* orchestrator.getThreadProjection(live);
-        const continuation = projection.messages.find(
-          (message) => message.id === `message:restart-continuation:${seededRunIds(live).runId}`,
+        // The live thread: the continuation carried the steer; nothing waits behind the human.
+        const { projection, message, run } = yield* continuationOf(live);
+        assert.include(message.text, "Continue where you left off.");
+        assert.include(message.text, "never reached it");
+        assert.include(message.text, steerText(live));
+        assert.notEqual(run.status, "queued");
+        assert.isFalse(
+          projection.messages.some((candidate) => candidate.id === redeliveryId(live)),
         );
-        assert.isDefined(continuation);
-        const redelivered = projection.messages.filter(
-          (message) => message.id === redeliveryId(live),
-        );
-        assert.lengthOf(redelivered, 1);
-        assert.deepEqual(redelivered[0]!.loom, { origin: "control_notice", humanAuthored: false });
-        assert.include(redelivered[0]!.text, steerText(live));
-        assert.include(redelivered[0]!.text, "never reached it");
-        const runOf = (messageId: string) =>
-          projection.runs.find((run) => run.userMessageId === messageId)!;
-        assert.isAbove(runOf(redelivered[0]!.id).ordinal, runOf(continuation!.id).ordinal);
+        const humanHeld = projection.runs.filter((candidate) => candidate.status === "queued");
+        assert.isTrue(humanHeld.length === 1 && humanHeld[0]!.queueHeld === true);
         assert.isFalse(yield* stashed(live));
 
         // Flagged, done and cancelled threads: nothing sent, the stash stays for a human's turn.
         for (const threadId of [guided, done, cancelled]) {
           const messages = (yield* orchestrator.getThreadProjection(threadId)).messages;
-          assert.isFalse(messages.some((message) => message.id === redeliveryId(threadId)));
+          assert.isFalse(
+            messages.some(
+              (candidate) =>
+                candidate.id === redeliveryId(threadId) || candidate.text.includes("changelog"),
+            ),
+          );
           assert.isTrue(yield* stashed(threadId));
         }
         const doneQueued = (yield* orchestrator.getThreadProjection(done)).runs.filter(
-          (run) => run.status === "queued",
+          (candidate) => candidate.status === "queued",
         );
         assert.isTrue(doneQueued.length === 1 && doneQueued[0]!.queueHeld === true);
 
-        // The same stash again (a crash before the clear) hits the receipt: still one message.
+        // The same stash again (a crash before the clear): the continuation already carried it.
         yield* stash(live, steerText(live));
         yield* redeliverStashedSteers.pipe(Effect.provide(ServerSettings.layerTest()));
-        const again = (yield* orchestrator.getThreadProjection(live)).messages.filter(
-          (message) => message.id === redeliveryId(live),
+        const again = yield* continuationOf(live);
+        assert.equal(again.message.text, message.text);
+        assert.isFalse(
+          again.projection.messages.some((candidate) => candidate.id === redeliveryId(live)),
+        );
+        assert.isFalse(yield* stashed(live));
+      }),
+  );
+
+  it.effect(
+    "with no continuation, a stashed steer starts at once as a control message, past a human-held queue",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const receipts = yield* CommandReceiptStoreV2;
+        const root = ThreadId.make("bare-root");
+        const child = ThreadId.make("bare-child");
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: child, graphKey: "bare" });
+        // No live session at the restart, so upstream has no continuation for it.
+        yield* seedRunningRun({ threadId: child });
+        yield* queueBehind(child, "human");
+        const steer = "hello from notifier";
+        yield* stash(child, steer);
+        const redeliveryCommand = CommandId.make(steerRedeliverCommandId(child, steerHash(steer)));
+
+        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        yield* (yield* OrchestrationEffectWorkerV2).drain();
+        yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+
+        const projection = yield* orchestrator.getThreadProjection(child);
+        const redelivered = projection.messages.filter(
+          (message) => message.id === `message:${redeliveryCommand}`,
+        );
+        assert.lengthOf(redelivered, 1);
+        assert.deepEqual(redelivered[0]!.loom, { origin: "control_notice", humanAuthored: false });
+        assert.include(redelivered[0]!.text, steer);
+        const redeliveryRun = projection.runs.find(
+          (run) => run.userMessageId === redelivered[0]!.id,
+        )!;
+        const human = projection.runs.find((run) => run.status === "queued")!;
+        assert.notEqual(redeliveryRun.status, "queued");
+        assert.isTrue(human.queueHeld);
+        assert.isFalse(yield* stashed(child));
+
+        // A crash before the clear hits the receipt: still one message.
+        yield* stash(child, steer);
+        yield* redeliverStashedSteers.pipe(Effect.provide(ServerSettings.layerTest()));
+        const again = (yield* orchestrator.getThreadProjection(child)).messages.filter(
+          (message) => message.id === `message:${redeliveryCommand}`,
         );
         assert.lengthOf(again, 1);
-        assert.isFalse(yield* stashed(live));
-        const receipt = yield* receipts.getByCommandId(
-          CommandId.make(steerRedeliverCommandId(live, steerHash(steerText(live)))),
+        assert.equal(
+          Option.getOrThrow(yield* receipts.getByCommandId(redeliveryCommand)).status,
+          "accepted",
         );
-        assert.equal(Option.getOrThrow(receipt).status, "accepted");
       }),
   );
 
@@ -385,9 +443,9 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           } as OrchestrationV2DomainEvent,
         ]);
 
-        // Pi accepts a fresh steer into the running turn: the adapter appends it to the stash.
+        // Pi accepts a fresh steer into the running turn: the adapter mirrors pi's queue.
         const live = "Also bump the version.";
-        yield* PendingSteering.append(flagged, live);
+        yield* PendingSteering.write(flagged, [live]);
 
         yield* dispatcher.runPass;
         const [redelivered, ...more] = yield* redeliveries;
@@ -404,7 +462,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
   );
 
   it.effect(
-    "a left stash still reaches its human-started turn when that turn ends (and the adapter clears the file) before a pass sees it",
+    "a left stash still reaches its human-started turn when that turn ends (and pi's empty queue overwrites the file) before a pass sees it",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -443,7 +501,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           createdBy: "user",
           creationSource: "web",
         });
-        // The human's turn runs and ends before any pass: its finalizeTurn clears the stash file.
+        // The human's turn runs and ends before any pass: pi's empty queue removes the stash file.
         const humanRun = (yield* orchestrator.getThreadProjection(flagged)).runs.find(
           (run) => run.userMessageId === "message:race-human",
         )!;
@@ -458,7 +516,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             payload: { ...humanRun, status: "running", startedAt: yield* DateTime.now },
           } as OrchestrationV2DomainEvent,
         ]);
-        yield* PendingSteering.clear(flagged);
+        yield* PendingSteering.write(flagged, []);
         yield* completeOpenRuns(flagged);
 
         const dispatcher = yield* WorkstreamDispatcher;
@@ -504,9 +562,9 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             payload: { ...run, status: "running", startedAt: yield* DateTime.now },
           } as OrchestrationV2DomainEvent,
         ]);
-        // What 3c's adapter writes when pi acks a steer into this live turn.
+        // What the adapter mirrors when pi queues a steer into this live turn.
         const accepted = "Use the new tokenizer.";
-        yield* PendingSteering.append(child, accepted);
+        yield* PendingSteering.write(child, [accepted]);
 
         yield* (yield* WorkstreamDispatcher).runPass;
         const messages = (yield* orchestrator.getThreadProjection(child)).messages;

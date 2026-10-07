@@ -111,10 +111,6 @@ const makeFakePi = Effect.gen(function* () {
   const spawns: Array<ReadonlyArray<string>> = [];
   // The session file's bytes at the moment each switch_session frame reached pi.
   const switchedFiles: Array<string | null> = [];
-  // While set, pi refuses steer prompts (the id-less `prompt` response with success false).
-  // After answering the n-th steer the fake streams a usage frame of n tokens, so a test that
-  // sees that frame's provider_turn.updated knows the adapter has processed the answer.
-  const steers = { reject: false, answered: 0 };
   const emit = (record: PiRpcRecord) =>
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
@@ -138,22 +134,13 @@ const makeFakePi = Effect.gen(function* () {
                   NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
                 );
               }
-              const steer = record["streamingBehavior"] === "steer";
-              const refused = steer && steers.reject;
               return emit({
                 type: "response",
                 id: record["id"],
                 command: String(record["type"]),
-                success: !refused,
-                ...(refused ? { error: "steer refused" } : {}),
+                success: true,
                 data: RPC_DATA[String(record["type"])],
-              }).pipe(
-                Effect.andThen(
-                  steer
-                    ? emit({ type: "message_update", usage: { totalTokens: ++steers.answered } })
-                    : Effect.void,
-                ),
-              );
+              });
             },
             { discard: true },
           ),
@@ -166,7 +153,7 @@ const makeFakePi = Effect.gen(function* () {
       });
     }),
   );
-  return { spawner, emit, requests, spawns, switchedFiles, steers };
+  return { spawner, emit, requests, spawns, switchedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -612,10 +599,10 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
   );
 });
 
-// ── 3c-3: accepted steers are stashed until their turn ends (seam 20) ────────
+// ── 3c-3: pi's undelivered steers are mirrored to the stash (seam 20, DL-691) ───
 
 describe("PiAdapterV2 (loom) — steer stash", () => {
-  it.effect("stashes each steer pi accepts, in order, and clears the stash at turn end", () =>
+  it.effect("mirrors pi's steering queue, and a turn ending does not clear it", () =>
     Effect.gen(function* () {
       const { fake, runtime, events } = yield* openRuntime(undefined, yield* liveHooks(false));
       const providerThread = yield* runtime.ensureThread({
@@ -624,13 +611,6 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
         runtimePolicy,
       });
       const runId = RunId.make(`run:${THREAD_ID}:steer`);
-      const message = (text: string) => ({
-        messageId: `message:${THREAD_ID}:${text}` as never,
-        text,
-        attachments: [],
-        createdBy: "user" as const,
-        creationSource: "web" as const,
-      });
       yield* runtime.startTurn({
         appThread: yield* appThread,
         threadId: THREAD_ID,
@@ -640,47 +620,44 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
         attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
         rootNodeId: NodeId.make(`node:${runId}:root`),
         providerThread,
-        message: message("Hello pi"),
+        message: {
+          messageId: `message:${THREAD_ID}:hello` as never,
+          text: "Hello pi",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+        },
         modelSelection,
         runtimePolicy,
       });
       yield* fake.emit({ type: "agent_start" });
-      let providerTurnId: ProviderTurnId | undefined;
-      while (providerTurnId === undefined) {
-        const event = yield* Queue.take(events);
-        if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
-      }
-      // pi answers a steer prompt on its event stream; the fake's usage frame right after the
-      // answer is processed after it, so seeing that frame means the stash write has happened.
-      const steer = Effect.fnUntraced(function* (text: string) {
-        const answered = fake.steers.answered + 1;
-        yield* runtime.steerTurn({
-          threadId: THREAD_ID,
-          runId,
-          providerThread,
-          providerTurnId: providerTurnId!,
-          message: message(text),
-        });
+      // pi's queue as it reports it; the usage frame after it is processed after it, so seeing
+      // that frame's provider_turn.updated means the stash write has happened.
+      let frames = 0;
+      const queue = Effect.fnUntraced(function* (steering: ReadonlyArray<string>) {
+        yield* fake.emit({ type: "queue_update", steering, followUp: [] });
+        yield* fake.emit({ type: "message_update", usage: { totalTokens: ++frames } });
         while (true) {
           const event = yield* Queue.take(events);
           if (
             event.type === "provider_turn.updated" &&
-            event.providerTurn.tokenUsage?.usedTokens === answered
+            event.providerTurn.tokenUsage?.usedTokens === frames
           )
             break;
         }
         return yield* PendingSteering.read(THREAD_ID);
       });
 
-      assert.equal(yield* steer("first steer"), "first steer");
-      fake.steers.reject = true;
-      assert.equal(yield* steer("refused steer"), "first steer");
-      fake.steers.reject = false;
-      assert.equal(yield* steer("second steer"), "first steer\n\nsecond steer");
+      assert.equal(yield* queue(["first steer"]), "first steer");
+      assert.equal(yield* queue(["first steer", "second steer"]), "first steer\n\nsecond steer");
+      // pi injects the first into the conversation: consumed, so never redelivered.
+      assert.equal(yield* queue(["second steer"]), "second steer");
 
+      // The turn ends with the second still undelivered (a stop or restart cut it, DL-561):
+      // the stash keeps it for the restart to deliver.
       yield* fake.emit({ type: "agent_settled" });
       while ((yield* Queue.take(events)).type !== "turn.terminal");
-      assert.isNull(yield* PendingSteering.read(THREAD_ID));
+      assert.equal(yield* PendingSteering.read(THREAD_ID), "second steer");
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });
