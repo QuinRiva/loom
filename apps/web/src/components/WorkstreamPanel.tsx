@@ -163,7 +163,7 @@ function WorkstreamCard({
         <Badge size="sm" variant="outline" className="max-w-36">
           <span className="truncate font-mono">{getRoleLabel(node)}</span>
         </Badge>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-1.5 font-mono text-2xs text-muted-foreground">
           <WorkstreamModelPill selection={node.modelSelection} />
           <WorkstreamSpendSlot threadId={node.id} subtree={subtree} />
           {context ? (
