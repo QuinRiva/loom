@@ -59,3 +59,9 @@ deployed.
   `workstream_prompt` pointing at the stored brief
   (`userdata/workstream-briefs/<id>.md`) starts the turn. This is production's V1 control
   plane, not PR #333's code; recorded as a task to re-check after cut-over.
+- **DL-671 — A new root's emergent goal is derived when its first message arrives, as in V1**
+  (`git show main:` `ProviderCommandReactor.ts`), not after its first run completes. Goal
+  tools called before the goal exists create it through the same per-thread-locked
+  `EmergentGoals` service (at most once) instead of refusing, so an orchestrator can lay out
+  tasks and anchor children in its first turn. Landed with DL-670 in `dd1ca303ab`
+  (gate clean).
