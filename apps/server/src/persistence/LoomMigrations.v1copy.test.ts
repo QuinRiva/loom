@@ -71,7 +71,7 @@ it.effect("migrates a copied V1 database to 1051 with the renamed tables' rows i
         { id: 1049, name: "LoomUsageLedger" },
         { id: 1050, name: "LoomThreadReroute" },
         { id: 1051, name: "LoomLegacyImports" },
-        { id: 1068, name: "LoomToolCallIndex" },
+        { id: 1068, name: "LoomCardMetrics" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;

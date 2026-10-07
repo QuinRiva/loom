@@ -96,8 +96,19 @@ export function WorkstreamBoard({
 }: { readonly threadId: ThreadId; readonly nodes: WorkstreamNodeIndex } & WorkstreamBoardActions) {
   const members = boardMembersOf(threadId, nodes);
   const groups = groupByColumn(members);
-  // Archived descendants count too: their spend is the workstream's.
-  const all = [...nodes.values()];
+  // Each card's subtree (archived descendants too: their spend is theirs), walked
+  // from one parent → children index per render, not one index per card.
+  const childrenOf = new Map<ThreadId | null, WorkstreamNode[]>();
+  for (const node of nodes.values()) {
+    const siblings = childrenOf.get(node.parentThreadId);
+    if (siblings) siblings.push(node);
+    else childrenOf.set(node.parentThreadId, [node]);
+  }
+  const subtreeIds = (id: ThreadId, seen = new Set<ThreadId>()): ThreadId[] => {
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [id, ...(childrenOf.get(id) ?? []).flatMap((child) => subtreeIds(child.id, seen))];
+  };
   return (
     <div className="flex flex-col gap-4">
       {COLUMN_ORDER.map((column) => (
@@ -120,7 +131,7 @@ export function WorkstreamBoard({
                   sibling.id !== node.id && sibling.parentThreadId === node.parentThreadId,
               )}
               nodes={nodes}
-              subtree={subtreeOf(node.id, all).map((member) => member.id)}
+              subtree={subtreeIds(node.id)}
               {...actions}
             />
           ))}

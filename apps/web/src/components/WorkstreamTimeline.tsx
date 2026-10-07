@@ -22,9 +22,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
  * The inspected thread's event history (`loom.threadHistory`): outcomes with
  * their round's report, flags (yield and resume included), gate routes and
  * plan outcomes, as V1's lifecycle drawer showed. Lives in the panel, not the
- * drawer; fetched when the thread or its sidecar changes (`updatedAt` moves
- * with every Loom event of the thread), and null until that fetch answers (the
- * drawer then shows the sidecar's milestones). Nothing polls.
+ * drawer; refetched when the thread or its sidecar changes (`updatedAt` moves
+ * with every Loom event of the thread), keeping the last answer for the same
+ * thread meanwhile. Null until the first answer for the thread (the drawer then
+ * shows the sidecar's milestones). Nothing polls.
  */
 export function useThreadHistory(
   environmentId: EnvironmentId,
@@ -32,24 +33,23 @@ export function useThreadHistory(
 ): ReadonlyArray<LoomThreadHistoryEntry> | null {
   const load = useAtomCommand(loomCommands.threadHistory, { reportFailure: false });
   const [loaded, setLoaded] = useState<{
-    readonly key: string;
+    readonly threadId: ThreadId;
     readonly entries: ReadonlyArray<LoomThreadHistoryEntry>;
   } | null>(null);
   const threadId = node?.id;
   const updatedAt = node?.updatedAt ?? null;
-  const key = `${threadId}@${updatedAt}`;
   useEffect(() => {
     if (threadId === undefined) return;
     let cancelled = false;
     void load({ environmentId, input: { threadId } }).then((result) => {
       if (!cancelled && result._tag === "Success")
-        setLoaded({ key: `${threadId}@${updatedAt}`, entries: result.value.entries });
+        setLoaded({ threadId, entries: result.value.entries });
     });
     return () => {
       cancelled = true;
     };
   }, [environmentId, threadId, updatedAt, load]);
-  return loaded?.key === key ? loaded.entries : null;
+  return loaded !== null && loaded.threadId === threadId ? loaded.entries : null;
 }
 
 /**

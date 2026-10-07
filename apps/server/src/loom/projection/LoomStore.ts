@@ -542,18 +542,25 @@ const make = Effect.gen(function* () {
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PeerMessageSummaryRow))),
     );
 
-  // The card's tool-call count (index-only, migration 1068) and the active
-  // provider thread's context window.
+  // The card's tool-call count: V1's imported count plus V2's tool items
+  // (index-only); and the context window: the active provider thread's, else
+  // V1's imported one (both migration 1068).
   const threadStats = (threadIds: ReadonlyArray<ThreadId>) =>
     sql`SELECT t.thread_id AS "threadId",
-          (SELECT COUNT(*) FROM orchestration_v2_projection_turn_items i
+          COALESCE(m.tool_calls, 0) + (SELECT COUNT(*) FROM orchestration_v2_projection_turn_items i
             WHERE i.thread_id = t.thread_id AND ${sql.literal(TOOL_CALL_ITEM_PREDICATE)}
           ) AS "toolCalls",
-          (SELECT json_extract(p.payload_json, '$.contextUsage')
-            FROM orchestration_v2_projection_provider_threads p
-            WHERE p.provider_thread_id = t.active_provider_thread_id
+          COALESCE(
+            (SELECT json_extract(p.payload_json, '$.contextUsage')
+              FROM orchestration_v2_projection_provider_threads p
+              WHERE p.provider_thread_id = t.active_provider_thread_id),
+            CASE WHEN m.used_tokens IS NULL THEN NULL
+              WHEN m.max_tokens > 0
+                THEN json_object('usedTokens', m.used_tokens, 'maxTokens', m.max_tokens)
+              ELSE json_object('usedTokens', m.used_tokens) END
           ) AS "contextUsage"
         FROM orchestration_v2_projection_threads t
+        LEFT JOIN loom_thread_imported_metrics m ON m.thread_id = t.thread_id
         WHERE t.thread_id IN ${sql.in(threadIds)}`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ThreadStatsRow))),
       Effect.map((rows) => new Map(rows.map((row) => [row.threadId, row]))),

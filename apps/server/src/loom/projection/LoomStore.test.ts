@@ -160,6 +160,51 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
+  it.effect("shell stats add V1's imported tool count to V2's and fall back to V1's context", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LoomStore.LoomStoreV2;
+      const thread = (id: string, activeProviderThreadId: string | null) =>
+        Effect.andThen(
+          row(id),
+          sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title,
+              default_provider, runtime_mode, interaction_mode, active_provider_thread_id,
+              created_at, updated_at, payload_json)
+            VALUES (${id}, ${projectId}, ${id}, 'pi', 'full-access', 'default',
+              ${activeProviderThreadId}, ${T(0)}, ${T(0)}, '{}')`,
+        );
+      const item = (id: string, threadId: string, type: string) =>
+        sql`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, ordinal,
+            type, status, updated_at, payload_json)
+          VALUES (${id}, ${threadId}, 1, ${type}, 'completed', ${T(0)}, '{}')`;
+      // Imported and still running under V2: both counts, V2's context wins.
+      yield* thread("stats-spans", "pt-spans");
+      yield* sql`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id,
+          thread_id, provider, status, updated_at, payload_json)
+        VALUES ('pt-spans', 'stats-spans', 'pi', 'idle', ${T(0)},
+          '{"contextUsage":{"usedTokens":500,"maxTokens":1000}}')`;
+      yield* item("i-1", "stats-spans", "command_execution");
+      yield* item("i-2", "stats-spans", "assistant_message");
+      // Imported, never run under V2: V1's figures alone.
+      yield* thread("stats-v1", null);
+      yield* sql`INSERT INTO loom_thread_imported_metrics (thread_id, tool_calls, used_tokens, max_tokens)
+        VALUES ('stats-spans', 40, 9000, 1000000), ('stats-v1', 7, 250000, 1000000)`;
+      // New under V2, nothing reported yet.
+      yield* thread("stats-new", null);
+
+      const fields = yield* store.shellFields(
+        ["stats-spans", "stats-v1", "stats-new"].map((id) => ThreadId.make(id)),
+      );
+      const stats = (id: string) => {
+        const entry = fields.get(ThreadId.make(id));
+        return [entry?.toolCalls, entry?.contextUsage];
+      };
+      assert.deepEqual(stats("stats-spans"), [41, { usedTokens: 500, maxTokens: 1000 }]);
+      assert.deepEqual(stats("stats-v1"), [7, { usedTokens: 250000, maxTokens: 1000000 }]);
+      assert.deepEqual(stats("stats-new"), [0, null]);
+    }),
+  );
+
   it.effect("goal and task CRUD assembles the live tree and soft-deletes by project", () =>
     Effect.gen(function* () {
       const store = yield* LoomStore.LoomStoreV2;
