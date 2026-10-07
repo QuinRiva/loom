@@ -29,6 +29,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as TestClock from "effect/testing/TestClock";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -231,10 +232,21 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             `message:${steerRedeliverCommandId(threadId, steerHash(steerText(threadId)))}`,
           );
 
-        // Live, mid-turn on a real session (upstream will continue it), and a human queued a
-        // follow-up behind the turn: the restart holds it.
+        // Live, mid-turn on a real session (upstream will continue it). A queued message was taken
+        // out of the queue (as promote-to-steer does: a cancelled run with a higher ordinal), and
+        // a human queued a follow-up behind the turn: the restart holds it.
         const live = yield* child("live");
         yield* seedRunningRun({ threadId: live, live: true });
+        yield* queueBehind(live, "human");
+        yield* dispatch({
+          type: "queued-run.cancel",
+          commandId: CommandId.make("stash-live-unqueue"),
+          threadId: live,
+          runId: (yield* orchestrator.getThreadProjection(live)).runs.find(
+            (run) => run.status === "queued",
+          )!.id,
+        });
+        yield* TestClock.adjust("1 second"); // the restart comes later
         yield* queueBehind(live, "human");
         // Owed a human.
         const guided = yield* child("guided");
@@ -284,11 +296,9 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             };
           });
         yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
-        // The effect worker reaches the continuation effect before Loom's startup pass: its
-        // continuation already carries the steer.
-        yield* (yield* OrchestrationEffectWorkerV2).drain();
-        assert.include((yield* continuationOf(live)).message.text, steerText(live));
+        // Loom's startup pass reaches the continuation effect before the effect worker does.
         yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
+        yield* (yield* OrchestrationEffectWorkerV2).drain();
 
         // The live thread: the continuation carried the steer; nothing waits behind the human.
         const { projection, message, run } = yield* continuationOf(live);

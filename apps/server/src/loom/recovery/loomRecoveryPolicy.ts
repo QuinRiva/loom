@@ -27,6 +27,7 @@ import {
   type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
+import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -71,10 +72,12 @@ const runDueContinuation = (
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
 ) =>
   Effect.gen(function* () {
+    // Upstream's choice of the cut run (`restartContinuationRun`): by end time, not ordinal — a
+    // queued message promoted to a steer leaves a cancelled run with a higher ordinal.
     const source = projection.runs
       .filter((run) => run.status !== "queued")
       .reduce<(typeof projection.runs)[number] | undefined>(
-        (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+        (latest, run) => (latest === undefined || runRanAfter(run, latest) ? run : latest),
         undefined,
       );
     if (source === undefined) return;
@@ -160,8 +163,7 @@ export const releaseHeldQueues = Effect.gen(function* () {
  * (`withStashedSteer` in its prompt, DL-690): its effect is run here when still due, so the
  * steer is delivered first and never queues behind the continuation — where a human-held queue
  * would hold it too. With no continuation it goes out as a steered control message, which starts
- * at once on the idle thread (a thread without a sidecar gets none). The stash is then cleared
- * unless pi has mirrored a newer queue.
+ * at once on the idle thread. The stash is then cleared unless pi has mirrored a newer queue.
  * Never fails; per-thread failures log.
  */
 export const redeliverStashedSteers = Effect.gen(function* () {
@@ -188,8 +190,7 @@ export const redeliverStashedSteers = Effect.gen(function* () {
       const carried = messages.some((message) =>
         message.text.endsWith(redeliveredSteerText(steer)),
       );
-      // Threads without a sidecar keep upstream's rule: only the continuation carries a steer.
-      if (!carried && workstream !== null)
+      if (!carried)
         yield* orchestrator.dispatch(
           controlMessage({
             threadId,
