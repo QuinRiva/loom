@@ -7,6 +7,12 @@
  * `cachedTokens` = cache read + cache write; `inputTokens` is pure input (V1's
  * column meaning). A read failure is a defect: the queries carry no error.
  *
+ * `threadSpend` also counts each provider turn the ledger has no row for yet (a
+ * running turn, or one whose terminal row the reactor has still to write) at
+ * the live `tokenUsage.costUsd` the pi adapter reports mid-turn. Cost only: the
+ * live report carries no per-turn tokens. Without it a child's single long turn
+ * shows no spend until it ends.
+ *
  * @module loom/economics/LoomUsageLedger
  */
 import type { IsoDateTime, ThreadId } from "@t3tools/contracts";
@@ -56,8 +62,18 @@ export const layer = Layer.effect(
         threadIds.length === 0
           ? Effect.succeed(new Map())
           : sql<SpendRow>`
-              SELECT ${spendColumns(sql)} FROM loom_usage_ledger
-              WHERE ${sql.in("thread_id", threadIds)}
+              SELECT ${spendColumns(sql)} FROM (
+                SELECT thread_id, cost_usd, input_tokens, output_tokens, cache_read_tokens,
+                  cache_write_tokens
+                FROM loom_usage_ledger WHERE ${sql.in("thread_id", threadIds)}
+                UNION ALL
+                SELECT p.thread_id, json_extract(p.payload_json, '$.tokenUsage.costUsd'), 0, 0, 0, 0
+                FROM orchestration_v2_projection_provider_turns p
+                WHERE p.thread_id IN ${sql.in(threadIds)}
+                  AND json_extract(p.payload_json, '$.tokenUsage.costUsd') > 0
+                  AND NOT EXISTS (SELECT 1 FROM loom_usage_ledger l
+                    WHERE l.provider_turn_id = p.provider_turn_id)
+              )
               GROUP BY thread_id`.pipe(
               Effect.map(
                 (rows) => new Map(rows.map(({ threadId, ...spend }) => [threadId, spend])),

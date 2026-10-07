@@ -109,6 +109,7 @@ export function WorkstreamActiveStrip({
                   <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-3xs text-muted-foreground">
                     <WorkstreamModelPill selection={node.modelSelection} />
                     <WorkstreamSpendSlot threadId={node.id} />
+                    {node.toolCalls > 0 ? <span>⚒ {node.toolCalls}</span> : null}
                   </span>
                 </span>
               </TooltipTrigger>

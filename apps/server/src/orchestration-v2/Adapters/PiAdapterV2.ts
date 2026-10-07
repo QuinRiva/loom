@@ -681,6 +681,8 @@ export function makePiAdapterV2(
           const inputTokens = nonNegativeInteger(usage, "input");
           const cachedInputTokens = nonNegativeInteger(usage, "cacheRead");
           const outputTokens = nonNegativeInteger(usage, "output");
+          // loom: the turn's spend so far — finished messages plus this one's — so Loom's spend views see a running turn (DR-8)
+          const costUsd = turn.costUsd + (recordNumber(recordField(usage, "cost"), "total") ?? 0);
           const updatedAt = yield* DateTime.now;
           yield* emit({
             type: "provider_turn.updated",
@@ -694,6 +696,7 @@ export function makePiAdapterV2(
                 ...(inputTokens === undefined ? {} : { inputTokens }),
                 ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
                 ...(outputTokens === undefined ? {} : { outputTokens }),
+                ...(costUsd > 0 ? { costUsd } : {}), // loom: live spend
                 updatedAt: DateTime.formatIso(updatedAt),
               },
             },

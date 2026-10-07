@@ -1,6 +1,7 @@
 import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
 import type { ThreadId } from "@t3tools/contracts";
-import { forwardRef, type ReactNode } from "react";
+import { descendantsOf } from "@t3tools/shared/workstreamGraph";
+import { forwardRef, useContext, useMemo, type ReactNode } from "react";
 
 import {
   ATTENTION_BADGE_VARIANTS,
@@ -19,7 +20,9 @@ import {
   type WorkstreamNode,
   type WorkstreamNodeIndex,
 } from "../lib/workstreamPresentation";
-import { WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { formatCostUsd } from "../loom/costFormat";
+import { useThreadSpend, useTotalSpend } from "../loom/threadSpend";
+import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
 import { Badge } from "./ui/badge";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
 
@@ -62,6 +65,7 @@ export const WorkstreamQuickFacts = forwardRef<
           </span>
         </FactRow>
         <FactRow label="Activity">{node.activity ?? "idle"}</FactRow>
+        <FactRow label="Tool calls">⚒ {node.toolCalls}</FactRow>
         <FactRow label="Model">
           <WorkstreamModelPill selection={node.modelSelection} />
         </FactRow>
@@ -88,6 +92,7 @@ export const WorkstreamQuickFacts = forwardRef<
             <FactRow label="Subtree activity">
               {rollup.activity.running} running · {rollup.activity.active} active
             </FactRow>
+            <SubtreeSpendRow threadId={node.id} byId={byId} />
             <FactRow label="Subtree attention">
               {rollup.attention.highest
                 ? `${rollup.attention.count} · ${ATTENTION_LABELS[rollup.attention.highest]}`
@@ -135,6 +140,32 @@ export const WorkstreamQuickFacts = forwardRef<
     </div>
   );
 });
+
+/**
+ * The node's own spend plus every descendant's (archived included), shown once a
+ * descendant has spent anything: V1's "subtree" cost figure.
+ */
+function SubtreeSpendRow({
+  threadId,
+  byId,
+}: {
+  readonly threadId: ThreadId;
+  readonly byId: WorkstreamNodeIndex;
+}) {
+  const environmentId = useContext(WorkstreamEnvironmentContext);
+  const descendantIds = useMemo(
+    () => descendantsOf(threadId, [...byId.values()]).map((member) => member.id),
+    [threadId, byId],
+  );
+  const own = useThreadSpend(environmentId, threadId)?.costUsd ?? 0;
+  const descendants = useTotalSpend(environmentId, descendantIds);
+  const cost = descendants > 0 ? formatCostUsd(own + descendants) : null;
+  return cost === null ? null : (
+    <FactRow label="Subtree cost">
+      <span className="tabular-nums">{cost}</span>
+    </FactRow>
+  );
+}
 
 function FactRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (

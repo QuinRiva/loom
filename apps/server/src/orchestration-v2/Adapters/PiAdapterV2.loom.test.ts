@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
 // reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
-// turn's pi-priced costUsd. Phase 3c: a pi quota error ends the turn as usage_limit with a reset
+// turn's pi-priced costUsd (live frames its spend so far). Phase 3c: a pi quota error ends the turn as usage_limit with a reset
 // time that satisfies upstream's limit-recovery arm (3c-1).
 //
 // A minimal in-process `pi --mode rpc` (the same technique as PiAdapterV2.test.ts's fake, which
@@ -320,9 +320,13 @@ describe("PiAdapterV2 (loom)", () => {
         runtimePolicy,
       });
       yield* fake.emit({ type: "agent_start" });
-      for (const cost of [0.0125, 0.0075]) {
+      for (const [index, cost] of [0.0125, 0.0075].entries()) {
         yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
-        yield* fake.emit({ type: "message_update", usage: { totalTokens: 600, input: 500 } });
+        // The streaming message's cost so far: half of what it ends at.
+        yield* fake.emit({
+          type: "message_update",
+          usage: { totalTokens: 600 + index, input: 500, cost: { total: cost / 2 } },
+        });
         yield* fake.emit({
           type: "message_end",
           message: {
@@ -353,8 +357,10 @@ describe("PiAdapterV2 (loom)", () => {
       );
       const live = usages.filter((entry) => entry.status === "running");
       const terminal = usages.filter((entry) => entry.status === "completed");
-      assert.isAbove(live.length, 0);
-      assert.isTrue(live.every((entry) => entry.usage.costUsd === undefined));
+      // Live frames carry the turn's spend so far: finished messages plus the streaming one.
+      assert.lengthOf(live, 2);
+      assert.closeTo(live[0]!.usage.costUsd!, 0.00625, 1e-12);
+      assert.closeTo(live[1]!.usage.costUsd!, 0.0125 + 0.00375, 1e-12);
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
       // 3c-3: the turn's own tokens (two messages) in upstream's per-turn slot, not the
