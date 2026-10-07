@@ -9,7 +9,7 @@ import {
   selectActiveGroupKey,
   useThreadTabsStore,
 } from "./threadTabsStore";
-import { resolveThreadGroupKey } from "./threadTabGroups";
+import { isThreadGone, resolveThreadGroupKey } from "./threadTabGroups";
 
 const env = "env-1" as EnvironmentId;
 const ref = (id: string) => scopeThreadRef(env, ThreadId.make(id));
@@ -255,6 +255,14 @@ describe("threadTabsStore — per-group cap eviction", () => {
 });
 
 describe("threadTabsStore — removeThread", () => {
+  it("drops a closed thread from recentlyClosed", () => {
+    state().seedActiveTab(refA, gR);
+    state().seedActiveTab(refB, gR);
+    state().closeTab(refA);
+    state().removeThread(refA);
+    expect(state().recentlyClosed).toEqual([]);
+  });
+
   it("removes a tab and repairs the active key within its group", () => {
     state().seedActiveTab(refA, gR);
     state().seedActiveTab(refB, gR);
@@ -300,25 +308,34 @@ describe("threadTabsStore — regroupTabs (lineage arriving after placement)", (
   });
 });
 
-describe("resolveThreadGroupKey", () => {
-  const parents = new Map<string, ThreadId | null>([
-    [key("root"), null],
-    [key("thread-A"), ThreadId.make("root")],
-    [key("thread-B"), ThreadId.make("thread-A")],
-    [key("thread-Z"), ThreadId.make("root-2")], // its root's shell is not loaded
+describe("resolveThreadGroupKey / isThreadGone", () => {
+  const parents = new Map<ThreadId, ThreadId | null>([
+    [ThreadId.make("root"), null],
+    [ThreadId.make("thread-A"), ThreadId.make("root")],
+    [ThreadId.make("thread-B"), ThreadId.make("thread-A")],
+    [ThreadId.make("thread-Z"), ThreadId.make("root-2")], // its root's shell is not loaded
   ]);
+  const lineage = (live: boolean) => new Map([[env, { live, parents }]]);
 
   it("walks sub-agent edges to the workstream root", () => {
-    expect([refR, refA, refB].map((tab) => resolveThreadGroupKey(parents, tab))).toEqual([
+    expect([refR, refA, refB].map((tab) => resolveThreadGroupKey(lineage(true), tab))).toEqual([
       gR,
       gR,
       gR,
     ]);
   });
 
-  it("names an unloaded root by its id, and returns null for an unknown thread", () => {
-    expect(resolveThreadGroupKey(parents, refZ)).toBe(gS);
-    expect(resolveThreadGroupKey(parents, refC)).toBeNull();
+  it("names an unloaded root by its id, and returns null for an absent thread", () => {
+    expect(resolveThreadGroupKey(lineage(true), refZ)).toBe(gS);
+    expect(resolveThreadGroupKey(lineage(true), refC)).toBeNull();
+    expect(resolveThreadGroupKey(new Map(), refA)).toBeNull();
+  });
+
+  it("calls a thread gone only when a live snapshot lacks it", () => {
+    expect(isThreadGone(lineage(true), refC)).toBe(true);
+    expect(isThreadGone(lineage(false), refC)).toBe(false);
+    expect(isThreadGone(new Map(), refC)).toBe(false);
+    expect(isThreadGone(lineage(true), refA)).toBe(false);
   });
 });
 

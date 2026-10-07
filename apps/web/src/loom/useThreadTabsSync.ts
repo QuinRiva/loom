@@ -18,7 +18,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useCallback, useEffect, useRef } from "react";
 
 import { buildThreadRouteParams } from "../threadRoutes";
-import { useThreadGroupResolver } from "./threadTabGroups";
+import { isThreadGone, resolveThreadGroupKey, useThreadTabLineage } from "./threadTabGroups";
 import { findGroupKeyByTab, selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 
 /**
@@ -28,7 +28,9 @@ import { findGroupKeyByTab, selectActiveGroup, useThreadTabsStore } from "./thre
  * once its replay resolves. The seed appends-if-absent into the thread's group
  * and activates; it never reorders the strip and never pins/unpins the preview
  * tab. A separate effect regroups tabs whose lineage became known after they
- * were placed (a provisional seed, or the pull-9 flat strip's single bucket).
+ * were placed (a provisional seed, or the pull-9 flat strip's single bucket),
+ * and prunes tabs whose thread was archived or deleted — from any surface,
+ * agent or client — except the route's own thread while it is on screen.
  */
 export function useThreadTabsSync(
   threadRef: ScopedThreadRef | null,
@@ -36,27 +38,35 @@ export function useThreadTabsSync(
 ): void {
   const seedActiveTab = useThreadTabsStore((state) => state.seedActiveTab);
   const regroupTabs = useThreadTabsStore((state) => state.regroupTabs);
-  const resolveGroupKey = useThreadGroupResolver();
+  const lineage = useThreadTabLineage();
   const key = threadRef ? scopedThreadKey(threadRef) : null;
   const { bootstrapComplete, routeThreadExists } = options;
 
   const refRef = useRef(threadRef);
   refRef.current = threadRef;
-  // Resolver kept in a ref so the seed fires once per navigation (keyed on the
-  // thread), reading the latest lineage without re-seeding when it changes;
-  // lineage-driven regrouping is the effect below. An unknown thread (a draft)
-  // is its own group.
-  const resolveRef = useRef(resolveGroupKey);
-  resolveRef.current = resolveGroupKey;
+  // Lineage kept in a ref so the seed fires once per navigation (keyed on the
+  // thread) without re-seeding when lineage changes; regrouping is the effect
+  // below. A thread the index does not know yet is its own group.
+  const lineageRef = useRef(lineage);
+  lineageRef.current = lineage;
 
   useEffect(() => {
     if (!key || !bootstrapComplete || !routeThreadExists) return;
     const ref = refRef.current;
-    if (ref) seedActiveTab(ref, resolveRef.current(ref) ?? scopedThreadKey(ref));
+    if (ref) seedActiveTab(ref, resolveThreadGroupKey(lineageRef.current, ref) ?? key);
   }, [key, bootstrapComplete, routeThreadExists, seedActiveTab]);
 
-  // Re-runs only when a lineage edge changes (the resolver's identity).
-  useEffect(() => regroupTabs(resolveGroupKey), [resolveGroupKey, regroupTabs]);
+  // Re-runs only when the lineage index changes or the route thread does.
+  useEffect(() => {
+    regroupTabs((ref) => resolveThreadGroupKey(lineage, ref));
+    const { groups, recentlyClosed, removeThread } = useThreadTabsStore.getState();
+    for (const ref of [
+      ...Object.values(groups).flatMap((group) => group.tabs),
+      ...recentlyClosed,
+    ]) {
+      if (scopedThreadKey(ref) !== key && isThreadGone(lineage, ref)) removeThread(ref);
+    }
+  }, [lineage, key, regroupTabs]);
 }
 
 export interface ThreadTabActions {
@@ -80,7 +90,7 @@ export interface ThreadTabActions {
  */
 export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): ThreadTabActions {
   const navigate = useNavigate();
-  const resolveGroupKey = useThreadGroupResolver();
+  const lineage = useThreadTabLineage();
 
   const navigateToRef = useCallback(
     (ref: ScopedThreadRef) => {
@@ -145,9 +155,11 @@ export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): Thr
     const state = useThreadTabsStore.getState();
     const nextRef = state.recentlyClosed[0];
     if (!nextRef) return;
-    const ref = state.reopenClosedTab(resolveGroupKey(nextRef) ?? scopedThreadKey(nextRef));
+    const ref = state.reopenClosedTab(
+      resolveThreadGroupKey(lineage, nextRef) ?? scopedThreadKey(nextRef),
+    );
     if (ref) navigateToRef(ref);
-  }, [navigateToRef, resolveGroupKey]);
+  }, [navigateToRef, lineage]);
 
   const goAdjacentTab = useCallback(
     (direction: "previous" | "next") => {

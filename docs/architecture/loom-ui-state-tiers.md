@@ -60,22 +60,21 @@ right-panel surface, and the turn-scoped dismissal refs no longer exist. The see
 policy above now has **no exceptions** — every automatic surface opener goes through
 `seedSurfaces`.
 
-## Orphan keys: no automatic sweep (by design)
+## Orphan keys: no automatic sweep, except thread tabs
 
 Per-thread UI stores — both upstream's (`rightPanelStore`, `terminalUiStateStore`,
 `diffPanelStore`) and loom's — accumulate orphaned `localStorage` keys for threads that no
 longer exist. This is accepted: the residue is tiny (a view enum, a thread id, a short form
 draft, a boolean flag), and upstream already tolerates it.
 
-There is deliberately **no absence-based cleanup sweep**. Absence of a thread from current
-client state is **not** a safe deletion signal: the client has no catch-up-complete marker —
-shell status flips to `"live"` after the first non-empty batch, replay is batched, and the
-server splices catch-up into the live stream with no completion event — so "absent while live"
-can describe a thread whose replay simply has not arrived yet. Deleting on that signal risks
-destroying valid state.
+Absence of a thread from client state is a safe deletion signal only after catch-up has
+completed: a stream that has not caught up can omit a thread whose replay simply has not
+arrived, and deleting on that risks destroying valid state.
 
-A future sweep is only safe once a genuine **catch-up-complete signal** exists (a protocol
-change), and must be covered by a multi-batch (>64-event) replay test. Until then, loom's
-per-thread stores expose a `removeThread(ref)` action (parity with the upstream stores, unit
-tested) so that if upstream later grows a real thread-deletion path, loom wires into it with one
-line rather than inventing an unsafe heuristic.
+A sweep is only safe against a genuine **catch-up-complete signal**. V2 has one: the shell
+stream's `synchronized` marker (`shellResumeCompletionMarker`), after which the environment's
+shell status is `"live"`, and a V2 shell snapshot carries every unarchived thread. The thread
+tab strip uses it: a tab whose thread is missing from a live snapshot was archived or deleted,
+and `removeThread` drops it (`apps/web/src/loom/threadTabGroups.ts`); a cached snapshot never
+prunes. The per-thread stores still do not sweep, because their residue is harmless and
+invisible, whereas a dead tab shows a raw thread id in the strip.

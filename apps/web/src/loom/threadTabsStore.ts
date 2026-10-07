@@ -20,10 +20,11 @@
  * Tier 1 (durable UI store) per `docs/architecture/loom-ui-state-tiers.md`, with
  * the same deliberate variance as before: it is workspace-scoped rather than
  * keyed by `scopedThreadKey` — it *contains* many thread refs (now bucketed by
- * group) rather than being scoped under one. It still carries the tier's
- * obligations: versioned migration, no absence-based sweep, a `removeThread`
- * parity hook, and the seed-not-override write policy (the seed appends-if-absent
- * within its group and never reorders).
+ * group) rather than being scoped under one. It carries versioned migration and
+ * the seed-not-override write policy (the seed appends-if-absent within its group
+ * and never reorders). Unlike the per-thread stores it prunes: `removeThread`
+ * drops a thread archived or deleted, judged against a live V2 snapshot (see the
+ * tier doc's orphan-keys section and `threadTabGroups`).
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -85,7 +86,7 @@ export interface ThreadTabsState {
   reopenClosedTab: (groupKey: string) => ScopedThreadRef | null;
   /** Drag-reorder within the ref's group. Reordering the preview tab pins it. */
   reorderTab: (ref: ScopedThreadRef, toIndex: number) => void;
-  /** Parity hook for a future real thread-deletion path. NOT called from any sweep. */
+  /** Drop an archived or deleted thread from its group and from recentlyClosed (the sync hook's prune). */
   removeThread: (ref: ScopedThreadRef) => void;
   /**
    * Move every tab whose resolved root group (`rootKeyOf`, null = unknown, left
@@ -553,7 +554,12 @@ export const useThreadTabsStore = create<ThreadTabsState>()(
         set((state) => {
           const key = keyOf(ref);
           const groupKey = findGroupKeyByTab(state.groups, key);
-          if (!groupKey) return state;
+          if (!groupKey) {
+            const recentlyClosed = state.recentlyClosed.filter((entry) => keyOf(entry) !== key);
+            return recentlyClosed.length === state.recentlyClosed.length
+              ? state
+              : { recentlyClosed };
+          }
           const group = state.groups[groupKey]!;
           const { list, fallback } = closeWithNeighbourFallback(group.tabs, key, keyOf);
           const wasActive = state.activeKey === key;
