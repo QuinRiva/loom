@@ -386,7 +386,6 @@ const OutcomeEventRow = Schema.Union([
 
 const SHELL_OMITTED = [
   "notifySendLog",
-  "handoffDestinations",
   "lastRoute",
   "outcomeEventId",
   "unarchivedEventId",

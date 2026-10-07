@@ -145,29 +145,42 @@ function LoomPendingUserInputPreview() {
 const FALLBACK_TEXT =
   "## Future notice\n\nA control message whose notice kind this build does not know. The card falls back to the message text.";
 
+const receipt = (
+  key: string,
+  fields: Omit<LoomTimelineRow, "kind" | "id" | "createdAt" | "sourceThreadId">,
+): LoomTimelineRow => ({
+  kind: "loom-handoff",
+  id: `loom-handoff:${key}`,
+  createdAt: "2026-10-05T09:00:00.000Z",
+  sourceThreadId: loomPreviewAnchoredThreadId,
+  ...fields,
+});
+const held = {
+  threadId: loomPreviewThreads.held.id,
+  title: loomPreviewThreads.held.title,
+  state: "staged" as const,
+};
+const EXPLANATION = "The flaky retry test in the sync worker is out of scope here; hand it off.";
+
 const timelineRows: ReadonlyArray<LoomTimelineRow> = [
-  {
-    kind: "loom-consult",
-    id: "loom-consult:preview",
-    createdAt: "2026-10-05T09:00:00.000Z",
-    consult: {
-      targetThreadId: loomPreviewThreads.reviewerInGate.id,
-      targetTitle: loomPreviewThreads.reviewerInGate.title,
-      count: 3,
-      lastConsultAt: "2026-10-05T09:00:00.000Z",
-      lastQuestionPreview: "Which of the two must-fix findings blocks the release?",
-    },
-  },
-  {
-    kind: "loom-handoff",
-    id: "loom-handoff:preview",
-    createdAt: "2026-10-05T09:00:00.000Z",
-    successor: {
-      threadId: loomPreviewThreads.held.id,
-      title: loomPreviewThreads.held.title,
-      state: "staged",
-    },
-  },
+  receipt("drafting", {
+    state: "drafting",
+    drafterThreadId: loomPreviewThreads.reviewerInGate.id,
+    explanation: EXPLANATION,
+    destinations: [],
+  }),
+  receipt("failed", {
+    state: "failed",
+    drafterThreadId: loomPreviewThreads.reviewerInGate.id,
+    explanation: EXPLANATION,
+    destinations: [],
+  }),
+  receipt("handed-off", {
+    state: "handed-off",
+    drafterThreadId: null,
+    explanation: null,
+    destinations: [held],
+  }),
 ];
 
 /**
@@ -281,10 +294,10 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     title: "Loom timeline rows",
     fixtures: [
       {
-        id: "loom-consult-and-handoff",
-        title: "Consult row and handoff receipt",
+        id: "loom-handoff-receipts",
+        title: "Handoff receipts",
         description:
-          "From `shell.workstream.consults` and a root whose `continuesThreadId` is this thread.",
+          "A `/handoff` drafting and failed (explanation copyable), and a handed-off `goal_handoff` / `goal_continue`.",
         render: () => (
           <TimelineLayoutFrame>
             {timelineRows.map((row) => (

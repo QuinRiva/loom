@@ -22,6 +22,7 @@ import {
 } from "@t3tools/shared/toolActivity";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
+import { isConsultToolItem } from "./loom/consultTool"; // loom:
 import {
   contextCompactionLabel,
   workEntryIndicatesToolFailure,
@@ -714,7 +715,8 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
       continue;
     }
 
-    if (STANDALONE_V2_ITEM_TYPES.has(item.type)) {
+    // loom: a consult is a card of its own (ConsultCardRow), not a grouped tool row.
+    if (STANDALONE_V2_ITEM_TYPES.has(item.type) || isConsultToolItem(item)) {
       entries.push({
         id: item.id,
         kind: "event",

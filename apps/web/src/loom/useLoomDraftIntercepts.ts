@@ -19,7 +19,6 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { waitForThreadShell } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -103,14 +102,8 @@ export function useLoomDraftIntercepts() {
               input: { sourceThreadId: source.threadId, explanation: handoff.explanation },
             }),
           "Could not hand off this work.",
-          () =>
-            toastManager.add(
-              stackedThreadToast({
-                type: "success",
-                title: "Drafting the handoff",
-                description: "A drafter is writing the brief; none of it enters this thread.",
-              }),
-            ),
+          // The receipt row (`loomTimelineRows.ts`) reports progress from here on.
+          () => {},
         );
       } else if (retro?.kind === "dispatch") {
         await run(

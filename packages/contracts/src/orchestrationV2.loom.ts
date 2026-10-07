@@ -412,7 +412,6 @@ export type LoomThreadWorkstream = typeof LoomThreadWorkstream.Type;
 export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => ({
   ...Struct.omit(fields, [
     "notifySendLog",
-    "handoffDestinations",
     "lastRoute",
     "outcomeEventId",
     "unarchivedEventId",
