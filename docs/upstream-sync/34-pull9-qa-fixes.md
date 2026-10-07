@@ -152,3 +152,12 @@ deployed.
   already searching files, which is heavy … `#` is now used by PRs … the big gap … is that
   spaces are escaped and almost all threads have spaces in their names"). `@` (files) and
   `#` (pull requests) stay upstream's; multi-word queries are the core requirement.
+- **DL-607 — Two review gates deadlocked in production (V1) on the re-verify hop.** The
+  consult and control-notice coders submitted round-1 rework (10:52 and 11:15 local) and
+  were told "routed to the reviewer for re-verification", but neither reviewer was woken.
+  Prompting them by hand was refused: "cannot start its first turn: dependency … is not
+  done yet (lane: in_progress)". The gate's auto-added `blockedBy` on the coder is still
+  enforced on the reviewer's re-verify turn, while a coder in rework stays `in_progress` by
+  design. Cleared each reviewer's `blockedBy` (the gate's routing is separate) and prompted
+  them with the round-1 report paths; both resumed. Same family as DL-604 (production
+  control plane, not PR #333); folded into the after-cut-over check.
