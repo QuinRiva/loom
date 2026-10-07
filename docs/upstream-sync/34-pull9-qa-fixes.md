@@ -235,3 +235,24 @@ deployed.
 - **DL-610 — The Loom migration ledger must stay contiguous.** The loader refuses a ledger
   with a gap, so the per-coder numbers assigned in briefs (1053–1071) were wrong. Order of
   landing decides: 1052 control-message rows, 1053 card metrics, and the next one takes 1054.
+- **DL-760s — Timeline cards restored (rows T3, T4, T5).** The consult card shows its
+  answer again, as pull 7's PR #270 card did, for new consults and for consults imported
+  from V1. Migration **1054** backfills imported threads using the importer's own
+  `importedConsultTurnItem` builder. `/handoff` shows an in-thread progress row and a
+  failure toast that reaches Carl on any thread; `goal_handoff` leaves a receipt in the old
+  thread; the `recovered` digest item tells a parent that a child it was told was dead has
+  recovered. All render through the one control-card path. Gate clean after one rework
+  round (`7a7ac0504d`).
+- **DL-611 — Integration fix and QA rebuild 2 (2026-10-07 03:59–04:02Z) at `5f0101e243`.**
+  The full Loom, orchestration, MCP, persistence, web-Loom and shared suites on the
+  integrated branch caught two seams no single gate could see. (1) S4's pending-question
+  header subquery matched turn items by `node_id` alone, adding an unbounded item lookup
+  to the shell query that upstream's `ProjectionSettlement` test forbids. It now joins from
+  the thread's pending request (`request.node_id`, the same value as the payload's
+  `nodeId`: 1/1 rows in QA) through
+  `INDEXED BY orchestration_v2_projection_turn_items_node_ordinal_idx`, and the test
+  asserts that shape in a `// loom:` hunk. (2) Upstream's `V1ImportBoundary` test lists
+  who may import the legacy importer; migration 1054 is added with a `// loom:` reason.
+  Then 3781/3781 tests, typecheck, `vp check` 0 errors, unmarked sweep clean. QA rebuilt
+  per the guide §3 (PROBE PASSED, sandbox unchanged); Loom migrations ran to 1054. Every
+  fix and restore on the branch is now in QA except Q1 (semantic search, not started).
