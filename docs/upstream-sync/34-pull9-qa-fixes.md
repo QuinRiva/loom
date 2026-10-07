@@ -256,3 +256,18 @@ deployed.
   Then 3781/3781 tests, typecheck, `vp check` 0 errors, unmarked sweep clean. QA rebuilt
   per the guide §3 (PROBE PASSED, sandbox unchanged); Loom migrations ran to 1054. Every
   fix and restore on the branch is now in QA except Q1 (semantic search, not started).
+- **DL-810 — Markdown and MDX files open rendered by default.** Carl: opening a `.md` in QA
+  showed source. Not a code regression: V1 (`8368a63b16`) had the same upstream default
+  (#4853 keeps the choice in `localStorage["t3code.renderMarkdown"]`, default `false`).
+  `localStorage` is per origin, so QA on `localhost:13940` starts empty and falls back to
+  source, while Carl's production origin presumably still holds his stored `true`.
+  HTML was already right: `t3code.renderBrowserFile` defaults to `true`, and attachments
+  and the artefact viewer always open rendered. Fix: a one-token `// loom:` hunk in
+  `FilePreviewPanel.tsx` makes the markdown default `true`. Every way a file opens
+  (chat file chip, file tree, Mod+P picker, content search, diff "open file", Workstream
+  report links, MDX plans and recaps) goes through `rightPanelStore.openFile`/`openFileAbsolute`
+  into this one panel, so one hunk covers them all. A stored choice still wins (seed, not
+  override). An explicit "Show markdown source" writes `false`, and later files open as
+  source. Verified live in the dev-verify recipe with a fresh browser: chat chip `.md`,
+  tree `.md`, `.mdx` and `.artifacts/*.html`, and the Mod+P picker open rendered, `.ts`
+  opens as source, and the source choice sticks. Commit: this entry's commit.
