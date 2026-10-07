@@ -383,20 +383,24 @@ const make = Effect.gen(function* () {
     `;
 
   // loom: T3 — a thread's V1 `consult_thread` calls, imported as consult turn items.
+  // INDEXED BY: without it the planner picks idx_orchestration_events_application_sequence
+  // (application_event_version = 1 matches every V1 event) and scans the whole table per
+  // message — 0.6 s each on 1.3M events; the 7 Oct cut-over timed out on this.
+  const legacyConsultEvents = sql`orchestration_events AS consult INDEXED BY idx_orch_events_stream_version`;
   const legacyConsults = sql`
     consult.application_event_version = 1
     AND consult.aggregate_kind = 'thread'
     AND consult.event_type = 'thread.consult-recorded'
   `;
   const earlierConsults = sql`(
-    SELECT COUNT(*) FROM orchestration_events AS consult
+    SELECT COUNT(*) FROM ${legacyConsultEvents}
     WHERE ${legacyConsults} AND consult.stream_id = message.thread_id
       AND consult.occurred_at < message.created_at
   )`;
   const listConsults = (threadId: ThreadId) =>
     sql<LegacyConsultRow>`
       SELECT consult.event_id, consult.stream_id AS thread_id, consult.occurred_at, consult.payload_json
-      FROM orchestration_events AS consult
+      FROM ${legacyConsultEvents}
       WHERE ${legacyConsults} AND consult.stream_id = ${threadId}
       ORDER BY consult.occurred_at ASC, consult.event_id ASC
     `;
