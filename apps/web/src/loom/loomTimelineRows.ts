@@ -100,7 +100,10 @@ export function handoffReceiptRows(
   }
   return [
     ...drafters.map((drafter) => {
-      const placed = markers.filter((marker) => marker.drafterThreadId === drafter.id);
+      // The drafter's own markers: what the reactor settles on (the source's copy is best-effort).
+      const placed = drafter.workstream!.handoffDestinations.filter(
+        (marker) => marker.drafterThreadId === drafter.id,
+      );
       const ended = drafter.latestRunId !== null && drafter.activityRunStatus == null;
       return row(drafter.id, {
         createdAt: DateTime.formatIso(drafter.createdAt),

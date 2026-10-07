@@ -37,18 +37,6 @@ export const ConsultCardRow = memo(function ConsultCardRow({
   const [expanded, setExpanded] = useState(false);
   const [showFullAnswer, setShowFullAnswer] = useState(false);
   const { item } = projectedItem;
-  const input = (item.type === "dynamic_tool" ? item.input : null) as Record<
-    string,
-    unknown
-  > | null;
-  const text = (key: string) =>
-    typeof input?.[key] === "string" && input[key].trim() ? input[key].trim() : null;
-  const [targetThreadId, targetName, question] = [text("threadId"), text("name"), text("question")];
-  const target = useThreadShell(
-    targetThreadId === null
-      ? null
-      : scopeThreadRef(ctx.activeThreadEnvironmentId, targetThreadId as ThreadId),
-  );
   const status: keyof typeof STATUS =
     item.status === "completed"
       ? item.type === "dynamic_tool" && compactDynamicToolOutput(item.output)?.isError
@@ -68,6 +56,20 @@ export const ConsultCardRow = memo(function ConsultCardRow({
       : null,
   );
   const fetched = detail.data?.item;
+  // The wire summarises a large input; the fetched item carries it whole.
+  const source = fetched ?? item;
+  const input = (source.type === "dynamic_tool" ? source.input : null) as Record<
+    string,
+    unknown
+  > | null;
+  const text = (key: string) =>
+    typeof input?.[key] === "string" && input[key].trim() ? input[key].trim() : null;
+  const [targetThreadId, targetName, question] = [text("threadId"), text("name"), text("question")];
+  const target = useThreadShell(
+    targetThreadId === null
+      ? null
+      : scopeThreadRef(ctx.activeThreadEnvironmentId, targetThreadId as ThreadId),
+  );
   const answer = (fetched ? turnItemOutputText(fetched) : null)?.trim() ?? "";
   const clamped = !showFullAnswer && answer.length > ANSWER_CLAMP_CHARS;
   const toggle = () => setExpanded((value) => !value);

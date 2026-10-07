@@ -65,6 +65,16 @@ export interface LegacyConsultRow {
   readonly payload_json: string;
 }
 
+const decodeConsultPayload = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      targetThreadId: Schema.String,
+      question: Schema.String,
+      answer: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  ),
+);
+
 export const legacyConsultTurnItemId = (eventId: string) =>
   TurnItemId.make(`migration:v1:turn-item:consult:${eventId}`);
 
@@ -72,11 +82,7 @@ export function importedConsultTurnItem(
   row: LegacyConsultRow,
   ordinal: number,
 ): OrchestrationV2TurnItem {
-  const { targetThreadId, question, answer } = JSON.parse(row.payload_json) as {
-    readonly targetThreadId?: string;
-    readonly question?: string;
-    readonly answer?: string | null;
-  };
+  const { targetThreadId, question, answer } = decodeConsultPayload(row.payload_json);
   const at = DateTime.makeUnsafe(row.occurred_at);
   return {
     id: legacyConsultTurnItemId(row.event_id),
