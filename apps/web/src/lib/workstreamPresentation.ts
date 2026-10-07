@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import {
   attentionReasonsOf,
+  pendingQuestionOf,
   type WorkstreamAttentionReason,
 } from "@t3tools/client-runtime/state/loom/rollup";
 import {
@@ -45,6 +46,8 @@ export interface WorkstreamNode extends LoomThreadShellFields {
   /** Stored ∪ derived attention reasons, highest priority first. */
   readonly reasons: ReadonlyArray<WorkstreamAttentionReason>;
   readonly activity: OrchestrationV2ThreadShell["activityRunStatus"];
+  /** The question the thread waits on (S4), or null. */
+  readonly pendingQuestion: ReturnType<typeof pendingQuestionOf>;
   /** The latest visible message's text (`shell.latestVisibleMessage`). */
   readonly preview: string | null;
   readonly lastActivityAt: string;
@@ -83,6 +86,7 @@ export function buildWorkstreamNodes(
         column: deriveBoardColumn(workstream, startIndex),
         reasons: attentionReasonsOf(shell),
         activity: shell.activityRunStatus ?? null,
+        pendingQuestion: pendingQuestionOf(shell),
         preview: shell.latestVisibleMessage?.text.trim() || null,
         lastActivityAt: iso(lastActivity),
         archived: shell.archivedAt !== null,
@@ -351,7 +355,16 @@ export const getPurpose = (node: Pick<WorkstreamNode, "purpose">) =>
 /** One short phrase for what the thread is doing, attention first. */
 export function getActivity(node: WorkstreamNode): string {
   const reason = node.reasons[0];
-  if (reason === "awaiting_input") return "waiting for your input";
+  // Which question waits and for how long (S4), so the card says whether it
+  // is a five-second pick or needs real thought.
+  if (reason === "awaiting_input")
+    return [
+      "waiting for your input",
+      node.pendingQuestion?.header,
+      node.pendingQuestion && formatCompactAge(node.pendingQuestion.since),
+    ]
+      .filter(Boolean)
+      .join(" · ");
   if (reason === "awaiting_approval") return "approval required";
   if (reason === "error") return "stalled — needs you";
   if (reason === "needs_guidance") return "stuck — needs guidance";

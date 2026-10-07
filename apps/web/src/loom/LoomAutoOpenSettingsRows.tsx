@@ -1,8 +1,7 @@
 // loom: 3d-4 (DT-77) — the way out of the Workstream auto-open seed: a Settings
 // row for `autoOpenWorkstreamPanel` (read by `useLoomRightPanelSurfaces`).
 // Kept out of the upstream-owned `SettingsPanels.tsx`, which splices in the row,
-// its dirty label and its restore-defaults key. `autoOpenGoalTasksPanel` has no
-// reader on V2 (the goal-tasks surface does not auto-open), so it gets no row.
+// its dirty label and its restore-defaults key.
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 
 import { SettingResetButton, SettingsRow } from "../components/settings/settingsLayout";

@@ -11,6 +11,7 @@ import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 // loom: 3d-4 — DT-36 additions (markdown body with file chips and its one-line summary, reply in chat instead).
 import {
+  PendingQuestionAge, // loom: S4
   PendingQuestionBody,
   questionSummary,
   ReplyInChatInsteadButton,
@@ -211,6 +212,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           ) : null}
         </ComposerBanner.Content>
         <ComposerBanner.Actions>
+          <PendingQuestionAge createdAt={prompt.createdAt} /> {/* loom: S4 */}
           {prompt.questions.length > 1 ? (
             <span className="text-3xs font-medium text-muted-foreground tabular-nums">
               {questionIndex + 1}/{prompt.questions.length}

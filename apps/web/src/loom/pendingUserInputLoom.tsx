@@ -23,16 +23,29 @@ import { useNowMinute } from "../hooks/useNowMinute";
 import { formatElapsedDurationLabel } from "../timestampFormat";
 
 /**
- * S4 — the sidebar Input label's suffix: how long the question has waited
- * ("· 3h"). Ticks on the shared minute clock, whose value feeds the label so
- * the React Compiler cannot memoise it stale; reads up to a minute low.
+ * S4 — a question's age on the shared minute clock: undefined when
+ * unparseable, null under a minute, else "4m" / "3h" / "2d". The clock's value
+ * feeds the label so the React Compiler cannot memoise it stale; minute
+ * resolution, so it reads up to a minute low.
  */
+function useMinuteAge(iso: string): string | null | undefined {
+  const label = formatElapsedDurationLabel(iso, Date.parse(`${useNowMinute()}:00Z`));
+  if (label === "") return undefined;
+  return label === "just now" || label.endsWith("s") ? null : label;
+}
+
+/** The sidebar Input label's suffix: how long the question has waited ("· 3h"). */
 export function PendingQuestionWaitAge({ since }: { since: string }) {
-  const label = formatElapsedDurationLabel(since, Date.parse(`${useNowMinute()}:00Z`));
-  if (label === "") return null;
-  return (
-    <span className="font-normal">
-      · {label === "just now" || label.endsWith("s") ? "now" : label}
+  const age = useMinuteAge(since);
+  return age === undefined ? null : <span className="font-normal">· {age ?? "now"}</span>;
+}
+
+/** "asked 3h ago" in the question panel's header. */
+export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
+  const age = useMinuteAge(createdAt);
+  return age === undefined ? null : (
+    <span className="shrink-0 text-3xs text-muted-foreground tabular-nums">
+      asked {age === null ? "just now" : `${age} ago`}
     </span>
   );
 }
