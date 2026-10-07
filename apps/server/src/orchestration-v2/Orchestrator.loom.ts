@@ -58,6 +58,7 @@ import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
 import type { IdAllocatorV2 } from "./IdAllocator.ts";
 import type { OrchestratorDispatchError, OrchestratorV2Error } from "./Orchestrator.ts";
 import type { ProjectionStoreV2 } from "./ProjectionStore.ts";
+import { runlessForkSource } from "./runlessFork.loom.ts";
 import { isForkableSourceRunStatus, type ThreadForkServiceV2 } from "./ThreadForkService.ts";
 
 /**
@@ -829,6 +830,44 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       const sourceRun = source.runs
         .filter((run) => isForkableSourceRunStatus(run.status))
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+      // A V1-imported source with no V2 run forks from its bound pi session instead.
+      const runless = runlessForkSource(source);
+      if (sourceRun === undefined && runless !== undefined) {
+        const transferId = yield* read(
+          ctx.idAllocator.allocate.contextTransfer({
+            sourceThreadId: prepare.sourceThreadId,
+            targetThreadId: prepare.threadId,
+            type: "fork",
+          }),
+        );
+        return yield* emit({
+          type: "context-transfer.created",
+          threadId: prepare.threadId,
+          providerInstanceId: runless.providerInstanceId,
+          occurredAt: now,
+          payload: {
+            id: transferId,
+            type: "fork",
+            sourceThreadId: prepare.sourceThreadId,
+            targetThreadId: prepare.threadId,
+            sourcePoint: {
+              threadId: prepare.sourceThreadId,
+              providerThreadRef: runless.nativeThreadRef!,
+            },
+            basePoint: null,
+            sourceProviderInstanceId: runless.providerInstanceId,
+            targetProviderInstanceId: null,
+            targetRunId: null,
+            status: "pending",
+            resolution: null,
+            createdBy: "agent",
+            error: null,
+            createdAt: now,
+            updatedAt: now,
+            consumedAt: null,
+          },
+        });
+      }
       if (sourceRun === undefined)
         return yield* fail(`Fork source ${prepare.sourceThreadId} has no finished run.`);
       const providerThread = source.providerThreads.find(

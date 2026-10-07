@@ -3,7 +3,8 @@
  * the V2 shell alone, so they survive a reload and reach every client:
  *
  * - **`/handoff`** — one row per drafter forked from this thread (role
- *   `handoff-drafter`, `forkFromThreadId === this`): drafting while its run is
+ *   `handoff-drafter`, `forkFromThreadId === this`): waiting while this thread's
+ *   turn runs (a mid-turn `/handoff` forks once it ends), drafting while its run is
  *   live, failed when the run ended without placing a handoff, handed off once
  *   it did. An archived (settled) drafter leaves the snapshot; its row then
  *   reads from the `handoffDestinations` markers `goal_handoff` copies onto
@@ -32,7 +33,7 @@ import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.log
 import { environmentSnapshotAtom } from "~/state/shell";
 
 export type LoomHandoffState = "staged" | "launched" | "done" | "cancelled";
-export type LoomReceiptState = "drafting" | "failed" | "handed-off";
+export type LoomReceiptState = "waiting" | "drafting" | "failed" | "handed-off";
 
 export interface LoomHandoffDestination {
   readonly threadId: ThreadId;
@@ -112,7 +113,10 @@ export function handoffReceiptRows(
             ? "handed-off"
             : ended || drafter.workstream!.attention.length > 0
               ? "failed"
-              : "drafting",
+              : // Sent mid-turn: the drafter forks once this thread's turn ends.
+                drafter.workstream!.kickoffAt === null
+                ? "waiting"
+                : "drafting",
         drafterThreadId: drafter.id,
         explanation: drafter.workstream!.purpose,
         destinations: placed.map((marker) => destination(marker.threadId)),

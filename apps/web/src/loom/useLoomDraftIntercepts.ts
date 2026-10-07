@@ -19,6 +19,7 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
+import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { waitForThreadShell } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -32,6 +33,8 @@ import { loomCommands } from "./loomGoalState";
 
 export interface LoomDraftInterceptPorts {
   readonly source: ScopedThreadRef;
+  /** The source is mid-turn: the server forks once that turn ends. */
+  readonly sourceMidTurn: boolean;
   readonly submittedPrompt: string;
   readonly trimmedPrompt: string;
   readonly hasAttachmentsOrContexts: boolean;
@@ -120,13 +123,25 @@ export function useLoomDraftIntercepts() {
           // missing thread and bounces to `/` (as upstream's fork action avoids).
           (result) => {
             const reviewer = scopeThreadRef(source.environmentId, result.reviewerThreadId);
-            void waitForThreadShell(reviewer).then((ready) => {
-              if (ready)
-                void navigate({
-                  to: "/$environmentId/$threadId",
-                  params: buildThreadRouteParams(reviewer),
-                });
-            });
+            const open = () =>
+              void waitForThreadShell(reviewer).then((ready) => {
+                if (ready)
+                  void navigate({
+                    to: "/$environmentId/$threadId",
+                    params: buildThreadRouteParams(reviewer),
+                  });
+              });
+            // Mid-turn, the reviewer stays empty until this turn ends: say so, and stay here.
+            if (ports.sourceMidTurn)
+              toastManager.add(
+                stackedThreadToast({
+                  type: "info",
+                  title: "Retro queued",
+                  description: "The retro reviewer starts when this turn finishes.",
+                  actionProps: { children: "Open retro", onClick: open },
+                }),
+              );
+            else open();
           },
         );
       }

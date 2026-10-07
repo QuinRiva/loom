@@ -13,6 +13,10 @@
  *   thread the human typed `/handoff` in) when it has a live Loom row, else on the
  *   drafter, which then stays visible as the recovery surface.
  *
+ * It also launches a drafter or `/retro` reviewer whose source was mid-turn: the
+ * fork deferred, so once a run ends the pass re-sends the fork and kickoff
+ * (`dispatchDraftFork`); a refused fork raises `needs_guidance` as above.
+ *
  * Every command has a deterministic `server:` id under the receipt discipline
  * (`dispatchServerCommand`), so a pass is an idempotent recompute: a coalescing
  * worker runs it on a drafter's run end or handoff record, and on a 60 s tick (the
@@ -41,7 +45,13 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { dispatchServerCommand } from "../orchestration/redrive.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
-import { HANDOFF_DRAFTER_ROLE } from "./handoffDraft.ts";
+import {
+  buildDraftForkLaunch,
+  buildDrafterKickoffPrompt,
+  dispatchDraftFork,
+  HANDOFF_DRAFTER_ROLE,
+} from "./handoffDraft.ts";
+import { buildRetroKickoffPrompt, RETRO_REVIEWER_ROLE } from "./retroDraft.ts";
 
 /**
  * Grace before a kickoff that has not finished is declared hung. The zero-handoff
@@ -111,11 +121,31 @@ const make = Effect.gen(function* () {
       const id = (step: string) =>
         CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
-      const action = classifyHandoffSettlement(
-        row,
-        yield* orchestrator.getThreadShell(row.threadId),
-        nowMs,
-      );
+      // A fork that waited for its mid-turn source is launched here, once that turn ends.
+      const pendingLaunch = row.kickoffAt === null && row.forkFromThreadId !== null;
+      const launch = pendingLaunch
+        ? yield* dispatchDraftFork(
+            buildDraftForkLaunch({
+              drafterThreadId: row.threadId,
+              sourceThreadId: row.forkFromThreadId!,
+              kickoff:
+                row.role === HANDOFF_DRAFTER_ROLE
+                  ? buildDrafterKickoffPrompt(row.purpose ?? "")
+                  : buildRetroKickoffPrompt(row.purpose ?? undefined),
+              createdAt,
+            }),
+          )
+        : null;
+      const action: HandoffSettlementAction =
+        launch?.status === "dead"
+          ? { kind: "guidance", reasonKey: "fork-failed" }
+          : pendingLaunch || row.role !== HANDOFF_DRAFTER_ROLE
+            ? { kind: "none" }
+            : classifyHandoffSettlement(
+                row,
+                yield* orchestrator.getThreadShell(row.threadId),
+                nowMs,
+              );
       if (action.kind === "success") {
         yield* dispatchServerCommand({
           type: "thread.outcome.set",
@@ -163,7 +193,8 @@ const make = Effect.gen(function* () {
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     for (const row of yield* loomStore.listActiveWorkstreams()) {
-      if (row.role === HANDOFF_DRAFTER_ROLE) yield* settle(row, nowMs);
+      if (row.role === HANDOFF_DRAFTER_ROLE || row.role === RETRO_REVIEWER_ROLE)
+        yield* settle(row, nowMs);
     }
   }).pipe(
     Effect.provideContext(services),

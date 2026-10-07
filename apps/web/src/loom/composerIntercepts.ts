@@ -12,9 +12,9 @@ import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu
 
 /**
  * The `/` menu rows for the two intercepts. The composer offers them at the
- * start of the prompt on a server thread that is not mid-turn (the intercept
- * only recognises a leading command, and the server refuses a busy source);
- * selecting one inserts the command for the human to finish.
+ * start of the prompt on a server thread (the intercept only recognises a
+ * leading command), mid-turn included: the server forks once the turn ends.
+ * Selecting one inserts the command for the human to finish.
  */
 export const LOOM_DRAFT_SLASH_ITEMS = [
   {

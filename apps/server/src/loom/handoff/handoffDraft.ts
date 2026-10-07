@@ -9,9 +9,11 @@
  * the role, the source's goal, worktree, modes and projected model selection
  * and `forkFromThreadId`; `thread.fork.prepare`, which writes upstream's pending
  * `fork` context transfer from the source's latest finished run (what
- * `thread.fork`'s `latest_stable` picks) for upstream to resolve natively at the
- * drafter's first run (P3-28's mechanism); then the kickoff as a Loom control
- * message. V2's bare `thread.fork` would leave the drafter without a sidecar
+ * `thread.fork`'s `latest_stable` picks; a V1-imported thread with no V2 run forks
+ * its bound pi session) for upstream to resolve natively at the drafter's first run
+ * (P3-28's mechanism); then the kickoff as a Loom control message. A mid-turn
+ * source defers the fork, and `HandoffDrafterReactor` sends the fork and kickoff
+ * once the turn ends, so the drafter carries that turn too. V2's bare `thread.fork` would leave the drafter without a sidecar
  * row, and the role is what `mcp__t3-code__goal_handoff`, the composer's overlay and the
  * reactor key on.
  *
@@ -32,6 +34,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { runlessForkSource } from "../../orchestration-v2/runlessFork.loom.ts";
 import { isForkableSourceRunStatus } from "../../orchestration-v2/ThreadForkService.ts";
 import { controlMessage } from "../orchestration/dispatcher/controlMessage.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
@@ -87,19 +90,46 @@ export interface DraftForkInput {
 }
 
 /**
+ * The fork and kickoff that follow a drafter's spawn. Ids hang off the drafter's
+ * id (`server:loom:draft:<id>:<step>`), so a launch deferred behind a busy source
+ * is re-sent under the same ids (`continueDraftFork`).
+ */
+export const buildDraftForkLaunch = (input: {
+  readonly drafterThreadId: ThreadId;
+  readonly sourceThreadId: ThreadId;
+  readonly kickoff: string;
+  readonly createdAt: string;
+}) => {
+  const id = (step: string) => `server:loom:draft:${input.drafterThreadId}:${step}`;
+  return [
+    {
+      type: "thread.fork.prepare",
+      commandId: CommandId.make(id("fork")),
+      threadId: input.drafterThreadId,
+      createdAt: input.createdAt,
+      sourceThreadId: input.sourceThreadId,
+    },
+    controlMessage({
+      threadId: input.drafterThreadId,
+      id: id("kickoff"),
+      tier: "steered",
+      origin: "kickoff",
+      text: input.kickoff,
+    }),
+  ] as const;
+};
+
+/**
  * The drafter fork's three commands, dispatched in order: the root (role,
  * `forkFromThreadId`, the source's goal, worktree, modes and model), the fork
- * transfer, the kickoff. Ids hang off the drafter's id: `server:loom:draft:<id>:<step>`.
+ * transfer, the kickoff.
  */
-export const buildDraftForkCommands = (
-  input: DraftForkInput,
-): ReadonlyArray<OrchestrationV2ServerCommand> => {
-  const id = (step: string) => `server:loom:draft:${input.drafterThreadId}:${step}`;
+export const buildDraftForkCommands = (input: DraftForkInput) => {
   const { source } = input;
   return [
     {
       type: "thread.spawn",
-      commandId: CommandId.make(id("spawn")),
+      commandId: CommandId.make(`server:loom:draft:${input.drafterThreadId}:spawn`),
       threadId: input.drafterThreadId,
       createdAt: input.createdAt,
       // The human asked for it (the composer intercept); the server builds it.
@@ -118,21 +148,13 @@ export const buildDraftForkCommands = (
       goalId: input.sourceGoalId,
       forkFromThreadId: source.id,
     },
-    {
-      type: "thread.fork.prepare",
-      commandId: CommandId.make(id("fork")),
-      threadId: input.drafterThreadId,
-      createdAt: input.createdAt,
+    ...buildDraftForkLaunch({
+      drafterThreadId: input.drafterThreadId,
       sourceThreadId: source.id,
-    },
-    controlMessage({
-      threadId: input.drafterThreadId,
-      id: id("kickoff"),
-      tier: "steered",
-      origin: "kickoff",
-      text: input.kickoff,
+      kickoff: input.kickoff,
+      createdAt: input.createdAt,
     }),
-  ];
+  ] as const satisfies ReadonlyArray<OrchestrationV2ServerCommand>;
 };
 
 /** The `/handoff` drafter's commands (`buildDraftForkCommands` with its role, title and kickoff). */
@@ -148,11 +170,38 @@ export const buildHandoffDraftTurnStart = (
   });
 
 /**
+ * Sends a drafter fork's commands in order, stopping at the fork when the source
+ * is mid-turn (`thread.fork.prepare` defers, unreceipted, until the source's run
+ * ends). `deferred` leaves the rest for `HandoffDrafterReactor`, whose pass re-sends
+ * them on every run end (a receipted id replays as a no-op); `dead` carries the refusal.
+ */
+export const dispatchDraftFork = (commands: ReadonlyArray<OrchestrationV2ServerCommand>) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* OrchestratorV2;
+    for (const command of commands) {
+      const stopped = yield* orchestrator.dispatch(command).pipe(
+        Effect.as(null),
+        Effect.catch((error) =>
+          Effect.succeed(
+            error._tag === "LoomDispatchDeferredError"
+              ? ({ status: "deferred" } as const)
+              : ({ status: "dead", error: error.message } as const),
+          ),
+        ),
+      );
+      if (stopped !== null) return stopped;
+    }
+    return { status: "launched" } as const;
+  });
+
+/**
  * Validates the source and launches a drafter fork; returns the drafter's id.
- * Guards as V1: the source exists, is idle (forking a mid-turn session would
- * capture an unclosed tool call), and its latest finished run ran on pi with a strong
- * native session ref (the drafter's whole value is the source's native session). The
- * model is the source's projected selection (DL-384: launch identity is the composer's).
+ * The source must exist and be pi-backed with a strong native session ref (the
+ * drafter's whole value is the source's native session): its latest finished
+ * run's, or for a V1-imported thread with no V2 run yet, the session the importer
+ * bound (`runlessFork.loom.ts`). A source that is mid-turn is accepted: the drafter
+ * appears now and forks when the turn ends, so it carries that turn too. The model
+ * is the source's projected selection (DL-384: launch identity is the composer's).
  * Fails with `LoomWsMethodError` naming `method`.
  */
 export const launchDraftFork = (input: {
@@ -171,45 +220,49 @@ export const launchDraftFork = (input: {
     const source = yield* orchestrator.getThreadShell(input.sourceThreadId);
     if (source === null || source.deletedAt != null)
       return yield* fail("The source thread was not found.");
-    const { runs, providerThreads } = yield* orchestrator.getThreadRecords(input.sourceThreadId, [
+    const records = yield* orchestrator.getThreadRecords(input.sourceThreadId, [
       "runs",
       "providerThreads",
     ]);
-    // `fork.prepare` defers on any blocking run (a `waiting` run's checkpoint is still pending).
-    if (source.activityRunStatus != null || runs.some((run) => BLOCKING_RUN.has(run.status))) {
-      return yield* fail(
-        `This thread is mid-turn; wait for it to finish before it is ${input.verb} (forking a live session would corrupt its context).`,
-      );
-    }
-    // The run `fork.prepare` will fork: the latest finished one.
-    const latest = runs
-      .filter((run) => isForkableSourceRunStatus(run.status))
+    // The provider thread the fork will copy: the latest finished run's (a busy
+    // source's latest run's, as the fork waits for it), else the V1 import's binding.
+    const latest = records.runs
+      .filter((run) => isForkableSourceRunStatus(run.status) || BLOCKING_RUN.has(run.status))
       .toSorted((left, right) => right.ordinal - left.ordinal)[0];
-    if (latest === undefined)
+    const providerThread =
+      latest === undefined
+        ? runlessForkSource(records)
+        : records.providerThreads.find((thread) => thread.id === latest.providerThreadId);
+    if (providerThread === undefined)
       return yield* fail(`This thread has no finished turn yet, so nothing can be ${input.verb}.`);
-    const providerThread = providerThreads.find((thread) => thread.id === latest.providerThreadId);
-    if (providerThread?.driver !== "pi") {
+    if (providerThread.driver !== "pi") {
       return yield* fail(
         `Only pi-backed threads can be ${input.verb} (the fork relies on pi's native session).`,
       );
     }
-    // `fork.prepare` refuses without one; checked here so no drafter is created first.
-    if (providerThread.nativeThreadRef?.strength !== "strong") {
+    // `fork.prepare` refuses without one; checked here so no drafter is created first. A
+    // running pi turn's ref is still pending, and turns strong once the session is written.
+    if (
+      (latest === undefined || !BLOCKING_RUN.has(latest.status)) &&
+      providerThread.nativeThreadRef?.strength !== "strong"
+    ) {
       return yield* fail(
         `This thread's pi session cannot be forked (no native session reference), so it cannot be ${input.verb}.`,
       );
     }
     const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4);
-    const commands = input.build(
-      {
+    const launch = yield* dispatchDraftFork(
+      input.build(
+        {
+          source,
+          sourceGoalId: (yield* (yield* LoomStoreV2).getWorkstream(source.id))?.goalId ?? null,
+          drafterThreadId,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+        },
         source,
-        sourceGoalId: (yield* (yield* LoomStoreV2).getWorkstream(source.id))?.goalId ?? null,
-        drafterThreadId,
-        createdAt: DateTime.formatIso(yield* DateTime.now),
-      },
-      source,
+      ),
     );
-    for (const command of commands) yield* orchestrator.dispatch(command);
+    if (launch.status === "dead") return yield* fail(launch.error);
     return drafterThreadId;
   }).pipe(
     Effect.catchIf(

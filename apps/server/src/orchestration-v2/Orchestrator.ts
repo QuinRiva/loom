@@ -137,6 +137,7 @@ import {
   loomSettleBlockers,
   loomTurnStartRules,
 } from "./Orchestrator.loom.ts"; // loom: the decider arm and the dispatchMessage helpers
+import { runlessForkSourceProviderThread } from "./runlessFork.loom.ts"; // loom: V1-imported fork source
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -5573,9 +5574,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (candidate) => candidate.id === pendingForkTransfer.sourcePoint.runId,
             ) ?? null);
       const sourceProviderThread =
-        sourceProjection === null || sourceRun === null
+        sourceProjection === null || pendingForkTransfer === undefined // loom: run-less V1 source
           ? undefined
-          : providerThreadForRun(sourceProjection, sourceRun);
+          : sourceRun === null
+            ? runlessForkSourceProviderThread(
+                sourceProjection.providerThreads,
+                pendingForkTransfer.sourcePoint,
+              )
+            : providerThreadForRun(sourceProjection, sourceRun);
       const sourceProviderTurnId =
         sourceProjection === null || sourceRun === null || sourceRun.activeAttemptId === null
           ? undefined
@@ -5586,7 +5592,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             )?.providerTurnId ??
             undefined);
       if (pendingForkTransfer !== undefined) {
-        if (sourceRun === null || sourceProviderThread === undefined) {
+        // loom: a run-less (V1-imported) source resolves through its bound provider thread.
+        if (sourceProviderThread === undefined) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
@@ -5652,7 +5659,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       );
       const forkExecution =
-        pendingForkTransfer === undefined || sourceRun === null
+        pendingForkTransfer === undefined || sourceProviderThread === undefined // loom: run-less
           ? null
           : yield* enforceCommandPolicy(command)(
               commandPolicy.decideForkExecution({
@@ -5663,7 +5670,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 sameProvider:
                   pendingForkTransfer.sourceProviderInstanceId === modelSelection.instanceId,
                 hasStrongNativeSource: sourceProviderThread?.nativeThreadRef?.strength === "strong",
-                sourceRunStatus: sourceRun.status,
+                sourceRunStatus: sourceRun?.status ?? "completed", // loom: run-less = idle
                 fromSpecificTurn: sourceRun !== null,
               }),
             );
