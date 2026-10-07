@@ -125,6 +125,7 @@ import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom:
 import { joinLoomShellFields, joinLoomThreadShell } from "../loom/projection/loomShellJoin.ts"; // loom:
 import {
   decideLoomCommand,
+  loomAskAnswer,
   loomAskTakesAnswer,
   LoomDispatchDeferredError,
   loomContinuationVetoed,
@@ -7213,7 +7214,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
         const replies: string[] = [];
         for (const question of approvalTurnItem.questions) {
-          const answer = command.answers?.[question.id];
+          const answer = loomAskAnswer(runtimeRequest.id, command.answers?.[question.id]); // loom: multi-select (DL-720)
           if (typeof answer !== "string" || answer.trim().length === 0) {
             if (question.required === false) continue;
             return yield* new OrchestratorDispatchError({
