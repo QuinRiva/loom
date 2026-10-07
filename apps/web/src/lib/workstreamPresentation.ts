@@ -2,6 +2,7 @@ import {
   type ContextMenuItem,
   DEFAULT_GATE_MAX_ROUNDS,
   type LoomOutcome,
+  type LoomThreadHistoryEntry,
   type LoomThreadOutcome,
   type LoomThreadShellFields,
   type ModelSelection,
@@ -368,6 +369,25 @@ export function getActivity(node: WorkstreamNode): string {
   return COLUMN_SHORT_LABELS[node.column].toLowerCase();
 }
 
+/**
+ * The card's context-window figure (V1's thresholds): hidden below 20 % used,
+ * hot above 50 %. Null without a known window.
+ */
+export function getContextChip(
+  node: Pick<WorkstreamNode, "contextUsage">,
+): { readonly percent: number; readonly hot: boolean } | null {
+  const max = node.contextUsage?.maxTokens;
+  if (!node.contextUsage || !max) return null;
+  const percent = Math.min(100, Math.round((node.contextUsage.usedTokens / max) * 100));
+  return percent < 20 ? null : { percent, hot: percent > 50 };
+}
+
+/** A thread's dispatch site: the moment its parent spawned it, in the parent's conversation. */
+export const dispatchAnchorOf = (
+  node: Pick<WorkstreamNode, "parentThreadId" | "createdAt">,
+): ConversationAnchor | null =>
+  node.parentThreadId === null ? null : { threadId: node.parentThreadId, at: node.createdAt };
+
 const ageSeconds = (at: string) => {
   const timestamp = Date.parse(at);
   return Number.isNaN(timestamp) ? null : Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
@@ -491,7 +511,7 @@ export function outcomeActionsOf(node: Pick<WorkstreamNode, "outcome">): Outcome
 
 export type WorkstreamNodeMenuAction =
   | "open"
-  | "parent"
+  | "dispatch"
   | "history"
   | "report"
   | "outcome:done"
@@ -516,7 +536,9 @@ export function buildNodeContextMenuItems(
 ): ContextMenuItem<WorkstreamNodeMenuAction>[] {
   return [
     { id: "open", label: "Open thread" },
-    ...(node.parentThreadId === null ? [] : [{ id: "parent" as const, label: "Open parent" }]),
+    ...(node.parentThreadId === null
+      ? []
+      : [{ id: "dispatch" as const, label: "Show where it was dispatched" }]),
     { id: "history", label: "View timeline" },
     ...(node.reportPath === null ? [] : [{ id: "report" as const, label: "Open report" }]),
     ...outcomeActionsOf(node).map((action) => ({
@@ -529,8 +551,14 @@ export function buildNodeContextMenuItems(
 }
 
 // ---------------------------------------------------------------------------
-// Timeline — the journey the sidecar records, plus every submitted outcome
+// Timeline — the sidecar's milestones plus the thread's event history
 // ---------------------------------------------------------------------------
+
+/** A place in a thread's conversation: the latest row at or before `at`. */
+export interface ConversationAnchor {
+  readonly threadId: ThreadId;
+  readonly at: string;
+}
 
 export interface TimelineRow {
   readonly key: string;
@@ -540,21 +568,151 @@ export interface TimelineRow {
   readonly tone: Tone;
   /** The report this row's submit wrote (outcome rows only), as V1's per-round link. */
   readonly reportPath?: string | null;
+  /** "Show me where this happened": the dispatch for the spawn row, else the thread itself. */
+  readonly jump?: ConversationAnchor;
+}
+
+type RowBody = Pick<TimelineRow, "label" | "detail" | "tone">;
+
+const humanize = (token: string) => token.replaceAll("_", " ");
+
+const attentionLabel = (reason: string) =>
+  (ATTENTION_LABELS as Record<string, string>)[reason] ?? humanize(reason);
+
+const ATTENTION_TONES: Record<string, Tone> = {
+  error: "error",
+  needs_guidance: "warning",
+  awaiting_approval: "warning",
+  awaiting_input: "warning",
+  awaiting_acceptance: "info",
+};
+
+/** One history entry's copy: flags (a yield is `awaiting_orchestrator`), routes, outcomes. */
+function historyRowBody(
+  entry: LoomThreadHistoryEntry,
+  titleOf: (threadId: ThreadId) => string,
+): RowBody {
+  switch (entry.type) {
+    case "outcome":
+      return outcomeRowBody(entry);
+    case "attention-raised":
+      return entry.reason === "awaiting_orchestrator"
+        ? { label: "Yielded", detail: "handed its turn to the orchestrator", tone: "info" }
+        : {
+            label: "Flag raised",
+            detail: attentionLabel(entry.reason),
+            tone: ATTENTION_TONES[entry.reason] ?? "warning",
+          };
+    case "attention-cleared":
+      if (entry.reason === "awaiting_orchestrator")
+        return { label: "Resumed", detail: "picked back up by the orchestrator", tone: "info" };
+      return entry.reason === null
+        ? { label: "Flags cleared", detail: null, tone: "neutral" }
+        : { label: "Flag cleared", detail: attentionLabel(entry.reason), tone: "neutral" };
+    case "route-taken":
+      if (entry.kind === "loop")
+        return {
+          label: `Rework round ${entry.round}`,
+          detail: `→ ${titleOf(entry.to)}`,
+          tone: "warning",
+        };
+      return entry.kind === "loop-back"
+        ? {
+            label: "Back to review",
+            detail: `round ${entry.round} → ${titleOf(entry.to)}`,
+            tone: "info",
+          }
+        : { label: "Gate resolved", detail: `→ ${titleOf(entry.to)}`, tone: "success" };
+    case "rework-accepted":
+      return {
+        label: `Rework round ${entry.round}`,
+        detail: `from ${titleOf(entry.sourceThreadId)}`,
+        tone: "warning",
+      };
+    case "outcome-set":
+      return entry.outcome === null
+        ? { label: "Reopened", detail: null, tone: "info" }
+        : entry.outcome === "done"
+          ? { label: "Done", detail: null, tone: "success" }
+          : { label: "Cancelled", detail: null, tone: "neutral" };
+  }
+}
+
+function outcomeRowBody(
+  outcome: Pick<LoomThreadOutcome, "outcome" | "decision" | "round" | "counts" | "synthesised">,
+): RowBody {
+  const verdict = describeOutcomeVerdict(outcome);
+  const detail = [
+    `round ${outcome.round}`,
+    outcome.counts
+      ? `${outcome.counts.mustFix} must-fix · ${outcome.counts.niceToHave} nice-to-have`
+      : null,
+    outcome.synthesised ? "report synthesised" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    label: verdict?.label ?? `Submitted ${humanize(outcome.outcome)}`,
+    detail,
+    tone: verdict?.tone ?? "info",
+  };
 }
 
 /**
- * A thread's timeline: from its sidecar, created, held, dependencies set,
- * kicked off and the plan outcome (the latest of each — milestones, not a
- * log); and one row per submitted outcome (verdict, round, counts) linking the
- * report that submit wrote. `outcomes` is the thread's outcome history
- * (`loom.threadOutcomes`); until it arrives, the sidecar's latest outcome
- * stands in with the sidecar's report, which is that submit's. Oldest first.
+ * A thread's timeline, oldest first: from its sidecar, created (linking the
+ * parent's dispatch), held, dependencies set and kicked off; then its event
+ * history (`loom.threadHistory`) — every outcome with the report it wrote,
+ * every flag raised and cleared (yield and resume included), each gate route
+ * and rework round, and each plan outcome set or reopened. Until the history
+ * arrives, the sidecar's latest outcome and plan outcome stand in.
  */
 export function buildTimelineRows(
   node: WorkstreamNode,
   titleOf: (threadId: ThreadId) => string,
-  outcomes: ReadonlyArray<LoomThreadOutcome> | null = null,
+  history: ReadonlyArray<LoomThreadHistoryEntry> | null = null,
 ): TimelineRow[] {
+  const here = (at: string): ConversationAnchor => ({ threadId: node.id, at });
+  const dispatch = dispatchAnchorOf(node);
+  const historyRow = (
+    key: string,
+    at: string,
+    body: RowBody,
+    reportPath?: string | null,
+  ): TimelineRow => ({
+    key,
+    at,
+    ...body,
+    ...(reportPath === undefined ? {} : { reportPath }),
+    jump: here(at),
+  });
+  const historyRows = history?.map((entry) =>
+    historyRow(
+      `${entry.type}:${entry.eventId ?? entry.at}`,
+      entry.at,
+      historyRowBody(entry, titleOf),
+      entry.type === "outcome" ? entry.reportPath : undefined,
+    ),
+  ) ?? [
+    ...(node.lastOutcome === null
+      ? []
+      : [
+          historyRow(
+            "outcome",
+            node.lastOutcome.at,
+            outcomeRowBody(node.lastOutcome),
+            node.reportPath,
+          ),
+        ]),
+    ...(node.outcomeAt === null || node.outcome === null
+      ? []
+      : [
+          historyRow("outcome-set", node.outcomeAt, {
+            label: node.outcome === "done" ? "Done" : "Cancelled",
+            detail: null,
+            tone: node.outcome === "done" ? "success" : "neutral",
+          }),
+        ]),
+  ];
   const rows: Array<TimelineRow | null> = [
     {
       key: "created",
@@ -562,6 +720,7 @@ export function buildTimelineRows(
       label: node.parentThreadId === null ? "Created" : "Spawned",
       detail: getRoleLabel(node),
       tone: "neutral",
+      ...(dispatch === null ? {} : { jump: dispatch }),
     },
     node.heldSince === null
       ? null
@@ -577,45 +736,19 @@ export function buildTimelineRows(
         },
     node.kickoffAt === null
       ? null
-      : { key: "kickoff", at: node.kickoffAt, label: "Started", detail: null, tone: "info" },
-    ...(
-      outcomes ??
-      (node.lastOutcome === null ? [] : [{ ...node.lastOutcome, reportPath: node.reportPath }])
-    ).map(outcomeRow),
-    node.outcomeAt === null || node.outcome === null
-      ? null
       : {
-          key: "outcome",
-          at: node.outcomeAt,
-          label: node.outcome === "done" ? "Done" : "Cancelled",
+          key: "kickoff",
+          at: node.kickoffAt,
+          label: "Started",
           detail: null,
-          tone: node.outcome === "done" ? "success" : "neutral",
+          tone: "info",
+          jump: here(node.kickoffAt),
         },
+    ...historyRows,
   ];
   return rows
     .filter((row): row is TimelineRow => row !== null)
     .toSorted((left, right) => left.at.localeCompare(right.at));
-}
-
-function outcomeRow(outcome: LoomThreadOutcome): TimelineRow {
-  const verdict = describeOutcomeVerdict(outcome);
-  const detail = [
-    `round ${outcome.round}`,
-    outcome.counts
-      ? `${outcome.counts.mustFix} must-fix · ${outcome.counts.niceToHave} nice-to-have`
-      : null,
-    outcome.synthesised ? "report synthesised" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return {
-    key: `outcome:${outcome.eventId ?? outcome.at}`,
-    at: outcome.at,
-    label: verdict?.label ?? `Submitted ${outcome.outcome.replaceAll("_", " ")}`,
-    detail,
-    tone: verdict?.tone ?? "info",
-    reportPath: outcome.reportPath,
-  };
 }
 
 /** A route as one line: `loop → Parser (needs rework, ≤2 rounds)`. */

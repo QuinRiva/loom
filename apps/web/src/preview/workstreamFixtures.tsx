@@ -102,6 +102,7 @@ function BoardFixture() {
         onOpenThread={noop}
         onOpenTimeline={noop}
         onOpenReport={noop}
+        onJump={noop}
       />
     </div>
   );
@@ -157,11 +158,12 @@ function TimelineFixture({ threadId }: { threadId: ThreadId }) {
     <div className="relative mx-auto h-[420px] w-[400px] overflow-hidden rounded-lg border border-border">
       <WorkstreamTimelineDrawer
         node={nodes.get(threadId)}
-        outcomes={null}
+        history={null}
         titleOf={titleOf}
         onClose={noop}
         onOpenThread={noop}
         onOpenReport={noop}
+        onJump={noop}
       />
     </div>
   );

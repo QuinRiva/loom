@@ -404,10 +404,19 @@ export const LoomThreadWorkstream = Schema.Struct({
 });
 export type LoomThreadWorkstream = typeof LoomThreadWorkstream.Type;
 
+/** The active provider thread's context window: tokens used of `maxTokens`. */
+export const LoomContextUsage = Schema.Struct({
+  usedTokens: NonNegativeInt,
+  maxTokens: Schema.optional(PositiveInt),
+});
+export type LoomContextUsage = typeof LoomContextUsage.Type;
+
 /**
  * What a client sees on `OrchestrationV2ThreadShell.workstream`: the record
  * minus the fields no client renders (the dispatcher reads those from the
- * store), plus the consult and peer-message edge summaries.
+ * store), plus the consult and peer-message edge summaries, and the board
+ * card's tool-call count and context window (read with the shell, so a card
+ * never subscribes to its thread's projection).
  */
 export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => ({
   ...Struct.omit(fields, [
@@ -424,6 +433,10 @@ export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => 
   ),
   peerMessages: Schema.Array(LoomThreadPeerMessageSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  toolCalls: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  contextUsage: Schema.NullOr(LoomContextUsage).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
 }));
 export type LoomThreadShellFields = typeof LoomThreadShellFields.Type;

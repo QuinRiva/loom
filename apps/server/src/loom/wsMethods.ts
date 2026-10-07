@@ -21,7 +21,7 @@ import {
   type LoomGoalTaskRewriteInput,
   type LoomGoalTaskRewriteNode,
   type LoomGoalUpdateInput,
-  type LoomThreadOutcomesInput,
+  type LoomThreadHistoryInput,
   type LoomThreadSpendInput,
   type LoomTopSpendInput,
   LoomWsMethodError,
@@ -228,18 +228,14 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
         { "rpc.aggregate": "loom" },
       ),
-    // The timeline's outcome rows, each linking the report its submit wrote.
-    [LOOM_WS_METHODS.threadOutcomes]: (input: LoomThreadOutcomesInput) =>
+    // The node timeline's event history (outcomes with their reports, flags, routes).
+    [LOOM_WS_METHODS.threadHistory]: (input: LoomThreadHistoryInput) =>
       observeRpcEffect(
-        LOOM_WS_METHODS.threadOutcomes,
-        loomStore.outcomeHistory(input.threadId).pipe(
-          Effect.map((outcomes) => ({ outcomes })),
+        LOOM_WS_METHODS.threadHistory,
+        loomStore.history(input.threadId).pipe(
+          Effect.map((entries) => ({ entries })),
           Effect.mapError((cause) =>
-            fail(
-              LOOM_WS_METHODS.threadOutcomes,
-              `${LOOM_WS_METHODS.threadOutcomes} failed.`,
-              cause,
-            ),
+            fail(LOOM_WS_METHODS.threadHistory, `${LOOM_WS_METHODS.threadHistory} failed.`, cause),
           ),
         ),
         { "rpc.aggregate": "loom" },
