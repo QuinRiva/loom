@@ -138,3 +138,17 @@ deployed.
   healthy `/handoff` drafter threads are hidden from the sidebar, palette and mentions per
   V1's rule; the annotation chip label no longer reads "block block". Gate `fixed_inline`
   (`6e05d26853`).
+- **DL-606 — Carl's review of the 32 pull-9 drops is the authority for restores.** His
+  verdicts: `/home/Carl/.t3/cockpit/worktrees/loom/t3code-8575c5e1/recaps/pull9-agent-drops/carl-decisions.md`
+  (from the post-mortem thread `e1aab7f0`). Twelve rows restored on this branch: C1 thread
+  references; T3 consult card shows its answer; T4 handoff progress, failure toast and
+  `goal_handoff` receipt; T5 the `recovered` digest item; W2 node-timeline flag, yield and
+  rework rows; W3 jump-to-message (reversed from DROP); W4 workstream cost total; W5 tool
+  count and context on board cards (reversed from DROP); S2 clickable rollup popover; S4
+  pending-question topic and age; O3 `thread_fork` includes the calling turn; G3 the right
+  panel reopens as the user left it. Q1 (semantic search plus include-archived toggle) is
+  agreed, but its timing is Carl's call.
+- **DL-750 — Thread references get their own trigger, `!`, not `#`** (Carl: "`@` is
+  already searching files, which is heavy … `#` is now used by PRs … the big gap … is that
+  spaces are escaped and almost all threads have spaces in their names"). `@` (files) and
+  `#` (pull requests) stay upstream's; multi-word queries are the core requirement.
