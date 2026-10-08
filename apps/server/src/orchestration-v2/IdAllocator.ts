@@ -25,6 +25,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as NodeCrypto from "node:crypto";
 
 import { randomUuidV4 } from "./RandomUuid.ts";
 
@@ -194,13 +195,23 @@ const encodePart = (part: string | number): string => encodeURIComponent(String(
 const joinId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>
   [prefix, ...parts.map(encodePart)].join(":");
 
+// loom: a derived id is its kind plus a 128-bit digest of the canonical joined form, so a
+// parent id passed back in as a part can never compound into the child's length. Nothing
+// parses ids (docs/orchestration-v2/entity-ids-and-correlation.md); parents live in columns.
+const deriveId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>
+  `${prefix}:${NodeCrypto.createHash("sha256")
+    .update(joinId(prefix, ...parts))
+    .digest("hex")
+    .slice(0, 32)}`;
+
 export function deriveThreadFromProviderThread(input: {
   readonly driver: ProviderDriverKind;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly nativeThreadId: string;
 }): ThreadId {
   return ThreadId.make(
-    joinId(
+    // loom: digest form, see deriveId.
+    deriveId(
       "thread",
       "provider",
       input.driver,
@@ -219,7 +230,8 @@ export function deriveProviderThread(input: {
   readonly nativeThreadId: string;
 }): ProviderThreadId {
   return ProviderThreadId.make(
-    joinId(
+    // loom: digest form, see deriveId.
+    deriveId(
       "provider-thread",
       "provider",
       input.driver,
@@ -232,16 +244,17 @@ export function deriveProviderThread(input: {
   );
 }
 
+// loom: the uuid alone is the identity; the scope parts were labels nobody read, and they
+// re-encoded nested ids (an event id carried its thread, command and session ids).
 const randomId =
   <Id, Input>(input: {
     readonly kind: IdAllocatorV2Kind;
     readonly prefix: string;
-    readonly parts: ReadonlyArray<string | number>;
     readonly make: (value: string) => Id;
   }) =>
   (allocationInput: Input): Effect.Effect<Id, IdAllocatorV2Error> =>
     randomUuidV4.pipe(
-      Effect.map((uuid) => input.make(joinId(input.prefix, ...input.parts, uuid))),
+      Effect.map((uuid) => input.make(`${input.prefix}:${uuid}`)),
       Effect.mapError(
         (cause) =>
           new IdAllocatorV2AllocationError({
@@ -260,76 +273,48 @@ export const layer: Layer.Layer<IdAllocatorV2> = Layer.succeed(
         randomId<CommandId, typeof input>({
           kind: "command",
           prefix: "command",
-          parts: ["fixture", input.fixtureName, input.commandName],
           make: CommandId.make,
         })(input),
       event: (input) =>
         randomId<EventId, typeof input>({
           kind: "event",
           prefix: "event",
-          parts: [
-            ...(input.threadId === undefined ? [] : ["thread", input.threadId]),
-            ...(input.commandId === undefined ? [] : ["command", input.commandId]),
-            ...(input.providerSessionId === undefined
-              ? []
-              : ["provider-session", input.providerSessionId]),
-          ],
           make: EventId.make,
         })(input),
       rawEvent: (input) =>
         randomId<RawEventId, typeof input>({
           kind: "raw_event",
           prefix: "raw-event",
-          parts: [
-            "provider-session",
-            input.providerSessionId,
-            ...(input.method === null ? [] : ["method", input.method]),
-          ],
           make: RawEventId.make,
         })(input),
       project: (input) =>
         randomId<ProjectId, typeof input>({
           kind: "project",
           prefix: "project",
-          parts: ["fixture", input.fixtureName],
           make: ProjectId.make,
         })(input),
       thread: (input) =>
         randomId<ThreadId, typeof input>({
           kind: "thread",
           prefix: "thread",
-          parts: [
-            ...(input.fixtureName === undefined ? [] : ["fixture", input.fixtureName]),
-            ...(input.projectId === undefined ? [] : ["project", input.projectId]),
-          ],
           make: ThreadId.make,
         })(input),
       message: (input) =>
         randomId<MessageId, typeof input>({
           kind: "message",
           prefix: "message",
-          parts: ["thread", input.threadId, "ordinal", input.ordinal],
           make: MessageId.make,
         })(input),
       providerSession: (input) =>
         randomId<ProviderSessionId, typeof input>({
           kind: "provider_session",
           prefix: "provider-session",
-          parts: ["provider-instance", input.providerInstanceId, "thread", input.threadId],
           make: ProviderSessionId.make,
         })(input),
       runtimeRequest: (input) =>
         randomId<RuntimeRequestId, typeof input>({
           kind: "runtime_request",
           prefix: "runtime-request",
-          parts: [
-            "provider",
-            input.driver,
-            ...(input.providerTurnId === undefined ? [] : ["provider-turn", input.providerTurnId]),
-            ...(input.nativeRequestId === undefined
-              ? []
-              : ["native-request", input.nativeRequestId]),
-          ],
           make: RuntimeRequestId.make,
         })(input),
       checkpointScope: (input) =>
@@ -348,88 +333,68 @@ export const layer: Layer.Layer<IdAllocatorV2> = Layer.succeed(
         randomId<ContextHandoffId, typeof input>({
           kind: "context_handoff",
           prefix: "context-handoff",
-          parts: [
-            "thread",
-            input.threadId,
-            "from-provider-instance",
-            input.fromProviderInstanceId,
-            "to-provider-instance",
-            input.toProviderInstanceId,
-          ],
           make: ContextHandoffId.make,
         })(input),
       contextTransfer: (input) =>
         randomId<ContextTransferId, typeof input>({
           kind: "context_transfer",
           prefix: "context-transfer",
-          parts: [
-            "type",
-            input.type,
-            "source-thread",
-            input.sourceThreadId,
-            "target-thread",
-            input.targetThreadId,
-          ],
           make: ContextTransferId.make,
         })(input),
       plan: (input) =>
         randomId<PlanId, typeof input>({
           kind: "plan",
           prefix: "plan",
-          parts: [
-            "thread",
-            input.threadId,
-            "provider",
-            input.driver,
-            ...(input.runId === undefined ? [] : ["run", input.runId]),
-          ],
           make: PlanId.make,
         })(input),
     },
+    // loom: every derive entry is deriveId (bounded digest), not joinId.
     derive: {
       providerSession: (input) =>
         ProviderSessionId.make(
-          joinId("provider-session", "provider-instance", input.providerInstanceId, "shared"),
+          deriveId("provider-session", "provider-instance", input.providerInstanceId, "shared"),
         ),
-      delegatedTaskNode: (input) => NodeId.make(joinId("node", "delegated-task", input.commandId)),
+      delegatedTaskNode: (input) =>
+        NodeId.make(deriveId("node", "delegated-task", input.commandId)),
       delegatedTaskThread: (input) =>
-        ThreadId.make(joinId("thread", "delegated-task", input.commandId)),
+        ThreadId.make(deriveId("thread", "delegated-task", input.commandId)),
       delegatedTaskMessage: (input) =>
-        MessageId.make(joinId("message", "delegated-task", input.commandId)),
+        MessageId.make(deriveId("message", "delegated-task", input.commandId)),
       delegatedTaskTurnItem: (input) =>
-        TurnItemId.make(joinId("turn-item", "delegated-task", input.commandId)),
+        TurnItemId.make(deriveId("turn-item", "delegated-task", input.commandId)),
       createdThreadTurnItem: (input) =>
-        TurnItemId.make(joinId("turn-item", "created-thread", input.commandId)),
+        TurnItemId.make(deriveId("turn-item", "created-thread", input.commandId)),
       threadFromProviderThread: deriveThreadFromProviderThread,
-      run: (input) => RunId.make(joinId("run", "thread", input.threadId, "ordinal", input.ordinal)),
+      run: (input) =>
+        RunId.make(deriveId("run", "thread", input.threadId, "ordinal", input.ordinal)),
       runAttempt: (input) =>
         RunAttemptId.make(
-          joinId("run-attempt", "run", input.runId, "attempt", input.attemptOrdinal),
+          deriveId("run-attempt", "run", input.runId, "attempt", input.attemptOrdinal),
         ),
-      rootNode: (input) => NodeId.make(joinId("node", "run", input.runId, "root")),
+      rootNode: (input) => NodeId.make(deriveId("node", "run", input.runId, "root")),
       rootNodeAttempt: (input) =>
-        NodeId.make(joinId("node", "run", input.runId, "attempt", input.attemptOrdinal, "root")),
-      userTurnItem: (input) => TurnItemId.make(joinId("turn-item", "message", input.messageId)),
+        NodeId.make(deriveId("node", "run", input.runId, "attempt", input.attemptOrdinal, "root")),
+      userTurnItem: (input) => TurnItemId.make(deriveId("turn-item", "message", input.messageId)),
       runSignalTurnItem: (input) =>
-        TurnItemId.make(joinId("turn-item", "run", input.runId, "signal", input.signal)),
+        TurnItemId.make(deriveId("turn-item", "run", input.runId, "signal", input.signal)),
       providerThread: deriveProviderThread,
       providerTurn: (input) =>
         ProviderTurnId.make(
-          joinId("provider-turn", "provider", input.driver, "native-turn", input.nativeTurnId),
+          deriveId("provider-turn", "provider", input.driver, "native-turn", input.nativeTurnId),
         ),
       nodeFromProviderItem: (input) =>
-        NodeId.make(joinId("node", "provider", input.driver, "native-item", input.nativeItemId)),
+        NodeId.make(deriveId("node", "provider", input.driver, "native-item", input.nativeItemId)),
       messageFromProviderItem: (input) =>
         MessageId.make(
-          joinId("message", "provider", input.driver, "native-item", input.nativeItemId),
+          deriveId("message", "provider", input.driver, "native-item", input.nativeItemId),
         ),
       turnItemFromProviderItem: (input) =>
         TurnItemId.make(
-          joinId("turn-item", "provider", input.driver, "native-item", input.nativeItemId),
+          deriveId("turn-item", "provider", input.driver, "native-item", input.nativeItemId),
         ),
-      approvalNode: (input) => NodeId.make(joinId("node", "runtime-request", input.requestId)),
+      approvalNode: (input) => NodeId.make(deriveId("node", "runtime-request", input.requestId)),
       approvalTurnItem: (input) =>
-        TurnItemId.make(joinId("turn-item", "runtime-request", input.requestId)),
+        TurnItemId.make(deriveId("turn-item", "runtime-request", input.requestId)),
     },
   }),
 );

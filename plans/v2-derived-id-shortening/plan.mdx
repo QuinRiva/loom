@@ -1,0 +1,296 @@
+---
+manager_sessions:
+  - id: 01a11902-9f0a-70a0-9006-2ecea7d0872f
+    name: Derived-ID shortening plan
+    role: plan
+    authored_at: 2026-10-08T01:13:55.582Z
+---
+
+# Shorten V2 derived IDs to a bounded digest form
+
+**Objective.** Since the V2 orchestration cutover (upstream Pull 9, loom PR #333), every `derive.*` ID in `apps/server/src/orchestration-v2/IdAllocator.ts` is built by percent-encoding its inputs and joining them — and most inputs are themselves derived IDs. Each layer re-encodes the one inside it, so a pi assistant message ID in a workstream thread is ~567 characters, a loom attention message reaches 2,230, and ID strings are 66% of all V2 row-plus-index bytes (≈100 MB/day on a disk with 15 GB free). 77% of V2 pi assistant messages already exceed the 512-character cap on `AssistantCitation.messageId`, so quoting them fails. This plan replaces the nesting with a fixed-width digest at the one place every derived ID is built, flattens the random `allocate.*` IDs to `prefix:uuid`, and leaves everything else — old rows, adapters, loom's own ID conventions — untouched.
+
+**Done means:** every ID minted by `IdAllocator` is at most 53 characters whatever its nesting depth; a live pi turn on a dev instance produces rows whose per-kind maximum ID length is ≤ 53 when measured with the researchers' `measure.py`; quoting a new pi assistant message yields a citation chip; `vp check`, `vp run typecheck` and the server test suite pass; the loom delta in upstream-owned files is a handful of `// loom:`-marked hunks in one file.
+
+<Callout tone="decision">
+  **Recommendation.** One upstream file changes: `IdAllocator.ts`. Every `derive.*` ID becomes `kind:` + the first 32 hex characters of sha256 of the string the current scheme would have produced; every random `allocate.*` ID becomes `kind:uuid`. No migration of existing rows, no change to the pi adapter, no change to loom's `server:…` command IDs, and the unmerged citation-cap raise (`6015df103c`) is dropped rather than merged. Expected effect on the measured production data: ≈45% of V2 storage, ≈60% of raw websocket JSON for workstream threads.
+</Callout>
+
+## What the nesting is and why nothing needs it
+
+The two researcher reports established the facts this plan rests on:
+
+- `joinId(prefix, ...parts)` URL-encodes each part and joins with `:`. That makes a composite key unambiguous — deliberate. The *nesting* is an accident: callers pass already-derived IDs back in as parts, and the pi adapter builds its synthetic "native" turn and item IDs by concatenating app IDs that are already nested.
+- Nothing parses a derived ID. Parent links are stored as columns (`runId`, `parentNodeId`, `providerTurnId`, …); native identities are stored as `nativeThreadRef` / `nativeTurnRef` / `nativeItemRef`. V2's own design doc forbids inferring structure from IDs (`docs/orchestration-v2/entity-ids-and-correlation.md`, allocation rules 4–5) and allows random IDs once the binding is persisted. The only code that splits an ID is loom's `synthesisedReportFileName` (`apps/server/src/loom/workstream/report.ts:56`), which falls back to the whole run ID when the split finds nothing; migration `1052_LoomControlMessageRows.ts` rebuilds `turn-item:message:…` in SQL but only for legacy-import rows that already exist.
+- What *is* load-bearing: every `derive.*` must stay a pure, deterministic function of its inputs, because callers recompute IDs instead of storing a native-to-app map (per-delta recomputation in the adapters, run-signal pairing, delegated-task retries, approval nodes). A digest of the canonical input keeps that property exactly.
+
+<Table
+  columns={["ID", "Built from", "Today (workstream thread)", "After this plan"]}
+  rows={[
+    ["thread (workstream, not derived)", "loom `stableThreadId`", "106", "106 (unchanged)"],
+    ["run", "thread + ordinal", "137", "36"],
+    ["provider-thread (pi)", "native `pending:` + run id", "194 → 397", "48"],
+    ["run-attempt", "run + attempt ordinal", "181", "44"],
+    ["pi synthetic native turn (a ref, not an ID)", "provider-thread id + attempt id", "371", "101"],
+    ["provider-turn", "native turn", "501", "46"],
+    ["pi native item (a ref, not an ID)", "provider-turn id + `:m<n>:c<k>`", "469", "52"],
+    ["message / node / turn-item (pi)", "native item", "603 / 600 / 605", "40 / 37 / 42"],
+    ["runtime-request (allocate)", "provider-turn id + native request + uuid", "≈604", "52"],
+    ["approval node / turn-item", "runtime-request id", "≈697", "37 / 42"],
+    ["event (allocate)", "thread + command + session + uuid", "402 (max 980)", "42"],
+    ["loom `message:server:workstream-attention:…`", "child thread + reason + event id", "796 (max 2,230)", "≈200"],
+    ["checkpoint-scope / checkpoint", "thread + name", "150 / 192", "150 / 192 (unchanged)"],
+  ]}
+/>
+
+The last two rows are deliberate: they are bounded by the thread ID, not compounding, and recomputed for lookups on every existing thread (changing them would orphan every thread's checkpoint scope). The 106-character workstream thread ID is not derived and is user-visible; it is out of scope (see Non-goals).
+
+## The ID scheme
+
+### Derived IDs: `kind:` + 32-hex sha256 of the canonical join
+
+Every `derive.*` entry and the two exported helpers (`deriveThreadFromProviderThread`, `deriveProviderThread`) switch from `joinId` to a `deriveId` that hashes what `joinId` would have returned:
+
+<Diff
+  filename="apps/server/src/orchestration-v2/IdAllocator.ts"
+  language="ts"
+  mode="unified"
+  before={"const encodePart = (part: string | number): string => encodeURIComponent(String(part));\n\nconst joinId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>\n  [prefix, ...parts.map(encodePart)].join(\":\");\n"}
+  after={"const encodePart = (part: string | number): string => encodeURIComponent(String(part));\n\nconst joinId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>\n  [prefix, ...parts.map(encodePart)].join(\":\");\n\n// loom: a derived id is its kind plus a 128-bit digest of the canonical joined form, so a\n// parent id passed back in as a part can never compound into the child's length. Nothing\n// parses ids (docs/orchestration-v2/entity-ids-and-correlation.md); parents live in columns.\nconst deriveId = (prefix: string, ...parts: ReadonlyArray<string | number>): string =>\n  `${prefix}:${NodeCrypto.createHash(\"sha256\").update(joinId(prefix, ...parts)).digest(\"hex\").slice(0, 32)}`;\n"}
+  annotations={[
+    { side: "after", lines: "6-8", label: "the one marked rationale", note: "The only place the rule is explained; every derive entry below just swaps joinId → deriveId." },
+    { side: "after", lines: "10", label: "canonical input", note: "Hashing the exact string the old scheme produced keeps determinism, keeps the prefix as a domain separator (node vs message from the same item differ), and makes the rule explainable in one line." },
+  ]}
+/>
+
+Then, in the `derive: { … }` table, every `joinId(` becomes `deriveId(` (18 entries plus the two exported functions). `joinId` stays for `checkpointScope` / `checkpoint`.
+
+Decisions settled here, with the reasons:
+
+- **Digest width and encoding: 32 lowercase hex characters (128 bits).** Hex matches the repo's precedent for exactly this job (`checkpointRefForScopeOrdinal` in `CheckpointService.ts` takes `sha256(...).digest("hex").slice(0, 32)` of a scope ID), is safe on case-insensitive filesystems (macOS reports and briefs are keyed by thread IDs, and `thread:delegated-task:…` is derived), matches every ID-shape regex in the contracts (`ComposerContextId` allows `[a-z0-9_-]`), and is greppable. base64url would save 10 characters per ID; 24 hex would save 8. Neither is worth a second encoding in the codebase: the longest resulting ID is 53 characters, well under the 64 target.
+- **What stays human-readable: the kind prefix, and nothing else.** `message:`, `node:`, `run:`, `provider-turn:` … tell you the entity type at a glance in SQL or a wire frame. Everything the nesting used to carry — which thread, which run, which driver, which native item — is already a column (`thread_id`, `run_id`, `provider_turn_id`, `nativeItemRef`) and that is where debugging reads it from. A readable driver tag (`message:pi:…`) was considered and rejected: it would need a per-entry change at every derive site to know which part is a label, for information the `driver` column already holds.
+- **Cost of hashing: negligible.** The pi adapter recomputes three derived IDs per streaming delta; a sha256 of a ~100-byte string is about a microsecond, against the ~4 KB JSON event it accompanies today.
+
+### Allocated IDs: `kind:uuid`
+
+Every `allocate.*` ID already ends in a random UUID; its scope parts are labels nobody reads (verified by the design researcher, and `allocate.event` is where the thread, command and provider-session IDs were being re-encoded into every event row). `randomId` drops `parts`:
+
+<Diff
+  filename="apps/server/src/orchestration-v2/IdAllocator.ts"
+  language="ts"
+  mode="unified"
+  before={"const randomId =\n  <Id, Input>(input: {\n    readonly kind: IdAllocatorV2Kind;\n    readonly prefix: string;\n    readonly parts: ReadonlyArray<string | number>;\n    readonly make: (value: string) => Id;\n  }) =>\n  (allocationInput: Input): Effect.Effect<Id, IdAllocatorV2Error> =>\n    randomUuidV4.pipe(\n      Effect.map((uuid) => input.make(joinId(input.prefix, ...input.parts, uuid))),\n"}
+  after={"// loom: the uuid alone is the identity; the scope parts were labels nobody read, and they\n// re-encoded nested ids (an event id carried its thread, command and session ids).\nconst randomId =\n  <Id, Input>(input: {\n    readonly kind: IdAllocatorV2Kind;\n    readonly prefix: string;\n    readonly make: (value: string) => Id;\n  }) =>\n  (allocationInput: Input): Effect.Effect<Id, IdAllocatorV2Error> =>\n    randomUuidV4.pipe(\n      Effect.map((uuid) => input.make(`${input.prefix}:${uuid}`)),\n"}
+/>
+
+and each of the 11 `allocate.*` entries that pass `parts: [...]` loses that property (the input objects keep their typed fields — callers are unchanged — they just no longer feed the ID). `checkpointScope` and `checkpoint` keep their deterministic `joinId` form, as explained above. Removing the dead `parts` arrays is a larger diff in an upstream file than ignoring them, but leaving eleven unused arrays behind is exactly the kind of permanent surface the repo rules forbid; the file has not changed upstream since the V2 PR, so the merge exposure is small.
+
+### What is deliberately not changed, and why
+
+- **`PiAdapterV2.ts` synthetic native IDs (`:2395` turn, `:917` item) and the `pending:` seeding (`Orchestrator.ts:4920/4101`).** Once their inputs are bounded these strings are 101 and 52 characters, and they are stored only as native *refs* (the 101-character weak turn ref is replaced by pi's real entry ID when the turn completes). Dropping the provider-thread prefix from the turn would save 57 bytes per provider turn at the cost of a loom hunk in the busiest upstream adapter. Not worth it. The researcher's open question is nevertheless answered: **pi has exactly one provider turn per attempt** — `ProviderTurnStartService` calls `startRootRun` once per attempt with that attempt's `attemptId`, `RunExecutionService` calls `session.startTurn` once, `compactThread` is routed *instead of* `startTurn` (not in addition), the adapter rejects a second `startTurn` while one is active, and a retry mints a new attempt ID (`Orchestrator.ts:4011`). So `attemptId` alone would have been a valid unique native turn key had we needed it.
+- **Loom's `server:…` command IDs (`controlMessage.ts`) and the messages/turn items built from them.** Their length came from embedding a nested *event* ID; with `event:uuid` they are ≈200 characters, bounded by the 106-character thread ID, and do not compound. They are also idempotency keys checked against command receipts across restarts: changing their shape would re-send every open attention, brief-needed, deadlock and digest notice once after deploy. Leave them.
+- **Convention-shared IDs** — `message:restart-continuation:` + run ID (`RestartContinuation.ts:97`, `loomRecoveryPolicy.ts:220`), `command:effect:provider-turn.start:` + run ID, `async-answer:` + request ID. All are one level deep over a now-short ID (≈65 characters) and are built from the *stored* run/request ID on both sides, so they agree across the upgrade.
+- **Other adapters** (Claude `${providerThread.id}:${taskId}`, Cursor `${runId}:task:…`, ACP `${nativeTurnId}:…`). Their concatenations are bounded by the now-short inputs and pass through the same choke point; loom's driver registry ships pi only, so these paths are dormant here. No change.
+- **`report.ts:56`.** Keep the split-with-fallback: a quiescent report for a run that was in flight at the upgrade still has a 137-character run ID, and the split is what keeps that filename under 255 bytes.
+- **`docs/orchestration-v2/entity-ids-and-correlation.md`.** Upstream-owned and byte-identical; the rule change is proposed upstream (below), not edited locally. The marked comment in `IdAllocator.ts` is the local record.
+
+## Existing databases: leave old rows as they are
+
+<Callout tone="decision">
+  **No rewrite migration.** Rows written before the deploy keep their long IDs; rows written after it get short ones. No code reads both shapes because no code reads shape at all — every lookup is equality on a stored string, and the ID columns are untyped `TEXT` with no length checks.
+</Callout>
+
+Why not rewrite:
+
+- **Disk.** The volume has 15 GB free of 1.5 TB. An in-place `UPDATE` across ~155 MB of V2 rows plus event-payload JSON needs a WAL of comparable size (feasible), but it would not shrink the file — SQLite only returns pages to the freelist — and a `VACUUM` to actually reclaim them needs a second copy of the 7.8 GB database (not feasible). The whole prize is ≈70 MB, about 17 hours of post-fix writes.
+- **Risk.** The rewrite would have to touch every ID column *and* every ID inside `payload_json` in `orchestration_events` and the projection tables, and loom's sidecar rows (`attentionEpisodes`, `lastOutcome.eventId`) and `server:…` command IDs that embed event IDs — consistently, or the dispatcher's receipt checks break and notices re-fire. A bug in that migration corrupts an event store. The upside does not justify it.
+
+What happens to entities that span the upgrade (server restarts with the new code):
+
+<Table
+  columns={["In-flight entity", "Recomputed after upgrade?", "Outcome"]}
+  rows={[
+    ["Pending approvals and `ask_user_question` requests", "No — resolution reads the stored turn item (`context.item`) and runtime request by ID", "Resolve normally"],
+    ["Delegated-task retry of the same `commandId`", "No — the command receipt short-circuits the retry before any ID is derived", "No-op, as today"],
+    ["Pi provider thread of an existing thread", "No — `registerThread` reuses the stored record (`PiAdapterV2.ts:2145`)", "Keeps its old long ID for life; harmless"],
+    ["Restart continuation of an interrupted run", "Built from the stored run ID on both sides", "Agrees across the upgrade"],
+    ["Loom attention / digest / brief-needed notices", "Built from stored event IDs", "Agree; no duplicate notices"],
+    ["Checkpoint scopes", "Unchanged scheme", "Same scope rows and git refs"],
+    ["An interrupt requested just before the restart, on a run resumed after it", "Yes — `hasUnpairedRunInterruptRequest` recomputes `turn-item:run:<run>:signal:interrupt-request`", "The old-form item is not found, so the resumed attempt proceeds instead of honouring the stale interrupt. Live pi turns do not survive a restart anyway; the user re-interrupts."],
+    ["Codex / Claude / ACP subagent threads re-derived from native IDs", "Yes, within a live turn only", "Dormant in loom (pi-only registry); noted for upstream"],
+  ]}
+/>
+
+The one real effect of keeping old rows is on citations, next.
+
+## The citation cap
+
+Commit `6015df103c` on the unmerged branch `t3/fix-handoff-retro-commands` raises `AssistantCitation.messageId` from 512 to 2,048 (and the href budget to match) in `packages/contracts/src/assistantCitations.ts` and `packages/shared/src/assistantCitations.ts`. After this plan a new pi message ID is 40 characters, so the raise is unnecessary for every message written after the deploy. For the messages written before it — 141 V2 pi assistant messages in the first 11.7 hours, growing until the fix ships — the 512 cap still rejects 77% of them.
+
+**Recommendation: do not merge the cap raise.** It is a change to an upstream contract file whose only purpose would be to keep a pre-fix window of messages quotable; the repo's rule against carrying accommodation for old shapes applies. The second commit on that branch (`b256d49d5f`, pi receives cited quotes expanded rather than as raw `t3-citation://` links) is independent of ID length and should still land on its own. The bottom form offers the alternative — merge the two-file marked hunk so old messages stay citable — if the user wants it. Goal task `086d54c2` ("make citations work again for V2 pi messages") is satisfied for new messages by this plan either way.
+
+The other caps the design report lists are unaffected or improved and need no change: the history cursor (4,096) base64-encodes a turn-item ID that is now ≤ 42 characters (old ones ≤ 900); `ComposerContextId` (128) still rejects *any* `thread:` ID on mobile (upstream #15657 — a shape problem, not a length one); `PreviewTabId` embeds the thread ID, which this plan does not touch; attachment and report filenames are keyed by thread IDs.
+
+## Upstream stance
+
+- **Carry it as `// loom:`-marked hunks inside `IdAllocator.ts`, not a `*.loom.ts` module.** The whole addition is one six-line helper plus one-token swaps and property deletions; a separate module would exist only to hold six lines. The file is byte-identical to upstream today and has not changed upstream since the V2 PR, so the merge surface is one small, stable file. Three markers (helper, `randomId`, the `derive:` table) satisfy the `unmarkedsweep.sh` gate that `pnpm ship` runs.
+- **Propose it upstream as an issue, not a PR.** Upstream has the same compounding (381-character pi message IDs even with UUID threads) and two bugs already traced to `joinId` length (#7720, #15657), but it also has to decide its own migration story — existing user databases keep long IDs, and `ws.ts`'s ACP registry derives a thread ID from a native session to check whether a session was already imported (`importedAcpThreadId`), which a scheme change would silently defeat for already-imported sessions unless exempted or migrated. Those are upstream's calls. The outline below is ready to paste; do not file it as part of this work.
+
+<Details summary="Upstream issue outline (do not file; for the user to send)">
+  **Title.** V2 derived ids compound their parents' ids: a pi message id is ~380 chars with a UUID thread, ~570 in nested cases
+
+  **What happens.** `IdAllocator.derive.*` joins percent-encoded parts, and most parts are themselves derived ids, so each layer re-encodes the one inside it (`%3A` → `%253A` → `%25253A`). The pi adapter makes it worst by building its synthetic native turn as `providerThread.id + ":attempt:" + attemptId` and its native item as `providerTurn.id + ":m<n>:c<k>"`, so a message id embeds the thread twice. Chain: run (57) → pending provider-thread (117) → attempt (91) → synthetic turn (293) → provider-turn (300) → item (306) → message (381).
+
+  **What it costs (measured on one fork's data).** Id strings are ~66% of V2 row+index bytes; `node.updated` events average 4.2 KB, 85% ids; ~55–60% of raw websocket JSON for threads created by MCP tools. The 512-char cap on `AssistantCitation.messageId` is exceeded by most pi assistant messages in such threads, so quoting them fails. Related: #7720 (preview tab id over 128 chars), #15657 (`ComposerContextId` rejects thread ids, triage blames `joinId`).
+
+  **What depends on the nesting.** Nothing: the design doc says ids are opaque and parent links are columns; no code splits a derived id. Determinism of `derive.*` is what matters, and a digest keeps it.
+
+  **Proposed fix.** `derive.*` → `kind:` + sha256-hex[0:32] of the canonical joined string; `allocate.*` → `kind:uuid` (the scope parts were labels). One file. Caveats upstream should decide: existing databases keep long ids (no migration, nothing reads both shapes); `importedAcpThreadId` in `ws.ts` recomputes a thread id as an existence check and would need the ACP thread derive exempted or a one-off rewrite; ~a dozen tests assert literal ids.
+</Details>
+
+## File-level change list
+
+<FileTree
+  title="Changes"
+  entries={[
+    {
+      path: "apps/server/src/orchestration-v2/IdAllocator.ts",
+      change: "modified",
+      note: "upstream file; three // loom: hunks — deriveId helper, randomId without parts, derive table joinId→deriveId; NodeCrypto import",
+    },
+    {
+      path: "apps/server/src/orchestration-v2/IdAllocator.loom.test.ts",
+      change: "added",
+      note: "loom-only: determinism, bound, kind separation, allocate shape",
+    },
+    {
+      path: "apps/server/src/**/*.test.ts",
+      change: "modified",
+      note: "only where a test asserts a literal derived-id string; see Tests",
+    },
+    {
+      path: "plans/v2-derived-id-shortening/plan.mdx",
+      change: "added",
+      note: "this plan",
+    },
+  ]}
+/>
+
+Explicitly untouched (reasons above): `PiAdapterV2.ts`, `Orchestrator.ts`, `controlMessage.ts`, `RestartContinuation.ts`, `loomRecoveryPolicy.ts`, `report.ts`, `1052_LoomControlMessageRows.ts`, `assistantCitations.ts` (both packages), the other adapters, `docs/orchestration-v2/*`, and `LoomMigrations.ts` (no new migration).
+
+## Tests and verification
+
+### Updating tests that assert exact IDs
+
+The suite under `apps/server/src` is 574 files; the researchers estimated ~30 reference nested-ID strings. On inspection most of those are **fixture inputs** (`"thread:delegated-task:command%3A…"`, `nativeThreadId: "native-thread"`) and keep working — an opaque string is still a valid input. The fixture-replay tests (`testkit/fixtures/*/pi_output.ts`) assert semantically (counts, statuses, native refs), not ID literals. The breakage is confined to tests that compare an *emitted* ID to a hand-written literal. Fix them by, in order of preference:
+
+1. **Compute the expectation through the allocator.** Most adapter and orchestrator tests already build expected IDs with `IdAllocator.layer`; where a test hand-builds one (e.g. `report.test.ts` builds `run:thread:<enc thread>:ordinal:2`), that is fine as an *input* and needs no change.
+2. **Assert the relationship, not the literal.** `item.nodeId === node.id`, `attempt.runId === run.id`.
+3. **Assert the shape** where the literal was never the point: `/^turn-item:[0-9a-f]{32}$/`.
+
+Do not add a deterministic "fixture" allocator to make literals stable; the point of the tests is the relationships. Files most likely to need touching, from a grep of literal nested IDs in assertions: `ProviderRuntimeRecoveryService.test.ts` (:1074–1077), `OpenCode2AdapterV2.test.ts`, `CodexAdapterV2.test.ts`, `ProviderSessionManager.test.ts`, `ProviderEventIngestor.test.ts`, `EventNdjsonLogger.test.ts`, `quiescence.test.ts` (prefix matches only — likely unaffected). Expect the real list to be shorter than that once the suite runs.
+
+### The new test
+
+`IdAllocator.loom.test.ts` (loom-only, so no marker needed) asserts in a few cases:
+
+- `derive.messageFromProviderItem` with a 600-character native item ID returns a 40-character `message:[0-9a-f]{32}`; the same input twice is equal; a different driver, and `node`/`turn-item` from the same item, all differ.
+- The chain `run → runAttempt → rootNodeAttempt → runSignalTurnItem` from a 106-character thread ID stays ≤ 53 characters at every step.
+- `allocate.event` with thread, command and provider-session inputs matches `event:<uuid>`; `allocate.checkpointScope` is unchanged (`checkpoint-scope:thread:…:name:…`).
+- `deriveProviderThread` (the exported helper the V1 importer uses) produces the same digest form as `derive.providerThread`.
+
+### Commands (use the worktree's own `npx vp`, never the one on PATH)
+
+<Checklist
+  items={[
+    { id: "unit", label: "npx vp test run apps/server/src/orchestration-v2/IdAllocator.loom.test.ts" },
+    { id: "v2", label: "npx vp test run apps/server/src/orchestration-v2  — 121 files; fix literal-ID assertions as described" },
+    { id: "server", label: "cd apps/server && npx vp test run  — the full 574-file server suite (declare an eta; expect >5 min)" },
+    { id: "gates", label: "npx vp check && npx vp run typecheck  — the loom completion gates" },
+    { id: "sweep", label: "docs/upstream-sync/pull7-tools/unmarkedsweep.sh  — IdAllocator.ts must show ≥ 1 marker (pnpm ship runs this too)" },
+  ]}
+/>
+
+### Live end-to-end proof
+
+The seeded dev instance from `docs/dev-site-testing.md` boots on a stub adapter, so a **real pi turn** has to be started by hand:
+
+1. Follow the recipe: pick a free port, seed `$SEED_HOME`, start `pnpm dev --home-dir "$HOME_ROOT" --port "$PORT"` backgrounded, pair in the browser with the printed `localhost` pairing URL.
+2. Create a project on a real repository path (any small git repo in a scratch directory), open a new thread with the default pi model, and send one short prompt (e.g. "Reply with one sentence and then stop."). Wait for the turn to complete. This exercises `run`, `runAttempt`, `rootNode`, pi's `providerThread` seeded from `pending:`, `providerTurn`, the per-delta `message`/`node`/`turnItem` derivations, the `allocate.event` path and a checkpoint capture.
+3. Measure: `python3 .artifacts/id-bloat/measure.py "$SEED_HOME/userdata/statev2.sqlite"`. The per-kind length table must show a maximum of **53 or less** for every derived kind (`run`, `run-attempt`, `provider-thread`, `provider-turn`, `message`, `node`, `turn-item`, `event`, `runtime-request`), and "saved at ≤ 64 chars" ≈ 0 for that thread. Seeded rows use hand-built `…:seed:…` IDs and are short already; the pi thread is the proof.
+4. In the same thread, select text in the assistant's reply and quote it into the composer: a citation chip must appear (not raw `[Assistant quote](t3-citation://…)` markdown), and the sent message must render the chip. This is the direct check that the citation cap no longer bites new messages.
+5. Optional: `python3 .artifacts/id-bloat/wire.py "$SEED_HOME/userdata/statev2.sqlite"` to confirm the frame-size drop on the live stream.
+6. Stop the dev server by the PID you captured (never by pattern), remove `$HOME_ROOT`.
+
+After the change deploys to production, the researchers' scripts rerun against the live DB read-only with `--since-seq <first post-deploy sequence>` to confirm the growth rate drops from ≈210 MB/day toward ≈110.
+
+## Work breakdown
+
+This is a single sequence for one coder; the test fixes depend on the change and the live check depends on both, so there is nothing worth parallelising:
+
+1. `IdAllocator.ts` hunks + `IdAllocator.loom.test.ts`; run the unit test.
+2. Run `orchestration-v2` tests, then the full server suite; fix literal-ID assertions.
+3. `vp check`, `vp run typecheck`, `unmarkedsweep.sh`.
+4. Live pi turn on a seeded dev instance; `measure.py`; citation chip check.
+5. Hand back with the measured per-kind maxima and the list of test files touched; shipping follows the guarded `pnpm ship` procedure after the user approves.
+
+Separately, for the user (not the coder): decide the fate of `6015df103c` on `t3/fix-handoff-retro-commands` per the form below, and keep `b256d49d5f` moving on its own.
+
+## Scope and non-goals
+
+- **In scope:** every ID minted by `IdAllocator` (derive and random allocate); the new unit test; test fixes; the live proof.
+- **Not in scope:** workstream thread IDs (`thread:mcp:<uuid>:workstream-scaffold:<uuid>:<n>`, 106 characters, ≈5 MB of the measured 155 MB). They are not derived, they are the ID humans and agents see in system prompts and sidebar tooling, and they key report and brief filenames — shortening them is a separate, user-visible decision (asked below as a follow-up, not as part of this work). Also out: the mobile `ComposerContextId` shape bug (#15657), rewriting old rows, the pi adapter's synthetic ref strings, any upstream filing.
+
+## Risks
+
+- **Readability in SQL and logs drops.** A node ID no longer says which run or driver it belongs to. Mitigation: the columns and native refs already carry that; `measure.py`'s kind-by-prefix classification still works because the prefix is kept.
+- **Upstream merge conflict on `IdAllocator.ts`.** Small, stable file; conflicts would be local to the allocate entries and resolved by re-applying three marked hunks.
+- **The in-flight interrupt case above.** Narrow, benign, documented; no shim.
+- **Pre-fix pi messages are not quote-citable** unless the cap raise is merged (form below).
+- **A test that depended on the literal nesting for a reason this plan missed.** The full server suite is the net; a failure that cannot be fixed by the three strategies above is a signal to stop and report, not to add an allocator switch.
+
+<QuestionForm
+  questions={[
+    {
+      id: "citation-cap",
+      title: "Should old long-ID pi messages stay quotable by merging the unmerged citation-cap raise?",
+      subtitle:
+        "Messages written after this change have 40-character IDs and quote fine. Messages written before it (141 so far, growing until deploy) have 500–800-character IDs that exceed the 512-character citation cap, so quoting them yields raw markdown instead of a chip. Commit 6015df103c raises that cap to 2,048 in two upstream contract files.",
+      refs: [{ label: "The citation cap", anchor: "the-citation-cap" }],
+      mode: "single",
+      options: [
+        {
+          id: "drop",
+          label: "Do not merge the cap raise; accept that pre-fix messages cannot be quoted",
+          recommended: true,
+          detail: "No accommodation code for old shapes; the affected messages are a bounded pre-deploy window.",
+        },
+        {
+          id: "merge",
+          label: "Merge the cap raise as a two-file // loom: hunk so pre-fix messages stay quotable",
+          detail: "Eight marked lines in packages/contracts and packages/shared; keeps every V2 pi message quotable at the cost of carrying an upstream-contract delta.",
+        },
+      ],
+    },
+    {
+      id: "thread-id-followup",
+      title: "Track a follow-up to shorten workstream thread IDs (the 106-character thread:mcp:… form)?",
+      subtitle:
+        "These IDs are not derived and are untouched by this plan. They are what humans and agents see as 'the thread id', and they key report and brief filenames. After this change they become the largest remaining ID in every row (about 6% of the remaining bytes).",
+      refs: [{ label: "Scope and non-goals", anchor: "scope-and-non-goals" }],
+      mode: "single",
+      options: [
+        {
+          id: "later",
+          label: "Yes — record it as a separate follow-up task after this change ships",
+          recommended: true,
+          detail: "Keeps this change to one file; the thread-ID question needs its own look at prompts, filenames and the task-tree parser.",
+        },
+        {
+          id: "no",
+          label: "No — 106 characters is acceptable for a user-visible, non-compounding ID",
+        },
+      ],
+    },
+  ]}
+/>
