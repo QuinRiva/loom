@@ -7,7 +7,7 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
+import { isBriefNeeded, isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
 
 import { emptyWorkstream } from "../../projection/LoomStore.ts";
 import {
@@ -16,7 +16,6 @@ import {
   briefNeededRungKey,
   briefNeededSinceMs,
   buildBriefNeededMessage,
-  isBriefNeeded,
   rungFor,
 } from "./briefNeeded.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";

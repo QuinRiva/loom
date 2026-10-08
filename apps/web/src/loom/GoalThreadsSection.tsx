@@ -7,7 +7,7 @@
  * what a machine is doing, which outranks where the thread rests.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { attentionReasonsOf } from "@t3tools/client-runtime/state/loom/rollup";
+import { ownAttentionOf } from "@t3tools/client-runtime/state/loom/rollup";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -20,7 +20,7 @@ import { orderGoalThreadsByHandoff } from "./goalThreadChain";
 import { attentionLabel } from "./loomAttention";
 
 function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: string } {
-  const reason = attentionReasonsOf(thread.source)[0];
+  const reason = ownAttentionOf(thread.source)[0];
   if (reason !== undefined) {
     return {
       label: attentionLabel(reason),

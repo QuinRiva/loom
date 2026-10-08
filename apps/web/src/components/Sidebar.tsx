@@ -280,7 +280,7 @@ import {
 // loom: 3d-3 — attention override, rollup badge and the Loom goal menu.
 import { loomAttentionOf, loomTopStatus } from "./Sidebar.logic.loom";
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
-import { LoomRollupBadge } from "../loom/LoomRollupBadge";
+import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../loom/LoomRollupBadge";
 import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
 import { PendingQuestionWaitAge } from "../loom/pendingUserInputLoom"; // loom: S4
 import { readLoomGoal } from "../loom/loomGoalState";
@@ -1254,6 +1254,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
   const loomAttention = loomAttentionOf(thread.source); // loom: 3d-3
+  const loomSubThreadsUnsettled = useLoomSubThreadsUnsettled(threadKey); // loom: badge Q5
   const shouldRecede =
     loomAttention === null && // loom: 3d-3 — a flagged row never recedes
     shouldRecedeSidebarThread({
@@ -1314,13 +1315,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       icon: "woke" as const,
                       className: "text-warning",
                     }
-                  : isUnread
-                    ? {
-                        label: "Done",
-                        icon: "done" as const,
-                        className: "text-success",
-                      }
-                    : null;
+                  : loomSubThreadsUnsettled // loom: unfinished sub-threads will wake it — Waiting, never Done
+                    ? { label: "Waiting", icon: null, className: "text-muted-foreground" }
+                    : isUnread
+                      ? {
+                          label: "Done",
+                          icon: "done" as const,
+                          className: "text-success",
+                        }
+                      : null;
   // loom: 3d-3 — Loom attention outranks every upstream state (Sidebar.logic.loom.ts).
   const topStatus = loomAttention === null ? upstreamTopStatus : loomTopStatus(loomAttention);
   // loom: S4 — which question waits, and since when (under the upstream Input pill only).

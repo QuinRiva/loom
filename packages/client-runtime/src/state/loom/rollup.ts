@@ -3,17 +3,25 @@
  * `workstreamRollup.ts` retyped onto V2 shells). Three independent projections,
  * never fused into one state: the plan (derived board columns), the activity
  * (`activityRunStatus`) and the attention (stored reasons ∪ derived ones). A
- * surface that wants one glyph composes them itself.
+ * surface that wants one glyph composes them itself, as `workstreamBadgeTone`
+ * does for the sidebar badge.
  *
  * @module state/loom/rollup
  */
-import type { LoomAttentionReason, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import type {
+  LoomAttentionReason,
+  LoomThreadShellFields,
+  OrchestrationV2ThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
 import * as DateTime from "effect/DateTime";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
+import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
 
 import {
   deriveBoardColumn,
+  startNodeOf,
   type WorkstreamBoardColumn,
   type WorkstreamIndex,
 } from "./workstream.ts";
@@ -26,6 +34,9 @@ export type WorkstreamRollupThread = Pick<
   | "lineage"
   | "workstream"
   | "activityRunStatus"
+  | "status"
+  | "lastErrorClass"
+  | "latestRunCompletedAt"
   | "pendingRuntimeRequest"
   | "archivedAt"
 >;
@@ -47,30 +58,39 @@ const ATTENTION_PRIORITY: Record<WorkstreamAttentionReason, number> = {
   "brief-needed": 1,
 };
 
+const byPriority = (left: WorkstreamAttentionReason, right: WorkstreamAttentionReason) =>
+  ATTENTION_PRIORITY[right] - ATTENTION_PRIORITY[left];
+
 /**
- * A thread's attention reasons, highest priority first: the sidecar's stored
- * reasons, `awaiting_input` / `awaiting_approval` from the pending runtime
- * request (every request kind but `user_input` is an approval), and
- * `brief-needed` for a live child with neither a kickoff brief nor a start.
+ * A thread's own attention reasons, highest priority first: the sidecar's
+ * stored reasons, plus `awaiting_input` / `awaiting_approval` from the pending
+ * runtime request (every request kind but `user_input` is an approval). Enough
+ * for a root, which is never brief-needed; a graph surface reads
+ * `attentionReasonsOf`.
+ */
+export function ownAttentionOf(
+  thread: Pick<WorkstreamRollupThread, "workstream" | "pendingRuntimeRequest">,
+): ReadonlyArray<WorkstreamAttentionReason> {
+  const request = thread.pendingRuntimeRequest?.kind;
+  const reasons: WorkstreamAttentionReason[] = [...(thread.workstream?.attention ?? [])];
+  if (request !== undefined)
+    reasons.push(request === "user_input" ? "awaiting_input" : "awaiting_approval");
+  return reasons.sort(byPriority);
+}
+
+/**
+ * `ownAttentionOf` plus `brief-needed`, derived exactly when the server's
+ * dispatcher would nag the parent (`isBriefNeeded`): a held child, or one
+ * still queued behind an unfinished sibling, is not owed a brief yet.
  */
 export function attentionReasonsOf(
   thread: Pick<WorkstreamRollupThread, "workstream" | "pendingRuntimeRequest">,
+  byId: WorkstreamIndex,
 ): ReadonlyArray<WorkstreamAttentionReason> {
-  const workstream = thread.workstream;
-  const request = thread.pendingRuntimeRequest?.kind;
-  const reasons: WorkstreamAttentionReason[] = [...(workstream?.attention ?? [])];
-  if (request !== undefined)
-    reasons.push(request === "user_input" ? "awaiting_input" : "awaiting_approval");
-  if (
-    workstream !== undefined &&
-    workstream.parentThreadId !== null &&
-    workstream.outcome === null &&
-    workstream.kickoffBriefPath === null &&
-    workstream.kickoffAt === null
-  ) {
-    reasons.push("brief-needed");
-  }
-  return reasons.sort((left, right) => ATTENTION_PRIORITY[right] - ATTENTION_PRIORITY[left]);
+  const own = ownAttentionOf(thread);
+  return thread.workstream !== undefined && isBriefNeeded(startNodeOf(thread.workstream), byId)
+    ? [...own, "brief-needed"]
+    : own;
 }
 
 /**
@@ -108,6 +128,14 @@ export interface AttentionActionNode {
   readonly id: ThreadId;
   readonly title: string;
   readonly reason: WorkstreamAttentionReason;
+  /**
+   * The reason is owed to the parent agent (a yield, a missing brief) and is
+   * still in agent hands: the parent has a run in flight, or none has finished
+   * since the reason arose (the server's wake follows the yield by a dispatcher
+   * pass), or the parent has already resumed the child. The human's only once
+   * the parent's turn ends without resolving it.
+   */
+  readonly withAgents: boolean;
 }
 
 export interface AttentionRollup {
@@ -154,16 +182,109 @@ export function activityRollup(descendants: ReadonlyArray<WorkstreamRollupThread
   };
 }
 
+/** Reasons addressed to the parent agent, which the server wakes to answer them. */
+const PARENT_OWED: ReadonlySet<WorkstreamAttentionReason> = new Set([
+  "awaiting_orchestrator",
+  "brief-needed",
+]);
+
+const IN_FLIGHT: ReadonlySet<OrchestrationV2ThreadShell["status"]> = new Set([
+  "preparing",
+  "queued",
+  "starting",
+  "running",
+  "waiting",
+]);
+
+/** A run requested, queued, starting, running or waiting on a tool. */
+const runInFlight = (thread: Pick<WorkstreamRollupThread, "activityRunStatus" | "status">) =>
+  (thread.activityRunStatus ?? null) !== null || IN_FLIGHT.has(thread.status);
+
+/**
+ * When a parent-owed reason arose (ms), or null when no wake will come: the
+ * yield's submit (an imported yield has no event, so the server never wakes
+ * for it), or the brief-needed episode — creation, the dependency set, or the
+ * last dependency finishing.
+ */
+function parentOwedSince(
+  workstream: LoomThreadShellFields,
+  reason: WorkstreamAttentionReason,
+  byId: WorkstreamIndex,
+): number | null {
+  if (reason === "awaiting_orchestrator")
+    return workstream.lastOutcome?.eventId == null ? null : Date.parse(workstream.lastOutcome.at);
+  return Math.max(
+    ...[
+      workstream.createdAt,
+      workstream.dependenciesSince,
+      ...workstream.blockedBy.map((id) => byId.get(id)?.outcomeAt ?? null),
+    ].flatMap((iso) => (iso === null ? [] : [Date.parse(iso)])),
+  );
+}
+
+function withAgents(
+  thread: WorkstreamRollupThread,
+  reason: WorkstreamAttentionReason,
+  byId: WorkstreamIndex,
+  threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>,
+): boolean {
+  const parent = threadsById.get(thread.lineage.parentThreadId!);
+  if (!PARENT_OWED.has(reason) || parent === undefined) return false;
+  if (runInFlight(parent) || runInFlight(thread)) return true;
+  const since = parentOwedSince(thread.workstream!, reason, byId);
+  const answeredAt = parent.latestRunCompletedAt ?? null;
+  return since !== null && (answeredAt === null || DateTime.toEpochMillis(answeredAt) < since);
+}
+
+/** An unsettled thread whose latest run failed for a reason other than a usage limit (auto-resumed). */
+const runFailed = (thread: WorkstreamRollupThread) =>
+  thread.workstream?.outcome === null &&
+  thread.status === "failed" &&
+  thread.lastErrorClass !== "usage_limit";
+
 export function attentionRollup(
   descendants: ReadonlyArray<WorkstreamRollupThread>,
+  byId: WorkstreamIndex,
+  threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>,
 ): AttentionRollup {
   const nodes = liveOf(descendants)
     .flatMap((thread) => {
-      const reason = attentionReasonsOf(thread)[0];
-      return reason === undefined ? [] : [{ id: thread.id, title: thread.title, reason }];
+      // A failed run reads as an error at once, before the liveness sweep stores one.
+      const reason = runFailed(thread) ? "error" : attentionReasonsOf(thread, byId)[0];
+      return reason === undefined
+        ? []
+        : [
+            {
+              id: thread.id,
+              title: thread.title,
+              reason,
+              withAgents: withAgents(thread, reason, byId, threadsById),
+            },
+          ];
     })
-    .sort((left, right) => ATTENTION_PRIORITY[right.reason] - ATTENTION_PRIORITY[left.reason]);
+    .sort((left, right) => byPriority(left.reason, right.reason));
   return { count: nodes.length, highest: nodes[0]?.reason ?? null, nodes };
+}
+
+/**
+ * The root row badge's one summary tone, composed from the three rollups,
+ * first match wins: `failed` (an error, or a deadlock with nothing running);
+ * `needs_you` (a reason the human must act on); `working` (a sub-thread runs,
+ * or a parent is answering what it owes — a child queued behind a running
+ * sibling lands here); `done` (every sub-thread settled); else `waiting`.
+ */
+export type WorkstreamBadgeTone = "failed" | "needs_you" | "working" | "done" | "waiting";
+
+export function workstreamBadgeTone({
+  plan,
+  activity,
+  attention,
+}: WorkstreamRollup): WorkstreamBadgeTone {
+  if (attention.highest === "error" || (plan.deadlocked !== null && activity.active === 0))
+    return "failed";
+  if (attention.nodes.some((node) => !node.withAgents)) return "needs_you";
+  if (activity.active > 0 || attention.nodes.length > 0) return "working";
+  return plan.settled ? "done" : "waiting";
 }
 
 /** The three rollups for `rootThreadId`'s descendants (lineage), from every shell held. */
@@ -180,6 +301,6 @@ export function workstreamRollupOf(
   return {
     plan: planRollup(descendants, byId),
     activity: activityRollup(descendants),
-    attention: attentionRollup(descendants),
+    attention: attentionRollup(descendants, byId, byThreadId),
   };
 }

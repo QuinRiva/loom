@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
 import { isMemberOfUnresolvedGate } from "@t3tools/shared/workstreamGraph";
+import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -30,7 +31,6 @@ import {
   briefNeededRungKey,
   briefNeededSinceMs,
   buildBriefNeededMessage,
-  isBriefNeeded,
   rungFor,
 } from "./briefNeeded.ts";
 import {

@@ -8,7 +8,11 @@
  * @module loom/orchestration/dispatcher/briefNeeded
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
-import { dependenciesSatisfied, type StartNode } from "@t3tools/shared/workstreamStart.loom";
+import {
+  dependenciesSatisfied,
+  isBriefNeeded,
+  type StartNode,
+} from "@t3tools/shared/workstreamStart.loom";
 import * as NodeCrypto from "node:crypto";
 
 import { formatStalledFor, WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";
@@ -16,24 +20,6 @@ import { formatStalledFor, WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";
 /** The row shape the brief-needed predicates read: a start node plus the stable stamps the clock uses. */
 export type BriefNeededNode = StartNode &
   Pick<LoomThreadWorkstream, "createdAt" | "dependenciesSince" | "outcomeAt" | "lastOutcome">;
-
-/**
- * An un-started child whose every start gate is clear except the brief:
- * exactly `isEligibleToStart` with the brief gate inverted, so the two sets
- * partition the startable children into promotable and brief-needed.
- */
-export const isBriefNeeded = <T extends BriefNeededNode>(
-  node: T,
-  siblingsById: ReadonlyMap<ThreadId, T>,
-): boolean =>
-  node.parentThreadId !== null &&
-  node.archivedAt === null &&
-  node.deletedAt === null &&
-  !node.held &&
-  node.outcome === null &&
-  node.kickoffAt === null &&
-  node.kickoffBriefPath === null &&
-  dependenciesSatisfied(node, siblingsById);
 
 const parseIsoMs = (iso: string | null | undefined): number =>
   iso === null || iso === undefined ? Number.NaN : Date.parse(iso);
