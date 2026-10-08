@@ -904,7 +904,7 @@ function GraphNode({
               x={x + 10}
               y={y + h - 8}
             >
-              {`${node.activity ?? "idle"} · ${formatCompactAge(node.lastActivityAt)}`}
+              {`${node.toolCalls > 0 ? `⚒ ${node.toolCalls} · ` : ""}${node.activity ?? "idle"} · ${formatCompactAge(node.lastActivityAt)}`}
             </text>
           ) : null}
         </g>

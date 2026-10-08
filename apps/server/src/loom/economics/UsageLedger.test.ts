@@ -2,7 +2,8 @@
  * The usage ledger on the real orchestrator (plan track 3c, Tests; seam 11): the
  * reactor's pipeline turns terminal provider turns into `loom_usage_ledger` rows
  * (read back from the event store in order, so no sleeps), a replay adds nothing,
- * a live turn update adds nothing, and the two seam-11 queries sum and rank.
+ * a live turn update adds no row (its live cost still counts in `threadSpend`),
+ * and the two seam-11 queries sum and rank.
  */
 import { assert, it } from "@effect/vitest";
 import {
@@ -189,7 +190,14 @@ it.layer(Layer.provideMerge(LoomUsageLedgerLayer, LoomOrchestratorTestLayer))(
           outputTokens: 45,
           cachedTokens: 683,
         });
-        assert.isFalse(spend.has(live));
+        // A running turn has no ledger row yet: its live cost counts, and a
+        // ledgered turn's own live cost (opus) is not counted twice.
+        assert.deepEqual(spend.get(live), {
+          costUsd: 9,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+        });
         assert.equal((yield* ledger.threadSpend([])).size, 0);
 
         const epoch = "1969-01-01T00:00:00.000Z" as IsoDateTime;

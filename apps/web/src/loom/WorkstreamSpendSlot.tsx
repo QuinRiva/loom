@@ -14,8 +14,9 @@ export const WorkstreamEnvironmentContext = createContext<EnvironmentId | null>(
 /**
  * A thread's lifetime cost from seam 11's usage ledger, batched across every
  * mounted slot (`loom/threadSpend.ts`): a quick-facts row (`fact`), or the
- * inline figure on the active strip and timeline header (3d-4). Renders
- * nothing until answered, and for a thread with no recorded spend.
+ * inline figure on the active strip and timeline header (3d-4). Includes a
+ * running turn's live cost (`LoomUsageLedger.threadSpend`). Renders nothing
+ * until answered, and for a thread with no recorded spend.
  */
 export function WorkstreamSpendSlot({
   threadId,
@@ -31,8 +32,11 @@ export function WorkstreamSpendSlot({
     <div className="flex items-baseline gap-2 text-xs">
       <dt className="w-[108px] shrink-0 whitespace-nowrap text-muted-foreground">Cost</dt>
       <dd className="min-w-0 flex-1 truncate text-foreground/80 tabular-nums">
-        {cost} · {formatTokens(spend.inputTokens)} in · {formatTokens(spend.outputTokens)} out ·{" "}
-        {formatTokens(spend.cachedTokens)} cached
+        {cost}
+        {/* A running turn's live cost arrives before its tokens are ledgered. */}
+        {spend.inputTokens + spend.outputTokens + spend.cachedTokens > 0
+          ? ` · ${formatTokens(spend.inputTokens)} in · ${formatTokens(spend.outputTokens)} out · ${formatTokens(spend.cachedTokens)} cached`
+          : null}
       </dd>
     </div>
   ) : null;

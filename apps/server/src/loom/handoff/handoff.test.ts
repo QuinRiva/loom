@@ -2,8 +2,10 @@
  * The `/handoff` and `/retro` drafters on the real orchestrator (DT-24, DL-384):
  * `loom.handoffDraft` forks an idle pi source into a `handoff-drafter` root whose
  * first message is the kickoff (a pending native `fork` transfer from the source's
- * finished run, resolved by upstream at that first run); a running or non-pi
- * source is refused before anything is created. `HandoffDrafterReactor` archives a
+ * finished run — or, for a V1-imported source with no V2 run, its bound pi
+ * session — resolved by upstream at that first run); a mid-turn source gets its
+ * drafter at once and its fork and kickoff when the turn ends; a non-pi source is
+ * refused before anything is created. `HandoffDrafterReactor` archives a
  * drafter whose run ended with a handoff recorded, and raises `needs_guidance` —
  * on the source when it has a Loom row, else on the drafter — for a run that ended
  * with none or a kickoff hung past the grace.
@@ -12,12 +14,15 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   GoalId,
   LOOM_WS_METHODS,
   ProjectId,
   ProviderDriverKind,
+  ProviderThreadId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
@@ -33,6 +38,8 @@ import {
   LoomOrchestratorTestLayer,
   seedRunningRun,
   seedThread,
+  testModelSelection,
+  writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { makeLoomWsHandlers } from "../wsMethods.ts";
 import {
@@ -181,20 +188,99 @@ it.layer(TestLayer)("Loom drafters", (it) => {
       }),
   );
 
-  it.effect("/handoff refuses a running source and a non-pi source, creating nothing", () =>
+  it.effect("/handoff refuses a non-pi source, creating nothing", () =>
     Effect.gen(function* () {
       const before = yield* drafterCount;
-      const running = ThreadId.make("handoff-running");
-      yield* seedThread({ threadId: running });
-      yield* seedRunningRun({ threadId: running, driver: pi });
-      const midTurn = yield* Effect.flip(handoff(running, "fix the cache"));
-      assert.include(midTurn.message, "mid-turn");
       const codex = yield* seedSource("handoff-codex", {
         driver: ProviderDriverKind.make("codex"),
       });
       const notPi = yield* Effect.flip(handoff(codex, "fix the cache"));
       assert.include(notPi.message, "Only pi-backed");
       assert.equal(yield* drafterCount, before);
+    }),
+  );
+
+  it.effect("/handoff on a mid-turn source forks once that turn ends", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const source = ThreadId.make("handoff-running");
+      yield* seedThread({ threadId: source });
+      yield* seedRunningRun({ threadId: source, driver: pi });
+      const { drafterThreadId } = yield* handoff(source, "fix the cache");
+      const forkOf = Effect.map(
+        orchestrator.getThreadRecords(drafterThreadId, ["contextTransfers"]),
+        (records) => records.contextTransfers,
+      );
+      // The drafter exists (the receipt row), but waits: no fork, no kickoff.
+      assert.deepInclude(yield* row(drafterThreadId), {
+        kickoffAt: null,
+        forkFromThreadId: source,
+      });
+      assert.lengthOf(yield* forkOf, 0);
+      yield* settlePass; // still running: still waiting
+      assert.lengthOf(yield* forkOf, 0);
+      yield* completeSeededRun({ threadId: source });
+      yield* settlePass;
+      assert.deepInclude((yield* forkOf)[0], { type: "fork", sourceThreadId: source });
+      const [kickoff] = (yield* orchestrator.getThreadProjection(drafterThreadId)).messages;
+      assert.equal(kickoff?.text, buildDrafterKickoffPrompt("fix the cache"));
+      assert.isNotNull((yield* row(drafterThreadId)).kickoffAt);
+    }),
+  );
+
+  it.effect("/handoff forks a V1-imported source with no V2 run from its bound pi session", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const source = ThreadId.make("handoff-imported");
+      yield* seedThread({ threadId: source });
+      // What `LoomV1WorkstreamImporter` writes for a thread whose pi session it found.
+      const nativeThreadRef = {
+        driver: pi,
+        nativeId: "/sessions/imported.jsonl",
+        strength: "strong",
+      } as const;
+      yield* writeEvents([
+        {
+          id: EventId.make("event:import-binding:handoff-imported"),
+          type: "provider-thread.updated",
+          threadId: source,
+          driver: pi,
+          providerInstanceId: testModelSelection.instanceId,
+          occurredAt: yield* DateTime.now,
+          payload: {
+            id: ProviderThreadId.make("provider-thread:imported"),
+            driver: pi,
+            providerInstanceId: testModelSelection.instanceId,
+            providerSessionId: null,
+            appThreadId: source,
+            ownerNodeId: null,
+            nativeThreadRef,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            createdAt: yield* DateTime.now,
+            updatedAt: yield* DateTime.now,
+          },
+        } as never,
+      ]);
+      const { drafterThreadId } = yield* handoff(source, "split the importer");
+      const projection = yield* orchestrator.getThreadProjection(drafterThreadId);
+      assert.equal(projection.messages[0]?.text, buildDrafterKickoffPrompt("split the importer"));
+      // The kickoff's run starts: upstream resolved the run-less transfer's source.
+      assert.isTrue(
+        projection.runs.some((run) => run.userMessageId === projection.messages[0]?.id),
+      );
+      const { contextTransfers } = yield* orchestrator.getThreadRecords(drafterThreadId, [
+        "contextTransfers",
+      ]);
+      assert.deepInclude(contextTransfers[0], { type: "fork", sourceThreadId: source });
+      assert.deepEqual(contextTransfers[0]?.sourcePoint, {
+        threadId: source,
+        providerThreadRef: nativeThreadRef,
+      });
     }),
   );
 

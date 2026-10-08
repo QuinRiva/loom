@@ -51,9 +51,11 @@ function EnvironmentHandoffToasts({ environmentId }: { environmentId: Environmen
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
       });
+    // A drafter is live while waiting on its source's turn or drafting; it toasts once it settles.
+    const live = (state: string) => state === "waiting" || state === "drafting";
     for (const row of rows) {
       const before = prior.get(row.id);
-      if (before?.state !== "drafting" || row.state === "drafting") continue;
+      if (before === undefined || !live(before.state) || live(row.state)) continue;
       const explanation = row.explanation ?? before.explanation;
       if (row.state === "failed") {
         toastManager.add(

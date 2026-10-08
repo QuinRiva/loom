@@ -55,4 +55,6 @@ export const buildRetroDraftTurnStart = (
     role: RETRO_REVIEWER_ROLE,
     title: buildRetroTitle(input.sourceTitle),
     kickoff: buildRetroKickoffPrompt(input.focus),
+    // The focus rebuilds the kickoff when the fork waits for a mid-turn source.
+    ...(input.focus === undefined ? {} : { purpose: input.focus }),
   });

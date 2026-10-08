@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
 // reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
-// turn's pi-priced costUsd. Phase 3c: a pi quota error ends the turn as usage_limit with a reset
+// turn's pi-priced costUsd (live frames its spend so far). Phase 3c: a pi quota error ends the turn as usage_limit with a reset
 // time that satisfies upstream's limit-recovery arm (3c-1).
 //
 // A minimal in-process `pi --mode rpc` (the same technique as PiAdapterV2.test.ts's fake, which
@@ -32,6 +32,7 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
 
 import * as ServerConfig from "../../config.ts";
@@ -320,9 +321,13 @@ describe("PiAdapterV2 (loom)", () => {
         runtimePolicy,
       });
       yield* fake.emit({ type: "agent_start" });
-      for (const cost of [0.0125, 0.0075]) {
+      for (const [index, cost] of [0.0125, 0.0075].entries()) {
         yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
-        yield* fake.emit({ type: "message_update", usage: { totalTokens: 600, input: 500 } });
+        // The streaming message's cost so far: half of what it ends at.
+        yield* fake.emit({
+          type: "message_update",
+          usage: { totalTokens: 600 + index, input: 500, cost: { total: cost / 2 } },
+        });
         yield* fake.emit({
           type: "message_end",
           message: {
@@ -353,8 +358,10 @@ describe("PiAdapterV2 (loom)", () => {
       );
       const live = usages.filter((entry) => entry.status === "running");
       const terminal = usages.filter((entry) => entry.status === "completed");
-      assert.isAbove(live.length, 0);
-      assert.isTrue(live.every((entry) => entry.usage.costUsd === undefined));
+      // Live frames carry the turn's spend so far: finished messages plus the streaming one.
+      assert.lengthOf(live, 2);
+      assert.closeTo(live[0]!.usage.costUsd!, 0.00625, 1e-12);
+      assert.closeTo(live[1]!.usage.costUsd!, 0.0125 + 0.00375, 1e-12);
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
       // 3c-3: the turn's own tokens (two messages) in upstream's per-turn slot, not the
@@ -594,6 +601,86 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
   it.effect("a codex resume leaves the file untouched", () =>
     Effect.gen(function* () {
       assert.equal(yield* resumeCodexHistoryUnder("openai-codex/gpt-6.1-sol"), CODEX_HISTORY);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── Assistant citations reach pi expanded, as V1's ProviderService.sendTurn did ───────────
+
+describe("PiAdapterV2 (loom) — assistant citations", () => {
+  it.effect("expands citations on both the turn and the steer prompt", () =>
+    Effect.gen(function* () {
+      const { fake, runtime, events } = yield* openRuntime();
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection,
+        runtimePolicy,
+      });
+      const cite = (comment: string) =>
+        serializeAssistantCitation({
+          version: 1,
+          environmentId: EnvironmentId.make("environment-loom"),
+          threadId: THREAD_ID,
+          messageId: "message:provider:pi:native-item:assistant-1" as never,
+          text: "validates the result with $deploy",
+          start: 10,
+          end: 43,
+          prefix: "",
+          suffix: "",
+          comment,
+        });
+      const message = (text: string) =>
+        ({
+          messageId: "message:cite" as never,
+          text,
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+        }) as const;
+      const runId = RunId.make(`run:${THREAD_ID}:cite`);
+      yield* runtime.startTurn({
+        appThread: yield* appThread,
+        threadId: THREAD_ID,
+        runId,
+        runOrdinal: 1,
+        providerTurnOrdinal: 1,
+        attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+        rootNodeId: NodeId.make(`node:${runId}:root`),
+        providerThread,
+        message: message(`${cite("Why?")} please explain`),
+        modelSelection,
+        runtimePolicy,
+      });
+      let providerTurnId: string | undefined;
+      while (providerTurnId === undefined) {
+        const event = yield* Queue.take(events);
+        if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
+      }
+      yield* fake.emit({ type: "agent_start" });
+      yield* runtime.steerTurn({
+        threadId: THREAD_ID,
+        runId,
+        providerThread,
+        providerTurnId: providerTurnId as never,
+        message: message(`and ${cite("Also this")}`),
+      });
+      while (fake.requests.filter((request) => request["type"] === "prompt").length < 2) {
+        yield* Effect.yieldNow;
+      }
+      const [turn, steer] = fake.requests
+        .filter((request) => request["type"] === "prompt")
+        .map((request) => String(request["message"]));
+      for (const [prompt, comment] of [
+        [turn!, "Why?"],
+        [steer!, "Also this"],
+      ] as const) {
+        assert.notInclude(prompt, "t3-citation://");
+        assert.include(prompt, "[assistant-quote-1]");
+        assert.include(prompt, "<assistant_citations>");
+        assert.include(prompt, `"comment": "${comment}"`);
+        // Quoted text is not skill-expanded.
+        assert.include(prompt, "validates the result with $deploy");
+      }
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

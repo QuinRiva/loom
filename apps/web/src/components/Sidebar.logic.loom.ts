@@ -2,7 +2,7 @@
 // Sidebar.logic.ts so upstream edits there never collide with the fork's
 // additions. Pure; consumed by Sidebar.tsx's marked hunks.
 import {
-  attentionReasonsOf,
+  ownAttentionOf,
   type WorkstreamAttentionReason,
 } from "@t3tools/client-runtime/state/loom/rollup";
 import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
@@ -17,15 +17,15 @@ const UPSTREAM_SHOWN: ReadonlySet<WorkstreamAttentionReason> = new Set([
 
 /**
  * The Loom attention a row shows instead of its upstream state, or null.
- * Attention outranks state: the highest reason by `attentionReasonsOf`'s
- * priority (error > approval > input > acceptance > guidance > orchestrator >
- * brief-needed) wins; when that is a request upstream already renders
- * (approval / input) upstream's own pill stays.
+ * Attention outranks state: the highest reason by `ownAttentionOf`'s priority
+ * (error > approval > input > acceptance > guidance > orchestrator) wins; when
+ * that is a request upstream already renders (approval / input) upstream's own
+ * pill stays. A row is never a workstream child, so never brief-needed.
  */
 export function loomAttentionOf(
   thread: Pick<OrchestrationV2ThreadShell, "workstream" | "pendingRuntimeRequest">,
 ): WorkstreamAttentionReason | null {
-  const top = attentionReasonsOf(thread)[0];
+  const top = ownAttentionOf(thread)[0];
   return top === undefined || UPSTREAM_SHOWN.has(top) ? null : top;
 }
 

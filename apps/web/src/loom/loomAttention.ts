@@ -1,7 +1,7 @@
 /**
  * loom: the human labels for Loom's attention reasons (3d-3), shared by the
  * sidebar's attention override, its rollup badge and the goal panel's thread
- * chips. Priority lives in `attentionReasonsOf` (client-runtime), not here.
+ * chips. Priority lives in `ownAttentionOf` (client-runtime), not here.
  */
 import type { WorkstreamAttentionReason } from "@t3tools/client-runtime/state/loom/rollup";
 

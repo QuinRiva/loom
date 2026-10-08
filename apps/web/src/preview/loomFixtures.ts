@@ -85,7 +85,7 @@ export const loomPreviewGoal: LoomGoalShell = {
 
 // ---- thread shells: one per derived plan column, plus the attention cases -------
 
-const workstream = (
+export const workstream = (
   threadId: ThreadId,
   fields: Partial<LoomThreadShellFields> = {},
 ): LoomThreadShellFields => ({
@@ -127,7 +127,7 @@ const workstream = (
   ...fields,
 });
 
-const shell = (
+export const shell = (
   title: string,
   ws: LoomThreadShellFields,
   fields: Partial<OrchestrationV2ThreadShell> = {},

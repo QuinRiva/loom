@@ -84,7 +84,7 @@ export function buildWorkstreamNodes(
         createdAt: iso(shell.createdAt),
         modelSelection: shell.modelSelection,
         column: deriveBoardColumn(workstream, startIndex),
-        reasons: attentionReasonsOf(shell),
+        reasons: attentionReasonsOf(shell, startIndex),
         activity: shell.activityRunStatus ?? null,
         pendingQuestion: pendingQuestionOf(shell),
         preview: shell.latestVisibleMessage?.text.trim() || null,

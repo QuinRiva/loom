@@ -298,6 +298,8 @@ import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
+import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
+import { insertModelChangeRows, type ModelChangeRun } from "../../loom/modelChangeRows"; // loom: model-change divider
 import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
 
 // ---------------------------------------------------------------------------
@@ -483,7 +485,7 @@ interface MessagesTimelineProps {
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   providerStatuses: ReadonlyArray<ServerProvider>;
-  runs: ReadonlyArray<HandoffTimelineRun>;
+  runs: ReadonlyArray<ModelChangeRun>; // loom: model-change divider (a superset of HandoffTimelineRun)
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -813,7 +815,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // loom: 3d-3 — handoff receipts, spliced in by time.
   const loomRows = useLoomTimelineRows(listIdentityKey);
   const rows = useStableRows(
-    useMemo(() => insertLoomTimelineRows(rawRows, loomRows), [rawRows, loomRows]), // loom: 3d-3
+    // loom: 3d-3 handoff receipts + "Model: A → B" dividers
+    useMemo(
+      () => insertLoomTimelineRows(insertModelChangeRows(rawRows, runsProp), loomRows),
+      [rawRows, runsProp, loomRows],
+    ),
     listIdentityKey,
   );
   // loom: W3 — "show me where this happened" lands on its row (loom/conversationJump.ts).
@@ -1817,7 +1823,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                 row.kind === "worktree-setup" ||
                 row.kind === "event" ||
                 row.kind === "attempt-fold" ||
-                row.kind === "html-render"
+                row.kind === "html-render" ||
+                row.kind === "loom-model-change" // loom: model-change divider
               ? "pb-2"
               : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1869,6 +1876,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "loom-handoff" ? (
         <LoomTimelineRow row={row} /> // loom: 3d-3
+      ) : null}
+      {row.kind === "loom-model-change" ? (
+        <ModelChangeDivider row={row} /> // loom: model-change divider
       ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />

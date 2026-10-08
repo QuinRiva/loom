@@ -53,6 +53,7 @@ import {
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
+import { runlessForkSourceProviderThread } from "./runlessFork.loom.ts"; // loom: V1-imported fork source
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -612,9 +613,15 @@ export const layer: Layer.Layer<
           const sourceRun = sourceProjection.runs.find(
             (candidate) => candidate.id === nativeForkTransfer.sourcePoint.runId,
           );
-          const sourceProviderThread = sourceProjection.providerThreads.find(
-            (candidate) => candidate.id === sourceRun?.providerThreadId,
-          );
+          const sourceProviderThread =
+            sourceRun === undefined // loom: a run-less (V1-imported) source's bound provider thread
+              ? runlessForkSourceProviderThread(
+                  sourceProjection.providerThreads,
+                  nativeForkTransfer.sourcePoint,
+                )
+              : sourceProjection.providerThreads.find(
+                  (candidate) => candidate.id === sourceRun.providerThreadId,
+                );
           const sourceAttempt = sourceProjection.attempts.find(
             (candidate) => candidate.id === sourceRun?.activeAttemptId,
           );
@@ -623,7 +630,8 @@ export const layer: Layer.Layer<
             sourceProjection.providerTurns.find(
               (candidate) => candidate.id === sourceAttempt?.providerTurnId,
             );
-          if (sourceRun === undefined || sourceProviderThread === undefined) {
+          if (sourceProviderThread === undefined) {
+            // loom: run-less sources included
             return yield* new ProviderTurnStartError({
               runId,
               cause: `Native fork transfer ${nativeForkTransfer.id} has no source provider execution.`,

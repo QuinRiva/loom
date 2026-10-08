@@ -31,3 +31,19 @@ export const isEligibleToStart = (node: StartNode, byId: ReadonlyMap<ThreadId, S
   node.kickoffAt === null &&
   node.kickoffBriefPath !== null &&
   dependenciesSatisfied(node, byId);
+
+/**
+ * An un-started child whose every start gate is clear except the brief:
+ * exactly `isEligibleToStart` with the brief gate inverted, so the two sets
+ * partition the startable children into promotable and brief-needed. The
+ * dispatcher's brief-needed notice and the web's derived attention both read it.
+ */
+export const isBriefNeeded = (node: StartNode, byId: ReadonlyMap<ThreadId, StartNode>) =>
+  node.parentThreadId !== null &&
+  node.archivedAt === null &&
+  node.deletedAt === null &&
+  !node.held &&
+  node.outcome === null &&
+  node.kickoffAt === null &&
+  node.kickoffBriefPath === null &&
+  dependenciesSatisfied(node, byId);

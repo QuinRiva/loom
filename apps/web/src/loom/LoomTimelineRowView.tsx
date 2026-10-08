@@ -1,6 +1,6 @@
 /**
  * loom: the handoff receipt (`loomTimelineRows.ts`) — where this thread's work
- * went: a `/handoff` drafting, failed or handed off, or the thread's own
+ * went: a `/handoff` waiting on this turn, drafting, failed or handed off, or the thread's own
  * `goal_handoff` / `goal_continue`. Its grammar is deliberately non-message (a
  * kicker, full width) because none of it entered this thread's conversation.
  * The `/handoff` explanation is shown in full and copyable: on a failure it is
@@ -22,6 +22,12 @@ const STATE: Record<
   LoomReceiptState,
   { kicker: string; icon: typeof GitBranchIcon; box: string; tone: string }
 > = {
+  waiting: {
+    kicker: "Handing off",
+    icon: HourglassIcon,
+    box: "border-l-info/65 bg-info/5",
+    tone: "text-info-foreground",
+  },
   drafting: {
     kicker: "Handing off",
     icon: HourglassIcon,
@@ -70,7 +76,9 @@ export function LoomTimelineRowView({
         >
           {state.kicker}
         </span>
-        {row.state === "drafting" ? (
+        {row.state === "waiting" ? (
+          <span>The drafter starts when this turn finishes</span>
+        ) : row.state === "drafting" ? (
           <span>A drafter is writing the brief</span>
         ) : row.state === "failed" ? (
           <span>{HANDOFF_FAILURE_REASON}</span>

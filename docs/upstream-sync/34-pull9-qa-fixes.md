@@ -282,8 +282,9 @@ deployed.
   `workstream.toolCalls`, `LoomStore`'s stats query and migration 1053 are untouched);
   (2) the **subtree cost** (W4: a client-side sum, so no server cost to keeping it dormant);
   (3) human editing of a child's **dependencies** (agents still set them with
-  `workstream_dependencies`; the `thread.dependencies.set` command is unchanged). Whether graph
-  nodes or quick facts should show any of them is his call. Verified: typecheck, `vp check`
+  `workstream_dependencies`; the `thread.dependencies.set` command is unchanged). Carl has since
+  asked for (1) and (2) back: `d506463da6` restored the tool count on graph nodes, quick facts and
+  the active strip, subtree cost in quick facts, and live in-turn cost. (3) stays open. Verified: typecheck, `vp check`
   0 errors, the unmarked sweep clean, `vp test run apps/web/src` 6140/6140 (the three ghostty
   suites fail to import `.wasm?inline` from the repo root, as before, and pass from
   `apps/web`), and live on the dev-verify seed: one Workstream tab showing the graph, the

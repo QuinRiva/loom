@@ -23,6 +23,7 @@
  * Terminal-only decoration such as status, widget, title, and editor-text
  * updates has no matching T3 surface and is ignored.
  */
+import { expandAssistantCitationsForProvider } from "@t3tools/shared/assistantCitations"; // loom
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import {
@@ -681,6 +682,8 @@ export function makePiAdapterV2(
           const inputTokens = nonNegativeInteger(usage, "input");
           const cachedInputTokens = nonNegativeInteger(usage, "cacheRead");
           const outputTokens = nonNegativeInteger(usage, "output");
+          // loom: the turn's spend so far — finished messages plus this one's — so Loom's spend views see a running turn (DR-8)
+          const costUsd = turn.costUsd + (recordNumber(recordField(usage, "cost"), "total") ?? 0);
           const updatedAt = yield* DateTime.now;
           yield* emit({
             type: "provider_turn.updated",
@@ -694,6 +697,7 @@ export function makePiAdapterV2(
                 ...(inputTokens === undefined ? {} : { inputTokens }),
                 ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
                 ...(outputTokens === undefined ? {} : { outputTokens }),
+                ...(costUsd > 0 ? { costUsd } : {}), // loom: live spend
                 updatedAt: DateTime.formatIso(updatedAt),
               },
             },
@@ -2265,7 +2269,11 @@ export function makePiAdapterV2(
             Effect.orElseSucceed(() => new Set<string>()),
           );
         }
-        const expandedText = skillNames === null ? text : expandPiSkillReference(text, skillNames);
+        // loom: restore V1's provider-side citation expansion (V2 dropped it). After skill
+        // expansion, so a `$name` inside quoted assistant text is never read as a skill.
+        const expandedText = expandAssistantCitationsForProvider(
+          skillNames === null ? text : expandPiSkillReference(text, skillNames),
+        );
         const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
         const extraLines: Array<string> = [];
         for (const attachment of attachments) {

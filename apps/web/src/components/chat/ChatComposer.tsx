@@ -2688,10 +2688,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               },
             ] as const)
           : []),
-        // loom: the `/handoff` and `/retro` intercepts.
-        ...(isServerThread && phase !== "running" && composerTrigger.rangeStart === 0
-          ? LOOM_DRAFT_SLASH_ITEMS
-          : []),
+        // loom: the `/handoff` and `/retro` intercepts (mid-turn too: the fork waits for the turn).
+        ...(isServerThread && composerTrigger.rangeStart === 0 ? LOOM_DRAFT_SLASH_ITEMS : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
         selectedProviderSkills,
@@ -2802,7 +2800,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     environmentThreadShells,
     exactPullRequestLookup.data,
-    phase, // loom:
     planModeUiEnabled,
     pullRequestLookup.data,
     pullRequestProjectId,
