@@ -6,8 +6,8 @@
 // Model: an orchestrator recurs as one BRIDGE node per wave, where a wave = the
 // children sharing one (parentThreadId, spawnGeneration). Waves stack down a
 // neutral spine ordered by each wave's earliest child; a wave's children sit in
-// dependency columns to its right, with real `blockedBy` as within-wave
-// cross-edges. A child that itself spawns is the same layout applied recursively
+// dependency columns to its right, with real `blockedBy` as waits-on
+// cross-edges (within and across waves). A child that itself spawns is the same layout applied recursively
 // and packed as a measured (w×h) block under its card.
 
 import type { ThreadId } from "@t3tools/contracts";
@@ -324,7 +324,7 @@ function layoutOrchestrator(
         y2: center.y,
       });
     }
-    // Within-wave dependencies: the only genuinely information-bearing edge.
+    // Within-wave dependencies.
     // These are ALWAYS forward (a dependency sits in an earlier column by the
     // depth assignment in `dependencyColumns`), so a blocked edge never flows
     // right-to-left and needs no orthogonal back-edge routing. Cross-wave deps
