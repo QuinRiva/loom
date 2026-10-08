@@ -13,7 +13,14 @@ import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.log
 
 export type ModelChangeRun = Pick<
   OrchestrationV2Run,
-  "id" | "ordinal" | "providerInstanceId" | "modelSelection" | "userMessageId" | "requestedAt"
+  | "id"
+  | "ordinal"
+  | "providerInstanceId"
+  | "modelSelection"
+  | "userMessageId"
+  | "requestedAt"
+  | "status"
+  | "startedAt"
 >;
 
 export interface LoomModelChangeRow {
@@ -30,7 +37,17 @@ export interface LoomModelChangeRow {
 export function modelChangeRows(
   runs: ReadonlyArray<ModelChangeRun>,
 ): ReadonlyArray<LoomModelChangeRow> {
-  const ordered = runs.toSorted((left, right) => left.ordinal - right.ordinal);
+  // Only runs the timeline shows: not queued, reverted, or cancelled before starting (a
+  // queued message promoted to a steer leaves one of those). `starting` keeps
+  // `startedAt` null until it runs, hence the status form.
+  const ordered = runs
+    .filter(
+      (run) =>
+        run.status !== "queued" &&
+        run.status !== "rolled_back" &&
+        !(run.status === "cancelled" && run.startedAt === null),
+    )
+    .toSorted((left, right) => left.ordinal - right.ordinal);
   return ordered.flatMap((run, index) => {
     const previous = ordered[index - 1];
     return previous === undefined ||

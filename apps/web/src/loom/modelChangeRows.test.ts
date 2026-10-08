@@ -19,6 +19,8 @@ const run = (
     modelSelection: { instanceId, model, ...(options ? { options } : {}) },
     userMessageId: `message-${ordinal}`,
     requestedAt: DateTime.makeUnsafe(Date.UTC(2026, 9, 7, 12, ordinal)),
+    status: "completed",
+    startedAt: DateTime.makeUnsafe(Date.UTC(2026, 9, 7, 12, ordinal)),
   }) as unknown as ModelChangeRun;
 
 const changes = (runs: ReadonlyArray<ModelChangeRun>) =>
@@ -47,6 +49,23 @@ describe("modelChangeRows", () => {
         run(2, "pi", "claude-opus-5", [{ id: "thinking", value: "high" }]),
       ]),
     ).toEqual([]);
+  });
+
+  it("skips runs the timeline does not show: reverted, queued, cancelled before starting", () => {
+    const hidden = (ordinal: number, model: string, fields: Partial<ModelChangeRun>) => ({
+      ...run(ordinal, "pi", model),
+      ...fields,
+    });
+    expect(
+      changes([
+        run(1, "pi", "a"),
+        hidden(2, "b", { status: "rolled_back" }),
+        run(3, "pi", "a"),
+        hidden(4, "c", { status: "cancelled", startedAt: null }),
+        hidden(5, "d", { status: "queued", startedAt: null }),
+        run(6, "pi", "b"),
+      ]),
+    ).toEqual([["message-6", "a", "b"]]);
   });
 
   it("compares runs in ordinal order", () => {

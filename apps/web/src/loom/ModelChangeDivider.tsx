@@ -1,5 +1,4 @@
 // loom: the "Model: A → B" timeline divider (rows derived in ./modelChangeRows.ts).
-import type { ServerProvider } from "@t3tools/contracts";
 import { CpuIcon } from "lucide-react";
 import { memo, use } from "react";
 
@@ -10,13 +9,12 @@ import { getProviderInstanceEntry } from "~/providerInstances";
 
 import type { LoomModelChangeRow } from "./modelChangeRows";
 
-export function ModelChangeDividerView({
+export const ModelChangeDivider = memo(function ModelChangeDivider({
   row,
-  providers,
 }: {
   row: LoomModelChangeRow;
-  providers: ReadonlyArray<ServerProvider>;
 }) {
+  const providers = use(TimelineRowCtx).providerStatuses;
   const models = getProviderInstanceEntry(providers, row.instanceId)?.models ?? [];
   const name = (slug: string) => {
     const model = models.find((candidate) => candidate.slug === slug);
@@ -29,12 +27,4 @@ export function ModelChangeDividerView({
       icon={CpuIcon}
     />
   );
-}
-
-export const ModelChangeDivider = memo(function ModelChangeDivider({
-  row,
-}: {
-  row: LoomModelChangeRow;
-}) {
-  return <ModelChangeDividerView row={row} providers={use(TimelineRowCtx).providerStatuses} />;
 });
