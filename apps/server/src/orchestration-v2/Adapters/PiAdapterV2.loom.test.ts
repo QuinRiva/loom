@@ -53,7 +53,7 @@ import {
 import * as IdAllocator from "../IdAllocator.ts";
 import { ProviderAdapterV2RuntimePolicy, type ProviderAdapterV2Event } from "../ProviderAdapter.ts";
 import { makePiAdapterV2 } from "./PiAdapterV2.ts";
-import type { PiRpcRecord } from "./PiRpc.ts";
+import { makePiRpcConnection, type PiRpcRecord } from "./PiRpc.ts";
 import { buildPiRpcLaunch } from "./piT3McpInjection.ts";
 
 const testLayer = Layer.mergeAll(
@@ -749,5 +749,43 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
       while ((yield* Queue.take(events)).type !== "turn.terminal");
       assert.deepEqual(yield* PendingSteering.read(THREAD_ID), { runId, text: "second steer" });
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// Issue #342: every pi child (sessions, consults, goal reactor, text-gen) must resolve
+// its worktree's own binaries first, or a bare `vp` lands on another checkout's install.
+describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
+  it.effect("prepends <cwd>/node_modules/.bin to the spawned pi's PATH", () =>
+    Effect.gen(function* () {
+      let spawnedEnv: NodeJS.ProcessEnv | undefined;
+      const spawner = ChildProcessSpawner.make((command) =>
+        Effect.sync(() => {
+          if (ChildProcess.isStandardCommand(command)) spawnedEnv = command.options.env;
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(999_999_997),
+            exitCode: Effect.never,
+            isRunning: Effect.succeed(true),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.never,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          });
+        }),
+      );
+      yield* makePiRpcConnection({
+        command: "pi",
+        args: ["--mode", "rpc"],
+        cwd: "/w/tree",
+        env: { PATH: "/release/node_modules/.bin:/usr/bin" },
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      assert.equal(
+        spawnedEnv?.PATH,
+        "/w/tree/node_modules/.bin:/release/node_modules/.bin:/usr/bin",
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });
