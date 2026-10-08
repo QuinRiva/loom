@@ -214,6 +214,18 @@ describe("attentionReasonsOf", () => {
     ).toEqual(["brief-needed"]);
   });
 
+  it("puts error first for a failed latest run, but not a usage limit or an unclassified failure", () => {
+    const failed = (lastErrorClass: OrchestrationV2ThreadShell["lastErrorClass"]): Spec => ({
+      id: "a",
+      started: true,
+      attention: ["needs_guidance"],
+      shell: { status: "failed", lastErrorClass },
+    });
+    expect(reasonsOf("a", [failed("provider_error")])).toEqual(["error", "needs_guidance"]);
+    expect(reasonsOf("a", [failed("usage_limit")])).toEqual(["needs_guidance"]);
+    expect(reasonsOf("a", [failed(null)])).toEqual(["needs_guidance"]);
+  });
+
   it("keeps a yield (awaiting_orchestrator) as attention, not a column", () => {
     expect(
       reasonsOf("a", [{ id: "a", started: true, attention: ["awaiting_orchestrator"] }]),

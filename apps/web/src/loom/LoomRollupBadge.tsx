@@ -126,9 +126,8 @@ export function LoomRollupPill({
   const { plan, activity, attention } = rollup;
   const tone = workstreamBadgeTone(rollup);
   const settled = plan.columns.done + plan.columns.cancelled;
-  // `!` means a human must act: only red and amber carry it.
-  const forHuman = attention.nodes.filter((node) => !node.withAgents).length;
-  const flagged = tone === "failed" || tone === "needs_you" ? forHuman : 0;
+  // `!` means a human must act: non-zero exactly when the tone is red or amber.
+  const flagged = attention.nodes.filter((node) => !node.withAgents).length;
   const summary = [
     plural(plan.total, "sub-thread"),
     `${settled} settled`,
@@ -173,7 +172,7 @@ export function LoomRollupPill({
           data-thread-selection-safe
         >
           <div className="pb-1.5 font-medium text-xs">{summary.join(" · ")}</div>
-          {forHuman === 0 ? (
+          {flagged === 0 && tone !== "failed" ? (
             <div className="pb-1.5 text-3xs text-muted-foreground">Nothing needs you.</div>
           ) : null}
           {attention.nodes.length > 0 ? (

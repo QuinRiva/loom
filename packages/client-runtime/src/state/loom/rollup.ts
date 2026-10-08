@@ -79,18 +79,40 @@ export function ownAttentionOf(
 }
 
 /**
- * `ownAttentionOf` plus `brief-needed`, derived exactly when the server's
- * dispatcher would nag the parent (`isBriefNeeded`): a held child, or one
- * still queued behind an unfinished sibling, is not owed a brief yet.
+ * An unsettled thread whose latest run failed with a known class other than a
+ * usage limit (auto-resumed) — the liveness sweep's `isFailedSession`, read at
+ * once instead of after its three sweeps.
+ */
+const runFailed = (
+  thread: Pick<WorkstreamRollupThread, "workstream" | "status" | "lastErrorClass">,
+) =>
+  thread.workstream?.outcome === null &&
+  thread.status === "failed" &&
+  thread.lastErrorClass != null &&
+  thread.lastErrorClass !== "usage_limit";
+
+/**
+ * `ownAttentionOf` plus the two a workstream surface derives: `error` for a
+ * failed latest run (before the sweep stores one), and `brief-needed` exactly
+ * when the server's dispatcher would nag the parent (`isBriefNeeded`) — a held
+ * child, or one still queued behind an unfinished sibling, is not owed a brief yet.
  */
 export function attentionReasonsOf(
-  thread: Pick<WorkstreamRollupThread, "workstream" | "pendingRuntimeRequest">,
+  thread: Pick<
+    WorkstreamRollupThread,
+    "workstream" | "pendingRuntimeRequest" | "status" | "lastErrorClass"
+  >,
   byId: WorkstreamIndex,
 ): ReadonlyArray<WorkstreamAttentionReason> {
   const own = ownAttentionOf(thread);
-  return thread.workstream !== undefined && isBriefNeeded(startNodeOf(thread.workstream), byId)
-    ? [...own, "brief-needed"]
-    : own;
+  const failed = runFailed(thread) && !own.includes("error");
+  const briefNeeded =
+    thread.workstream !== undefined && isBriefNeeded(startNodeOf(thread.workstream), byId);
+  return [
+    ...(failed ? (["error"] as const) : []),
+    ...own,
+    ...(briefNeeded ? (["brief-needed"] as const) : []),
+  ];
 }
 
 /**
@@ -236,12 +258,6 @@ function withAgents(
   return since !== null && (answeredAt === null || DateTime.toEpochMillis(answeredAt) < since);
 }
 
-/** An unsettled thread whose latest run failed for a reason other than a usage limit (auto-resumed). */
-const runFailed = (thread: WorkstreamRollupThread) =>
-  thread.workstream?.outcome === null &&
-  thread.status === "failed" &&
-  thread.lastErrorClass !== "usage_limit";
-
 export function attentionRollup(
   descendants: ReadonlyArray<WorkstreamRollupThread>,
   byId: WorkstreamIndex,
@@ -249,8 +265,7 @@ export function attentionRollup(
 ): AttentionRollup {
   const nodes = liveOf(descendants)
     .flatMap((thread) => {
-      // A failed run reads as an error at once, before the liveness sweep stores one.
-      const reason = runFailed(thread) ? "error" : attentionReasonsOf(thread, byId)[0];
+      const reason = attentionReasonsOf(thread, byId)[0];
       return reason === undefined
         ? []
         : [
