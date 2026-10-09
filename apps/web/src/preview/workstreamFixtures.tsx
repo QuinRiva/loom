@@ -102,12 +102,7 @@ function QuickFactsFixture({ threadId }: { threadId: ThreadId }) {
   const node = nodes.get(threadId)!;
   return (
     <div className="relative mx-auto h-[360px] w-[300px] [&>div]:top-2 [&>div]:left-2">
-      <WorkstreamQuickFacts
-        node={node}
-        byId={nodes}
-        rollup={rollupOf(threadId)}
-        titleOf={titleOf}
-      />
+      <WorkstreamQuickFacts node={node} byId={nodes} rollup={rollupOf(threadId)} />
     </div>
   );
 }
@@ -351,7 +346,7 @@ export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
       id: "workstream-graph",
       title: "Graph — gated pair with round badge",
       description:
-        "The whole orchestration with the active strip: the reviewer→coder loop edge carries ⟲ rounds/cap and the open-rework dot; the forkFrom child carries the fork badge.",
+        "The whole orchestration with the active strip: the reviewer→coder loop edge carries ⟲ rounds/cap and the open-rework dot; the forkFrom child carries the fork badge. Steps: a 17-minute bash (amber) under a 48-character model slug, a 20-second read (name only), and a reviewer with a four-digit tool count beside waiting ⟲1.",
       render: () => <GraphFixture />,
     },
     {
@@ -363,6 +358,21 @@ export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
       id: "workstream-quick-facts-reviewer",
       title: "Quick facts — reviewer in gate",
       render: () => <QuickFactsFixture threadId={T.gateReviewer} />,
+    },
+    {
+      id: "workstream-quick-facts-long-step",
+      title: "Quick facts — a bash call past five minutes",
+      render: () => <QuickFactsFixture threadId={T.gateCoder} />,
+    },
+    {
+      id: "workstream-quick-facts-short-step",
+      title: "Quick facts — a read just started",
+      render: () => <QuickFactsFixture threadId={loomPreviewThreads.surveying.id} />,
+    },
+    {
+      id: "workstream-quick-facts-done",
+      title: "Quick facts — finished",
+      render: () => <QuickFactsFixture threadId={T.coderDone} />,
     },
     {
       id: "workstream-timeline",

@@ -89,13 +89,16 @@ describe("the gated pair", () => {
   it("the coder holds the open rework round; the reviewer waits on it", () => {
     expect(getGateWaitLabel(node(T.gateCoder), nodes)).toEqual({
       label: "reworking round 1",
+      word: "reworking ⟲1",
       active: true,
     });
     expect(getGateWaitLabel(node(T.gateReviewer), nodes)).toEqual({
       label: "waiting on rework",
+      word: "waiting ⟲1",
       active: false,
     });
     expect(getNodeStateWord(node(T.gateCoder), nodes)).toBe("reworking ⟲1");
+    expect(getNodeStateWord(node(T.gateReviewer), nodes)).toBe("waiting ⟲1");
   });
 
   it("describes verdicts", () => {

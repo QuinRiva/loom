@@ -42,8 +42,11 @@ import {
   COLUMN_STYLES,
   formatCompactAge,
   getGateLoopCap,
+  formatStepAge,
   getNodeStateWord,
+  getNodeStripLabel,
   getRoleLabel,
+  getStep,
   getVerdictChip,
   isRunning,
   legibleHue,
@@ -53,6 +56,7 @@ import {
   type WorkstreamNodeIndex,
   wrapLabel,
 } from "../lib/workstreamPresentation";
+import { useNowMinute } from "../hooks/useNowMinute";
 import { useWorkstreamUiStore } from "../loom/workstreamUiStore";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -385,7 +389,6 @@ export default function WorkstreamGraph({
             node={hovered}
             byId={byId}
             rollup={rollupOf(hovered.id)}
-            titleOf={titleOf}
           />
         ) : null}
       </div>
@@ -756,6 +759,13 @@ function GraphNode({
   const reason = node.reasons[0];
   const recede = node.column === "done" || node.column === "cancelled";
   const running = isRunning(node);
+  // Ages and step durations tick on the shared minute clock (no per-node timer).
+  const now = Date.parse(`${useNowMinute()}:00Z`);
+  const step = getStep(node, now);
+  const stepAge = step && formatStepAge(step.since, now);
+  // The footer's age ends left of the corner badges; both lines lift clear of a verdict pill.
+  const footerEnd = x + w - 10 - (node.forkFromThreadId ? 20 : 0) - (externalConsult ? 20 : 0);
+  const footerY = y + h - (verdict ? 10 : 8);
   const titleLines = wrapLabel(node.title, 24, 2);
   const roleLabel = getRoleLabel(node);
   const forkBadgeX = x + w - 12;
@@ -843,13 +853,13 @@ function GraphNode({
             x={x + 10}
             y={y + 13.5}
           >
-            {truncateLabel(roleLabel, 11).toUpperCase()}
+            {getNodeStripLabel(node, stateWord)}
           </text>
           {running ? (
             <circle cx={x + w - 16 - stateWord.length * 4.4} cy={y + 10.5} r={2.6} fill={color} />
           ) : null}
           <text fill={legibleHue(color)} fontSize="8" textAnchor="end" x={x + w - 10} y={y + 13.5}>
-            {truncateLabel(stateWord, 20)}
+            {stateWord}
           </text>
           <text className="fill-foreground" fontSize="11" fontWeight="600">
             <tspan x={x + 10} y={y + 35}>
@@ -896,16 +906,30 @@ function GraphNode({
             </CornerBadge>
           ) : null}
           {node.column === "in_progress" ? (
-            <text
+            <g
+              className="fill-muted-foreground"
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fontSize={8.5}
-              className="fill-muted-foreground"
               pointerEvents="none"
-              x={x + 10}
-              y={y + h - 8}
             >
-              {`${node.toolCalls > 0 ? `⚒ ${node.toolCalls} · ` : ""}${node.activity ?? "idle"} · ${formatCompactAge(node.lastActivityAt)}`}
-            </text>
+              <text x={x + 10} y={footerY}>
+                {step ? truncateLabel(step.label, 16) : (node.activity ?? "idle")}
+                {stepAge ? (
+                  <>
+                    {" · "}
+                    <tspan
+                      className={step?.long ? "fill-warning-foreground" : undefined}
+                      fontWeight={step?.long ? 600 : undefined}
+                    >
+                      {stepAge}
+                    </tspan>
+                  </>
+                ) : null}
+              </text>
+              <text textAnchor="end" x={footerEnd} y={footerY}>
+                {formatCompactAge(node.lastActivityAt, now)}
+              </text>
+            </g>
           ) : null}
         </g>
       </g>

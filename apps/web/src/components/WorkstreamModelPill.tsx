@@ -5,8 +5,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
  * `{provider} · {model}` with a per-provider tint dot (theme tokens, stable per
- * provider slug). When space is tight the provider truncates and the model
- * stays whole — the version is the discriminator.
+ * provider slug). When space is tight the provider truncates first, then the
+ * model (the full text is in the tooltip), so a long slug never pushes its
+ * row's neighbours off a card.
  */
 export function WorkstreamModelPill({ selection }: { selection: ModelSelection }) {
   const { provider, model } = getProviderModelParts(selection);
@@ -27,13 +28,13 @@ export function WorkstreamModelPill({ selection }: { selection: ModelSelection }
         <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: tint }} />
         {provider ? (
           <>
-            <span className="min-w-0 truncate text-muted-foreground">{provider}</span>
+            <span className="min-w-6 shrink-[99] truncate text-muted-foreground">{provider}</span>
             <span aria-hidden className="shrink-0 text-muted-foreground/70">
               ·
             </span>
           </>
         ) : null}
-        <span className="shrink-0">{model}</span>
+        <span className="min-w-0 truncate">{model}</span>
       </TooltipTrigger>
       <TooltipPopup>{provider ? `${provider} · ${model}` : model}</TooltipPopup>
     </Tooltip>

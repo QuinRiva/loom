@@ -205,6 +205,91 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
+  it.effect(
+    "active step: the oldest in-flight tool, else the model since the last tool ended",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const store = yield* LoomStore.LoomStoreV2;
+        const run = (runId: string, threadId: string, status: string) =>
+          Effect.all([
+            row(threadId),
+            sql`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title,
+              default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+            VALUES (${threadId}, ${projectId}, ${threadId}, 'pi', 'full-access', 'default',
+              ${T(0)}, ${T(0)}, '{}')`,
+            sql`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider,
+              status, requested_at, payload_json)
+            VALUES (${runId}, ${threadId}, 1, 'pi', ${status}, ${T(0)},
+              ${JSON.stringify({ workStartedAt: T(1) })})`,
+          ]);
+        const item = (
+          id: string,
+          threadId: string,
+          runId: string,
+          ordinal: number,
+          type: string,
+          status: string,
+          payload: Record<string, unknown>,
+        ) =>
+          sql`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id,
+            ordinal, type, status, updated_at, payload_json)
+          VALUES (${id}, ${threadId}, ${runId}, ${ordinal}, ${type}, ${status}, ${T(ordinal)},
+            ${JSON.stringify(payload)})`;
+        // Two tools in flight: the older one is the step; its command's first line is the detail.
+        yield* run("run-tool", "step-tool", "running");
+        yield* item("st-1", "step-tool", "run-tool", 2, "command_execution", "completed", {
+          completedAt: T(3),
+        });
+        yield* item("st-2", "step-tool", "run-tool", 4, "command_execution", "running", {
+          title: "bash",
+          startedAt: T(4),
+          input: "sleep 1200\necho done",
+        });
+        yield* item("st-3", "step-tool", "run-tool", 5, "dynamic_tool", "running", {
+          title: "read",
+          startedAt: T(5),
+          input: { path: "a.ts" },
+        });
+        // Between tools: since the last tool ended, however much text streamed after it.
+        yield* run("run-model", "step-model", "running");
+        yield* item("sm-1", "step-model", "run-model", 2, "dynamic_tool", "completed", {
+          completedAt: T(6),
+        });
+        yield* item("sm-2", "step-model", "run-model", 3, "assistant_message", "running", {});
+        // No tool yet: since the run's work start. Settled run: no step at all.
+        yield* run("run-fresh", "step-fresh", "running");
+        yield* run("run-idle", "step-idle", "completed");
+        yield* item("si-1", "step-idle", "run-idle", 2, "command_execution", "running", {
+          startedAt: T(2),
+        });
+
+        const fields = yield* store.shellFields(
+          ["step-tool", "step-model", "step-fresh", "step-idle"].map((id) => ThreadId.make(id)),
+        );
+        const step = (id: string) => fields.get(ThreadId.make(id))?.activeStep;
+        assert.deepEqual(step("step-tool"), {
+          kind: "tool",
+          since: T(4),
+          title: "bash",
+          detail: "sleep 1200",
+        });
+        assert.deepEqual(step("step-model"), {
+          kind: "model",
+          since: T(6),
+          title: null,
+          detail: null,
+        });
+        assert.deepEqual(step("step-fresh"), {
+          kind: "model",
+          since: T(1),
+          title: null,
+          detail: null,
+        });
+        assert.isNull(step("step-idle"));
+      }),
+  );
+
   it.effect("goal and task CRUD assembles the live tree and soft-deletes by project", () =>
     Effect.gen(function* () {
       const store = yield* LoomStore.LoomStoreV2;

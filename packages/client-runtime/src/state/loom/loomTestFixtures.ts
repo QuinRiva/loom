@@ -49,6 +49,7 @@ export const workstreamFields = (
   peerMessages: [],
   toolCalls: 0,
   contextUsage: null,
+  activeStep: null,
   ...overrides,
 });
 

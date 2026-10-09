@@ -57,6 +57,7 @@ const node = (
       peerMessages: [],
       toolCalls: 0,
       contextUsage: null,
+      activeStep: null,
       ...fields,
     },
     ...shell,
