@@ -28,7 +28,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { resolveSpawnCommand, withLocalNodeModulesBin } from "@t3tools/shared/shell"; // loom: worktree-local bin
 
 import { signalProcessGroup } from "../../process/processGroup.ts";
 
@@ -224,7 +224,13 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     .spawn(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        env: options.env,
+        // loom: resolve the session worktree's own binaries (e.g. `vp`) before
+        // anything inherited from the server's PATH, which may point at a
+        // different checkout or the deployed release (issue #342).
+        env:
+          options.cwd === undefined
+            ? options.env
+            : withLocalNodeModulesBin(options.env, options.cwd, platform),
         extendEnv: false,
         shell: spawnCommand.shell,
         detached: platform !== "win32",

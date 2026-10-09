@@ -61,6 +61,7 @@ We need to be on the same page with terminology. When communicating, use this la
 - `vp check` and `vp run typecheck` must pass before considering tasks completed.
   - If changing native mobile code, `vp run lint:mobile` must also pass.
 - Use `vp test` for the built-in Vite+ test command and `vp run test` when you specifically need the `test` package script.
+- Pass test paths directly (`vp test run <path>` / `vpr test <path>`), never after `--`: `vpr test -- <dir>` turns the path into passthrough and runs the whole suite.
 
 > This supersedes upstream's "Do not run repo-wide checks" bullet under
 > [Verifying](#verifying): loom has no CI that owns the full suite, so the gates
