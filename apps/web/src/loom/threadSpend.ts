@@ -46,6 +46,15 @@ export function useThreadSpend(
   return spendStore.useLookup(environmentId, [threadId])(threadId);
 }
 
+/** Each of `threadIds`' lifetime cost (0 until answered or when none), from one batched lookup. */
+export function useSpendOf(
+  environmentId: EnvironmentId | null,
+  threadIds: ReadonlyArray<ThreadId>,
+): (threadId: ThreadId) => number {
+  const lookup = spendStore.useLookup(environmentId, threadIds);
+  return (threadId) => lookup(threadId)?.costUsd ?? 0;
+}
+
 /**
  * The summed lifetime cost of `threadIds` (a subtree or a whole workstream),
  * from the same batched lookups the cards make — one RPC for the lot.
@@ -54,8 +63,8 @@ export function useTotalSpend(
   environmentId: EnvironmentId | null,
   threadIds: ReadonlyArray<ThreadId>,
 ): number {
-  const lookup = spendStore.useLookup(environmentId, threadIds);
-  return threadIds.reduce((sum, threadId) => sum + (lookup(threadId)?.costUsd ?? 0), 0);
+  const costOf = useSpendOf(environmentId, threadIds);
+  return threadIds.reduce((sum, threadId) => sum + costOf(threadId), 0);
 }
 
 export interface EnvironmentTopSpendRow extends LoomTopSpendRow {

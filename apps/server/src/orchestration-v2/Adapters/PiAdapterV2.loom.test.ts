@@ -364,6 +364,13 @@ describe("PiAdapterV2 (loom)", () => {
       assert.closeTo(live[1]!.usage.costUsd!, 0.0125 + 0.00375, 1e-12);
       assert.lengthOf(terminal, 1);
       assert.closeTo(terminal[0]!.usage.costUsd!, 0.02, 1e-12);
+      // The context meter is a snapshot, never a running total: live, the streaming call's own
+      // context (not summed with the finished call's); settled, pi's session context.
+      assert.deepEqual(
+        live.map((entry) => entry.usage.usedTokens),
+        [600, 601],
+      );
+      assert.strictEqual(terminal[0]!.usage.usedTokens, 1_200);
       // 3c-3: the turn's own tokens (two messages) in upstream's per-turn slot, not the
       // session-wide stats; live frames carry none.
       const turnUsage = turnUpdates.flatMap((event) =>

@@ -6,6 +6,7 @@ import {
   formatContextWindowCost,
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
+import type { ReactNode } from "react"; // loom: spend block slot
 import { composerFloatingLayerProps } from "./composerEventScope";
 
 function formatPercentage(value: number | null): string | null {
@@ -20,12 +21,14 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
+  loomSpend?: ReactNode; // loom: workstream spend block (`~/loom/ContextSpend`), mounted only while open
   modelDisplayName?: string | null;
   onCompact?: (() => void) | undefined;
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
 }) {
-  const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const { usage, loomSpend, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } =
+    props; // loom: loomSpend
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -149,6 +152,7 @@ export function ContextWindowMeter(props: {
               {formatContextWindowCompactionMessage(modelDisplayName, usage.autoCompactThreshold)}
             </div>
           ) : null}
+          {loomSpend /* loom: */}
           {onCompact ? (
             <>
               <Button
