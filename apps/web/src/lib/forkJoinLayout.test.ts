@@ -615,21 +615,47 @@ describe("back-edge routing", () => {
     expect(byId(nodes, "assessor")!.y).toBeGreaterThan(byId(nodes, "doc")!.y);
   });
 
-  it("leaves a forward cross-wave dependency to the spine (no back-edge)", () => {
-    // A later-wave node waiting on an earlier-wave one is the NORMAL order the
-    // spine already encodes; drawing it would be redundant clutter.
-    const { edges } = computeForkJoinLayout([
+  it("draws a forward cross-wave dependency once, clear of every card", () => {
+    // The real case: a shipper in a later wave waits on a same-wave review AND
+    // on a review dispatched in an earlier wave. Both waits-on edges must draw.
+    const { nodes, edges } = computeForkJoinLayout([
       thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" }),
-      thread({ id: "early", parentThreadId: "R", spawnGeneration: "g1", createdAt: "1" }),
+      thread({ id: "coderA", parentThreadId: "R", spawnGeneration: "g1", createdAt: "1" }),
       thread({
-        id: "late",
+        id: "reviewA",
+        parentThreadId: "R",
+        spawnGeneration: "g1",
+        createdAt: "2",
+        blockedBy: ["coderA"],
+      }),
+      thread({ id: "reviewB", parentThreadId: "R", spawnGeneration: "g2", createdAt: "3" }),
+      thread({
+        id: "ship",
         parentThreadId: "R",
         spawnGeneration: "g2",
-        createdAt: "2",
-        blockedBy: ["early"],
+        createdAt: "4",
+        blockedBy: ["reviewB", "reviewA"],
       }),
     ]);
-    expect(edges.some((e) => e.kind === "blocked")).toBe(false);
+    const blocked = edges.filter((e) => e.kind === "blocked").map((e) => e.key);
+    expect([...blocked].sort()).toEqual([
+      "blocked:reviewA:coderA",
+      "blocked:ship:reviewA",
+      "blocked:ship:reviewB",
+    ]);
+    const edge = edges.find((e) => e.key === "blocked:ship:reviewA")!;
+    expect(edge.fromKey).toBe(tid("reviewA"));
+    expect(edge.toKey).toBe(tid("ship"));
+    const ship = byId(nodes, "ship")!;
+    const reviewA = byId(nodes, "reviewA")!;
+    // Leaves the dep's bottom, lands on the waiting card's left port (the port
+    // same-wave edges use), routed orthogonally through clear gutters.
+    expect(edge.points![0]!.y).toBe(reviewA.y + reviewA.h);
+    expect(edge.points!.at(-1)).toEqual({ x: ship.x, y: ship.y + ship.h / 2 });
+    const threads = nodes.filter(
+      (n): n is Extract<LaidNode, { kind: "thread" }> => n.kind === "thread",
+    );
+    expect(polylineClearsAllNodes(edge.points!, threads)).toBe(true);
   });
 });
 

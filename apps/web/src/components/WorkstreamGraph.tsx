@@ -1,8 +1,8 @@
 // Workstream fork–join graph — a READ-ONLY "dispatch episode" view. The
 // orchestrator recurs as one BRIDGE node per wave (the children of one
 // (parent, spawnGeneration)); waves stack down a neutral spine; within a wave,
-// children sit in dependency columns with real `blockedBy` as dashed
-// cross-edges; a gated pair carries its loop edge with a ⟲ rounds/cap badge.
+// children sit in dependency columns; real `blockedBy` (within or across
+// waves) draws as dashed cross-edges; a gated pair carries its loop edge with a ⟲ rounds/cap badge.
 // Position encodes dispatch order; status is colour only (theme tokens).
 //
 // Gestures: click a node to enter its thread; hover (~300ms) for quick facts

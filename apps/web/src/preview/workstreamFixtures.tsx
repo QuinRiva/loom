@@ -42,7 +42,7 @@ const withWorkstream = (
 
 /**
  * The fixture set with the waves real spawns carry (the gated pair, the survey
- * and its dependent), its ready child turned into a `forkFrom` child of the
+ * and its dependent, the migration waiting on the earlier gate's reviewer), its ready child turned into a `forkFrom` child of the
  * done coder.
  */
 const PREVIEW_PATCHES: ReadonlyArray<
@@ -52,6 +52,8 @@ const PREVIEW_PATCHES: ReadonlyArray<
   [T.gateReviewer, { spawnGeneration: "wave-gate" }],
   [T.quiescent, { spawnGeneration: "wave-survey" }],
   [T.blocked, { spawnGeneration: "wave-survey" }],
+  // loom: a later wave waiting on an earlier wave's reviewer (forward cross-wave edge).
+  [loomPreviewThreads.awaitingApproval.id, { blockedBy: [T.gateReviewer] }],
   [loomPreviewThreads.ready.id, { forkFromThreadId: T.coderDone, blockedBy: [T.coderDone] }],
 ];
 const PREVIEW_SHELLS = PREVIEW_PATCHES.reduce(

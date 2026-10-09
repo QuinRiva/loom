@@ -6,8 +6,8 @@
 // Model: an orchestrator recurs as one BRIDGE node per wave, where a wave = the
 // children sharing one (parentThreadId, spawnGeneration). Waves stack down a
 // neutral spine ordered by each wave's earliest child; a wave's children sit in
-// dependency columns to its right, with real `blockedBy` as within-wave
-// cross-edges. A child that itself spawns is the same layout applied recursively
+// dependency columns to its right, with real `blockedBy` as waits-on
+// cross-edges (within and across waves). A child that itself spawns is the same layout applied recursively
 // and packed as a measured (w×h) block under its card.
 
 import type { ThreadId } from "@t3tools/contracts";
@@ -324,11 +324,11 @@ function layoutOrchestrator(
         y2: center.y,
       });
     }
-    // Within-wave dependencies: the only genuinely information-bearing edge.
+    // Within-wave dependencies.
     // These are ALWAYS forward (a dependency sits in an earlier column by the
     // depth assignment in `dependencyColumns`), so a blocked edge never flows
     // right-to-left and needs no orthogonal back-edge routing. Cross-wave deps
-    // are not drawn as edges at all — the spine encodes that ordering.
+    // are routed after the wave loop (they need every wave's positions).
     for (const member of members) {
       const target = memberCardCenter.get(member.id)!;
       for (const dep of member.blockedBy) {
@@ -396,17 +396,15 @@ function layoutOrchestrator(
     y += waveH + WAVE_GAP;
   });
 
-  // Cross-wave dependency inversions: a member waiting on a sibling that
-  // dispatches in a LATER wave (lower on the spine). A forward cross-wave dep
-  // (waiting on an EARLIER wave) is deliberately left undrawn — the spine's
-  // top-down order already encodes it. An inversion is the opposite: the spine
-  // implies the wrong order, so this is the one cross-wave edge that carries
-  // information and must be drawn (it arises when a node is re-gated after
-  // spawn, e.g. mcp__t3-code__workstream_set_dependencies pointing an early node at a
-  // later-spawned replacement). Routed vertically through a clear side gutter
-  // (the long span rules out the below-channel route used for same-wave pairs;
-  // the dependency itself sits between the endpoints), deconflicted against the
-  // loop/consult lanes via the shared registry.
+  // loom: cross-wave waits-on edges. Every dependency on a sibling in another
+  // wave is drawn (the spine only orders waves; it cannot say WHICH earlier node
+  // a later one waits on), deconflicted against the loop lanes via the shared
+  // registry. Forward (dep in an EARLIER wave, above): out of the dep's bottom
+  // port, along a clear channel in the gap below it, down the gutter just left
+  // of the waiting card into its left port — the same port a same-wave edge
+  // uses. Inversion (dep in a LATER wave, below — a node re-gated after spawn
+  // onto a later replacement): left-side ports joined by a vertical run in the
+  // nearest clear gutter left of both cards.
   let blockH = Math.max(0, y - WAVE_GAP);
   for (const child of children) {
     const target = centreByMember.get(child.id);
@@ -416,26 +414,12 @@ function layoutOrchestrator(
       if (dep === child.id) continue;
       const source = centreByMember.get(dep);
       const sourceWave = waveIndexByMember.get(dep);
-      if (source === undefined || sourceWave === undefined || sourceWave <= targetWave) continue;
-      // Ports on the LEFT side of both cards, joined by a vertical run in the
-      // nearest gutter left of them that is both obstacle-clear and unclaimed.
-      const yTop = Math.min(source.y, target.y);
-      const yBot = Math.max(source.y, target.y);
-      const laneX = findFreeVerticalLane(
-        nodes,
-        loopLanes,
-        Math.min(source.x, target.x) - LANE_STEP,
-        yTop,
-        yBot,
-        new Set([child.id, dep]),
-      );
-      loopLanes.claimVertical(laneX, yTop, yBot);
-      const points: Point[] = [
-        { x: source.x, y: source.y },
-        { x: laneX, y: source.y },
-        { x: laneX, y: target.y },
-        { x: target.x, y: target.y },
-      ];
+      if (source === undefined || sourceWave === undefined || sourceWave === targetWave) continue;
+      const ignore = new Set<string>([child.id, dep]);
+      const points =
+        sourceWave < targetWave
+          ? routeForwardCrossWave(nodes, loopLanes, source, target, ignore)
+          : routeInversion(nodes, loopLanes, source, target, ignore);
       edges.push({
         kind: "blocked",
         key: `blocked:${child.id}:${dep}`,
@@ -754,6 +738,76 @@ function routeUnderChannel(
   if (toX !== to.x) points.push({ x: toX, y: to.bottom });
   points.push({ x: to.x, y: to.bottom });
   return { points, badge: { x: (fromX + toX) / 2, y: channelY } };
+}
+
+// loom: cross-wave waits-on routes. `source`/`target` are card left-edge
+// centres. Forward (dep above): bottom port → clear channel just below the dep
+// → the gutter left of the waiting card → its left port. Consecutive
+// duplicate waypoints (a straight drop) are collapsed.
+function routeForwardCrossWave(
+  nodes: ReadonlyArray<LaidNode>,
+  lanes: BackEdgeLanes,
+  source: Point,
+  target: Point,
+  ignore: ReadonlySet<string>,
+): Point[] {
+  // Bottom port left of centre: clear of the outcome pill (bottom-right) and of
+  // a gate loop's drop (0.3W).
+  const port = { x: source.x + NODE_W * 0.45, y: source.y + NODE_H / 2 };
+  const gutterX = target.x - LANE_STEP;
+  const lo = Math.min(port.x, gutterX);
+  const hi = Math.max(port.x, gutterX);
+  const channelY = lanes.claimHorizontal(
+    clearChannelBelow(nodes, lo, hi, port.y + CHANNEL_MARGIN),
+    lo,
+    hi,
+    LOOP_LANE_STEP,
+  );
+  const dropX = findNearestClearLane(nodes, port.x, port.y, channelY, ignore);
+  const [laneLo, laneHi] = [Math.min(channelY, target.y), Math.max(channelY, target.y)];
+  // Several deps into one card share its gutter as parallel tracks a loop-lane
+  // step apart, staying inside the gap rather than grazing the next card.
+  const laneX =
+    [0, -1, 1, -2, 2]
+      .map((i) => gutterX + i * LOOP_LANE_STEP)
+      .find(
+        (x) =>
+          laneClear(nodes, x, laneLo, laneHi, ignore) &&
+          lanes.verticalFree(x, laneLo, laneHi, LOOP_LANE_STEP),
+      ) ?? findNearestClearLane(nodes, gutterX, laneLo, laneHi, ignore);
+  lanes.claimVertical(dropX, port.y, channelY);
+  lanes.claimVertical(laneX, laneLo, laneHi);
+  return [
+    port,
+    { x: dropX, y: port.y },
+    { x: dropX, y: channelY },
+    { x: laneX, y: channelY },
+    { x: laneX, y: target.y },
+    target,
+  ].filter((p, i, all) => i === 0 || p.x !== all[i - 1]!.x || p.y !== all[i - 1]!.y);
+}
+
+// Inversion (dep below): left ports joined by a vertical run in the nearest
+// gutter left of both cards that is obstacle-clear and unclaimed.
+function routeInversion(
+  nodes: ReadonlyArray<LaidNode>,
+  lanes: BackEdgeLanes,
+  source: Point,
+  target: Point,
+  ignore: ReadonlySet<string>,
+): Point[] {
+  const yTop = Math.min(source.y, target.y);
+  const yBot = Math.max(source.y, target.y);
+  const laneX = findFreeVerticalLane(
+    nodes,
+    lanes,
+    Math.min(source.x, target.x) - LANE_STEP,
+    yTop,
+    yBot,
+    ignore,
+  );
+  lanes.claimVertical(laneX, yTop, yBot);
+  return [source, { x: laneX, y: source.y }, { x: laneX, y: target.y }, target];
 }
 
 /**
