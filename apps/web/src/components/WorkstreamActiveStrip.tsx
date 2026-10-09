@@ -1,18 +1,24 @@
 import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
 import type { ThreadId } from "@t3tools/contracts";
+import { useContext } from "react";
 
 import {
   ATTENTION_COLORS,
   ATTENTION_LABELS,
   COLUMN_STYLES,
   formatRelativeAge,
+  formatStepAge,
   getActivity,
   getRoleLabel,
+  getStep,
   isRunning,
   legibleHue,
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
-import { WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
+import { useNowMinute } from "../hooks/useNowMinute";
+import { formatCostUsd } from "../loom/costFormat";
+import { useThreadSpend } from "../loom/threadSpend";
+import { WorkstreamEnvironmentContext } from "../loom/WorkstreamSpendSlot";
 import { Badge } from "./ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
@@ -21,7 +27,9 @@ import { WorkstreamModelPill } from "./WorkstreamModelPill";
  * Active-now strip: one chip per descendant that is running (the activity
  * rollup) or flagged (the attention rollup) — the two read separately, never
  * fused into one state. Flagged threads sort first; one click enters the
- * thread. Renders nothing for an idle, unflagged workstream.
+ * thread. Renders nothing for an idle, unflagged workstream. Each row pairs a
+ * sentence (left) with a figure (right): title / age, activity / current step,
+ * model / cost and tool count. Ages tick on the shared minute clock.
  */
 export function WorkstreamActiveStrip({
   nodes,
@@ -32,6 +40,7 @@ export function WorkstreamActiveStrip({
   readonly rollup: WorkstreamRollup;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
+  const now = Date.parse(`${useNowMinute()}:00Z`);
   const flagged = new Map(rollup.attention.nodes.map((entry) => [entry.id, entry.reason]));
   const inflight = nodes
     .filter((node) => flagged.has(node.id) || isRunning(node))
@@ -61,6 +70,8 @@ export function WorkstreamActiveStrip({
         {inflight.map((node) => {
           const reason = flagged.get(node.id);
           const color = reason ? ATTENTION_COLORS[reason] : COLUMN_STYLES[node.column].color;
+          const step = getStep(node, now);
+          const stepAge = step && formatStepAge(step.since, now);
           return (
             <Tooltip key={node.id}>
               <TooltipTrigger
@@ -93,7 +104,7 @@ export function WorkstreamActiveStrip({
                       {node.title}
                     </span>
                     <span className="shrink-0 text-3xs text-muted-foreground">
-                      {formatRelativeAge(node.lastActivityAt)}
+                      {formatRelativeAge(node.lastActivityAt, now)}
                     </span>
                   </span>
                   <span className="mt-1 flex gap-1.5 text-2xs leading-snug text-muted-foreground">
@@ -101,23 +112,59 @@ export function WorkstreamActiveStrip({
                       className="mt-1 size-1.5 shrink-0 rounded-full"
                       style={{ backgroundColor: color }}
                     />
-                    <span className="line-clamp-2 min-w-0">
+                    <span className="min-w-0 flex-1 truncate">
                       {reason ? `${ATTENTION_LABELS[reason]} · ` : ""}
                       {node.preview ? <i>› {node.preview}</i> : getActivity(node)}
                     </span>
+                    {step ? (
+                      <span className="shrink-0">
+                        {step.label}
+                        {stepAge ? (
+                          <>
+                            {" · "}
+                            <span
+                              className={
+                                step.long ? "font-semibold text-warning-foreground" : undefined
+                              }
+                            >
+                              {stepAge}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </span>
-                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-3xs text-muted-foreground">
+                  <span className="mt-1.5 flex items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground">
                     <WorkstreamModelPill selection={node.modelSelection} />
-                    <WorkstreamSpendSlot threadId={node.id} />
-                    {node.toolCalls > 0 ? <span>⚒ {node.toolCalls}</span> : null}
+                    <CardStats threadId={node.id} toolCalls={node.toolCalls} />
                   </span>
                 </span>
               </TooltipTrigger>
-              <TooltipPopup>{`Open ${node.title} · ${getRoleLabel(node)}`}</TooltipPopup>
+              <TooltipPopup>
+                {`Open ${node.title} · ${getRoleLabel(node)}`}
+                {step
+                  ? ` · ${step.label} since ${new Date(step.since).toLocaleTimeString()}`
+                  : null}
+              </TooltipPopup>
             </Tooltip>
           );
         })}
       </div>
     </div>
   );
+}
+
+/** The card's right-hand figures: lifetime cost and tool-call count, `$4.10 · ⚒ 212`. */
+function CardStats({
+  threadId,
+  toolCalls,
+}: {
+  readonly threadId: ThreadId;
+  readonly toolCalls: number;
+}) {
+  const cost = formatCostUsd(
+    useThreadSpend(useContext(WorkstreamEnvironmentContext), threadId)?.costUsd,
+  );
+  const text = [cost, toolCalls > 0 ? `⚒ ${toolCalls}` : null].filter(Boolean).join(" · ");
+  return text ? <span className="ml-auto shrink-0 tabular-nums">{text}</span> : null;
 }

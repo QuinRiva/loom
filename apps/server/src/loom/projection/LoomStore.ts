@@ -20,6 +20,7 @@ import {
   IsoDateTime,
   LoomGoal,
   LoomGoalTask,
+  type LoomActiveStep,
   LoomContextUsage,
   LoomOutcome,
   LoomRouteKind,
@@ -413,11 +414,39 @@ const HISTORY_EVENT_TYPES = HistoryEventRow.members.map((member) => member.field
 const TOOL_CALL_ITEM_PREDICATE =
   "type IN ('command_execution', 'file_change', 'file_search', 'web_search', 'dynamic_tool')";
 
+/**
+ * The in-flight predicate `orchestration_v2_projection_turn_items_shell_pending_idx`
+ * (upstream's ShellIndexes) is partial on, verbatim for the same reason.
+ */
+const IN_FLIGHT_TOOL_ITEM_PREDICATE = `i.type IN ('command_execution', 'dynamic_tool', 'subagent')
+  AND i.status NOT IN ('completed', 'interrupted', 'failed', 'cancelled')`;
+
 const ThreadStatsRow = Schema.Struct({
   threadId: ThreadId,
   toolCalls: NonNegativeInt,
   contextUsage: Schema.NullOr(Schema.fromJsonString(LoomContextUsage)),
+  activeTool: Schema.NullOr(
+    Schema.fromJsonString(
+      Schema.Struct({
+        since: IsoDateTime,
+        title: Schema.NullOr(Schema.String),
+        detail: Schema.NullOr(Schema.String),
+      }),
+    ),
+  ),
+  modelSince: Schema.NullOr(IsoDateTime),
 });
+
+/** The card's step: the oldest in-flight tool, else the model since the last tool ended. */
+const activeStepOf = (row: typeof ThreadStatsRow.Type | undefined): LoomActiveStep | null => {
+  if (row?.activeTool) {
+    const detail = row.activeTool.detail?.trim().split("\n")[0]?.slice(0, 160);
+    return { kind: "tool", ...row.activeTool, detail: detail || null };
+  }
+  return row?.modelSince
+    ? { kind: "model", since: row.modelSince, title: null, detail: null }
+    : null;
+};
 
 const SHELL_OMITTED = [
   "notifySendLog",
@@ -543,7 +572,9 @@ const make = Effect.gen(function* () {
 
   // The card's tool-call count: V1's imported count plus V2's tool items
   // (index-only); and the context window: the active provider thread's, else
-  // V1's imported one (both migration 1053).
+  // V1's imported one (both migration 1053). The active step reads only the
+  // active run (the shell's own active-run shape), so idle threads cost nothing;
+  // `modelSince` moves at tool ends only, never per streamed token.
   const threadStats = (threadIds: ReadonlyArray<ThreadId>) =>
     sql`SELECT t.thread_id AS "threadId",
           COALESCE(m.tool_calls, 0) + (SELECT COUNT(*) FROM orchestration_v2_projection_turn_items i
@@ -557,9 +588,37 @@ const make = Effect.gen(function* () {
               WHEN m.max_tokens > 0
                 THEN json_object('usedTokens', m.used_tokens, 'maxTokens', m.max_tokens)
               ELSE json_object('usedTokens', m.used_tokens) END
-          ) AS "contextUsage"
+          ) AS "contextUsage",
+          (SELECT json_object(
+              'since', COALESCE(json_extract(i.payload_json, '$.startedAt'), i.updated_at),
+              'title', json_extract(i.payload_json, '$.title'),
+              'detail', CASE i.type
+                WHEN 'command_execution' THEN substr(json_extract(i.payload_json, '$.input'), 1, 400)
+                WHEN 'dynamic_tool' THEN json_extract(i.payload_json, '$.input.path') END)
+            FROM orchestration_v2_projection_turn_items i
+              INDEXED BY orchestration_v2_projection_turn_items_shell_pending_idx
+            WHERE i.thread_id = t.thread_id AND i.run_id = ar.run_id
+              AND ${sql.literal(IN_FLIGHT_TOOL_ITEM_PREDICATE)}
+            ORDER BY i.ordinal ASC LIMIT 1
+          ) AS "activeTool",
+          CASE WHEN ar.run_id IS NOT NULL THEN COALESCE(
+            (SELECT MAX(COALESCE(json_extract(i.payload_json, '$.completedAt'), i.updated_at))
+              FROM orchestration_v2_projection_turn_items i
+                INDEXED BY orchestration_v2_projection_turn_items_thread_run_idx
+              WHERE i.thread_id = t.thread_id AND i.run_id = ar.run_id
+                AND ${sql.literal(TOOL_CALL_ITEM_PREDICATE)}
+                AND i.status IN ('completed', 'interrupted', 'failed', 'cancelled')),
+            -- Mirrors the shell's activity_run_started_at (orchestrationV2RunWorkStartedAt).
+            json_extract(ar.payload_json, '$.workStartedAt'),
+            json_extract(ar.payload_json, '$.startedAt'),
+            ar.requested_at
+          ) END AS "modelSince"
         FROM orchestration_v2_projection_threads t
         LEFT JOIN loom_thread_imported_metrics m ON m.thread_id = t.thread_id
+        LEFT JOIN orchestration_v2_projection_runs ar ON ar.run_id = (
+          SELECT r.run_id FROM orchestration_v2_projection_runs r
+          WHERE r.thread_id = t.thread_id AND r.status IN ('preparing', 'starting', 'running')
+          ORDER BY r.ordinal DESC, r.run_id DESC LIMIT 1)
         WHERE t.thread_id IN ${sql.in(threadIds)}`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ThreadStatsRow))),
       Effect.map((rows) => new Map(rows.map((row) => [row.threadId, row]))),
@@ -743,6 +802,7 @@ const make = Effect.gen(function* () {
                   ),
                   toolCalls: stats.get(row.threadId)?.toolCalls ?? 0,
                   contextUsage: stats.get(row.threadId)?.contextUsage ?? null,
+                  activeStep: activeStepOf(stats.get(row.threadId)),
                 },
               ] as const,
           ),

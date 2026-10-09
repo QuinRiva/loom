@@ -124,6 +124,7 @@ export const workstream = (
   peerMessages: [],
   toolCalls: 0,
   contextUsage: null,
+  activeStep: null,
   ...fields,
 });
 
@@ -184,6 +185,9 @@ const outcomeRecord = (
   at: AT,
 });
 
+/** A step that began `minutes` before the preview loaded (cards time steps against now). */
+const stepSince = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+
 /** The thread `loomPreviewAnchorTaskId` is anchored to (the goal panel's chip). */
 export const loomPreviewAnchoredThreadId = T.coderDone;
 
@@ -194,7 +198,14 @@ export const loomPreviewAnchoredThreadId = T.coderDone;
 export const loomPreviewThreads = {
   root: shell(
     "Deliver the workstream fixture",
-    workstream(T.root, { parentThreadId: null, role: null, kickoffBriefPath: null, ...started }),
+    workstream(T.root, {
+      parentThreadId: null,
+      role: null,
+      kickoffBriefPath: null,
+      ...started,
+      toolCalls: 75,
+      activeStep: { kind: "model", since: stepSince(4), title: null, detail: null },
+    }),
     { activityRunStatus: "running", status: "running" },
   ),
   held: shell(
@@ -222,6 +233,36 @@ export const loomPreviewThreads = {
       pendingRework: true,
       lastOutcome: outcomeRecord("done", "terminal"),
       reportPath: `${REPORTS}/${T.gateCoder}.md`,
+      toolCalls: 212,
+      // A 17-minute bash: past LONG_STEP_MS, so its duration reads amber.
+      activeStep: {
+        kind: "tool",
+        since: stepSince(17),
+        title: "bash",
+        detail:
+          "vp test run apps/server/src/loom/projection/LoomStore.test.ts apps/server/src/loom/projection/loomShellJoin.test.ts --reporter dot",
+      },
+    }),
+    {
+      activityRunStatus: "running",
+      status: "running",
+      // A 48-character slug: the strip's pill truncates, its stats stay put.
+      modelSelection: { instanceId, model: "cliproxy/claude-sonnet-4-5-20250929-thinking" },
+    },
+  ),
+  /** Running, a read 20 seconds old: the cards show the tool name alone. */
+  surveying: shell(
+    "Survey the parser call sites",
+    workstream("seed-thread-surveying" as ThreadId, {
+      ...started,
+      role: "researcher",
+      toolCalls: 9,
+      activeStep: {
+        kind: "tool",
+        since: stepSince(1 / 3),
+        title: "read",
+        detail: "apps/web/src/components/WorkstreamGraph.tsx",
+      },
     }),
     { activityRunStatus: "running", status: "running" },
   ),
@@ -234,6 +275,7 @@ export const loomPreviewThreads = {
       outcomeAt: AT,
       lastOutcome: outcomeRecord("done", "terminal"),
       reportPath: `${REPORTS}/${T.coderDone}.md`,
+      toolCalls: 31,
     }),
   ),
   cancelled: shell(
@@ -261,6 +303,8 @@ export const loomPreviewThreads = {
         { on: ["clean"], kind: "resolve" },
       ],
       gateRounds: 1,
+      // A four-digit count beside the gate state word: the role yields in the strip.
+      toolCalls: 1204,
       lastOutcome: {
         ...outcomeRecord("needs_rework", "loop"),
         counts: { mustFix: 2, niceToHave: 1 },

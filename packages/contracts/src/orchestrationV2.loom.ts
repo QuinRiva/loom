@@ -412,6 +412,23 @@ export const LoomContextUsage = Schema.Struct({
 export type LoomContextUsage = typeof LoomContextUsage.Type;
 
 /**
+ * What a running thread is doing now: a tool call in flight (`tool`, the
+ * oldest one), or the model working between tool calls (`model`). `since` only
+ * moves at tool boundaries, never per streamed token, so the shell stays quiet
+ * while the model streams.
+ */
+export const LoomActiveStep = Schema.Struct({
+  kind: Schema.Literals(["tool", "model"]),
+  /** tool: the item's start. model: the run's last tool end, else its work start. */
+  since: IsoDateTime,
+  /** The tool's name (pi's tool name); null for `model`. */
+  title: Schema.NullOr(Schema.String),
+  /** The bash command's first line, or a read's path; null otherwise. */
+  detail: Schema.NullOr(Schema.String),
+});
+export type LoomActiveStep = typeof LoomActiveStep.Type;
+
+/**
  * What a client sees on `OrchestrationV2ThreadShell.workstream`: the record
  * minus the fields no client renders (the dispatcher reads those from the
  * store), plus the consult and peer-message edge summaries, and the thread's
@@ -437,6 +454,8 @@ export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => 
   contextUsage: Schema.NullOr(LoomContextUsage).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** Null unless a run is active. */
+  activeStep: Schema.NullOr(LoomActiveStep).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 }));
 export type LoomThreadShellFields = typeof LoomThreadShellFields.Type;
 

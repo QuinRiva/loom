@@ -193,6 +193,17 @@ export const ATTENTION_LABELS = {
   "brief-needed": "Brief needed",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
+/** The hover card's status-line form: short, so the line's figures never truncate. */
+export const ATTENTION_SHORT_LABELS = {
+  error: "stalled",
+  awaiting_approval: "needs approval",
+  awaiting_input: "needs input",
+  awaiting_acceptance: "needs acceptance",
+  needs_guidance: "needs guidance",
+  awaiting_orchestrator: "yielded",
+  "brief-needed": "needs brief",
+} satisfies Record<WorkstreamAttentionReason, string>;
+
 /** Badge variant per reason (`components/ui/badge`). */
 export const ATTENTION_BADGE_VARIANTS = {
   error: "error",
@@ -285,6 +296,8 @@ export const getGateLoopCap = (node: Pick<WorkstreamNode, "routes">) =>
 
 export interface GateWait {
   readonly label: string;
+  /** The graph node's short state word: `reworking ⟲2`, `reviewing ⟲2`, `waiting ⟲2`. */
+  readonly word: string;
   /** True for a leg the party holds now; false for a parked wait. */
   readonly active: boolean;
 }
@@ -299,11 +312,23 @@ export function getGateWaitLabel(node: WorkstreamNode, byId: WorkstreamNodeIndex
   if (node.outcome !== null) return null;
   const source = isGateSource(node) ? null : gateSourceFor(node.id, [...byId.values()]);
   if (node.pendingRework && source)
-    return { label: `reworking round ${source.gateRounds}`, active: true };
+    return {
+      label: `reworking round ${source.gateRounds}`,
+      word: `reworking ⟲${source.gateRounds}`,
+      active: true,
+    };
   if (isRunning(node) && isGateSource(node) && node.gateRounds > 0)
-    return { label: `re-reviewing round ${node.gateRounds}`, active: true };
+    return {
+      label: `re-reviewing round ${node.gateRounds}`,
+      word: `reviewing ⟲${node.gateRounds}`,
+      active: true,
+    };
   if (!isWaitingInGate(node, byId)) return null;
-  return { label: isGateSource(node) ? "waiting on rework" : "awaiting re-review", active: false };
+  return {
+    label: isGateSource(node) ? "waiting on rework" : "awaiting re-review",
+    word: `waiting ⟲${(source ?? node).gateRounds}`,
+    active: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -351,14 +376,18 @@ export const dispatchAnchorOf = (
 ): ConversationAnchor | null =>
   node.parentThreadId === null ? null : { threadId: node.parentThreadId, at: node.createdAt };
 
-const ageSeconds = (at: string) => {
+const ageSeconds = (at: string, now: number) => {
   const timestamp = Date.parse(at);
-  return Number.isNaN(timestamp) ? null : Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  return Number.isNaN(timestamp) ? null : Math.max(0, Math.floor((now - timestamp) / 1000));
 };
 
-/** `23s` / `4m` / `3h` / `2d`; `—` when unparseable. */
-export function formatCompactAge(at: string): string {
-  const seconds = ageSeconds(at);
+/**
+ * `23s` / `4m` / `3h` / `2d`; `—` when unparseable. Pass `now` from a clock
+ * hook (`useNowMinute`) where the age must tick: the React Compiler caches
+ * a render that reads `Date.now()` only behind the call.
+ */
+export function formatCompactAge(at: string, now = Date.now()): string {
+  const seconds = ageSeconds(at, now);
   if (seconds === null) return "—";
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
@@ -366,8 +395,8 @@ export function formatCompactAge(at: string): string {
   return `${Math.floor(seconds / 86_400)}d`;
 }
 
-export const formatRelativeAge = (at: string) => {
-  const compact = formatCompactAge(at);
+export const formatRelativeAge = (at: string, now = Date.now()) => {
+  const compact = formatCompactAge(at, now);
   return compact === "—" ? compact : `${compact} ago`;
 };
 
@@ -432,11 +461,59 @@ export function wrapLabel(value: string, maxCharsPerLine: number, maxLines: numb
   return clipped;
 }
 
-/** The graph node's one worded state: the gate leg when in a gate, else the column. */
+/**
+ * The graph node's one worded state, at most 12 characters: the gate leg's
+ * short word when in a gate (the full label is on the hover card), else the column.
+ */
 export function getNodeStateWord(node: WorkstreamNode, byId: WorkstreamNodeIndex): string {
-  const gate = getGateWaitLabel(node, byId);
-  if (gate) return gate.label.replace(" round ", " ⟲");
-  return COLUMN_SHORT_LABELS[node.column].toLowerCase();
+  return getGateWaitLabel(node, byId)?.word ?? COLUMN_SHORT_LABELS[node.column].toLowerCase();
+}
+
+/**
+ * The node's role strip left of its state word: `CODER · ⚒ 75`. The strip holds
+ * ~30 characters at 8px, so the state word and count stay whole and the role yields.
+ */
+export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): string {
+  const count = node.toolCalls > 0 ? ` · ⚒ ${node.toolCalls}` : "";
+  const roleBudget = Math.max(6, 30 - stateWord.length - count.length - 2);
+  return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
+}
+
+// ---------------------------------------------------------------------------
+// Current step — the tool in flight, or the model between tool calls
+// ---------------------------------------------------------------------------
+
+/** A step this long reads amber: the signature of a stalled tool call or model request. */
+export const LONG_STEP_MS = 5 * 60_000;
+
+export interface WorkstreamStep {
+  /** The tool's name, or `thinking` between tool calls. */
+  readonly label: string;
+  readonly since: string;
+  readonly detail: string | null;
+  readonly long: boolean;
+}
+
+/**
+ * What a running thread is doing now. Null when nothing runs or a flag takes
+ * the activity line — attention always wins. Cards pass a ticking `now`
+ * (`useNowMinute`) so `long` advances between shell deltas.
+ */
+export function getStep(node: WorkstreamNode, now = Date.now()): WorkstreamStep | null {
+  const step = node.activeStep;
+  if (step === null || !isRunning(node) || node.reasons.length > 0) return null;
+  return {
+    label: step.kind === "model" ? "thinking" : (step.title ?? "tool"),
+    since: step.since,
+    detail: step.detail,
+    long: now - Date.parse(step.since) >= LONG_STEP_MS,
+  };
+}
+
+/** A card's step duration (`17m`): null under a minute, since cards tick per minute. */
+export function formatStepAge(since: string, now: number): string | null {
+  const seconds = ageSeconds(since, now);
+  return seconds === null || seconds < 60 ? null : formatCompactAge(since, now);
 }
 
 // ---------------------------------------------------------------------------

@@ -13,8 +13,8 @@ export const WorkstreamEnvironmentContext = createContext<EnvironmentId | null>(
 
 /**
  * A thread's lifetime cost from seam 11's usage ledger, batched across every
- * mounted slot (`loom/threadSpend.ts`): a quick-facts row (`fact`), or the
- * inline figure on the active strip and timeline header (3d-4). Includes a
+ * mounted slot (`loom/threadSpend.ts`): the quick-facts `cost │ tokens` row
+ * (`fact`), or the inline figure on the timeline header (3d-4). Includes a
  * running turn's live cost (`LoomUsageLedger.threadSpend`). Renders nothing
  * until answered, and for a thread with no recorded spend.
  */
@@ -29,15 +29,17 @@ export function WorkstreamSpendSlot({
   const cost = formatCostUsd(spend?.costUsd);
   if (!fact) return cost === null ? null : <span className="tabular-nums">{cost}</span>;
   return spend && cost ? (
-    <div className="flex items-baseline gap-2 text-xs">
-      <dt className="w-[108px] shrink-0 whitespace-nowrap text-muted-foreground">Cost</dt>
-      <dd className="min-w-0 flex-1 truncate text-foreground/80 tabular-nums">
-        {cost}
-        {/* A running turn's live cost arrives before its tokens are ledgered. */}
-        {spend.inputTokens + spend.outputTokens + spend.cachedTokens > 0
-          ? ` · ${formatTokens(spend.inputTokens)} in · ${formatTokens(spend.outputTokens)} out · ${formatTokens(spend.cachedTokens)} cached`
-          : null}
-      </dd>
+    <div className="truncate text-xs text-foreground/80 tabular-nums">
+      {cost}
+      {/* A running turn's live cost arrives before its tokens are ledgered. */}
+      {spend.inputTokens + spend.outputTokens + spend.cachedTokens > 0 ? (
+        <>
+          <span aria-hidden className="mx-2 inline-block h-2.5 w-px bg-border align-[-1px]" />
+          <span className="text-muted-foreground">
+            {`${formatTokens(spend.inputTokens)} in · ${formatTokens(spend.outputTokens)} out · ${formatTokens(spend.cachedTokens)} cached`}
+          </span>
+        </>
+      ) : null}
     </div>
   ) : null;
 }
