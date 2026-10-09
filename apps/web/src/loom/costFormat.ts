@@ -7,7 +7,7 @@
  *
  * Lived in `lib/contextWindow.ts` until the composer meter became upstream's;
  * it now sits here with all its consumers — the workstream panel, quick facts,
- * the active strip, and the meter's spend block (`loom/contextCost.ts`).
+ * the active strip, and the meter's spend block (`loom/ContextSpend.tsx`).
  */
 export function formatCostUsd(value: number | null | undefined): string | null {
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
