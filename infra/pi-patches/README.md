@@ -88,19 +88,14 @@ The atomic-write harness in step 3 imports the global install by default, so
 for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
-Authored against pi **0.82.1**; both diffs were re-derived against **1.0.2**
+Authored against pi **0.82.1**; both diffs were re-derived against **1.1.0**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
-**The global pi is still 0.99.2** (with its 0.99.2 patches) at the 1.0.2 bump:
-the bump landed in the pull-9 branch, and moving the global install is part of
-the human deploy, not of the bump commit. Until then `apply.sh` results on the
-global install say nothing about the bundled copy (the diffs are derived
-against 1.0.2), and the global pi lacks the RPC half of 0001 — harmless, since
-only Loom's server sends `cwdOverride`, and it spawns the bundled copy.
-pi 1.0.2's startup migrations touch only legacy layouts and skip when
-`auth.json` exists, so the bundled 1.0.2 and the global 0.99.2 share
-`~/.pi/agent` safely (settings/auth hashes unchanged across the 1.0.2 smoke).
+While the global install lags the bundled pin, `apply.sh` results on it say
+nothing about the bundled copy, and an older global pi may lack the RPC half
+of 0001 — harmless, since only Loom's server sends `cwdOverride`, and it spawns
+the bundled copy.
 
 ## Re-deriving after a pi version bump
 
@@ -128,6 +123,12 @@ flag, and both RPC `cwdOverride` cases: stock ignores the unknown field, so
 `switch_session` resumes into the dead recorded cwd and errors with "Stored
 session working directory does not exist"). The two passing cases are the
 controls (no override → refusal), which hold either way.
+
+**1.1.0 outcomes.** Both still needed, on the same evidence: stock
+`auth-storage.js` is byte-identical to 1.0.2 (`writeFileSync` on both lock
+paths, no `renameSync`), stock `args.js` still has no `--cwd` and
+`rpc-mode.js`/`rpc-types.d.ts` are byte-identical to 1.0.2, and the contract
+test against the stock 1.1.0 bundle fails the same 7 of 9.
 
 ### 1. Move the version pins
 
@@ -314,6 +315,11 @@ clean. The bundle's chunk layout is the 0.99 one (`main()` and the RPC loop in
 0001 anchors matched exactly once, and the new RPC anchor
 (`case"switch_session":{let result=await runtimeHost.switchSession(command.sessionPath);`)
 matches once — `patch-bundle.mjs` reports `0001 … patched (9 edits)`.
+1.1.0 drift: `args.js` gained a `--tools` validation block and a `--no-mcp`
+flag, so its two hunks moved one and eleven lines (re-derived, contexts
+unchanged); every other 0001 file applied at zero offset. The bundle keeps the
+0.99 layout (`main()` and the RPC loop in `chunk-OIM2DMFI.js`, auth storage in
+`chunk-MXTZIDYW.js`) and all nine 0001 anchors matched first try.
 
 ## 0002 — atomic `auth.json` write
 
@@ -366,7 +372,10 @@ in 0.99.2: both lock paths still `writeFileSync` with no rename, and the stored
 diff re-derived byte-identical. Still present in 1.0.2 (same two call
 sites, chunk `chunk-PDFMCAOZ.js`); the stored diff re-derived byte-identical
 again, and `atomic-window.mjs` against the resolved 1.0.2 copy read ~6.9 k good
-and zero zero-byte/unparseable/empty per reader.
+and zero zero-byte/unparseable/empty per reader. 1.1.0: `auth-storage.js`
+byte-identical to 1.0.2 (auth chunk now `chunk-MXTZIDYW.js`), stored diff
+byte-identical, and the harness against the resolved 1.1.0 copy read ~7.1 k
+good and zero of everything else per reader.
 
 > Note: `pnpm patch` byte-compares the whole package, so
 > `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~650–700 KB — the
