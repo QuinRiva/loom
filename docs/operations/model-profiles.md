@@ -200,10 +200,11 @@ the behavioural caveats.
 - **Sonnet 5** — the cheap-but-competent Claude: the shipper preset and memory
   consolidation. Same goal-first, edge-case-light shape as Opus, less
   horsepower.
-- **Haiku 4.5** — a generation behind; bounded, cheapest Claude. On 2026-09-27
-  cli-proxy rejected the undated `cliproxy/claude-haiku-4-5` ("unknown provider
-  for model") but completed the dated `cliproxy/claude-haiku-4-5-20251001`, so
-  route to the dated id.
+- **Haiku 5.5** — the cheapest Claude (1M context, reasoning). Ships with pi
+  1.1.0 as the undated `claude-haiku-5-5` only, and cli-proxy completes it
+  (2026-10-09). Today it runs the cli-proxy keepalive; shipper and memory
+  consolidation stay on Sonnet by choice. Older pi bundles reject it, so a
+  `cliproxy/claude-haiku-5-5` default needs a pi ≥ 1.1.0 cockpit.
 - **GPT-6 Sol** — maximum-thoroughness reviewer/hardener (opt-in only); gate destructive
   actions; verify claimed results (documented false-completion/eval-gaming);
   expect some non-meaningful findings. Scores level with GPT-5.6 Sol at half

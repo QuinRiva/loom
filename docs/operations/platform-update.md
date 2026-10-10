@@ -213,7 +213,7 @@ silently.
 | 0002 atomic `auth.json`      | `grep -n "writeFileSync\|renameSync" dist/core/auth-storage.js` shows `renameSync` (or any write-then-rename) on **both** the `withLock` and `withLockAsync` paths | `atomic-window.mjs` (§7) reports all zeros against stock.                                                                                                                                                                                                                           |
 
 Record the outcome in the README's patch section either way. So far: both kept
-at 0.86.0, 0.87.1 and 0.99.2.
+at 0.86.0, 0.87.1, 0.99.2, 1.0.2 and 1.1.0.
 
 ## 7. Verification
 
