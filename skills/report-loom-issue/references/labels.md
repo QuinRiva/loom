@@ -1,16 +1,18 @@
 # Labels on `QuinRiva/loom` used by `report-loom-issue`
 
-Every issue the script files carries exactly five labels: the two reused ones,
-`agent-found`, one `confidence:` and one `surface:`. The script passes no others
-and accepts none from the caller. All must exist before the script can run —
+Every issue the script files carries five or six labels: its kind (`bug` or
+`enhancement`), `needs-triage`, one `origin:`, one `confidence:`, one `surface:`
+and, when flagged, `needs-design`. The caller chooses them only through the
+script's flags. All must exist before the script can run —
 `gh issue create` refuses the whole issue on any unknown label.
 
 ## Reused (already exist)
 
-| Label          | Role here                                  |
-| -------------- | ------------------------------------------ |
-| `bug`          | Every agent-filed issue is a defect report |
-| `needs-triage` | A human has not looked yet                 |
+| Label          | Role here                                 |
+| -------------- | ----------------------------------------- |
+| `bug`          | `--kind bug`: something misbehaves        |
+| `enhancement`  | `--kind enhancement`: a capability/change |
+| `needs-triage` | A human has not looked yet                |
 
 ## Created for this skill
 
@@ -22,7 +24,9 @@ gh label create <name> -R QuinRiva/loom --color <hex> --description "<text>" --f
 
 | Label                      | Colour   | Description                                                                                     |
 | -------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `agent-found`              | `5319E7` | Filed by an agent mid-task under the human's account, not written by a person                   |
+| `origin:agent`             | `5319E7` | An agent hit this side-on and filed it (incl. when it asked first and a person agreed)          |
+| `origin:human`             | `0E8A16` | A person hit this and asked an agent to file it; the body quotes their words                    |
+| `needs-design`             | `D93F0B` | Outcome depends on the maintainer's judgement; not for unattended implementation                |
 | `confidence:confirmed`     | `B60205` | Reporter reproduced it or read the path end-to-end; Evidence shows it                           |
 | `confidence:suspected`     | `FBCA04` | Looks wrong but unverified; reporter may be misreading Loom                                     |
 | `surface:web`              | `1D76DB` | Triage starts in the web/desktop UI (apps/web, apps/desktop)                                    |
@@ -38,6 +42,6 @@ another vouching state.
 
 ## Not for agents
 
-`duplicate`, `invalid`, `wontfix`, `enhancement` and closing an issue are the
-triaging human's moves. The script never applies them and a reporting thread
+`duplicate`, `invalid`, `wontfix` and closing an issue are the triaging human's
+moves. The script never applies them and a reporting thread
 never should.

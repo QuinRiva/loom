@@ -1,3 +1,11 @@
+## In the reporter's words
+
+<!-- REQUIRED for --origin human; delete this section for --origin agent.
+     Quote what the user actually said about the problem, verbatim, as a
+     blockquote. Redact names, projects and clients per the redaction rule,
+     but keep their framing: triage checks your reading against their
+     words. -->
+
 ## What I observed
 
 <!-- The symptom, concretely: what Loom did and what you expected instead.
@@ -13,9 +21,12 @@
 
 ## Impact if real
 
-<!-- Who or what breaks, and how badly. "Dependents never release and the
-     workstream stalls" and "a label reads stale for one render" are very
-     different triage outcomes. -->
+<!-- In product terms, not code: who meets this (the user, an agent they
+     run, someone using the app), doing what, how often, and what it costs
+     them. "Dependents never release and the workstream stalls" and "a label
+     reads stale for one render" are very different triage outcomes. If the
+     trigger was a one-off (a migration, a cut-over, an incident that has
+     passed), say so: it may never recur. -->
 
 ## Not verified
 
