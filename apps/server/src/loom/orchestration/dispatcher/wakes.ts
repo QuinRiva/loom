@@ -308,33 +308,17 @@ export const slowToolEstimateClause = (input: {
 };
 
 // ---------------------------------------------------------------------------
-// Per-child notices (attention, error, recovered, a question, a slow tool).
-// V1's `idle` ("forgot to finish") is gone: the quiescence rail replaces it and
-// reaches the parent as a synthesised yield (`yield.ts`).
+// Per-child notices (the attention rail's). V1's `idle` ("forgot to finish") is
+// gone: the quiescence rail replaces it and reaches the parent as a synthesised
+// yield (`yield.ts`); slow tools and recoveries are digest items (`digest.ts`).
 // ---------------------------------------------------------------------------
 
-/** The per-child notice kinds 3b-2's child rail composes. */
-export type ChildWakeKind = "error" | "attention" | "awaiting-input" | "recovered" | "slow-tool";
-
-/** Runtime evidence some kinds carry. */
-export interface ChildWakeContext {
-  readonly quietMs: number;
-  /** A flagged child whose open turn is wedged (a stall escalation whose nudge did not unstick it). */
-  readonly frozen?: boolean;
-  readonly toolName?: string;
-  readonly inFlightMs?: number;
-  readonly estimateMs?: number;
-  /** The un-started child's `needs_guidance` is the wedge flag: it waits on this cancelled sibling. */
-  readonly cancelledDependency?: ThreadId;
-  /** Open agent questions on an `awaiting-input` notice (≥ 1). */
-  readonly openRequestCount?: number;
-}
-
 /**
- * Composes a per-child notice: which child errored, paused, is blocked on a
- * question, recovered, or has a slow tool, a reference to its report with a
- * bounded excerpt, and how the parent may proceed. An attention notice is a
- * PAUSE notice — it never says the child finished.
+ * Composes a per-child notice: which child errored or paused, a reference to
+ * its report with a bounded excerpt, and how the parent may proceed. An
+ * attention notice is a PAUSE notice — it never says the child finished.
+ * `wedgedSince` (ISO) marks a `needs_guidance` the deferred-wake rail raised on
+ * a child that reads busy but has been silent since then (#312).
  */
 export const buildChildWakeMessage = (
   child: {
@@ -344,67 +328,28 @@ export const buildChildWakeMessage = (
     readonly attention: ReadonlyArray<LoomAttentionReason>;
     readonly reportPath: string | null;
   },
-  kind: ChildWakeKind,
+  kind: "error" | "attention",
   report: string | null,
-  context?: ChildWakeContext,
+  wedgedSince?: string,
 ): string => {
   const who = `${child.role ?? "sub-thread"} \`${child.id}\``;
-  const mins = (ms: number) => Math.round(ms / 60_000);
-  if (kind === "slow-tool") {
-    const clause =
-      context?.estimateMs === undefined
-        ? null
-        : slowToolEstimateClause({
-            estimateMs: context.estimateMs,
-            inFlightMs: context.inFlightMs ?? 0,
-          });
-    return [
-      WORKSTREAM_CONTROL_PLANE_MARKER,
-      "",
-      `Informational notice: your Workstream sub-thread ${who} has a long-running tool call \`${context?.toolName ?? "unknown"}\` in flight for ~${mins(context?.inFlightMs ?? 0)} min, with no agent-visible output for ~${mins(context?.quietMs ?? 0)} min${clause === null ? "" : ` (${clause})`}. This is NOT a hang verdict — the child's tool process may be working the whole time (builds, installs, long pipelines, test suites emit nothing to the agent until they return).`,
-      "",
-      "No attention flag was raised and the control plane will not interrupt or kill it. A long, quiet call is usually legitimate, but occasionally one is mis-scoped (e.g. an unscoped filesystem search) — only you have the context to tell. Your options:",
-      "",
-      "- Let it run — you will be re-notified at increasing intervals while it stays quiet.",
-      "- `mcp__t3-code__workstream_prompt` the child to queue a steer (it is only seen once the current tool call returns — it cannot penetrate an in-flight call).",
-      "- `mcp__t3-code__workstream_stop` the child to interrupt the call, then `mcp__t3-code__workstream_prompt` it to redirect.",
-    ].join("\n");
-  }
-  if (kind === "awaiting-input") {
-    const count = context?.openRequestCount ?? 1;
-    return [
-      WORKSTREAM_CONTROL_PLANE_MARKER,
-      "",
-      `Your Workstream sub-thread ${who} is blocked on ${count === 1 ? "a question" : `${count} questions`} for a human: it called \`mcp__t3-code__ask_user_question\` and its turn is held open until the question is settled. Nothing has failed — it is still \`${child.lane}\` and NOT finished, but it will make no further progress until someone answers.`,
-      "",
-      "A human has been alerted on the board. You can also act: answer or dismiss the question from the board on the human's behalf, or `mcp__t3-code__workstream_stop` the child to cancel the question and then `mcp__t3-code__workstream_prompt` it with the guidance it was asking for. Its dependents stay gated until it reaches `done`.",
-    ].join("\n");
-  }
   const flags = `\`${child.attention.join("`, `")}\``;
   const lead =
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
-      : kind === "recovered"
-        ? `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but it has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`
-        : context?.cancelledDependency !== undefined
-          ? `Your Workstream sub-thread ${who} cannot start: it is blocked on \`${context.cancelledDependency}\`, which was cancelled, and a cancelled dependency never releases. The control plane flagged it \`needs_guidance\` for that reason — no human raised it. It is still \`${child.lane}\` and no turn has run.`
-          : context?.frozen
-            ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) ${flags} and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). It is still \`${child.lane}\`; it has NOT finished.`
-            : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) ${flags} and is not executing, while it is still \`${child.lane}\`. It has NOT finished — this is a pause notice, not a result.`;
+      : wedgedSince !== undefined
+        ? `Your Workstream sub-thread ${who} looks wedged: it reads busy (it is still \`${child.lane}\`) yet has shown no activity since ${formatWakeTimestamp(wedgedSince)}, while control-plane notices wait on it undelivered. The control plane flagged it \`needs_guidance\` for that reason — neither a human nor the child raised it. It has NOT finished, and it is not working.`
+        : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) ${flags} and is not executing, while it is still \`${child.lane}\`. It has NOT finished — this is a pause notice, not a result.`;
   const reference =
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
       : "_No report was filed._";
   const tail =
-    kind === "recovered"
-      ? "Its dependents have already been released by its `done` outcome (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
-      : kind === "error"
-        ? "Investigate via its report above (or `mcp__t3-code__consult_thread` for a read-only Q&A), then either set its outcome (`mcp__t3-code__workstream_set_outcome` done/cancelled) or re-dispatch it (`mcp__t3-code__workstream_prompt`). Its dependents stay gated until it reaches `done`; nothing was auto-cascaded."
-        : context?.cancelledDependency !== undefined
-          ? `This is your graph to re-plan, not a human pause. Either re-point its dependencies onto live threads (\`mcp__t3-code__workstream_set_dependencies\` — the flag clears itself once no dependency is cancelled), reopen \`${context.cancelledDependency}\` (\`mcp__t3-code__workstream_set_outcome\`, clearing its outcome), or cancel this node too.`
-          : context?.frozen
-            ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `mcp__t3-code__workstream_stop` it to close the wedged turn, then `mcp__t3-code__workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
-            : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`mcp__t3-code__workstream_set_outcome` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision — otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
+    kind === "error"
+      ? "Investigate via its report above (or `mcp__t3-code__consult_thread` for a read-only Q&A), then either set its outcome (`mcp__t3-code__workstream_set_outcome` done/cancelled) or re-dispatch it (`mcp__t3-code__workstream_prompt`). Its dependents stay gated until it reaches `done`; nothing was auto-cascaded."
+      : wedgedSince !== undefined
+        ? "Do not wait on it or treat its work as complete. A `mcp__t3-code__workstream_prompt` alone only queues behind the stuck turn. Close that turn with `mcp__t3-code__workstream_stop`, then `mcp__t3-code__workstream_prompt` it to resume — the prompt's turn also clears the flag. If the stop does not free it (it reports nothing was stopped, or the child stays silent after your prompt), cancel it (`mcp__t3-code__workstream_set_outcome` cancelled) and spawn a replacement for its work. A human has also been alerted on the board. Its dependents stay gated until it reaches `done`."
+        : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`mcp__t3-code__workstream_set_outcome` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision — otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
