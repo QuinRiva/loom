@@ -26,6 +26,9 @@ const WARNING_ADVICE: Record<LoomGateWarningKind, string> = {
     " They keep running; stop or re-plan them if they built on the reopened work.",
 };
 
+/** A `done` that cleared a standing human hold: the parent may hold the approval, so warn, never refuse (#321). */
+const ACCEPTANCE_CLEARED_WARNING = `It held an \`awaiting_acceptance\` hold — a human's sign-off on its output was pending — and this \`done\` cleared it, so its output now counts as accepted and its dependents are released. If you do not hold that human's approval, reopen it (\`${t("workstream_set_outcome")}\` none) and re-raise the hold (\`${t("workstream_request_attention")}\` awaiting_acceptance).`;
+
 export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome")(function* (
   input: LoomToolInput<"workstream_set_outcome">,
   caller: WorkstreamCaller,
@@ -60,6 +63,12 @@ export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome"
   const warnings = committed(result, "thread.gate-warning").map(
     ({ payload }) => `${payload.detail}${WARNING_ADVICE[payload.kind]}`,
   );
+  if (
+    input.outcome === "done" &&
+    row?.attention.includes("awaiting_acceptance") &&
+    committed(result, "thread.attention-cleared").length > 0
+  )
+    warnings.push(ACCEPTANCE_CLEARED_WARNING);
   return appendWarnings(
     input.outcome === "none"
       ? `Reopened Workstream thread ${threadId}: its outcome is cleared.`

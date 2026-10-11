@@ -393,6 +393,7 @@ export const yieldRail: PassStep = {
       const flags = {
         synthesised: lastOutcome.synthesised === true,
         gateParked: isMemberOfUnresolvedGate(nodeOf(ctx, child), siblingNodes(ctx, parentId)),
+        awaitingAcceptance: child.attention.includes("awaiting_acceptance"),
       };
       const piggyback = piggybackFor(ctx, parentId);
       const outcome = yield* ctx.dispatch(
