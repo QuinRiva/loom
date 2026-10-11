@@ -338,7 +338,7 @@ export const buildChildWakeMessage = (
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : wedgedSince !== undefined
-        ? `Your Workstream sub-thread ${who} looks wedged: it reads busy (a turn is open; it is still \`${child.lane}\`) yet has shown no activity since ${formatWakeTimestamp(wedgedSince)}, while control-plane notices queued behind it unread. The control plane flagged it \`needs_guidance\` for that reason — neither a human nor the child raised it. It has NOT finished, and it is not working.`
+        ? `Your Workstream sub-thread ${who} looks wedged: it reads busy (it is still \`${child.lane}\`) yet has shown no activity since ${formatWakeTimestamp(wedgedSince)}, while control-plane notices wait on it undelivered. The control plane flagged it \`needs_guidance\` for that reason — neither a human nor the child raised it. It has NOT finished, and it is not working.`
         : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) ${flags} and is not executing, while it is still \`${child.lane}\`. It has NOT finished — this is a pause notice, not a result.`;
   const reference =
     child.reportPath !== null
