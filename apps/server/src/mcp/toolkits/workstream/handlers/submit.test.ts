@@ -181,4 +181,30 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         assert.isNull((yield* store.getWorkstream(coder))!.outcome);
       }),
   );
+
+  it.effect("set_outcome: a parent's done that clears awaiting_acceptance warns (#321)", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const root = ThreadId.make("acceptance-root");
+      yield* seedThread({ threadId: root });
+      const held = yield* spawn(root, "Held");
+      const plain = yield* spawn(root, "Plain");
+      yield* callAs(held, "workstream_request_attention", { reason: "awaiting_acceptance" });
+      yield* callAs(held, "workstream_submit", { markdown: "please accept", outcome: "blocked" });
+
+      const accepted = yield* callAs(root, "workstream_set_outcome", {
+        threadId: held,
+        outcome: "done",
+      });
+      assert.isFalse(accepted.isError, accepted.text);
+      assert.include(accepted.text, "Warning: It held an `awaiting_acceptance` hold");
+      assert.deepEqual((yield* store.getWorkstream(held))!.attention, []);
+
+      // No hold, or no change (already done), no warning.
+      for (const threadId of [plain, held]) {
+        const quiet = yield* callAs(root, "workstream_set_outcome", { threadId, outcome: "done" });
+        assert.notInclude(quiet.text, "Warning:", threadId);
+      }
+    }),
+  );
 });

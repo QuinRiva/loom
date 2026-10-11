@@ -73,6 +73,18 @@ describe("buildYieldWakeMessage", () => {
       "gate parked",
     );
   });
+
+  it("every lead variant flags a standing awaiting_acceptance hold, and only when held", () => {
+    const clause = "It also holds an `awaiting_acceptance` flag";
+    const held = { synthesised: false, gateParked: false, awaitingAcceptance: true };
+    for (const text of [
+      buildYieldWakeMessage(child, "blocked", null, undefined, held),
+      buildYieldWakeMessage(child, "needs_rework", null, gate, held),
+      buildYieldWakeMessage(child, "quiescent", null, undefined, { ...held, synthesised: true }),
+    ])
+      assert.include(text, clause);
+    assert.notInclude(buildYieldWakeMessage(child, "blocked", null), clause);
+  });
 });
 
 describe("buildYieldPayload", () => {

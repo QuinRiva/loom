@@ -36,10 +36,14 @@ export interface YieldGateContext {
   } | null;
 }
 
-/** `synthesised`: the quiescence rail's submit, not the agent's; `gateParked`: the child is an unresolved gate member. */
+/**
+ * `synthesised`: the quiescence rail's submit, not the agent's; `gateParked`: the child is an
+ * unresolved gate member; `awaitingAcceptance`: the child still holds a human's sign-off hold.
+ */
 export interface YieldFlags {
   readonly synthesised: boolean;
   readonly gateParked: boolean;
+  readonly awaitingAcceptance?: boolean;
 }
 
 const reference = (reportPath: string | null) =>
@@ -64,11 +68,16 @@ export const buildYieldWakeMessage = (
     flags.gateParked && gate === undefined
       ? " It is a member of an unresolved review gate, so the gate is parked until you act."
       : "";
-  const lead = flags.synthesised
-    ? `Your Workstream sub-thread ${who} went quiet: it ended its turn without calling \`mcp__t3-code__workstream_submit\`, so the control plane synthesised a report from its last assistant message and yielded it to you. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`
-    : gate
-      ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. It carries \`awaiting_orchestrator\` — the gate is NOT resolved and dependents stay gated.`
-      : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`;
+  const held = flags.awaitingAcceptance
+    ? " It also holds an `awaiting_acceptance` flag: a human's sign-off on its output is still pending, and either prompting it or setting it done clears that hold — do so only once you hold the human's approval; otherwise escalate to the human."
+    : "";
+  const lead =
+    (flags.synthesised
+      ? `Your Workstream sub-thread ${who} went quiet: it ended its turn without calling \`mcp__t3-code__workstream_submit\`, so the control plane synthesised a report from its last assistant message and yielded it to you. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`
+      : gate
+        ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. It carries \`awaiting_orchestrator\` — the gate is NOT resolved and dependents stay gated.`
+        : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`) +
+    held;
   const counterpartSection =
     gate?.counterpart != null
       ? [
