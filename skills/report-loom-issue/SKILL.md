@@ -4,7 +4,8 @@ description: >-
   Park a bug in Loom itself (the T3 Code fork, its pi extensions/workstream
   tools, roles/skills, cockpit deploy, pi upstream), from any repo, as a
   GitHub issue for triage. Use when you notice Loom is broken, verified or
-  not, and it is not your task. Own diff: fix it. Requested Loom work: do it.
+  not, and it is not your task, or when the user asks you to file a Loom
+  problem or idea for later. Own diff: fix it. Requested Loom work: do it.
 pi_global: true
 ---
 
@@ -25,7 +26,8 @@ data; that constraint shapes everything below.
 | Something in Loom looks wrong; you have not verified it   | **File it, `--confidence suspected`** |
 | Bug in the project you are working on, not in Loom        | That project's own tracker, not this  |
 | You broke it / it is in the diff you are writing          | Fix it now. No issue.                 |
-| Loom work the user asked for                              | Just do it                            |
+| The user asks you to file or park a Loom problem or idea  | **File it, `--origin human`**         |
+| Loom work the user asked you to do now                    | Just do it                            |
 | Style nit, "I'd have designed this differently"           | Neither. Let it go.                   |
 
 Pi upstream bugs are filed here too — never on pi's own tracker.
@@ -39,6 +41,8 @@ human asks.** The board is a parking lot, not a queue.
 ```bash
 bash scripts/report_issue.sh \
   --summary "mcp__t3-code__workstream_submit with outcome=clean leaves the coder in progress" \
+  --origin agent \
+  --kind bug \
   --confidence suspected \
   --surface workstream-tools \
   --description-file /tmp/loom-finding-$PI_SESSION_ID.md
@@ -47,6 +51,9 @@ bash scripts/report_issue.sh \
 | Flag                 | Required | Notes                                                                              |
 | -------------------- | -------- | ---------------------------------------------------------------------------------- |
 | `--summary`          | Yes      | The observable **symptom**, one line, not your theory of the cause                 |
+| `--origin`           | Yes      | `agent` or `human`: who ran into it — see below                                    |
+| `--kind`             | Yes      | `bug` (something misbehaves) or `enhancement` (a missing capability or a change)   |
+| `--needs-design`     | No       | The outcome hinges on the maintainer's judgement — see below                       |
 | `--confidence`       | Yes      | `confirmed` or `suspected` — see below                                             |
 | `--surface`          | Yes      | One of `web` `server` `workstream-tools` `roles-skills` `cockpit` `pi` — see below |
 | `--description-file` | Yes*     | Markdown following `references/issue-template.md`. *Or `--description`             |
@@ -61,14 +68,46 @@ bash scripts/report_issue.sh \
 | `2`  | Leak guard tripped — pattern and offending line on stderr; nothing created         |
 | `3`  | Strong duplicate — candidates on stderr; nothing created                           |
 
-The script labels the issue `bug`, `needs-triage`, `agent-found`,
-`confidence:<x>`, `surface:<x>` — you pass no labels. It also **appends a
-footer** you never write: that an agent filed this under the human's account,
+The script labels the issue `<kind>`, `needs-triage`, `origin:<x>`,
+`confidence:<x>`, `surface:<x>` and, if flagged, `needs-design` — you pass no
+other labels. It also **appends a footer** you never write: that an agent filed
+this under the human's account (on their request, for `--origin human`),
 the Loom release id and commit permalink, the bundled pi version,
 `$PI_PROVIDER/$PI_MODEL` and reasoning level, the thread id, the confidence as
 filed, and — only when the worktree's origin is `QuinRiva/loom` — its branch and
 sha (any other project is named only as "a non-loom project"). Do not repeat
 any of this in the body.
+
+### `--origin`: who ran into it
+
+The two origins carry different weight, and triage treats them differently.
+
+- **`agent`**: you noticed it side-on while doing something else. This holds
+  even if you asked "shall I file this?" and the user said yes: a yes given
+  mid-flow is not a review. Agent-found issues often turn out to be one-off
+  (a migration, an incident that has passed) or not worth their upkeep, so
+  write the **Impact if real** section honestly; it is what triage weighs.
+- **`human`**: the user ran into it themselves, often as an agent
+  misunderstanding something, and asked you to file it. It certainly happened,
+  but your write-up is your reading of their complaint, and you may have
+  misread it the same way. So the body must include an **In the reporter's
+  words** section that quotes what they actually said, redacted per the rule
+  below. The script refuses a `human` issue without it.
+
+### `--needs-design`: does the outcome need the maintainer?
+
+Flag it when the right outcome depends on the maintainer's judgement or
+preference, and reading code cannot settle it. Typical cases:
+
+- a redesign;
+- a "should Loom…?" question;
+- several reasonable behaviours to choose between (warn or block, which notice
+  to send);
+- any change to how agents behave: roles, skills, the work model, prompt text.
+
+No agent implements a `needs-design` issue without the maintainer's input, so
+don't flag a bug whose correct fix is obvious just because it is hard. If you
+can see the options, list them in the body: that is the start of the decision.
 
 ### `confirmed` vs `suspected`
 
@@ -84,7 +123,8 @@ Do not upgrade a guess to `confirmed` because it feels more useful. A wrong
 ### The template
 
 The script **rejects** a body missing a heading for **Evidence**, **Not
-verified**, or **Alternative explanations**:
+verified**, or **Alternative explanations**, and, for `--origin human`, one
+for **In the reporter's words** (see `--origin` above):
 
 - **Evidence** — only what you actually saw: repo-relative `file:line`, the
   command you ran and (paraphrased) what came back. "The code reads like it
@@ -93,6 +133,9 @@ verified**, or **Alternative explanations**:
   claim and stops a human chasing a phantom.
 - **Alternative explanations** — at least one way this could be correct
   behaviour you misread. If you truly cannot think of one, say why not.
+
+Write **Impact if real** in product terms, not code: who meets it, doing what,
+how often, and what it costs them. Triage decides from that section.
 
 ### `--surface` — where a triager starts
 
@@ -147,8 +190,9 @@ point, not an error to route around:
 
 ## After filing
 
-The inbox is `gh issue list -R QuinRiva/loom -l needs-triage -l agent-found`;
-read it only when a human asks you to triage. `duplicate`, `invalid`,
+The inbox is `gh issue list -R QuinRiva/loom -l needs-triage` (add
+`-l origin:human` for what the user hit themselves); read it only when a human
+asks you to triage. `duplicate`, `invalid`,
 `wontfix` and closing are the human's moves — an agent touches a filed issue
 only when told to.
 

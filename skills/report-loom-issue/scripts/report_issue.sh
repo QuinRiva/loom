@@ -8,10 +8,13 @@ REPO=QuinRiva/loom
 TEMPLATE="$(dirname "$0")/../references/issue-template.md"
 die() { echo "error: $1" >&2; exit 1; }
 
-summary="" confidence="" surface="" description="" force=false
+summary="" origin="" kind="" confidence="" surface="" description="" force=false needs_design=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --summary) summary="$2"; shift 2 ;;
+    --origin) origin="$2"; shift 2 ;;
+    --kind) kind="$2"; shift 2 ;;
+    --needs-design) needs_design=true; shift ;;
     --confidence) confidence="$2"; shift 2 ;;
     --surface) surface="$2"; shift 2 ;;
     --description) description="$2"; shift 2 ;;
@@ -23,12 +26,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$summary" && "$summary" != *$'\n'* ]] || die "--summary is required: one line, the observable symptom, not your theory of the cause."
+[[ "$origin" =~ ^(agent|human)$ ]] || die "--origin must be 'agent' (you ran into it side-on, even if the user then agreed to filing) or 'human' (the user ran into it and asked you to file it)."
+[[ "$kind" =~ ^(bug|enhancement)$ ]] || die "--kind must be 'bug' (something misbehaves) or 'enhancement' (a missing capability or a change)."
 [[ "$confidence" =~ ^(confirmed|suspected)$ ]] || die "--confidence must be 'confirmed' (reproduced / read end-to-end) or 'suspected' (unverified; the honest default)."
 [[ "$surface" =~ ^(web|server|workstream-tools|roles-skills|cockpit|pi)$ ]] || die "--surface must be one of: web server workstream-tools roles-skills cockpit pi"
 
 # --- Template: the three sections that make a finding triageable ---
 missing=()
-for s in "Evidence" "Not verified" "Alternative explanations"; do
+sections=("Evidence" "Not verified" "Alternative explanations")
+[[ "$origin" == human ]] && sections+=("In the reporter's words")
+for s in "${sections[@]}"; do
   grep -qiP "^#+\s*$s" <<<"$description" || missing+=("$s")
 done
 if [[ -z "$description" ]] || (( ${#missing[@]} )); then
@@ -109,7 +116,7 @@ cat >"$body" <<EOF
 $description
 
 ---
-Filed by an agent (\`report-loom-issue\`) under the human's account, found while working on $project.
+Filed by an agent (\`report-loom-issue\`) under the human's account, $( [[ "$origin" == human ]] && echo "at their request, while" || echo "found while" ) working on $project.
 - Loom release: \`$release\`${sha:+ — https://github.com/$REPO/tree/$sha}
 - pi: \`$pi_version\` (bundled)
 - Model: \`${PI_PROVIDER:-unknown}/${PI_MODEL:-unknown}\` (reasoning \`${PI_REASONING_LEVEL:-unknown}\`)
@@ -117,9 +124,10 @@ Filed by an agent (\`report-loom-issue\`) under the human's account, found while
 - Confidence as filed: **$confidence**
 EOF
 
-echo "Filing $confidence surface:$surface issue on $REPO: $summary" >&2
+echo "Filing $kind origin:$origin $confidence surface:$surface$($needs_design && echo " needs-design") issue on $REPO: $summary" >&2
 url=$(gh issue create -R "$REPO" -t "$summary" -F "$body" \
-  -l bug -l needs-triage -l agent-found -l "confidence:$confidence" -l "surface:$surface") || exit 1
+  -l "$kind" -l needs-triage -l "origin:$origin" -l "confidence:$confidence" -l "surface:$surface" \
+  $($needs_design && echo "-l needs-design")) || exit 1
 cat >&2 <<EOF
 
 Filed: $url (awaiting human triage)
