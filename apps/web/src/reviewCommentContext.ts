@@ -19,9 +19,7 @@ import { planCommentAnchorDetails } from "@t3tools/shared/planCommentAnchor.loom
  *     (text-quote + section/block) plus the quoted passage as evidence.
  *
  * The Phase 1-Fan (server + injection) thread owns the authoritative
- * agent-prompt serialisation/parse of the `mdx-anchor` variant; the format below
- * is a correct first cut so the union is exhaustive today. Nothing constructs
- * `mdx-anchor` yet (the Phase 2 annotation layer will).
+ * agent-prompt serialisation/parse of the `mdx-anchor` variant.
  */
 const ReviewCommentSelectionSchema = Schema.Struct({
   start: Schema.Number,
