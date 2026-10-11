@@ -64,6 +64,9 @@ extension is what routes the file to the plan renderer. After writing it, tell
 the user the path and ask them to open, review, and annotate it — do not ask a
 separate "does this look good?" question on top of that.
 
+A plan may be signed with `sign_document`; the YAML manifest it prepends is hidden
+by the renderer.
+
 ## Validate before presenting (mandatory)
 
 A stray `<`/`{` in prose kills the ENTIRE rendered document (MDX compile

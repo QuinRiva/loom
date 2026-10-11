@@ -1,5 +1,6 @@
 import { compile, evaluate, run, type CompileOptions, type EvaluateOptions } from "@mdx-js/mdx";
 import * as runtime from "react/jsx-runtime";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 
 import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links";
@@ -107,8 +108,16 @@ function remarkUnknownBlockFallback() {
   };
 }
 
-/** The one guard plugin set every compile path applies. */
-const PLAN_GUARD_PLUGINS = [remarkGfm, remarkRejectCodeEscapes, remarkUnknownBlockFallback];
+/** The one guard plugin set every compile path applies. `remarkFrontmatter`
+ * parses a leading YAML block (the `sign_document` authorship manifest) into an
+ * inert `yaml` node that MDX never renders or exports, instead of letting it
+ * render as a thematic break + body text above the H1. */
+const PLAN_GUARD_PLUGINS = [
+  remarkFrontmatter,
+  remarkGfm,
+  remarkRejectCodeEscapes,
+  remarkUnknownBlockFallback,
+];
 
 /** Guards + `remarkHeadingAnchors`, which is not a guard: it stamps heading slug
  * ids and publishes each section's source bounds. It lives here so the worker,
