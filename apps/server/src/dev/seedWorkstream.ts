@@ -53,6 +53,7 @@ import * as References from "effect/References";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import {
   dispatchServerCommand,
@@ -75,6 +76,7 @@ import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderRepl
 import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { buildSeedConfig } from "./seedConfig.ts";
 import { LOOM_SEED, loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
@@ -726,6 +728,10 @@ const main = Effect.gen(function* () {
   const projectLayer = RuntimeLayer.layerProjectService.pipe(
     Layer.provide(
       Layer.mergeAll(
+        ServerSettings.layer.pipe(
+          Layer.provide(ServerSecretStore.layer),
+          Layer.provide(ServerConfig.layer(config)),
+        ),
         Layer.mock(WorkspacePaths.WorkspacePaths)({
           normalizeWorkspaceRoot: (root) => Effect.succeed(root),
         }),

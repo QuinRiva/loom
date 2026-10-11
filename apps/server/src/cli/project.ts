@@ -24,6 +24,7 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts"; // loom: #292
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
@@ -211,6 +212,8 @@ const layerProjectCliRuntime = RuntimeLayer.layerProjectService.pipe(
     ),
   ),
   Layer.provideMerge(WorkspacePaths.layer),
+  // loom: #292 — ProjectService routes autoPull into project settings.
+  Layer.provideMerge(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
 

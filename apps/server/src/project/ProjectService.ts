@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings"; // loom: #292
 
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "../orchestration-v2/IdAllocator.ts";
@@ -32,6 +33,7 @@ import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecuto
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
+import { ServerSettingsService } from "../serverSettings.ts"; // loom: #292
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export interface ProjectCreateInput extends ProjectCreatePayload {
@@ -93,6 +95,7 @@ export class ProjectOperationError extends Schema.TaggedError<ProjectOperationEr
       "list-threads",
       "delete-thread",
       "dispatch-project-command",
+      "update-project-settings", // loom: #292
     ]),
     projectId: Schema.optional(ProjectId),
     workspaceRoot: Schema.optional(Schema.String),
@@ -155,6 +158,7 @@ export const make = Effect.gen(function* () {
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const loomStore = yield* LoomStore.LoomStoreV2; // loom: goal soft-delete on project delete
+  const serverSettings = yield* ServerSettingsService; // loom: #292 autoPull lives in settings
   // Commands for one project run in order. Commands that claim a workspace root
   // also hold that root, so two projects cannot both claim it.
   const projectLocks = yield* KeyedLock.make<ProjectId>();
@@ -163,6 +167,7 @@ export const make = Effect.gen(function* () {
   const toProject = (
     row: ProjectStore.ProjectRow,
     enrichment: ProjectEnrichmentService.ProjectEnrichment | null,
+    autoPull: boolean, // loom: #292
   ): Project => ({
     id: row.projectId,
     title: row.title,
@@ -171,7 +176,7 @@ export const make = Effect.gen(function* () {
     faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
-    autoPull: row.autoPull,
+    autoPull, // loom: #292
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     createdAt: row.createdAt,
@@ -184,7 +189,19 @@ export const make = Effect.gen(function* () {
       row.deletedAt === null
         ? yield* projectEnrichment.getAvailable(row.workspaceRoot)
         : yield* projectEnrichment.peek(row.workspaceRoot);
-    return toProject(row, enrichment);
+    // loom: #292 — report the auto-pull policy actually in force, which lives in
+    // the project's settings override, not the legacy projection column.
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProjectOperationError({ operation: "read-project", projectId: row.projectId, cause }),
+      ),
+    );
+    return toProject(
+      row,
+      enrichment,
+      resolveProjectSettings(settings, row.projectId).settings.defaultAutoPull,
+    );
   });
 
   const readRow = (projectId: ProjectId, options?: { readonly includeDeleted?: boolean }) =>
@@ -379,7 +396,7 @@ export const make = Effect.gen(function* () {
         ...(input.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
-        ...(input.autoPull === undefined ? {} : { autoPull: input.autoPull }),
+        // loom: #292 — autoPull is routed to settings below, not the projection.
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
@@ -387,6 +404,23 @@ export const make = Effect.gen(function* () {
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       });
+      // loom: #292 — the auto-pull policy reads only the project's settings
+      // override, so write it there; the per-key map merges into the existing
+      // entry atomically. An explicit false must override an environment default.
+      if (input.autoPull !== undefined) {
+        yield* serverSettings
+          .updateSettings({ projectAutoPullOverrides: { [input.projectId]: input.autoPull } })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectOperationError({
+                  operation: "update-project-settings",
+                  projectId: input.projectId,
+                  cause,
+                }),
+            ),
+          );
+      }
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
       }

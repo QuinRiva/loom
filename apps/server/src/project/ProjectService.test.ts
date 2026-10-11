@@ -19,6 +19,8 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts"; // loom: #292
+import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts"; // loom: #292
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
@@ -57,6 +59,7 @@ const layerTestFor = (
   >,
 ) =>
   RuntimeLayer.layerProjectService.pipe(
+    Layer.provideMerge(ServerSettings.layerTest()), // loom: #292
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(layerWorkspacePaths),
     Layer.provideMerge(projectMetadataLayer),
@@ -75,6 +78,7 @@ const layerProjectServiceDependencies = Layer.mergeAll(
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
   LoomStore.layer, // loom: ProjectService soft-deletes the project's goals
+  ServerSettings.layerTest(), // loom: #292
 ).pipe(
   Layer.provideMerge(LegacyV1ThreadImporter.layer.pipe(Layer.provide(RuntimeLayer.layerEventSink))),
   Layer.provideMerge(ProjectEnrichmentService.layer),
@@ -199,6 +203,51 @@ it.layer(layerTest)("ProjectService", (it) => {
         changes.map((change) => change.event_type),
         ["project.created", "project.meta-updated", "project.meta-updated", "project.deleted"],
       );
+    }),
+  );
+
+  // loom: #292: a project update's autoPull must reach the policy auto-pull reads.
+  it.effect("routes autoPull into the auto-pull policy", () =>
+    Effect.gen(function* () {
+      const service = yield* ProjectService.ProjectService;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const projectId = ProjectId.make("project:auto-pull");
+      const workspaceRoot = "/work/auto-pull";
+      yield* service.create({
+        commandId: CommandId.make("command:auto-pull:create"),
+        projectId,
+        title: "Auto pull",
+        workspaceRoot,
+      });
+      const isEnabled = Effect.gen(function* () {
+        const policy = yield* VcsStatusBroadcaster.VcsAutoPullPolicy;
+        return yield* policy.isEnabled(workspaceRoot);
+      }).pipe(
+        Effect.provide(
+          VcsStatusBroadcaster.layerAutoPullPolicy.pipe(Layer.provide(ProjectStore.layer)),
+        ),
+      );
+      assert.isFalse(yield* isEnabled);
+
+      const enabled = yield* service.update({
+        commandId: CommandId.make("command:auto-pull:on"),
+        projectId,
+        autoPull: true,
+      });
+      assert.isTrue(enabled.autoPull);
+      assert.isTrue(yield* isEnabled);
+
+      const disabled = yield* service.update({
+        commandId: CommandId.make("command:auto-pull:off"),
+        projectId,
+        autoPull: false,
+      });
+      assert.isFalse(disabled.autoPull);
+      assert.isFalse(yield* isEnabled);
+      // An explicit false is an override, so an environment default cannot re-enable it.
+      assert.deepEqual((yield* settings.getSettings).projectSettingsOverrides[projectId], {
+        defaultAutoPull: false,
+      });
     }),
   );
 
