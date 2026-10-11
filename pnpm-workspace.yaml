@@ -304,6 +304,8 @@ patchedDependencies:
   react-native-keyboard-controller@1.22.6: patches/react-native-keyboard-controller@1.22.6.patch
   react-native-nitro-modules@0.35.9: patches/react-native-nitro-modules@0.35.9.patch
   react-native-screens@4.28.0: patches/react-native-screens@4.28.0.patch
+  # loom: keep a child's stdin `error` listener so a late EPIPE cannot crash the server (#298)
+  "@effect/platform-node-shared@4.0.1": patches/@effect__platform-node-shared@4.0.1.patch
 
 peerDependencyRules:
   allowAny:
