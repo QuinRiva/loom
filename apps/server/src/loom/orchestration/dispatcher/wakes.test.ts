@@ -189,23 +189,6 @@ describe("buildChildWakeMessage", () => {
     reportPath: "child-1.md",
   };
 
-  it("recovered: the prior error verdict is superseded and dependents are released", () => {
-    const text = buildChildWakeMessage(
-      { ...child, lane: "done" },
-      "recovered",
-      "# Findings\nAll good.",
-    );
-    for (const fragment of [
-      "recovered",
-      "superseded",
-      "child-1.md",
-      "All good.",
-      "already been released",
-    ])
-      assert.include(text, fragment);
-    assert.notInclude(text, "stay gated");
-  });
-
   it("attention: names the flags and status and never claims the child finished", () => {
     const text = buildChildWakeMessage(
       { ...child, attention: ["needs_guidance"] },
@@ -223,69 +206,40 @@ describe("buildChildWakeMessage", () => {
       assert.include(text, fragment);
   });
 
-  it("attention on a wedged child names the cancelled dependency and the re-plan moves", () => {
-    const text = buildChildWakeMessage(
-      { ...child, lane: "blocked", attention: ["needs_guidance"] },
-      "attention",
-      null,
-      { quietMs: 0, cancelledDependency: ThreadId.make("dep-x") },
-    );
-    assert.include(text, "`dep-x`, which was cancelled");
-    assert.include(text, "mcp__t3-code__workstream_set_dependencies");
-    assert.notInclude(text, "is paused and needs attention");
-  });
-
-  it("frozen attention: the frozen turn and the stop-then-prompt recovery", () => {
+  it("wedged attention: control-plane provenance, the silence and the stop-then-prompt remedy", () => {
     const text = buildChildWakeMessage(
       { ...child, attention: ["needs_guidance"] },
       "attention",
       null,
-      {
-        quietMs: m(12),
-        frozen: true,
-      },
+      "2026-07-07T14:32:00.000Z",
     );
     for (const fragment of [
-      "frozen",
-      "needs_guidance",
-      "~12 min",
+      "looks wedged",
+      "reads busy",
+      "since 2026-07-07 14:32Z",
+      "neither a human nor the child raised it",
       "NOT finished",
       "mcp__t3-code__workstream_stop",
       "mcp__t3-code__workstream_prompt",
+      "cancelled",
       "stay gated",
     ])
       assert.include(text, fragment);
-  });
-
-  it("slow-tool: informational, names the tool and durations, lists the options", () => {
-    const text = buildChildWakeMessage({ ...child, reportPath: null }, "slow-tool", null, {
-      quietMs: m(6),
-      toolName: "bash",
-      inFlightMs: m(7),
-    });
-    for (const fragment of [
-      "Informational notice",
-      "`bash`",
-      "~7 min",
-      "~6 min",
-      "will not interrupt",
-      "no agent-visible output",
-      "NOT a hang verdict",
-    ])
-      assert.include(text, fragment);
-    assert.notInclude(text, "error");
-    assert.notInclude(text, "No report was filed");
+    assert.notInclude(text, "is paused and needs attention");
   });
 
   it("names tools only in their prefixed form", () => {
-    for (const kind of [
-      "error",
-      "attention",
-      "awaiting-input",
-      "recovered",
-      "slow-tool",
+    for (const [kind, wedgedSince] of [
+      ["error"],
+      ["attention"],
+      ["attention", "2026-07-07T14:32:00.000Z"],
     ] as const) {
-      const text = buildChildWakeMessage({ ...child, attention: ["needs_guidance"] }, kind, null);
+      const text = buildChildWakeMessage(
+        { ...child, attention: ["needs_guidance"] },
+        kind,
+        null,
+        wedgedSince,
+      );
       // No bare tool name: every one carries its `mcp__t3-code__` prefix.
       assert.notMatch(
         text,

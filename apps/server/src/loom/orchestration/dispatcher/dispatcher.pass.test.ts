@@ -33,6 +33,7 @@ import {
   dispatch,
   LoomOrchestratorTestLayer,
   seedRunningRun,
+  seededRunIds,
   seedThread,
   spawnChild,
   writeEvents,
@@ -540,6 +541,91 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       yield* runPass;
       assert.lengthOf(yield* notices, 2);
     }),
+  );
+
+  it.effect(
+    "deferred-wake (#312): a wedged sub-orchestrator's parent gets ONE wedge notice per episode; a child's own flag keeps the generic one",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Built now, on the test clock: the dispatcher's start floors the silence clock.
+          const pass = Context.get(
+            yield* Layer.build(WorkstreamDispatcherLive),
+            WorkstreamDispatcher,
+          ).runPass;
+          const [root, wedged, flagged] = ["wedge-root", "wedge-mid", "wedge-flagged"].map((id) =>
+            ThreadId.make(id),
+          );
+          yield* seedThread({ threadId: root! });
+          for (const mid of [wedged!, flagged!]) {
+            const leaf = ThreadId.make(`${mid}-leaf`);
+            yield* spawnChild({
+              parentThreadId: root!,
+              threadId: mid,
+              graphKey: mid,
+              role: "orchestrator",
+            });
+            yield* spawnChild({ parentThreadId: mid, threadId: leaf, graphKey: "leaf" });
+            // A run that went `running` but never reported its provider turn (the #303 shape).
+            yield* seedRunningRun({ threadId: mid, turn: false });
+            yield* submit(leaf);
+          }
+          // `flagged` raised its own needs_guidance mid-turn.
+          yield* dispatch({
+            type: "thread.attention.raise",
+            commandId: CommandId.make("wedge-own-flag"),
+            threadId: flagged!,
+            createdAt,
+            reason: "needs_guidance",
+          });
+          yield* pass;
+          assert.deepEqual((yield* row(wedged!)).attention, []);
+
+          yield* TestClock.adjust("11 minutes");
+          yield* pass;
+          const episode = (yield* row(wedged!)).attentionEpisodes.needs_guidance!;
+          yield* pass;
+          yield* runFreshPass;
+
+          const about = (threadId: ThreadId) =>
+            Effect.map(withPayload(root!, "notice", "attention"), (all) =>
+              all.filter((m) => m.loom?.controlPayload?.items[0]?.threadId === threadId),
+            );
+          const [wedge, ...moreWedge] = yield* about(wedged!);
+          assert.isEmpty(moreWedge);
+          assert.equal(
+            wedge?.id,
+            MessageId.make(`message:${attentionCommandId(wedged!, "needs_guidance", episode)}`),
+          );
+          for (const fragment of [
+            "looks wedged",
+            "neither a human nor the child raised it",
+            "NOT finished",
+            "mcp__t3-code__workstream_stop",
+          ])
+            assert.include(wedge!.text, fragment);
+          assert.notInclude(wedge!.text, "is paused and needs attention");
+          const [own, ...moreOwn] = yield* about(flagged!);
+          assert.isEmpty(moreOwn);
+          assert.include(own!.text, "is paused and needs attention");
+          assert.notInclude(own!.text, "looks wedged");
+
+          // The named remedy: workstream_stop's interrupt closes the stale turn, so the thread
+          // no longer reads busy and a following workstream_prompt starts a fresh turn.
+          yield* dispatch({
+            type: "run.interrupt",
+            commandId: CommandId.make(`server:workstream-stop:${wedged!}:test`),
+            threadId: wedged!,
+            runId: seededRunIds(wedged!).runId,
+            reason: "Paused by its parent orchestrator.",
+            holdQueue: true,
+          });
+          assert.deepEqual(
+            (yield* projection(wedged!)).runs.map((run) => run.status),
+            ["interrupted"],
+          );
+        }),
+      ),
   );
 
   it.effect(

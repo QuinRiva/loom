@@ -295,6 +295,67 @@ export const terminalDeltas: PassStep = {
 };
 
 /**
+ * One steered attention notice to `child`'s parent for the `reason` episode
+ * stamped `episode`, under the id the attention rail keys on — so whichever
+ * sends first, the other's receipt check skips it. `wedgedSince` marks a
+ * `needs_guidance` the deferred-wake rail raised (the child reads busy but has
+ * been silent since then) and switches the copy to the wedge and its remedy.
+ */
+const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(function* (
+  ctx: PassContext,
+  child: LoomThreadWorkstream,
+  parentId: ThreadId,
+  reason: (typeof ATTENTION_NOTICE_REASONS)[number],
+  episode: string,
+  wedgedSince?: string,
+) {
+  const id = attentionCommandId(child.threadId, reason, episode);
+  if (yield* ctx.sent(id)) return;
+  const report = yield* readReport(child.reportPath);
+  const piggyback = piggybackFor(ctx, parentId);
+  const outcome = yield* ctx.dispatch(
+    "attention",
+    controlMessage({
+      threadId: parentId,
+      id,
+      tier: "steered",
+      origin: "control_notice",
+      text:
+        buildChildWakeMessage(
+          {
+            ...child,
+            id: child.threadId,
+            lane: workstreamLane(nodeOf(ctx, child), ctx.nodesById),
+          },
+          reason === "error" ? "error" : "attention",
+          report,
+          wedgedSince,
+        ) + piggyback.text,
+      payload: {
+        kind: "notice",
+        notice: "attention",
+        heading:
+          wedgedSince === undefined
+            ? `A sub-thread needs attention (${reason}).`
+            : "A sub-thread looks wedged (needs_guidance raised by the control plane).",
+        items: [
+          childItem(
+            child,
+            report,
+            wedgedSince === undefined
+              ? `Needs attention — \`${reason}\``
+              : "Wedged — reads busy but silent",
+            reason,
+          ),
+          ...piggyback.items,
+        ],
+      },
+    }),
+  );
+  if (landed(outcome)) settle(ctx, parentId, piggyback.pending);
+});
+
+/**
  * The attention rail: one steered notice to the parent per raise episode of
  * `needs_guidance`, `awaiting_acceptance` or `error` on a child, keyed on
  * `attentionEpisodes[reason]` (no stamp — an imported row — no notice).
@@ -309,40 +370,8 @@ export const attentionRail: PassStep = {
         const episode = child.attention.includes(reason)
           ? child.attentionEpisodes[reason]
           : undefined;
-        if (episode === undefined) continue;
-        const id = attentionCommandId(child.threadId, reason, episode);
-        if (yield* ctx.sent(id)) continue;
-        const report = yield* readReport(child.reportPath);
-        const piggyback = piggybackFor(ctx, parentId);
-        const outcome = yield* ctx.dispatch(
-          "attention",
-          controlMessage({
-            threadId: parentId,
-            id,
-            tier: "steered",
-            origin: "control_notice",
-            text:
-              buildChildWakeMessage(
-                {
-                  ...child,
-                  id: child.threadId,
-                  lane: workstreamLane(nodeOf(ctx, child), ctx.nodesById),
-                },
-                reason === "error" ? "error" : "attention",
-                report,
-              ) + piggyback.text,
-            payload: {
-              kind: "notice",
-              notice: "attention",
-              heading: `A sub-thread needs attention (${reason}).`,
-              items: [
-                childItem(child, report, `Needs attention — \`${reason}\``, reason),
-                ...piggyback.items,
-              ],
-            },
-          }),
-        );
-        if (landed(outcome)) settle(ctx, parentId, piggyback.pending);
+        if (episode !== undefined)
+          yield* sendAttentionNotice(ctx, child, parentId, reason, episode);
       }
     }
   }),
@@ -665,12 +694,14 @@ export const notifyDelivery: PassStep = {
  * Deferred-wake visibility (V1 #304): a thread that FYI wakes waited on this
  * pass, that reads busy at pass start yet shows no activity for
  * `DEFERRED_WAKE_SILENCE_MS` and has nothing running, is wrongly busy — raise
- * `needs_guidance` on it once per silence episode (the silence start is the key).
+ * `needs_guidance` on it once per silence episode (the silence start is the key),
+ * and steer its parent (if any) the wedge notice under that episode's attention id.
  */
 export const surfaceDeferredWakes: PassStep = {
   name: "deferredWakes",
   run: Effect.fn("loom.dispatcher.deferredWakes")(function* (ctx: PassContext) {
     const orchestrator = yield* OrchestratorV2;
+    const loomStore = yield* LoomStoreV2;
     for (const [threadId, rails] of ctx.deferredWakes) {
       const waiting = [...rails].filter(([rail]) => rail === "digest");
       const shell = ctx.shells.get(threadId);
@@ -699,12 +730,28 @@ export const surfaceDeferredWakes: PassStep = {
         createdAt: createdAt(ctx),
         reason: "needs_guidance",
       });
-      if (outcome.status === "accepted")
-        yield* Effect.logWarning("loom.dispatcher.wake-deferred", {
-          threadId,
-          silentSince,
-          deferred: Object.fromEntries(waiting),
-        });
+      if (outcome.status !== "accepted") continue;
+      yield* Effect.logWarning("loom.dispatcher.wake-deferred", {
+        threadId,
+        silentSince,
+        deferred: Object.fromEntries(waiting),
+      });
+      // #312: a sub-orchestrator's parent hears of the wedge now, in words that fit it; the
+      // attention rail then finds this episode's notice receipted. A flag already standing at
+      // pass start is the child's own episode, and keeps the rail's generic notice.
+      const before = ctx.rows.find((row) => row.threadId === threadId);
+      const parentId = before?.parentThreadId ?? null;
+      if (
+        before === undefined ||
+        before.attention.includes("needs_guidance") ||
+        parentId === null ||
+        !ctx.shells.has(parentId)
+      )
+        continue;
+      const after = yield* loomStore.getWorkstream(threadId);
+      const episode = after?.attentionEpisodes.needs_guidance;
+      if (after !== null && episode !== undefined)
+        yield* sendAttentionNotice(ctx, after, parentId, "needs_guidance", episode, silentSince);
     }
   }),
 };
