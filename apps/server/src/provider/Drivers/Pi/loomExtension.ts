@@ -7,7 +7,8 @@
  * at every `before_agent_start`, P3-4; `mcp__t3-code__enable_toolset`) and
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard` and `prompt-debug`, and `cacheWarmingGate` (no idle cache
- * warming after a successful submit) (`loomExtensionParts/`).
+ * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms)
+ * (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with
  * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,

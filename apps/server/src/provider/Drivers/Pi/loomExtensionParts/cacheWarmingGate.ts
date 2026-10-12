@@ -1,18 +1,24 @@
-// loom: Loom extension part — stop pi's idle cache warming once a thread has handed its
-// work back. pi's idle warmer (`"cacheWarming": "idle"`) keeps re-sending the last request
-// for up to 30 minutes after a run settles; for a child that has successfully called
-// `mcp__t3-code__workstream_submit` those pings are wasted, because nobody is going to
-// reply to it soon.
+// loom: Loom extension part — Loom's policy on pi's idle cache warming (`"cacheWarming":
+// "idle"`, where pi re-sends a thread's last request with a one-token cap shortly before its
+// prompt cache expires). pi asks extensions before every refresh (`cache_warming_decision`);
+// the answer replaces pi's own `warm`/`stop`. The event carries no phase, but
+// `continuationProbability` is 1 while the agent run is still active and below 1 (pi's idle
+// constant, 0.15) once it has settled, so only idle refreshes are touched: in-run refreshes
+// keep a long tool call's cache alive for the model's next step, by pi's own rule.
 //
-// pi asks extensions before every refresh (`cache_warming_decision`; a returned
-// `{ action: "stop" }` ends warming until the next real request). The event carries no
-// phase, but `continuationProbability` is 1 while the agent run is still active and below
-// 1 (pi's idle constant, 0.15) once it has settled, so only idle refreshes are vetoed:
-// in-run refreshes keep a long tool call's cache alive for the model's next step.
+// Two rules, in precedence order:
+// 1. A thread that has successfully called `mcp__t3-code__workstream_submit` stops: nobody is
+//    going to reply to it soon. A re-opened thread (any new prompt, steer or follow-up, seen
+//    as pi's `input` event) clears this until it submits again.
+// 2. A 1-hour root (`PI_CACHE_RETENTION=long`, set per pi process by Loom's session composer)
+//    warms. Its single idle ping at ~54 minutes is Loom's keep-alive policy; pi's economics
+//    would skip it for most contexts because it prices a miss at the 5-minute write rate.
+//    pi's idle horizon (`PI_CACHE_WARMING_IDLE_MAX_MS`) still bounds it to one ping.
+// Everything else (5-minute threads) is left to pi's economics.
 //
-// A re-opened thread (any new prompt, steer or follow-up, seen as pi's `input` event)
-// clears the gate: it is in a conversation again and warms by pi's own rule until it
-// submits again.
+// An extension answer cannot override pi's safety stops: pi checks "conversation context
+// changed", "cache refresh deadline missed" and the warming mode before asking and again
+// after, so `warm` here only ever overrules the economics.
 //
 // As a part: `source` is a function body run once per pi process as `(pi, ctx) => { … }`
 // by Loom's extension assembler. It needs no `ctx` member.
@@ -22,6 +28,7 @@ import type { LoomExtensionPart } from "../loomExtension.ts";
 export const cacheWarmingGatePart: LoomExtensionPart = {
   name: "cacheWarmingGate",
   source: `
+const longRoot = process.env.PI_CACHE_RETENTION === "long";
 let submitted = false;
 pi.on("tool_result", (event) => {
   if (event.toolName === ${JSON.stringify(agentToolName("workstream_submit"))} && !event.isError) submitted = true;
@@ -29,8 +36,10 @@ pi.on("tool_result", (event) => {
 pi.on("input", () => {
   submitted = false;
 });
-pi.on("cache_warming_decision", (event) =>
-  submitted && event.continuationProbability < 1 ? { action: "stop" } : undefined,
-);
+pi.on("cache_warming_decision", (event) => {
+  if (event.continuationProbability >= 1) return undefined;
+  if (submitted) return { action: "stop" };
+  return longRoot ? { action: "warm" } : undefined;
+});
 `,
 };
