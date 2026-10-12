@@ -42,6 +42,7 @@ import {
   EmergentGoalsLive,
 } from "./orchestration/EmergentGoalReactor.ts";
 import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
+import * as LoomCacheBroadcast from "./projection/LoomCacheBroadcast.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import * as PendingSteering from "./steering/pendingSteering.ts";
@@ -93,12 +94,14 @@ export const LoomProviderRuntimeLive = Layer.mergeAll(
  * the reroute sweep waits on before resuming a failure upstream cannot arm. The
  * sanitiser rewrites codex tool ids before an Anthropic-family resume (3c-2);
  * the steer stash keeps steers pi accepted in `<stateDir>/pending-steering/`
- * until their turn ends, for 3b's startup pass to redeliver (3c-3, seam 20).
+ * until their turn ends, for 3b's startup pass to redeliver (3c-3, seam 20). Cache touches
+ * (a request ending, an idle ping) go to {@link LoomCacheBroadcast} for the sidebar's ring.
  */
 export const LoomPiAdapterHooksLive = Layer.effect(
   LoomPiAdapterHooks,
   Effect.gen(function* () {
     const health = yield* ProviderHealthRegistry;
+    const cache = yield* LoomCacheBroadcast.LoomCacheBroadcast;
     const stashContext = yield* Effect.context<
       ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path
     >();
@@ -130,6 +133,7 @@ export const LoomPiAdapterHooksLive = Layer.effect(
           PendingSteering.write(threadId, runId, steering).pipe(Effect.provide(stashContext)),
         read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
       },
+      cacheTouched: cache.touch,
     } satisfies LoomPiAdapterHooksShape;
   }),
 );
@@ -142,10 +146,12 @@ export const LoomPiAdapterHooksLive = Layer.effect(
  *
  * It also carries {@link LoomPiAdapterHooksLive}: this export sits below the
  * provider-instance registry in `server.ts`, so every `PiAdapterV2Driver.create`
- * yields the live hooks with no `server.ts` line of their own.
+ * yields the live hooks with no `server.ts` line of their own. The cache-touch broadcast is
+ * built here for the same reason and merged out, so the runtime (the shell stream, the
+ * touch writer in {@link LoomGoalBroadcastLive}) shares the drivers' instance.
  */
 export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
-  Layer.provideMerge(ProviderHealthRegistryLive),
+  Layer.provideMerge(Layer.mergeAll(ProviderHealthRegistryLive, LoomCacheBroadcast.layer)),
 );
 
 /**
@@ -155,10 +161,17 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
  * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
  * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures,
  * and the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671).
+ * Also the writer persisting cache touches from {@link LoomProviderHealthLive}'s broadcast.
  */
 export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
   Layer.provide(EmergentGoalGeneratorPiLive),
-  Layer.provideMerge(Layer.mergeAll(LoomGoalBroadcast.layerWithReactor, LoomThreadConsult.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      LoomGoalBroadcast.layerWithReactor,
+      LoomThreadConsult.layer,
+      LoomCacheBroadcast.touchWriterLive,
+    ),
+  ),
   Layer.provideMerge(LoomStore.layer),
 );
 

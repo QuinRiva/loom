@@ -23,12 +23,14 @@ import {
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../workstream/consult.ts";
+import * as LoomCacheBroadcast from "./LoomCacheBroadcast.ts";
 import * as LoomGoalBroadcast from "./LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "./LoomStore.ts";
 
-const TestLayer = Layer.merge(
+const TestLayer = Layer.mergeAll(
   LoomGoalBroadcast.layerWithReactor,
   Layer.mock(LoomThreadConsult)({ subscribeLive: Effect.succeed(Stream.empty) }),
+  LoomCacheBroadcast.layer,
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer));
 const projectId = ProjectId.make("project:loom-test");
 // Distinct event times, as a live server has them (the goal cascades are time-judged).

@@ -40,6 +40,7 @@ import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
 import * as PendingSteering from "../../loom/steering/pendingSteering.ts";
 import {
   LoomPiAdapterHooks,
+  passthroughLoomPiAdapterHooks,
   type LoomPiAdapterHooksShape,
 } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
 import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
@@ -755,6 +756,39 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
       yield* fake.emit({ type: "agent_settled" });
       while ((yield* Queue.take(events)).type !== "turn.terminal");
       assert.deepEqual(yield* PendingSteering.read(THREAD_ID), { runId, text: "second steer" });
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── Prompt-cache keeping D: cache refreshes reach the hook for the sidebar's liveness ring ───
+
+describe("PiAdapterV2 (loom) — cache touches", () => {
+  it.effect("reports idle pings at their timestamp and completed requests as they end", () =>
+    Effect.gen(function* () {
+      const touches = yield* Queue.unbounded<readonly [ThreadId, string]>();
+      const { fake } = yield* openRuntime(undefined, {
+        ...passthroughLoomPiAdapterHooks,
+        cacheTouched: (threadId, at) => Queue.offer(touches, [threadId, at]).pipe(Effect.asVoid),
+      });
+      const ping = "2026-10-12T13:54:00.000Z";
+      yield* fake.emit({ type: "entry_appended", entry: { type: "custom", customType: "x" } });
+      yield* fake.emit({
+        type: "message_end",
+        message: { role: "assistant", stopReason: "error", errorMessage: "boom" },
+      });
+      yield* fake.emit({
+        type: "entry_appended",
+        entry: { type: "usage", kind: "cache_warm", timestamp: ping },
+      });
+      // Neither the custom entry nor the failed request touched: the ping is first.
+      assert.deepEqual(yield* Queue.take(touches), [THREAD_ID, ping]);
+      yield* fake.emit({ type: "message_end", message: { role: "user" } });
+      yield* fake.emit({ type: "message_end", message: { role: "assistant", stopReason: "stop" } });
+      assert.deepEqual(yield* Queue.take(touches), [
+        THREAD_ID,
+        DateTime.formatIso(yield* DateTime.now),
+      ]);
+      assert.equal(yield* Queue.size(touches), 0);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

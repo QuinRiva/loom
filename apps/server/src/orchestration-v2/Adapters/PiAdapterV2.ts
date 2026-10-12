@@ -75,6 +75,7 @@ import {
   classifyLoomPiFailure,
   LoomPiAdapterHooks,
   passthroughLoomPiAdapterHooks,
+  touchLoomPiCache, // loom: cache liveness
   type LoomPiAdapterHooksShape,
 } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
@@ -1605,6 +1606,12 @@ export function makePiAdapterV2(
       const handleSessionEvent = Effect.fnUntraced(function* (event: PiRpcRecord) {
         const state = threadState;
         const turn = state?.activeTurn ?? null;
+        // loom: a completed request or an idle ping refreshed the prompt cache (prompt-cache-keeping D)
+        yield* touchLoomPiCache(
+          loomHooks,
+          state?.providerThread.appThreadId ?? input.threadId,
+          event,
+        );
         switch (event["type"]) {
           case "agent_start": {
             if (turn === null) {

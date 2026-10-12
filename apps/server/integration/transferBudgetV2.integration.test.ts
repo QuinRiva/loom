@@ -47,6 +47,7 @@ import * as ProjectEnrichmentService from "../src/project/ProjectEnrichmentServi
 import * as OrchestrationHttp from "../src/orchestration-v2/http.ts";
 import * as ServerHttp from "../src/http.ts";
 import { subscribeOrchestrationV2Thread, subscribeOrchestrationV2Shell } from "../src/ws.ts";
+import * as LoomCacheBroadcast from "../src/loom/projection/LoomCacheBroadcast.ts"; // loom:
 import * as LoomGoalBroadcast from "../src/loom/projection/LoomGoalBroadcast.ts"; // loom:
 import { LoomThreadConsult } from "../src/loom/workstream/consult.ts"; // loom:
 import * as LoomStore from "../src/loom/projection/LoomStore.ts"; // loom:
@@ -117,6 +118,7 @@ const layerServices = layerManagement.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       LoomGoalBroadcast.layer,
+      LoomCacheBroadcast.layer, // loom: cache touches ride the same tail
       LoomStore.layer,
       Layer.mock(LoomThreadConsult)({ subscribeLive: Effect.succeed(Stream.empty) }),
     ),

@@ -10,13 +10,17 @@
  * 3c-1 calls only `classifier`; `sanitiser` (3c-2, before `switch_session` on
  * resume) and `steerStash` (3c-3: pi's `queue_update` mirror, and the restart
  * continuation's read — DL-690/691) exist so their call sites need no further option change.
+ * `cacheTouched` feeds the sidebar's cache-liveness ring (prompt-cache-keeping, Workstream D)
+ * through {@link touchLoomPiCache}.
  *
  * @module provider/Drivers/Pi/loomAdapterHooks
  */
-import type { OrchestrationV2ProviderFailure, ThreadId } from "@t3tools/contracts";
+import type { IsoDateTime, OrchestrationV2ProviderFailure, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
+import { piRecordField, type PiRpcRecord } from "../../../orchestration-v2/Adapters/PiRpc.ts";
 import { makeProviderFailure } from "../../../orchestration-v2/ProviderFailure.ts";
 import type { ClassifiedPiFailure, PiFailureSelection } from "./piQuotaClassifier.loom.ts";
 
@@ -39,12 +43,15 @@ export interface LoomPiAdapterHooksShape {
       threadId: ThreadId,
     ) => Effect.Effect<{ readonly runId: string | null; readonly text: string } | null>;
   };
+  /** pi refreshed the thread's prompt cache at `at` (`LoomCacheBroadcast`). */
+  readonly cacheTouched: (threadId: ThreadId, at: IsoDateTime) => Effect.Effect<void>;
 }
 
 export const passthroughLoomPiAdapterHooks: LoomPiAdapterHooksShape = {
   classifier: () => Effect.succeed({ usageLimit: false }),
   sanitiser: () => Effect.void,
   steerStash: { write: () => Effect.void, read: () => Effect.succeed(null) },
+  cacheTouched: () => Effect.void,
 };
 
 export class LoomPiAdapterHooks extends Context.Reference<LoomPiAdapterHooksShape>(
@@ -67,3 +74,33 @@ export const classifyLoomPiFailure = (
           : failure,
       ),
     );
+
+/**
+ * Reports a pi session event that refreshed the prompt cache: an assistant request ending (any
+ * stop but error or abort) as it is seen, or an idle `cache_warm` ping (pi's `entry_appended`
+ * with a `usage` entry) at its entry's timestamp. Every other event is a no-op.
+ */
+export const touchLoomPiCache = (
+  hooks: LoomPiAdapterHooksShape,
+  threadId: ThreadId,
+  event: PiRpcRecord,
+): Effect.Effect<void> => {
+  const message = event["type"] === "message_end" ? event["message"] : undefined;
+  const stopReason = piRecordField(message, "stopReason");
+  if (
+    piRecordField(message, "role") === "assistant" &&
+    stopReason !== "error" &&
+    stopReason !== "aborted"
+  ) {
+    return DateTime.now.pipe(
+      Effect.flatMap((now) => hooks.cacheTouched(threadId, DateTime.formatIso(now))),
+    );
+  }
+  const entry = event["type"] === "entry_appended" ? event["entry"] : undefined;
+  const timestamp = piRecordField(entry, "timestamp");
+  return piRecordField(entry, "type") === "usage" &&
+    piRecordField(entry, "kind") === "cache_warm" &&
+    typeof timestamp === "string"
+    ? hooks.cacheTouched(threadId, timestamp)
+    : Effect.void;
+};
