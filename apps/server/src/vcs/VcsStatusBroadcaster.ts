@@ -489,8 +489,8 @@ export const make = Effect.gen(function* () {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
     const previousRefName = (yield* getCachedStatus(cwd))?.local?.value.refName ?? null;
     const local = yield* refreshLocalStatusCore(cwd);
-    // A local refresh fires on every turn completion. It must never bump the PR
-    // epoch (PR lookups stay on their own cache TTL) and must not wake the
+    // A local refresh fires on every turn completion. It must never invalidate
+    // PR lookups (they stay on their own cache TTL) and must not wake the
     // repo batch on the common no-op case — only a genuine branch change makes
     // the cached remote row wrong, because the batch keys off the local refName.
     if (local.refName !== previousRefName) {
