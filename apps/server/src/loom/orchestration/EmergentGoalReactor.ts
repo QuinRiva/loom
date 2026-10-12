@@ -11,10 +11,8 @@
  * first turn can lay out its plan. Workstream children never derive one (they
  * inherit the parent's goal).
  *
- * Upstream's `TextGeneration` has no free-form op and Loom's structured op is not
- * re-added (DT-44/DT-54), so the generation is a Loom-owned one-shot over upstream's
- * exported Pi primitives — the same ephemeral, tools-off `pi --mode rpc` launch
- * upstream's `PiTextGeneration` uses — on the text-generation model selection.
+ * The generation is Loom's Pi one-shot (`makePiOneShot`) on the text-generation
+ * model selection.
  * No effect-outbox kind: at-most-once is the goal id plus the command receipt, and a
  * run is attempted once per process (a failure logs and waits for run 2 or a goal tool).
  *
@@ -24,12 +22,10 @@ import {
   CommandId,
   GoalId,
   type ProjectId,
-  PiSettings,
   type RunId,
   TextGenerationError,
   type ThreadId,
 } from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { slugify } from "@t3tools/shared/String";
@@ -37,27 +33,16 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { ChildProcessSpawner } from "effect/process";
 
-import { ServerConfig } from "../../config.ts";
-import { makePiRpcConnection, parsePiModelSlug } from "../../orchestration-v2/Adapters/PiRpc.ts";
-import {
-  buildPiRpcLaunch,
-  resolvePiLaunchArgs,
-} from "../../orchestration-v2/Adapters/piT3McpInjection.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import { resolveLoomPiBinaryPath } from "../../provider/Drivers/Pi/bundledPi.loom.ts";
-import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
-import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
 import { forkParked } from "../../serverActivation.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
 import { buildEmergentGoalPrompt } from "../../textGeneration/TextGenerationPrompts.ts";
 import { formatThreadTitleContext } from "../../textGeneration/ThreadTitleContext.ts";
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
+import { makePiOneShot } from "../textGeneration/piOneShot.ts";
 
 const GENERATION_TIMEOUT = "180 seconds";
 const MAX_EMERGENT_GOAL_RUNS = 2;
@@ -82,7 +67,6 @@ export class EmergentGoalGenerator extends Context.Service<
   }
 >()("t3/loom/orchestration/EmergentGoalReactor/EmergentGoalGenerator") {}
 
-const decodePiSettings = Schema.decodeUnknownEffect(PiSettings);
 const isTextGenerationError = Schema.is(TextGenerationError);
 const decodeInterpretation = Schema.decodeEffect(
   Schema.fromJsonString(buildEmergentGoalPrompt({ message: "" }).outputSchema),
@@ -91,79 +75,19 @@ const decodeInterpretation = Schema.decodeEffect(
 const fail = (detail: string, cause?: unknown) =>
   new TextGenerationError({ operation: "generateEmergentGoal", detail, cause });
 
-/** The Pi one-shot: ephemeral, tools off, extensions on (cliproxy carries the default model). */
+/** The Pi one-shot on the text-generation model selection. */
 export const EmergentGoalGeneratorPiLive = Layer.effect(
   EmergentGoalGenerator,
-  Effect.gen(function* () {
-    const serverSettings = yield* ServerSettingsService;
-    const { cwd: serverCwd } = yield* ServerConfig;
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    return {
-      generate: (input) =>
-        Effect.gen(function* () {
-          const settings = yield* serverSettings.getSettings;
-          const modelSelection = resolveProjectSettings(settings, input.projectId).settings
-            .textGenerationModelSelection;
-          const instance = deriveProviderInstanceConfigMap(settings)[modelSelection.instanceId];
-          if (instance?.driver !== "pi") {
-            return yield* fail(
-              `Text generation instance '${modelSelection.instanceId}' is not Pi.`,
-            );
-          }
-          const pi = yield* decodePiSettings(instance.config ?? {});
-          const launchArgs = resolvePiLaunchArgs(pi.launchArgs);
-          if (!launchArgs.ok) return yield* fail(launchArgs.message);
-          const launch = buildPiRpcLaunch({
-            launchArgs: launchArgs.args,
-            environment: mergeProviderInstanceEnvironment(instance.environment),
-            mcpSession: undefined,
-            extensionPath: undefined,
-            ephemeral: true,
-            disableExtensions: false,
-            disableTools: true,
-          });
-          const connection = yield* makePiRpcConnection({
-            command: resolveLoomPiBinaryPath(pi.binaryPath || "pi"),
-            args: launch.args,
-            cwd: input.cwd ?? serverCwd,
-            env: launch.env,
-          });
-          if (modelSelection.model !== "default") {
-            const parsed = parsePiModelSlug(modelSelection.model);
-            if (parsed === null) return yield* fail(`Bad Pi model '${modelSelection.model}'.`);
-            yield* connection.request({ type: "set_model", ...parsed });
-          }
-          yield* connection.request({ type: "prompt", message: input.prompt });
-          while (true) {
-            const event = yield* Queue.take(connection.events);
-            if (event["type"] === "agent_settled") break;
-            // No user is present: cancel extension dialogs rather than wait for the timeout.
-            if (
-              event["type"] === "extension_ui_request" &&
-              ["select", "confirm", "input", "editor"].includes(String(event["method"]))
-            ) {
-              yield* connection.send({
-                type: "extension_ui_response",
-                id: event["id"],
-                cancelled: true,
-              });
-            }
-          }
-          const data = yield* connection.request({ type: "get_last_assistant_text" });
-          const text = (data as { text?: unknown } | null)?.text;
-          if (typeof text !== "string" || text.trim() === "")
-            return yield* fail("Pi returned no text.");
-          return yield* decodeInterpretation(extractJsonObject(text.trim()));
-        }).pipe(
-          Effect.scoped,
-          Effect.timeout(GENERATION_TIMEOUT),
-          Effect.mapError((cause) =>
-            isTextGenerationError(cause) ? cause : fail("Emergent goal generation failed.", cause),
-          ),
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+  Effect.map(makePiOneShot, (run) => ({
+    generate: (input) =>
+      run({ operation: "generateEmergentGoal", ...input }).pipe(
+        Effect.flatMap((text) => decodeInterpretation(extractJsonObject(text))),
+        Effect.timeout(GENERATION_TIMEOUT),
+        Effect.mapError((cause) =>
+          isTextGenerationError(cause) ? cause : fail("Emergent goal generation failed.", cause),
         ),
-    };
-  }),
+      ),
+  })),
 );
 
 /**

@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../../../../config.ts";
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
+import { HandoffDuplicateJudge } from "../../../../loom/handoff/handoffDuplicates.ts";
 import { EmergentGoals } from "../../../../loom/orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcast.ts";
 import { LoomOrchestratorTestLayer } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
@@ -24,14 +25,16 @@ import { LOOM_TOOL_DEFS, type LoomMcpToolName } from "../defs.ts";
 import { makeLoomToolHandlers } from "../handlers.ts";
 import { callLoomTool } from "../registration.ts";
 
-/** The services a test replaces: launch (mcp__t3-code__goal_handoff), the consult fork, git. Unstubbed calls die. */
+/** The services a test replaces: launch and the duplicate judge (mcp__t3-code__goal_handoff), the consult fork, git. Unstubbed calls die. */
 export type StubbedServices =
   | ThreadLaunchService.ThreadLaunchService
+  | HandoffDuplicateJudge
   | LoomThreadConsult
   | GitWorkflowService.GitWorkflowService;
 
 export const DefaultServiceStubs = Layer.mergeAll(
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+  Layer.mock(HandoffDuplicateJudge)({}),
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
 );

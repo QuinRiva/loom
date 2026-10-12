@@ -32,6 +32,7 @@ import {
   writeEvents,
 } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { type ConsultForkInput, LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
+import { HandoffDuplicateJudge } from "../../../../loom/handoff/handoffDuplicates.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
 import { callAs, makeHandlerTestLayer } from "./handlers.testkit.ts";
@@ -41,6 +42,7 @@ const asked: Array<ConsultForkInput> = [];
 const TestLayer = makeHandlerTestLayer(
   Layer.mergeAll(
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+    Layer.mock(HandoffDuplicateJudge)({}),
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
     Layer.mock(LoomThreadConsult)({
       ask: (input) =>

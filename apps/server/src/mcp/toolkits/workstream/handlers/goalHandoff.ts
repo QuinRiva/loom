@@ -11,6 +11,10 @@
  *   ThreadLaunchService.launch(worktree, initialMessage = brief) →
  *   thread.handoff.record on the caller.
  *
+ * A cheap model first checks the inbox for an open thread already doing the
+ * work (`findHandoffDuplicates`); a likely duplicate refuses with its candidates
+ * unless `notDuplicateOf` overrides, and a failed check proceeds.
+ *
  * Ported from V1's `GoalHandoffHttp.ts` (which staged the root for a human send).
  *
  * @module mcp/toolkits/workstream/handlers/goalHandoff
@@ -21,6 +25,7 @@ import * as Option from "effect/Option";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../../../loom/handoff/handoffDraft.ts";
+import { findHandoffDuplicates } from "../../../../loom/handoff/handoffDuplicates.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ProjectService from "../../../../project/ProjectService.ts";
@@ -85,6 +90,32 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
   // Slugs stay unique per project (deleted goals included); a clash takes -2, -3, ….
   const goals = yield* asToolError(store.goals.listByProject(project.id, { includeDeleted: true }));
   const existing = goals.find((goal) => goal.id === goalId);
+
+  // A retry of a handoff that already landed skips the check: it was handed off.
+  if (existing === undefined && !input.notDuplicateOf?.length) {
+    const duplicates = yield* findHandoffDuplicates({
+      callerThreadId: caller.threadId,
+      // A retry must not match its own thread; a fork shares its source's context.
+      exclude: [threadId, ...(workstream?.forkFromThreadId ? [workstream.forkFromThreadId] : [])],
+      projectId: project.id,
+      cwd: project.workspaceRoot,
+      title,
+      description,
+      brief,
+    });
+    if (duplicates.length > 0)
+      return yield* fail(
+        [
+          "Not handed off: this looks like work an open thread is already doing.",
+          ...duplicates.map(
+            (match) =>
+              `- "${match.title}" (thread ${match.threadId}${match.goalTitle === null ? "" : `, goal "${match.goalTitle}"`}): ${match.reason}`,
+          ),
+          `Nothing was created. If it is the same work, ${t("consult_thread")} or ${t("notify_thread")} that thread instead. If your work is genuinely distinct, call ${t("goal_handoff")} again with the same arguments plus notDuplicateOf: [${duplicates.map((match) => `"${match.threadId}"`).join(", ")}].`,
+        ].join("\n"),
+      );
+  }
+
   const taken = new Set(goals.filter((goal) => goal.id !== goalId).map((goal) => goal.slug));
   let slug = existing?.slug ?? slugifyTitle(title);
   for (let suffix = 2; taken.has(slug); suffix += 1) slug = `${slugifyTitle(title)}-${suffix}`;
