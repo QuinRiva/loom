@@ -281,7 +281,7 @@ const LOOM_TOOL_SPECS = {
     "Consult Thread",
     Schema.Struct({
       threadId: optionalText(
-        "Exact id of the target thread, preferred when known (e.g. from an @-mention [Title](thread://<id>)). Provide threadId OR name, not both.",
+        "Exact id of the target thread, preferred when known (e.g. from an @-mention [Title](t3-thread://v1/<id>)). Provide threadId OR name, not both.",
       ),
       name: optionalText(
         "Fuzzy sidebar title of the target thread, when you have no exact id; an ambiguous name returns ranked candidates.",
