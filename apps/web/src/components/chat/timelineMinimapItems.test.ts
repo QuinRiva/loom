@@ -78,4 +78,22 @@ describe("timeline minimap previews", () => {
     });
     expect(resolveTimelineMinimapPreview(first)?.assistantText).toBe("First");
   });
+
+  // loom: agent-created user-role messages (control notices, steers) are not human prompts
+  it("skips agent-created messages and spans the human turn past them", () => {
+    const source = rows([
+      ["user", "Do it"],
+      ["assistant", "Started"],
+      ["user", "[T3 Workstream control plane] child finished"],
+      ["assistant", "All done"],
+      ["user", "Thanks"],
+    ]).map((row, index) =>
+      index === 2 && row.kind === "message"
+        ? { ...row, message: { ...row.message, createdBy: "agent" as const } }
+        : row,
+    );
+    const items = deriveTimelineMinimapItems(source);
+    expect(items.map((item) => item.userText)).toEqual(["Do it", "Thanks"]);
+    expect(items[0]?.assistantText).toBe("All done");
+  });
 });

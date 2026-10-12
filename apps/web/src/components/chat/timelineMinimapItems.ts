@@ -14,7 +14,8 @@ export function deriveTimelineMinimapItems(
   const items: TimelineMinimapItem[] = [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
-    if (row?.kind !== "message" || row.message.role !== "user") {
+    if (row?.kind !== "message" || !isHumanPrompt(row.message)) {
+      // loom: human prompts only
       continue;
     }
 
@@ -28,6 +29,11 @@ export function deriveTimelineMinimapItems(
   return items;
 }
 
+// loom: the rail marks the human's own prompts — not kickoffs, steers, notifications
+// or control-plane notices, which all arrive as user-role messages created by an agent.
+const isHumanPrompt = ({ role, createdBy }: { role: string; createdBy?: string | undefined }) =>
+  role === "user" && createdBy !== "agent";
+
 function resolveFinalAssistantTextForTurn(
   rows: ReadonlyArray<MessagesTimelineRow>,
   userRowIndex: number,
@@ -38,9 +44,9 @@ function resolveFinalAssistantTextForTurn(
     if (row?.kind !== "message") {
       continue;
     }
-    if (row.message.role === "user") {
+    if (isHumanPrompt(row.message)) {
       break;
-    }
+    } // loom: control-plane/agent messages don't end the human's turn
     if (row.message.role === "assistant") {
       finalAssistantText = row.message.text ?? null;
     }
