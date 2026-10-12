@@ -107,6 +107,9 @@ interface ComposerState {
   initialText: string;
   /** localStorage key the in-progress draft is cached under (issue 6). */
   draftKey: string;
+  /** Overrides the default text/block label (an in-frame pin names its card;
+   * an edit keeps the label the comment was created with). */
+  rangeLabel?: string;
   top: number;
   left: number;
 }
@@ -672,8 +675,8 @@ export function MdxPlanAnnotationLayer({
   // HtmlBlock frames are separate (same-origin) documents: selections, hovers,
   // clicks and scrolls inside one never reach the wrapper's handlers, so listen
   // in each frame directly — wired once its srcdoc has loaded (a re-render of
-  // the srcdoc loads a fresh document, which is wired again). Five listeners
-  // per frame, none per element.
+  // the srcdoc loads a fresh document, which is wired again). A handful of
+  // listeners and one resize observation per frame, none per element.
   useEffect(() => {
     if (!root) return;
     const controller = new AbortController();
@@ -703,12 +706,36 @@ export function MdxPlanAnnotationLayer({
         // Entering the frame shows the whole-block affordance, as hovering any
         // other block does (the host never sees mouse moves over the frame).
         doc.addEventListener("mouseover", () => hoverOver(iframe), { signal });
+        // Leaving it: the wrapper's own mouseleave never fires when the pointer
+        // exits the frame straight out of the plan, so let the next host move
+        // decide — inside the wrapper (e.g. onto the affordance, which overlaps
+        // the frame) its own handler takes over; anywhere else, clear.
+        doc.documentElement.addEventListener(
+          "mouseleave",
+          () =>
+            document.addEventListener(
+              "mousemove",
+              (event) => {
+                if (wrapperRef.current?.contains(event.target as Node)) return;
+                hoverBlockIdRef.current = null;
+                setHoverBlock(null);
+              },
+              { signal, once: true },
+            ),
+          { signal },
+        );
         // Click-away inside the frame dismisses the composer like it does outside.
         doc.addEventListener("pointerdown", () => setComposer(null), { signal });
-        // In-frame highlights are frame-relative: re-measure on in-frame scroll.
+        // In-frame highlights are frame-relative: re-measure on in-frame scroll,
+        // and on in-frame reflow the host cannot see (a <details> toggle, a
+        // data: web font landing) — neither resizes the fixed-height iframe.
         doc.addEventListener("scroll", refresh, { signal, capture: true, passive: true });
+        doc.addEventListener("toggle", refresh, { signal, capture: true });
+        doc.fonts.addEventListener("loadingdone", refresh, { signal });
+        reflow.observe(doc.documentElement);
       }
     };
+    const reflow = new ResizeObserver(refresh);
     // `load` does not bubble, but it does pass through a capturing ancestor.
     root.addEventListener(
       "load",
@@ -722,6 +749,7 @@ export function MdxPlanAnnotationLayer({
     wire();
     return () => {
       controller.abort();
+      reflow.disconnect();
       cancelAnimationFrame(pending);
     };
   }, [root, recompute, handleMouseUp, hoverOver]);
@@ -742,6 +770,7 @@ export function MdxPlanAnnotationLayer({
       quotedText: result.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? "",
       draftKey,
+      ...(result.rangeLabel ? { rangeLabel: result.rangeLabel } : {}),
       top,
       left,
     });
@@ -779,6 +808,7 @@ export function MdxPlanAnnotationLayer({
       quotedText: comment.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? comment.text,
       draftKey,
+      rangeLabel: comment.rangeLabel,
       top: (badge?.top ?? 16) + 20,
       left: clampLeft(badge?.left ?? 16),
     });
@@ -799,9 +829,10 @@ export function MdxPlanAnnotationLayer({
       sectionId: anchor.sectionId ?? `file:${filePath}`,
       sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
       rangeLabel:
-        anchor.anchorKind === "text"
+        composer.rangeLabel ??
+        (anchor.anchorKind === "text"
           ? "annotation"
-          : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`,
+          : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`),
       text,
       anchor,
       quotedText: composer.quotedText,

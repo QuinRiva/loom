@@ -300,7 +300,7 @@ const prefixOverlap = (a: string, b: string): number => {
 export function anchorFromRange(
   range: Range,
   root: Element,
-): { anchor: PlanCommentAnchor; quotedText: string } | null {
+): { anchor: PlanCommentAnchor; quotedText: string; rangeLabel?: string } | null {
   const frame = hostFrameOf(range.startContainer, root);
   if (frame) return anchorForFrameRange(range, frame, root);
   const block = enclosingBlock(range.commonAncestorContainer);
@@ -381,7 +381,7 @@ function anchorForFrameRange(
   range: Range,
   frame: HTMLIFrameElement,
   root: Element,
-): { anchor: PlanCommentAnchor; quotedText: string } | null {
+): { anchor: PlanCommentAnchor; quotedText: string; rangeLabel?: string } | null {
   const host = enclosingBlock(frame);
   const body = range.startContainer.ownerDocument?.body;
   if (!host || !body) return null;
@@ -402,7 +402,30 @@ function anchorForFrameRange(
       ...(section ? { sectionId: section.id, sectionTitle: section.title } : {}),
     },
     quotedText: quote.textQuote,
+    rangeLabel: frameRangeLabel(host, node),
   };
+}
+
+/** Grouping elements a mockup's "cards" are usually built from. */
+const FRAME_GROUP_SELECTOR = "section, article, li, figure, aside, fieldset, details";
+
+/** Label for an in-frame pin — the composer chip and the `range:` line the agent
+ * reads — naming the HtmlBlock (its caption, else an authored id) and the card
+ * the selection is in (the first heading of the nearest grouping element), e.g.
+ * `annotation in HtmlBlock "Six treatments…" › "B · Glyph before the title"`. */
+function frameRangeLabel(host: { element: Element; id: string }, node: Element): string {
+  const caption = host.element.querySelector("figcaption")?.textContent;
+  const block = caption
+    ? ` "${collapse(caption, 48)}"`
+    : host.id.startsWith("plan-block-")
+      ? ""
+      : ` #${host.id}`;
+  const group = node.closest(FRAME_GROUP_SELECTOR);
+  const heading =
+    group?.querySelector("h1, h2, h3, h4, h5, h6") ??
+    group?.querySelector("b, strong, legend, summary, caption, dt");
+  const card = heading?.textContent ? ` › "${collapse(heading.textContent, 48)}"` : "";
+  return `annotation in HtmlBlock${block}${card}`;
 }
 
 /** Serialise a whole top-level block element into a `"visual"` anchor. Used by
