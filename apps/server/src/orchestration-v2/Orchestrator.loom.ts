@@ -242,15 +242,18 @@ export const loomStampContinueLaunch = Effect.fn("loom.stampContinueLaunch")(fun
     : command;
 });
 
-/** The launch `loomStampContinueLaunch` restamped: a human's action, so it releases the hold. */
-const isContinueLaunch = (
-  command: MessageDispatch,
-  loom: LoomMessageFields,
-  workstream: LoomThreadWorkstream,
+/**
+ * The launch `loomStampContinueLaunch` restamped: the human's action on an agent's words, so it
+ * releases the hold and engages the human (`sessionProfile`) though it is not `humanAuthored`.
+ */
+export const isContinueLaunch = (
+  message: { readonly senderThreadId?: ThreadId | undefined },
+  loom: LoomMessageFields | undefined,
+  workstream: Pick<LoomThreadWorkstream, "continuesThreadId"> | null,
 ) =>
-  loom.origin === "kickoff" &&
-  command.senderThreadId !== undefined &&
-  command.senderThreadId === workstream.continuesThreadId;
+  loom?.origin === "kickoff" &&
+  message.senderThreadId !== undefined &&
+  message.senderThreadId === workstream?.continuesThreadId;
 
 /**
  * A queued run whose message is a steered-tier Loom message the dispatcher's

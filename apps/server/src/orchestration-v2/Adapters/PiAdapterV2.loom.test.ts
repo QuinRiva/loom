@@ -811,6 +811,13 @@ describe("PiAdapterV2 (loom) — author labels", () => {
             stamped(notice),
             stamped(notify),
             parent("/skill:review the diff"),
+            // Upstream's PR-watch wake: server automation, not a resume.
+            stamped({
+              messageId: "message:pr-watch:1",
+              text: "Update on pull request #7.",
+              createdBy: "agent",
+              creationSource: "server",
+            }),
           ],
         );
         assert.deepEqual(childPrompts, [
@@ -821,6 +828,7 @@ describe("PiAdapterV2 (loom) — author labels", () => {
           "[notify from Sibling] FYI.",
           // pi must see the slash command first.
           "/skill:review the diff",
+          `${AUTHOR_LABELS.automation}\n\nUpdate on pull request #7.`,
         ]);
 
         const rootPrompts = yield* sendAll(

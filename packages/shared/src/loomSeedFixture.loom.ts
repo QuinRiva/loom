@@ -109,7 +109,7 @@ export const loomSeedControlMessages = (reports: {
             icon: "🧑",
             excerpt:
               "The human wrote to coder: “Before the rework lands: keep the tokeniser's public signature unchanged.”",
-            // The seed's human message into the gate coder: told here, so the seed stays inert on boot.
+            // The seed's human message into the gate coder, so the digest shows every item kind.
             messageId: MessageId.make("message:seed:gate-coder:human"),
           },
         ],

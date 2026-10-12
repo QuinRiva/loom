@@ -301,9 +301,18 @@ export const terminalDeltas: PassStep = {
 };
 
 /**
+ * Past this age a human message no parent heard of is history, not news: the parent should read
+ * the thread rather than be woken by it. Bounds the backlog the first pass after this rail's
+ * deploy (or a long outage) would otherwise report.
+ */
+export const HUMAN_IN_CHILD_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+/**
  * The human wrote into a child: one FYI item per human-authored message to its parent, so the
  * parent neither steers against an instruction it never saw nor relays it upward as its own.
- * Told exactly once, keyed by the message id its delivered item carries.
+ * Told exactly once, keyed by the message id its delivered item carries; not told when the
+ * parent has since heard how the child ended (its report must quote what the human changed),
+ * nor past `HUMAN_IN_CHILD_HORIZON_MS`.
  */
 export const humanInChild: PassStep = {
   name: "humanInChild",
@@ -313,16 +322,23 @@ export const humanInChild: PassStep = {
       if (parentId === null || !fyiParent(ctx, parentId)) continue;
       const messages = yield* ctx.humanMessages(child.threadId);
       if (messages.length === 0) continue;
+      const delivered = yield* ctx.delivered(parentId);
       const told = new Set(
-        (yield* ctx.delivered(parentId)).flatMap(({ item }) =>
+        delivered.flatMap(({ item }) =>
           item.kind === "human-message" && item.messageId !== undefined ? [item.messageId] : [],
         ),
       );
       for (const message of messages) {
-        if (told.has(message.id)) continue;
+        const atMs = DateTime.toEpochMillis(message.createdAt);
+        if (
+          told.has(message.id) ||
+          nowMs(ctx) - atMs > HUMAN_IN_CHILD_HORIZON_MS ||
+          toldAbout(delivered, child.threadId, atMs)
+        )
+          continue;
         stash(ctx, parentId, {
           key: `human-message:${message.id}`,
-          eventAtMs: DateTime.toEpochMillis(message.createdAt),
+          eventAtMs: atMs,
           extra: {
             kind: "human-message",
             line: renderHumanInChildDigestLine({

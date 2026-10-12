@@ -54,6 +54,23 @@ it.effect("the git shim signs agent commits with their thread and session, and n
     git(["commit", "-q", "--amend", "--no-edit"]);
     assert.equal(lastCommit(), `Loom agent <human@example.com> | Loom agent\nsecond\n\n${SIGNED}`);
 
+    // Any spelling of its own directory on PATH (here a trailing slash) is dropped, not re-entered.
+    const trailing = NodeChildProcess.execFileSync("git", ["log", "-1", "--format=%s"], {
+      cwd: repo,
+      env: { ...env(true), PATH: `${shimDir}/:${process.env.PATH}` },
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.equal(trailing.trim(), "second");
+
+    // A pass-through scans its arguments once: ten thousand cost nothing.
+    const many = Array.from({ length: 10_000 }, (_, index) => `f${index}`);
+    NodeChildProcess.execFileSync("git", ["ls-files", "--", ...many], {
+      cwd: repo,
+      env: env(true),
+      timeout: 10_000,
+    });
+
     // Outside a Loom session the shim adds nothing.
     git(["commit", "-q", "--allow-empty", "-m", "by hand"], false);
     assert.equal(lastCommit(), "The Human <human@example.com> | The Human\nby hand");

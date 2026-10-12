@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
 import { buildHandoffDraftTurnStart } from "../../../../loom/handoff/handoffDraft.ts";
+import { sessionProfile } from "../../../../loom/http/loomAgentRoutes.ts";
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
 import {
   completeSeededRun,
@@ -244,7 +245,12 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
             dispatchMode: { type: "start_immediately" },
           });
           const [message] = yield* messagesOf(threadId);
-          return { root, message: message!, row: (yield* store.getWorkstream(threadId))! };
+          return {
+            root,
+            message: message!,
+            row: (yield* store.getWorkstream(threadId))!,
+            profile: yield* sessionProfile(threadId),
+          };
         });
 
         const asIs = yield* launch("continue-launch", (brief) => `${brief.trim()}\n`);
@@ -254,6 +260,8 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
         // The human's Launch still releases the hold and starts the thread.
         assert.isFalse(asIs.row.held);
         assert.isNotNull(asIs.row.kickoffAt);
+        // ...and engages the human, so the successor can ask them (`ask_user_question` resident).
+        assert.isTrue(asIs.profile.humanEngaged);
 
         const edited = yield* launch("continue-edited", (brief) => `${brief}\nAlso fix the docs.`);
         assert.equal(edited.message.createdBy, "user");

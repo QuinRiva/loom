@@ -17,43 +17,64 @@ import * as Path from "effect/Path";
 export const AGENT_GIT_NAME = "Loom agent";
 
 /**
- * The shim. It drops its own directory from PATH (so the real git, and anything git runs, never
- * re-enters it), finds the subcommand past git's global options, and on `commit` inserts the
- * trailers right after it (before any `--` pathspec). A no-op without `LOOM_THREAD_ID`.
+ * The shim. It drops every PATH entry that resolves to itself (so the real git, and anything git
+ * runs, never re-enters it, whatever the entry's spelling), finds the subcommand past git's
+ * global options in one scan, and only on `commit` — under a git that has `--trailer` (2.32+) —
+ * rebuilds the arguments with the trailers right after it (before any `--` pathspec). A no-op
+ * without `LOOM_THREAD_ID`.
  */
 export const GIT_SHIM_SOURCE = `#!/bin/sh
 # Loom's git shim (apps/server/src/loom/workstream/agentGitIdentity.ts): on \`git commit\` in a
 # Loom agent's session, adds Loom-Thread and Pi-Session trailers; every other call passes through.
-self=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PATH=$(printf '%s\\n' "$PATH" | tr ':' '\\n' | grep -vxF "$self" | paste -sd: -)
+self=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/git
+set -f
+path=
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] && [ "$dir/git" -ef "$self" ] || path=\${path:+$path:}$dir
+done
+unset IFS
+set +f
+PATH=$path
 export PATH
 [ -n "$LOOM_THREAD_ID" ] || exec git "$@"
-expect=subcommand
+# The subcommand is the first argument that is neither a global option nor an option's value.
+skip=
+sub=
+for arg do
+  if [ -n "$skip" ]; then skip=; continue; fi
+  case $arg in
+    -C | -c | --git-dir | --work-tree | --namespace | --config-env) skip=1 ;;
+    -*) ;;
+    *) sub=$arg; break ;;
+  esac
+done
+[ "$sub" = commit ] || exec git "$@"
+case $(git version) in
+  "git version 1."* | "git version 2."[0-9].* | "git version 2."[12][0-9].* | "git version 2.3"[01].*) exec git "$@" ;;
+esac
+skip=
+sub=
 n=$#
 while [ "$n" -gt 0 ]; do
   arg=$1
   shift
   n=$((n - 1))
   set -- "$@" "$arg"
-  case $expect in
-    value) expect=subcommand ;;
-    subcommand)
-      case $arg in
-        -C | -c | --git-dir | --work-tree | --namespace) expect=value ;;
-        -*) ;;
-        commit)
-          set -- "$@" --trailer "Loom-Thread: $LOOM_THREAD_ID"
-          [ -z "$PI_SESSION_ID" ] || set -- "$@" --trailer "Pi-Session: $PI_SESSION_ID"
-          expect=commit
-          ;;
-        *) expect=done ;;
-      esac
+  if [ -n "$skip" ]; then skip=; continue; fi
+  [ -z "$sub" ] || continue
+  case $arg in
+    -C | -c | --git-dir | --work-tree | --namespace | --config-env) skip=1 ;;
+    -*) ;;
+    *)
+      sub=$arg
+      set -- "$@" --trailer "Loom-Thread: $LOOM_THREAD_ID"
+      [ -z "$PI_SESSION_ID" ] || set -- "$@" --trailer "Pi-Session: $PI_SESSION_ID"
       ;;
   esac
 done
 # An --amend adds no second copy of a trailer the commit already carries.
-[ "$expect" = commit ] && set -- -c trailer.ifExists=addIfDifferent "$@"
-exec git "$@"
+exec git -c trailer.ifExists=addIfDifferent "$@"
 `;
 
 /** Writes the shim as `<dir>/git` (only when its bytes changed) and returns `dir`, the PATH entry. */

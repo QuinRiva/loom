@@ -39,6 +39,7 @@ import {
 } from "../../testkit/loomOrchestratorLayer.ts";
 import {
   attentionCommandId,
+  controlMessage,
   forkPrepareCommandId,
   kickoffCommandId,
   notifyCommandId,
@@ -531,6 +532,34 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       assert.deepEqual((yield* humanItems).at(-1), [
         [child!, MessageId.make("message:human-msg:5")],
       ]);
+
+      // Already covered: the parent heard how the child ended after the human wrote (the first
+      // pass after this rail's deploy finds every earlier human message in that state).
+      const ended = ThreadId.make("human-child-ended");
+      yield* spawnChild({ parentThreadId: root!, threadId: ended, graphKey: "ended" });
+      yield* send(ended, "Use the old endpoint.");
+      yield* completeOpenRuns(ended);
+      yield* completeOpenRuns(root!); // the last digest's turn
+      yield* dispatch(
+        controlMessage({
+          threadId: root!,
+          id: "server:test-told-ended",
+          tier: "steered",
+          origin: "control_notice",
+          text: "ended",
+          payload: { kind: "yield", items: [{ threadId: ended, title: "done" }] },
+        }),
+      );
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 2);
+      // And stale: a message past the horizon is history, not news.
+      yield* send(child!, "An old aside.");
+      yield* completeOpenRuns(child!);
+      yield* TestClock.adjust("25 hours");
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 2);
     }),
   );
 

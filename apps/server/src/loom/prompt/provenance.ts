@@ -40,6 +40,7 @@ export const AUTHOR_LABELS = {
 
 /** The metadata the label is derived from; every field is already on the message record. */
 export interface AuthoredMessage {
+  readonly messageId: string;
   readonly text: string;
   readonly createdBy: "user" | "agent" | "system";
   readonly creationSource: string;
@@ -54,6 +55,13 @@ export interface AuthoredMessage {
   /** The receiving thread has a parent (it is a child). */
   readonly hasParent: boolean;
 }
+
+/**
+ * Upstream's two resumes, by the message ids their senders give them: the restart continuation
+ * (`message:restart-continuation:<runId>`) and the usage-limit resume (`limit-resume:…`). Loom's
+ * own resumes are `control_notice`s, framed in their text.
+ */
+const UPSTREAM_RESUME_MESSAGE_ID = /^(message:restart-continuation:|limit-resume:)/;
 
 /**
  * The label a message carries, or null when it goes bare: the human's message
@@ -78,7 +86,7 @@ export const authorLabel = (message: AuthoredMessage): string | null => {
       ? AUTHOR_LABELS.parent
       : AUTHOR_LABELS.agentRoot(message.senderThreadId);
   if (message.senderThreadId !== undefined) return AUTHOR_LABELS.agentRoot(message.senderThreadId);
-  return message.creationSource === "server"
+  return UPSTREAM_RESUME_MESSAGE_ID.test(message.messageId)
     ? AUTHOR_LABELS.automatedResume
     : AUTHOR_LABELS.automation;
 };
