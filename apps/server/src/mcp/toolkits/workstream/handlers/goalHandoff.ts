@@ -87,7 +87,12 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
     `goal:${yield* createdUuid(caller, input.clientRequestId, "goal_handoff")}`,
   );
 
-  if (!input.notDuplicateOf?.length) {
+  // Slugs stay unique per project (deleted goals included); a clash takes -2, -3, ….
+  const goals = yield* asToolError(store.goals.listByProject(project.id, { includeDeleted: true }));
+  const existing = goals.find((goal) => goal.id === goalId);
+
+  // A retry of a handoff that already landed skips the check: it was handed off.
+  if (existing === undefined && !input.notDuplicateOf?.length) {
     const duplicates = yield* findHandoffDuplicates({
       callerThreadId: caller.threadId,
       // A retry must not match its own thread; a fork shares its source's context.
@@ -111,9 +116,6 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
       );
   }
 
-  // Slugs stay unique per project (deleted goals included); a clash takes -2, -3, ….
-  const goals = yield* asToolError(store.goals.listByProject(project.id, { includeDeleted: true }));
-  const existing = goals.find((goal) => goal.id === goalId);
   const taken = new Set(goals.filter((goal) => goal.id !== goalId).map((goal) => goal.slug));
   let slug = existing?.slug ?? slugifyTitle(title);
   for (let suffix = 2; taken.has(slug); suffix += 1) slug = `${slugifyTitle(title)}-${suffix}`;
