@@ -305,8 +305,6 @@ export interface LoomStoreV2Shape {
       options?: { readonly includeDeleted?: boolean },
     ) => Op<ReadonlyArray<LoomGoal>>;
     readonly upsert: (goal: LoomGoalInput) => Op<LoomGoal>;
-    readonly archive: (goalId: GoalId) => Op<LoomGoal | null>;
-    readonly unarchive: (goalId: GoalId) => Op<LoomGoal | null>;
     readonly softDelete: (goalId: GoalId) => Op<LoomGoal | null>;
     /** Returns the goals this call deleted. */
     readonly softDeleteByProject: (projectId: ProjectId) => Op<ReadonlyArray<LoomGoal>>;
@@ -718,8 +716,6 @@ const make = Effect.gen(function* () {
             description = excluded.description, updated_at = excluded.updated_at`;
           return (yield* getGoal(goal.id))!;
         }).pipe(sql.withTransaction, run("goals.upsert")),
-      archive: (goalId) => setGoalState("goals.archive", goalId, (at) => sql`archived_at = ${at}`),
-      unarchive: (goalId) => setGoalState("goals.unarchive", goalId, () => sql`archived_at = NULL`),
       softDelete: (goalId) =>
         setGoalState("goals.softDelete", goalId, (at) => sql`deleted_at = ${at}`),
       softDeleteByProject: (projectId) =>

@@ -163,14 +163,6 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
               description: input.description ?? goal.description,
             }),
       ),
-    [LOOM_WS_METHODS.goalArchive]: (input: { readonly goalId: GoalId }) =>
-      goalWrite(LOOM_WS_METHODS.goalArchive, input.goalId, (goal) =>
-        loomStore.goals.archive(goal.id),
-      ),
-    [LOOM_WS_METHODS.goalUnarchive]: (input: { readonly goalId: GoalId }) =>
-      goalWrite(LOOM_WS_METHODS.goalUnarchive, input.goalId, (goal) =>
-        loomStore.goals.unarchive(goal.id),
-      ),
     [LOOM_WS_METHODS.goalTaskRewrite]: (input: LoomGoalTaskRewriteInput) =>
       goalWrite(LOOM_WS_METHODS.goalTaskRewrite, input.goalId, (goal) =>
         Effect.gen(function* () {

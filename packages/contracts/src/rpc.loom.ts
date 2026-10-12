@@ -34,8 +34,6 @@ import {
 
 export const LOOM_WS_METHODS = {
   goalUpdate: "loom.goal.update",
-  goalArchive: "loom.goal.archive",
-  goalUnarchive: "loom.goal.unarchive",
   goalTaskRewrite: "loom.goal.task.rewrite",
   // 3b — the drafters.
   handoffDraft: "loom.handoffDraft",
@@ -73,9 +71,6 @@ export const LoomGoalUpdateInput = Schema.Struct({
   slug: Schema.optional(TrimmedNonEmptyString),
 });
 export type LoomGoalUpdateInput = typeof LoomGoalUpdateInput.Type;
-
-export const LoomGoalRefInput = Schema.Struct({ goalId: GoalId });
-export type LoomGoalRefInput = typeof LoomGoalRefInput.Type;
 
 /** One submitted task: an existing `id` keeps its identity; a missing one is minted. */
 export interface LoomGoalTaskRewriteNode {
@@ -227,8 +222,6 @@ const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, paylo
 /** The members `rpc.ts` spreads into `WsRpcGroup`. */
 export const LoomWsRpcs = [
   goalRpc(LOOM_WS_METHODS.goalUpdate, LoomGoalUpdateInput),
-  goalRpc(LOOM_WS_METHODS.goalArchive, LoomGoalRefInput),
-  goalRpc(LOOM_WS_METHODS.goalUnarchive, LoomGoalRefInput),
   goalRpc(LOOM_WS_METHODS.goalTaskRewrite, LoomGoalTaskRewriteInput),
   // 3b — the drafters.
   Rpc.make(LOOM_WS_METHODS.handoffDraft, {

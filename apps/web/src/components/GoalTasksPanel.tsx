@@ -11,20 +11,18 @@
  */
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";
-import { MoreHorizontalIcon, PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LinkifiedText } from "../loom/referenceLinks";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { goalTaskRewriteFor, type GoalTaskEdit } from "../loom/goalTaskEdits";
 import { countGoalTasks, loomCommands, useLoomGoal } from "../loom/loomGoalState";
-import { useLoomGoalActions } from "../loom/sidebarGoalActions";
 import {
   type AnchoredThreadsByTask,
   anchoredThreadsByTask,
   TaskThreadChip,
 } from "../loom/TaskThreadChips";
-import { readLocalApi } from "../localApi";
 import { useThreadShells } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
@@ -95,7 +93,6 @@ function GoalHeader({
   environmentId: EnvironmentId;
 }) {
   const update = useAtomCommand(loomCommands.goalUpdate);
-  const { renameGoal, setArchived } = useLoomGoalActions();
   const commit = (fields: { title?: string; description?: string }) =>
     void update({ environmentId, input: { goalId: goal.id, ...fields } });
   const title = useEditDraft(goal.title, true, (value) => commit({ title: value }));
@@ -103,23 +100,6 @@ function GoalHeader({
     commit({ description: value }),
   );
   const progress = countGoalTasks(goal.tasks);
-  const archived = goal.archivedAt !== null;
-
-  const openOverflow = async (position: { x: number; y: number }) => {
-    const clicked = await readLocalApi()?.contextMenu.show(
-      [
-        { id: "rename", label: "Rename goal\u2026" },
-        archived
-          ? { id: "unarchive", label: "Unarchive goal" }
-          : { id: "archive", label: "Archive goal" },
-      ],
-      position,
-    );
-    if (clicked === "rename") void renameGoal(environmentId, goal);
-    if (clicked === "archive" || clicked === "unarchive") {
-      void setArchived(environmentId, goal, clicked === "archive");
-    }
-  };
 
   return (
     <div className="mb-3 border-b border-border/60 pb-3">
@@ -139,25 +119,9 @@ function GoalHeader({
           placeholder={goal.slug}
           className="min-w-0 flex-1 truncate bg-transparent text-sm font-semibold text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
         />
-        {archived ? (
-          <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs text-muted-foreground">
-            Archived
-          </span>
-        ) : null}
         <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
           {progress.done}/{progress.total}
         </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Goal actions"
-          onClick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect();
-            void openOverflow({ x: box.left, y: box.bottom });
-          }}
-        >
-          <MoreHorizontalIcon />
-        </Button>
       </div>
       <textarea
         {...description.props}
