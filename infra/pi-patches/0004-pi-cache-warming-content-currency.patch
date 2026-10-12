@@ -1,0 +1,29 @@
+--- a/dist/core/sdk.js
++++ b/dist/core/sdk.js
+@@ -32,6 +32,17 @@
+     return getAgentDir();
+ }
+ /**
++ * LOOM PATCH (0004): whether a message still sends the same request content. pi rebuilds
++ * `agent.state.messages` from the session after a turn whenever an extension handles
++ * `turn_end`, which gives custom messages new objects (and the persisted entry's timestamp)
++ * with identical content, so identity alone would call every idle warm stale. Timestamps
++ * never reach the provider request.
++ */
++function sameRequestMessage(current, message) {
++    return (current === message ||
++        JSON.stringify({ ...current, timestamp: 0 }) === JSON.stringify({ ...message, timestamp: 0 }));
++}
++/**
+  * Create an AgentSession with the specified options.
+  *
+  * @example
+@@ -219,7 +230,7 @@
+             return (currentModel.provider === requestModel.provider &&
+                 currentModel.id === requestModel.id &&
+                 messages.length <= currentMessages.length &&
+-                messages.every((message, index) => currentMessages[index] === message));
++                messages.every((message, index) => sameRequestMessage(currentMessages[index], message)));
+         };
+     };
+     const transformProviderPayload = async (payload) => {

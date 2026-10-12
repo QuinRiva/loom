@@ -24,7 +24,7 @@ import * as NodePath from "node:path";
  * separate chunks (0.84–0.87 had both in one), so each patch names the chunk
  * it lands in by a string only that chunk contains, carries its own header,
  * and is marked — and so made idempotent — by a string only the patched chunk
- * contains. Several targets resolving to one chunk (0001 and 0003 since 0.99;
+ * contains. Several targets resolving to one chunk (0001, 0003 and 0004 since 0.99;
  * all of them on 0.84–0.87) works the same way.
  *
  * Headers are prepended to their chunk: the fs helpers the minified call sites
@@ -98,6 +98,13 @@ function __loomResolveRpcCwdOverride(cwdOverride) {
 
 const IDLE_HORIZON_HEADER = `
 // LOOM PATCH — see infra/pi-patches/README.md (0003 idle cache-warming horizon, PI_CACHE_WARMING_IDLE_MAX_MS).
+`;
+
+const CACHE_CURRENCY_HEADER = `
+// LOOM PATCH — see infra/pi-patches/README.md (0004 cache warming survives pi's post-turn message rebuild).
+function __loomSameRequestMessage(current, message) {
+  return current === message || JSON.stringify({ ...current, timestamp: 0 }) === JSON.stringify({ ...message, timestamp: 0 });
+}
 `;
 
 /**
@@ -204,6 +211,20 @@ const TARGETS = [
         /"30-minute idle safety limit reached"/g,
         "`${MAX_IDLE_WARMING_AGE_MS/6e4}-minute idle safety limit reached`",
         2,
+      ],
+    ],
+  },
+  {
+    patch: "0004",
+    locator: "cacheContextIsCurrent=",
+    marker: "__loomSameRequestMessage",
+    header: CACHE_CURRENCY_HEADER,
+    edits: [
+      [
+        "0004 cache warming compares messages by request content, not identity",
+        /messages\.every\(\(message,(\w+)\)=>currentMessages\[\1\]===message\)/g,
+        "messages.every((message,$1)=>__loomSameRequestMessage(currentMessages[$1],message))",
+        1,
       ],
     ],
   },

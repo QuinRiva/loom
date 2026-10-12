@@ -41,7 +41,7 @@ Loom runs unpatched** — silently, with no install-time error.
 
 So each patch exists in two forms, and both are part of the pnpm patch:
 
-- the readable diff below (`0001-…patch`, `0002-…patch`, `0003-…patch`), applied to `dist/`;
+- the readable diff below (`0001-…patch` … `0004-…patch`), applied to `dist/`;
 - the same change applied to the bundle by `patch-bundle.mjs`, as anchored
   string replacements against the minified chunks. Since 0.99 the patches
   land in different chunks (the auth storage and the CLI's `main()` were split
@@ -88,8 +88,8 @@ The atomic-write harness in step 3 imports the global install by default, so
 for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
-0001/0002 were authored against pi **0.82.1** and 0003 against **1.1.0**; all
-three diffs apply to **1.1.0**
+0001/0002 were authored against pi **0.82.1** and 0003/0004 against **1.1.0**; all
+four diffs apply to **1.1.0**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
@@ -118,6 +118,10 @@ Not optional, and it has paid off twice. Against the new pristine tarball
   composer at the upstream knob instead. If `MAX_IDLE_WARMING_AGE_MS` is gone or
   the idle deadline is measured differently, re-check the ping arithmetic in the
   0003 section before re-deriving.
+- **0004** — if `cacheContextIsCurrent` in `dist/core/sdk.js` no longer compares
+  messages by object identity, or `_refreshFinalizedContext` (`dist/core/agent-session.js`)
+  keeps message objects when the projection is unchanged, drop the patch — after
+  proving it with the 0004 harness (stock must then ping once).
 
 Record the outcome here either way.
 
@@ -405,8 +409,11 @@ safety limit reached". Loom wants 1-hour root threads kept warm past the hour.
 empty, `0` or non-numeric all mean stock behaviour. The idle stop reason names
 the configured horizon (`"90-minute idle safety limit reached"`) instead of the
 hard-coded 30 minutes; unset, the text is unchanged. Loom's session composer
-sets the variable for 1-hour roots only. pi's own economics gate and its
-"cache refresh deadline missed" guard still apply to every ping.
+sets the variable for 1-hour roots only. pi's "cache refresh deadline missed"
+and "conversation context changed" guards still apply to every ping. pi's
+economics gate does too, except that Loom's extension (`cacheWarmingGate`)
+answers `warm` to a 1-hour root's idle decision: pi prices a miss at the
+5-minute write rate, which would skip the ~54-minute ping for most contexts.
 
 **How the horizon counts, in pi 1.1.0** (`dist/core/cache-warmer.js`):
 
@@ -447,6 +454,45 @@ and `Decision in 54m (… -> warm)` with `5400000`.
 Files: `dist/core/cache-warmer.js` (plus the bundle: two anchors in the CLI
 chunk, `chunk-OIM2DMFI.js` on 1.1.0 — the constant once, the stop reason twice).
 Upstreamable as a setting rather than an env var.
+
+## 0004 — idle cache warming survives pi's post-turn message rebuild
+
+**Problem.** With `"cacheWarming": "idle"`, every idle ping in a Loom pi
+stopped with "conversation context changed"; only mid-run pings were ever sent.
+Before each refresh pi checks the request is still current
+(`cacheContextIsCurrent`, `dist/core/sdk.js`): same model, and every message
+of the warmed request still at the same index of `agent.state.messages`,
+compared **by object identity**. But after every turn `_commitBoundaryDrafts`
+→ `_refreshFinalizedContext` (`dist/core/agent-session.js`) replaces
+`agent.state.messages` with the session projection whenever any extension
+handles `turn_end`, and the projection rebuilds custom messages (and summaries)
+as new objects carrying the persisted entry's timestamp. Same content, new
+objects, so the warmed run is never current once the turn settles. Carl's
+global pi packages always register `turn_end` and add custom messages, so in
+production all 248 `cache_warm` pings after idle warming was turned on were
+mid-run.
+
+**Fix.** A message counts as current if it is the same object, or its JSON with
+`timestamp` blanked is equal (`sameRequestMessage`). The warm request's bytes
+depend on content, not identity, and no pi-ai provider sends message
+timestamps (the rebuilt custom message's timestamp is the entry's persistence
+time, which can differ from the in-memory one by milliseconds). It stays
+cheap: identical objects short-circuit, so only the rebuilt messages are
+serialised, once per warming decision. A real change — an edited or compacted
+prefix, a different model — still fails the check.
+
+**Free check** (`/home/Carl/scratch/prompt-cache-idle-gap/pi-0004-harness/`:
+the 0003 harness plus `repro.ts`, an empty `turn_end` handler and one custom
+message per turn; `PI_ROOT=<pi root> node run.mjs <label> [compactAtMin]`).
+1-hour fake provider, `PI_CACHE_WARMING_IDLE_MAX_MS=5400000`, 100 idle virtual
+minutes. On 1.1.0: without 0004, repro → no ping (control with `REPRO=off` →
+one ping at +54.0); with 0004, repro → one ping at +54.0 and a `cache_warm`
+entry; with 0004 and a compaction at +20 (`AGENT_DIR=agentdir-compact`) → no
+ping.
+
+Files: `dist/core/sdk.js` (plus the bundle: one anchor in the CLI chunk,
+`chunk-OIM2DMFI.js` on 1.1.0, and the `__loomSameRequestMessage` header).
+Upstream issue drafted at `/home/Carl/scratch/prompt-cache-idle-gap/pi-upstream-issue.md`.
 
 > Note: `pnpm patch` byte-compares the whole package, so
 > `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~650–700 KB — the

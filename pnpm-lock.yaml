@@ -97,7 +97,7 @@ packageExtensionsChecksum: sha256-FYDaKefjFcda1+vgiq8yMpZC4ehE5CyLi/bsCGLgTtY=
 
 patchedDependencies:
   '@clerk/expo@4.6.8': b8b22ab733de5bea846ad9e88046c10582352fe9ad86f314f368b2a823f0f281
-  '@earendil-works/pi-coding-agent@1.1.0': 7cfba1134a0f6fa297ecf43befdf79733882439f5e38d1e7e0821336d41a89b8
+  '@earendil-works/pi-coding-agent@1.1.0': 75d1e3095bdc0d8a59bdc59cd4af6cab35953840a01fc1e249503682f691bbb7
   '@effect/platform-node-shared@4.0.1': 2179ba8696a163b50143e327cc8cc8218c016a9f5ace38c6906923dd4c502f2a
   '@effect/vitest@4.0.1': 359f6fb2f7b3ec145bb72208edb9034f02489791aa2491a55cdbd69bd56ee0d2
   '@expo/metro-config@58.0.6': 90fa980e8b6480631fb2fbb04559834e3c612db40c550cd828f11be297d8d760
@@ -533,7 +533,7 @@ importers:
         version: 1.0.35
       '@earendil-works/pi-coding-agent':
         specifier: 1.1.0
-        version: 1.1.0(patch_hash=7cfba1134a0f6fa297ecf43befdf79733882439f5e38d1e7e0821336d41a89b8)(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@4.6.5)
+        version: 1.1.0(patch_hash=75d1e3095bdc0d8a59bdc59cd4af6cab35953840a01fc1e249503682f691bbb7)(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@4.6.5)
       '@effect/platform-node':
         specifier: 4.0.1
         version: 4.0.1(bufferutil@4.1.0)(effect@4.0.1(patch_hash=a33cba07c41f32374c2aaa86ea4a84d3ab9a872a78c94b65e929b19f8361856f))(redis@6.2.1)(utf-8-validate@6.0.6)
@@ -13509,7 +13509,7 @@ snapshots:
     dependencies:
       quickjs-wasi: 3.6.2
 
-  '@earendil-works/pi-coding-agent@1.1.0(patch_hash=7cfba1134a0f6fa297ecf43befdf79733882439f5e38d1e7e0821336d41a89b8)(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@4.6.5)':
+  '@earendil-works/pi-coding-agent@1.1.0(patch_hash=75d1e3095bdc0d8a59bdc59cd4af6cab35953840a01fc1e249503682f691bbb7)(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@4.6.5)':
     dependencies:
       '@earendil-works/chord': 1.1.0
       '@earendil-works/pi-agent-core': 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.4)(bufferutil@4.1.0)(undici@8.11.2)(utf-8-validate@6.0.6)(ws@8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@4.6.5)
