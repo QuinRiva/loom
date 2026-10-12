@@ -5,7 +5,7 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
-import { ProjectId, type TerminalEvent } from "@t3tools/contracts";
+import { ProjectId, type ProjectScript, type TerminalEvent } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -23,7 +23,11 @@ import {
   type WorktreeSetupState,
 } from "./ProjectSetupScriptRunner.loom.ts";
 
-const makeProject = (command: string, workspaceRoot: string) => ({
+const makeProject = (
+  command: string,
+  workspaceRoot: string,
+  extraScripts: ReadonlyArray<ProjectScript> = [],
+) => ({
   id: ProjectId.make("project-1"),
   title: "Project",
   workspaceRoot,
@@ -32,6 +36,7 @@ const makeProject = (command: string, workspaceRoot: string) => ({
   defaultModelSelection: null,
   scripts: [
     { id: "setup", name: "Setup", command, icon: "configure" as const, runOnWorktreeCreate: true },
+    ...extraScripts,
   ],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -237,24 +242,19 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       const statePath = path.join(gitDir, WORKTREE_SETUP_STATE_FILE);
       const ready = '{"status":"ready","scriptId":"setup"}';
       yield* fs.writeFileString(statePath, ready);
-      const project = makeProject("bun install", worktreePath);
       const write = vi.fn((_input: Parameters<TerminalService["write"]>[0]) => Effect.void);
 
       yield* runWith(
-        {
-          ...project,
-          scripts: [
-            ...project.scripts,
-            {
-              id: "clean",
-              name: "Clean",
-              command: "bun install",
-              icon: "configure" as const,
-              runOnWorktreeCreate: false,
-              runOnSettle: true,
-            },
-          ],
-        },
+        makeProject("bun install", worktreePath, [
+          {
+            id: "clean",
+            name: "Clean",
+            command: "bun install",
+            icon: "configure",
+            runOnWorktreeCreate: false,
+            runOnSettle: true,
+          },
+        ]),
         { open: () => Effect.succeed(terminalSession(worktreePath)), write },
         Effect.gen(function* () {
           const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
