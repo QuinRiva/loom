@@ -236,6 +236,12 @@ export default defineConfig({
         rules: { "t3code/no-raw-mcp-registration": "off" },
       },
       {
+        // loom: Loom's workstream toolkit hand-registers (toolkitRegistration JSON-stringifies
+        // results); requireWorkstreamCaller gates every call (registration.test.ts pins it).
+        files: ["apps/server/src/mcp/toolkits/workstream/registration.ts"],
+        rules: { "t3code/no-raw-mcp-registration": "off" },
+      },
+      {
         files: ["apps/web/src/**"],
         excludeFiles: ["apps/web/src/components/ui/**"],
         rules: {
