@@ -52,7 +52,8 @@ export interface RoleOverlay {
    * all (full surface) or names the `delegation` toolset. The composer keys the
    * roles-catalogue block off it, so a leaf that never spawns doesn't carry the
    * catalogue. A leaf that finds the delegation tools through `tool_search`
-   * mid-session gets no catalogue. */
+   * mid-session gets no catalogue — only the built-in names on the spawn
+   * tools' `role` parameter (defs.ts), which roleOverlay.test.ts pins. */
   readonly delegation: boolean;
 }
 

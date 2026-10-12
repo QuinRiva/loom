@@ -73,15 +73,11 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
     const text = ref.trim();
     const existing = threadIdAliases(text).find((id) => liveIds.has(id));
     if (existing !== undefined) return Effect.succeed(existing);
-    if (text.startsWith(THREAD_REF_PREFIX))
+    // A thread reference, in either form: the prefix is optional, so no prefix advice.
+    if (text.startsWith(THREAD_REF_PREFIX) || UUID_SHAPED.test(text))
       return reject(
         key,
         `${field} "${ref}" does not name an active existing child of this parent. ${NOTHING}`,
-      );
-    if (UUID_SHAPED.test(text))
-      return reject(
-        key,
-        `${field} "${ref}" is UUID-shaped but unprefixed — reference an existing thread with the "${THREAD_REF_PREFIX}" prefix, or use a symbolic key. ${NOTHING}`,
       );
     const id = keyToId.get(text);
     return id === undefined

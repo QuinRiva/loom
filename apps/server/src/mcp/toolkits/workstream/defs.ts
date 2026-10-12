@@ -3,8 +3,8 @@
  * tool, with the prose (description, snippet, guidelines) read from
  * `prose.ts`. The Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
- * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` and
- * `mcp__t3-code__enable_toolset` are registered by Loom's pi extension, not here.
+ * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` is
+ * registered by Loom's pi extension, not here.
  *
  * @module mcp/toolkits/workstream/defs
  */
@@ -23,7 +23,7 @@ export class LoomToolError extends Schema.TaggedError<LoomToolError>()("LoomTool
   message: Schema.String,
 }) {}
 
-export type LoomMcpToolName = Exclude<LoomProseToolName, "enable_toolset" | "ask_user_question">;
+export type LoomMcpToolName = Exclude<LoomProseToolName, "ask_user_question">;
 
 const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description });
@@ -71,7 +71,7 @@ const GateInput = Schema.Struct({
 /** Model and placement fields shared by a spawn and a scaffold node. */
 const childFields = {
   role: optionalText(
-    "Role label for the child agent, e.g. coder, reviewer, researcher. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).",
+    "The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).",
   ),
   title: described(
     Schema.String,
