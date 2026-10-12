@@ -53,8 +53,11 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  *     cancelled on load, whatever the `href` — stripping attributes cannot work,
  *     since an `href` can arrive after parse (declarative shadow DOM, SVG SMIL
  *     `<set attributeName="href">`). No `allow-popups` / `allow-top-navigation`
- *     for a `target` to use either. Residual: a click in the few ms between first
- *     paint and `load`, before the guard is attached.
+ *     for a `target` to use either. Residuals: a click in the few ms between first
+ *     paint and `load`, before the guard is attached; and a middle-click
+ *     (`auxclick`, not guarded) still opens the link in a new tab — a user-chosen
+ *     top-level navigation that carries the app's Lax cookies exactly as on an
+ *     opaque-origin frame.
  */
 
 /** Prototype iframe sandbox: interactive (scripts + forms) but opaque origin —
