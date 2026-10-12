@@ -52,6 +52,20 @@ describe("kickoffTextForPrompt", () => {
     ).not.toContain("copied from thread");
   });
 
+  it("leads a role-less forkFrom child's raw brief with the copied-history clause", () => {
+    const text = kickoffTextForPrompt({
+      delivered: false,
+      role: null,
+      brief,
+      message,
+      forkedFrom: "thread:source-1",
+    });
+    expect(text.startsWith("The conversation above is copied from thread thread:source-1")).toBe(
+      true,
+    );
+    expect(text).toContain(`\n\n${brief}\n\n---`);
+  });
+
   it("falls back to the raw brief for a role-less child", () => {
     expect(kickoffTextForPrompt({ delivered: false, role: null, brief, message })).toBe(
       `${brief}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${message}`,

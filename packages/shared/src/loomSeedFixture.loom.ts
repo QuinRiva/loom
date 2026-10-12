@@ -41,7 +41,7 @@ export interface LoomSeedControlMessage {
   readonly payload: ControlPayload;
 }
 
-const PREAMBLE = "[T3 Workstream control plane — automated notice, not from the user]";
+const PREAMBLE = "[T3 Workstream control plane — automated notice, not from the human]";
 
 /**
  * One digest (every item kind), one synthesised yield and one notice per

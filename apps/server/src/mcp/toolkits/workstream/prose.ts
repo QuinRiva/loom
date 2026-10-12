@@ -211,13 +211,13 @@ export const LOOM_TOOL_PROSE = {
   },
   goal_continue: {
     description:
-      "Like mcp__t3-code__goal_handoff, but continues THIS goal in THIS worktree with a fresh context window: creates a held sibling session on the same goal, inheriting this thread's worktree, branch, and model — no new goal, no new worktree. Use it when a substantial hunk of work is done and the next phase should start with clean context while the overarching goal and its shared task tree carry on. The brief becomes the new session's first turn; a predecessor pointer to this thread is appended automatically so the successor can mcp__t3-code__consult_thread this session for detail. The human launches it with a single send, which stamps the brief as yours — an agent's words, not the human's, and not approval of its contents. Returns the new threadId.",
+      "Like mcp__t3-code__goal_handoff, but continues THIS goal in THIS worktree with a fresh context window: creates a held sibling session on the same goal, inheriting this thread's worktree, branch, and model — no new goal, no new worktree. Use it when a substantial hunk of work is done and the next phase should start with clean context while the overarching goal and its shared task tree carry on. The brief becomes the new session's first turn; a predecessor pointer to this thread is appended automatically so the successor can mcp__t3-code__consult_thread this session for detail. The human launches it with a single send: sent unchanged, the brief stays your agent-authored words, not the human's and not approval of its contents; if the human edits it first, the edited message is treated as theirs. Returns the new threadId.",
     promptSnippet:
       "stage a fresh-context continuation session on THIS goal + worktree, pre-loaded with a handoff brief; a human's first send launches it.",
     promptGuidelines: [
       "Use this for the NEXT PHASE of this goal's work (fresh context, same goal/worktree/task tree) — not for separate work that deserves its own goal (mcp__t3-code__goal_handoff) and not for delegated sub-work (mcp__t3-code__workstream_spawn).",
       "The brief becomes the successor's first turn: write it self-contained — current state, what was done, what to do next, and where key artefacts live. A pointer back to this thread is appended automatically, so the successor can mcp__t3-code__consult_thread you for anything you leave out.",
-      "The session is created held; the human launches it with one send, and the successor reads the brief as yours, not theirs. Update the goal's task tree (mark done / add next steps) before handing off — the successor sees the same tree.",
+      "The session is created held; the human launches it with one send, and the successor reads an unedited brief as yours, not theirs. Update the goal's task tree (mark done / add next steps) before handing off — the successor sees the same tree.",
       "Name the sidebar card with threadTitle: a short (≤6-word) label for the next phase, e.g. 'Feature-importance deep dive'. Defaults to the goal title + '(continued)'.",
     ].join("\n"),
   },

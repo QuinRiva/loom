@@ -811,6 +811,8 @@ describe("PiAdapterV2 (loom) — author labels", () => {
             stamped(notice),
             stamped(notify),
             parent("/skill:review the diff"),
+            // Starts with a path, not a command: labelled.
+            parent("/home/carl/x.ts is wrong"),
             // Upstream's PR-watch wake: server automation, not a resume.
             stamped({
               messageId: "message:pr-watch:1",
@@ -826,8 +828,9 @@ describe("PiAdapterV2 (loom) — author labels", () => {
           // Already framed in their text: no second header.
           "[control plane] A sibling finished.",
           "[notify from Sibling] FYI.",
-          // pi must see the slash command first.
+          // pi must see the slash command first; a path is not a command.
           "/skill:review the diff",
+          `${AUTHOR_LABELS.parent}\n\n/home/carl/x.ts is wrong`,
           `${AUTHOR_LABELS.automation}\n\nUpdate on pull request #7.`,
         ]);
 
