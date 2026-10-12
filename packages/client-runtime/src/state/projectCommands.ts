@@ -161,12 +161,6 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 15_000,
       idleTtlMs: 5 * 60_000,
     }),
-    statPaths: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:projects:stat-paths",
-      tag: WS_METHODS.projectsStatPaths,
-      staleTimeMs: 30_000,
-      idleTtlMs: 5 * 60_000,
-    }),
     // loom: chat file-chip index lookup; freshness is the caller's store's job.
     locateFiles: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:locate-files",

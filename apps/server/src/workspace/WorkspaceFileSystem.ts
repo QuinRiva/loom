@@ -21,8 +21,6 @@ import type {
   FilesystemGetMetadataResult,
   ProjectReadFileInput,
   ProjectReadFileResult,
-  ProjectStatPathsInput,
-  ProjectStatPathsResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "@t3tools/contracts";
@@ -40,7 +38,7 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
-// loom: out-of-workspace reads/listings/stats and the larger .mdx plan budget.
+// loom: out-of-workspace reads/listings and the larger .mdx plan budget.
 /**
  * Upper bound a per-request `maxBytes` can raise the read cap to (8 MiB). Only
  * the `.mdx` plan preview opts in; the ceiling keeps an oversized/hostile
@@ -213,13 +211,6 @@ export class WorkspaceFileSystem extends Context.Service<
       input: ProjectListAbsoluteDirectoryInput,
     ) => Effect.Effect<ProjectListAbsoluteDirectoryResult, WorkspaceAbsoluteListError>;
     /**
-     * Batch existence probe: for each (absolute) path report whether it exists
-     * and, if so, whether it is a file or directory. Read-only and never
-     * fails per-path — a missing/unreadable/relative path is reported as
-     * `missing` rather than raising — so chat chips can verify targets cheaply.
-     */
-    readonly statPaths: (input: ProjectStatPathsInput) => Effect.Effect<ProjectStatPathsResult>;
-    /**
      * Write a file relative to the workspace root.
      *
      * Creates parent directories as needed and rejects paths that escape the
@@ -312,6 +303,10 @@ export const make = Effect.gen(function* () {
     if (stat._tag === "None") return null;
     if (stat.value.type === "Directory") return { kind: "directory" } as const;
     if (stat.value.type !== "File") return { kind: "other" } as const;
+    // loom: an unreadable regular file is null, as the result contract says, so
+    // a chat file chip never turns into a link that clicks into a read error.
+    if (!(yield* fileSystem.access(expandedPath, { readable: true }).pipe(Effect.isSuccess)))
+      return null;
     let mimeType: string | undefined;
     // Named extensions already choose the icon without a content read. For an
     // extensionless regular file, read at most 512 bytes, never the whole file.
@@ -608,44 +603,6 @@ export const make = Effect.gen(function* () {
     return { absolutePath: realTargetPath, entries };
   });
 
-  const statPaths: WorkspaceFileSystem["Service"]["statPaths"] = Effect.fn(
-    "WorkspaceFileSystem.statPaths",
-  )(function* (input) {
-    const entries = yield* Effect.forEach(
-      input.paths,
-      (requestedPath) =>
-        Effect.promise(async () => {
-          if (!path.isAbsolute(requestedPath)) {
-            return { path: requestedPath, kind: "missing" as const };
-          }
-          try {
-            // Follow symlinks (matching the read paths) so a chip's target kind
-            // reflects what a click would actually open.
-            const stat = await NodeFSP.stat(requestedPath);
-            if (stat.isDirectory()) {
-              return { path: requestedPath, kind: "directory" as const };
-            }
-            if (!stat.isFile()) {
-              // FIFOs/sockets/devices are not openable as files — not a chip.
-              return { path: requestedPath, kind: "other" as const };
-            }
-            // A regular file that stat can see but the read path cannot open
-            // (e.g. no read permission) must not become a clickable chip either.
-            try {
-              await NodeFSP.access(requestedPath, NodeFS.constants.R_OK);
-            } catch {
-              return { path: requestedPath, kind: "other" as const };
-            }
-            return { path: requestedPath, kind: "file" as const };
-          } catch {
-            return { path: requestedPath, kind: "missing" as const };
-          }
-        }),
-      { concurrency: 16 },
-    );
-    return { entries };
-  });
-
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
     "WorkspaceFileSystem.writeFile",
   )(function* (input) {
@@ -689,7 +646,6 @@ export const make = Effect.gen(function* () {
     readFile,
     readAbsoluteFile, // loom:
     listAbsoluteDirectory, // loom:
-    statPaths, // loom:
     writeFile,
   });
 });

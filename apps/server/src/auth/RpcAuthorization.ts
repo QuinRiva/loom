@@ -153,7 +153,6 @@ export const RPC_REQUIRED_SCOPES = {
   // loom: out-of-workspace file chips (DL-89)
   [WS_METHODS.projectsReadAbsoluteFile]: AuthFilesystemReadScope,
   [WS_METHODS.projectsListAbsoluteDirectory]: AuthFilesystemReadScope,
-  [WS_METHODS.projectsStatPaths]: AuthFilesystemReadScope,
   [WS_METHODS.projectsLocateFiles]: AuthFilesystemReadScope,
   [WS_METHODS.projectsSearchContents]: AuthFilesystemReadScope,
   [WS_METHODS.projectsSearchEntries]: AuthFilesystemReadScope,

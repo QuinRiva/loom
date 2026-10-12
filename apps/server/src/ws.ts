@@ -75,7 +75,6 @@ import {
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
-  ProjectStatPathsError, // loom
   ProjectLocateFilesError, // loom
   ProjectWriteFileError,
   ProjectMutationError,
@@ -2749,10 +2748,6 @@ const layerWsRpc = (
                 }),
             ),
           ),
-        [WS_METHODS.projectsStatPaths]: (input) =>
-          workspaceFileSystem
-            .statPaths(input)
-            .pipe(Effect.mapError((cause) => new ProjectStatPathsError({ cause }))),
         // loom: chat file-chip index lookup for unanchored references.
         [WS_METHODS.projectsLocateFiles]: (input) =>
           workspaceEntries

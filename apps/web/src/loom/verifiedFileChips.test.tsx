@@ -1,10 +1,15 @@
-import type { EnvironmentId, ProjectPathKind } from "@t3tools/contracts";
+import type { EnvironmentId, FilesystemEntryMetadata } from "@t3tools/contracts";
 import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { __setStatFetcherForTests, readPathExistence } from "~/components/chat/usePathExistence";
+import {
+  __setMetadataFetcherForTests,
+  readPathExistence,
+} from "~/components/chat/usePathExistence";
 import type { MarkdownFileLinkMeta } from "~/markdown-links";
+
+type Kind = FilesystemEntryMetadata["kind"];
 
 const toastAdd = vi.fn();
 vi.mock("~/components/ui/toast", () => ({
@@ -62,11 +67,13 @@ function Harness({ metas }: { metas: ReadonlyArray<MarkdownFileLinkMeta> }) {
 
 async function renderHarness(
   metas: ReadonlyArray<MarkdownFileLinkMeta>,
-  kinds: Record<string, ProjectPathKind>,
+  kinds: Record<string, Kind>,
   { settle = true }: { settle?: boolean } = {},
 ) {
-  __setStatFetcherForTests((_environmentId, paths) =>
-    Promise.resolve(paths.map((path) => ({ path, kind: kinds[path] ?? "missing" }))),
+  __setMetadataFetcherForTests((_environmentId, paths) =>
+    Promise.resolve(
+      new Map(paths.map((path) => [path, kinds[path] ? { kind: kinds[path] } : null])),
+    ),
   );
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let renderer: ReactTestRenderer | undefined;
@@ -88,7 +95,7 @@ async function renderHarness(
 }
 
 afterEach(() => {
-  __setStatFetcherForTests(null);
+  __setMetadataFetcherForTests(null);
   vi.unstubAllGlobals();
   toastAdd.mockClear();
 });
@@ -125,7 +132,7 @@ describe("useVerifiedFileLinkChip", () => {
     const filePath = `${CWD}/moved.ts`;
     // The harness fetcher reads this map per stat, so deleting the entry is the
     // file moving underneath an already-rendered chip.
-    const kinds: Record<string, ProjectPathKind> = { [filePath]: "file" };
+    const kinds: Record<string, Kind> = { [filePath]: "file" };
     const renderer = await renderHarness([meta(filePath)], kinds);
     expect(renderer.root.findAllByType("b")).toHaveLength(1);
 
@@ -142,7 +149,7 @@ describe("useVerifiedFileLinkChip", () => {
   });
 
   it("opens when the click-time stat fails, so an unhealthy RPC never blocks a live link", async () => {
-    __setStatFetcherForTests(() => Promise.resolve([]));
+    __setMetadataFetcherForTests(() => Promise.resolve(new Map()));
     expect(await verifyChipTargetBeforeOpen(ENV, `${CWD}/unknown.ts`)).toBe(true);
     // No environment (the /preview harness) cannot verify anything either.
     expect(await verifyChipTargetBeforeOpen(null, `${CWD}/unknown.ts`)).toBe(true);

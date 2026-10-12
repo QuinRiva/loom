@@ -232,9 +232,6 @@ import {
   ProjectReadFileError,
   ProjectReadFileInput,
   ProjectReadFileResult,
-  ProjectStatPathsError,
-  ProjectStatPathsInput,
-  ProjectStatPathsResult,
   ProjectLocateFilesError, // loom
   ProjectLocateFilesInput, // loom
   ProjectLocateFilesResult, // loom
@@ -392,7 +389,6 @@ export const WS_METHODS = {
   // loom: out-of-workspace file chips.
   projectsReadAbsoluteFile: "projects.readAbsoluteFile",
   projectsListAbsoluteDirectory: "projects.listAbsoluteDirectory",
-  projectsStatPaths: "projects.statPaths",
   projectsLocateFiles: "projects.locateFiles", // loom: chat file-chip index lookup
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
@@ -1264,12 +1260,6 @@ const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(WS_METHODS.projectsListAbsol
   error: Schema.Union([ProjectListAbsoluteDirectoryError, EnvironmentAuthorizationError]),
 });
 
-const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
-  payload: ProjectStatPathsInput,
-  success: ProjectStatPathsResult,
-  error: Schema.Union([ProjectStatPathsError, EnvironmentAuthorizationError]),
-});
-
 // loom: chat file-chip index lookup for unanchored references.
 const WsProjectsLocateFilesRpc = Rpc.make(WS_METHODS.projectsLocateFiles, {
   payload: ProjectLocateFilesInput,
@@ -2029,7 +2019,6 @@ export const WsRpcGroup = RpcGroup.make(
   // loom: out-of-workspace file chips.
   WsProjectsReadAbsoluteFileRpc,
   WsProjectsListAbsoluteDirectoryRpc,
-  WsProjectsStatPathsRpc,
   WsProjectsLocateFilesRpc, // loom
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,

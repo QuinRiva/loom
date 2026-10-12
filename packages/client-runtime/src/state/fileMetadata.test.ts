@@ -25,6 +25,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { createFileMetadataAtoms } from "./fileMetadata.ts";
+import { executeAtomQuery } from "./runtime.ts"; // loom
 
 const ENVIRONMENT_ID = EnvironmentId.make("metadata-environment");
 const OTHER_ENVIRONMENT_ID = EnvironmentId.make("metadata-other-environment");
@@ -440,6 +441,37 @@ describe("file metadata", () => {
         { concurrency: "unbounded" },
       );
       expect(h.batches.map((batch) => batch.length)).toEqual([64, 64, 2]);
+    }).pipe(Effect.scoped),
+  );
+
+  // loom: chat file chips verify existence by refreshing per-path atoms in bulk
+  // (apps/web usePathExistence). They must ride the icon's cached answer and
+  // share batched requests, never cost one request per path.
+  it.effect("serves bulk chip verification from the icon's cache in shared batches", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      const thread = ThreadId.make("chip-thread");
+      const paths = Array.from({ length: 100 }, (_, i) => `/workspace/chip-${i}`);
+      const verify = () =>
+        Effect.promise(() =>
+          Promise.all(
+            paths.map((path) =>
+              executeAtomQuery(h.registry, h.atom(path), {
+                refresh: true,
+                reportDefect: false,
+                reportFailure: false,
+              }),
+            ),
+          ),
+        );
+      yield* h.read(paths[0]!, ENVIRONMENT_ID, thread);
+      expect(h.batches).toEqual([[paths[0]]]);
+      h.batches.length = 0;
+      yield* verify();
+      expect(h.batches.map((batch) => batch.length)).toEqual([64, 35]);
+      h.batches.length = 0;
+      yield* verify();
+      expect(h.batches).toEqual([]);
     }).pipe(Effect.scoped),
   );
 
