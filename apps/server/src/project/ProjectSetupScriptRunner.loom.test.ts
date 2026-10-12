@@ -5,8 +5,8 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
-import { ProjectId, type TerminalEvent } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { ProjectId, type ProjectScript, type TerminalEvent } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -23,7 +23,11 @@ import {
   type WorktreeSetupState,
 } from "./ProjectSetupScriptRunner.loom.ts";
 
-const makeProject = (command: string, workspaceRoot: string) => ({
+const makeProject = (
+  command: string,
+  workspaceRoot: string,
+  extraScripts: ReadonlyArray<ProjectScript> = [],
+) => ({
   id: ProjectId.make("project-1"),
   title: "Project",
   workspaceRoot,
@@ -32,6 +36,7 @@ const makeProject = (command: string, workspaceRoot: string) => ({
   defaultModelSelection: null,
   scripts: [
     { id: "setup", name: "Setup", command, icon: "configure" as const, runOnWorktreeCreate: true },
+    ...extraScripts,
   ],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -80,8 +85,8 @@ const runWith = <A, E, R>(
         ),
       ),
     ),
-    Effect.provideService(HostProcessPlatform, "linux"),
-    Effect.provideService(HostProcessEnvironment, { SHELL: "/bin/bash" }),
+    Effect.provideService(HostProcess.Platform, "linux"),
+    Effect.provideService(HostProcess.Environment, { SHELL: "/bin/bash" }),
   );
 
 describe("ProjectSetupScriptRunner (loom)", () => {
@@ -189,7 +194,8 @@ describe("ProjectSetupScriptRunner (loom)", () => {
             type: "output",
             threadId: "thread-1",
             terminalId: "setup-setup",
-            data: `${sentinel}${settle}\r\n`,
+            // The prompt redraw after the sentinel is what upstream's completion waits for.
+            data: `${sentinel}${settle}\r\n$ `,
           });
           return {
             state: yield* awaitStateStatus(settle === 0 ? "ready" : "failed"),
@@ -218,6 +224,52 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       });
       expect(closeIdle).not.toHaveBeenCalled();
     }),
+  );
+
+  // The breadcrumb describes setup; a settle script (cargo clean, …) must neither rewrite it
+  // nor have its command rewritten or wrapped (overlap D4).
+  it.effect("a settle run leaves the setup breadcrumb and the settle command untouched", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectory({ prefix: "t3-settle-state-" });
+      const worktreePath = path.join(dir, "worktree");
+      const gitDir = path.join(dir, "gitdir");
+      yield* fs.makeDirectory(worktreePath);
+      yield* fs.makeDirectory(gitDir);
+      yield* fs.writeFileString(path.join(worktreePath, ".git"), `gitdir: ${gitDir}\n`);
+      yield* fs.writeFileString(path.join(worktreePath, "pnpm-lock.yaml"), "");
+      const statePath = path.join(gitDir, WORKTREE_SETUP_STATE_FILE);
+      const ready = '{"status":"ready","scriptId":"setup"}';
+      yield* fs.writeFileString(statePath, ready);
+      const write = vi.fn((_input: Parameters<TerminalService["write"]>[0]) => Effect.void);
+
+      yield* runWith(
+        makeProject("bun install", worktreePath, [
+          {
+            id: "clean",
+            name: "Clean",
+            command: "bun install",
+            icon: "configure",
+            runOnWorktreeCreate: false,
+            runOnSettle: true,
+          },
+        ]),
+        { open: () => Effect.succeed(terminalSession(worktreePath)), write },
+        Effect.gen(function* () {
+          const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+          yield* runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: worktreePath,
+            worktreePath,
+            trigger: "settle",
+          });
+        }),
+      );
+
+      expect(write.mock.calls[0]?.[0].data).toBe("bun install\r");
+      expect(yield* fs.readFileString(statePath)).toBe(ready);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   // Nothing upstream settles a hung script, and an agent polling `pending`

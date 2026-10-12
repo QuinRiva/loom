@@ -84,8 +84,9 @@ export function useLoomGoalActions() {
       clicked: string | null | undefined,
       goal: LoomGoalShell | null,
       threadRef: ScopedThreadRef,
-    ) => {
-      if (goal === null || !clicked?.startsWith("loom-goal:")) return false;
+    ): clicked is LoomGoalMenuId => {
+      if (!clicked?.startsWith("loom-goal")) return false;
+      if (goal === null) return true;
       const { environmentId } = threadRef;
       if (clicked === "loom-goal:tasks") useRightPanelStore.getState().open(threadRef, "tasks");
       if (clicked === "loom-goal:rename") void renameGoal(environmentId, goal);

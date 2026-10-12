@@ -10,11 +10,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import {
-  DORMANT_TOOLSETS,
-  ENABLE_TOOLSET_TOOL,
-  LEAF_CORE,
-} from "../../mcp/toolkits/workstream/families.ts";
+import { LEAF_CORE, TOOLSETS } from "../../mcp/toolkits/workstream/families.ts";
 
 const DEFAULT_ROLE = "orchestrator";
 const OVERLAY_DIR = NodePath.join(".t3code", "roles");
@@ -32,13 +28,6 @@ if (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {
   throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);
 }
 
-/** The lifeline every workstream thread must keep ACTIVE: the leaf-core provider
- * tools (completion, attention, orientation, consultation, task-tree upkeep)
- * plus the escalation path out of a lean profile. The dormant families
- * (delegation, human-input, pull-requests) are unioned only for roles that name them in
- * `toolsets:`; unnamed families stay registered and one mcp__t3-code__enable_toolset away. */
-export const LIFELINE_TOOLS: ReadonlyArray<string> = [...LEAF_CORE, ENABLE_TOOLSET_TOOL];
-
 export interface RoleOverlay {
   /** System-prompt overlay text (the markdown body after any frontmatter). */
   readonly prompt?: string;
@@ -50,9 +39,9 @@ export interface RoleOverlay {
   /** ACTIVE-tool profile from frontmatter. Not an allowlist: pi launches with
    * its full tool registry and the provider-tool extension selects this set as
    * the active tools at session start, so unlisted tools stay registered but
-   * dormant (activatable mid-session via `mcp__t3-code__enable_toolset`) while pi's
+   * deferred (reachable mid-session through pi's `tool_search`) while pi's
    * selection-conditioned schemas, snippets and guidelines shrink to the
-   * profile. The loader auto-unions the LIFELINE_TOOLS into any role `tools:`
+   * profile. The loader auto-unions LEAF_CORE into any role `tools:`
    * list — a role narrows its working tools without losing its lifeline to the
    * workstream — plus the families named in `toolsets:`. Role files therefore
    * list only the tools the role actually works with. Absent → no profile →
@@ -62,8 +51,8 @@ export interface RoleOverlay {
    * spawn/manage children. True when the role declares no tool restriction at
    * all (full surface) or names the `delegation` toolset. The composer keys the
    * roles-catalogue block off it, so a leaf that never spawns doesn't carry the
-   * catalogue. A leaf that escalates mid-session gets the catalogue pointer from
-   * the `mcp__t3-code__enable_toolset` result instead. */
+   * catalogue. A leaf that finds the delegation tools through `tool_search`
+   * mid-session gets no catalogue. */
   readonly delegation: boolean;
 }
 
@@ -212,7 +201,7 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
  * the server's built-in `roles/<role>.md` composed with the project's
  * `.t3code/roles/<role>.md` (see `composeRole`). A file may open with YAML
  * frontmatter carrying `skills` (paths), `tools` (the active-tool profile) and
- * `toolsets` (dormant families to keep resident); the rest is the system-prompt
+ * `toolsets` (families to keep resident); the rest is the system-prompt
  * overlay. null/empty role → the root orchestrator. A free-text/unknown role
  * with neither file yields `undefined` (permissive spawning: no profile, and the
  * composer treats it as delegation-capable). Role is slugified to `[a-z0-9-]`,
@@ -236,15 +225,11 @@ export const loadRoleOverlay = (
   if (prompt.length === 0 && skills.length === 0 && tools.length === 0) return undefined;
   // Unknown toolset names are ignored: a typo costs the role that family until
   // the frontmatter is fixed, exactly as an unknown tool name does in pi.
-  const resident = toolsets.flatMap(
-    (name) => DORMANT_TOOLSETS[name as keyof typeof DORMANT_TOOLSETS] ?? [],
-  );
+  const resident = toolsets.flatMap((name) => TOOLSETS[name as keyof typeof TOOLSETS] ?? []);
   return {
     ...(prompt.length > 0 ? { prompt } : {}),
     ...(skills.length > 0 ? { skills } : {}),
-    ...(tools.length > 0
-      ? { tools: [...new Set([...tools, ...LIFELINE_TOOLS, ...resident])] }
-      : {}),
+    ...(tools.length > 0 ? { tools: [...new Set([...tools, ...LEAF_CORE, ...resident])] } : {}),
     delegation: tools.length === 0 || toolsets.includes("delegation"),
   };
 };

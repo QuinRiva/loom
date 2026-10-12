@@ -17,11 +17,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as ServerConfig from "../../config.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisation.ts";
-import {
-  DORMANT_TOOLSETS,
-  HUMAN_INPUT,
-  UPSTREAM_WITHHELD_TOOLS,
-} from "../../mcp/toolkits/workstream/families.ts";
+import { HUMAN_INPUT, UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstream/families.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
@@ -97,7 +93,6 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
       hasParent && !humanEngaged
         ? activeTools.filter((name) => !HUMAN_INPUT.includes(name as never))
         : activeTools,
-    families: DORMANT_TOOLSETS,
     humanEngaged,
     hasParent,
     denyList: UPSTREAM_WITHHELD_TOOLS,

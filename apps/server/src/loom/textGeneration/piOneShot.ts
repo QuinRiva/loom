@@ -8,7 +8,8 @@
  *
  * @module loom/textGeneration/piOneShot
  */
-import { PiSettings, type ProjectId, TextGenerationError } from "@t3tools/contracts";
+import { type ProjectId, TextGenerationError } from "@t3tools/contracts";
+import { PiSettings } from "@t3tools/provider-pi/settings";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
@@ -16,14 +17,11 @@ import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
 
 import { ServerConfig } from "../../config.ts";
-import { makePiRpcConnection, parsePiModelSlug } from "../../orchestration-v2/Adapters/PiRpc.ts";
-import {
-  buildPiRpcLaunch,
-  resolvePiLaunchArgs,
-} from "../../orchestration-v2/Adapters/piT3McpInjection.ts";
-import { resolveLoomPiBinaryPath } from "../../provider/Drivers/Pi/bundledPi.loom.ts";
+import { makePiRpcConnection, parsePiModelSlug } from "@t3tools/provider-pi/server/rpc";
+import { buildPiRpcLaunch, resolvePiLaunchArgs } from "@t3tools/provider-pi/server/mcpInjection";
+import { resolveLoomPiBinaryPath } from "@t3tools/provider-pi/server/loom";
 import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
-import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const decodePiSettings = Schema.decodeUnknownEffect(PiSettings);
@@ -60,7 +58,7 @@ export const makePiOneShot = Effect.gen(function* () {
       if (!launchArgs.ok) return yield* fail(launchArgs.message);
       const launch = buildPiRpcLaunch({
         launchArgs: launchArgs.args,
-        environment: mergeProviderInstanceEnvironment(instance.environment),
+        environment: yield* mergeProviderInstanceEnvironment(instance.environment),
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,

@@ -1,7 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { HttpServerRequest } from "effect/http";
 
+import * as EnvironmentAuth from "../../../auth/EnvironmentAuth.ts";
+import * as McpOAuth from "../../../auth/McpOAuth.ts";
+import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
+import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import type { WorkstreamCaller } from "./authorisation.ts";
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolHandlers } from "./defs.ts";
@@ -74,6 +80,103 @@ it.effect("a credential without workstream is refused before the handler runs", 
     expect(result.content[0]).toMatchObject({
       text: expect.stringContaining("workstream"),
     });
+  }),
+);
+
+// Gate `hosted`: an outside agent signed in through upstream's MCP OAuth gets a scope with no
+// thread and no `workstream` capability. Loom's tools are hand-registered (outside
+// McpToolAccess), so requireWorkstreamCaller is their only gate; it must refuse before decoding
+// the payload or running a handler. The scope comes from upstream's real authenticator, so a
+// later pull that widens the client capability set shows up here.
+
+/** The scope upstream gives an outside agent signed in through MCP OAuth. */
+const oauthScope = Effect.gen(function* () {
+  const auth = yield* McpHttpServer.McpClientAuthenticator;
+  const scope = yield* auth.authenticate(
+    HttpServerRequest.fromWeb(new Request("http://t3.invalid/mcp")),
+  );
+  expect(scope).toBeDefined();
+  expect(scope!.thread).toBeUndefined();
+  return scope!;
+}).pipe(
+  Effect.provide(
+    McpOAuth.layerMcpClientAuthenticator.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+            authenticateMcpClient: () =>
+              Effect.succeed({
+                sessionId: "oauth-session-1",
+                label: "Outside agent",
+                access: "full-access",
+              } as unknown as EnvironmentAuth.McpClientSession),
+          }),
+          Layer.mock(ServerEnvironment.ServerEnvironment)({
+            getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-1")),
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+/** Every Loom tool, each with a handler that records that it ran. */
+const spyHandlers = () => {
+  const ran: Array<string> = [];
+  const spies = Object.fromEntries(
+    LOOM_TOOL_DEFS.map((def) => [
+      def.name,
+      () =>
+        Effect.sync(() => {
+          ran.push(def.name);
+          return "ran";
+        }),
+    ]),
+  ) as unknown as LoomToolHandlers;
+  return { ran, spies };
+};
+
+const callEveryTool = (scope: McpInvocationContext.McpInvocationScope) =>
+  Effect.gen(function* () {
+    const { ran, spies } = spyHandlers();
+    const results = yield* Effect.forEach(LOOM_TOOL_DEFS, (def) =>
+      callLoomTool(def, spies, {}).pipe(
+        Effect.map((result) => ({ def, result })),
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+      ),
+    );
+    return { ran, results };
+  });
+
+it.effect("an OAuth-signed outside agent is refused by every Loom tool before it runs", () =>
+  Effect.gen(function* () {
+    const scope = yield* oauthScope;
+    expect(scope.capabilities.has("workstream")).toBe(false);
+    const { ran, results } = yield* callEveryTool(scope);
+    expect(results).toHaveLength(21);
+    for (const { def, result } of results) {
+      // A soft-mode tool refuses as plain text; only throw-mode tools set isError.
+      expect(result.isError, def.name).toBe(def.errorMode === "throw");
+      expect(result.content, def.name).toEqual([
+        { type: "text", text: "MCP credential does not grant the workstream capability." },
+      ]);
+    }
+    expect(ran).toEqual([]);
+  }),
+);
+
+it.effect("a thread-less caller is refused even if it ever holds the workstream capability", () =>
+  Effect.gen(function* () {
+    const scope = yield* oauthScope;
+    const { ran, results } = yield* callEveryTool({
+      ...scope,
+      capabilities: new Set([...scope.capabilities, "workstream" as const]),
+    });
+    for (const { def, result } of results)
+      expect(result.content[0], def.name).toMatchObject({
+        text: expect.stringContaining("need an agent running inside T3 Code"),
+      });
+    expect(ran).toEqual([]);
   }),
 );
 

@@ -2,8 +2,8 @@
 /**
  * Loom's pi extension, built from its parts and run against a stub `pi` and a
  * stub `fetch` (the pattern of `piT3McpExtensionSource.test.ts`): the profile
- * at `session_start`, the per-turn re-assertion (P3-4), `mcp__t3-code__enable_toolset` with
- * the deny-list and the human-input rule, and `mcp__t3-code__ask_user_question` across a
+ * at `session_start`, the per-turn re-assertion (P3-4) keeping `tool_search` discoveries,
+ * the deny-list and the human-input rule, `mcp__t3-code__ask_user_question` across a
  * dropped poll, and 3c's parts assembled in (the prompt-debug capture).
  */
 import * as NodeFS from "node:fs";
@@ -17,8 +17,10 @@ import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
 import { assembleLoomExtensionSource, LOOM_EXTENSION_PARTS } from "./loomExtension.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
+type Exposure = "direct" | "deferred" | "hidden";
 interface StubTool {
   readonly name: string;
+  readonly exposure?: Exposure;
   readonly execute: (
     id: string,
     params: unknown,
@@ -29,14 +31,13 @@ interface StubTool {
 }
 
 const SUBMIT = "mcp__t3-code__workstream_submit";
-const ENABLE = "mcp__t3-code__enable_toolset";
+const SPAWN = "mcp__t3-code__workstream_spawn";
 const ASK = "mcp__t3-code__ask_user_question";
 const DELEGATE = "mcp__t3-code__delegate_task";
 const THREAD_SEND = "mcp__t3-code__t3_thread_send";
 
 const profile = (overrides: Record<string, unknown> = {}) => ({
-  activeTools: ["read", SUBMIT, ENABLE],
-  families: {},
+  activeTools: ["read", SUBMIT],
   humanEngaged: false,
   hasParent: true,
   denyList: [DELEGATE, THREAD_SEND],
@@ -53,34 +54,40 @@ const response = (status: number, body: unknown) => ({
 /** Loads the assembled extension into a stub pi with `fetch` answering per request. */
 const load = async (
   fetchImpl: (url: string, init: { method: string; body?: string }) => unknown,
-  registered: ReadonlyArray<string> = [
-    "read",
-    "bash",
-    SUBMIT,
-    DELEGATE,
-    "mcp__t3-code__workstream_spawn",
-  ],
+  // As upstream's bridge registers them: t3-code tools deferred, withheld ones hidden.
+  registered: Readonly<Record<string, Exposure>> = {
+    read: "direct",
+    bash: "direct",
+    tool_search: "direct",
+    [SUBMIT]: "deferred",
+    [DELEGATE]: "hidden",
+    [SPAWN]: "deferred",
+  },
 ) => {
   const handlers = new Map<string, Array<Handler>>();
   const tools = new Map<string, StubTool>();
-  const all = new Set(registered);
-  let active = new Set(registered);
+  const all = new Map(Object.entries(registered));
+  let active = new Set(
+    [...all].flatMap(([name, exposure]) => (exposure === "direct" ? [name] : [])),
+  );
   const notices: Array<string> = [];
-  const register = (name: string) => {
-    all.add(name);
-    active.add(name); // pi activates a direct tool on registration
+  // pi activates a direct tool on registration and never declares a hidden one.
+  const register = (name: string, exposure: Exposure = "direct") => {
+    all.set(name, exposure);
+    if (exposure === "direct") active.add(name);
+    if (exposure === "hidden") active.delete(name);
   };
   const pi = {
     on: (name: string, handler: Handler) =>
       handlers.set(name, [...(handlers.get(name) ?? []), handler]),
     registerTool: (tool: StubTool) => {
       tools.set(tool.name, tool);
-      register(tool.name);
+      register(tool.name, tool.exposure);
     },
-    getAllTools: () => [...all].map((name) => ({ name })),
+    getAllTools: () => [...all].map(([name, exposure]) => ({ name, exposure })),
     getActiveTools: () => [...active],
     setActiveTools: (names: ReadonlyArray<string>) => {
-      active = new Set(names.filter((name) => all.has(name)));
+      active = new Set(names.filter((name) => all.has(name) && all.get(name) !== "hidden"));
     },
   };
   const source = NodeModule.stripTypeScriptTypes(
@@ -112,6 +119,9 @@ const load = async (
   return {
     emit,
     register,
+    // What pi's tool_search does with a match: setActiveTools([...active, ...matches]).
+    search: (name: string) => pi.setActiveTools([...active, name]),
+    exposure: (name: string) => all.get(name),
     active: () => [...active].toSorted(),
     notices,
     call: (name: string, params: unknown) => tools.get(name)!.execute(`call-${name}`, params),
@@ -122,54 +132,40 @@ const serving = (current: () => unknown) => (url: string) =>
   url.endsWith("/loom/agent/session-profile") ? response(200, current()) : response(404, {});
 
 describe("Loom pi extension", () => {
-  it("applies the session profile at session_start", async () => {
+  it("applies the session profile at session_start, with tool_search", async () => {
     const pi = await load(serving(() => profile()));
     await pi.emit("session_start");
-    assert.deepEqual(pi.active(), ["read", ENABLE, SUBMIT].toSorted());
+    assert.deepEqual(pi.active(), ["read", SUBMIT, "tool_search"].toSorted());
   });
 
-  it("re-asserts the profile and this session's families every turn", async () => {
+  it("re-asserts the profile every turn and keeps what tool_search activated", async () => {
     const pi = await load(serving(() => profile()));
     await pi.emit("session_start");
-    await pi.call(ENABLE, { family: "delegation" });
-    pi.register(THREAD_SEND); // the bridge's session_start retry registers late
+    pi.search(SPAWN);
+    pi.register(THREAD_SEND); // a late direct registration outside the profile
     assert.include(pi.active(), THREAD_SEND);
 
     await pi.emit("before_agent_start");
 
-    assert.deepEqual(
-      pi.active(),
-      ["read", ENABLE, SUBMIT, "mcp__t3-code__workstream_spawn"].toSorted(),
-    );
+    assert.deepEqual(pi.active(), ["read", SUBMIT, SPAWN, "tool_search"].toSorted());
   });
 
-  it("mcp__t3-code__enable_toolset all activates everything but the deny-list", async () => {
-    const pi = await load(serving(() => profile()));
-    await pi.emit("session_start");
-    const result = await pi.call(ENABLE, { family: "all" });
-    assert.include(result.content[0]!.text, "Enabled the all toolset");
-    assert.deepEqual(
-      pi.active(),
-      ["read", "bash", ENABLE, SUBMIT, "mcp__t3-code__workstream_spawn"].toSorted(),
-    );
-  });
-
-  it("refuses human-input on a child nobody has written to, and grants it once a person has", async () => {
+  it("hides mcp__t3-code__ask_user_question on a child nobody has written to, and offers it once a person has", async () => {
     let current = profile();
     const pi = await load(serving(() => current));
     await pi.emit("session_start");
-    const refusal = await pi.call(ENABLE, { family: "human-input" }).then(
+    assert.equal(pi.exposure(ASK), "hidden");
+    assert.notInclude(pi.active(), ASK);
+    const refusal = await pi.call(ASK, { questions: [] }).then(
       () => undefined,
       (error: Error) => error.message,
     );
     assert.equal(refusal, HUMAN_INPUT_REFUSAL);
-    assert.notInclude(pi.active(), ASK);
 
     current = profile({ humanEngaged: true });
     await pi.emit("before_agent_start");
+    assert.equal(pi.exposure(ASK), "direct");
     assert.include(pi.active(), ASK); // the human-engaged cue is the tool itself (P3-5)
-    const granted = await pi.call(ENABLE, { family: "human-input" });
-    assert.include(granted.content[0]!.text, "already active");
   });
 
   it("keeps pi's default surface and warns once when the profile is unavailable", async () => {
@@ -193,6 +189,8 @@ describe("Loom pi extension", () => {
     ];
     let polled = 0;
     const pi = await load((url, init) => {
+      if (url.endsWith("/loom/agent/session-profile"))
+        return response(200, profile({ humanEngaged: true }));
       if (url.endsWith("/user-input/ask")) {
         posts.push(JSON.parse(init.body!));
         return response(200, { requestId: "loom-ask:t:call-1" });
@@ -200,6 +198,7 @@ describe("Loom pi extension", () => {
       assert.isTrue(url.endsWith("/user-input/loom-ask%3At%3Acall-1/wait"));
       return polls[polled++]!();
     });
+    await pi.emit("session_start");
     const result = await pi.call(ASK, { questions: [{ header: "Ship" }] });
     assert.equal(result.content[0]!.text, "The user answered:\n- Ship?: Yes");
     assert.equal(polled, 3);

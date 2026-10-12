@@ -118,6 +118,7 @@ describe("deriveProviderModelsForDisplay", () => {
         modelOrder: [],
         onHiddenModelsChange: () => undefined,
         onFavoriteModelsChange: () => undefined,
+        onToggleFavorite: () => undefined,
         onModelOrderChange: () => undefined,
         // loom: model allow-list props (settings.loom.ts LoomModelPreferenceFields)
         selectedModels: [],
@@ -162,6 +163,7 @@ describe("deriveProviderModelsForDisplay", () => {
       modelOrder: [],
       onHiddenModelsChange: () => undefined,
       onFavoriteModelsChange: () => undefined,
+      onToggleFavorite: () => undefined,
       onModelOrderChange: () => undefined,
       // loom: model allow-list props (settings.loom.ts LoomModelPreferenceFields)
       selectedModels: [],

@@ -159,6 +159,9 @@ export const ElementContextRecord = Schema.Struct({
 });
 export type ElementContextRecord = typeof ElementContextRecord.Type;
 
+// Optional record fields are `optionalKey`: a record holding an explicit
+// `undefined` cannot be sent as JSON, so it fails its own check and is dropped
+// alone instead of failing the whole message.
 export const PreviewAnnotationContextRecord = Schema.Struct({
   ...recordBase,
   kind: Schema.Literal("preview-annotation"),
@@ -192,7 +195,7 @@ export const PreviewAnnotationContextRecord = Schema.Struct({
     ).check(Schema.isMaxLength(200)),
   ),
   /** The screenshot travels as its own image record; this links the two. */
-  screenshotContextId: Schema.optionalKey(ComposerContextId), // loom: optionalKey
+  screenshotContextId: Schema.optionalKey(ComposerContextId),
 });
 export type PreviewAnnotationContextRecord = typeof PreviewAnnotationContextRecord.Type;
 
@@ -207,7 +210,6 @@ export const ReviewCommentContextRecord = Schema.Struct({
   rangeLabel: ShortString,
   text: BoundedString(COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS),
   diff: BoundedString(COMPOSER_CONTEXT_REVIEW_DIFF_MAX_CHARS),
-  // loom: optionalKey, see PreviewAnnotationContextRecord.
   fenceLanguage: Schema.optionalKey(BoundedString(64)),
   pullRequest: Schema.optionalKey(PullRequestContextMetadata),
   // loom: present only on the MDX-plan annotation variant, which anchors to a
@@ -243,6 +245,8 @@ export const ThreadContextRecord = Schema.Struct({
 });
 export type ThreadContextRecord = typeof ThreadContextRecord.Type;
 
+const isJson = Schema.is(Schema.Json);
+
 /**
  * Catch-all for kinds this build does not know. Known discriminators are excluded so a
  * malformed known record fails its own schema instead of sliding through unchecked.
@@ -253,12 +257,16 @@ export const UnknownContextRecord = Schema.Struct({
   kind: ComposerContextKind.check(Schema.isPattern(KNOWN_KIND_PATTERN)),
   payload: Schema.Unknown.check(
     Schema.makeFilter((payload) => {
+      let encoded: string | undefined;
       try {
-        const encoded = JSON.stringify(payload);
-        return encoded !== undefined && encoded.length <= 64_000;
+        encoded = JSON.stringify(payload);
       } catch {
+        // Cycles, bigints, and payloads nested deeper than this engine's stack.
         return false;
       }
+      // Only JSON values, so a payload the wire cannot carry (a Date, NaN, an
+      // undefined field) fails this record alone instead of the whole message.
+      return encoded !== undefined && encoded.length <= 64_000 && isJson(payload);
     }),
   ),
 });

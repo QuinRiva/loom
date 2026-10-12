@@ -44,8 +44,9 @@ import {
 } from "../testkit/loomOrchestratorLayer.ts";
 import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } from "./prose.ts";
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
-import type { LoomOpenSessionFields, LoomSessionComposerShape } from "./sessionComposer.ts";
-import { makeLoomSessionComposer } from "./sessionComposerLive.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import type { LoomSessionComposerShape } from "./sessionComposer.ts";
+import { LOOM_HIDDEN_TOOLS_ENV, makeLoomSessionComposer } from "./sessionComposerLive.ts";
 
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
 const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
@@ -153,7 +154,6 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(sidecar.modelSelection, testModelSelection);
           // The orchestrator's resident families are the launched profile.
           assert.include(sidecar.tools as Array<string>, "mcp__t3-code__workstream_spawn");
-          assert.include(sidecar.tools as Array<string>, "mcp__t3-code__enable_toolset");
         }),
       ),
   );
@@ -171,7 +171,11 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
         assert.include(appendSystemPrompt, "SHIPPING POLICY");
         assert.include(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(threadId) });
+        assert.deepEqual(env, {
+          PI_CACHE_RETENTION: "long",
+          ...agentGitEnv(threadId),
+          ...LOOM_HIDDEN_TOOLS_ENV,
+        });
         assert.lengthOf(extensions, 1);
         assert.equal(NodePath.basename(extensions[0]!), LOOM_EXTENSION_FILENAME);
         assert.isTrue(NodeFS.existsSync(extensions[0]!));
@@ -209,7 +213,11 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           ),
         );
         assert.notInclude(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, { PI_CACHE_RETENTION: "short", ...agentGitEnv(child) });
+        assert.deepEqual(env, {
+          PI_CACHE_RETENTION: "short",
+          ...agentGitEnv(child),
+          ...LOOM_HIDDEN_TOOLS_ENV,
+        });
       }),
     ),
   );
@@ -322,14 +330,22 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
               `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
             ),
           );
-          assert.deepEqual(freshFields.env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(fresh) });
+          assert.deepEqual(freshFields.env, {
+            PI_CACHE_RETENTION: "long",
+            ...agentGitEnv(fresh),
+            ...LOOM_HIDDEN_TOOLS_ENV,
+          });
 
           const sourceFields = yield* composer.compose(source);
           const target = yield* forkOf("thread:composer-v2-fork-target");
           const forked = yield* composer.compose(target);
           assert.deepEqual(forked, asThread(sourceFields, target));
           assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
-          assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(target) });
+          assert.deepEqual(forked.env, {
+            PI_CACHE_RETENTION: "long",
+            ...agentGitEnv(target),
+            ...LOOM_HIDDEN_TOOLS_ENV,
+          });
 
           // Its relaunch is its own root identity, written once from then on (DL-740).
           const relaunched = yield* composer.compose(target);

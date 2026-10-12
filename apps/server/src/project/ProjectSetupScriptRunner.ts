@@ -1,8 +1,9 @@
 import { ProjectId, type ProjectScript } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   projectScriptRuntimeEnv,
   resolveProjectScripts,
+  settleProjectScript,
   setupProjectScript,
 } from "@t3tools/shared/projectScripts";
 
@@ -70,6 +71,8 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
+  /** Which project script to run. Defaults to the worktree setup script. */
+  readonly trigger?: "setup" | "settle";
   readonly project?: {
     readonly id: ProjectId;
     readonly workspaceRoot: string;
@@ -213,8 +216,8 @@ export const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const crypto = yield* Crypto.Crypto;
   const completionShell = resolveCompletionShell(
-    yield* HostProcessPlatform,
-    yield* HostProcessEnvironment,
+    yield* HostProcess.Platform,
+    yield* HostProcess.Environment,
   );
   const fs = yield* FileSystem.FileSystem; // loom: breadcrumb
   const path = yield* Path.Path; // loom: breadcrumb
@@ -237,6 +240,9 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const startedAtMs = yield* Clock.currentTimeMillis;
       const done = yield* Deferred.make<ProjectSetupScriptCompletion>();
+      // The shell redraws its prompt just after the sentinel. Closing before
+      // that would read the redraw as new activity and keep an idle shell.
+      const promptReturned = yield* Deferred.make<void>();
       let lineBuffer = "";
       let settled = false;
 
@@ -290,15 +296,26 @@ export const make = Effect.gen(function* () {
           if (lineBuffer.length > PARTIAL_LINE_MAX_LENGTH) {
             lineBuffer = lineBuffer.slice(-PARTIAL_LINE_MAX_LENGTH);
           }
-          return Effect.forEach(lines, handleLine, { discard: true });
+          return Effect.forEach(lines, handleLine, { discard: true }).pipe(
+            // A prompt has no newline, so it is what remains once the sentinel is in.
+            Effect.andThen(
+              Effect.suspend(() =>
+                settled && lineBuffer.length > 0
+                  ? Deferred.succeed(promptReturned, undefined).pipe(Effect.asVoid)
+                  : Effect.void,
+              ),
+            ),
+          );
         }
         if (event.type === "exited" || event.type === "closed") {
-          return settle(null);
+          return settle(null).pipe(Effect.andThen(Deferred.succeed(promptReturned, undefined)));
         }
         return Effect.void;
       });
 
       const completion = Deferred.await(done).pipe(
+        // A shell with an empty prompt never prints one; do not wait forever.
+        Effect.tap(() => Deferred.await(promptReturned).pipe(Effect.timeoutOption("1 second"))),
         Effect.ensuring(Effect.sync(() => unsubscribe())),
       );
       return { completion, unsubscribe };
@@ -372,14 +389,23 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    const script = setupProjectScript(resolveProjectScripts(settings, project));
+    const trigger = input.trigger ?? "setup";
+    const scripts = resolveProjectScripts(settings, project);
+    const script =
+      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts);
     if (!script) {
       return {
         status: "no-script",
       } as const;
     }
 
-    const terminalId = input.preferredTerminalId ?? `setup-${script.id}`;
+    // A thread settles again after it is resumed, and an earlier settle shell
+    // may still be busy; typing into it would feed its foreground program.
+    const terminalId =
+      input.preferredTerminalId ??
+      (trigger === "settle"
+        ? `settle-${script.id}-${(yield* crypto.randomUUIDv4.pipe(Effect.orDie)).slice(0, 8)}`
+        : `setup-${script.id}`);
     const cwd = input.worktreePath;
     const env = {
       ...projectScriptRuntimeEnv({
@@ -391,16 +417,18 @@ export const make = Effect.gen(function* () {
       // Keep TERM's 256-color support without advertising truecolor here.
       COLORTERM: "",
     };
-    // loom: every run is observed, not only the ones a caller watches, because
-    // the worktree-readiness breadcrumb is written for every run.
-    const observe = input.observeCompletion ?? {};
+    // loom: every setup run is observed, not only the ones a caller watches, because
+    // it writes the worktree-readiness breadcrumb. Settle runs stay upstream's: no
+    // breadcrumb (it describes setup), no install rewrite, observed only on request.
+    const breadcrumb = trigger === "setup";
+    const observe = breadcrumb ? (input.observeCompletion ?? {}) : input.observeCompletion;
     const completionToken = observe
       ? (yield* crypto.randomUUIDv4.pipe(Effect.orDie)).replaceAll("-", "")
       : null;
     const commandLine =
       observe && completionToken
         ? wrapCommandForCompletion(
-            yield* setupInstallCommand(fs, path, cwd, script.command), // loom
+            breadcrumb ? yield* setupInstallCommand(fs, path, cwd, script.command) : script.command, // loom
             completionShell,
             completionSentinel(completionToken),
           )
@@ -438,8 +466,11 @@ export const make = Effect.gen(function* () {
           })
         : undefined;
 
+    // loom: breadcrumb (setup runs only)
+    const writeSetupState = (state: Parameters<typeof writeWorktreeSetupState>[3]) =>
+      breadcrumb ? writeWorktreeSetupState(fs, path, cwd, state) : Effect.void;
     const setupStateBase = { scriptId: script.id, scriptName: script.name }; // loom: breadcrumb
-    yield* writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "pending" }); // loom
+    yield* writeSetupState({ ...setupStateBase, status: "pending" }); // loom
     yield* terminalManager
       .write({
         threadId: input.threadId,
@@ -459,7 +490,7 @@ export const make = Effect.gen(function* () {
         Effect.tapError(() => Effect.sync(() => observed?.unsubscribe())),
         // loom: breadcrumb
         Effect.tapError((error) =>
-          writeWorktreeSetupState(fs, path, cwd, {
+          writeSetupState({
             ...setupStateBase,
             status: "failed",
             detail: error.message,
@@ -485,7 +516,7 @@ export const make = Effect.gen(function* () {
       yield* Fiber.join(run).pipe(
         Effect.timeoutOption(SETUP_STATE_TIMEOUT),
         Effect.flatMap((result) =>
-          writeWorktreeSetupState(fs, path, cwd, {
+          writeSetupState({
             ...setupStateBase,
             ...settledWorktreeSetupState(result),
           }),

@@ -65,9 +65,18 @@ import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 import {
   LoomSessionComposer,
   LoomSessionComposerError,
-  type LoomOpenSessionFields,
   type LoomSessionComposerShape,
 } from "./sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import { T3_LOOM_HIDDEN_TOOLS_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
+import { UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstream/families.ts";
+
+/** Withheld tools as the bridge names them (unprefixed): registered `hidden`, so `tool_search` cannot surface them. */
+export const LOOM_HIDDEN_TOOLS_ENV = {
+  [T3_LOOM_HIDDEN_TOOLS_ENV]: JSON.stringify(
+    UPSTREAM_WITHHELD_TOOLS.map((name) => name.replace(/^mcp__t3-code__/, "")),
+  ),
+};
 
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(
@@ -213,7 +222,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         skills: identity.skills,
         extensions: identity.extensions,
         // Per thread, never replayed: a fork commits under its own thread id.
-        env: { ...identity.env, ...agentGitEnv(threadId) },
+        env: { ...identity.env, ...agentGitEnv(threadId), ...LOOM_HIDDEN_TOOLS_ENV },
         pathPrepend: gitShimDir,
       } satisfies LoomOpenSessionFields;
     }).pipe(

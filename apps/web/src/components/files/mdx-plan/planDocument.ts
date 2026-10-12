@@ -2,7 +2,7 @@ import { createContext } from "react";
 
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
-import { resolvePathLinkTarget } from "~/terminal-links";
+import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 
 /**
  * Where the document being rendered lives, so a block can resolve a path the

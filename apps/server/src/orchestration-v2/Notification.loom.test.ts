@@ -9,7 +9,7 @@ import {
 import * as DateTime from "effect/DateTime";
 
 import { wakeNotification } from "../loom/orchestration/dispatcher/controlMessage.ts";
-import { notificationTurnItem } from "./Notification.ts";
+import { notificationTurnItem } from "@t3tools/provider-core/server/notification";
 
 const now = DateTime.makeUnsafe("2026-10-06T00:00:00.000Z");
 const delivery: OrchestrationV2TurnItem = {

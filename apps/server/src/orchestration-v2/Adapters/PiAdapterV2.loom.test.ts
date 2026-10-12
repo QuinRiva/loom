@@ -26,7 +26,6 @@ import {
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Sink from "effect/Sink";
@@ -39,31 +38,35 @@ import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as ServerConfig from "../../config.ts";
 import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
 import * as PendingSteering from "../../loom/steering/pendingSteering.ts";
-import {
-  LoomPiAdapterHooks,
-  type LoomPiAdapterHooksShape,
-} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { LoomPiAdapterHooks, type LoomPiAdapterHooksShape } from "@t3tools/provider-pi/server/loom";
 import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
 import { ProviderHealthRegistry } from "../../provider/ProviderHealthRegistry.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import { notifyDeliveryCommand } from "../../mcp/toolkits/workstream/handlers/notify.ts";
 import { controlMessage } from "../../loom/orchestration/dispatcher/controlMessage.ts";
-import { AUTHOR_LABELS } from "../../loom/prompt/provenance.ts";
+import { AUTHOR_LABELS } from "@t3tools/provider-pi/server/loom";
 import { loomMessageFields } from "../Orchestrator.loom.ts";
+import { EMPTY_LOOM_OPEN_SESSION_FIELDS } from "../../loom/prompt/sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import {
-  EMPTY_LOOM_OPEN_SESSION_FIELDS,
-  type LoomOpenSessionFields,
-} from "../../loom/prompt/sessionComposer.ts";
-import * as IdAllocator from "../IdAllocator.ts";
-import { ProviderAdapterV2RuntimePolicy, type ProviderAdapterV2Event } from "../ProviderAdapter.ts";
-import { makePiAdapterV2 } from "./PiAdapterV2.ts";
-import { makePiRpcConnection, type PiRpcRecord } from "./PiRpc.ts";
-import { buildPiRpcLaunch } from "./piT3McpInjection.ts";
+  ProviderAdapterV2RuntimePolicy,
+  type ProviderAdapterV2Event,
+} from "@t3tools/provider-core/server/ProviderAdapter";
+import { makePiAdapterV2 } from "@t3tools/provider-pi/server/adapter";
+import { PI_PROVIDER, PiAdapterV2Driver } from "@t3tools/provider-pi/server";
+import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
+import { makePiRpcConnection, type PiRpcRecord } from "@t3tools/provider-pi/server/rpc";
+import { buildPiRpcLaunch } from "@t3tools/provider-pi/server/mcpInjection";
 
 const testLayer = Layer.mergeAll(
   NodeServices.layer,
   IdAllocator.layer,
+  McpProviderSessions.layer,
+  TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-pi-v2-loom-" }).pipe(
     Layer.provide(NodeServices.layer),
   ),
@@ -166,16 +169,12 @@ const openRuntime = Effect.fnUntraced(function* (
   hooks?: LoomPiAdapterHooksShape,
 ) {
   const fake = yield* makeFakePi;
-  const adapter = makePiAdapterV2({
+  const adapter = yield* makePiAdapterV2({
     instanceId: PI_INSTANCE_ID,
     settings: { enabled: true, binaryPath: "pi", launchArgs: "--approve", customModels: [] },
     environment: {},
-    spawner: fake.spawner,
-    fileSystem: yield* FileSystem.FileSystem,
-    idAllocator: yield* IdAllocator.IdAllocatorV2,
-    serverConfig: yield* ServerConfig.ServerConfig,
     ...(hooks === undefined ? {} : { loom: hooks }),
-  });
+  }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fake.spawner));
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
     providerSessionId: ProviderSessionId.make("provider-session-pi-loom"),
@@ -613,6 +612,80 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
   it.effect("a codex resume leaves the file untouched", () =>
     Effect.gen(function* () {
       assert.equal(yield* resumeCodexHistoryUnder("openai-codex/gpt-6.1-sol"), CODEX_HISTORY);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── Gate `hooks`: the driver the server builds runs Loom's live hooks ─────────────────────
+//
+// `LoomPiAdapterHooks` is a reference that silently falls back to the passthrough, so a
+// context that lacks `LoomProviderHealthLive` turns off quota classification, the resume
+// sanitiser and steer mirroring with no compile error. This builds pi exactly as the
+// instance registry does (`PiAdapterV2Driver.create` inside a registry layer) with
+// `LoomProviderHealthLive` provided below it, as `server.ts` does, and probes the sanitiser.
+
+/** Resume CODEX_HISTORY under an Anthropic model through the driver; what pi loaded. */
+const resumeThroughDriver = Effect.fnUntraced(function* (withLoomLayer: boolean) {
+  const fake = yield* makeFakePi;
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-hooks-binding-"));
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+  );
+  const sessionFile = NodePath.join(dir, "0001_codex.jsonl");
+  NodeFS.writeFileSync(sessionFile, CODEX_HISTORY);
+  const registry = ProviderAdapterRegistry.layerFromDrivers({
+    drivers: [PiAdapterV2Driver],
+    configMap: {
+      [PI_PROVIDER]: { driver: PI_PROVIDER, enabled: true, config: { binaryPath: "pi" } },
+    },
+  }).pipe(Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, fake.spawner)));
+  return yield* Effect.gen(function* () {
+    const adapter = yield* (yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2).get(
+      PI_INSTANCE_ID,
+    );
+    const runtime = yield* adapter.openSession({
+      threadId: THREAD_ID,
+      providerSessionId: ProviderSessionId.make("provider-session-pi-hooks"),
+      modelSelection,
+      runtimePolicy,
+    });
+    const providerThread = yield* runtime.ensureThread({
+      threadId: THREAD_ID,
+      modelSelection,
+      runtimePolicy,
+    });
+    yield* runtime.resumeThread({
+      providerThread: {
+        ...providerThread,
+        nativeThreadRef: { ...providerThread.nativeThreadRef!, nativeId: sessionFile },
+      },
+      modelSelection: { instanceId: PI_INSTANCE_ID, model: "cliproxy/claude-opus-5-5" },
+    });
+    assert.lengthOf(fake.switchedFiles, 1);
+    return fake.switchedFiles[0]!;
+  }).pipe(
+    Effect.provide(
+      withLoomLayer
+        ? registry.pipe(
+            Layer.provide(LoomProviderHealthLive.pipe(Layer.provide(serverSettingsLayerTest()))),
+          )
+        : registry,
+    ),
+  );
+});
+
+describe("PiAdapterV2 (loom) — hooks reach PiAdapterV2Driver.create (gate `hooks`)", () => {
+  it.effect("the driver the server builds runs Loom's live hooks, not the passthrough", () =>
+    Effect.gen(function* () {
+      const loaded = yield* resumeThroughDriver(true);
+      assert.notInclude(loaded, "|");
+      assert.include(loaded, "call_abc_fc_123");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("without LoomProviderHealthLive the same driver falls back to the passthrough", () =>
+    Effect.gen(function* () {
+      assert.equal(yield* resumeThroughDriver(false), CODEX_HISTORY);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

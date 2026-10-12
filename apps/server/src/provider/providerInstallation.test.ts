@@ -5,7 +5,7 @@ import {
   ProviderInstanceId,
   type ProviderInstallState,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -15,7 +15,7 @@ import * as Stream from "effect/Stream";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CodexInstallation from "./CodexInstallation.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
-import type { ProviderInstance } from "./ProviderDriver.ts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { makeProviderInstallation } from "./providerInstallation.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./ProviderRegistry.ts";
@@ -147,10 +147,13 @@ describe("provider installation routing", () => {
   it.effect("keeps external installs manual without hiding shared install status", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
-        // loom: pi is the only built-in driver, so antigravity has no legacy
-        // `providers` mirror to derive its config from — configure the instance.
         settings: {
-          providerInstances: { [instanceId]: { driver, config: { binaryPath: "/external/agy" } } },
+          providerInstances: {
+            [ProviderInstanceId.make("antigravity")]: {
+              driver: ProviderDriverKind.make("antigravity"),
+              config: { binaryPath: "/external/agy" },
+            },
+          },
         },
       });
       const start = yield* Effect.flip(harness.router.start({ instanceId }));
@@ -168,11 +171,9 @@ describe("provider installation routing", () => {
       const codexId = ProviderInstanceId.make("codex");
       const harness = yield* makeHarness({
         instance: instance(ProviderDriverKind.make("codex"), codexId),
-        // loom: pi is the only built-in driver, so codex has no legacy `providers`
-        // mirror to derive its config from — configure the instance.
         settings: {
           providerInstances: {
-            [codexId]: {
+            [ProviderInstanceId.make("codex")]: {
               driver: ProviderDriverKind.make("codex"),
               config: { setupMode: "managed" },
             },
@@ -193,10 +194,9 @@ describe("provider installation routing", () => {
       const codexId = ProviderInstanceId.make("codex");
       const harness = yield* makeHarness({
         instance: instance(ProviderDriverKind.make("codex"), codexId),
-        // loom: configure the instance (pi-only registry; see the managed case above).
         settings: {
           providerInstances: {
-            [codexId]: {
+            [ProviderInstanceId.make("codex")]: {
               driver: ProviderDriverKind.make("codex"),
               config: { setupMode: "existing" },
             },
@@ -215,7 +215,7 @@ describe("provider installation routing", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const platform = yield* HostProcessPlatform;
+      const platform = yield* HostProcess.Platform;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-install-route-" });
       const binary = platform === "win32" ? "agy-test.exe" : "agy-test";
       const executable = path.join(directory, binary);

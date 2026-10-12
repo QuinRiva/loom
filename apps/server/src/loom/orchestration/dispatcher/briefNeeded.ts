@@ -13,6 +13,7 @@ import {
   isBriefNeeded,
   type StartNode,
 } from "@t3tools/shared/workstreamStart.loom";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- a pure, synchronous digest; Effect's Crypto is effectful.
 import * as NodeCrypto from "node:crypto";
 
 import { formatStalledFor, WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";

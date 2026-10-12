@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { observeResize } from "~/lib/observeResize";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import {
   annotationDraftKey,
@@ -553,15 +554,14 @@ export function MdxPlanAnnotationLayer({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(recompute);
     };
-    const resizeObserver = new ResizeObserver(schedule);
+    // (observeResize, not a raw ResizeObserver: upstream's no-raw-resize-observer.)
     // Boxes are measured relative to the WRAPPER, so the wrapper is the
     // measurement reference that must be observed — `root` is `max-w-4xl`, so
     // toggling a side panel re-centres it without changing its border box and
     // an observer on `root` alone stays silent (defect A). Observe both. (A bled
     // block DOES resize with the panel, but it lives under `root`, so the
     // wrapper observation already covers it.)
-    resizeObserver.observe(root);
-    resizeObserver.observe(wrapper);
+    const stopResize = observeResize([root, wrapper], schedule);
     const mutationObserver = new MutationObserver(schedule);
     mutationObserver.observe(root, {
       childList: true,
@@ -589,7 +589,7 @@ export function MdxPlanAnnotationLayer({
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
-      resizeObserver.disconnect();
+      stopResize();
       mutationObserver.disconnect();
       window.removeEventListener("resize", schedule);
       document.removeEventListener("scroll", onInnerScroll, true);
@@ -732,10 +732,10 @@ export function MdxPlanAnnotationLayer({
         doc.addEventListener("scroll", refresh, { signal, capture: true, passive: true });
         doc.addEventListener("toggle", refresh, { signal, capture: true });
         doc.fonts.addEventListener("loadingdone", refresh, { signal });
-        reflow.observe(doc.documentElement);
+        stopReflows.push(observeResize([doc.documentElement], refresh)); // not a raw ResizeObserver: upstream's no-raw-resize-observer
       }
     };
-    const reflow = new ResizeObserver(refresh);
+    const stopReflows: Array<() => void> = [];
     // `load` does not bubble, but it does pass through a capturing ancestor.
     root.addEventListener(
       "load",
@@ -749,7 +749,7 @@ export function MdxPlanAnnotationLayer({
     wire();
     return () => {
       controller.abort();
-      reflow.disconnect();
+      for (const stop of stopReflows) stop();
       cancelAnimationFrame(pending);
     };
   }, [root, recompute, handleMouseUp, hoverOver]);

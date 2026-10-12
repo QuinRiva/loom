@@ -41,10 +41,10 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../../config.ts";
-import { PI_PROVIDER } from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
+import { PI_PROVIDER } from "@t3tools/provider-pi/server/adapter";
 import * as EventSink from "../../orchestration-v2/EventSink.ts";
-import { deriveProviderThread } from "../../orchestration-v2/IdAllocator.ts";
-import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
+import { deriveProviderThread } from "@t3tools/provider-core/server/IdAllocator";
+import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import {
   piSessionIdForThread,
   piSessionsRoot,

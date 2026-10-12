@@ -2,7 +2,11 @@ import { assert, it } from "@effect/vitest";
 import { CommandId, ProviderDriverKind, ProviderSessionId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { deriveProviderThread, IdAllocatorV2, layer } from "./IdAllocator.ts";
+import {
+  deriveProviderThread,
+  IdAllocatorV2,
+  layer,
+} from "@t3tools/provider-core/server/IdAllocator";
 
 const pi = ProviderDriverKind.make("pi");
 const digest = (kind: string) => new RegExp(`^${kind}:[0-9a-f]{32}$`);

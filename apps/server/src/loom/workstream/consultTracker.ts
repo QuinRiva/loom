@@ -9,11 +9,7 @@
  */
 import type { LoomActiveStep, LoomConsultStep, LoomLiveConsult } from "@t3tools/contracts";
 
-import {
-  piRecordField,
-  piRecordNumber,
-  piRecordString,
-} from "../../orchestration-v2/Adapters/PiRpc.ts";
+import { piRecordField, piRecordNumber, piRecordString } from "@t3tools/provider-pi/server/rpc";
 
 const RECENT_STEPS = 6;
 const DETAIL_CHARS = 80;

@@ -361,9 +361,9 @@ export function useScannedPathTargets(input: {
 }
 
 /**
- * `[Title](thread://<id>)` mentions — the wire form the provider projection
- * emits for a mentioned thread, and the form agents write when they name another
- * thread in prose.
+ * `ThreadLinkChip` — the chip Loom's workstream rows (consult cards, handoff
+ * destinations) use for a thread id with a fixed label. Markdown thread links
+ * (`t3-thread://v1/<id>`) render through upstream's `MarkdownThreadLink` instead.
  *
  * The chip navigates when the id resolves to a live thread in the message's own
  * environment (ids are only unique within one, so it is resolved by scoped ref).
@@ -376,8 +376,6 @@ export function useScannedPathTargets(input: {
  * preview) is a different fact and gets different copy: nothing was looked up,
  * so claiming the thread is gone would be a lie.
  */
-export const THREAD_LINK_HREF_PREFIX = "thread://";
-
 const UNRESOLVED_THREAD_CHIP_TITLE =
   "Not found here — this thread is archived, deleted, or in another environment.";
 

@@ -33,6 +33,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { makeLoomChildThread } from "../orchestration-v2/Orchestrator.loom.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as PullRequestWatchReactor from "../orchestration-v2/PullRequestWatchReactor.ts";
 import * as ThreadSettlementService from "../orchestration-v2/ThreadSettlementService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
@@ -63,6 +64,9 @@ const TestLayer = Layer.mergeAll(
           subscribeMerges: Effect.succeed(Stream.empty),
         }),
         Layer.mock(TerminalManager.TerminalManager)({ closeIdle: () => Effect.void }),
+        Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
+          runForThread: () => Effect.succeed({ status: "no-script" } as const),
+        }),
         Layer.succeed(
           Crypto.Crypto,
           Crypto.make({

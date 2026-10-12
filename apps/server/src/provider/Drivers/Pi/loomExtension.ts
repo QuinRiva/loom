@@ -4,7 +4,7 @@
  * upstream's `T3_MCP_URL` / `T3_MCP_BEARER_TOKEN` and talks to the two REST
  * survivors beside `/mcp` (P3-3, `loom/http/loomAgentRoutes.ts`). Parts here:
  * `toolProfile` (the session profile applied at `session_start` and re-asserted
- * at every `before_agent_start`, P3-4; `mcp__t3-code__enable_toolset`) and
+ * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries) and
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard` and `prompt-debug` (`loomExtensionParts/`).
  *
@@ -22,21 +22,12 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../../../config.ts";
-import { DELEGATION_TOOLSET_DIGEST, HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
-import {
-  agentToolName,
-  DORMANT_TOOLSETS,
-  ENABLE_TOOLSET_TOOL,
-  HUMAN_INPUT,
-  UPSTREAM_WITHHELD_TOOLS,
-} from "../../../mcp/toolkits/workstream/families.ts";
+import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
+import { agentToolName, HUMAN_INPUT } from "../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
-import {
-  T3_MCP_BEARER_ENV,
-  T3_MCP_URL_ENV,
-} from "../../../orchestration-v2/Adapters/piT3McpExtensionSource.ts";
+import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
 
 export interface LoomExtensionPart {
   readonly name: string;
@@ -49,7 +40,6 @@ export const LOOM_EXTENSION_FILENAME = "pi-loom-extension.ts";
 export interface LoomSessionProfile {
   /** The role's active set; empty = no role profile (every registered tool minus the deny-list). */
   readonly activeTools: ReadonlyArray<string>;
-  readonly families: Readonly<Record<string, ReadonlyArray<string>>>;
   readonly humanEngaged: boolean;
   readonly hasParent: boolean;
   readonly denyList: ReadonlyArray<string>;
@@ -57,7 +47,7 @@ export interface LoomSessionProfile {
 }
 
 const json = JSON.stringify;
-const proseOf = (tool: "enable_toolset" | "ask_user_question") => {
+const proseOf = (tool: "ask_user_question") => {
   const prose = LOOM_TOOL_PROSE[tool];
   return {
     description: prose.description,
@@ -66,26 +56,16 @@ const proseOf = (tool: "enable_toolset" | "ask_user_question") => {
   };
 };
 
-export const TOOLSET_FAMILIES = [
-  "delegation",
-  "human-input",
-  "pull-requests",
-  "browser",
-  "studio",
-  "all",
-] as const;
-
-/** Profile, re-assertion and `mcp__t3-code__enable_toolset` (P3-4, P3-5). */
+/**
+ * Profile and re-assertion (P3-4) under upstream's deferred exposure: the bridge registers every
+ * t3-code tool `deferred`; the role profile (LEAF_CORE + its `toolsets:` families) is activated
+ * directly and the rest is reached through pi's `tool_search`. Every turn re-asserts the profile
+ * and must keep `tool_search` and every tool a search activated, or discovery is undone.
+ */
 export const toolProfilePart: LoomExtensionPart = {
   name: "toolProfile",
   source: `
-const FAMILIES = ${json(DORMANT_TOOLSETS)};
-const DENY = ${json(UPSTREAM_WITHHELD_TOOLS)};
 const HUMAN_INPUT = ${json(HUMAN_INPUT)};
-const DIGESTS = ${json({ delegation: DELEGATION_TOOLSET_DIGEST })};
-const REFUSAL = ${json(HUMAN_INPUT_REFUSAL)};
-const BROWSER_PREFIXES = ["browser_", ${json(agentToolName("preview_"))}, ${json(agentToolName("t3_preview_"))}];
-const enabled = new Set();
 let profile;
 let warned = false;
 const refresh = async (ui) => {
@@ -101,70 +81,25 @@ const refresh = async (ui) => {
   }
 };
 // Fails closed: without a profile nobody is known to be reading.
-const humanInputRefused = () => !profile || (profile.hasParent && !profile.humanEngaged);
+ctx.humanInputRefused = () => !profile || (profile.hasParent && !profile.humanEngaged);
 const apply = () => {
+  const registered = pi.getAllTools();
+  const names = new Set(registered.map((tool) => tool.name));
   const deny = new Set(profile.denyList);
-  const base = profile.activeTools.length > 0
-    ? profile.activeTools
-    : pi.getAllTools().map((tool) => tool.name).filter((name) => !deny.has(name) && !HUMAN_INPUT.includes(name));
-  pi.setActiveTools([...new Set([...base, ...enabled, ...(profile.humanEngaged ? HUMAN_INPUT : [])])]);
+  const allowed = (name) => names.has(name) && !deny.has(name) && !HUMAN_INPUT.includes(name);
+  const base = profile.activeTools.length > 0 ? profile.activeTools : [...names];
+  // A deferred tool is active only because tool_search (or this function) put it there.
+  const active = new Set(pi.getActiveTools());
+  const discovered = registered.filter((tool) => tool.exposure === "deferred" && active.has(tool.name)).map((tool) => tool.name);
+  ctx.syncHumanInput?.();
+  pi.setActiveTools([...new Set([...base, "tool_search", ...discovered].filter(allowed)), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);
 };
 pi.on("session_start", async (_event, ext) => {
   if (await refresh(ext?.ui)) apply();
 });
-// Every turn: a tool upstream's bridge registered late (its session_start retry) is active on
-// registration; the profile, this session's enabled families and humanEngaged win again.
+// Every turn: the profile and humanEngaged win again, but searched-in tools survive.
 pi.on("before_agent_start", async (_event, ext) => {
   if (await refresh(ext?.ui)) apply();
-});
-const prose = ${json(proseOf("enable_toolset"))};
-pi.registerTool({
-  name: ${json(ENABLE_TOOLSET_TOOL)},
-  label: "Enable Dormant Toolset",
-  ...prose,
-  parameters: {
-    type: "object",
-    properties: { family: { type: "string", enum: ${json(TOOLSET_FAMILIES)} } },
-    required: ["family"],
-    additionalProperties: false,
-  },
-  // Verified against pi's post-set active list, not against what was asked: a family with
-  // nothing activatable throws, because a success-shaped answer sends the model into dead calls.
-  async execute(_toolCallId, params) {
-    const family = params?.family;
-    if (family === "human-input" && humanInputRefused()) throw new Error(REFUSAL);
-    const registered = pi.getAllTools().map((tool) => tool.name);
-    const deny = new Set(profile?.denyList ?? DENY);
-    const requested = family === "all"
-      ? registered.filter((name) => !deny.has(name) && !(humanInputRefused() && HUMAN_INPUT.includes(name)))
-      : family === "browser"
-        ? registered.filter((name) => BROWSER_PREFIXES.some((prefix) => name.startsWith(prefix)))
-        : family === "studio"
-          ? registered.filter((name) => name.startsWith("studio_"))
-          : (FAMILIES[family] ?? []);
-    const active = pi.getActiveTools();
-    const added = requested.filter((name) => registered.includes(name) && !active.includes(name));
-    if (added.length > 0) pi.setActiveTools([...active, ...added]);
-    const nowActive = new Set(pi.getActiveTools());
-    const verified = requested.filter((name) => nowActive.has(name));
-    const failed = requested.filter((name) => !nowActive.has(name));
-    if (verified.length === 0) {
-      throw new Error(
-        "Could not enable the " + family + " toolset: " + (requested.length === 0
-          ? "no tool of that family is registered in this pi session"
-          : "pi did not activate " + failed.join(", ")) +
-        ". The family is unavailable in this session — do not retry it; work without it or report the blocker (${agentToolName("workstream_request_attention")}, or your ${agentToolName("workstream_submit")})."
-      );
-    }
-    for (const name of verified) enabled.add(name);
-    const newlyEnabled = added.filter((name) => nowActive.has(name));
-    const parts = [newlyEnabled.length > 0
-      ? "Enabled the " + family + " toolset (" + newlyEnabled.length + "): " + newlyEnabled.join(", ") + ". Verified active; callable from your next step, with their own guidelines."
-      : "The " + family + " toolset (" + verified.length + ") was already active."];
-    if (failed.length > 0) parts.push("NOT enabled (not registered in this session): " + failed.join(", ") + ".");
-    if (newlyEnabled.length > 0 && DIGESTS[family]) parts.push(DIGESTS[family]);
-    return { content: [{ type: "text", text: parts.join("\\n\\n") }], details: undefined };
-  },
 });
 `,
 };
@@ -174,7 +109,17 @@ export const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
   source: `
 const prose = ${json(proseOf("ask_user_question"))};
-pi.registerTool({
+const REFUSAL = ${json(HUMAN_INPUT_REFUSAL)};
+// Registered hidden — so tool_search cannot surface it — until a human has written to the
+// thread; the profile part's apply() calls syncHumanInput() each turn to re-register it direct.
+let askExposure;
+const registerAsk = (exposure) => {
+  if (askExposure === exposure) return;
+  askExposure = exposure;
+  pi.registerTool({ ...askTool, exposure });
+};
+ctx.syncHumanInput = () => registerAsk(ctx.humanInputRefused?.() === false ? "direct" : "hidden");
+const askTool = {
   name: ${json(agentToolName("ask_user_question"))},
   label: "Ask User Question",
   ...prose,
@@ -216,6 +161,7 @@ pi.registerTool({
     additionalProperties: false,
   },
   async execute(toolCallId, params, signal) {
+    if (ctx.humanInputRefused?.() !== false) throw new Error(REFUSAL);
     const { requestId } = await loomFetch(ctx, "POST", "/user-input/ask", { toolCallId, questions: params?.questions }, signal);
     const wait = "/user-input/" + encodeURIComponent(requestId) + "/wait";
     while (true) {
@@ -231,7 +177,8 @@ pi.registerTool({
       if (!result.pending) return { content: [{ type: "text", text: result.rendered }], details: undefined };
     }
   },
-});
+};
+registerAsk("hidden");
 `,
 };
 
