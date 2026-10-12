@@ -15,6 +15,7 @@ import {
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
+import { useActiveThreadTitle } from "../loom/ThreadStart";
 import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
 import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
@@ -77,6 +78,16 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const forkedFrom = node?.forkFromThreadId
     ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
     : null;
+  // The thread a `goal_handoff` root was started from; archived origins resolve through `nodes`.
+  const origin = node?.handoffOrigin ?? null;
+  const originTitle = useActiveThreadTitle(
+    threadRef.environmentId,
+    origin?.threadId ?? threadRef.threadId,
+  );
+  const startedBy = origin && {
+    ...origin,
+    title: nodes.get(origin.threadId)?.title ?? originTitle ?? "an archived thread",
+  };
 
   // Right-click / keyboard menu on a node: the app's canonical context menu.
   const onNodeContextMenu = async (target: WorkstreamNode, position: { x: number; y: number }) => {
@@ -125,6 +136,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
           <ThreadLineageBreadcrumb
             lineage={lineage}
             forkedFrom={forkedFrom}
+            startedBy={startedBy}
             onNavigateToThread={onOpenThread}
           />
         </div>

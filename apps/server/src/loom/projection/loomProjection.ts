@@ -356,6 +356,40 @@ const MIRRORED_THREAD_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * `thread.handoff-recorded`'s other end: stamp the DESTINATION root with who
+ * started it. A `/handoff` drafter (role `handoff-drafter`, `handoffDraft.ts`;
+ * not imported: it pulls in the orchestrator) credits the human's source thread
+ * as `human`, and so does the source's own record (its `drafterThreadId` is the
+ * drafter, not itself); any other caller is the `agent` that started it. A
+ * `human` stamp is never downgraded, so the drafter's two records settle the
+ * same way in either order. A set: replay-safe.
+ */
+const stampHandoffOrigin = (
+  sql: SqlClient.SqlClient,
+  caller: LoomThreadWorkstream | null,
+  event: Extract<LoomDomainEvent, { readonly type: "thread.handoff-recorded" }>,
+  at: IsoDateTime,
+) =>
+  Effect.gen(function* () {
+    const destination = yield* readWorkstream(sql, event.payload.destinationThreadId);
+    if (destination === null || destination.handoffOrigin?.initiatedBy === "human") return;
+    const drafter = caller?.role === "handoff-drafter";
+    const human =
+      drafter ||
+      (event.payload.drafterThreadId !== null && event.payload.drafterThreadId !== event.threadId);
+    const handoffOrigin = {
+      threadId: drafter ? (caller.forkFromThreadId ?? event.threadId) : event.threadId,
+      initiatedBy: human ? ("human" as const) : ("agent" as const),
+    };
+    if (
+      destination.handoffOrigin?.threadId === handoffOrigin.threadId &&
+      destination.handoffOrigin.initiatedBy === handoffOrigin.initiatedBy
+    )
+      return;
+    yield* writeWorkstream(sql, { ...destination, handoffOrigin, updatedAt: at });
+  });
+
+/**
  * Fold one V2 domain event into Loom's tables. Every upstream event other than
  * the four mirrored ones returns at once.
  */
@@ -376,4 +410,5 @@ export const applyLoomProjectionEvent = (
         : current;
     const next = foldWorkstream(row, event, at);
     if (next !== undefined) yield* writeWorkstream(sql, next);
+    if (event.type === "thread.handoff-recorded") yield* stampHandoffOrigin(sql, row, event, at);
   });

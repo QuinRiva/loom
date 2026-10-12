@@ -283,6 +283,9 @@ import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../loom/LoomRollupBadge";
 import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
 import { PendingQuestionWaitAge } from "../loom/pendingUserInputLoom"; // loom: S4
+// loom: agent-started cue — the row rail, hover line and accessible-name suffix.
+import { threadStartOf } from "@t3tools/client-runtime/state/loom/threadOrigin";
+import { THREAD_START_LABEL, ThreadStartHoverLine, ThreadStartRail } from "../loom/ThreadStart";
 import { readLoomGoal } from "../loom/loomGoalState";
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
 
@@ -514,6 +517,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        <ThreadStartHoverLine thread={thread} /> {/* loom: agent-started cue */}
         {terminalStatus ? (
           <div className="flex min-w-0 items-center gap-2">
             <TerminalIcon
@@ -1612,11 +1616,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       </span>
     ) : null;
 
+  const threadStart = threadStartOf(thread.source); // loom: agent-started cue
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: topStatus?.label ?? null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
+    startLabel: threadStart && THREAD_START_LABEL[threadStart], // loom: agent-started cue
   });
 
   const title = isRenaming ? (
@@ -1791,6 +1797,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           >
             {accessibleTitle}
+            {/* loom: agent-started cue */}
+            <ThreadStartRail start={threadStart} dimmed={variantAction === "unsettle"} />
             {/* Settled history recedes: dimmed favicon at rest, restored on
               hover so the tail stays scannable when you're hunting. */}
             <span
@@ -1957,6 +1965,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           }
         >
           {accessibleTitle}
+          <ThreadStartRail start={threadStart} /> {/* loom: agent-started cue */}
           <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
@@ -2214,11 +2223,13 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
   const { thread } = props;
+  const threadStart = threadStartOf(thread.source); // loom: agent-started cue
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isRouteActive,
+    startLabel: threadStart && THREAD_START_LABEL[threadStart], // loom: agent-started cue
   });
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
@@ -2301,7 +2312,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
               onMouseMove={props.onHighlight}
               onClick={props.onSelect}
               className={cn(
-                "flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none",
+                "relative flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-sm outline-none", // loom: relative (rail)
                 props.isHighlighted || props.isRouteActive
                   ? "bg-sidebar-row-active text-sidebar-foreground"
                   : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -2311,6 +2322,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
             />
           }
         >
+          <ThreadStartRail start={threadStart} /> {/* loom: agent-started cue */}
           {props.project ? (
             <ProjectFavicon project={props.project} className="size-4 shrink-0" />
           ) : null}

@@ -233,6 +233,14 @@ export const HandoffDestination = Schema.Struct({
 });
 export type HandoffDestination = typeof HandoffDestination.Type;
 
+// The other end of a HandoffDestination, on the root the handoff created: who started it.
+// `human` = Carl's `/handoff` (credits the thread he typed it in, not the hidden drafter).
+export const HandoffOrigin = Schema.Struct({
+  threadId: ThreadId,
+  initiatedBy: Schema.Literals(["agent", "human"]),
+});
+export type HandoffOrigin = typeof HandoffOrigin.Type;
+
 // mcp__t3-code__consult_thread observability: one entry per distinct target this thread has
 // consulted (the full question + answer live on `thread.consult-recorded`).
 export const LoomThreadConsultSummary = Schema.Struct({
@@ -393,6 +401,10 @@ export const LoomThreadWorkstream = Schema.Struct({
   lastRoute: Schema.NullOr(LoomRouteRecord),
   reportPath: Schema.NullOr(TrimmedNonEmptyString),
   handoffDestinations: Schema.Array(HandoffDestination),
+  /** On a `goal_handoff` destination: the thread that started it. */
+  handoffOrigin: Schema.NullOr(HandoffOrigin).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   notifySendLog: Schema.Array(NotifySendLogEntry),
   /** Mirrored from thread.archived / unarchived. */
   archivedAt: Schema.NullOr(IsoDateTime),

@@ -1,5 +1,5 @@
-import type { ThreadId } from "@t3tools/contracts";
-import { ChevronRightIcon, CornerLeftUpIcon, GitForkIcon } from "lucide-react";
+import type { HandoffOrigin, ThreadId } from "@t3tools/contracts";
+import { BotIcon, ChevronRightIcon, CornerLeftUpIcon, GitForkIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
@@ -44,18 +44,22 @@ function LineageChip({
  * The active thread's ancestry, root → immediate parent, each a link; the
  * middle elides past three. A `forkFrom` child also shows its fork source (the
  * sidecar's `forkFromThreadId` — the shell carries no context-transfer edge;
- * upstream's Lineage panel draws that from the thread projection).
+ * upstream's Lineage panel draws that from the thread projection). A
+ * `goal_handoff` root also shows who started it (`startedBy`, the sidebar
+ * rail's jump: `ThreadStart.tsx`).
  */
 export function ThreadLineageBreadcrumb({
   lineage,
   forkedFrom,
+  startedBy,
   onNavigateToThread,
 }: {
   lineage: ReadonlyArray<LineageSegment>;
   forkedFrom: { readonly threadId: ThreadId; readonly title: string } | null;
+  startedBy: (HandoffOrigin & { readonly title: string }) | null;
   onNavigateToThread: (threadId: ThreadId) => void;
 }) {
-  if (lineage.length === 0 && forkedFrom === null) return null;
+  if (lineage.length === 0 && forkedFrom === null && startedBy === null) return null;
 
   const elide = lineage.length > MAX_VISIBLE_LINEAGE_SEGMENTS;
   const visible = elide ? [lineage[0]!, lineage[lineage.length - 1]!] : lineage;
@@ -111,6 +115,22 @@ export function ThreadLineageBreadcrumb({
           }
           tooltip={`Forked from ${forkedFrom.title}`}
           onClick={() => onNavigateToThread(forkedFrom.threadId)}
+        />
+      ) : null}
+      {startedBy ? (
+        <LineageChip
+          label={
+            <>
+              <BotIcon className="size-3 shrink-0" />
+              <span className="max-w-48 truncate">Started by {startedBy.title}</span>
+            </>
+          }
+          tooltip={
+            startedBy.initiatedBy === "human"
+              ? `From your /handoff in ${startedBy.title}`
+              : `Started by an agent in ${startedBy.title}`
+          }
+          onClick={() => onNavigateToThread(startedBy.threadId)}
         />
       ) : null}
     </div>
