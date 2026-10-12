@@ -428,6 +428,84 @@ export const LoomActiveStep = Schema.Struct({
 });
 export type LoomActiveStep = typeof LoomActiveStep.Type;
 
+// ---------------------------------------------------------------------------
+// Live consults (unsequenced shell-stream items, never persisted)
+// ---------------------------------------------------------------------------
+
+/** One tool call of a running consult's fork, for the consult card's step log. */
+export const LoomConsultStep = Schema.Struct({
+  /** pi's tool name. */
+  title: Schema.String,
+  /** The bash command's first line, a read's path, an rg pattern, a URL; at most 80 chars. */
+  detail: Schema.NullOr(Schema.String),
+  startedAt: IsoDateTime,
+  endedAt: Schema.NullOr(IsoDateTime),
+  /** Null while running; false when the tool errored or the consult ended under it. */
+  ok: Schema.NullOr(Schema.Boolean),
+});
+export type LoomConsultStep = typeof LoomConsultStep.Type;
+
+/**
+ * What a `consult_thread` fork is doing, published at its tool boundaries and
+ * message ends (never per streamed token). The asker's consult card finds it by
+ * `askerThreadId` + `questionKey` ({@link consultQuestionKey}): the MCP request
+ * carries no tool-call id to name the card's turn item directly.
+ */
+export const LoomLiveConsult = Schema.Struct({
+  consultId: Schema.String,
+  askerThreadId: ThreadId,
+  questionKey: Schema.String,
+  targetThreadId: ThreadId,
+  startedAt: IsoDateTime,
+  /** Set on the consult's last item; the server forgets it after. */
+  endedAt: Schema.NullOr(IsoDateTime),
+  /** The fork's `provider/id`. */
+  model: Schema.NullOr(Schema.String),
+  step: Schema.NullOr(LoomActiveStep),
+  /** Tool calls started so far; `recent` holds the last six. */
+  toolCalls: NonNegativeInt,
+  /** Summed from the fork's `message_end` usage (`cachedTokens` = cache read + write). */
+  spend: Schema.NullOr(
+    Schema.Struct({
+      costUsd: Schema.Number,
+      inputTokens: Schema.Number,
+      outputTokens: Schema.Number,
+      cachedTokens: Schema.Number,
+    }),
+  ),
+  recent: Schema.Array(LoomConsultStep),
+  /** The start of the fork's latest assistant text, at most 120 chars. */
+  narration: Schema.NullOr(Schema.String),
+  /** The live transcript while running; the retained one once ended. */
+  forkSessionPath: Schema.NullOr(Schema.String),
+});
+export type LoomLiveConsult = typeof LoomLiveConsult.Type;
+
+/**
+ * Spliced into `OrchestrationV2ShellStreamItem` for `loom: true` subscribers.
+ * No `sequence` and no snapshot field: a subscription opens with one item per
+ * running consult, and the client keeps them out of the persisted shell.
+ */
+export const LoomConsultShellStreamItemMembers = [
+  Schema.Struct({ kind: Schema.Literal("consult.updated"), consult: LoomLiveConsult }),
+] as const;
+export type LoomConsultShellStreamItem = (typeof LoomConsultShellStreamItemMembers)[number]["Type"];
+
+export const isLoomConsultShellStreamItem = <Item extends { readonly kind: string }>(
+  item: Item,
+): item is Extract<Item, { readonly kind: LoomConsultShellStreamItem["kind"] }> =>
+  item.kind === "consult.updated";
+
+/** The card ↔ live-consult correlation key: FNV-1a of the trimmed question, base 36. */
+export const consultQuestionKey = (question: string): string => {
+  let hash = 0x811c9dc5;
+  for (const char of question.trim()) {
+    hash ^= char.codePointAt(0)!;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+};
+
 /**
  * What a client sees on `OrchestrationV2ThreadShell.workstream`: the record
  * minus the fields no client renders (the dispatcher reads those from the

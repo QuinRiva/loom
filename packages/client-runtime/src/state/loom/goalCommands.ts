@@ -26,6 +26,7 @@ export function createLoomCommandAtoms<R, E>(
     handoffDraft: command(LOOM_WS_METHODS.handoffDraft),
     retroDraft: command(LOOM_WS_METHODS.retroDraft),
     threadHistory: command(LOOM_WS_METHODS.threadHistory),
+    consultCancel: command(LOOM_WS_METHODS.consultCancel),
     threadSpend: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: `environment-data:${LOOM_WS_METHODS.threadSpend}`,
       tag: LOOM_WS_METHODS.threadSpend,

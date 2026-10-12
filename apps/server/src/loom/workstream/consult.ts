@@ -26,19 +26,45 @@
  * The bound is the asker's turn: stopping it aborts the tool call, which
  * interrupts this effect, and the connection's scope kills the fork's process
  * group. A fork that dies or loses its provider fails the transport instead.
+ * The asker's consult card can also stop one consult alone (`cancel`).
+ *
+ * While it runs, the fork's figures — current step, tool count, spend, recent
+ * steps, latest sentence — are published as unsequenced `consult.updated`
+ * shell-stream items (`subscribeLive`, merged in by `ws.ts` beside the goal
+ * items): at tool boundaries and message ends, at most every
+ * `PUBLISH_INTERVAL_MS`, never per streamed token. Nothing is persisted.
  *
  * @module loom/workstream/consult
  */
+import * as NodeCrypto from "node:crypto";
+
+import {
+  consultQuestionKey,
+  type LoomConsultShellStreamItem,
+  type LoomLiveConsult,
+  type ThreadId,
+} from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
 
 import { ServerConfig } from "../../config.ts";
 import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
-import { makePiRpcConnection, piRecordString } from "../../orchestration-v2/Adapters/PiRpc.ts";
+import {
+  makePiRpcConnection,
+  piRecordField,
+  piRecordString,
+} from "../../orchestration-v2/Adapters/PiRpc.ts";
 import {
   buildPiRpcLaunch,
   resolvePiLaunchArgs,
@@ -46,6 +72,21 @@ import {
 import { resolveLoomPiBinaryPath } from "../../provider/Drivers/Pi/bundledPi.loom.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
+import { makeConsultTracker } from "./consultTracker.ts";
+
+/** The live card hears from a fork at most this often (it ticks its own clocks between). */
+const PUBLISH_INTERVAL_MS = 500;
+
+/** `23s` / `4m 05s` / `1h 02m`, as the consult card's elapsed reads. */
+const formatElapsed = (ms: number) => {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 0) return `${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 0
+    ? `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`
+    : `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+};
 
 /**
  * The consult framing rides the QUESTION TURN, not the system prompt: only the
@@ -76,6 +117,9 @@ export interface ConsultForkInput {
   readonly question: string;
   /** Who is asking, e.g. `thread «Title» (role, id; relationship)`. */
   readonly asker: string;
+  /** The asker's and target's ids, for the asker's live consult card. */
+  readonly askerThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
 }
 
 export interface ConsultForkResult {
@@ -88,6 +132,14 @@ export class LoomThreadConsult extends Context.Service<
   LoomThreadConsult,
   {
     readonly ask: (input: ConsultForkInput) => Effect.Effect<ConsultForkResult, LoomConsultError>;
+    /** The card's Stop: ends one running consult (its `ask` fails); false when it already ended. */
+    readonly cancel: (consultId: string) => Effect.Effect<boolean>;
+    /** One item per running consult, then every update: the shell stream's live-consult tail. */
+    readonly subscribeLive: Effect.Effect<
+      Stream.Stream<LoomConsultShellStreamItem>,
+      never,
+      Scope.Scope
+    >;
   }
 >()("t3/loom/workstream/consult/LoomThreadConsult") {}
 
@@ -97,12 +149,22 @@ const consultError = (detail: string) => (cause: unknown) =>
     cause,
   });
 
+interface RunningConsult {
+  /** The last figures published, replayed to a new subscriber. */
+  published: LoomLiveConsult;
+  /** Completed with the reason the consult is being stopped. */
+  readonly stop: Deferred.Deferred<string>;
+}
+
 export const layer = Layer.effect(
   LoomThreadConsult,
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const settings = yield* ServerSettings.ServerSettingsService;
     const config = yield* ServerConfig;
+    const live = yield* PubSub.unbounded<LoomConsultShellStreamItem>();
+    const running = new Map<string, RunningConsult>();
+    const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
     const ask = Effect.fn("LoomThreadConsult.ask")(function* (input: ConsultForkInput) {
       const pi = (yield* settings.getSettings.pipe(
@@ -117,6 +179,36 @@ export const layer = Layer.effect(
         mcpSession: undefined,
         extensionPath: undefined,
       });
+      const consultId = NodeCrypto.randomUUID();
+      const tracker = makeConsultTracker({
+        consultId,
+        askerThreadId: input.askerThreadId,
+        questionKey: consultQuestionKey(input.question),
+        targetThreadId: input.targetThreadId,
+        startedAt: yield* nowIso,
+      });
+      const entry: RunningConsult = {
+        published: tracker.snapshot(),
+        stop: yield* Deferred.make<string>(),
+      };
+      let lastPublishedAt = 0;
+      const publish = Effect.gen(function* () {
+        entry.published = tracker.snapshot();
+        lastPublishedAt = yield* Clock.currentTimeMillis;
+        yield* PubSub.publish(live, { kind: "consult.updated" as const, consult: entry.published });
+      });
+      running.set(consultId, entry);
+      // The consult's last item, however it ends: the card freezes on it and the server forgets it.
+      const finish = Effect.suspend(() => {
+        running.delete(consultId);
+        return nowIso.pipe(
+          Effect.flatMap((at) => {
+            tracker.end(at);
+            return publish;
+          }),
+        );
+      });
+
       const { answer, providerError, forkSessionPath } = yield* Effect.gen(function* () {
         const connection = yield* makePiRpcConnection({
           command: resolveLoomPiBinaryPath(pi.binaryPath),
@@ -130,16 +222,46 @@ export const layer = Layer.effect(
           cwd: config.cwd,
           env: launch.env,
         });
-        const forkSessionPath = piRecordString(
-          yield* connection.request({ type: "get_state" }),
-          "sessionFile",
-        );
+        const state = yield* connection.request({ type: "get_state" });
+        const forkSessionPath = piRecordString(state, "sessionFile");
+        const model = piRecordField(state, "model");
+        const [provider, modelId] = [
+          piRecordString(model, "provider"),
+          piRecordString(model, "id"),
+        ];
         yield* connection.request({ type: "prompt", message: composeConsultTurn(input) });
+        tracker.begin(
+          yield* nowIso,
+          provider === undefined || modelId === undefined ? null : `${provider}/${modelId}`,
+          forkSessionPath ?? null,
+        );
+        yield* publish;
         // The latest assistant message's provider error, so an empty answer can say why.
         let providerError: string | undefined;
+        // A changed figure waits at most PUBLISH_INTERVAL_MS, however busy or quiet the fork is.
+        let pending = false;
         while (true) {
-          const event = yield* Queue.take(connection.events);
+          const sinceLast = (yield* Clock.currentTimeMillis) - lastPublishedAt;
+          const next: Option.Option<Record<string, unknown>> = pending
+            ? yield* Queue.take(connection.events).pipe(
+                Effect.timeoutOption(Math.max(0, PUBLISH_INTERVAL_MS - sinceLast)),
+              )
+            : Option.some(yield* Queue.take(connection.events));
+          if (Option.isNone(next)) {
+            pending = false;
+            yield* publish;
+            continue;
+          }
+          const event: Record<string, unknown> = next.value;
           if (event["type"] === "agent_settled") break;
+          pending = tracker.apply(event, yield* nowIso) || pending;
+          if (
+            pending &&
+            (yield* Clock.currentTimeMillis) - lastPublishedAt >= PUBLISH_INTERVAL_MS
+          ) {
+            pending = false;
+            yield* publish;
+          }
           const message = event["message"];
           if (event["type"] === "message_end" && piRecordString(message, "role") === "assistant")
             providerError =
@@ -168,6 +290,15 @@ export const layer = Layer.effect(
         Effect.scoped,
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.mapError(consultError("Could not fork and replay the target session")),
+        // A stop interrupts the fork, whose scope kills the pi process group.
+        (fork) =>
+          Effect.raceFirst(
+            fork,
+            Deferred.await(entry.stop).pipe(
+              Effect.flatMap((detail) => Effect.fail(new LoomConsultError({ detail }))),
+            ),
+          ),
+        Effect.ensuring(finish),
       );
       if (answer.length === 0)
         return yield* new LoomConsultError({
@@ -179,6 +310,30 @@ export const layer = Layer.effect(
       return { answer, ...(forkSessionPath === undefined ? {} : { forkSessionPath }) };
     });
 
-    return LoomThreadConsult.of({ ask });
+    return LoomThreadConsult.of({
+      ask,
+      cancel: (consultId) =>
+        Effect.gen(function* () {
+          const consult = running.get(consultId);
+          if (consult === undefined) return false;
+          const elapsed =
+            (yield* Clock.currentTimeMillis) - Date.parse(consult.published.startedAt);
+          return yield* Deferred.succeed(
+            consult.stop,
+            `Stopped from the consult card after ${formatElapsed(elapsed)}.`,
+          );
+        }),
+      subscribeLive: Effect.map(PubSub.subscribe(live), (subscription) =>
+        Stream.concat(
+          Stream.fromIterable(
+            [...running.values()].map((consult): LoomConsultShellStreamItem => ({
+              kind: "consult.updated",
+              consult: consult.published,
+            })),
+          ),
+          Stream.fromSubscription(subscription),
+        ),
+      ),
+    });
   }),
 );

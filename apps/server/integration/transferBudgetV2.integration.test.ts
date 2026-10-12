@@ -48,6 +48,7 @@ import * as OrchestrationHttp from "../src/orchestration-v2/http.ts";
 import * as ServerHttp from "../src/http.ts";
 import { subscribeOrchestrationV2Thread, subscribeOrchestrationV2Shell } from "../src/ws.ts";
 import * as LoomGoalBroadcast from "../src/loom/projection/LoomGoalBroadcast.ts"; // loom:
+import { LoomThreadConsult } from "../src/loom/workstream/consult.ts"; // loom:
 import * as LoomStore from "../src/loom/projection/LoomStore.ts"; // loom:
 import {
   measureHttpGet,
@@ -113,7 +114,13 @@ const layerEnrichment = Layer.unwrap(
 const layerServices = layerManagement.pipe(
   Layer.provideMerge(ProjectStore.layer),
   Layer.provideMerge(Layer.mock(ProjectService.ProjectService)({})),
-  Layer.provideMerge(Layer.merge(LoomGoalBroadcast.layer, LoomStore.layer)), // loom: ws goal surface
+  Layer.provideMerge(
+    Layer.mergeAll(
+      LoomGoalBroadcast.layer,
+      LoomStore.layer,
+      Layer.mock(LoomThreadConsult)({ subscribeLive: Effect.succeed(Stream.empty) }),
+    ),
+  ), // loom: ws goal surface
   Layer.provideMerge(layerEnrichment),
   Layer.provideMerge(layerPersistence),
 );

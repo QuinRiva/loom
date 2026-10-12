@@ -23,6 +23,7 @@ import { ControlDigestCardView } from "../loom/ControlDigestCard";
 import { controlCardModel } from "../loom/controlMessages";
 import { LoomTimelineRowView } from "../loom/LoomTimelineRowView";
 import type { LoomTimelineRow } from "../loom/loomTimelineRows";
+import { CONSULT_CARD_FIXTURES } from "./consultCardFixtures";
 import type { PreviewGroup } from "./fixtures";
 import {
   loomPreviewAnchoredThreadId,
@@ -311,6 +312,11 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         ),
       },
     ],
+  },
+  {
+    id: "loom-consult-card",
+    title: "Loom consult card",
+    fixtures: CONSULT_CARD_FIXTURES,
   },
   {
     id: "loom-goal-panel",

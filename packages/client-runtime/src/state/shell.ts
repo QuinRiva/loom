@@ -4,6 +4,7 @@ import {
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
   type ServerConfig,
+  isLoomConsultShellStreamItem, // loom:
   isLoomGoalShellStreamItem, // loom:
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -23,6 +24,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
+import { applyLoomConsultItem } from "./loom/consults.ts"; // loom:
 import { subscribeDynamic } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
@@ -167,6 +169,11 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     let next = initial;
     let receivedSnapshot = false;
     for (const item of items) {
+      // loom: live-consult items go to their own store, never the persisted snapshot
+      if (isLoomConsultShellStreamItem(item)) {
+        applyLoomConsultItem(environmentId, item);
+        continue;
+      }
       if (item.kind === "synchronized") {
         waiting = false;
         if (Option.isSome(next.snapshot)) {
