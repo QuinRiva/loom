@@ -190,6 +190,16 @@
       }
     },
     {
+      "license": "MIT",
+      "name": "format",
+      "version": "0.2.2",
+      "sourceUrl": "https://github.com/samsonjs/format",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright 2010 - 2014 Sami Samhuri"]
+      }
+    },
+    {
       "name": "glob-to-regexp",
       "generatedNotice": {
         "licenseId": "BSD-2-Clause",
