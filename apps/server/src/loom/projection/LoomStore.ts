@@ -17,6 +17,7 @@ import {
   EventId,
   GoalId,
   GoalTaskId,
+  HandoffOrigin,
   IsoDateTime,
   LoomGoal,
   LoomGoalTask,
@@ -71,6 +72,7 @@ export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) =
   lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
   lastRoute: Schema.NullOr(Schema.fromJsonString(LoomRouteRecord)),
   handoffDestinations: Schema.fromJsonString(fields.handoffDestinations),
+  handoffOrigin: Schema.NullOr(Schema.fromJsonString(HandoffOrigin)),
   notifySendLog: Schema.fromJsonString(fields.notifySendLog),
 }));
 
@@ -105,6 +107,7 @@ const WORKSTREAM_COLUMNS = {
   last_route: "lastRoute",
   report_path: "reportPath",
   handoff_destinations: "handoffDestinations",
+  handoff_origin: "handoffOrigin",
   notify_send_log: "notifySendLog",
   archived_at: "archivedAt",
   unarchived_at: "unarchivedAt",
@@ -185,6 +188,7 @@ export const emptyWorkstream = (input: {
   lastRoute: null,
   reportPath: null,
   handoffDestinations: [],
+  handoffOrigin: null,
   notifySendLog: [],
   archivedAt: null,
   unarchivedAt: null,

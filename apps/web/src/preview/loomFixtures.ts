@@ -116,6 +116,7 @@ export const workstream = (
   lastOutcome: null,
   reportPath: null,
   handoffDestinations: [],
+  handoffOrigin: null,
   archivedAt: null,
   deletedAt: null,
   createdAt: AT,
