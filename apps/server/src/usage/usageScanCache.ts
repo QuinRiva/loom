@@ -318,6 +318,7 @@ export function decodeScanCache(
     if (entry.p === undefined) continue;
     const format = formats.get(entry.p);
     if (format === undefined) continue;
+    if (entry.p === "pi" && entry.cs === null) continue; // loom: pull 10 — drop pre-upstream (stateless) pi parses; remove at pull 11
     if (!isRecordArray(entry.r) || !isRecordArray(entry.t)) continue;
     // Position fields feed byte offsets and a Buffer allocation in the reader,
     // so anything outside their real ranges must reject the entry: a bogus

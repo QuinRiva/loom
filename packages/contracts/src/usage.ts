@@ -31,9 +31,6 @@ export const USAGE_CONTRACT_VERSION = 6 as const;
  */
 export const USAGE_MERGE_COMPATIBLE_SINCE = 4 as const;
 
-// loom: `pi` is its own kind rather than being mapped onto the vendor behind a
-// turn, so a cliproxy-routed Claude turn is not reported as Claude Code usage
-// and double counted against a real Claude transcript.
 export const UsageProviderKind = Schema.Literals([
   "claude",
   "codex",

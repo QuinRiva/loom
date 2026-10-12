@@ -127,6 +127,27 @@ describe("scan cache round trip", () => {
     ).toBe(false);
   });
 
+  // loom: pull 10 — Loom's pre-upstream pi reader persisted no state; those parses must re-run.
+  it("drops pi entries without parse state and keeps upstream-format pi entries", () => {
+    const pi = (state: CachedFile["position"]["state"]): CachedFile => ({
+      size: 10,
+      mtimeMs: 100,
+      provider: "pi",
+      records: [record({ provider: "pi", model: "anthropic/claude-opus-5-5" })],
+      tailRecords: [],
+      position: position({ state }),
+    });
+    const cache: ScanCache = new Map([
+      ["/loom-era.jsonl", pi(null)],
+      ["/upstream.jsonl", pi({ sessionId: "s" })],
+    ]);
+    const restored = decodeScanCache(
+      JSON.parse(JSON.stringify(encodeScanCache(cache))),
+      TEST_FORMAT_MAP,
+    );
+    expect([...restored.keys()]).toEqual(["/upstream.jsonl"]);
+  });
+
   it("drops an entry whose guard length is outside the supported range", () => {
     // The guard length sizes a Buffer in the reader; a bogus value would make
     // every parse of that file fail and silently drop its usage.

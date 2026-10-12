@@ -1179,13 +1179,6 @@ describe("UsageService", () => {
         sources.filter((source) => source.fingerprint.provider === "codex").length,
         1,
       );
-      // loom: the pi arm is registered, and an environment with no pi sessions
-      // reports the source missing rather than silently reading zero.
-      const pi = summary.sources.find((source) => source.fingerprint.provider === "pi");
-      assert.deepStrictEqual(
-        [pi?.status, pi?.fingerprint.resolvedHomePath],
-        ["missing", NodePath.join(home, ".pi", "agent", "sessions")],
-      );
     }).pipe(Effect.scoped),
   );
 
