@@ -873,6 +873,50 @@ const mdxScrollingTableFixture: PreviewFixture = {
   ),
 };
 
+/**
+ * A stylesheet-driven mockup grid inside one `<HtmlBlock>` — the shape plan
+ * authors use to compare options side by side. The frame is same-origin with
+ * scripts off, so selecting text in ONE card pins a comment to that card (a
+ * highlight inside the frame that tracks in-frame scroll and panel resizes),
+ * while hovering anywhere over the frame still offers the whole-block comment.
+ */
+const MDX_HTML_BLOCK_CARDS_HTML = [
+  "<!doctype html><html><head><style>",
+  ":root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#8a8a8a;--accent:#60a5fa}",
+  "body{background:var(--bg);color:var(--fg);font:13px/1.45 system-ui;padding:16px}",
+  ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}",
+  ".opt{border:1px solid #262626;border-radius:10px;padding:12px}",
+  ".opt h3{margin:0 0 6px;font-size:13px}.opt p{margin:0;color:var(--muted)}",
+  ".row{margin-top:8px;padding:6px 8px;border-radius:6px;background:#171717}",
+  ".glyph{color:var(--accent);margin-right:6px}",
+  "</style></head><body><div class='grid'>",
+  "<section class='opt'><h3>A · Dot on the row</h3><p>A small accent dot after the title marks agent-started threads.</p><div class='row'>Reconcile tenant audit gaps •</div></section>",
+  "<section class='opt'><h3>B · Glyph before the title</h3><p>A robot glyph leads the row, so the cue reads before the title does.</p><div class='row'><span class='glyph'>⚙</span>Reconcile tenant audit gaps</div></section>",
+  "<section class='opt'><h3>C · Tinted row</h3><p>The whole row takes a faint accent tint instead of a glyph.</p><div class='row' style='background:#0c1a2b'>Reconcile tenant audit gaps</div></section>",
+  "<section class='opt'><h3>D · Link that goes nowhere</h3><p>Links are stripped: <a href='/api/x'>clicking this</a> must not navigate the frame.</p></section>",
+  "</div></body></html>",
+].join("");
+
+const MDX_HTML_BLOCK_CARDS_FIXTURE_SOURCE = [
+  "# Commenting on one card inside an HtmlBlock",
+  "",
+  "Select a few words inside card **B** below and click **Comment**: the comment pins to that card's text, not the whole block. Hover anywhere over the frame and the whole-block comment button still appears top-right.",
+  "",
+  `<HtmlBlock caption="Four treatments of the same inbox row" height={360} html={${JSON.stringify(MDX_HTML_BLOCK_CARDS_HTML)}} />`,
+  "",
+  "Prose after the block, so a highlight that drifted out of the frame would land on these words.",
+].join("\n");
+
+const mdxHtmlBlockCardsFixture: PreviewFixture = {
+  id: "mdx-html-block-cards",
+  title: "HtmlBlock cards (select inside the frame)",
+  description:
+    "Select text in one card of the sandboxed HtmlBlock → Comment: the highlight lands on that card's words and survives a reload. Toggle the panel: it tracks. Hover the frame: the whole-block button appears.",
+  render: () => (
+    <PlanPanelPreview key="mdx-html-block-cards" source={MDX_HTML_BLOCK_CARDS_FIXTURE_SOURCE} />
+  ),
+};
+
 const mdxAnnotationFixture: PreviewFixture = {
   id: "mdx-annotation-defects",
   title: "Card › closed Details › Table",
@@ -1116,6 +1160,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxDiffWordsFixture,
       mdxAnnotationFixture,
       mdxScrollingTableFixture,
+      mdxHtmlBlockCardsFixture,
     ],
   },
   {

@@ -13,6 +13,7 @@ import {
   HTML_CSP,
   HTML_SANDBOX,
   HtmlBlockRead,
+  inertSrcDoc,
   PROTOTYPE_CSP,
   PROTOTYPE_SANDBOX,
   PrototypeRead,
@@ -23,8 +24,10 @@ import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock 
  * The sandboxed-iframe surfaces (`<Prototype>` C4, `<HtmlBlock>` B5) are the
  * untrusted-content boundary: the iframe sandbox + `srcdoc` CSP is THE security
  * mechanism (D9). These lock in the exact `sandbox`/CSP invariants a security
- * review depends on — no `allow-same-origin` on the prototype, no `allow-scripts`
- * on HtmlBlock — plus whole-block annotatability and the MDX wire round-trip.
+ * review depends on — no `allow-same-origin` on the prototype; on HtmlBlock
+ * `allow-same-origin` alone (never with scripts), a CSP with no `'self'`, and no
+ * author navigation paths — plus whole-block annotatability and the MDX wire
+ * round-trip.
  */
 
 function parse(html: string): HTMLElement {
@@ -69,20 +72,40 @@ describe("Prototype iframe — interactive but isolated", () => {
   });
 });
 
-describe("HtmlBlock iframe — static, scripts fully disabled", () => {
-  it("uses a fully-locked sandbox with NO allow-scripts (empty sandbox attr)", () => {
+describe("HtmlBlock iframe — static, scripts fully disabled, same-origin", () => {
+  it("grants allow-same-origin and NOTHING else (no scripts, forms, popups, navigation)", () => {
     const iframe = renderHtmlBlock().querySelector("iframe")!;
-    const sandbox = iframe.getAttribute("sandbox");
-    expect(sandbox).toBe(HTML_SANDBOX);
-    expect(sandbox).toBe(""); // sandbox="" → maximally restricted, opaque origin, no JS
-    expect(sandbox).not.toContain("allow-scripts");
+    expect(iframe.getAttribute("sandbox")).toBe(HTML_SANDBOX);
+    // Same-origin is only safe because nothing in the frame can execute.
+    expect(HTML_SANDBOX).toBe("allow-same-origin");
   });
 
-  it("carries a no-script CSP", () => {
+  it("carries a no-script CSP that can never reach the app origin", () => {
     const srcdoc = renderHtmlBlock().querySelector("iframe")!.getAttribute("srcdoc")!;
     expect(srcdoc).toContain(`content="${HTML_CSP}"`);
     expect(HTML_CSP).toContain("default-src 'none'");
     expect(HTML_CSP).not.toContain("script-src"); // no script directive at all
+    // Same-origin frame: 'self' IS the app, so no directive may allow it.
+    expect(HTML_CSP).not.toContain("'self'");
+    expect(HTML_CSP).not.toMatch(/https?:/);
+  });
+
+  it("strips every author path that navigates the frame (CSP has no navigation directive)", () => {
+    const srcdoc = renderHtmlBlock(
+      `<meta http-equiv="refresh" content="0;url=/api/x"><base href="/">` +
+        `<a href="/api/a" target="_top">a</a><a href="#frag">f</a>` +
+        `<map><area href="/api/b"></map>` +
+        `<svg><a href="/api/c"><text>c</text></a><use xlink:href="/api/d#e"/><use href="#ok"/></svg>` +
+        `<p style="color:red">kept</p>`,
+    )
+      .querySelector("iframe")!
+      .getAttribute("srcdoc")!;
+    expect(srcdoc).not.toMatch(/refresh|<base|\/api\//);
+    expect(srcdoc).toContain('href="#frag"'); // in-document fragments are harmless
+    expect(srcdoc).toContain('href="#ok"');
+    expect(srcdoc).toContain(`content="${HTML_CSP}"`); // our CSP meta survives
+    expect(srcdoc).toContain('<p style="color:red">kept</p>');
+    expect(inertSrcDoc(srcdoc)).toBe(srcdoc); // idempotent
   });
 });
 
@@ -127,6 +150,6 @@ describe("sandboxed frames — real demo plan renders end-to-end", () => {
     expect(html).toContain('data-plan-block-type="html"');
     // The prototype's inline <script> is confined to the srcdoc, escaped into an attr.
     expect(html).toContain('sandbox="allow-scripts allow-forms"');
-    expect(html).toContain('sandbox=""');
+    expect(html).toContain('sandbox="allow-same-origin"');
   });
 });
