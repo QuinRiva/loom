@@ -80,7 +80,7 @@ export async function loadMcpBridge(
   );
   const fetchStub = async (
     url: string,
-    transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
+    transport: { body: string; headers: Record<string, string>; signal?: AbortSignal | undefined },
   ) => {
     transport.signal?.throwIfAborted();
     transports.push({
@@ -108,7 +108,7 @@ export async function loadMcpBridge(
   // those requests from the same stub.
   const httpRequest = (
     url: string,
-    init: { headers: Record<string, string>; signal?: AbortSignal },
+    init: { headers: Record<string, string>; signal?: AbortSignal | undefined },
     onResponse: (response: unknown) => void,
   ) => {
     let onError: (error: unknown) => void = () => undefined;
