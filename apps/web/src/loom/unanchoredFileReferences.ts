@@ -1,4 +1,4 @@
-import { splitFilePathPosition } from "@t3tools/client-runtime/markdown-links";
+import { splitFilePathPosition } from "@t3tools/shared/fileLinks";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 

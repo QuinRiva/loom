@@ -122,6 +122,11 @@ describe("closedViewStore", () => {
         host: "github.com",
         url: "https://github.com/owner/repo/pull/1",
       },
+      // loom: Loom's own panel tabs survive a reload too
+      { kind: "tasks", id: "tasks" },
+      { kind: "workstream", id: "workstream" },
+      { kind: "dir", id: "dir:/tmp/out", absolutePath: "/tmp/out" },
+      { kind: "artifact", id: "artifact:a.html", relativePath: "a.html", reloadRequestId: 2 },
     ];
     const entries = surfaces.map((surface, index) => ({
       id: String(index),
@@ -208,6 +213,7 @@ describe("closedViewStore", () => {
           kind: "file",
           id: `file:${index}`,
           relativePath: `${index}.ts`,
+          absolutePath: null, // loom:
           revealLine: null,
           revealRequestId: 0,
         },

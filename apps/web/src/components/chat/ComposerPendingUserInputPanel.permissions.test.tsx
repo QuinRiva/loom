@@ -12,6 +12,14 @@ vi.mock("../ui/collapsible", () => {
   };
 });
 
+// loom: the question body (ChatMarkdown) and age (a minute timer) need a real `window`,
+// which these tests stub, so render them inert.
+vi.mock("~/loom/pendingUserInputLoom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/loom/pendingUserInputLoom")>()),
+  PendingQuestionBody: ({ text }: { text: string }) => <p>{text}</p>,
+  PendingQuestionAge: () => null,
+}));
+
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 
 it("cancels an answer's pending auto-submit on revocation and resumes after a new grant", async () => {
@@ -36,6 +44,14 @@ it("cancels an answer's pending auto-submit on revocation and resumes after a ne
         header: "Approach",
         question: "Which approach?",
         options: [{ label: "Incremental", description: "One module at a time" }],
+        multiSelect: false,
+      },
+      // loom: 3d-4 — only a non-final question auto-advances, so the answered one needs a successor.
+      {
+        id: "scope",
+        header: "Scope",
+        question: "Which scope?",
+        options: [{ label: "Narrow", description: "One package" }],
         multiSelect: false,
       },
     ],

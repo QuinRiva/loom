@@ -1,5 +1,5 @@
 import type { ResolvedKeybindingsConfig, ScopedThreadRef } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { compileResolvedKeybindingsConfig, DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { act } from "react";
@@ -105,7 +105,11 @@ function press(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(state, {
-    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+    // loom: mod+shift+t defaults to Loom's thread-tab reopen (DL-912), so bind upstream's chord here.
+    keybindings: compileResolvedKeybindingsConfig([
+      ...DEFAULT_KEYBINDINGS.filter((rule) => rule.command !== "tab.reopenClosed"),
+      { key: "mod+shift+t", command: "view.reopenClosed" },
+    ]),
     params: {},
     paletteOpen: false,
     workspaceAvailable: true,
@@ -194,9 +198,16 @@ describe("root reopen shortcut", () => {
   });
 
   it("serializes deliberate presses while a browser restore waits for RPC", async () => {
-    useClosedViewStore
-      .getState()
-      .remember({ kind: "panel-tab", threadRef: ref, surface: { kind: "files", id: "files" } });
+    useClosedViewStore.getState().remember({
+      kind: "panel-tab",
+      threadRef: ref,
+      surface: {
+        kind: "files",
+        id: "files",
+        revealPath: null, // loom: reveal fields
+        revealRequestId: 0,
+      },
+    });
     useClosedViewStore.getState().remember({ kind: "browser", threadRef: ref, snapshot });
     let finish!: (value: ReturnType<typeof AsyncResult.success>) => void;
     state.openPreview.mockReturnValue(
@@ -266,11 +277,17 @@ describe("root reopen shortcut", () => {
               threadRef: ref,
               surface:
                 kind === "files"
-                  ? { kind: "files", id: "files" }
+                  ? {
+                      kind: "files",
+                      id: "files",
+                      revealPath: null, // loom: reveal fields
+                      revealRequestId: 0,
+                    }
                   : {
                       kind: "file",
                       id: "file:src/app.ts",
                       relativePath: "src/app.ts",
+                      absolutePath: null, // loom:
                       revealLine: null,
                       revealRequestId: 0,
                     },

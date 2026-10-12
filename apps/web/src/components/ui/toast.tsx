@@ -115,7 +115,7 @@ const toastClearAllClass = cn(
   "absolute top-0 right-0 z-0 inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-full border border-border/60 bg-popover/92 pr-2.5 pl-2 text-xs text-muted-foreground shadow-md backdrop-blur-sm outline-none select-none",
   "[--toast-gap:--spacing(3)] translate-y-[calc(var(--toast-stack-height)+var(--toast-stack-count)*var(--toast-gap))] [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.15s,color_.15s]",
   "pointer-events-none opacity-0 in-data-expanded:pointer-events-auto in-data-expanded:opacity-100 in-data-expanded:delay-[0s,.2s,0s]",
-  "hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+  "hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
 );
 
 function handleToastDismissClick(

@@ -15,6 +15,9 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("react", () => ({ useCallback: (callback: unknown) => callback }));
+// loom: the zed-ssh host read (react is mocked here, so the atom hook is too).
+vi.mock("./state/server", () => ({ primaryServerConfigAtom: "primaryServerConfig" }));
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("./state/shell", () => ({ shellEnvironment: { openInEditor: "openInEditor" } }));
 vi.mock("./state/use-atom-command", () => ({ useAtomCommand: () => state.run }));
 vi.mock("./state/session", () => ({

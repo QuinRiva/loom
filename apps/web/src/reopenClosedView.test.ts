@@ -55,6 +55,7 @@ describe("reopenClosedView", () => {
           kind: "file",
           id: "file:src/app.ts",
           relativePath: "src/app.ts",
+          absolutePath: null, // loom:
           revealLine: 18,
           revealRequestId: 1,
         },
@@ -74,11 +75,12 @@ describe("reopenClosedView", () => {
       workspaceAvailable: false,
     };
     for (const surface of [
-      { kind: "files", id: "files" },
+      { kind: "files", id: "files", revealPath: null, revealRequestId: 0 }, // loom: reveal fields
       {
         kind: "file",
         id: "file:src/app.ts",
         relativePath: "src/app.ts",
+        absolutePath: null, // loom:
         revealLine: null,
         revealRequestId: 0,
       },
@@ -133,7 +135,17 @@ describe("reopenClosedView", () => {
 describe("planNextReopen", () => {
   const entries: ClosedViewEntry[] = [
     { id: "a", kind: "panel-tab", threadRef, surface: { kind: "diff", id: "diff" } },
-    { id: "b", kind: "panel-tab", threadRef, surface: { kind: "files", id: "files" } },
+    {
+      id: "b",
+      kind: "panel-tab",
+      threadRef,
+      surface: {
+        kind: "files",
+        id: "files",
+        revealPath: null, // loom: reveal fields
+        revealRequestId: 0,
+      },
+    },
   ];
   const known: ReopenOwnerState = {
     environmentKnown: true,

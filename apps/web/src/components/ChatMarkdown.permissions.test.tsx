@@ -77,6 +77,7 @@ vi.mock("../state/session", async () => {
 });
 vi.mock("../state/server", () => ({
   serverEnvironment: { configValueAtom: () => "config" },
+  primaryServerConfigAtom: "primaryServerConfig", // loom: editorPreferences reads the zed-ssh host
 }));
 vi.mock("../state/threads", () => ({
   threadEnvironment: { updateMetadata: "updateMetadata" },

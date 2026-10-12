@@ -28,6 +28,11 @@ vi.mock("../rpc/atomRegistry", () => ({
     return state.registry;
   },
 }));
+// loom: OpenInPicker/editorPreferences read the zed-ssh host from the primary server config.
+vi.mock("../state/server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return { primaryServerConfigAtom: Atom.make(null) };
+});
 vi.mock("../state/shell", () => ({ shellEnvironment: { openInEditor: "openInEditor" } }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => state.run }));
 vi.mock("../hooks/useLocalStorage", () => ({

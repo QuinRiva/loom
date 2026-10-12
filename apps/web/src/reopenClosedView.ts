@@ -143,6 +143,13 @@ export async function reopenClosedView(
     case "pull-request":
       panels.openPullRequest(ref, surface);
       break;
+    // loom: Loom's dir and artefact tabs reopen through their own openers (not singletons)
+    case "dir":
+      panels.openDirectoryAbsolute(ref, surface.absolutePath);
+      break;
+    case "artifact":
+      panels.openArtifact(ref, surface.relativePath);
+      break;
     default:
       panels.open(ref, surface.kind);
   }

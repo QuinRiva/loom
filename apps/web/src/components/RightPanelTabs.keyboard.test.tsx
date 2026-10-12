@@ -202,7 +202,10 @@ describe("right panel new-tab shortcut", () => {
   it("supports arrow keys with an existing tab in sheet mode and clears the menu on close", async () => {
     const panel = {
       mode: "sheet" as const,
-      surfaces: [{ id: "files" as const, kind: "files" as const }],
+      // loom: reveal fields
+      surfaces: [
+        { id: "files" as const, kind: "files" as const, revealPath: null, revealRequestId: 0 },
+      ],
     };
     await renderPanel(panel);
     await press("t", { metaKey: true });

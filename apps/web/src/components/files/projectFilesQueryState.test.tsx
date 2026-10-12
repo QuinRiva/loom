@@ -297,7 +297,10 @@ describe("project query refresh", () => {
     atomHooks.registry = registry;
     projectMocks.optimisticFile.mockReturnValue(Atom.make(null));
     try {
-      expect(useProjectFileQuery(environmentId, "/repo", "t3.json", false)).toMatchObject({
+      // loom: maxBytes is the 4th parameter
+      expect(
+        useProjectFileQuery(environmentId, "/repo", "t3.json", undefined, false),
+      ).toMatchObject({
         data: null,
         error: null,
         isPending: false,

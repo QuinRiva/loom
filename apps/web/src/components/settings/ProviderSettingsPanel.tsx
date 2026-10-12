@@ -923,8 +923,8 @@ export function EnvironmentProviderSettings({
     const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
       hiddenModels: [],
       modelOrder: [],
-      selectedModels: [],
-      showOnlySelectedModels: false,
+      selectedModels: [], // loom: allow-list fields (LoomModelPreferenceFields)
+      showOnlySelectedModels: false, // loom:
     };
     const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
       favorite.provider === row.instanceId ? Result.succeed(favorite.model) : Result.failVoid,

@@ -364,6 +364,7 @@ const upsertFileSurface = (
     absolutePath,
   );
   return {
+    ...current, // keeps upstream's dismissed-device ids and maximized flag
     isOpen: true,
     activeSurfaceId: surface.id,
     surfaces: existing
@@ -924,6 +925,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             );
             const surface = filesSurface(relativePath, (existing?.revealRequestId ?? 0) + 1);
             return {
+              ...current,
               isOpen: true,
               activeSurfaceId: surface.id,
               surfaces: existing

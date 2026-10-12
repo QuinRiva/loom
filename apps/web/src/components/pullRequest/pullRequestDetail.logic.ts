@@ -1223,6 +1223,7 @@ export function buildAskAboutGuideStopHandoff(input: {
     reviewComments: [
       pullRequestContextComment(input, ANSWER_INSTRUCTIONS),
       {
+        kind: "line", // loom: review contexts are a kind union
         id: `pull-request-guide-stop:${input.number}:${stop.index}`,
         sectionId: `pull-request:${input.number}`,
         sectionTitle: `PR #${input.number} review guide`,

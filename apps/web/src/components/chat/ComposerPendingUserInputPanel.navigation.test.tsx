@@ -17,6 +17,14 @@ vi.mock("../ui/collapsible", () => {
   };
 });
 
+// loom: the question body (ChatMarkdown) and age (a minute timer) need a real `window`,
+// which these tests stub, so render them inert.
+vi.mock("~/loom/pendingUserInputLoom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/loom/pendingUserInputLoom")>()),
+  PendingQuestionBody: ({ text }: { text: string }) => <p>{text}</p>,
+  PendingQuestionAge: () => null,
+}));
+
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 
 const prompt = {
