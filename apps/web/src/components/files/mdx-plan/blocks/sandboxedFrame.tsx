@@ -53,11 +53,8 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  *     cancelled on load, whatever the `href` — stripping attributes cannot work,
  *     since an `href` can arrive after parse (declarative shadow DOM, SVG SMIL
  *     `<set attributeName="href">`). No `allow-popups` / `allow-top-navigation`
- *     for a `target` to use either. Residuals: a click in the few ms between first
- *     paint and `load`, before the guard is attached; and a middle-click
- *     (`auxclick`, not guarded) still opens the link in a new tab — a user-chosen
- *     top-level navigation that carries the app's Lax cookies exactly as on an
- *     opaque-origin frame.
+ *     for a `target` to use either. Residual: a click in the few ms between first
+ *     paint and `load`, before the guard is attached.
  */
 
 /** Prototype iframe sandbox: interactive (scripts + forms) but opaque origin —
@@ -109,19 +106,21 @@ export function inertSrcDoc(srcDoc: string): string {
 }
 
 /** Cancel every link activation in an HtmlBlock frame's document: a capture-phase
- * `click` (mouse, or Enter on a focused link) whose composed path — which crosses
+ * `click` (mouse, or Enter on a focused link) or `auxclick` (middle-click → new
+ * tab) whose composed path — which crosses
  * shadow roots — passes through an `<a>`/`<area>` (HTML or SVG). Other clicks
  * keep their default, so `<details>`/`<summary>` in a mockup still toggle. */
 export function blockLinkActivation(doc: Document): void {
-  doc.addEventListener(
-    "click",
-    (event) => {
-      // `localName` is undefined on the path's Document/Window entries.
-      if (event.composedPath().some((node) => LINK_TAGS.has((node as Element).localName)))
-        event.preventDefault();
-    },
-    true,
-  );
+  for (const type of ["click", "auxclick"])
+    doc.addEventListener(
+      type,
+      (event) => {
+        // `localName` is undefined on the path's Document/Window entries.
+        if (event.composedPath().some((node) => LINK_TAGS.has((node as Element).localName)))
+          event.preventDefault();
+      },
+      true,
+    );
 }
 const LINK_TAGS = new Set(["a", "area"]);
 
