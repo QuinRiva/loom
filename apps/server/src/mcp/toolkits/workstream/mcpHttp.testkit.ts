@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
+import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
@@ -19,12 +20,19 @@ import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
+import * as PreviewManager from "../../../preview/Manager.ts";
+import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
+import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequestReviewGuideService.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
+import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
+import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
 import { HandoffDuplicateJudge } from "../../../loom/handoff/handoffDuplicates.ts";
 import { EmergentGoals } from "../../../loom/orchestration/EmergentGoalReactor.ts";
@@ -68,6 +76,13 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
     Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
     Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+    Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
+    Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
+    Layer.mock(PreviewManager.PreviewManager)({}),
+    Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+    Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
+    Layer.mock(ThreadSearch.ThreadSearch)({}),
     loomToolkitServiceStubs(stubs.loomStore, stubs.consult),
   );
 
@@ -128,6 +143,7 @@ export const serveMcp = Effect.fn("serveMcp")(function* (
       }),
     ),
     Layer.provide(PreviewAutomationBroker.layer),
+    Layer.provide(PreviewBrowser.layer),
     Layer.provide(stubServices(stubs)),
     Layer.build,
   );

@@ -39,6 +39,7 @@ import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import { subscribeOrchestrationV2Thread } from "../ws.ts";
 import * as OrchestrationHttp from "./http.ts";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom: the snapshot carries Loom goals (seam 15)
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -230,6 +231,7 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({}),
   Layer.mock(ProjectStore.ProjectStoreV2)({}),
   Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({}),
+  LoomStore.layer, // loom: seam 15
 ).pipe(Layer.provideMerge(store));
 
 const withHttp = <A>(use: (get: (path: string) => Promise<Response>) => Promise<A>) =>
@@ -237,6 +239,7 @@ const withHttp = <A>(use: (get: (path: string) => Promise<Response>) => Promise<
     const context = yield* Effect.context<Layer.Success<typeof TestLayer>>();
     const appLayer = HttpApiBuilder.layer(OrchestrationApi).pipe(
       Layer.provide(OrchestrationHttp.layer),
+      HttpRouter.provideRequest(Layer.succeedContext(context)), // loom: the shell snapshot reads Loom goals per request (seam 15)
       Layer.provide(auth),
       Layer.provide(Layer.succeedContext(context)),
       Layer.provide(NodeHttpPlatform.layer),

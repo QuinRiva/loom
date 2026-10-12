@@ -29,6 +29,7 @@ import {
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
+import { agentGitEnv } from "../loom/workstream/agentGitIdentity.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -36,11 +37,12 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type {
   ProviderAdapterV2OpenSessionInput,
   ProviderAdapterV2SessionRuntime,
-  ProviderAdapterV2Shape,
+  ProviderAdapterV2,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
@@ -117,7 +119,7 @@ const recordingAdapter = (opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSess
           events: Stream.never,
         } as unknown as ProviderAdapterV2SessionRuntime;
       }),
-  }) as ProviderAdapterV2Shape;
+  }) as ProviderAdapterV2["Service"];
 
 const openWith = (composer: Layer.Layer<never> | undefined) =>
   Effect.gen(function* () {
@@ -136,6 +138,7 @@ const openWith = (composer: Layer.Layer<never> | undefined) =>
           IdAllocator.layer,
           ingestor,
           mcpRegistry,
+          McpProviderSessions.layer,
           stores,
           ...(composer === undefined ? [] : [composer]),
         ),
@@ -258,6 +261,9 @@ it.effect("hands the production composer's prompt, extension and env to the adap
     const loom = opens[0]?.loom;
     assert.isTrue(loom?.appendSystemPrompt.startsWith(WORK_MODEL_ADDENDUM));
     assert.lengthOf(loom?.extensions ?? [], 1);
-    assert.deepEqual(loom?.env, { PI_CACHE_RETENTION: "long" });
+    assert.deepEqual(loom?.env, {
+      PI_CACHE_RETENTION: "long",
+      ...agentGitEnv(ThreadId.make("thread-loom-composer")),
+    });
   }),
 );

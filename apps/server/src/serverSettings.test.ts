@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER, // loom:
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -98,6 +99,9 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
     `;
   });
 
+// loom: Loom's model-picker allow-list fields on every provider preference entry (DL-913).
+const loomAllowList = { selectedModels: [], showOnlySelectedModels: false };
+
 it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("serializes concurrent model preference edits without cancelling duplicate adds", () =>
     Effect.gen(function* () {
@@ -141,7 +145,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const patch = {
           favorites: [{ provider, model: "sol" }],
           providerModelPreferences: {
-            [provider]: { hiddenModels: ["astra"], modelOrder: ["sol"] },
+            // loom: the allow-list fields ride upstream's preferences (DL-913)
+            [provider]: { ...loomAllowList, hiddenModels: ["astra"], modelOrder: ["sol"] },
           },
         };
         const changes = yield* service.subscribeChanges;
@@ -158,6 +163,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           setModelsHidden: [{ provider, model: "sol", hidden: true }],
         });
         assert.deepEqual(hidden.providerModelPreferences?.[provider], {
+          ...loomAllowList, // loom:
           hiddenModels: ["astra", "sol"],
           modelOrder: ["sol"],
         });
@@ -165,6 +171,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           setModelsHidden: [{ provider, model: "astra", hidden: false }],
         });
         assert.deepEqual(shown.providerModelPreferences?.[provider], {
+          ...loomAllowList, // loom:
           hiddenModels: ["sol"],
           modelOrder: ["sol"],
         });
@@ -772,7 +779,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           });
           const fallbackSelection = {
             instanceId: fallbackInstanceId,
-            model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
+            // loom: the fork's default selection is pi's model; the codex fallback takes codex's.
+            model: DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[ProviderDriverKind.make("codex")],
           };
           assert.deepEqual(next.textGenerationModelSelection, fallbackSelection);
           assert.deepEqual(

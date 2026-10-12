@@ -78,6 +78,7 @@ const LaunchStub = Layer.effect(
             resumed: false,
           };
         }).pipe(Effect.orDie),
+      checkWorktreeBase: () => Effect.die("unused"),
       retryPreparation: () => Effect.die("unused"),
     });
   }),

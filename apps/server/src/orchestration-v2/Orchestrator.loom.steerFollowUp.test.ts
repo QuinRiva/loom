@@ -32,7 +32,7 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import type {
   ProviderAdapterV2Event,
-  ProviderAdapterV2Shape,
+  ProviderAdapterV2,
   ProviderAdapterV2TurnInput,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
@@ -51,7 +51,7 @@ it.effect("a steered control wake that misses its turn starts the next one, loom
       const started: ProviderAdapterV2TurnInput[] = [];
       const steered: string[] = [];
       const capabilities = CodexProviderCapabilitiesV2;
-      const adapter: ProviderAdapterV2Shape = {
+      const adapter: ProviderAdapterV2["Service"] = {
         instanceId,
         driver,
         getCapabilities: () => Effect.succeed(capabilities),
