@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
-// Loom's two extension parts (plan track 3c, seam 3), each built exactly as 3a's assembler
+// Loom's extension parts (plan track 3c, seam 3), each built exactly as 3a's assembler
 // wraps it — `(pi, ctx) => { <source> }` — and driven through a stub pi. The search-guard
 // cases are quarantine's searchGuardExtension.test.ts, unchanged but for the loader.
 import * as NodeFS from "node:fs";
@@ -9,6 +9,7 @@ import * as NodePath from "node:path";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
 import type { LoomExtensionPart } from "../loomExtension.ts";
+import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
 
@@ -348,5 +349,48 @@ describe("prompt-debug part", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(fetches).toBe(2);
     expect(NodeFS.readdirSync(tmpDir).length).toBe(before);
+  });
+});
+
+describe("cacheWarmingGate part", () => {
+  const SUBMIT = "mcp__t3-code__workstream_submit";
+  // pi's decision payload: continuationProbability 0.15 once the run has settled, 1 during it.
+  const idle = { type: "cache_warming_decision", continuationProbability: 0.15, action: "warm" };
+  const streaming = { ...idle, continuationProbability: 1 };
+  const load = () => {
+    const handlers = loadPart(cacheWarmingGatePart);
+    return {
+      decide: (event: Record<string, unknown>) =>
+        handlers.get("cache_warming_decision")!(event, ctx),
+      submit: (isError: boolean) =>
+        handlers.get("tool_result")!({ toolName: SUBMIT, toolCallId: "s1", isError }, ctx),
+      input: () => handlers.get("input")!({ type: "input", text: "again", source: "rpc" }, ctx),
+    };
+  };
+
+  it("stops idle warming after a successful submit, and leaves streaming refreshes alone", () => {
+    const gate = load();
+    expect(gate.submit(false)).toBeUndefined();
+    expect(gate.decide(idle)).toEqual({ action: "stop" });
+    expect(gate.decide(streaming)).toBeUndefined();
+  });
+
+  it("does not interfere before a submit, after a failed one, or after other tools succeed", () => {
+    const gate = load();
+    expect(gate.decide(idle)).toBeUndefined();
+    gate.submit(true);
+    expect(gate.decide(idle)).toBeUndefined();
+    const handlers = loadPart(cacheWarmingGatePart);
+    handlers.get("tool_result")!({ toolName: "bash", toolCallId: "b1", isError: false }, ctx);
+    expect(handlers.get("cache_warming_decision")!(idle, ctx)).toBeUndefined();
+  });
+
+  it("lets a re-opened thread warm again until it submits again", () => {
+    const gate = load();
+    gate.submit(false);
+    expect(gate.input()).toBeUndefined();
+    expect(gate.decide(idle)).toBeUndefined();
+    gate.submit(false);
+    expect(gate.decide(idle)).toEqual({ action: "stop" });
   });
 });
