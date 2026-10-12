@@ -247,7 +247,7 @@ author it (plan, "Who may write the text models read").
 
 ## 9. Gate and audit checklist for the end state
 
-- [ ] **markers** — S1: 0 conflict markers, `parsesweep.mjs` clean, `dangling.py` reports 0 outside `quarantine/`
+- [x] **markers** — S1: 0 conflict markers, `parsesweep.mjs` clean, `dangling.py` reports 0 outside `quarantine/`
 - [x] **hooks** — S2a writes, S3 runs: a hooks-binding test resolves `LoomPiAdapterHooks` through the layer the server actually gives the Pi driver (`apps/server/src/loom/serverLayers.ts` composed with `PiAdapterV2Driver.create`), and asserts it is not `passthroughLoomPiAdapterHooks`. Today no test does this: `PiAdapterV2.loom.test.ts` passes its own hooks straight to `makePiAdapterV2`
 - [x] **hosted** — Gate 1 checks, S2a tests: a hosted MCP caller with no thread credential is refused by `requireWorkstreamCaller` before any workstream tool runs; S2a adds the test if none exists
 - [x] **typecheck** — S3: `vp run typecheck` green from a fresh install under `tsc-rs` (the new checker is itself a risk — see Risks)
