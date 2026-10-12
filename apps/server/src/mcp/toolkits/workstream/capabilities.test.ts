@@ -8,6 +8,7 @@ import { expect, it } from "@effect/vitest";
 import {
   ProjectId,
   ProviderInstanceId,
+  RunId,
   type OrchestrationV2ServerCommand,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -48,6 +49,13 @@ it.effect("a Loom credential is denied delegate_task and t3_thread_send, and lin
               dispatched.push(command);
               return { sequence: 1, storedEvents: [] };
             }),
+        },
+        // Upstream's tool access admits only a caller that owns a live run, before any handler.
+        threadManagement: {
+          getThreadShell: (id) =>
+            Effect.succeed(
+              id === LOOM_TEST_THREAD ? { ...thread, activeRunId: RunId.make("run-live") } : null,
+            ),
         },
         loomStore: { getWorkstream: () => Effect.succeed(null) },
         projects: {

@@ -2442,22 +2442,9 @@ it.layer(
     ),
   );
 
-  it.effect("resolves an empty Codex default slot with default config", () =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const environment = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
-        serverSettings,
-        path,
-        rawProviderInstanceId: "codex",
-        env: { CODEX_HOME: "/inherited/codex-home" },
-      });
-
-      expect(environment.CODEX_HOME).toBe("/inherited/codex-home");
-    }).pipe(
-      Effect.provide(ServerSettings.ServerSettingsService.layerTest({ providerInstances: {} })),
-    ),
-  );
+  // loom: upstream's "resolves an empty Codex default slot with default config" is deleted —
+  // the Pi-first registry hydrates no codex default slot, so an unconfigured codex id does not
+  // resolve (the pull-9 precedent for upstream's legacy-default cases; S2t DL row).
 
   it.effect("keeps unknown provider instance ids unavailable after default-slot hydration", () =>
     Effect.gen(function* () {

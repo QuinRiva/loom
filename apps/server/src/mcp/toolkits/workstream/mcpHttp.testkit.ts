@@ -49,6 +49,8 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 export interface McpServiceStubs {
   readonly orchestrator?: Partial<Orchestrator.OrchestratorV2["Service"]>;
   readonly projects?: Partial<ProjectService.ProjectService["Service"]>;
+  /** Upstream's tool access reads the caller here (`loadCaller`) before any handler runs. */
+  readonly threadManagement?: Partial<ThreadManagementService.ThreadManagementService["Service"]>;
   readonly loomStore?: Pick<
     Partial<LoomStore.LoomStoreV2["Service"]>,
     "getWorkstream" | "listWorkstreamTree" | "listChildren"
@@ -67,7 +69,7 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(ProjectService.ProjectService)(stubs.projects ?? {}),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
     Layer.mock(DeviceService.DeviceService)({}),
-    Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+    Layer.mock(ThreadManagementService.ThreadManagementService)(stubs.threadManagement ?? {}),
     Layer.mock(ProviderRegistry.ProviderRegistry)({}),
     Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
     Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),

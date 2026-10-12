@@ -816,7 +816,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
 
-      assert.equal(next.textGenerationModelSelection.instanceId, "claudeAgent");
+      // loom: Pi-first (DL-84) — the default pi selection stays enabled, so nothing falls back.
+      assert.equal(next.textGenerationModelSelection.instanceId, "pi");
     }).pipe(Effect.provide(layerServerSettings())),
   );
 

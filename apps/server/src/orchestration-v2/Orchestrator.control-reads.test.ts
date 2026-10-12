@@ -85,9 +85,11 @@ it.effect(
         assert.ok(shell);
         assert.equal(shell.autoSettleDisabledAt == null, enabled);
       }
-      yield* sql`INSERT INTO orchestration_v2_projection_messages
-      (message_id, thread_id, run_id, node_id, role, streaming, created_at, updated_at, payload_json)
-      VALUES ('obsolete', ${threadId}, NULL, NULL, 'assistant', 0, ${DateTime.formatIso(now)}, ${DateTime.formatIso(now)}, '{"obsolete":true}')`;
+      // loom: Loom skips an undecodable message row (ProjectionStore decodeMessageRows), so the
+      // unrelated corrupt row that makes full hydration fail is a plan.
+      yield* sql`INSERT INTO orchestration_v2_projection_plans
+        (plan_id, thread_id, run_id, node_id, kind, status, payload_json)
+        VALUES ('obsolete', ${threadId}, NULL, 'node:obsolete', 'proposed', 'completed', '{"obsolete":true}')`;
       assert.equal((yield* Effect.exit(projections.getThreadProjection(threadId)))._tag, "Failure");
       yield* orchestrator.dispatch({
         type: "queue.resume",
