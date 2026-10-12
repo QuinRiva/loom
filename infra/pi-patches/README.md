@@ -13,15 +13,16 @@ this file covers only the patches.
 Loom **bundles pi as a workspace dependency** and applies these patches
 automatically at install time via pnpm's `patchedDependencies`:
 
-- `apps/server/package.json` pins `@earendil-works/pi-coding-agent` at an **exact**
-  version (no `^`): the pnpm patch key is version-scoped, so a version bump that
+- `pnpm-workspace.yaml`'s `catalog` pins `@earendil-works/pi-coding-agent` at an
+  **exact** version (no `^`; `apps/server` and `packages/provider-pi` both take it
+  as `catalog:`): the pnpm patch key is version-scoped, so a version bump that
   forgets the patch fails `pnpm install` loudly instead of silently shipping an
   unpatched pi.
 - `pnpm-workspace.yaml` → `patchedDependencies` maps that exact version to
   `patches/@earendil-works__pi-coding-agent@<version>.patch` (generated from the
   patch below — see "Re-deriving").
-- `apps/server`'s `resolveLoomPiBinaryPath()`
-  (`src/provider/Drivers/Pi/bundledPi.loom.ts`) rewrites the default `pi`
+- `packages/provider-pi`'s `resolveLoomPiBinaryPath()`
+  (`src/server/bundledPi.loom.ts`) rewrites the default `pi`
   binary path to this copy's `bin.pi` once, where `PiDriver` builds its config,
   so every pi spawn — the RPC session, discovery, the version probe, text
   generation — and the update resolver run the bundled, patched binary, not
@@ -29,7 +30,7 @@ automatically at install time via pnpm's `patchedDependencies`:
   `#!/usr/bin/env node` shebang (POSIX only); an explicit `binaryPath` setting
   overrides it. Upstream's maintenance resolver treats the `node_modules` path
   as manual-only, so `pi update --self` is never offered for the bundled copy
-  (`src/provider/providerMaintenance.loom.test.ts`).
+  (`packages/provider-pi/src/server/maintenance.loom.test.ts`).
 
 ## ⚠️ Since pi 0.84, `bin.pi` is a pre-bundled file
 
@@ -41,12 +42,12 @@ Loom runs unpatched** — silently, with no install-time error.
 
 So each patch exists in two forms, and both are part of the pnpm patch:
 
-- the readable diff below (`0001-…patch`, `0002-…patch`), applied to `dist/`;
+- the readable diff below (`0001-…patch` … `0004-…patch`), applied to `dist/`;
 - the same change applied to the bundle by `patch-bundle.mjs`, as anchored
-  string replacements against the minified chunks. Since 0.99 the two patches
+  string replacements against the minified chunks. Since 0.99 the patches
   land in different chunks (the auth storage and the CLI's `main()` were split
   apart; 0.84–0.87 had one), so the script finds each patch's chunk by content.
-  It is idempotent, writes nothing unless every anchor of both patches matches
+  It is idempotent, writes nothing unless every anchor of every patch matches
   its expected count, and `node --check`s the result — so a pi bump whose
   bundle drifted fails loudly.
 
@@ -69,7 +70,7 @@ global `npm i -g` install and any `pi update` silently reverted it.
 ```bash
 npm install -g @earendil-works/pi-coding-agent@<version>   # the bundled pin; not `pi update`
 infra/pi-patches/apply.sh          # apply (idempotent): readable dist/, then the bundle
-infra/pi-patches/apply.sh --check  # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
+infra/pi-patches/apply.sh --check  # 000N: applied=yes … then each bundle target: already patched
 infra/pi-patches/apply.sh --revert # back out the readable tree only — reinstall to undo the bundle
 ```
 
@@ -78,7 +79,8 @@ runtime does not use that copy, but the global pi is still a required part of
 every bump: `~/.pi/agent/auth.json` is shared by every pi process on the
 machine, so an unpatched terminal pi writing it non-atomically can hand a
 bundled cockpit thread an empty credential store — 0002 only works if _every_
-writer has it. Install the exact bundled version with `npm install -g` (so the
+writer has it. Terminal pi also shares the global `"cacheWarming": "idle"`
+setting, and without 0004 its idle pings are silently dropped. Install the exact bundled version with `npm install -g` (so the
 re-derived diffs below apply at zero offset; `pi update` installs latest and
 `--all` also reinstalls extensions, wiping their patches), then run `apply.sh`.
 
@@ -88,7 +90,8 @@ The atomic-write harness in step 3 imports the global install by default, so
 for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
-Authored against pi **0.82.1**; both diffs were re-derived against **1.1.0**
+0001/0002 were authored against pi **0.82.1** and 0003/0004 against **1.1.0**; all
+four diffs apply to **1.1.0**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
@@ -112,6 +115,15 @@ Not optional, and it has paid off twice. Against the new pristine tarball
   `PiCwdOverride.contract.test.ts` passes against stock. Retiring a patch that
   was still needed is silent amnesia (a resumed session creates a new empty
   session with the same id), so the bar is proof, not plausibility.
+- **0003** — if `dist/core/cache-warmer.js` already reads the idle horizon
+  from configuration (an env var or setting), drop the patch and point Loom's
+  composer at the upstream knob instead. If `MAX_IDLE_WARMING_AGE_MS` is gone or
+  the idle deadline is measured differently, re-check the ping arithmetic in the
+  0003 section before re-deriving.
+- **0004** — if `cacheContextIsCurrent` in `dist/core/sdk.js` no longer compares
+  messages by object identity, or `_refreshFinalizedContext` (`dist/core/agent-session.js`)
+  keeps message objects when the projection is unchanged, drop the patch — after
+  proving it with the 0004 harness (stock must then ping once).
 
 Record the outcome here either way.
 
@@ -134,7 +146,7 @@ test against the stock 1.1.0 bundle fails the same 7 of 9.
 
 Both places matter:
 
-- `apps/server/package.json` — the exact pin (no caret).
+- `pnpm-workspace.yaml` → `catalog` — the exact pin (no caret).
 - `pnpm-workspace.yaml` → `patchedDependencies` — the version-scoped patch key.
   Remove the old entry; never leave both versions registered.
 
@@ -157,13 +169,13 @@ pnpm install                       # resolves the new version, unpatched — the
 rm -rf /tmp/pi-patch-<newVersion>  # never reuse a stale editable dir
 pnpm patch @earendil-works/pi-coding-agent@<newVersion> --edit-dir /tmp/pi-patch-<newVersion>
 diff -r --brief <pristine-tarball-dir> /tmp/pi-patch-<newVersion>   # must be empty
-# 1. readable dist/ — both diffs, at zero fuzz so an upstream drift fails here rather than in step 3:
+# 1. readable dist/ — every diff, at zero fuzz so an upstream drift fails here rather than in step 3:
 for p in infra/pi-patches/000*.patch; do patch -p1 -F 0 -d /tmp/pi-patch-<newVersion> < "$p"; done
 # 2. the bundle that bin.pi actually runs:
 node infra/pi-patches/patch-bundle.mjs /tmp/pi-patch-<newVersion>
 find /tmp/pi-patch-<newVersion> -name '*.orig' -delete  # `patch` backs a file up when a hunk lands at an offset
 pnpm patch-commit /tmp/pi-patch-<newVersion>      # writes patches/… and registers the entry
-pnpm install                                      # confirm both land in the resolved copy
+pnpm install                                      # confirm every patch lands in the resolved copy
 ```
 
 `pnpm patch-commit` rewrites the `patchedDependencies` entry with single quotes
@@ -171,9 +183,15 @@ and drops it above the `# loom:` comment — put the comment back on top and
 requote. It also re-spaces the `supportedArchitectures` arrays (`[ current, x64 ]`);
 restore those, then `vp check --fix` the YAML.
 
+**Adding a patch without a version bump** is the same flow minus the pin
+moves: `pnpm patch … --ignore-existing --edit-dir <dir>` gives a pristine copy
+while the current entry stays registered, then apply every `000N` diff and
+`patch-bundle.mjs` as above; `patch-commit` rewrites the patch file and the
+lockfile's `patch_hash` only.
+
 ### 3. Re-derive the stored diffs and verify
 
-Re-derive `0001`/`0002` from the patched copy (`diff -u` against the pristine
+Re-derive the `000N` diffs from the patched copy (`diff -u` against the pristine
 tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
 
 - the stored diffs plus `patch-bundle.mjs`, applied to a fresh pristine tarball,
@@ -190,7 +208,7 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   (separate-process readers; in-process readers falsely report clean): every
   `zeroByte`/`unparseable`/`emptyObject` count must be 0. Its import is
   hard-coded to the global install; for the bundled copy point it at the
-  resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
+  resolved package (`readlink -f packages/provider-pi/node_modules/@earendil-works/pi-coding-agent`)
   instead. That exercises the readable tree — the bundle's write path is proven
   by `grep -c __loomWriteAuthAtomic` on the auth chunk (expect 2) with no raw
   `writeFileSync(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)` left. Stock pi is dramatically dirty for
@@ -201,6 +219,9 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   was the exception: ~2–3 M zero-byte, ~50–90 unparseable and ~300 good reads
   per reader on 3 of 3 runs, so there the unparseable count carries the
   calibration. Patched 0.99.2 reads ~7 k good and zero of everything else;
+- the bundle honours `PI_CACHE_WARMING_IDLE_MAX_MS` (0003) and still sends an
+  idle ping after a `turn_end` handler rebuilds the messages (0004) — see those
+  sections for the free checks;
 - `pnpm install` is idempotent (lockfile unchanged on a second run), and
   `vp check` / `vp run typecheck` pass;
 - every package pi pulls in has a license notice: `generateThirdPartyLicenseManifest`
@@ -212,7 +233,7 @@ All of the above must run in a worktree that has itself run `pnpm install`
 since the bump: a sibling worktree that merely merged the commit still resolves
 the **old** pi, and the model probes pass on it anyway (builtin models come from
 `~/.pi/agent/models-store.json`, custom ones from the extensions). Assert
-`grep '"version"' "$(readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`
+`grep '"version"' "$(readlink -f packages/provider-pi/node_modules/@earendil-works/pi-coding-agent)/package.json"`
 before trusting any result.
 
 ## 0001 — `--cwd <dir>` for headless session resume, and `cwdOverride` on RPC `switch_session`
@@ -376,6 +397,105 @@ and zero zero-byte/unparseable/empty per reader. 1.1.0: `auth-storage.js`
 byte-identical to 1.0.2 (auth chunk now `chunk-MXTZIDYW.js`), stored diff
 byte-identical, and the harness against the resolved 1.1.0 copy read ~7.1 k
 good and zero of everything else per reader.
+
+## 0003 — configurable idle cache-warming horizon (`PI_CACHE_WARMING_IDLE_MAX_MS`)
+
+**Problem.** With `"cacheWarming": "idle"`, pi re-sends a thread's last
+request with a one-token cap shortly before its prompt cache expires, but only
+within a hard 30-minute idle horizon (`MAX_IDLE_WARMING_AGE_MS`). A 1-hour cache
+refreshes at 54 minutes (90% of the TTL), so with stock pi it is **never**
+idle-warmed: the turn settles and the warmer stops at once with "30-minute idle
+safety limit reached". Loom wants 1-hour root threads kept warm past the hour.
+
+**Fix.** The constant becomes `Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS)
+|| 30 * 60_000`, read once at module load, so it is set per pi process. Unset,
+empty, `0` or non-numeric all mean stock behaviour. The idle stop reason names
+the configured horizon (`"90-minute idle safety limit reached"`) instead of the
+hard-coded 30 minutes; unset, the text is unchanged. Loom's session composer
+sets the variable for 1-hour roots only. pi's "cache refresh deadline missed"
+and "conversation context changed" guards still apply to every ping. pi's
+economics gate does too, except that Loom's extension (`cacheWarmingGate`)
+answers `warm` to a 1-hour root's idle decision: pi prices a miss at the
+5-minute write rate, which would skip the ~54-minute ping for most contexts.
+
+**How the horizon counts, in pi 1.1.0** (`dist/core/cache-warmer.js`):
+
+- Idle age is measured from `run.startedAt`, the moment the **last real
+  session request was dispatched** (`CacheWarmer.start`, called from the
+  agent's `streamFn` before each request — so in a tool loop it is the last
+  request of the turn, not the user's message, and not the turn's end). Warm
+  pings never move it.
+- A ping is scheduled at `nextWarmAt = now + delayMs` (`delayMs` =
+  `min(0.9 × TTL, TTL − 10 s)` = 54 min for a 1-hour cache), measured from the
+  request's dispatch for the first ping and from the end of the previous ping
+  for later ones.
+- It is **dropped** when `nextWarmAt > startedAt + horizon` (strict `>`), or when
+  `now >= startedAt + horizon`. So a ping is kept iff it falls at or before the
+  horizon.
+
+For a 1-hour cache that gives pings at ≈ 54, 108, 162 … minutes, each kept
+while ≤ the horizon: 0 pings below ~54 min, **exactly one for a horizon between
+~55 and ~107 minutes** (90 min = `5400000` is Loom's choice — the cache then
+lives to ≈ 114 min), two up to ~161 minutes, three for 3 hours. (Exactly
+54 min, `3240000`, schedules the ping only because the first schedule runs in
+the same millisecond as the dispatch; do not rely on it.)
+
+**Free check against the bundle.** No live model is needed: run the resolved
+`bin.pi` in RPC mode with an isolated `PI_CODING_AGENT_DIR` whose
+`settings.json` is `{"cacheWarming":"idle"}`, `PI_CACHE_RETENTION=long`, and a
+throwaway extension registering a fake provider (custom `streamSimple`
+returning a canned 200 k-token cache-write usage; model `promptCache: { short:
+300, long: 3600 }`), under a `node --import` preload that runs `Date.now` and
+`setTimeout` 400× fast. Send one `prompt`, then idle ~200 virtual minutes and
+count the provider calls with `maxTokens: 1` (also visible as `cache_warm`
+`entry_appended` events). On 1.1.0: unset → no ping; `5400000` → one ping at
++54.0 min; `10800000` → pings at +54.0, +108.0, +162.1 min. The
+`/session`-equivalent status from the readable tree's `CacheWarmer` right after
+the turn settles reads `Inactive (30-minute idle safety limit reached)` unset
+and `Decision in 54m (… -> warm)` with `5400000`.
+
+Files: `dist/core/cache-warmer.js` (plus the bundle: two anchors in the CLI
+chunk, `chunk-OIM2DMFI.js` on 1.1.0 — the constant once, the stop reason twice).
+Upstreamable as a setting rather than an env var.
+
+## 0004 — idle cache warming survives pi's post-turn message rebuild
+
+**Problem.** With `"cacheWarming": "idle"`, every idle ping in a Loom pi
+stopped with "conversation context changed"; only mid-run pings were ever sent.
+Before each refresh pi checks the request is still current
+(`cacheContextIsCurrent`, `dist/core/sdk.js`): same model, and every message
+of the warmed request still at the same index of `agent.state.messages`,
+compared **by object identity**. But after every turn `_commitBoundaryDrafts`
+→ `_refreshFinalizedContext` (`dist/core/agent-session.js`) replaces
+`agent.state.messages` with the session projection whenever any extension
+handles `turn_end`, and the projection rebuilds custom messages (and summaries)
+as new objects carrying the persisted entry's timestamp. Same content, new
+objects, so the warmed run is never current once the turn settles. Carl's
+global pi packages always register `turn_end` and add custom messages, so in
+production all 248 `cache_warm` pings after idle warming was turned on were
+mid-run.
+
+**Fix.** A message counts as current if it is the same object, or its JSON with
+`timestamp` blanked is equal (`sameRequestMessage`). The warm request's bytes
+depend on content, not identity, and no pi-ai provider sends message
+timestamps (the rebuilt custom message's timestamp is the entry's persistence
+time, which can differ from the in-memory one by milliseconds). It stays
+cheap: identical objects short-circuit, so only the rebuilt messages are
+serialised, once per warming decision. A real change — an edited or compacted
+prefix, a different model — still fails the check.
+
+**Free check** (`/home/Carl/scratch/prompt-cache-idle-gap/pi-0004-harness/`:
+the 0003 harness plus `repro.ts`, an empty `turn_end` handler and one custom
+message per turn; `PI_ROOT=<pi root> node run.mjs <label> [compactAtMin]`).
+1-hour fake provider, `PI_CACHE_WARMING_IDLE_MAX_MS=5400000`, 100 idle virtual
+minutes. On 1.1.0: without 0004, repro → no ping (control with `REPRO=off` →
+one ping at +54.0); with 0004, repro → one ping at +54.0 and a `cache_warm`
+entry; with 0004 and a compaction at +20 (`AGENT_DIR=agentdir-compact`) → no
+ping.
+
+Files: `dist/core/sdk.js` (plus the bundle: one anchor in the CLI chunk,
+`chunk-OIM2DMFI.js` on 1.1.0, and the `__loomSameRequestMessage` header).
+Upstream issue drafted at `/home/Carl/scratch/prompt-cache-idle-gap/pi-upstream-issue.md`.
 
 > Note: `pnpm patch` byte-compares the whole package, so
 > `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~650–700 KB — the

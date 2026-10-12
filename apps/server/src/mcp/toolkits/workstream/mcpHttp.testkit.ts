@@ -98,6 +98,7 @@ export const loomToolkitServiceStubs = (
       goals: {} as never,
       tasks: {} as never,
       consults: {} as never,
+      cache: {} as never,
       peerMessages: {} as never,
       ...loomStore,
     }),

@@ -23,6 +23,7 @@ import { ControlDigestCardView } from "../loom/ControlDigestCard";
 import { controlCardModel } from "../loom/controlMessages";
 import { LoomTimelineRowView } from "../loom/LoomTimelineRowView";
 import type { LoomTimelineRow } from "../loom/loomTimelineRows";
+import { CACHE_LIVENESS_PREVIEW_GROUP } from "./cacheLivenessFixtures";
 import { CONSULT_CARD_FIXTURES } from "./consultCardFixtures";
 import type { PreviewGroup } from "./fixtures";
 import {
@@ -351,4 +352,5 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       },
     ],
   },
+  CACHE_LIVENESS_PREVIEW_GROUP,
 ];

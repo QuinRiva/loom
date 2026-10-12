@@ -167,6 +167,14 @@
       "types": "./src/state/itemSupport.ts",
       "default": "./src/state/itemSupport.ts"
     },
+    "./state/loom/cacheLiveness": {
+      "types": "./src/state/loom/cacheLiveness.ts",
+      "default": "./src/state/loom/cacheLiveness.ts"
+    },
+    "./state/loom/cacheTouches": {
+      "types": "./src/state/loom/cacheTouches.ts",
+      "default": "./src/state/loom/cacheTouches.ts"
+    },
     "./state/loom/consults": {
       "types": "./src/state/loom/consults.ts",
       "default": "./src/state/loom/consults.ts"

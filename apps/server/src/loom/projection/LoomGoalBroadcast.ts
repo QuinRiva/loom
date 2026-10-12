@@ -11,6 +11,7 @@
  * @module loom/projection/LoomGoalBroadcast
  */
 import type {
+  LoomCacheShellStreamItem,
   LoomConsultShellStreamItem,
   LoomGoal,
   LoomGoalShell,
@@ -29,6 +30,7 @@ import * as Struct from "effect/Struct";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { LoomThreadConsult } from "../workstream/consult.ts";
+import { LoomCacheBroadcast } from "./LoomCacheBroadcast.ts";
 import { LoomStoreV2 } from "./LoomStore.ts";
 
 export class LoomGoalBroadcast extends Context.Service<
@@ -116,6 +118,9 @@ export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectSh
  * snapshot loads, so no write between snapshot and tail is lost. The live
  * consult items (`LoomThreadConsult.subscribeLive`) ride the same tail: they
  * have no snapshot field, since a subscription opens with the running ones.
+ * So do the cache touches (`LoomCacheBroadcast`): kept off the snapshot, which
+ * carries each thread's last persisted `workstream.cache.touchedAt` instead.
+ * This tail is therefore goals, consults and cache touches, not goals alone.
  */
 export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   readonly loom?: boolean;
@@ -123,15 +128,21 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   if (input.loom !== true) {
     return {
       snapshotGoals: (_projects: ReadonlyArray<OrchestrationProjectShell>) => Effect.succeed({}),
-      items: Stream.empty as Stream.Stream<LoomGoalShellStreamItem | LoomConsultShellStreamItem>,
+      items: Stream.empty as Stream.Stream<
+        LoomGoalShellStreamItem | LoomConsultShellStreamItem | LoomCacheShellStreamItem
+      >,
     };
   }
   const loomStore = yield* LoomStoreV2;
   const subscription = yield* (yield* LoomGoalBroadcast).subscribe;
   const consults = yield* (yield* LoomThreadConsult).subscribeLive;
+  const cacheTouches = yield* (yield* LoomCacheBroadcast).subscribe;
   return {
     snapshotGoals: (projects: ReadonlyArray<OrchestrationProjectShell>) =>
       loomSnapshotGoals(projects).pipe(Effect.provideService(LoomStoreV2, loomStore)),
-    items: Stream.merge(Stream.fromSubscription(subscription), consults),
+    items: Stream.fromSubscription(subscription).pipe(
+      Stream.merge(consults),
+      Stream.merge(Stream.fromSubscription(cacheTouches)),
+    ),
   };
 });

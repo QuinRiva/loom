@@ -511,6 +511,41 @@ export const isLoomConsultShellStreamItem = <Item extends { readonly kind: strin
 ): item is Extract<Item, { readonly kind: LoomConsultShellStreamItem["kind"] }> =>
   item.kind === "consult.updated";
 
+/** A pi thread's prompt-cache arm for life: `long` = 1-hour, `short` = 5-minute. */
+export const LoomCacheRetention = Schema.Literals(["long", "short"]);
+export type LoomCacheRetention = typeof LoomCacheRetention.Type;
+
+/**
+ * A thread's prompt-cache state from `loom_thread_cache`: the arm its launches
+ * run, and when pi last refreshed the cache with an idle ping (null until the
+ * first). The last real request is the shell's `latestRunCompletedAt`.
+ */
+export const LoomThreadCache = Schema.Struct({
+  retention: LoomCacheRetention,
+  touchedAt: Schema.NullOr(IsoDateTime),
+});
+export type LoomThreadCache = typeof LoomThreadCache.Type;
+
+/**
+ * A cache-warming ping, the moment pi reports it. Spliced into
+ * `OrchestrationV2ShellStreamItem` for `loom: true` subscribers: no `sequence`,
+ * never persisted; the client keeps it out of the persisted shell and seeds
+ * from the snapshot's `workstream.cache.touchedAt` on (re)connect.
+ */
+export const LoomCacheShellStreamItemMembers = [
+  Schema.Struct({
+    kind: Schema.Literal("cache.touched"),
+    threadId: ThreadId,
+    touchedAt: IsoDateTime,
+  }),
+] as const;
+export type LoomCacheShellStreamItem = (typeof LoomCacheShellStreamItemMembers)[number]["Type"];
+
+export const isLoomCacheShellStreamItem = <Item extends { readonly kind: string }>(
+  item: Item,
+): item is Extract<Item, { readonly kind: LoomCacheShellStreamItem["kind"] }> =>
+  item.kind === "cache.touched";
+
 /** The card ↔ live-consult correlation key: FNV-1a of the trimmed question, base 36. */
 export const consultQuestionKey = (question: string): string => {
   let hash = 0x811c9dc5;
@@ -549,6 +584,8 @@ export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => 
   ),
   /** Null unless a run is active. */
   activeStep: Schema.NullOr(LoomActiveStep).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** Absent until the thread's first pi launch (and for every non-pi thread). */
+  cache: Schema.optionalKey(LoomThreadCache),
 }));
 export type LoomThreadShellFields = typeof LoomThreadShellFields.Type;
 
@@ -1097,8 +1134,14 @@ export interface LoomOpenSessionFields {
   readonly skills: ReadonlyArray<string>;
   /** One `--extension <path>` each, beside upstream's bridge extension. */
   readonly extensions: ReadonlyArray<string>;
-  /** Merged into the pi process env (`PI_CACHE_RETENTION`, DL-300; the agent git identity). */
+  /**
+   * Merged into the pi process env: `PI_CACHE_RETENTION` (DL-300), the agent git identity,
+   * `T3_LOOM_HIDDEN_TOOLS` and, for a 1-hour root, `PI_CACHE_WARMING_IDLE_MAX_MS`
+   * (pi's idle-warming horizon).
+   */
   readonly env?: Readonly<Record<string, string>>;
   /** Prepended to the pi process PATH: the agent git shim's directory (`agentGitIdentity.ts`). */
   readonly pathPrepend?: string;
+  /** The idle release for this process when it differs from the default (1-hour roots). */
+  readonly idleTimeoutMs?: number;
 }

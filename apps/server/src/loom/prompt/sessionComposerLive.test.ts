@@ -15,6 +15,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -32,6 +33,7 @@ import * as ServerSettings from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
+import * as LoomStore from "../projection/LoomStore.ts";
 import {
   completeSeededRun,
   dispatch,
@@ -57,23 +59,35 @@ const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
 /** Where the stub adapter's sessions run (the testkit's inert provider session). */
 const STUB_SESSION_CWD = "/workspace/loom-test";
 
-const composerDeps = (rootCacheRetention: "ab" | "long" | "short") =>
+const composerDeps = (rootCacheLongShare: number) =>
   Layer.mergeAll(ProjectionStore.layer, ProjectStore.layer, LoomExtensionPathLive).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-composer-" })),
-    Layer.provideMerge(ServerSettings.layerTest({ rootCacheRetention })),
+    Layer.provideMerge(ServerSettings.layerTest({ rootCacheLongShare })),
     Layer.provideMerge(NodeServices.layer),
   );
 
 /** A fresh composer with its own state dir; `body` gets the launch-identity dir too. */
 const withComposer = <A, E, R>(
-  rootCacheRetention: "ab" | "long" | "short",
-  body: (composer: LoomSessionComposerShape, identityDir: string) => Effect.Effect<A, E, R>,
+  rootCacheLongShare: number,
+  body: (
+    composer: LoomSessionComposerShape,
+    identityDir: string,
+    stateDir: string,
+  ) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const composer = yield* makeLoomSessionComposer;
     const config = yield* ServerConfig.ServerConfig;
-    return yield* body(composer, loomPaths(config).workstreamLaunchIdentityDir);
-  }).pipe(Effect.provide(composerDeps(rootCacheRetention)));
+    return yield* body(composer, loomPaths(config).workstreamLaunchIdentityDir, config.stateDir);
+  }).pipe(Effect.provide(composerDeps(rootCacheLongShare)));
+
+/** A 1-hour root's launch env: its identity's arm, its git identity, the hidden tools and pi's idle-warming horizon. */
+const longRootEnv = (threadId: ThreadId) => ({
+  PI_CACHE_RETENTION: "long",
+  ...agentGitEnv(threadId),
+  ...LOOM_HIDDEN_TOOLS_ENV,
+  PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
+});
 
 /** A root on a real checkout (so `.t3code/roles/` can be written under it). */
 const seedRoot = (name: string, worktreePath: string, role?: string) =>
@@ -122,7 +136,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   it.effect(
     "is byte-stable, and the identity is written once (a role edit does not reach a relaunch)",
     () =>
-      withComposer("long", (composer, identityDir) =>
+      withComposer(1, (composer, identityDir) =>
         Effect.gen(function* () {
           const checkout = tempCheckout();
           writeProjectRole(checkout, "orchestrator", "- PROJECT RULE ONE");
@@ -151,6 +165,10 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
             "tools",
           ]);
           assert.equal(sidecar.appendSystemPrompt, first.appendSystemPrompt);
+          // The arm is identity; the keep-alive horizon and idle release are per-launch policy.
+          assert.deepEqual(sidecar.env, { PI_CACHE_RETENTION: "long" });
+          assert.deepEqual(first.env, longRootEnv(threadId));
+          assert.equal(first.idleTimeoutMs, 2 * 60 * 60_000);
           assert.deepEqual(sidecar.modelSelection, testModelSelection);
           // The orchestrator's resident families are the launched profile.
           assert.include(sidecar.tools as Array<string>, "mcp__t3-code__workstream_spawn");
@@ -159,7 +177,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect("composes addendum → identity → overlay for a root, with no child clause", () =>
-    withComposer("long", (composer) =>
+    withComposer(1, (composer) =>
       Effect.gen(function* () {
         const { threadId } = yield* seedRoot("order", tempCheckout());
         const { appendSystemPrompt, env, extensions } = yield* composer.compose(threadId);
@@ -171,11 +189,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
         assert.include(appendSystemPrompt, "SHIPPING POLICY");
         assert.include(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, {
-          PI_CACHE_RETENTION: "long",
-          ...agentGitEnv(threadId),
-          ...LOOM_HIDDEN_TOOLS_ENV,
-        });
+        assert.deepEqual(env, longRootEnv(threadId));
         assert.lengthOf(extensions, 1);
         assert.equal(NodePath.basename(extensions[0]!), LOOM_EXTENSION_FILENAME);
         assert.isTrue(NodeFS.existsSync(extensions[0]!));
@@ -184,7 +198,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect("composes a root created with a role under that role's project overlay", () =>
-    withComposer("long", (composer) =>
+    withComposer(1, (composer) =>
       Effect.gen(function* () {
         const checkout = tempCheckout();
         writeProjectRole(checkout, "slack-inbox", "- SLACK INBOX RULE");
@@ -201,12 +215,12 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect("gives a child the readership clause, its role, short retention and no catalogue", () =>
-    withComposer("long", (composer) =>
+    withComposer(1, (composer) =>
       Effect.gen(function* () {
         const { threadId: root, projectId } = yield* seedRoot("parent", tempCheckout());
         const child = ThreadId.make("thread:composer-child");
         yield* spawnChild({ parentThreadId: root, threadId: child, projectId, role: "coder" });
-        const { appendSystemPrompt, env } = yield* composer.compose(child);
+        const { appendSystemPrompt, env, idleTimeoutMs } = yield* composer.compose(child);
         assert.isTrue(
           appendSystemPrompt.startsWith(
             `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child)}\n\nYou are a coder sub-thread.`,
@@ -218,6 +232,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           ...agentGitEnv(child),
           ...LOOM_HIDDEN_TOOLS_ENV,
         });
+        assert.isUndefined(idleTimeoutMs);
       }),
     ),
   );
@@ -225,7 +240,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   it.effect(
     "replays a forkFrom child from its source's record on its first launch only, leaving the source's untouched",
     () =>
-      withComposer("short", (composer, identityDir) =>
+      withComposer(0, (composer, identityDir) =>
         Effect.gen(function* () {
           const { threadId: root, projectId } = yield* seedRoot("fork", tempCheckout());
           const source = ThreadId.make("thread:composer-fork-source");
@@ -290,7 +305,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   it.effect(
     "replays a V2 fork (thread_fork) from its source as a root on its first launch only, or composes it fresh as a root when the source has no record",
     () =>
-      withComposer("long", (composer) =>
+      withComposer(1, (composer) =>
         Effect.gen(function* () {
           const { threadId: source } = yield* seedRoot("v2-fork", tempCheckout());
           yield* seedRunningRun({ threadId: source });
@@ -330,22 +345,14 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
               `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
             ),
           );
-          assert.deepEqual(freshFields.env, {
-            PI_CACHE_RETENTION: "long",
-            ...agentGitEnv(fresh),
-            ...LOOM_HIDDEN_TOOLS_ENV,
-          });
+          assert.deepEqual(freshFields.env, longRootEnv(fresh));
 
           const sourceFields = yield* composer.compose(source);
           const target = yield* forkOf("thread:composer-v2-fork-target");
           const forked = yield* composer.compose(target);
           assert.deepEqual(forked, asThread(sourceFields, target));
           assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
-          assert.deepEqual(forked.env, {
-            PI_CACHE_RETENTION: "long",
-            ...agentGitEnv(target),
-            ...LOOM_HIDDEN_TOOLS_ENV,
-          });
+          assert.deepEqual(forked.env, longRootEnv(target));
 
           // Its relaunch is its own root identity, written once from then on (DL-740).
           const relaunched = yield* composer.compose(target);
@@ -363,7 +370,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   it.effect(
     "a retro reviewer composes its own identity with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
     () =>
-      withComposer("short", (composer) =>
+      withComposer(0, (composer) =>
         Effect.gen(function* () {
           const { threadId: source, projectId } = yield* seedRoot("drafted", tempCheckout());
           const { threadId: unlaunched } = yield* seedRoot("upstream-only", tempCheckout());
@@ -420,8 +427,60 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
       ),
   );
 
+  it.effect("allocates roots by share, logs the share and records the arm in the cache table", () =>
+    Effect.gen(function* () {
+      // sha256 first bytes: share-b 125, share-e 134 (below / above 256 × 0.5).
+      const { threadId: long } = yield* seedRoot("share-b", tempCheckout());
+      const { threadId: short } = yield* seedRoot("share-e", tempCheckout());
+      // The state dir lives as long as the composer's layer.
+      const launches = yield* withComposer(0.5, (composer, _identityDir, stateDir) =>
+        Effect.gen(function* () {
+          const longFields = yield* composer.compose(long);
+          assert.deepEqual(longFields.env, longRootEnv(long));
+          assert.equal(longFields.idleTimeoutMs, 2 * 60 * 60_000);
+          const shortFields = yield* composer.compose(short);
+          assert.deepEqual(shortFields.env, {
+            PI_CACHE_RETENTION: "short",
+            ...agentGitEnv(short),
+            ...LOOM_HIDDEN_TOOLS_ENV,
+          });
+          assert.isUndefined(shortFields.idleTimeoutMs);
+          return NodeFS.readFileSync(
+            NodePath.join(stateDir, "cache-retention-launches.jsonl"),
+            "utf8",
+          )
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+        }),
+      );
+      assert.deepEqual(
+        launches.map(({ threadId, cacheRetention, longShare }) => ({
+          threadId,
+          cacheRetention,
+          longShare,
+        })),
+        [
+          { threadId: long, cacheRetention: "long", longShare: 0.5 },
+          { threadId: short, cacheRetention: "short", longShare: 0.5 },
+        ],
+      );
+      const store = yield* LoomStore.LoomStoreV2;
+      yield* store.cache.touch(long, "2026-10-12T00:00:00.000Z");
+      const sql = yield* SqlClient.SqlClient;
+      assert.deepEqual(
+        yield* sql`SELECT thread_id, retention, touched_at FROM loom_thread_cache
+            WHERE thread_id IN (${long}, ${short}) ORDER BY retention`,
+        [
+          { thread_id: long, retention: "long", touched_at: "2026-10-12T00:00:00.000Z" },
+          { thread_id: short, retention: "short", touched_at: null },
+        ],
+      );
+    }),
+  );
+
   it.effect("appends the relocation clause only when a recorded session ran elsewhere", () =>
-    withComposer("short", (composer) =>
+    withComposer(0, (composer) =>
       Effect.gen(function* () {
         const elsewhere = tempCheckout();
         const { threadId: moved } = yield* seedRoot("moved", elsewhere);

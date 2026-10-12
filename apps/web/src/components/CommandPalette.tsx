@@ -244,6 +244,7 @@ import {
   buildSidebarProjectSnapshots,
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
+import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
@@ -1346,7 +1347,12 @@ function OpenCommandPaletteDialog(props: {
         projectTitleById,
         sortOrder: clientSettings.sidebarThreadSortOrder,
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
-        renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
+        renderLeadingContent: (thread) => (
+          <>
+            <CacheFuelRing thread={thread} /> {/* loom: prompt-cache fuel ring */}
+            <ThreadRowLeadingStatus thread={thread} />
+          </>
+        ),
         renderTrailingContent: (thread) => (
           <>
             <ThreadSearchPullRequestNumber

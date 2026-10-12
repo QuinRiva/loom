@@ -234,6 +234,7 @@ interface LiveSessionEntry {
   readonly idleFiber: Fiber.Fiber<void, never> | null;
   /** Set when idle release is deferred for pending background work; bounds total deferral. */
   readonly pinnedSinceMs: number | null;
+  readonly idleTimeoutMs?: number; // loom: per-thread idle release from the composer (1-hour roots)
   /**
    * Shared runtimes only: the provider thread each attached app thread last
    * started a turn on, and the timer that unloads it once it has been idle
@@ -1105,7 +1106,7 @@ export const layerWithOptions = (
               // Re-check on this fiber after another idle window. Do not call
               // scheduleIdleReleaseInternal: that cancels entry.idleFiber, which
               // is this fiber, and can self-deadlock on Fiber.interrupt.
-              yield* Effect.sleep(Duration.millis(idleTimeoutMs));
+              yield* Effect.sleep(Duration.millis(entry.idleTimeoutMs ?? idleTimeoutMs)); // loom: per-thread
               return yield* releaseIfStillIdle(input);
             }
             yield* Effect.logWarning("orchestration-v2.driver-session.idle-release-pin-expired", {
@@ -1164,7 +1165,9 @@ export const layerWithOptions = (
 
           yield* cancelIdleFiber(entry.idleFiber);
           const generation = entry.idleGeneration + 1;
-          const idleFiber = yield* Effect.sleep(Duration.millis(idleTimeoutMs)).pipe(
+          const idleFiber = yield* Effect.sleep(
+            Duration.millis(entry.idleTimeoutMs ?? idleTimeoutMs), // loom: per-thread
+          ).pipe(
             Effect.andThen(releaseIfStillIdle({ providerSessionId, generation })),
             Effect.forkIn(layerScope),
           );
@@ -2214,6 +2217,7 @@ export const layerWithOptions = (
                 lastActivityAtMs: now,
                 idleFiber: null,
                 pinnedSinceMs: null,
+                ...(loom.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: loom.idleTimeoutMs }), // loom: per-thread idle release
                 idleThreadUnloads: new Map(),
               };
               yield* Ref.update(sessions, (current) => {

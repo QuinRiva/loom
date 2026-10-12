@@ -5,7 +5,7 @@
 #
 # Since pi 0.84 `bin.pi` is the pre-bundled dist/bundle/cli.js, so the readable
 # dist/ patches below are not enough on their own: patch-bundle.mjs applies the
-# same two changes to the bundle. `--revert` only reverts the readable dist;
+# same changes to the bundle. `--revert` only reverts the readable dist;
 # reinstall the package to undo the bundle.
 #
 # Usage:

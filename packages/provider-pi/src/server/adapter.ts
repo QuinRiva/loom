@@ -77,6 +77,7 @@ import {
   classifyLoomPiFailure,
   LoomPiAdapterHooks,
   passthroughLoomPiAdapterHooks,
+  touchLoomPiCache, // loom: cache liveness
   type LoomPiAdapterHooksShape,
 } from "./loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
@@ -1817,6 +1818,12 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       });
 
       const handleSessionEvent = Effect.fnUntraced(function* (event: PiRpcRecord) {
+        // loom: a completed request or idle ping refreshed the prompt cache; seen before any wake buffering
+        yield* touchLoomPiCache(
+          loomHooks,
+          threadState?.providerThread.appThreadId ?? input.threadId,
+          event,
+        );
         // Model-selection hooks can await a dialog before startTurn can claim
         // a wake. Keep interactive requests session-scoped until a turn owns
         // them; buffer native output and notifications for that turn.
