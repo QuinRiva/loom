@@ -401,6 +401,12 @@ const LOOM_TOOL_SPECS = {
       project: optionalText(
         "Optional target project (title or id) when the work belongs in a different project than this thread's.",
       ),
+      notDuplicateOf: Schema.optionalKey(
+        described(
+          Schema.Array(Schema.String),
+          "Thread ids a duplicate check named that you judged to be different work; skips the check.",
+        ),
+      ),
       clientRequestId,
     }),
     "soft",

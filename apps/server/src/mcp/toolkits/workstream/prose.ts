@@ -206,8 +206,10 @@ export const LOOM_TOOL_PROSE = {
     description:
       "Hand off a separate, out-of-scope piece of work as its OWN new goal. Not for tasks that belong under this thread's existing goal (use mcp__t3-code__goal_task_add instead). Use when you discover follow-up work that can be actioned by an independent agent. The receiving agent is highly capable and will plan and orchestrate the solution itself. It launches a new goal-bound root in its OWN worktree, which starts immediately on your brief — the brief is all it has of this thread, so write it as a goal charter (what and why), not a doer's assignment. The root is told the brief is agent-written and treats it as a proposal, not the human's approved plan: quote the human's words where you relay them, and describe rather than instruct.",
     promptSnippet: "hand off discovered out-of-scope work as a new goal",
-    promptGuidelines:
+    promptGuidelines: [
       "The new root starts immediately in its own worktree, with the brief as its only context of this thread and labelled to it as another agent's; tell the user it is under way.",
+      "A cheap model first checks for an open thread already doing the work; a likely duplicate launches nothing and names the threads. Consult or notify that thread instead, or, if your work is genuinely distinct, repeat the call with notDuplicateOf listing those thread ids.",
+    ].join("\n"),
   },
   goal_continue: {
     description:

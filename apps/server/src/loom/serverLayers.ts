@@ -35,6 +35,7 @@ import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
 import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
 import { HandoffDrafterReactorLive } from "./handoff/HandoffDrafterReactor.ts";
+import { HandoffDuplicateJudgePiLive } from "./handoff/handoffDuplicates.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
 import {
   EmergentGoalGeneratorPiLive,
@@ -154,11 +155,18 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
  * and publish/subscribe goal shell items. Pull 9 Phase 2 §4. (The Phase 2
  * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
  * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures,
- * and the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671).
+ * the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671),
+ * and the model behind `mcp__t3-code__goal_handoff`'s duplicate check.
  */
 export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
   Layer.provide(EmergentGoalGeneratorPiLive),
-  Layer.provideMerge(Layer.mergeAll(LoomGoalBroadcast.layerWithReactor, LoomThreadConsult.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      LoomGoalBroadcast.layerWithReactor,
+      LoomThreadConsult.layer,
+      HandoffDuplicateJudgePiLive,
+    ),
+  ),
   Layer.provideMerge(LoomStore.layer),
 );
 

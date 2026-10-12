@@ -26,6 +26,7 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
+import { HandoffDuplicateJudge } from "../../../loom/handoff/handoffDuplicates.ts";
 import { EmergentGoals } from "../../../loom/orchestration/EmergentGoalReactor.ts";
 import * as LoomGoalBroadcast from "../../../loom/projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "../../../loom/projection/LoomStore.ts";
@@ -87,6 +88,7 @@ export const loomToolkitServiceStubs = (
     Layer.mock(LoomGoalBroadcast.LoomGoalBroadcast)({}),
     Layer.mock(EmergentGoals)({ derive: () => Effect.void }),
     consult,
+    Layer.mock(HandoffDuplicateJudge)({}),
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   );
 

@@ -4,10 +4,19 @@
  * and dispatches the initial message as the real one would, so the test sees
  * the ordering that matters: the thread carries its goal BEFORE its first
  * message, and that message is the brief. `held` is written by exactly the two
- * staged-root tools, never by the handoff.
+ * staged-root tools, never by the handoff. The handoff's duplicate judge is a
+ * stub answering per `judgeMode`.
  */
 import { assert, it } from "@effect/vitest";
-import { CheckpointId, CommandId, EventId, GoalId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  CheckpointId,
+  CommandId,
+  EventId,
+  GoalId,
+  ProjectId,
+  TextGenerationError,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -15,6 +24,7 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
 import { buildHandoffDraftTurnStart } from "../../../../loom/handoff/handoffDraft.ts";
+import { HandoffDuplicateJudge } from "../../../../loom/handoff/handoffDuplicates.ts";
 import { sessionProfile } from "../../../../loom/http/loomAgentRoutes.ts";
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
 import {
@@ -22,6 +32,7 @@ import {
   seededRunIds,
   seedRunningRun,
   seedThread,
+  spawnChild,
   writeEvents,
 } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
@@ -72,9 +83,31 @@ const LaunchStub = Layer.effect(
   }),
 );
 
+/** "match" names the open thread titled `Root dup-existing`; "fail" is a model error. */
+let judgeMode: "none" | "match" | "fail" = "none";
+const judgePrompts: Array<string> = [];
+
+const JudgeStub = Layer.succeed(HandoffDuplicateJudge, {
+  judge: ({ prompt }) => {
+    judgePrompts.push(prompt);
+    if (judgeMode === "fail")
+      return Effect.fail(
+        new TextGenerationError({ operation: "checkHandoffDuplicate", detail: "model down" }),
+      );
+    const candidate = Number(prompt.match(/\[(\d+)\] Root dup-existing/)?.[1]);
+    return Effect.succeed({
+      matches:
+        judgeMode === "match" && candidate > 0
+          ? [{ candidate, reason: "Both build the usage rollup." }]
+          : [],
+    });
+  },
+});
+
 const TestLayer = makeHandlerTestLayer(
   Layer.mergeAll(
     LaunchStub,
+    JudgeStub,
     Layer.mock(LoomThreadConsult)({}),
     Layer.mock(GitWorkflowService.GitWorkflowService)({
       localStatus: () => Effect.succeed({ refName: "main" } as never),
@@ -189,6 +222,58 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
             (yield* store.getWorkstream(on))!.handoffDestinations.map((entry) => entry.threadId),
             [input.threadId!],
           );
+      }),
+  );
+
+  it.effect(
+    "goal_handoff: a likely duplicate refuses with its candidates; notDuplicateOf or a failed check proceeds",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const { root: existing } = yield* goalRoot("dup-existing");
+        const { root: caller } = yield* goalRoot("dup-caller");
+        yield* spawnChild({ parentThreadId: caller, threadId: ThreadId.make("dup-caller-child") });
+        const handoff = {
+          title: "Usage rollups again",
+          description: "Roll usage up to the goal.",
+          brief: "Build the goal-level usage rollup.",
+        };
+        const launched = launches.length;
+
+        judgeMode = "match";
+        const refused = yield* callAs(caller, "goal_handoff", handoff);
+        assert.include(refused.text, "Not handed off");
+        assert.include(
+          refused.text,
+          `"Root dup-existing" (thread ${existing}, goal "Goal dup-existing"): Both build the usage rollup.`,
+        );
+        assert.include(refused.text, `notDuplicateOf: ["${existing}"]`);
+        assert.lengthOf(launches, launched);
+        assert.isFalse(
+          (yield* store.goals.listByProject(projectId)).some(
+            (goal) => goal.title === handoff.title,
+          ),
+        );
+        // The caller and its own subtree are never candidates.
+        const prompt = judgePrompts.at(-1)!;
+        assert.include(prompt, `Goal "Goal dup-existing"`);
+        assert.notInclude(prompt, "Root dup-caller");
+        assert.notInclude(prompt, "dup-caller-child");
+
+        const checks = judgePrompts.length;
+        const overridden = yield* callAs(caller, "goal_handoff", {
+          ...handoff,
+          notDuplicateOf: [existing],
+        });
+        assert.include(overridden.text, "is starting on your brief", overridden.text);
+        assert.lengthOf(judgePrompts, checks);
+        assert.lengthOf(launches, launched + 1);
+
+        judgeMode = "fail";
+        const failedOpen = yield* callAs(caller, "goal_handoff", handoff);
+        assert.include(failedOpen.text, "is starting on your brief", failedOpen.text);
+        assert.lengthOf(launches, launched + 2);
+        judgeMode = "none";
       }),
   );
 
