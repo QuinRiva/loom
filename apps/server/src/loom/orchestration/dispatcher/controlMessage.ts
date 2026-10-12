@@ -13,6 +13,7 @@
  *
  * @module loom/orchestration/dispatcher/controlMessage
  */
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- a pure, synchronous digest; Effect's Crypto is effectful.
 import * as NodeCrypto from "node:crypto";
 
 import {

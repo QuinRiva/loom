@@ -25,7 +25,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as NodeCrypto from "node:crypto";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- loom: deriveId needs a sync digest.
+import * as NodeCrypto from "node:crypto"; // loom: deriveId
 
 import { randomUuidV4 } from "./randomUuid.ts";
 

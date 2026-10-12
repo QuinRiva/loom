@@ -49,6 +49,7 @@ import * as ProviderHostLive from "./ProviderHostLive.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import type * as ServerConfig from "../config.ts";
+import type * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: Pi-only env
 
 type ProviderInstanceRegistryHydrationEnv =
   | Exclude<
@@ -64,7 +65,8 @@ type ProviderInstanceRegistryHydrationEnv =
   // loom: the Pi-only registry's `BuiltInDriversEnv` no longer carries what the
   // adapter infrastructure below needs (upstream's driver union did).
   | Crypto.Crypto
-  | ProviderEventLoggers.ProviderEventLoggers;
+  | ProviderEventLoggers.ProviderEventLoggers
+  | ServerSecretStore.ServerSecretStore;
 
 /**
  * Explicit `providerInstances` entries plus an implicit default instance for

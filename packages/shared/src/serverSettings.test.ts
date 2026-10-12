@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   UsageLimitSourceId,
+  type ModelPreferences, // loom: see `legacy`
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -1037,10 +1038,11 @@ describe("worktreesDirectory", () => {
 
 describe("synchronized model preferences", () => {
   const provider = ProviderInstanceId.make("codex_work");
+  // loom: cast — Loom's allow-list fields (LoomModelPreferenceFields) are decoded defaults.
   const legacy = {
     favorites: [{ provider, model: "sol" }],
     providerModelPreferences: { [provider]: { hiddenModels: ["astra"], modelOrder: ["sol"] } },
-  };
+  } as unknown as ModelPreferences;
 
   it("keeps concurrent adds and removes of the same favorite idempotent", () => {
     const add = { setModelFavorites: [{ provider, model: "sol", favorite: true }] };
@@ -1057,7 +1059,7 @@ describe("synchronized model preferences", () => {
       providerModelPreferences: {
         ...legacy.providerModelPreferences,
         [otherProvider]: { hiddenModels: ["opus"], modelOrder: ["sonnet", "opus"] },
-      },
+      } as ModelPreferences["providerModelPreferences"], // loom: see `legacy`
     });
     const mobile = applyServerSettingsPatch(initial, {
       setModelsHidden: [{ provider, model: "luna", hidden: true }],

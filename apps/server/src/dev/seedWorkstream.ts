@@ -67,8 +67,8 @@ import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexA
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import type {
+  ProviderAdapterV2,
   ProviderAdapterV2Event,
-  ProviderAdapterV2Shape,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
@@ -102,7 +102,7 @@ const runGit = (cwd: string, args: ReadonlyArray<string>) =>
  * in the run's checkout (so its checkpoint has a real diff), then completes
  * with one assistant message. No provider process exists.
  */
-const seedAdapter: ProviderAdapterV2Shape = {
+const seedAdapter: ProviderAdapterV2["Service"] = {
   instanceId,
   driver,
   getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
@@ -619,7 +619,7 @@ const seedProgram = Effect.gen(function* () {
     kickoffBriefPath: writeFile(
       briefsDir,
       `${SEED.stagedRoot}.md`,
-      `# Continue the workstream fixture\n\nContinue from [the orchestrator](thread://${SEED.root}); the gate is mid-round and the survey went quiet.\n`,
+      `# Continue the workstream fixture\n\nContinue from [the orchestrator](t3-thread://v1/${SEED.root}); the gate is mid-round and the survey went quiet.\n`,
     ),
   });
 

@@ -108,6 +108,8 @@ import {
   WS_METHODS,
   WsRpcGroup,
   isLoomDomainEvent, // loom:
+  LOOM_WS_METHODS, // loom: seam 21
+  LoomWsRpcs, // loom: seam 21
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import {
@@ -116,7 +118,7 @@ import {
   HttpServerRespondable,
   HttpServerResponse,
 } from "effect/http";
-import { RpcSerialization, RpcServer } from "effect/rpc";
+import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc"; // loom: RpcGroup (seam 21)
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
@@ -557,6 +559,10 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+// loom: seam 21 — Loom's ws methods get their own handler layer, merged where `layerWsRpc` is
+// provided. One `toLayer` over every method exceeds tsc-rs's type-instantiation depth.
+const UpstreamServerWsRpcGroup = ServerWsRpcGroup.omit(...Object.values(LOOM_WS_METHODS));
+const layerLoomWsRpc = RpcGroup.make(...LoomWsRpcs).toLayer(makeLoomWsHandlers);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1216,7 +1222,8 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  UpstreamServerWsRpcGroup.toLayer(
+    // loom: every non-Loom method (seam 21)
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1853,8 +1860,8 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
-        ...(yield* makeLoomWsHandlers), // loom: 3d-3 — seam 21 Loom ws methods (loom/wsMethods.ts)
+      const handlers = UpstreamServerWsRpcGroup.of({
+        // loom: every non-Loom method (seam 21)
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2711,68 +2718,48 @@ const layerWsRpc = (
           ),
         // loom: out-of-workspace file chips (DL-89): read, list, stat, locate.
         [WS_METHODS.projectsReadAbsoluteFile]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsReadAbsoluteFile,
-            workspaceFileSystem.readAbsoluteFile(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectReadAbsoluteFileError({
-                    absolutePath: input.absolutePath,
-                    failure: cause.failure,
-                    ...(cause.resolvedPath !== undefined
-                      ? { resolvedPath: cause.resolvedPath }
-                      : {}),
-                    ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
-                    ...(cause.operationPath !== undefined
-                      ? { operationPath: cause.operationPath }
-                      : {}),
-                    cause,
-                  }),
-              ),
+          workspaceFileSystem.readAbsoluteFile(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectReadAbsoluteFileError({
+                  absolutePath: input.absolutePath,
+                  failure: cause.failure,
+                  ...(cause.resolvedPath !== undefined ? { resolvedPath: cause.resolvedPath } : {}),
+                  ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
+                  ...(cause.operationPath !== undefined
+                    ? { operationPath: cause.operationPath }
+                    : {}),
+                  cause,
+                }),
             ),
-            { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.projectsListAbsoluteDirectory]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsListAbsoluteDirectory,
-            workspaceFileSystem.listAbsoluteDirectory(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectListAbsoluteDirectoryError({
-                    absolutePath: input.absolutePath,
-                    failure: cause.failure,
-                    ...(cause.resolvedPath !== undefined
-                      ? { resolvedPath: cause.resolvedPath }
-                      : {}),
-                    ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
-                    ...(cause.operationPath !== undefined
-                      ? { operationPath: cause.operationPath }
-                      : {}),
-                    cause,
-                  }),
-              ),
+          workspaceFileSystem.listAbsoluteDirectory(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectListAbsoluteDirectoryError({
+                  absolutePath: input.absolutePath,
+                  failure: cause.failure,
+                  ...(cause.resolvedPath !== undefined ? { resolvedPath: cause.resolvedPath } : {}),
+                  ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
+                  ...(cause.operationPath !== undefined
+                    ? { operationPath: cause.operationPath }
+                    : {}),
+                  cause,
+                }),
             ),
-            { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.projectsStatPaths]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsStatPaths,
-            workspaceFileSystem
-              .statPaths(input)
-              .pipe(Effect.mapError((cause) => new ProjectStatPathsError({ cause }))),
-            { "rpc.aggregate": "workspace" },
-          ),
+          workspaceFileSystem
+            .statPaths(input)
+            .pipe(Effect.mapError((cause) => new ProjectStatPathsError({ cause }))),
         // loom: chat file-chip index lookup for unanchored references.
         [WS_METHODS.projectsLocateFiles]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.projectsLocateFiles,
-            workspaceEntries
-              .locateFiles(input)
-              .pipe(
-                Effect.mapError((cause) => new ProjectLocateFilesError({ cwd: input.cwd, cause })),
-              ),
-            { "rpc.aggregate": "workspace" },
-          ),
+          workspaceEntries
+            .locateFiles(input)
+            .pipe(
+              Effect.mapError((cause) => new ProjectLocateFilesError({ cwd: input.cwd, cause })),
+            ),
         [WS_METHODS.projectsWriteFile]: (input) =>
           workspaceFileSystem.writeFile(input).pipe(
             Effect.mapError(
@@ -3344,6 +3331,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(layerLoomWsRpc), // loom: seam 21 Loom ws methods (loom/wsMethods.ts)
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.

@@ -33,7 +33,6 @@ import * as Effect from "effect/Effect";
 import * as Struct from "effect/Struct";
 
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
-import { observeRpcEffect } from "../observability/RpcInstrumentation.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
 import { buildRetroDraftTurnStart } from "./handoff/retroDraft.ts";
@@ -126,23 +125,19 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     goalId: GoalId,
     write: (goal: LoomGoal) => Effect.Effect<unknown, LoomStoreError | LoomWsMethodError>,
   ) =>
-    observeRpcEffect(
-      method,
-      Effect.gen(function* () {
-        const current = yield* loomStore.goals.get(goalId);
-        if (current === null || current.deletedAt !== null) {
-          return yield* fail(method, `Goal ${goalId} was not found.`);
-        }
-        yield* write(current);
-        const goal = (yield* loomStore.goals.get(goalId))!;
-        yield* broadcast.publish(goalShellItem(goal));
-        return { goal: Struct.omit(goal, ["deletedAt"]) };
-      }).pipe(
-        Effect.catchTags({
-          LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
-        }),
-      ),
-      { "rpc.aggregate": "loom" },
+    Effect.gen(function* () {
+      const current = yield* loomStore.goals.get(goalId);
+      if (current === null || current.deletedAt !== null) {
+        return yield* fail(method, `Goal ${goalId} was not found.`);
+      }
+      yield* write(current);
+      const goal = (yield* loomStore.goals.get(goalId))!;
+      yield* broadcast.publish(goalShellItem(goal));
+      return { goal: Struct.omit(goal, ["deletedAt"]) };
+    }).pipe(
+      Effect.catchTags({
+        LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
+      }),
     );
 
   return {
@@ -179,69 +174,45 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       ),
     // `/handoff`: a hidden `handoff-drafter` fork of the source, kicked off on the explanation.
     [LOOM_WS_METHODS.handoffDraft]: (input: HandoffDraftInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.handoffDraft,
-        launchDraftFork({
-          method: LOOM_WS_METHODS.handoffDraft,
-          verb: "handed off",
-          sourceThreadId: input.sourceThreadId,
-          build: (fork) => buildHandoffDraftTurnStart({ ...fork, explanation: input.explanation }),
-        }).pipe(
-          Effect.map((drafterThreadId) => ({ drafterThreadId })),
-          Effect.provideContext(draftServices),
-        ),
-        { "rpc.aggregate": "loom" },
+      launchDraftFork({
+        method: LOOM_WS_METHODS.handoffDraft,
+        verb: "handed off",
+        sourceThreadId: input.sourceThreadId,
+        build: (fork) => buildHandoffDraftTurnStart({ ...fork, explanation: input.explanation }),
+      }).pipe(
+        Effect.map((drafterThreadId) => ({ drafterThreadId })),
+        Effect.provideContext(draftServices),
       ),
     // `/retro`: a visible `retro-reviewer` fork of the source, kicked off on the retro brief.
     [LOOM_WS_METHODS.retroDraft]: (input: RetroDraftInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.retroDraft,
-        launchDraftFork({
-          method: LOOM_WS_METHODS.retroDraft,
-          verb: "reviewed",
-          sourceThreadId: input.sourceThreadId,
-          build: (fork, source) =>
-            buildRetroDraftTurnStart({ ...fork, sourceTitle: source.title, focus: input.focus }),
-        }).pipe(
-          Effect.map((reviewerThreadId) => ({ reviewerThreadId })),
-          Effect.provideContext(draftServices),
-        ),
-        { "rpc.aggregate": "loom" },
+      launchDraftFork({
+        method: LOOM_WS_METHODS.retroDraft,
+        verb: "reviewed",
+        sourceThreadId: input.sourceThreadId,
+        build: (fork, source) =>
+          buildRetroDraftTurnStart({ ...fork, sourceTitle: source.title, focus: input.focus }),
+      }).pipe(
+        Effect.map((reviewerThreadId) => ({ reviewerThreadId })),
+        Effect.provideContext(draftServices),
       ),
     // 3d-4 — seam 11's spend reads.
     [LOOM_WS_METHODS.threadSpend]: (input: LoomThreadSpendInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.threadSpend,
-        usageLedger
-          .threadSpend(input.threadIds)
-          .pipe(Effect.map((spend) => ({ spend: Object.fromEntries(spend) }))),
-        { "rpc.aggregate": "loom" },
-      ),
+      usageLedger
+        .threadSpend(input.threadIds)
+        .pipe(Effect.map((spend) => ({ spend: Object.fromEntries(spend) }))),
     [LOOM_WS_METHODS.topSpend]: (input: LoomTopSpendInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.topSpend,
-        usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
-        { "rpc.aggregate": "loom" },
-      ),
+      usageLedger.topSpend(input.limit, input.since).pipe(Effect.map((threads) => ({ threads }))),
     // The node timeline's event history (outcomes with their reports, flags, routes).
     [LOOM_WS_METHODS.threadHistory]: (input: LoomThreadHistoryInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.threadHistory,
-        loomStore.history(input.threadId).pipe(
-          Effect.map((entries) => ({ entries })),
-          Effect.mapError((cause) =>
-            fail(LOOM_WS_METHODS.threadHistory, `${LOOM_WS_METHODS.threadHistory} failed.`, cause),
-          ),
+      loomStore.history(input.threadId).pipe(
+        Effect.map((entries) => ({ entries })),
+        Effect.mapError((cause) =>
+          fail(LOOM_WS_METHODS.threadHistory, `${LOOM_WS_METHODS.threadHistory} failed.`, cause),
         ),
-        { "rpc.aggregate": "loom" },
       ),
     // The consult card's Stop: the asker's tool call fails with the stop sentence and carries on.
     [LOOM_WS_METHODS.consultCancel]: (input: LoomConsultCancelInput) =>
-      observeRpcEffect(
-        LOOM_WS_METHODS.consultCancel,
-        consult.cancel(input.consultId).pipe(Effect.map((stopped) => ({ stopped }))),
-        { "rpc.aggregate": "loom" },
-      ),
+      consult.cancel(input.consultId).pipe(Effect.map((stopped) => ({ stopped }))),
   };
 });
 

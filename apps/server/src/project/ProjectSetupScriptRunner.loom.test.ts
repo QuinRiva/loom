@@ -6,7 +6,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
 import { ProjectId, type TerminalEvent } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -80,8 +80,8 @@ const runWith = <A, E, R>(
         ),
       ),
     ),
-    Effect.provideService(HostProcessPlatform, "linux"),
-    Effect.provideService(HostProcessEnvironment, { SHELL: "/bin/bash" }),
+    Effect.provideService(HostProcess.Platform, "linux"),
+    Effect.provideService(HostProcess.Environment, { SHELL: "/bin/bash" }),
   );
 
 describe("ProjectSetupScriptRunner (loom)", () => {

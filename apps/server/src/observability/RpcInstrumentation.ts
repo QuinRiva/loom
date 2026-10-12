@@ -1,4 +1,9 @@
-import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type WsRpcGroup } from "@t3tools/contracts";
+import {
+  LOOM_WS_METHODS, // loom: seam 21
+  ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
+  type WsRpcGroup,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as References from "effect/References";
@@ -137,6 +142,11 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeProjectClones]: "source-control",
   [WS_METHODS.projectsListEntries]: "workspace",
   [WS_METHODS.projectsReadFile]: "workspace",
+  // loom: out-of-workspace file chips and the chip index lookup (DL-89).
+  [WS_METHODS.projectsReadAbsoluteFile]: "workspace",
+  [WS_METHODS.projectsListAbsoluteDirectory]: "workspace",
+  [WS_METHODS.projectsStatPaths]: "workspace",
+  [WS_METHODS.projectsLocateFiles]: "workspace",
   [WS_METHODS.projectsSearchContents]: "workspace",
   [WS_METHODS.projectsSearchEntries]: "workspace",
   [WS_METHODS.projectsWriteFile]: "workspace",
@@ -208,6 +218,15 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeServerLifecycle]: "server",
   [WS_METHODS.subscribeAuthAccess]: "auth",
   [WS_METHODS.subscribeBackgroundPolicy]: "server",
+  // loom: seam 21 — Loom's ws methods (rpc.loom.ts) share one aggregate.
+  [LOOM_WS_METHODS.goalUpdate]: "loom",
+  [LOOM_WS_METHODS.goalTaskRewrite]: "loom",
+  [LOOM_WS_METHODS.handoffDraft]: "loom",
+  [LOOM_WS_METHODS.retroDraft]: "loom",
+  [LOOM_WS_METHODS.threadSpend]: "loom",
+  [LOOM_WS_METHODS.topSpend]: "loom",
+  [LOOM_WS_METHODS.threadHistory]: "loom",
+  [LOOM_WS_METHODS.consultCancel]: "loom",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { makePiRpcConnection } from "./rpc.ts";
 
@@ -25,7 +25,7 @@ const brokenPi = (rpcBody: string) =>
     return path;
   });
 
-describe.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+describe.skipIf(HostProcess.Platform.defaultValue() === "win32")(
   "PiRpc against a pi that dies with a write queued",
   () => {
     // A write larger than the pipe buffer stays queued in libuv. Closing stdout

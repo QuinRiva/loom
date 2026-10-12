@@ -12,6 +12,7 @@ import {
   type DependencyGateThread,
   describeUnsatisfiedDependency,
 } from "@t3tools/shared/workstreamDependencies";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- a pure, synchronous digest; Effect's Crypto is effectful.
 import * as NodeCrypto from "node:crypto";
 
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";

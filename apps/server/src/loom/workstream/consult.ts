@@ -36,10 +36,12 @@
  *
  * @module loom/workstream/consult
  */
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- the consult id is minted inline.
 import * as NodeCrypto from "node:crypto";
 
 import {
   consultQuestionKey,
+  defaultInstanceIdForDriver,
   type LoomConsultShellStreamItem,
   type LoomLiveConsult,
   type ThreadId,
@@ -67,6 +69,9 @@ import {
 } from "@t3tools/provider-pi/server/rpc";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "@t3tools/provider-pi/server/mcpInjection";
 import { resolveLoomPiBinaryPath } from "@t3tools/provider-pi/server/loom";
+import { PI_PROVIDER } from "@t3tools/provider-pi/server";
+import { PiSettings } from "@t3tools/provider-pi/settings";
+import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { makeConsultTracker } from "./consultTracker.ts";
@@ -164,9 +169,16 @@ export const layer = Layer.effect(
     const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
     const ask = Effect.fn("LoomThreadConsult.ask")(function* (input: ConsultForkInput) {
-      const pi = (yield* settings.getSettings.pipe(
+      // The default pi instance's settings (upstream retired the legacy `providers` block).
+      const pi = yield* settings.getSettings.pipe(
+        Effect.flatMap((current) =>
+          Schema.decodeUnknownEffect(PiSettings)(
+            deriveProviderInstanceConfigMap(current)[defaultInstanceIdForDriver(PI_PROVIDER)]
+              ?.config ?? {},
+          ),
+        ),
         Effect.mapError(consultError("Could not read the pi settings")),
-      )).providers.pi;
+      );
       const launchArgs = resolvePiLaunchArgs(pi.launchArgs);
       if (!launchArgs.ok) return yield* new LoomConsultError({ detail: launchArgs.message });
       const launch = buildPiRpcLaunch({

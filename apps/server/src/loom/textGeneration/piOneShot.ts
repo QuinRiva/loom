@@ -58,7 +58,7 @@ export const makePiOneShot = Effect.gen(function* () {
       if (!launchArgs.ok) return yield* fail(launchArgs.message);
       const launch = buildPiRpcLaunch({
         launchArgs: launchArgs.args,
-        environment: mergeProviderInstanceEnvironment(instance.environment),
+        environment: yield* mergeProviderInstanceEnvironment(instance.environment),
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,
