@@ -15,7 +15,7 @@ import { DELEGATION_TOOLSET_DIGEST } from "./prose.ts";
 import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 
 /** What the loader auto-unions into every restricted role allowlist. */
-const LIFELINE = [...LEAF_CORE, "mcp__t3-code__enable_toolset"];
+const LIFELINE = [...LEAF_CORE];
 
 /**
  * `<tmp>/builtin/` stands in for the server's roles (orchestrator + coder
@@ -92,7 +92,7 @@ describe("loadRoleOverlay", () => {
     });
   });
 
-  it("auto-unions the leaf lifeline (leaf-core + mcp__t3-code__enable_toolset) without duplicating, and nothing more", () => {
+  it("auto-unions the leaf lifeline (leaf-core) without duplicating, and nothing more", () => {
     const { lookup } = fixture({
       "assessor.md":
         "---\ntools: [read_full, mcp__t3-code__workstream_submit]\n---\nASSESSOR OVERLAY",

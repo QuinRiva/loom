@@ -136,7 +136,7 @@ describe("Pi MCP tool exposure", () => {
         ["mcp__t3-code__orchestrator_capabilities", "direct"],
         ["mcp__t3-code__delegate_task", "direct"],
         ["mcp__t3-code__task_status", "direct"],
-        ["mcp__t3-code__preview_snapshot", "direct"], // loom: every t3-code tool direct (DL-905)
+        ["mcp__t3-code__preview_snapshot", "deferred"],
       ],
     );
     assert.deepEqual(
@@ -192,6 +192,23 @@ describe("Pi MCP tool exposure", () => {
     },
   );
 
+  // loom: Loom's withheld tools are hidden, so tool_search cannot surface them.
+  it("hides the tools named in T3_LOOM_HIDDEN_TOOLS", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      loomHiddenTools: ["preview_snapshot"],
+    });
+    await bridge.handlers.get("session_start")!(
+      { systemPrompt: "" },
+      { ui: { notify: () => undefined } },
+    );
+    assert.equal(
+      bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")?.exposure,
+      "hidden",
+    );
+  });
+
   it("preserves legacy wildcard tool selection", async () => {
     const bridge = await loadMcpBridge({
       modern: true,
@@ -204,7 +221,7 @@ describe("Pi MCP tool exposure", () => {
       { ui: { notify: () => undefined } },
     );
     assert.equal(bridge.tools.length, 4);
-    assert.equal(bridge.tools.filter((tool) => tool.exposure === "direct").length, 4); // loom: all direct (DL-905)
+    assert.equal(bridge.tools.filter((tool) => tool.exposure === "direct").length, 3);
     const tool = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot");
     assert.isDefined(tool);
     assert.equal((await tool!.execute("selected", {})).content[0]?.text, "browser snapshot");

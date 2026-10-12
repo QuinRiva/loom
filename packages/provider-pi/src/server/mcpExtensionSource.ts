@@ -16,6 +16,8 @@ export const T3_MCP_URL_ENV = "T3_MCP_URL";
 export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
 export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
+// loom: JSON array of unprefixed t3-code tool names the bridge registers `hidden` (Loom's withheld tools).
+export const T3_LOOM_HIDDEN_TOOLS_ENV = "T3_LOOM_HIDDEN_TOOLS"; // loom:
 
 /**
  * Pi tools whose confirmations the bridge raises as file-change approvals.
@@ -35,6 +37,7 @@ const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
 const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
+const LOOM_HIDDEN_TOOLS_ENV = ${JSON.stringify(T3_LOOM_HIDDEN_TOOLS_ENV)}; // loom:
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim().slice(0, 0))}; // loom: empty — the role overlays and tool prose carry the doctrine
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -386,6 +389,8 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
   const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
   let deferOptionalTools = supportsExposure;
+  // loom: the tools a Loom credential is denied (UPSTREAM_WITHHELD_TOOLS), from the session composer.
+  const loomHiddenTools = new Set<string>(JSON.parse(env(LOOM_HIDDEN_TOOLS_ENV) ?? "[]")); // loom:
   let catalog: ReadonlyArray<McpTool> = [];
 
   const client = createMcpClient(endpoint, token);
@@ -400,8 +405,8 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       const name = tool.name;
       for (const prefix of prefixes) {
         if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(\`\${prefix}\${name}\`);
-        const exposure = prefix === "mcp__t3_code__" ? "hidden" :
-          "direct"; // loom: every t3-code tool direct until the pull-10 exposure prototype rules (upstream: deferOptionalTools && !directTools.has(name) ? "deferred" : "direct")
+        const exposure = prefix === "mcp__t3_code__" || loomHiddenTools.has(name) ? "hidden" : // loom: withheld tools unreachable, even by tool_search
+          deferOptionalTools && !directTools.has(name) ? "deferred" : "direct";
         const loom = (tool as { readonly _meta?: Record<string, unknown> })._meta; // loom: Loom's prose (P3-2)
         const loomSnippet = loom?.["loom/promptSnippet"]; // loom:
         const loomGuidelines = loom?.["loom/promptGuidelines"]; // loom:
