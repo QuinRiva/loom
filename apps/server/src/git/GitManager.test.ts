@@ -568,30 +568,6 @@ function createGitHubProviderWithFakeGh(scenario: FakeGhScenario = {}): {
         limit: 100,
       }),
 
-      // loom: repository-wide listing, answered from the same CLI-shaped queue.
-      listRepositoryChangeRequests: (input) =>
-        execute({
-          operation: "listRepositoryChangeRequests",
-          cwd: input.cwd,
-          args: [
-            "pr",
-            "list",
-            "--state",
-            input.state,
-            "--limit",
-            String(input.limit ?? 1000),
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
-        }).pipe(
-          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
-          Effect.map((raw) =>
-            raw
-              .map((entry) => normalizeFakePullRequestSummary(entry))
-              .filter((entry): entry is FakePullRequestSummary => entry !== null)
-              .map(toChangeRequest),
-          ),
-        ),
       listChangeRequests: (input) =>
         input.state === "open"
           ? execute({
@@ -1030,7 +1006,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
-  // loom: repository-wide PR batches must disambiguate same-named fork PRs.
+  // loom: the repository batch's per-branch PR lookups must disambiguate same-named fork PRs.
   it.effect("repository batches disambiguate same-named fork PRs", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1054,8 +1030,8 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
-          prListSequence: [
-            JSON.stringify([
+          prListByHeadSelector: {
+            "feature/fork": JSON.stringify([
               {
                 number: 1,
                 title: "Wrong fork",
@@ -1079,13 +1055,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
                 headRepositoryOwner: { login: "fork" },
               },
             ]),
-          ],
+          },
         },
       });
 
       const [status] = yield* manager.remoteStatuses(
         {
-          repositoryKey: gitCommonDir,
           repositoryCwd: repoDir,
           gitCommonDir,
           entries: [{ cwd: repoDir, branch: "feature/fork" }],
@@ -1095,7 +1070,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       expect(status?.pr?.number).toBe(2);
       expect(ghCalls.filter((call) => call.startsWith("pr list "))).toEqual([
-        "pr list --state all --limit 1000 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        "pr list --head feature/fork --state all --limit 100 --json number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
       ]);
     }),
   );

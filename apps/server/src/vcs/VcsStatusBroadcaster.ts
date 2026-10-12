@@ -490,7 +490,7 @@ export const make = Effect.gen(function* () {
     const previousRefName = (yield* getCachedStatus(cwd))?.local?.value.refName ?? null;
     const local = yield* refreshLocalStatusCore(cwd);
     // A local refresh fires on every turn completion. It must never bump the PR
-    // epoch (the repo PR list stays on its own ~2 min TTL) and must not wake the
+    // epoch (PR lookups stay on their own cache TTL) and must not wake the
     // repo batch on the common no-op case — only a genuine branch change makes
     // the cached remote row wrong, because the batch keys off the local refName.
     if (local.refName !== previousRefName) {
@@ -530,7 +530,6 @@ export const make = Effect.gen(function* () {
     const remotes = poller.repository
       ? yield* workflow.remoteStatuses(
           {
-            repositoryKey,
             repositoryCwd: poller.repository.repositoryCwd,
             gitCommonDir: poller.repository.gitCommonDir,
             entries,

@@ -165,18 +165,6 @@ function bindProviderContext(
         ...input,
         context: input.context ?? context,
       }),
-    // loom: repo-wide PR listing (pull 10 S2a re-expresses it on the GitHub API)
-    ...(provider.listRepositoryChangeRequests
-      ? {
-          listRepositoryChangeRequests: (
-            input: Parameters<NonNullable<typeof provider.listRepositoryChangeRequests>>[0],
-          ) =>
-            provider.listRepositoryChangeRequests!({
-              ...input,
-              context: input.context ?? context,
-            }),
-        }
-      : {}),
     getChangeRequest: (input) =>
       provider.getChangeRequest({
         ...input,

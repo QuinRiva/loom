@@ -127,14 +127,9 @@ export class GitManager extends Context.Service<
     readonly localStatus: (
       input: VcsStatusInput,
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
-    readonly remoteStatus: (
-      input: VcsStatusInput,
-      options?: GitRemoteStatusOptions,
-    ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
-    // loom: batched remote status and repo-wide PR listing across worktrees.
+    // loom: batched remote status across a repository's worktrees.
     readonly remoteStatuses: (
       input: {
-        readonly repositoryKey: string;
         readonly repositoryCwd: string;
         readonly gitCommonDir: string;
         readonly entries: ReadonlyArray<{
@@ -144,6 +139,10 @@ export class GitManager extends Context.Service<
       },
       options?: GitVcsDriver.GitRemoteStatusOptions,
     ) => Effect.Effect<ReadonlyArray<VcsStatusRemoteResult | null>, GitManagerServiceError>;
+    readonly remoteStatus: (
+      input: VcsStatusInput,
+      options?: GitRemoteStatusOptions,
+    ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
     /** Resolve the PR for a saved branch without changing the current checkout. */
     readonly branchPullRequest: (
       input: { readonly cwd: string; readonly branch: string },
@@ -196,12 +195,6 @@ const PR_LOOKUP_NO_OPEN_PR_CACHE_TTL = Duration.minutes(5);
 const PR_LOOKUP_FAILURE_BASE_TTL = Duration.seconds(20);
 const PR_LOOKUP_FAILURE_MAX_TTL = Duration.minutes(15);
 const PR_LOOKUP_CACHE_CAPACITY = 2_048;
-// loom: repository-wide PR listing (readRemoteStatuses, repositoryPrListCache).
-// One repo-wide `pr list` serves every subscribed worktree of a repo. The cap is
-// the point past which a very old branch's only (closed) PR falls out of the
-// window; the sticky last-known fallback is therefore not overwritten when the
-// list comes back full (see readRemoteStatuses).
-const REPOSITORY_PR_LIST_LIMIT = 1_000;
 const isSourceControlProviderError = Schema.is(SourceControlProviderError);
 
 /**
@@ -658,62 +651,6 @@ function appendUnique(values: string[], next: string | null | undefined): void {
     return;
   }
   values.push(trimmed);
-}
-
-// loom: the head-selector derivation shared by resolveBranchHeadContext and the batched
-// readRemoteStatuses, which has every worktree's remote URLs from one git batch already.
-function makeBranchHeadContext(
-  details: { readonly branch: string; readonly upstreamRef: string | null },
-  remoteName: string | null,
-  remoteUrl: string | null,
-  originRemoteUrl: string | null,
-): BranchHeadContext {
-  const headBranchFromUpstream = details.upstreamRef
-    ? extractBranchNameFromRemoteRef(details.upstreamRef, { remoteName })
-    : "";
-  const headBranch = headBranchFromUpstream || details.branch;
-  const remoteRepositoryName = parseRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
-  const originRepositoryName = parseRepositoryNameWithOwnerFromRemoteUrl(originRemoteUrl);
-  const remoteOwner = parseRepositoryOwnerLogin(remoteRepositoryName);
-  const isCrossRepository =
-    remoteRepositoryName !== null && originRepositoryName !== null
-      ? remoteRepositoryName.toLowerCase() !== originRepositoryName.toLowerCase()
-      : remoteName !== null && remoteName !== "origin" && remoteRepositoryName !== null;
-  const ownerHeadSelector = remoteOwner ? `${remoteOwner}:${headBranch}` : null;
-  const remoteAliasHeadSelector = remoteName ? `${remoteName}:${headBranch}` : null;
-  const shouldProbeRemoteOwnedSelectors =
-    isCrossRepository || (remoteName !== null && remoteName !== "origin");
-  const headSelectors: string[] = [];
-  if (isCrossRepository && shouldProbeRemoteOwnedSelectors) {
-    appendUnique(headSelectors, ownerHeadSelector);
-    appendUnique(
-      headSelectors,
-      remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
-    );
-  }
-  if (!headBranchFromUpstream || headBranch === details.branch) {
-    appendUnique(headSelectors, details.branch);
-  }
-  appendUnique(headSelectors, headBranch !== details.branch ? headBranch : null);
-  if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
-    appendUnique(headSelectors, ownerHeadSelector);
-    appendUnique(
-      headSelectors,
-      remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
-    );
-  }
-  return {
-    localBranch: details.branch,
-    headBranch,
-    headSelectors,
-    preferredHeadSelector: ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
-    remoteName,
-    headRemoteUrlKey: remoteUrl ? normalizeGitRemoteUrl(remoteUrl) : null,
-    targetRemoteUrlKey: originRemoteUrl ? normalizeGitRemoteUrl(originRemoteUrl) : null,
-    headRepositoryNameWithOwner: remoteRepositoryName,
-    headRepositoryOwnerLogin: remoteOwner,
-    isCrossRepository,
-  };
 }
 
 function toStatusPr(pr: PullRequestInfo): {
@@ -1196,16 +1133,11 @@ export const make = Effect.gen(function* () {
   // PR_LOOKUP_CACHE_TTL per branch. Git actions and user-driven refreshes bump
   // the epoch (invalidateStatus) to bypass the cache immediately.
   const prLookupEpochByCwd = new Map<string, number>();
-  // loom: a worktree's PR epoch bump also invalidates its repository's PR list.
-  const repoPrEpochByKey = new Map<string, number>();
-  const repoKeyByCwd = new Map<string, string>();
   const prLookupEpoch = (cwd: string) => prLookupEpochByCwd.get(cwd) ?? 0;
   const bumpPrLookupEpoch = (cwd: string) =>
     normalizeStatusCacheKey(cwd).pipe(
       Effect.map((cacheKey) => {
         prLookupEpochByCwd.set(cacheKey, prLookupEpoch(cacheKey) + 1);
-        const repoKey = repoKeyByCwd.get(cacheKey); // loom: repository PR epoch
-        if (repoKey) repoPrEpochByKey.set(repoKey, (repoPrEpochByKey.get(repoKey) ?? 0) + 1);
       }),
     );
   // Cache keys are NUL-joined. Automatic settlement validates repository URLs
@@ -1313,35 +1245,6 @@ export const make = Effect.gen(function* () {
         }
         return nextPrLookupFailureTtl(key);
       },
-    },
-  );
-  // loom: repo-wide PR list cache. Keyed by repository + PR epoch only: the cwd the lookup runs in is carried
-  // out of band so a subscriber churn (reconnect, release) is not a cache miss.
-  const repositoryCwdByKey = new Map<string, string>();
-  const repositoryPrListCache = yield* Cache.makeWith(
-    (key: string) => {
-      const [repositoryKey = ""] = key.split("\u0000");
-      const cwd = repositoryCwdByKey.get(repositoryKey) ?? repositoryKey;
-      return sourceControlProvider(cwd).pipe(
-        Effect.flatMap((provider) =>
-          provider.listRepositoryChangeRequests
-            ? provider
-                .listRepositoryChangeRequests({
-                  cwd,
-                  state: "all",
-                  limit: REPOSITORY_PR_LIST_LIMIT,
-                })
-                .pipe(Effect.map((items) => items.map(toPullRequestInfo)))
-            : Effect.succeed(null),
-        ),
-      );
-    },
-    {
-      capacity: 128,
-      // Flat retry delay: this repo-wide list has one key per repository, so the
-      // per-branch failure streak the branch cache backs off with does not apply.
-      timeToLive: (exit) =>
-        Exit.isSuccess(exit) ? PR_LOOKUP_CACHE_TTL : PR_LOOKUP_FAILURE_BASE_TTL,
     },
   );
   const getPrLookup = (key: string) => detachStackFrame(Cache.get(prLookupCache, key));
@@ -1516,20 +1419,17 @@ export const make = Effect.gen(function* () {
       pr,
     } satisfies VcsStatusRemoteResult;
   });
-  // loom: every worktree of one repository in a single git batch plus one repository-wide PR
-  // list (VcsStatusBroadcaster's repository-keyed poller, DL-99). Falls back to per-branch
-  // lookups when the provider has no repository-wide listing.
+  // loom: every worktree of one repository in a single git batch (VcsStatusBroadcaster's
+  // repository-keyed poller, DL-99). PR lookups stay upstream's per-branch path; run together,
+  // they share the provider's batched GraphQL documents.
   const readRemoteStatuses = Effect.fn("readRemoteStatuses")(function* (
     input: {
-      readonly repositoryKey: string;
       readonly repositoryCwd: string;
       readonly gitCommonDir: string;
       readonly entries: ReadonlyArray<{ readonly cwd: string; readonly branch: string | null }>;
     },
     options?: GitVcsDriver.GitRemoteStatusOptions,
   ) {
-    for (const entry of input.entries) repoKeyByCwd.set(entry.cwd, input.repositoryKey);
-    repositoryCwdByKey.set(input.repositoryKey, input.repositoryCwd);
     const details = yield* gitCore.statusDetailsRemoteBatch(
       {
         repositoryCwd: input.repositoryCwd,
@@ -1538,43 +1438,21 @@ export const make = Effect.gen(function* () {
       },
       options,
     );
-    const repositoryPrList = yield* Cache.get(
-      repositoryPrListCache,
-      [input.repositoryKey, String(repoPrEpochByKey.get(input.repositoryKey) ?? 0)].join("\u0000"),
-    ).pipe(
-      Effect.matchEffect({
-        onFailure: (error) =>
-          Effect.logWarning("Repository PR lookup failed; keeping last known PR state.", {
-            operation: "readRemoteStatuses",
-            errorTag:
-              typeof error === "object" && error !== null && "_tag" in error
-                ? String(error._tag)
-                : typeof error,
-          }).pipe(Effect.as(undefined)),
-        onSuccess: (items) => Effect.succeed(items),
-      }),
-    );
-
-    return yield* Effect.forEach(input.entries, (entry, index) => {
-      const statusDetails = details[index];
-      if (!statusDetails?.isRepo) return Effect.succeed(null);
-      if (!statusDetails.branch) {
-        return Effect.succeed({
-          hasUpstream: statusDetails.hasUpstream,
-          aheadCount: statusDetails.aheadCount,
-          behindCount: statusDetails.behindCount,
-          aheadOfDefaultCount: statusDetails.aheadOfDefaultCount,
-          pr: null,
-        } satisfies VcsStatusRemoteResult);
-      }
-      const branch = statusDetails.branch;
-      if (repositoryPrList === null) {
-        return lookupStatusPr(entry.cwd, {
-          branch,
-          upstreamRef: statusDetails.upstreamRef,
-          defaultBranch: statusDetails.defaultBranch,
-          isDefaultBranch: statusDetails.isDefaultBranch,
-        }).pipe(
+    return yield* Effect.forEach(
+      input.entries,
+      (entry, index) => {
+        const statusDetails = details[index];
+        if (!statusDetails?.isRepo) return Effect.succeed(null);
+        return (
+          statusDetails.branch === null
+            ? Effect.succeed(null)
+            : lookupStatusPr(entry.cwd, {
+                branch: statusDetails.branch,
+                upstreamRef: statusDetails.upstreamRef,
+                defaultBranch: statusDetails.defaultBranch,
+                isDefaultBranch: statusDetails.isDefaultBranch,
+              })
+        ).pipe(
           Effect.map(
             (pr) =>
               ({
@@ -1586,60 +1464,10 @@ export const make = Effect.gen(function* () {
               }) satisfies VcsStatusRemoteResult,
           ),
         );
-      }
-
-      const branchKey = `${entry.cwd}\u0000${branch}`;
-      const remoteName = statusDetails.remoteName ?? null;
-      const originRemoteUrl = statusDetails.originRemoteUrl ?? null;
-      const headContext = makeBranchHeadContext(
-        { branch, upstreamRef: statusDetails.upstreamRef },
-        remoteName,
-        statusDetails.remoteUrl ?? (remoteName === null ? originRemoteUrl : null),
-        originRemoteUrl,
-      );
-      let pr: ReturnType<typeof toStatusPr> | null;
-      if (repositoryPrList === undefined) {
-        pr = resolveLastKnownPr(branchKey, {
-          upstreamRef: statusDetails.upstreamRef,
-          headBranch: headContext.headBranch,
-          remoteName: headContext.remoteName,
-          headRemoteUrlKey: headContext.headRemoteUrlKey,
-        });
-      } else {
-        const candidates = Arr.sort(
-          repositoryPrList.filter((candidate) => matchesBranchHeadContext(candidate, headContext)),
-          pullRequestUpdatedAtDescOrder,
-        );
-        const latest =
-          candidates.find((candidate) => candidate.state === "open") ?? candidates[0] ?? null;
-        pr =
-          statusDetails.isDefaultBranch && latest?.state !== "open"
-            ? null
-            : latest
-              ? toStatusPr(latest)
-              : null;
-        // A full list may be truncated, so "no match" is only trustworthy
-        // enough to overwrite the sticky fallback when the window wasn't full.
-        if (pr !== null || repositoryPrList.length < REPOSITORY_PR_LIST_LIMIT) {
-          rememberLastKnownPr(branchKey, {
-            pr,
-            upstreamRef: statusDetails.upstreamRef,
-            headBranch: headContext.headBranch,
-            remoteName: headContext.remoteName,
-            headRemoteUrlKey: headContext.headRemoteUrlKey,
-          });
-        }
-      }
-      return Effect.succeed({
-        hasUpstream: statusDetails.hasUpstream,
-        aheadCount: statusDetails.aheadCount,
-        behindCount: statusDetails.behindCount,
-        aheadOfDefaultCount: statusDetails.aheadOfDefaultCount,
-        pr,
-      } satisfies VcsStatusRemoteResult);
-    });
+      },
+      { concurrency: "unbounded" },
+    );
   });
-
   const remoteStatusResultCache = yield* Cache.makeWith((cwd: string) => readRemoteStatus(cwd), {
     capacity: STATUS_RESULT_CACHE_CAPACITY,
     timeToLive: (exit) => (Exit.isSuccess(exit) ? STATUS_RESULT_CACHE_TTL : Duration.zero),
@@ -1742,31 +1570,74 @@ export const make = Effect.gen(function* () {
     cwd: string,
     details: { branch: string; upstreamRef: string | null; remoteName?: string },
   ) {
-    // loom: honour the caller's remote override, as upstream does (lost at pull 7, DL-51)
     const remoteName =
       details.remoteName ??
       (yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`));
-    // loom: one derivation shared with readRemoteStatuses (makeBranchHeadContext).
-    const [remoteUrl, originRemoteUrl] =
-      remoteName === "origin"
-        ? yield* readConfigValueNullable(cwd, "remote.origin.url").pipe(
-            Effect.map((url) => [url, url] as const),
-          )
-        : yield* Effect.all(
-            [
-              remoteName
-                ? readConfigValueNullable(cwd, `remote.${remoteName}.url`)
-                : Effect.succeed(null),
-              readConfigValueNullable(cwd, "remote.origin.url"),
-            ],
-            { concurrency: "unbounded" },
-          );
-    return makeBranchHeadContext(
-      details,
+    const headBranchFromUpstream = details.upstreamRef
+      ? extractBranchNameFromRemoteRef(details.upstreamRef, { remoteName })
+      : "";
+    const headBranch = headBranchFromUpstream.length > 0 ? headBranchFromUpstream : details.branch;
+    const shouldProbeLocalBranchSelector =
+      headBranchFromUpstream.length === 0 || headBranch === details.branch;
+
+    const [remoteRepository, originRepository] = yield* resolveHeadAndOriginContexts(
+      cwd,
       remoteName,
-      remoteUrl ?? (remoteName === null ? originRemoteUrl : null),
-      originRemoteUrl,
     );
+
+    const isCrossRepository =
+      remoteRepository.repositoryNameWithOwner !== null &&
+      originRepository.repositoryNameWithOwner !== null
+        ? remoteRepository.repositoryNameWithOwner.toLowerCase() !==
+          originRepository.repositoryNameWithOwner.toLowerCase()
+        : remoteName !== null &&
+          remoteName !== "origin" &&
+          remoteRepository.repositoryNameWithOwner !== null;
+
+    const ownerHeadSelector =
+      remoteRepository.ownerLogin && headBranch.length > 0
+        ? `${remoteRepository.ownerLogin}:${headBranch}`
+        : null;
+    const remoteAliasHeadSelector =
+      remoteName && headBranch.length > 0 ? `${remoteName}:${headBranch}` : null;
+    const shouldProbeRemoteOwnedSelectors =
+      isCrossRepository || (remoteName !== null && remoteName !== "origin");
+
+    const headSelectors: string[] = [];
+    if (isCrossRepository && shouldProbeRemoteOwnedSelectors) {
+      appendUnique(headSelectors, ownerHeadSelector);
+      appendUnique(
+        headSelectors,
+        remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
+      );
+    }
+    if (shouldProbeLocalBranchSelector) {
+      appendUnique(headSelectors, details.branch);
+    }
+    appendUnique(headSelectors, headBranch !== details.branch ? headBranch : null);
+    if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
+      appendUnique(headSelectors, ownerHeadSelector);
+      appendUnique(
+        headSelectors,
+        remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
+      );
+    }
+
+    return {
+      localBranch: details.branch,
+      headBranch,
+      headSelectors,
+      preferredHeadSelector:
+        ownerHeadSelector && isCrossRepository ? ownerHeadSelector : headBranch,
+      remoteName,
+      headRemoteUrlKey:
+        remoteRepository.remoteUrlKey ??
+        (remoteName === null ? originRepository.remoteUrlKey : null),
+      targetRemoteUrlKey: originRepository.remoteUrlKey,
+      headRepositoryNameWithOwner: remoteRepository.repositoryNameWithOwner,
+      headRepositoryOwnerLogin: remoteRepository.ownerLogin,
+      isCrossRepository,
+    } satisfies BranchHeadContext;
   });
 
   // The remote that holds a ref named after the local branch, or null when
