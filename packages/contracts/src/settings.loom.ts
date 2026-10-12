@@ -67,9 +67,13 @@ export type WorkstreamModelProfile = typeof WorkstreamModelProfile.Type;
 // (`fallbackTarget`, a pi slug such as "cliproxy/claude-opus-5-5"); null ⇒ no
 // reroute, the thread parks until its window resets. Resume-on-reset is
 // upstream's `autoResumeLimitedThreads`; the chain editor and pause are gone.
+// Each key carries its default so the server's sparse settings.json write, which
+// strips default-valued keys before encoding, can encode a partial value.
 const ProviderFailoverSettingsFields = Schema.Struct({
-  enabled: Schema.Boolean,
-  fallbackTarget: Schema.NullOr(TrimmedNonEmptyString),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
+  fallbackTarget: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
 });
 
 const slugNamespace = (slug: string) => slug.split("/", 1)[0];
@@ -104,7 +108,10 @@ const StoredProviderFailoverSettings = Schema.Struct({
 export const ProviderFailoverSettings = StoredProviderFailoverSettings.pipe(
   Schema.decodeTo(
     ProviderFailoverSettingsFields,
-    SchemaTransformation.transform({
+    SchemaTransformation.transform<
+      typeof ProviderFailoverSettingsFields.Encoded,
+      typeof StoredProviderFailoverSettings.Type
+    >({
       decode: (stored) => ({
         enabled: stored.enabled ?? true,
         fallbackTarget:

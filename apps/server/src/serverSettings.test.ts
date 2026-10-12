@@ -1026,6 +1026,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  // loom: a V1 `chains`-shaped providerFailover must survive the load-time rewrite,
+  // whose sparse encode strips the default `enabled` (crashed the pull-10 deploy).
+  it.effect("rewrites a legacy providerFailover chains map on load", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        JSON.stringify({
+          providerFailover: { chains: { "openai-codex/*": ["cliproxy/claude-opus-5-5"] } },
+          providers: { codex: { binaryPath: "/opt/guard/bin/codex" } },
+        }),
+      );
+
+      const settings = yield* serverSettings.getSettings;
+
+      assert.deepEqual(settings.providerFailover, {
+        enabled: true,
+        fallbackTarget: "cliproxy/claude-opus-5-5",
+      });
+      const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
+      assert.deepEqual(persisted.providerFailover, { fallbackTarget: "cliproxy/claude-opus-5-5" });
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("keeps an explicit default instance over the legacy blob for its driver", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;
