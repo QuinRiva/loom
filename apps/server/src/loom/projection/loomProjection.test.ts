@@ -240,6 +240,65 @@ it.layer(TestLayer)("Loom projector", (it) => {
     }),
   );
 
+  it.effect("stamps a handoff destination with its origin; human is never downgraded", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const orchestrator = ThreadId.make("origin-orchestrator");
+      const source = ThreadId.make("origin-source");
+      const drafter = ThreadId.make("origin-drafter");
+      const agentRoot = ThreadId.make("origin-agent-root");
+      const handoffRoot = ThreadId.make("origin-handoff-root");
+      for (const threadId of [orchestrator, source, drafter, agentRoot, handoffRoot])
+        yield* seedThread({ threadId });
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const record = (on: ThreadId, by: ThreadId, destination: ThreadId) =>
+        loomEvent("thread.handoff-recorded", on, {
+          threadId: on,
+          drafterThreadId: by,
+          destinationGoalId: GoalId.make(`goal:${destination}`),
+          destinationThreadId: destination,
+          createdAt: now,
+        });
+      yield* writeEvents([
+        ...(yield* Effect.all(
+          [orchestrator, source, agentRoot, handoffRoot].map((id) => created(id, null)),
+        )),
+        yield* loomEvent("thread.workstream-created", drafter, {
+          parentThreadId: null,
+          rootThreadId: drafter,
+          projectId,
+          goalId: null,
+          anchorTaskId: null,
+          role: "handoff-drafter",
+          purpose: "Draft the handoff",
+          graphKey: null,
+          kickoffBriefPath: null,
+          held: false,
+          blockedBy: [],
+          routes: [],
+          spawnGeneration: null,
+          forkFromThreadId: source,
+          continuesThreadId: null,
+        }),
+        // An orchestrator's own goal_handoff credits the caller as the agent.
+        yield* record(orchestrator, orchestrator, agentRoot),
+        // A /handoff: the drafter's record, then the copy on the human's source thread.
+        yield* record(drafter, drafter, handoffRoot),
+        yield* record(source, drafter, handoffRoot),
+        // A later agent record never downgrades the human stamp.
+        yield* record(orchestrator, orchestrator, handoffRoot),
+      ]);
+      assert.deepEqual((yield* store.getWorkstream(agentRoot))?.handoffOrigin, {
+        threadId: orchestrator,
+        initiatedBy: "agent",
+      });
+      assert.deepEqual((yield* store.getWorkstream(handoffRoot))?.handoffOrigin, {
+        threadId: source,
+        initiatedBy: "human",
+      });
+    }),
+  );
+
   it.effect("goal-set creates a goal-less root's row from its V2 thread", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;

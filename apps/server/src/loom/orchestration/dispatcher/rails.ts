@@ -60,13 +60,20 @@ import {
   renderRecoveredDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
-import { boundedExcerpt, buildChildWakeMessage, workstreamLane } from "./wakes.ts";
+import { renderHumanInChildDigestLine } from "../../prompt/provenance.ts";
+import {
+  boundedExcerpt,
+  buildChildWakeMessage,
+  formatWakeTimestamp,
+  workstreamLane,
+} from "./wakes.ts";
 import {
   type DeliveredItem,
   landed,
   type PassContext,
   type PassStep,
   type PendingDigestItem,
+  perThread,
   type WorkstreamNode,
 } from "./WorkstreamDispatcher.ts";
 import { buildYieldPayload, buildYieldWakeMessage, type YieldGateContext } from "./yield.ts";
@@ -179,70 +186,76 @@ export const terminalDeltas: PassStep = {
   name: "terminalDeltas",
   run: Effect.fn("loom.dispatcher.terminalDeltas")(function* (ctx: PassContext) {
     for (const child of ctx.rows) {
-      const parentId = child.parentThreadId;
-      const lastOutcome = child.lastOutcome;
-      if (parentId === null || child.outcome === null || lastOutcome?.eventId == null) continue;
+      const { parentThreadId: parentId, lastOutcome, outcome } = child;
+      if (parentId === null || outcome === null || lastOutcome?.eventId == null) continue;
       if (!fyiParent(ctx, parentId)) continue;
       const siblings = siblingNodes(ctx, parentId);
       if (isMemberOfUnresolvedGate(nodeOf(ctx, child), siblings)) continue;
-      const sinceMs = Date.parse(lastOutcome.at);
-      const delivered = yield* ctx.delivered(parentId);
-      if (toldAbout(delivered, child.threadId, sinceMs)) continue;
-      // V1's `recovered`: when the parent's last word on this child was its `error`
-      // notice, a `done` supersedes that alarm instead of reporting one more completion.
-      const lastWord = delivered.findLast(
-        (word) =>
-          word.item.threadId === child.threadId && word.atMs < sinceMs && isStatusWord(word),
-      );
-      if (
-        child.outcome === "done" &&
-        lastWord?.payload.notice === "attention" &&
-        lastWord.item.status === "error"
-      ) {
-        stash(ctx, parentId, {
-          key: terminalEpisodeKey(child),
-          eventAtMs: sinceMs,
-          extra: {
-            kind: "recovered",
-            line: renderRecoveredDigestLine({
-              ...child,
+      yield* perThread(
+        "terminalDeltas",
+        child.threadId,
+        Effect.gen(function* () {
+          const sinceMs = Date.parse(lastOutcome.at);
+          const delivered = yield* ctx.delivered(parentId);
+          if (toldAbout(delivered, child.threadId, sinceMs)) return;
+          // V1's `recovered`: when the parent's last word on this child was its `error`
+          // notice, a `done` supersedes that alarm instead of reporting one more completion.
+          const lastWord = delivered.findLast(
+            (word) =>
+              word.item.threadId === child.threadId && word.atMs < sinceMs && isStatusWord(word),
+          );
+          if (
+            outcome === "done" &&
+            lastWord?.payload.notice === "attention" &&
+            lastWord.item.status === "error"
+          ) {
+            stash(ctx, parentId, {
+              key: terminalEpisodeKey(child),
+              eventAtMs: sinceMs,
+              extra: {
+                kind: "recovered",
+                line: renderRecoveredDigestLine({
+                  ...child,
+                  id: child.threadId,
+                  eventAt: lastOutcome.at,
+                }),
+                childId: child.threadId,
+                role: child.role,
+              },
+            });
+            return;
+          }
+          const resolvedRoute =
+            lastOutcome.decision === "resolve" && child.lastRoute?.kind === "resolve"
+              ? child.lastRoute
+              : null;
+          // A resolved gate reports once both members are done, as one pair.
+          if (resolvedRoute !== null && ctx.nodesById.get(resolvedRoute.to)?.outcome === null)
+            return;
+          stash(ctx, parentId, {
+            key: resolvedRoute?.eventId ?? terminalEpisodeKey(child),
+            eventAtMs: sinceMs,
+            member: {
               id: child.threadId,
+              role: child.role,
+              outcome,
+              attention: child.attention,
+              reportPath: child.reportPath,
+              report: yield* readReport(child.reportPath),
+              lastOutcome,
+              gateRounds: child.gateRounds,
+              routes: child.routes,
               eventAt: lastOutcome.at,
-            }),
-            childId: child.threadId,
-            role: child.role,
-          },
-        });
-        continue;
-      }
-      const resolvedRoute =
-        lastOutcome.decision === "resolve" && child.lastRoute?.kind === "resolve"
-          ? child.lastRoute
-          : null;
-      // A resolved gate reports once both members are done, as one pair.
-      if (resolvedRoute !== null && ctx.nodesById.get(resolvedRoute.to)?.outcome === null) continue;
-      stash(ctx, parentId, {
-        key: resolvedRoute?.eventId ?? terminalEpisodeKey(child),
-        eventAtMs: sinceMs,
-        member: {
-          id: child.threadId,
-          role: child.role,
-          outcome: child.outcome,
-          attention: child.attention,
-          reportPath: child.reportPath,
-          report: yield* readReport(child.reportPath),
-          lastOutcome,
-          gateRounds: child.gateRounds,
-          routes: child.routes,
-          eventAt: lastOutcome.at,
-          releasedDependents:
-            child.outcome === "done"
-              ? siblings
-                  .filter((other) => other.blockedBy.includes(child.threadId))
-                  .map((other) => ({ id: other.id, role: other.role }))
-              : [],
-        },
-      });
+              releasedDependents:
+                outcome === "done"
+                  ? siblings
+                      .filter((other) => other.blockedBy.includes(child.threadId))
+                      .map((other) => ({ id: other.id, role: other.role }))
+                  : [],
+            },
+          });
+        }),
+      );
     }
     // A rejected `server:` command: its thread's parent is the only actor left.
     for (const dead of ctx.deadEpisodes) {
@@ -265,31 +278,100 @@ export const terminalDeltas: PassStep = {
       });
     }
     for (const [parentId, byKey] of ctx.advisories) {
-      const delivered = yield* ctx.delivered(parentId);
-      for (const [key, advice] of byKey) {
-        const sinceMs = Date.parse(advice.episodeStartedAt);
-        const told = delivered.some(
-          ({ item, atMs }) =>
-            item.threadId === advice.item.threadId &&
-            item.kind === advice.item.kind &&
-            atMs >= sinceMs,
-        );
-        if (told) {
-          byKey.delete(key);
-          continue;
-        }
-        stash(ctx, parentId, {
-          key,
-          eventAtMs: sinceMs,
-          extra: {
-            kind: advice.item.kind,
-            line: `- ${advice.item.excerpt ?? advice.item.title}`,
-            childId: advice.item.threadId,
-            role: advice.item.role ?? null,
-          },
-          settle: () => byKey.delete(key),
-        });
-      }
+      yield* perThread(
+        "terminalDeltas",
+        parentId,
+        Effect.gen(function* () {
+          const delivered = yield* ctx.delivered(parentId);
+          for (const [key, advice] of byKey) {
+            const sinceMs = Date.parse(advice.episodeStartedAt);
+            const told = delivered.some(
+              ({ item, atMs }) =>
+                item.threadId === advice.item.threadId &&
+                item.kind === advice.item.kind &&
+                atMs >= sinceMs,
+            );
+            if (told) {
+              byKey.delete(key);
+              continue;
+            }
+            stash(ctx, parentId, {
+              key,
+              eventAtMs: sinceMs,
+              extra: {
+                kind: advice.item.kind,
+                line: `- ${advice.item.excerpt ?? advice.item.title}`,
+                childId: advice.item.threadId,
+                role: advice.item.role ?? null,
+              },
+              settle: () => byKey.delete(key),
+            });
+          }
+        }),
+      );
+    }
+  }),
+};
+
+/**
+ * Past this age a human message no parent heard of is history, not news: the parent should read
+ * the thread rather than be woken by it. Bounds the backlog the first pass after this rail's
+ * deploy (or a long outage) would otherwise report.
+ */
+export const HUMAN_IN_CHILD_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The human wrote into a child: one FYI item per human-authored message to its parent, so the
+ * parent neither steers against an instruction it never saw nor relays it upward as its own.
+ * Told exactly once, keyed by the message id its delivered item carries; not told when the
+ * parent has since heard how the child ended (its report must quote what the human changed),
+ * nor past `HUMAN_IN_CHILD_HORIZON_MS`.
+ */
+export const humanInChild: PassStep = {
+  name: "humanInChild",
+  run: Effect.fn("loom.dispatcher.humanInChild")(function* (ctx: PassContext) {
+    for (const child of ctx.rows) {
+      const parentId = child.parentThreadId;
+      if (parentId === null || !fyiParent(ctx, parentId)) continue;
+      yield* perThread(
+        "humanInChild",
+        child.threadId,
+        Effect.gen(function* () {
+          const messages = yield* ctx.humanMessages(child.threadId);
+          if (messages.length === 0) return;
+          const delivered = yield* ctx.delivered(parentId);
+          const told = new Set(
+            delivered.flatMap(({ item }) =>
+              item.kind === "human-message" && item.messageId !== undefined ? [item.messageId] : [],
+            ),
+          );
+          for (const message of messages) {
+            const atMs = DateTime.toEpochMillis(message.createdAt);
+            if (
+              told.has(message.id) ||
+              nowMs(ctx) - atMs > HUMAN_IN_CHILD_HORIZON_MS ||
+              toldAbout(delivered, child.threadId, atMs)
+            )
+              continue;
+            stash(ctx, parentId, {
+              key: `human-message:${message.id}`,
+              eventAtMs: atMs,
+              extra: {
+                kind: "human-message",
+                line: renderHumanInChildDigestLine({
+                  role: child.role,
+                  id: child.threadId,
+                  timestamp: formatWakeTimestamp(DateTime.formatIso(message.createdAt)),
+                  excerpt: boundedExcerpt(message.text) ?? "",
+                }),
+                childId: child.threadId,
+                role: child.role,
+                messageId: message.id,
+              },
+            });
+          }
+        }),
+      );
     }
   }),
 };
@@ -467,22 +549,26 @@ export const briefNeededRail: PassStep = {
     >();
     for (const row of ctx.rows) {
       const node = nodeOf(ctx, row);
-      if (row.parentThreadId === null || !isBriefNeeded(node, ctx.nodesById)) continue;
-      const sinceMs = briefNeededSinceMs(node, ctx.nodesById);
-      const rung = rungFor(Math.max(0, nowMs(ctx) - sinceMs));
-      const told = (yield* ctx.delivered(row.parentThreadId)).some(
-        ({ payload, item, atMs }) =>
-          payload.notice === "brief-needed" &&
-          item.kind === undefined &&
-          item.threadId === row.threadId &&
-          item.status === `rung-${rung}` &&
-          atMs >= sinceMs,
+      const parentId = row.parentThreadId;
+      if (parentId === null || !isBriefNeeded(node, ctx.nodesById)) continue;
+      yield* perThread(
+        "briefNeeded",
+        row.threadId,
+        Effect.gen(function* () {
+          const sinceMs = briefNeededSinceMs(node, ctx.nodesById);
+          const rung = rungFor(Math.max(0, nowMs(ctx) - sinceMs));
+          const told = (yield* ctx.delivered(parentId)).some(
+            ({ payload, item, atMs }) =>
+              payload.notice === "brief-needed" &&
+              item.kind === undefined &&
+              item.threadId === row.threadId &&
+              item.status === `rung-${rung}` &&
+              atMs >= sinceMs,
+          );
+          if (!told)
+            byParent.set(parentId, [...(byParent.get(parentId) ?? []), { node, sinceMs, rung }]);
+        }),
       );
-      if (!told)
-        byParent.set(row.parentThreadId, [
-          ...(byParent.get(row.parentThreadId) ?? []),
-          { node, sinceMs, rung },
-        ]);
     }
     for (const [parentId, entries] of byParent) {
       if (
@@ -715,43 +801,56 @@ export const surfaceDeferredWakes: PassStep = {
         ].flatMap((at) => (at == null ? [] : [DateTime.toEpochMillis(at)])),
       );
       if (nowMs(ctx) - lastActivityMs < DEFERRED_WAKE_SILENCE_MS) continue;
-      if (shell.activeRunId !== null) {
-        const { turnItems } = yield* orchestrator.getThreadRecords(threadId, ["turnItems"], {
-          turnItemRunIds: [shell.activeRunId],
-          turnItemStatuses: ["running"],
-        });
-        if (turnItems.length > 0) continue;
-      }
-      const silentSince = DateTime.formatIso(DateTime.makeUnsafe(lastActivityMs));
-      const outcome = yield* ctx.dispatch("wake-deferred", {
-        type: "thread.attention.raise",
-        commandId: CommandId.make(wakeDeferredCommandId(threadId, silentSince)),
+      yield* perThread(
+        "deferredWakes",
         threadId,
-        createdAt: createdAt(ctx),
-        reason: "needs_guidance",
-      });
-      if (outcome.status !== "accepted") continue;
-      yield* Effect.logWarning("loom.dispatcher.wake-deferred", {
-        threadId,
-        silentSince,
-        deferred: Object.fromEntries(waiting),
-      });
-      // #312: a sub-orchestrator's parent hears of the wedge now, in words that fit it; the
-      // attention rail then finds this episode's notice receipted. A flag already standing at
-      // pass start is the child's own episode, and keeps the rail's generic notice.
-      const before = ctx.rows.find((row) => row.threadId === threadId);
-      const parentId = before?.parentThreadId ?? null;
-      if (
-        before === undefined ||
-        before.attention.includes("needs_guidance") ||
-        parentId === null ||
-        !ctx.shells.has(parentId)
-      )
-        continue;
-      const after = yield* loomStore.getWorkstream(threadId);
-      const episode = after?.attentionEpisodes.needs_guidance;
-      if (after !== null && episode !== undefined)
-        yield* sendAttentionNotice(ctx, after, parentId, "needs_guidance", episode, silentSince);
+        Effect.gen(function* () {
+          if (shell.activeRunId !== null) {
+            const { turnItems } = yield* orchestrator.getThreadRecords(threadId, ["turnItems"], {
+              turnItemRunIds: [shell.activeRunId],
+              turnItemStatuses: ["running"],
+            });
+            if (turnItems.length > 0) return;
+          }
+          const silentSince = DateTime.formatIso(DateTime.makeUnsafe(lastActivityMs));
+          const outcome = yield* ctx.dispatch("wake-deferred", {
+            type: "thread.attention.raise",
+            commandId: CommandId.make(wakeDeferredCommandId(threadId, silentSince)),
+            threadId,
+            createdAt: createdAt(ctx),
+            reason: "needs_guidance",
+          });
+          if (outcome.status !== "accepted") return;
+          yield* Effect.logWarning("loom.dispatcher.wake-deferred", {
+            threadId,
+            silentSince,
+            deferred: Object.fromEntries(waiting),
+          });
+          // #312: a sub-orchestrator's parent hears of the wedge now, in words that fit it; the
+          // attention rail then finds this episode's notice receipted. A flag already standing at
+          // pass start is the child's own episode, and keeps the rail's generic notice.
+          const before = ctx.rows.find((row) => row.threadId === threadId);
+          const parentId = before?.parentThreadId ?? null;
+          if (
+            before === undefined ||
+            before.attention.includes("needs_guidance") ||
+            parentId === null ||
+            !ctx.shells.has(parentId)
+          )
+            return;
+          const after = yield* loomStore.getWorkstream(threadId);
+          const episode = after?.attentionEpisodes.needs_guidance;
+          if (after !== null && episode !== undefined)
+            yield* sendAttentionNotice(
+              ctx,
+              after,
+              parentId,
+              "needs_guidance",
+              episode,
+              silentSince,
+            );
+        }),
+      );
     }
   }),
 };

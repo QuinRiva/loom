@@ -35,9 +35,13 @@ is **not** seeded, and the UI will show an empty database.
 ## 1. Seed the scratch home
 
 ```sh
-mkdir -p "$SEED_HOME"
-T3CODE_HOME="$SEED_HOME" vp run dev:seed
+vp run dev:seed --home-dir "$SEED_HOME"
 ```
+
+Without `--home-dir` the seeder writes this worktree's `.t3`. It never reads
+`T3CODE_HOME` (inside T3 Code that is the live install), refuses a home a live
+server holds, and refuses one that already has a database — delete its
+`userdata` to reseed.
 
 This writes a Loom workstream through the real V2 orchestrator (upstream and
 Loom commands, never SQL): a goal with a nested task tree and, under one
@@ -61,7 +65,7 @@ started thread, an empty outbox and nothing the control plane's dispatcher pass
 would send on boot, now or a day later — without the UI:
 
 ```sh
-T3CODE_HOME="$SEED_HOME" vp run dev:seed:verify
+vp run dev:seed:verify --home-dir "$SEED_HOME"
 ```
 
 ## 2. Start the dev stack (backgrounded, logged)
@@ -79,8 +83,8 @@ Notes:
   `T3CODE_HOME` (`scripts/dev-runner.ts`, `@t3tools/shared/devHome`), so an
   exported `T3CODE_HOME` is silently outranked and the instance comes up on
   `<worktree>/.t3/dev-instances/<port>` — an empty database that looks exactly
-  like a failed seed. The seeder in step 1 is a plain script that reads
-  `T3CODE_HOME` directly, which is why the two steps spell the home differently.
+  like a failed seed. The seeder takes the per-port home itself; the runner
+  takes the root and appends `dev-instances/<port>`.
 - Pass the **root** (`$HOME_ROOT`), not the per-port subdir — the runner appends
   `dev-instances/<serverPort>` itself.
 - An explicitly **free** `--port` is honoured exactly, so `serverPort` matches

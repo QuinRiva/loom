@@ -124,7 +124,7 @@ const childFields = {
 
 const brief = described(
   Schema.String,
-  `The child's full, self-contained first-turn assignment. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).`,
+  `The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).`,
 );
 
 interface LoomToolSpec {
@@ -392,7 +392,7 @@ const LOOM_TOOL_SPECS = {
       ),
       brief: described(
         Schema.String,
-        "The new session's first turn: a self-contained problem statement — context, motivation, constraints, and where things live. State what and why, never how.",
+        "The new session's first turn, read by a root that is told it is another agent's writing: a self-contained problem statement — context, motivation, constraints, and where things live. State what and why, never how; quote the human's words where you relay them and mark the rest as your own reading.",
       ),
       description: described(
         Schema.String,
@@ -400,6 +400,12 @@ const LOOM_TOOL_SPECS = {
       ),
       project: optionalText(
         "Optional target project (title or id) when the work belongs in a different project than this thread's.",
+      ),
+      notDuplicateOf: Schema.optionalKey(
+        described(
+          Schema.Array(Schema.String),
+          "Thread ids a duplicate check named that you judged to be different work; skips the check.",
+        ),
       ),
       clientRequestId,
     }),
@@ -410,7 +416,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       brief: described(
         Schema.String,
-        "The continuation session's first turn, self-contained: current state, what was done, what to do next, and where key artefacts live.",
+        "The continuation session's first turn, self-contained and read as your writing, not the human's: current state, what was done, what to do next, and where key artefacts live. Quote the human's decisions rather than paraphrasing them.",
       ),
       threadTitle: optionalText(
         "Optional sidebar name for the staged continuation (≤6 words). Defaults to the goal title + ' (continued)'.",

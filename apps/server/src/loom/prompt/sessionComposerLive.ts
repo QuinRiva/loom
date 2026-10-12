@@ -15,7 +15,8 @@
  * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
  * source has a record and composes fresh when it has none (an upstream-only
  * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
- * arm for life. A 1-hour root's launch adds, outside the identity, the keep-alive
+ * arm for life, and, per launch, the agent git identity, whose shim directory rides
+ * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
  *
  * @module loom/prompt/sessionComposerLive
@@ -30,7 +31,7 @@ import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import type * as Path from "effect/Path";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../../config.ts";
@@ -50,6 +51,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
+import { agentGitEnv, materializeGitShim } from "../workstream/agentGitIdentity.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
 import {
   type LaunchIdentityRecord,
@@ -90,6 +92,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   const extensionPath = yield* LoomExtensionPath;
   const identityDir = loomPaths(config).workstreamLaunchIdentityDir;
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+  const gitShimDir = yield* materializeGitShim(
+    (yield* Path.Path).join(config.providerStatusCacheDir, "loom-bin"),
+  );
 
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
   const composeIdentity = (
@@ -219,15 +224,16 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : identity.appendSystemPrompt,
         skills: identity.skills,
         extensions: identity.extensions,
-        ...(retention === "long"
-          ? {
-              env: {
-                ...identity.env,
-                PI_CACHE_WARMING_IDLE_MAX_MS: String(LONG_ROOT_IDLE_WARMING_MAX_MS),
-              },
-              idleTimeoutMs: LONG_ROOT_IDLE_TIMEOUT_MS,
-            }
-          : { env: identity.env }),
+        // Per thread, never replayed: a fork commits under its own thread id.
+        env: {
+          ...identity.env,
+          ...agentGitEnv(threadId),
+          ...(retention === "long" && {
+            PI_CACHE_WARMING_IDLE_MAX_MS: String(LONG_ROOT_IDLE_WARMING_MAX_MS),
+          }),
+        },
+        pathPrepend: gitShimDir,
+        ...(retention === "long" && { idleTimeoutMs: LONG_ROOT_IDLE_TIMEOUT_MS }),
       } satisfies LoomOpenSessionFields;
     }).pipe(
       Effect.provide(context),

@@ -195,6 +195,10 @@
       "types": "./src/state/loom/rollup.ts",
       "default": "./src/state/loom/rollup.ts"
     },
+    "./state/loom/threadOrigin": {
+      "types": "./src/state/loom/threadOrigin.ts",
+      "default": "./src/state/loom/threadOrigin.ts"
+    },
     "./state/loom/workstream": {
       "types": "./src/state/loom/workstream.ts",
       "default": "./src/state/loom/workstream.ts"

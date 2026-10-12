@@ -1094,6 +1094,27 @@ const decodeRows =
       ),
     );
 
+// loom: a message this build cannot decode (a control item kind from a newer release after a
+// rollback, a fixture written by a newer build) is skipped and logged, never a failed read of
+// the whole thread — the dispatcher's wake pass reads every parent's messages through here.
+const decodeMessageRows =
+  (threadId: ThreadId) =>
+  (rows: ReadonlyArray<PayloadRow>): Effect.Effect<Array<OrchestrationV2ConversationMessage>> =>
+    Effect.map(
+      Effect.forEach(rows, (row) =>
+        decodeMessagePayload(row.payload_json).pipe(
+          Effect.map((message) => [message]),
+          Effect.catch((cause) =>
+            Effect.as(
+              Effect.logError("loom.projection.message-undecodable", { threadId, cause }),
+              [],
+            ),
+          ),
+        ),
+      ),
+      (decoded) => decoded.flat(),
+    );
+
 function messageIdForTurnItem(item: OrchestrationV2TurnItem): string | null {
   switch (item.type) {
     case "user_message":
@@ -3186,7 +3207,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           decodeRows(decodeProviderThreadPayload, threadId)(providerThreadRows),
           decodeRows(decodeProviderTurnPayload, threadId)(providerTurnRows),
           decodeRows(decodeRuntimeRequestPayload, threadId)(runtimeRequestRows),
-          decodeRows(decodeMessagePayload, threadId)(messageRows),
+          decodeMessageRows(threadId)(messageRows), // loom: skip undecodable messages
           decodeRows(decodePlanPayload, threadId)(planRows),
           decodeRows(decodeCheckpointScopePayload, threadId)(checkpointScopeRows),
           decodeRows(decodeCheckpointPayload, threadId)(checkpointRows),
@@ -3837,7 +3858,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   WHERE thread_id = ${threadId} AND run_id = ${runId})
                 OR (role = 'user' AND lower(trim(json_extract(payload_json, '$.text'), ${javascriptTrimWhitespace})) = '/compact')
               ) ORDER BY created_at ASC, message_id ASC
-            `.pipe(Effect.flatMap(decodeRows(decodeMessagePayload, threadId)));
+            `.pipe(Effect.flatMap(decodeMessageRows(threadId))); // loom: skip undecodable messages
             const conversation = yield* sql<{ present: number }>`
               SELECT EXISTS(
                 SELECT 1 FROM orchestration_v2_projection_messages
@@ -4139,7 +4160,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           decodeRows(decodeProviderThreadPayload, threadId)(providerThreadRows),
           decodeRows(decodeProviderTurnPayload, threadId)(providerTurnRows),
           decodeRows(decodeRuntimeRequestPayload, threadId)(runtimeRequestRows),
-          decodeRows(decodeMessagePayload, threadId)(messageRows),
+          decodeMessageRows(threadId)(messageRows), // loom: skip undecodable messages
           decodeRows(decodeTurnItemPayload, threadId)(turnItemRows),
         ]);
         return {

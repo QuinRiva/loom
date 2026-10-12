@@ -96,9 +96,9 @@ A recap of a finished change (a branch, a thread's work) reads:
   for a change that is a popover or a panel. Pick the one surface that matches
   what the user sees.
 - **A mockup dumped into `<HtmlBlock>`.** Escaping a screen into a raw-HTML block
-  instead of a `<Screen>`/`<Design>` — you lose the surface footprint, the theme,
-  the tokens, and node-level annotation. `<HtmlBlock>` is for a snippet the native
-  blocks can't cover.
+  instead of a `<Screen>`/`<Design>` — you lose the surface footprint, the theme
+  and the tokens. `<HtmlBlock>` is for a snippet the native blocks can't cover, or
+  a mockup that genuinely needs a real stylesheet.
 - **Marketing hero headings.** A giant landing-page heading, value props, or a
   "why this matters" card on a technical plan. Write outcome-first prose.
 - **Before/After baked into the frame.** A `Before` / `After` pill, title, or

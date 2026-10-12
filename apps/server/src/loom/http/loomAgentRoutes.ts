@@ -23,6 +23,7 @@ import {
   UPSTREAM_WITHHELD_TOOLS,
 } from "../../mcp/toolkits/workstream/families.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
@@ -56,8 +57,8 @@ const asCaller = <E, R>(
 
 /**
  * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
- * message — never the shell's `latestUserAuthoredMessageAt`, which counts
- * upstream's usage-limit resume. A child nobody has written to does not keep
+ * message (or the human's Launch of a staged continuation) — never the shell's
+ * `latestUserAuthoredMessageAt`, which counts a human-created scheduled task's fire. A child nobody has written to does not keep
  * `mcp__t3-code__ask_user_question` resident whatever its role says.
  */
 export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (threadId: ThreadId) {
@@ -66,7 +67,12 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
     ["messages"],
     { messageRoles: ["user"] },
   );
-  const humanEngaged = messages.some((message) => message.loom?.humanAuthored === true);
+  const workstream = yield* (yield* LoomStoreV2).getWorkstream(threadId);
+  // The human's Launch of a goal_continue brief engages them though the words are the agent's.
+  const humanEngaged = messages.some(
+    (message) =>
+      message.loom?.humanAuthored === true || isContinueLaunch(message, message.loom, workstream),
+  );
   // A V2 `fork` (thread_fork) is a root the human drives, not a child.
   const hasParent = thread.lineage.relationshipToParent === "subagent";
   const config = yield* ServerConfig.ServerConfig;
@@ -83,7 +89,7 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
   const activeTools = Option.isSome(launched)
     ? launched.value.tools
     : (loadRoleOverlay({
-        role: (yield* (yield* LoomStoreV2).getWorkstream(threadId))?.role ?? null,
+        role: workstream?.role ?? null,
         projectRoot: thread.worktreePath ?? process.cwd(),
       })?.tools ?? []);
   return {

@@ -22,6 +22,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ControlPayloadItem,
   type LoomThreadWorkstream,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -76,6 +77,7 @@ import {
   briefNeededRail,
   deadlockRail,
   digestFlush,
+  humanInChild,
   notifyDelivery,
   surfaceDeferredWakes,
   terminalDeltas,
@@ -179,6 +181,10 @@ export interface PassContext {
   readonly delivered: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlyArray<DeliveredItem>, PassError, PassServices>;
+  /** The human-authored messages `threadId` has received, oldest first (cached until its next user message). */
+  readonly humanMessages: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationV2ConversationMessage>, PassError, PassServices>;
   /** Whether a `server:` id already has a receipt (sent, or dead). */
   readonly sent: (id: string) => Effect.Effect<boolean, PassError, PassServices>;
   /**
@@ -209,8 +215,30 @@ export type PassServices =
   | ServerConfig
   | ServerSettings.ServerSettingsService;
 
-/** What a failing step can fail with; a failure ends the pass (logged) and the next pass retries. */
+/** What a failing step can fail with; the failure is logged, the pass goes on, and the next pass retries. */
 export type PassError = LoomStoreError | OrchestratorV2Error | CommandReceiptStoreV2Error;
+
+/**
+ * Logs a failure at error level and carries on (an interrupt still interrupts): one step, or
+ * one thread a rail visits, must never silence the rest of the pass — a single unreadable
+ * parent once stopped every wake for every parent.
+ */
+const survive =
+  (event: string, fields: Record<string, unknown>) =>
+  <E, R>(self: Effect.Effect<void, E, R>) =>
+    self.pipe(
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) => Effect.logError(event, { ...fields, cause: Cause.pretty(cause) }),
+      ),
+    );
+
+/** One rail iteration for `threadId`, isolated: its failure is logged and the rail moves on. */
+export const perThread = <E, R>(
+  step: string,
+  threadId: ThreadId,
+  body: Effect.Effect<void, E, R>,
+) => survive("loom.dispatcher.thread-failed", { step, threadId })(body);
 
 /** One named step of the pass. */
 export interface PassStep {
@@ -294,6 +322,7 @@ const promotion: PassStep = {
                 role: row.role,
                 brief: text,
                 gateTargetId: gateLoopTargetOf(row),
+                forkedFrom: row.forkFromThreadId,
               }),
             }),
           ),
@@ -313,6 +342,7 @@ export const PASS_STEPS: ReadonlyArray<PassStep> = [
   steerRedelivery,
   quiescenceRail,
   terminalDeltas,
+  humanInChild,
   attentionRail,
   yieldRail,
   briefNeededRail,
@@ -332,6 +362,11 @@ interface DispatcherMemory {
   readonly deliveredCache: Map<
     ThreadId,
     { readonly stamp: string; readonly items: ReadonlyArray<DeliveredItem> }
+  >;
+  /** `humanMessages` cache, valid while the thread's `latestUserMessageAt` is `stamp`. */
+  readonly humanMessagesCache: Map<
+    ThreadId,
+    { readonly stamp: string; readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage> }
   >;
   readonly startedAtMs: number;
 }
@@ -394,6 +429,20 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
         });
         memory.deliveredCache.set(threadId, { stamp, items });
         return items;
+      }),
+    humanMessages: (threadId) =>
+      Effect.gen(function* () {
+        const latest = shells.get(threadId)?.latestUserMessageAt ?? null;
+        if (latest === null) return [];
+        const stamp = String(latest);
+        const cached = memory.humanMessagesCache.get(threadId);
+        if (cached?.stamp === stamp) return cached.messages;
+        const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
+          messageRoles: ["user"],
+        });
+        const human = messages.filter((message) => message.loom?.humanAuthored === true);
+        memory.humanMessagesCache.set(threadId, { stamp, messages: human });
+        return human;
       }),
     sent: (id) => Effect.map(receipts.getByCommandId(CommandId.make(id)), Option.isSome),
     dispatch: (rail, command, count = 1) =>
@@ -463,6 +512,7 @@ const make = Effect.gen(function* () {
     advisories: new Map(),
     leftStashes: new Map(),
     deliveredCache: new Map(),
+    humanMessagesCache: new Map(),
     startedAtMs: DateTime.toEpochMillis(yield* DateTime.now),
   };
   const lastDeferredWakes = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>(
@@ -470,16 +520,10 @@ const make = Effect.gen(function* () {
   );
   const pass = Effect.gen(function* () {
     const ctx = yield* makePassContext(memory);
-    for (const step of PASS_STEPS) yield* step.run(ctx);
+    for (const step of PASS_STEPS)
+      yield* step.run(ctx).pipe(survive("loom.dispatcher.step-failed", { step: step.name }));
     yield* Ref.set(lastDeferredWakes, ctx.deferredWakes);
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause)
-        ? Effect.failCause(cause)
-        : Effect.logWarning("loom.dispatcher.pass-failed", { cause: Cause.pretty(cause) }),
-    ),
-    Effect.provideContext(services),
-  );
+  }).pipe(survive("loom.dispatcher.pass-failed", {}), Effect.provideContext(services));
   const worker = yield* makeCoalescingWorker(pass);
   return {
     // The startup pass is `loomStartupRecovery`'s (ordered after the held-queue release and the

@@ -29,7 +29,7 @@ export const WAKE_REPORT_EXCERPT_LIMIT = 400;
  * without it a parent cannot tell an automated notice from a human message.
  */
 export const WORKSTREAM_CONTROL_PLANE_MARKER =
-  "[T3 Workstream control plane — automated notice, not from the user]";
+  "[T3 Workstream control plane — automated notice, not from the human]";
 
 /** The board column a sidecar row sits in; V1's plan lane, derived (contract docstring on `LoomThreadWorkstream`). */
 export type WorkstreamLane = "held" | "blocked" | "ready" | "in_progress" | LoomOutcome;

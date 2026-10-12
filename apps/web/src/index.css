@@ -2961,6 +2961,18 @@ code {
 .dark {
   --cache-hot: var(--color-orange-400);
 }
+/* loom: the sidebar's agent-started rail (loom/ThreadStart.tsx). No upstream token has a
+   non-status hue for "an agent started this"; a custom theme may override --agent-start. */
+@theme inline {
+  --color-agent-start: var(--agent-start);
+}
+:root {
+  --agent-start: var(--color-fuchsia-500);
+
+  @variant dark {
+    --agent-start: var(--color-fuchsia-400);
+  }
+}
 /* loom: end of fork-only UI */
 
 @layer components {

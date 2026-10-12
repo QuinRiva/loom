@@ -20,6 +20,7 @@ import * as Path from "effect/Path";
 import { ServerConfig } from "../../config.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { QUIESCENT_REPORT_HEADER } from "../prompt/prose.ts";
+import { QUIESCENT_HUMAN_STARTED_LINE } from "../prompt/provenance.ts";
 
 const fileStem = (id: string) => id.replace(/[^A-Za-z0-9._-]/g, "_");
 
@@ -58,7 +59,8 @@ export const synthesisedReportFileName = (threadId: ThreadId, runId: string) =>
 /**
  * Writes the quiescence rail's report for a thread that ended `runId` without
  * submitting — the fixed header (with `grace` rendered by the caller, e.g.
- * "10 min"), a blank line, then its last assistant message — and returns its
+ * "10 min") plus the human-started line when the human started that turn, a blank
+ * line, then its last assistant message — and returns its
  * absolute path (`synthesisedReportFileName`).
  */
 export const writeSynthesisedReport = (
@@ -66,10 +68,11 @@ export const writeSynthesisedReport = (
   runId: string,
   lastAssistantText: string,
   grace: string,
+  humanStarted: boolean,
 ) =>
   writeReportFile(
     synthesisedReportFileName(threadId, runId),
-    `${QUIESCENT_REPORT_HEADER.replace("<grace>", grace)}\n\n${lastAssistantText}`,
+    `${QUIESCENT_REPORT_HEADER.replace("<grace>", grace)}${humanStarted ? `\n${QUIESCENT_HUMAN_STARTED_LINE}` : ""}\n\n${lastAssistantText}`,
   );
 
 /** Reads a report by its event-sourced absolute path; none when the file is missing or unreadable. */

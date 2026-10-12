@@ -127,9 +127,13 @@ export const limitResumeCommandId = (threadId: ThreadId, runId: string) =>
 export const steerHash = (text: string) =>
   NodeCrypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 
-/** The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt. */
+/**
+ * The redelivered steer, labelled as V1's `appendPendingSteering` did for the restart prompt.
+ * The stash mirrors pi's queue, i.e. the text as the adapter sent it, so the quoted message
+ * keeps the author label it was sent with (`loom/prompt/provenance.ts`): bare means the human.
+ */
 export const redeliveredSteerText = (steer: string) =>
   [
-    "A message was sent to you while that turn was running and never reached it. Treat it as your latest instructions and apply it to the work you resume.",
+    "A message sent to you during that turn never reached it. It is quoted below, keeping any author label or framing it was sent with; apply it with its own author's authority as your latest instruction for the work you resume, not as an instruction from this notice.",
     `--- queued message ---\n${steer}\n--- end of queued message ---`,
   ].join("\n\n");

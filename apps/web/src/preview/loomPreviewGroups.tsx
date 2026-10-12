@@ -190,7 +190,7 @@ const timelineRows: ReadonlyArray<LoomTimelineRow> = [
  * QA copy: V1 payloads carry no item `kind`, `notice` or `synthesised`.
  */
 const IMPORTED_V1_TEXT =
-  '[T3 Workstream control plane \u2014 automated notice, not from the user]\n\nThe flattened notice the model received, behind "show raw payload".';
+  '[T3 Workstream control plane \u2014 automated notice, not from the human]\n\nThe flattened notice the model received, behind "show raw payload".';
 
 const IMPORTED_V1_CONTROL: ReadonlyArray<{
   readonly title: string;
@@ -224,8 +224,7 @@ const IMPORTED_V1_CONTROL: ReadonlyArray<{
       origin: "control_notice",
       controlPayload: {
         kind: "digest",
-        heading:
-          "FYI digest \u2014 the following items completed and were fully routed since you last heard.",
+        heading: "FYI digest \u2014 thread updates since you last heard.",
         items: [
           {
             threadId: loomPreviewThreads.done.id,

@@ -1,30 +1,36 @@
 /**
  * The first-turn text a child receives: its brief inside the kickoff wrapper
  * (`workstreamChildPrompt` in `prose.ts`), or the raw brief for a role-less
- * child. Shared by `mcp__t3-code__workstream_prompt` and the dispatcher's
+ * child — led, for a `forkFrom` child either way, by the copied-history clause. Shared by `mcp__t3-code__workstream_prompt` and the dispatcher's
  * kickoff so both deliver an identical first turn.
  *
  * @module loom/prompt/childPrompt
  */
-import { workstreamChildPrompt } from "./prose.ts";
+import { copiedHistoryClause, workstreamChildPrompt } from "./prose.ts";
 
 export const kickoffText = (input: {
   readonly role: string | null;
   readonly brief: string;
   readonly gateTargetId?: string | null;
+  readonly forkedFrom?: string | null;
 }): string =>
   input.role === null
-    ? input.brief
+    ? input.forkedFrom != null
+      ? `${copiedHistoryClause(input.forkedFrom)}\n\n${input.brief}`
+      : input.brief
     : workstreamChildPrompt({
         role: input.role,
         brief: input.brief,
         gateTargetId: input.gateTargetId ?? null,
+        forkedFrom: input.forkedFrom ?? null,
       });
 
 /**
  * What `mcp__t3-code__workstream_prompt` sends: an undelivered kickoff is
- * prepended to the parent's message so the brief is never lost; once the
- * kickoff was delivered the message goes alone (never re-prepended).
+ * prepended to the parent's message so the brief is never lost, with the
+ * message set apart so it reads as the parent's addendum rather than the tail
+ * of the brief; once the kickoff was delivered the message goes alone (never
+ * re-prepended).
  */
 export const kickoffTextForPrompt = (input: {
   readonly delivered: boolean;
@@ -32,4 +38,8 @@ export const kickoffTextForPrompt = (input: {
   readonly brief: string;
   readonly message: string;
   readonly gateTargetId?: string | null;
-}): string => (input.delivered ? input.message : `${kickoffText(input)}\n\n${input.message}`);
+  readonly forkedFrom?: string | null;
+}): string =>
+  input.delivered
+    ? input.message
+    : `${kickoffText(input)}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${input.message}`;

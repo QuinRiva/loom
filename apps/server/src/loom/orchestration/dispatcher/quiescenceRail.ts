@@ -21,7 +21,7 @@ import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { writeSynthesisedReport } from "../../workstream/report.ts";
 import { latestUnheldRun, quiescenceCandidate, turnStartedByHuman } from "../quiescence.ts";
 import { quiescentSubmitCommandId } from "./controlMessage.ts";
-import type { PassContext, PassStep } from "./WorkstreamDispatcher.ts";
+import { type PassContext, type PassStep, perThread } from "./WorkstreamDispatcher.ts";
 
 /** A grace in the report header's words: "10 minutes", "1 minute", "45 seconds". */
 export const formatGrace = (ms: number): string => {
@@ -36,10 +36,11 @@ export const quiescenceRail: PassStep = {
     const loomStore = yield* LoomStoreV2;
     for (const row of ctx.rows) {
       const shell = ctx.shells.get(row.threadId);
+      const parentId = row.parentThreadId;
       // The cheap shell pre-filter; `quiescenceCandidate` re-checks all of it.
       if (
         shell === undefined ||
-        row.parentThreadId === null ||
+        parentId === null ||
         row.kickoffAt === null ||
         row.outcome !== null ||
         row.attention.length > 0 ||
@@ -47,66 +48,78 @@ export const quiescenceRail: PassStep = {
         shell.pendingRuntimeRequest !== null
       )
         continue;
-      const records = yield* orchestrator.getThreadRecords(row.threadId, ["runs", "messages"], {
-        messageRoles: ["user"],
-      });
-      if (
-        !quiescenceCandidate({
-          shell,
-          runs: records.runs,
-          userMessages: records.messages,
-          children: yield* loomStore.listChildren(row.threadId, { includeArchived: true }),
-          now: ctx.now,
-          grace: ctx.grace,
-        })
-      )
-        continue;
-      // A party waiting for its gate counterpart is parked, not quiet (plan: "`isWaitingInGate`
-      // still exempts…"). Read the siblings fresh: this pass's re-drive may just have
-      // opened the counterpart's round, which the pass-start snapshot cannot show.
-      const siblings = new Map(
-        (yield* loomStore.listChildren(row.parentThreadId, { includeArchived: true })).map(
-          (sibling) => [sibling.threadId, { ...sibling, id: sibling.threadId }],
-        ),
-      );
-      const fresh = siblings.get(row.threadId)!;
-      if (fresh.outcome !== null || fresh.attention.length > 0 || isWaitingInGate(fresh, siblings))
-        continue;
-      const run = latestUnheldRun(records.runs)!;
-      const commandId = quiescentSubmitCommandId(row.threadId, run.id);
-      if (yield* ctx.sent(commandId)) continue;
-      const { turnItems } = yield* orchestrator.getThreadRecords(row.threadId, ["turnItems"], {
-        turnItemRunIds: [run.id],
-        turnItemTypes: ["assistant_message"],
-      });
-      const lastAssistant = turnItems
-        .flatMap((item) => (item.type === "assistant_message" ? [item] : []))
-        .toSorted((a, b) => a.ordinal - b.ordinal)
-        .at(-1);
-      const humanStarted = turnStartedByHuman(records.runs, records.messages);
-      const reportPath = yield* writeSynthesisedReport(
+      yield* perThread(
+        "quiescence",
         row.threadId,
-        run.id,
-        lastAssistant?.text ?? "_The last run produced no assistant message._",
-        formatGrace(humanStarted ? ctx.grace.humanStartedMs! : ctx.grace.controlStartedMs),
-      ).pipe(
-        Effect.tapError((error) =>
-          Effect.logWarning("loom.dispatcher.quiescent-report-failed", {
+        Effect.gen(function* () {
+          const records = yield* orchestrator.getThreadRecords(row.threadId, ["runs", "messages"], {
+            messageRoles: ["user"],
+          });
+          if (
+            !quiescenceCandidate({
+              shell,
+              runs: records.runs,
+              userMessages: records.messages,
+              children: yield* loomStore.listChildren(row.threadId, { includeArchived: true }),
+              now: ctx.now,
+              grace: ctx.grace,
+            })
+          )
+            return;
+          // A party waiting for its gate counterpart is parked, not quiet (plan: "`isWaitingInGate`
+          // still exempts…"). Read the siblings fresh: this pass's re-drive may just have
+          // opened the counterpart's round, which the pass-start snapshot cannot show.
+          const siblings = new Map(
+            (yield* loomStore.listChildren(parentId, { includeArchived: true })).map((sibling) => [
+              sibling.threadId,
+              { ...sibling, id: sibling.threadId },
+            ]),
+          );
+          const fresh = siblings.get(row.threadId)!;
+          if (
+            fresh.outcome !== null ||
+            fresh.attention.length > 0 ||
+            isWaitingInGate(fresh, siblings)
+          )
+            return;
+          const run = latestUnheldRun(records.runs)!;
+          const commandId = quiescentSubmitCommandId(row.threadId, run.id);
+          if (yield* ctx.sent(commandId)) return;
+          const { turnItems } = yield* orchestrator.getThreadRecords(row.threadId, ["turnItems"], {
+            turnItemRunIds: [run.id],
+            turnItemTypes: ["assistant_message"],
+          });
+          const lastAssistant = turnItems
+            .flatMap((item) => (item.type === "assistant_message" ? [item] : []))
+            .toSorted((a, b) => a.ordinal - b.ordinal)
+            .at(-1);
+          const humanStarted = turnStartedByHuman(records.runs, records.messages);
+          const reportPath = yield* writeSynthesisedReport(
+            row.threadId,
+            run.id,
+            lastAssistant?.text ?? "_The last run produced no assistant message._",
+            formatGrace(humanStarted ? ctx.grace.humanStartedMs! : ctx.grace.controlStartedMs),
+            humanStarted,
+          ).pipe(
+            Effect.tapError((error) =>
+              Effect.logWarning("loom.dispatcher.quiescent-report-failed", {
+                threadId: row.threadId,
+                error,
+              }),
+            ),
+            Effect.option,
+          );
+          if (Option.isNone(reportPath)) return;
+          yield* ctx.dispatch("quiescence", {
+            type: "thread.work.submit",
+            commandId: CommandId.make(commandId),
             threadId: row.threadId,
-            error,
-          }),
-        ),
-        Effect.option,
+            createdAt: DateTime.formatIso(ctx.now),
+            reportPath: reportPath.value,
+            outcome: "quiescent",
+          });
+        }),
       );
-      if (Option.isNone(reportPath)) continue;
-      yield* ctx.dispatch("quiescence", {
-        type: "thread.work.submit",
-        commandId: CommandId.make(commandId),
-        threadId: row.threadId,
-        createdAt: DateTime.formatIso(ctx.now),
-        reportPath: reportPath.value,
-        outcome: "quiescent",
-      });
     }
   }),
 };

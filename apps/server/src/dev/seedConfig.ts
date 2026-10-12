@@ -1,38 +1,60 @@
 /**
  * Shared dev-fixture config resolution — builds a `ServerConfig` for a scratch
- * `T3CODE_HOME`, so the seeder and the verifier read/write exactly the sqlite a
- * dev server started with the same `T3CODE_HOME` serves (state under
- * `<home>/userdata`).
+ * home, so the seeder and the verifier read/write exactly the sqlite a dev
+ * server on the same home serves (state under `<home>/userdata`).
+ *
+ * The home is `--home-dir <dir>` when given, else the worktree's own `.t3` —
+ * never an ambient `T3CODE_HOME`: inside T3 Code that names the live install,
+ * and a seed once written there broke every parent wake. A home a live server
+ * holds is refused either way.
  *
  * @module dev/seedConfig
  */
 // Dev-only fixture tooling (not shipped); see seedWorkstream.ts.
-// @effect-diagnostics globalErrorInEffectFailure:off
+// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off
+import * as NodeUtil from "node:util";
+
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 
 import * as ServerConfig from "../config.ts";
+import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 
-/** Resolve the scratch dev-mode ServerConfig service value from `T3CODE_HOME`. */
+/** Resolve the scratch dev-mode ServerConfig service value from `--home-dir` or the worktree's `.t3`. */
 export const buildSeedConfig = Effect.gen(function* () {
   const path = yield* Path.Path;
-  const t3Home = process.env.T3CODE_HOME;
-  if (t3Home === undefined || t3Home.trim().length === 0) {
-    return yield* Effect.fail(new Error("T3CODE_HOME must be set to the scratch home."));
+  const t3Home =
+    NodeUtil.parseArgs({ options: { "home-dir": { type: "string" } } }).values[
+      "home-dir"
+    ]?.trim() || (yield* resolveWorktreeT3Home(process.cwd()));
+  if (t3Home === undefined) {
+    return yield* Effect.fail(
+      new Error("Outside a git worktree, pass --home-dir <scratch home> (T3CODE_HOME is ignored)."),
+    );
   }
-  const baseDir = path.resolve(t3Home.trim());
+  const baseDir = path.resolve(t3Home);
   // Mirror a dev-runner-launched server exactly: it sets both `VITE_DEV_SERVER_URL`
   // (devUrl) and an explicit `T3CODE_HOME`. `deriveServerPaths` keys the state dir
   // off `devUrl !== undefined && !baseDirIsExplicit`, so an explicit home resolves
   // `<baseDir>/userdata/state.sqlite` regardless of devUrl — the exact path the
-  // server serves. The seed is always given an explicit T3CODE_HOME, so pass
+  // server serves. The seed's home is always explicit, so pass
   // `baseDirIsExplicit: true` or the seed would write to a `dev/` dir nothing reads.
   const devUrl = new URL("http://localhost:5733");
   const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
     baseDirIsExplicit: true,
   });
+  const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+  if (Option.isSome(runtime) && isProcessAlive(runtime.value.pid)) {
+    return yield* Effect.fail(
+      new Error(
+        `${baseDir} is held by a live server (pid ${runtime.value.pid}, ${derivedPaths.serverRuntimeStatePath}); seed a scratch home instead.`,
+      ),
+    );
+  }
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
   const config: ServerConfig.ServerConfig["Service"] = {
     logLevel: "Error",

@@ -5,7 +5,7 @@
  * piggybacked on the next decision-bearing wake). One traversal yields both the
  * model-visible text and the `controlPayload` items, so the two cannot drift.
  * Items carry the seam-6 `kind`: terminal | gate-resolved | recovered |
- * slow-tool | spinning | dead-episode.
+ * slow-tool | spinning | dead-episode | human-message.
  *
  * @module loom/orchestration/dispatcher/digest
  */
@@ -14,6 +14,7 @@ import type {
   ControlPayloadItem,
   LoomControlItemKind,
   LoomThreadWorkstream,
+  MessageId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -43,6 +44,8 @@ export interface DigestExtra {
   readonly line: string;
   readonly childId?: ThreadId;
   readonly role?: string | null;
+  /** A `human-message` extra's message, carried onto its card item as the told-once key. */
+  readonly messageId?: MessageId;
 }
 
 const EXTRA_CARD: Record<DigestExtra["kind"], { readonly title: string; readonly icon: string }> = {
@@ -50,6 +53,7 @@ const EXTRA_CARD: Record<DigestExtra["kind"], { readonly title: string; readonly
   "slow-tool": { title: "Still executing", icon: "⏳" },
   spinning: { title: "No visible progress", icon: "🌀" },
   "dead-episode": { title: "Control message failed", icon: "⚠️" },
+  "human-message": { title: "The human wrote to this child", icon: "🧑" },
 };
 
 /** One terminal member as a card item, mirroring the text section's icon, status and excerpt decision. */
@@ -96,6 +100,7 @@ const digestExtraToPayloadItem = (extra: DigestExtra): ControlPayloadItem => ({
   kind: extra.kind,
   ...(extra.childId !== undefined ? { threadId: extra.childId } : {}),
   ...(extra.role != null ? { role: extra.role } : {}),
+  ...(extra.messageId !== undefined ? { messageId: extra.messageId } : {}),
   title: EXTRA_CARD[extra.kind].title,
   status: extra.kind,
   icon: EXTRA_CARD[extra.kind].icon,
@@ -131,26 +136,42 @@ const DIGEST_CLOSING =
 // A digest of only extras must stay neutral: a slow-tool line is still in
 // flight, a recovered line DID complete — so it claims neither.
 const DIGEST_CLOSING_INFO_ONLY =
-  "These are status notices, not completions to review — some items are still in flight, others already resolved themselves (e.g. an earlier `error` superseded by `done`, its dependents released). No first-pass review is owed; act only if a notice reads as genuinely wrong (e.g. a mis-scoped tool call).";
+  "No first-pass review is owed: these are status notices — some items still in flight, others already resolved themselves (e.g. an earlier `error` superseded by `done`, its dependents released) — so act only if one reads as genuinely wrong (e.g. a mis-scoped tool call).";
+
+// The closing when the digest relays a human message into a child — alone when
+// that is all it carries, else appended, so the status-notice closing above never
+// reads as licence to ignore it.
+const DIGEST_CLOSING_HUMAN_MESSAGE =
+  "A 🧑 line above is not a status notice: what the human said now governs that child, so read it before you next steer that child.";
+
+/** The closing for a digest: completion- or info-shaped, plus the human-message rider when one is relayed. */
+const digestClosing = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra>,
+): string =>
+  members.length === 0 && extras.every((extra) => extra.kind === "human-message")
+    ? DIGEST_CLOSING_HUMAN_MESSAGE
+    : [
+        members.length === 0 ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
+        ...(extras.some((extra) => extra.kind === "human-message")
+          ? [DIGEST_CLOSING_HUMAN_MESSAGE]
+          : []),
+      ].join(" ");
 
 /** The standalone digest text a flush delivers as its own turn: marker, intro, items, closing. */
 export const buildStandaloneDigest = (
   members: ReadonlyArray<WakeMember>,
   extras: ReadonlyArray<DigestExtra> = [],
-): string => {
-  const infoOnly = members.length === 0;
-  return [
+): string =>
+  [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    infoOnly
-      ? "FYI digest — status notices from the control plane since you last heard. Nothing below is blocked on you."
-      : "FYI digest — the following items completed and were fully routed by the control plane since you last heard. Nothing below is blocked on you.",
+    "FYI digest — thread updates since you last heard. Nothing below is blocked on you.",
     "",
     digestBodyParts(members, extras).text,
     "",
-    infoOnly ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
+    digestClosing(members, extras),
   ].join("\n");
-};
 
 /** The piggyback section appended AFTER a decision-bearing wake's own copy (the action leads). */
 export const buildDigestPiggyback = (
@@ -161,11 +182,11 @@ export const buildDigestPiggyback = (
     "",
     "---",
     "",
-    "**Also, FYI since you last heard** (no action required):",
+    "**Also, FYI since you last heard:**",
     "",
     digestBodyParts(members, extras).text,
     "",
-    members.length === 0 ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
+    digestClosing(members, extras),
   ].join("\n");
 
 /** The digest's `controlPayload`: exactly the traversal's items under the heading the text leads with. */
@@ -176,10 +197,8 @@ export const buildDigestPayload = (
 ): ControlPayload => ({
   kind: "digest",
   heading: opts.piggyback
-    ? "Also, FYI since you last heard (no action required)"
-    : members.length === 0
-      ? "FYI digest — status notices from the control plane since you last heard."
-      : "FYI digest — the following items completed and were fully routed since you last heard.",
+    ? "Also, FYI since you last heard"
+    : "FYI digest — thread updates since you last heard.",
   items: [...digestBodyParts(members, extras).items],
 });
 

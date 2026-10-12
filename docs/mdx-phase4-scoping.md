@@ -96,10 +96,11 @@ only the MDX `evaluate` path needs the server-compile escape hatch.
 
 **Alternative considered & rejected for wireframes:** iframe-sandbox each
 artboard (like HtmlBlock, §5). Rejected because it breaks the single annotation
-geometry model (you can't `getClientRects()` across an opaque-origin iframe
-boundary, so wireframe-node pins would need a postMessage geometry bridge per
-artboard) and blocks the rough overlay. Sanitise-into-live-DOM is the right
-trade for the _wireframe_ surface specifically.
+geometry model (an opaque-origin iframe can't be measured at all, and even the
+same-origin, no-script HtmlBlock frame needs per-frame event wiring and
+frame-to-host coordinate mapping for its pins) and blocks the rough overlay.
+Sanitise-into-live-DOM is the right trade for the _wireframe_ surface
+specifically.
 
 ---
 
@@ -236,18 +237,18 @@ All mirror the shipped slim `PlanBlock` pattern (zod `schema` + `BlockMdxConfig`
   the full editor+spec source, much larger than our port). "Trivial" = same shape
   as the 8 shipped blocks; "risk" = new machinery.
 
-| Block           | Tag                 | Port size                  | Risk / note                                                                                                                                                                                   |
-| --------------- | ------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Callout         | `<Callout>`         | trivial (~120)             | Prose `childrenField` body; mirrors existing pattern.                                                                                                                                         |
-| Checklist       | `<Checklist>`       | trivial (~150)             | Static list; trivial.                                                                                                                                                                         |
-| Table           | `<Table>`           | small (~250)               | Data rows; trivial-ish.                                                                                                                                                                       |
-| Diff            | `<Diff>`            | medium (~400)              | BuilderIO inline **LCS differ, no jsdiff dep** — port the differ + unified/split Read. Self-contained.                                                                                        |
-| Mermaid         | `<Mermaid>`         | medium (~150 + lazy dep)   | **Lazy** `await import("mermaid")` only when a Mermaid block renders; heavy dep isolated, never in the base bundle. Confirmed lazy in source.                                                 |
-| OpenApi         | `<OpenApi>`         | medium–large (~500)        | Rich spec renderer (998 LOC full); port a read subset. No new risk class, just volume.                                                                                                        |
-| HtmlBlock       | `<HtmlBlock>`       | medium (~150)              | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; ship as sandboxed-iframe + sanitiser. |
-| VisualQuestions | `<VisualQuestions>` | small (~150)               | Variant of the shipped `<QuestionForm>`; near-trivial.                                                                                                                                        |
-| Columns         | `<Columns>`         | **medium — new machinery** | **Container block**: nests child blocks (esp. Before/After wireframe pairs).                                                                                                                  |
-| Tabs            | `<Tabs>`            | **medium — new machinery** | **Container block**: tabbed child blocks.                                                                                                                                                     |
+| Block           | Tag                 | Port size                  | Risk / note                                                                                                                                                                                                                                                                                                                                                             |
+| --------------- | ------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Callout         | `<Callout>`         | trivial (~120)             | Prose `childrenField` body; mirrors existing pattern.                                                                                                                                                                                                                                                                                                                   |
+| Checklist       | `<Checklist>`       | trivial (~150)             | Static list; trivial.                                                                                                                                                                                                                                                                                                                                                   |
+| Table           | `<Table>`           | small (~250)               | Data rows; trivial-ish.                                                                                                                                                                                                                                                                                                                                                 |
+| Diff            | `<Diff>`            | medium (~400)              | BuilderIO inline **LCS differ, no jsdiff dep** — port the differ + unified/split Read. Self-contained.                                                                                                                                                                                                                                                                  |
+| Mermaid         | `<Mermaid>`         | medium (~150 + lazy dep)   | **Lazy** `await import("mermaid")` only when a Mermaid block renders; heavy dep isolated, never in the base bundle. Confirmed lazy in source.                                                                                                                                                                                                                           |
+| OpenApi         | `<OpenApi>`         | medium–large (~500)        | Rich spec renderer (998 LOC full); port a read subset. No new risk class, just volume.                                                                                                                                                                                                                                                                                  |
+| HtmlBlock       | `<HtmlBlock>`       | medium (~150)              | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; shipped the same way — same-origin, no scripts, no sanitiser — behind a no-`'self'` CSP and a link-activation guard, so reviewers can pin comments to text inside it (`docs/mdx-iframe-surfaces-review.md` §4). |
+| VisualQuestions | `<VisualQuestions>` | small (~150)               | Variant of the shipped `<QuestionForm>`; near-trivial.                                                                                                                                                                                                                                                                                                                  |
+| Columns         | `<Columns>`         | **medium — new machinery** | **Container block**: nests child blocks (esp. Before/After wireframe pairs).                                                                                                                                                                                                                                                                                            |
+| Tabs            | `<Tabs>`            | **medium — new machinery** | **Container block**: tabbed child blocks.                                                                                                                                                                                                                                                                                                                               |
 
 **The one structural item:** `Columns`/`Tabs` are **container** blocks. BuilderIO
 dispatch children through a `ctx.renderBlock` block-dispatcher; our slim registry
@@ -344,9 +345,8 @@ separate reviewer thread + a human security sign-off belong.
 - **B2.** Diff (port LCS differ + Read) — one thread.
 - **B3.** OpenApi (read subset) — one thread.
 - **B4.** Mermaid (lazy dep) — one thread.
-- **B5.** ⛔ **HtmlBlock** — sandboxed-iframe + **ported sanitiser**; security
-  review gate. Shares the sanitiser module with Wave C, so land the sanitiser
-  here (or in C1) once and import.
+- **B5.** ⛔ **HtmlBlock** — sandboxed iframe (same-origin, no scripts; no
+  sanitiser — the review ratified dropping it); security review gate.
 - **B6.** Columns + Tabs (container/nesting) — depends on **A2**; do `Columns`
   first. One thread.
 

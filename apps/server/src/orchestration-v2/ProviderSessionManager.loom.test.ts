@@ -30,6 +30,7 @@ import {
 } from "../loom/prompt/sessionComposer.ts";
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
+import { agentGitEnv } from "../loom/workstream/agentGitIdentity.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -274,6 +275,7 @@ it.effect("hands the production composer's prompt, extension and env to the adap
     assert.lengthOf(loom?.extensions ?? [], 1);
     assert.deepEqual(loom?.env, {
       PI_CACHE_RETENTION: "long",
+      ...agentGitEnv(ThreadId.make("thread-loom-composer")),
       PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
     });
   }),

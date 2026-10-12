@@ -41,6 +41,7 @@ export const workstreamFields = (
   lastOutcome: null,
   reportPath: null,
   handoffDestinations: [],
+  handoffOrigin: null,
   archivedAt: null,
   deletedAt: null,
   createdAt: "2026-10-05T00:00:00.000Z",

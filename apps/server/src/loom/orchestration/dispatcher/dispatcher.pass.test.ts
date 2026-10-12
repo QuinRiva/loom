@@ -39,6 +39,7 @@ import {
 } from "../../testkit/loomOrchestratorLayer.ts";
 import {
   attentionCommandId,
+  controlMessage,
   forkPrepareCommandId,
   kickoffCommandId,
   notifyCommandId,
@@ -469,6 +470,99 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
     }),
   );
 
+  it.effect("human in a child: each human message reaches the parent's digest once", () =>
+    Effect.gen(function* () {
+      const [root, child] = ["human-root", "human-child"].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: root! });
+      yield* spawnChild({ parentThreadId: root!, threadId: child!, graphKey: "child" });
+      let sent = 0;
+      const send = (threadId: ThreadId, text: string, from: "human" | "parent" = "human") =>
+        dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`human-msg:${++sent}`),
+          threadId,
+          messageId: MessageId.make(`message:human-msg:${sent}`),
+          text,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          ...(from === "human"
+            ? { createdBy: "user" as const, creationSource: "web" as const }
+            : {
+                createdBy: "agent" as const,
+                creationSource: "mcp" as const,
+                senderThreadId: root!,
+                loom: { origin: "orchestrator" as const },
+              }),
+        });
+      const humanItems = Effect.map(withPayload(root!, "digest"), (digests) =>
+        digests.map((digest) =>
+          digest
+            .loom!.controlPayload!.items.filter((item) => item.kind === "human-message")
+            .map((item) => [item.threadId, item.messageId]),
+        ),
+      );
+
+      yield* send(child!, "Use the staging bucket, not prod.");
+      yield* send(child!, "A parent steer is not news.", "parent");
+      yield* send(child!, "And keep the old flag.");
+      yield* send(root!, "The human at the root is nobody's child.");
+      yield* completeOpenRuns(child!);
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runPass;
+      assert.deepEqual(yield* humanItems, [
+        [
+          [child!, MessageId.make("message:human-msg:1")],
+          [child!, MessageId.make("message:human-msg:3")],
+        ],
+      ]);
+      const [digest] = yield* withPayload(root!, "digest");
+      assert.include(digest!.text, "Use the staging bucket, not prod.");
+
+      // Told is read back from the stored digest, not memory: no repeat.
+      yield* runPass;
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 1);
+
+      yield* send(child!, "Actually, ship it today.");
+      yield* completeOpenRuns(child!);
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runFreshPass;
+      assert.deepEqual((yield* humanItems).at(-1), [
+        [child!, MessageId.make("message:human-msg:5")],
+      ]);
+
+      // Already covered: the parent heard how the child ended after the human wrote (the first
+      // pass after this rail's deploy finds every earlier human message in that state).
+      const ended = ThreadId.make("human-child-ended");
+      yield* spawnChild({ parentThreadId: root!, threadId: ended, graphKey: "ended" });
+      yield* send(ended, "Use the old endpoint.");
+      yield* completeOpenRuns(ended);
+      yield* completeOpenRuns(root!); // the last digest's turn
+      yield* dispatch(
+        controlMessage({
+          threadId: root!,
+          id: "server:test-told-ended",
+          tier: "steered",
+          origin: "control_notice",
+          text: "ended",
+          payload: { kind: "yield", items: [{ threadId: ended, title: "done" }] },
+        }),
+      );
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 2);
+      // And stale: a message past the horizon is history, not news.
+      yield* send(child!, "An old aside.");
+      yield* completeOpenRuns(child!);
+      yield* TestClock.adjust("25 hours");
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 2);
+    }),
+  );
+
   it.effect("yield: one steered card into the running parent; the child's flag stands", () =>
     Effect.gen(function* () {
       const [root, child] = ["yield-root", "yield-child"].map((id) => ThreadId.make(id));
@@ -755,6 +849,54 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         const byText = (text: string) => after.messages.find((m) => m.text === text);
         assert.equal(byText("early-correction")?.loom?.origin, "orchestrator");
         assert.notEqual(byText("human-follow-up")?.runId, ids.runId);
+      }),
+  );
+
+  it.effect(
+    "a parent holding an undecodable control message still gets its digest, as do the others",
+    () =>
+      Effect.gen(function* () {
+        const [poisoned, poisonedChild, other, otherChild] = [
+          "undecodable-root",
+          "undecodable-child",
+          "undecodable-other-root",
+          "undecodable-other-child",
+        ].map((id) => ThreadId.make(id));
+        yield* seedThread({ threadId: poisoned! });
+        yield* seedThread({ threadId: other! });
+        yield* spawnChild({ parentThreadId: poisoned!, threadId: poisonedChild!, graphKey: "x" });
+        yield* spawnChild({ parentThreadId: other!, threadId: otherChild!, graphKey: "y" });
+        // As a newer release (or a dev seed written by one) leaves it: an item kind this build lacks.
+        yield* dispatch(
+          controlMessage({
+            threadId: poisoned!,
+            id: "server:undecodable-notice",
+            tier: "fyi",
+            origin: "control_notice",
+            text: "From a newer release.",
+            payload: { kind: "digest", items: [{ kind: "terminal", title: "newer" }] },
+          }),
+        );
+        yield* completeOpenRuns(poisoned!);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE orchestration_v2_projection_messages
+        SET payload_json = json_set(payload_json, '$.loom.controlPayload.items[0].kind', 'from-a-newer-release')
+        WHERE message_id = 'message:server:undecodable-notice'`;
+        yield* submit(poisonedChild!);
+        yield* submit(otherChild!);
+
+        yield* runPass;
+        for (const [parent, child] of [
+          [other!, otherChild!],
+          [poisoned!, poisonedChild!],
+        ] as const) {
+          const [digest, ...rest] = yield* withPayload(parent, "digest");
+          assert.isEmpty(rest);
+          assert.deepEqual(
+            digest!.loom!.controlPayload!.items.map((item) => [item.kind, item.threadId]),
+            [["terminal", child]],
+          );
+        }
       }),
   );
 

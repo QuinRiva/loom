@@ -50,6 +50,8 @@ import {
 } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
@@ -209,6 +211,51 @@ export const loomMessageFields = (
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
 /**
+ * A `mcp__t3-code__goal_continue` successor's launch: the human pressed Launch, but the words are
+ * the predecessor agent's brief. When the first message on a staged continuation is the stored
+ * brief verbatim (trimmed), it is restamped as that agent's kickoff (`createdBy: agent`,
+ * `senderThreadId` = the predecessor, origin `kickoff`), so the successor reads it labelled as
+ * another agent's proposal rather than the human's approved plan. An edited brief stays the
+ * human's: they took ownership of the words. Read before `loomMessageFields`.
+ */
+export const loomStampContinueLaunch = Effect.fn("loom.stampContinueLaunch")(function* (
+  command: MessageDispatch,
+  workstream: LoomThreadWorkstream | null,
+  fileSystem: FileSystem.FileSystem,
+) {
+  if (
+    workstream?.continuesThreadId == null ||
+    workstream.kickoffAt !== null ||
+    workstream.kickoffBriefPath === null ||
+    command.createdBy !== "user" ||
+    command.loom?.origin !== undefined
+  )
+    return command;
+  const brief = yield* fileSystem.readFileString(workstream.kickoffBriefPath).pipe(Effect.option);
+  return Option.isSome(brief) && brief.value.trim() === command.text.trim()
+    ? ({
+        ...command,
+        createdBy: "agent",
+        senderThreadId: workstream.continuesThreadId,
+        loom: { ...command.loom, origin: "kickoff" },
+      } satisfies MessageDispatch)
+    : command;
+});
+
+/**
+ * The launch `loomStampContinueLaunch` restamped: the human's action on an agent's words, so it
+ * releases the hold and engages the human (`sessionProfile`) though it is not `humanAuthored`.
+ */
+export const isContinueLaunch = (
+  message: { readonly senderThreadId?: ThreadId | undefined },
+  loom: LoomMessageFields | undefined,
+  workstream: Pick<LoomThreadWorkstream, "continuesThreadId"> | null,
+) =>
+  loom?.origin === "kickoff" &&
+  message.senderThreadId !== undefined &&
+  message.senderThreadId === workstream?.continuesThreadId;
+
+/**
  * A queued run whose message is a steered-tier Loom message the dispatcher's
  * promotion rail will steer in once the target's turn is up (DL-662): Loom origin,
  * not upstream's to deliver queued (notification, delegated completion), not held
@@ -305,12 +352,13 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
     }
     // 3. Acting on a held node is the release; a control-plane message never starts one.
     if (workstream.held) {
-      if (loom.origin !== undefined) {
+      const continueLaunch = isContinueLaunch(command, loom, workstream);
+      if (loom.origin !== undefined && !continueLaunch) {
         return yield* fail(
           `Thread ${command.threadId} is held; a control-plane message cannot start it.`,
         );
       }
-      if (loom.humanAuthored === true) {
+      if (loom.humanAuthored === true || continueLaunch) {
         yield* emit(loomEvent("thread.held-set", command.threadId, now, { held: false }));
       }
     }

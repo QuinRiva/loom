@@ -77,8 +77,11 @@ const countOccurrences = (haystack: string, needle: string): number => {
  *  - `diagram` / `mermaid`: absolutely-positioned boxes and generated SVG, so
  *    DOM text order is not visual order — a drag across them serialises to a
  *    scrambled quote that resolves to the wrong glyphs after a re-layout.
- *  - `prototype` / `html`: opaque-origin sandboxed iframes. You cannot get a
- *    `Range` into them at all, so the host block IS the finest target.
+ *  - `prototype` / `html`: sandboxed iframes. A `Range` in the HOST document
+ *    can never reach into them, so a host-side selection there is whole-block.
+ *    (`html` frames are same-origin, so a selection made INSIDE the frame's own
+ *    document is pinned by {@link anchorForFrameRange} — the prototype's
+ *    opaque-origin frame stays whole-block only.)
  *
  * Every OTHER block type renders real, stable, human-meaningful text (table
  * cells, checklist items, code lines, JSON keys, data-model descriptions), so an
@@ -297,7 +300,9 @@ const prefixOverlap = (a: string, b: string): number => {
 export function anchorFromRange(
   range: Range,
   root: Element,
-): { anchor: PlanCommentAnchor; quotedText: string } | null {
+): { anchor: PlanCommentAnchor; quotedText: string; rangeLabel?: string } | null {
+  const frame = hostFrameOf(range.startContainer, root);
+  if (frame) return anchorForFrameRange(range, frame, root);
   const block = enclosingBlock(range.commonAncestorContainer);
   const section = sectionFor(range.commonAncestorContainer, root);
   const sectionFields = section ? { sectionId: section.id, sectionTitle: section.title } : {};
@@ -313,7 +318,25 @@ export function anchorFromRange(
   const wholeBlock = () => (block ? anchorForBlockElement(block.element, root) : null);
   if (block && OPAQUE_BLOCK_TYPES.has(block.type)) return wholeBlock();
 
-  const { text, spans } = flattenDocument(root);
+  const quote = quoteFromRange(range, root);
+  if (!quote) return wholeBlock();
+
+  return {
+    anchor: {
+      anchorKind: "text",
+      targetKind: "text",
+      ...quote,
+      ...(block ? { blockType: block.type } : {}),
+      ...sectionFields,
+    },
+    quotedText: quote.textQuote,
+  };
+}
+
+/** The text-quote fields (quote + disambiguating context) for a range, measured
+ * over `scope`'s flattened text; `null` when the range captures no text. */
+function quoteFromRange(range: Range, scope: Node) {
+  const { text, spans } = flattenDocument(scope);
   const offsetOf = (node: Node, nodeOffset: number): number => {
     const span = spans.find((s) => s.node === node);
     return (span ? span.start : 0) + nodeOffset;
@@ -321,21 +344,88 @@ export function anchorFromRange(
   const start = offsetOf(range.startContainer, range.startOffset);
   const end = offsetOf(range.endContainer, range.endOffset);
   const textQuote = text.slice(start, end);
-  if (!textQuote.trim()) return wholeBlock();
+  if (!textQuote.trim()) return null;
+  return {
+    textQuote,
+    contextBefore: text.slice(Math.max(0, start - CTX), start),
+    contextAfter: text.slice(end, end + CTX),
+    ...(countOccurrences(text, textQuote) > 1 ? { ambiguous: true } : {}),
+  };
+}
 
+/** The plan `<HtmlBlock>` iframe a node lives inside, or `null` for a node in
+ * the host document. HtmlBlock frames are same-origin (scripts off), so the host
+ * can read their DOM and `frameElement`; a node in any other document — or a
+ * frame outside this plan — is not ours to pin. */
+export function hostFrameOf(node: Node, root: Element): HTMLIFrameElement | null {
+  const doc = node.ownerDocument ?? (node as Document);
+  if (doc === root.ownerDocument) return null;
+  const frame = doc.defaultView?.frameElement;
+  return frame instanceof HTMLIFrameElement && root.contains(frame) ? frame : null;
+}
+
+/** The rendered srcdoc document of an HtmlBlock frame, or `null` until it has
+ * parsed (frames are `loading="lazy"`) or if it navigated away from the srcdoc. */
+export function frameDocument(frame: HTMLIFrameElement): Document | null {
+  const doc = frame.contentDocument;
+  return doc && doc.URL === "about:srcdoc" && doc.readyState !== "loading" ? doc : null;
+}
+
+/** Serialise a selection made INSIDE an HtmlBlock's frame into a node pin —
+ * the artboard-pin model (`anchorKind:"wireframe"`) with the frame's `<body>` as
+ * the artboard: `targetSelector` = the host block, `targetNodePath` = the
+ * element enclosing the selection (the card it was made in), plus a text quote
+ * (measured over the whole frame body) so the highlight is the selected words
+ * and survives the card moving in the markup. */
+function anchorForFrameRange(
+  range: Range,
+  frame: HTMLIFrameElement,
+  root: Element,
+): { anchor: PlanCommentAnchor; quotedText: string; rangeLabel?: string } | null {
+  const host = enclosingBlock(frame);
+  const body = range.startContainer.ownerDocument?.body;
+  if (!host || !body) return null;
+  const quote = quoteFromRange(range, body);
+  if (!quote) return anchorForBlockElement(host.element, root);
+  const node = asElement(range.commonAncestorContainer) ?? body;
+  const targetNodePath = nodePathWithin(body, node);
+  const section = sectionFor(host.element, root);
   return {
     anchor: {
-      anchorKind: "text",
-      targetKind: "text",
-      textQuote,
-      contextBefore: text.slice(Math.max(0, start - CTX), start),
-      contextAfter: text.slice(end, end + CTX),
-      ...(block ? { blockType: block.type } : {}),
-      ...(countOccurrences(text, textQuote) > 1 ? { ambiguous: true } : {}),
-      ...sectionFields,
+      anchorKind: "wireframe",
+      targetKind: targetKindForBlock(host.type),
+      blockType: host.type,
+      targetSelector: blockSelector(host.id),
+      ...(targetNodePath ? { targetNodePath } : {}),
+      ...quote,
+      tagName: node.tagName.toLowerCase(),
+      ...(section ? { sectionId: section.id, sectionTitle: section.title } : {}),
     },
-    quotedText: textQuote,
+    quotedText: quote.textQuote,
+    rangeLabel: frameRangeLabel(host, node),
   };
+}
+
+/** Grouping elements a mockup's "cards" are usually built from. */
+const FRAME_GROUP_SELECTOR = "section, article, li, figure, aside, fieldset, details";
+
+/** Label for an in-frame pin — the composer chip and the `range:` line the agent
+ * reads — naming the HtmlBlock (its caption, else an authored id) and the card
+ * the selection is in (the first heading of the nearest grouping element), e.g.
+ * `annotation in HtmlBlock "Six treatments…" › "B · Glyph before the title"`. */
+function frameRangeLabel(host: { element: Element; id: string }, node: Element): string {
+  const caption = host.element.querySelector("figcaption")?.textContent;
+  const block = caption
+    ? ` "${collapse(caption, 48)}"`
+    : host.id.startsWith("plan-block-")
+      ? ""
+      : ` #${host.id}`;
+  const group = node.closest(FRAME_GROUP_SELECTOR);
+  const heading =
+    group?.querySelector("h1, h2, h3, h4, h5, h6") ??
+    group?.querySelector("b, strong, legend, summary, caption, dt");
+  const card = heading?.textContent ? ` › "${collapse(heading.textContent, 48)}"` : "";
+  return `annotation in HtmlBlock${block}${card}`;
 }
 
 /** Serialise a whole top-level block element into a `"visual"` anchor. Used by
@@ -495,6 +585,22 @@ export function resolveAnchor(
     } catch {
       return null; // malformed selector → detached rather than throw
     }
+    if (artboard?.getAttribute("data-plan-block-type") === "html") {
+      // An in-frame HtmlBlock pin. Until the (lazy) frame has parsed, ring the
+      // whole host block so the comment stays visible rather than "detached".
+      const frame = artboard.querySelector("iframe");
+      const body = frame && frameDocument(frame)?.body;
+      if (!body) {
+        const range = root.ownerDocument!.createRange();
+        range.selectNode(artboard);
+        return range;
+      }
+      const pinned = anchor.targetNodePath ? elementAtPath(body, anchor.targetNodePath) : null;
+      return (
+        (pinned && quoteRange(anchor, flattenDocument(pinned))) ??
+        quoteRange(anchor, flattenDocument(body))
+      );
+    }
     const node = artboard && resolveWireframeNode(artboard, anchor);
     if (!node) return null;
     const range = root.ownerDocument!.createRange();
@@ -517,10 +623,14 @@ export function resolveAnchor(
     return range;
   }
 
+  return quoteRange(anchor, flattened ?? flattenDocument(root));
+}
+
+/** Re-find an anchor's text quote in a flattened subtree, picking the occurrence
+ * whose surrounding text best matches the captured context; `null` if absent. */
+function quoteRange(anchor: PlanCommentAnchor, { text, spans }: FlattenedDocument): Range | null {
   const quote = anchor.textQuote;
-  if (!quote) return null;
-  const { text, spans } = flattened ?? flattenDocument(root);
-  if (spans.length === 0) return null;
+  if (!quote || spans.length === 0) return null;
 
   const hits: number[] = [];
   for (let i = text.indexOf(quote); i !== -1; i = text.indexOf(quote, i + 1)) hits.push(i);
@@ -536,7 +646,7 @@ export function resolveAnchor(
   };
   const best = hits.reduce((a, b) => (score(b) > score(a) ? b : a), hits[0]!);
 
-  const range = root.ownerDocument!.createRange();
+  const range = spans[0]!.node.ownerDocument.createRange();
   const s = locate(spans, best);
   const e = locate(spans, best + quote.length);
   range.setStart(s.node, s.offset);

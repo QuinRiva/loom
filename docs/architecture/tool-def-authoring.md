@@ -90,9 +90,10 @@ editor does not "fill the gap".
    recipient at both selection time (description) and composition time (the
    parameter), and keep the two registers consistent: the parameter text wins
    at composition time, so a contradiction resolves silently in its favour.
-   The recipient of a child's brief is an agent with no human reader — a
-   child's questions come back to the parent, not to a person — and the brief
-   contract says so.
+   The recipient of a child's brief is an agent, told the brief is its
+   parent's writing and that it may depart from it with reasons, and usually
+   with no human reader — a child's questions come back to the parent, not to
+   a person — and the brief contract says so.
 
 2. **Schema over prose.** Anything mechanically expressible (required fields,
    enums, defaults) goes in the schema and is enforced server-side. Prose

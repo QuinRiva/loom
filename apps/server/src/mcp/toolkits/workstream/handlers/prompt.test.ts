@@ -141,7 +141,7 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
         assert.lengthOf(rest, 0);
         assert.equal(
           message!.text,
-          `${workstreamChildPrompt({ role: "coder", brief: "Port the handlers.", gateTargetId: null })}\n\nStart with spawn.`,
+          `${workstreamChildPrompt({ role: "coder", brief: "Port the handlers.", gateTargetId: null })}\n\n---\n\nAlso from your parent, sent with this brief:\n\nStart with spawn.`,
         );
         assert.equal(message!.loom?.origin, "orchestrator");
         const row = (yield* store.getWorkstream(child))!;

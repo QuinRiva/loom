@@ -79,6 +79,7 @@ import {
   type LoomPiAdapterHooksShape,
 } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
+import { labelledForModel } from "../../loom/prompt/provenance.ts"; // loom: author labels
 import * as IdAllocator from "../IdAllocator.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
 import {
@@ -2399,12 +2400,19 @@ export function makePiAdapterV2(
             // would reject every later turn as already active.
             // Orchestration instructions reach pi through the T3 MCP
             // extension's before_agent_start system-prompt hook, never by
-            // wrapping the user text: a wrapped first message would no
-            // longer start with "/" and slash commands would stop expanding.
+            // wrapping the user text. loom: the one prefix is the author label
+            // (`labelledForModel`), which leaves a text starting with "/" bare
+            // so slash commands still expand.
             const compactCommand = parsePiCompactCommand(turnInput.message.text);
             const payload =
               compactCommand === null
-                ? yield* resolvePromptPayload(turnInput.message.text, turnInput.message.attachments)
+                ? yield* resolvePromptPayload(
+                    labelledForModel({
+                      ...turnInput.message,
+                      hasParent: turnInput.appThread.lineage.relationshipToParent === "subagent",
+                    }), // loom: author label
+                    turnInput.message.attachments,
+                  )
                 : null;
             const startedAt = yield* DateTime.now;
             const syntheticNativeTurnId = `${state.providerThread.id}:attempt:${turnInput.attemptId}`;
@@ -2520,7 +2528,11 @@ export function makePiAdapterV2(
             const payload =
               compactCommand === null
                 ? yield* resolvePromptPayload(
-                    steerInput.message.text,
+                    labelledForModel({
+                      ...steerInput.message,
+                      hasParent:
+                        turn.turnInput.appThread.lineage.relationshipToParent === "subagent",
+                    }), // loom: author label
                     steerInput.message.attachments,
                   )
                 : null;
