@@ -20,9 +20,19 @@
  *
  * @module provider/builtInDrivers
  */
-// loom: the fork is Pi-first — the built-in driver registry ships pi only.
-import { PiDriver, type PiDriverEnv } from "./Drivers/PiDriver.ts";
-import type { AnyProviderDriver } from "./ProviderDriver.ts";
+// loom: the fork is Pi-first — the built-in driver registry ships pi only; the other
+// drivers stay imported for their usage readers (the Usage page reads every transcript).
+import { AntigravityDriver } from "./Drivers/AntigravityDriver.ts";
+import { ClaudeDriver } from "./Drivers/ClaudeDriver.ts";
+import { CodexDriver } from "./Drivers/CodexDriver.ts";
+import { CursorDriver } from "@t3tools/provider-cursor/server";
+import { GrokDriver } from "@t3tools/provider-grok/server";
+import { OpenCodeDriver } from "@t3tools/provider-opencode/server";
+import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
+import type {
+  AnyProviderDriver,
+  ProviderUsageReaderEnv,
+} from "@t3tools/provider-core/server/driver";
 
 /**
  * Union of infrastructure services required to construct any built-in
@@ -37,3 +47,30 @@ export type BuiltInDriversEnv = PiDriverEnv; // loom: Pi-only registry (PR-12)
  * iteration order has no functional effect on instance lookup.
  */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [PiDriver]; // loom: Pi-only
+
+/** Services the built-in usage readers need. */
+export type BuiltInUsageReadersEnv =
+  | ProviderUsageReaderEnv<typeof ClaudeDriver>
+  | ProviderUsageReaderEnv<typeof CodexDriver>
+  | ProviderUsageReaderEnv<typeof GrokDriver>
+  | ProviderUsageReaderEnv<typeof OpenCodeDriver>
+  | ProviderUsageReaderEnv<typeof AntigravityDriver>
+  | ProviderUsageReaderEnv<typeof CursorDriver>
+  | ProviderUsageReaderEnv<typeof PiDriver>;
+
+/**
+ * The drivers that keep usage history, in the order the usage page reads
+ * them: transcript readers first, then scan readers. Aggregation keeps the
+ * first copy of a duplicate record, so the order is part of the result.
+ */
+export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
+  AnyProviderDriver<unknown, BuiltInUsageReadersEnv> // loom: readers only; the registry above is Pi-only
+> = [
+  ClaudeDriver,
+  CodexDriver,
+  GrokDriver,
+  PiDriver,
+  OpenCodeDriver,
+  AntigravityDriver,
+  CursorDriver,
+];

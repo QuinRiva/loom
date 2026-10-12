@@ -34,7 +34,7 @@ const decodeManifest = Schema.decodeUnknownSync(Schema.fromJsonString(PackageMan
 
 describe("shouldBundleCliDependency", () => {
   it("bundles ordinary runtime dependencies", () => {
-    for (const id of ["effect", "@effect/platform", "hono", "@t3tools/shared/hostProcess"]) {
+    for (const id of ["effect", "@effect/platform", "hono", "@t3tools/shared/HostProcess"]) {
       assert.strictEqual(shouldBundleCliDependency(id), true, id);
     }
   });
@@ -89,6 +89,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
         "@huggingface/transformers", // loom: thread search embedder dependency (embedder quarantined in pull 9; the dependency line stays)
         "@napi-rs/keyring",
         "node-pty",
+        "playwright-core",
       ],
     );
   });

@@ -226,10 +226,11 @@ it.effect.each(storageCases)(
       yield* Effect.forEach(events, (event) => store.apply(event), { discard: true });
       if (storage === "sqlite") {
         const sql = yield* SqlClient.SqlClient;
-        yield* sql`INSERT INTO orchestration_v2_projection_messages
-        (message_id, thread_id, run_id, node_id, role, streaming, created_at, updated_at, payload_json)
-        VALUES ('message:unrelated-obsolete', ${threadId}, ${runId}, ${nodeId}, 'assistant', 0,
-          ${DateTime.formatIso(now)}, ${DateTime.formatIso(now)}, '{"obsolete":"transcript"}')`;
+        // loom: Loom skips an undecodable message row (ProjectionStore decodeMessageRows), so the
+        // unrelated corrupt row that makes full hydration fail is a plan.
+        yield* sql`INSERT INTO orchestration_v2_projection_plans
+          (plan_id, thread_id, run_id, node_id, kind, status, payload_json)
+          VALUES ('message:unrelated-obsolete', ${threadId}, ${runId}, ${nodeId}, 'proposed', 'completed', '{"obsolete":"transcript"}')`;
         assert.equal((yield* Effect.exit(store.getThreadProjection(threadId)))._tag, "Failure");
         const queryPlan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN
           SELECT payload_json FROM orchestration_v2_projection_turn_items

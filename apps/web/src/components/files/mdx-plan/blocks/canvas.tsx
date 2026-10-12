@@ -10,6 +10,7 @@ import {
 } from "react";
 import { z } from "zod";
 
+import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 
 import type { CanvasTransform } from "../annotation/anchoring";
@@ -124,9 +125,7 @@ export function DesignBoardRead({ data, blockId, children }: PlanBlockReadProps<
       setSize({ width: Math.ceil(maxRight) + 24, height: Math.ceil(maxBottom) + 24 });
     };
     fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(surface);
-    return () => observer.disconnect();
+    return observeResize(surface, fit);
   }, [children, data.width, data.height, transform.boardScale]);
 
   return (
@@ -365,9 +364,7 @@ function AnnotationRead({ data, blockId, children }: PlanBlockReadProps<Annotati
       setPos(spots[placement]);
     };
     place();
-    const observer = new ResizeObserver(place);
-    observer.observe(surface);
-    return () => observer.disconnect();
+    return observeResize(surface, place);
   }, [data.targetId, data.placement, free?.left, free?.top]);
 
   return (
@@ -462,9 +459,7 @@ function ConnectorRead({ data }: PlanBlockReadProps<ConnectorData>) {
       setLine({ x1: start.x, y1: start.y, x2: end.x, y2: end.y });
     };
     draw();
-    const observer = new ResizeObserver(draw);
-    observer.observe(surface);
-    return () => observer.disconnect();
+    return observeResize(surface, draw);
   }, [data.from, data.to]);
 
   // Derive the arrowhead marker id from React's per-instance useId (DOM-safe,

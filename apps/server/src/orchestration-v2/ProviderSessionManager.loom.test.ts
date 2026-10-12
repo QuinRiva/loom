@@ -26,24 +26,26 @@ import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
   LoomSessionComposer,
   LoomSessionComposerError,
-  type LoomOpenSessionFields,
 } from "../loom/prompt/sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import { agentGitEnv } from "../loom/workstream/agentGitIdentity.ts";
+import { LOOM_HIDDEN_TOOLS_ENV } from "../loom/prompt/sessionComposerLive.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type {
   ProviderAdapterV2OpenSessionInput,
   ProviderAdapterV2SessionRuntime,
-  ProviderAdapterV2Shape,
-} from "./ProviderAdapter.ts";
+  ProviderAdapterV2,
+} from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -124,7 +126,7 @@ const recordingAdapter = (
           events: Stream.never,
         } as unknown as ProviderAdapterV2SessionRuntime;
       }),
-  }) as ProviderAdapterV2Shape;
+  }) as ProviderAdapterV2["Service"];
 
 const openWith = (
   composer: Layer.Layer<never> | undefined,
@@ -149,6 +151,7 @@ const openWith = (
           IdAllocator.layer,
           ingestor,
           mcpRegistry,
+          McpProviderSessions.layer,
           stores,
           ...(composer === undefined ? [] : [composer]),
         ),
@@ -276,6 +279,7 @@ it.effect("hands the production composer's prompt, extension and env to the adap
     assert.deepEqual(loom?.env, {
       PI_CACHE_RETENTION: "long",
       ...agentGitEnv(ThreadId.make("thread-loom-composer")),
+      ...LOOM_HIDDEN_TOOLS_ENV, // withheld tools reach the bridge per launch (DL-981)
       PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
     });
   }),

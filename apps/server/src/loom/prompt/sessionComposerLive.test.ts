@@ -46,8 +46,9 @@ import {
 } from "../testkit/loomOrchestratorLayer.ts";
 import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } from "./prose.ts";
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
-import type { LoomOpenSessionFields, LoomSessionComposerShape } from "./sessionComposer.ts";
-import { makeLoomSessionComposer } from "./sessionComposerLive.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import type { LoomSessionComposerShape } from "./sessionComposer.ts";
+import { LOOM_HIDDEN_TOOLS_ENV, makeLoomSessionComposer } from "./sessionComposerLive.ts";
 
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
 const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
@@ -80,10 +81,11 @@ const withComposer = <A, E, R>(
     return yield* body(composer, loomPaths(config).workstreamLaunchIdentityDir, config.stateDir);
   }).pipe(Effect.provide(composerDeps(rootCacheLongShare)));
 
-/** A 1-hour root's launch env: its identity's arm, its git identity and pi's idle-warming horizon. */
+/** A 1-hour root's launch env: its identity's arm, its git identity, the hidden tools and pi's idle-warming horizon. */
 const longRootEnv = (threadId: ThreadId) => ({
   PI_CACHE_RETENTION: "long",
   ...agentGitEnv(threadId),
+  ...LOOM_HIDDEN_TOOLS_ENV,
   PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
 });
 
@@ -170,7 +172,6 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(sidecar.modelSelection, testModelSelection);
           // The orchestrator's resident families are the launched profile.
           assert.include(sidecar.tools as Array<string>, "mcp__t3-code__workstream_spawn");
-          assert.include(sidecar.tools as Array<string>, "mcp__t3-code__enable_toolset");
         }),
       ),
   );
@@ -226,7 +227,11 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           ),
         );
         assert.notInclude(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, { PI_CACHE_RETENTION: "short", ...agentGitEnv(child) });
+        assert.deepEqual(env, {
+          PI_CACHE_RETENTION: "short",
+          ...agentGitEnv(child),
+          ...LOOM_HIDDEN_TOOLS_ENV,
+        });
         assert.isUndefined(idleTimeoutMs);
       }),
     ),
@@ -434,7 +439,11 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(longFields.env, longRootEnv(long));
           assert.equal(longFields.idleTimeoutMs, 2 * 60 * 60_000);
           const shortFields = yield* composer.compose(short);
-          assert.deepEqual(shortFields.env, { PI_CACHE_RETENTION: "short", ...agentGitEnv(short) });
+          assert.deepEqual(shortFields.env, {
+            PI_CACHE_RETENTION: "short",
+            ...agentGitEnv(short),
+            ...LOOM_HIDDEN_TOOLS_ENV,
+          });
           assert.isUndefined(shortFields.idleTimeoutMs);
           return NodeFS.readFileSync(
             NodePath.join(stateDir, "cache-retention-launches.jsonl"),

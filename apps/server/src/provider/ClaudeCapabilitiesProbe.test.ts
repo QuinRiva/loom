@@ -27,7 +27,7 @@ import {
   probeClaudeCapabilities,
   probeClaudeWorkspaceSnapshot,
 } from "./ClaudeProvider.ts";
-import { COMPACT_SLASH_COMMAND } from "./providerSnapshot.ts";
+import { COMPACT_SLASH_COMMAND } from "@t3tools/provider-core/server/snapshotProbe";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
 
@@ -315,6 +315,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         email: "dev@example.com",
         subscriptionType: "pro",
         tokenSource: "oauth",
+        apiKeySource: undefined,
         apiProvider: undefined,
         slashCommands: [
           {
@@ -329,7 +330,6 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         },
       });
 
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const invocation = JSON.parse(yield* fs.readFileString(invocationPath)) as {
         readonly args: ReadonlyArray<string>;
         readonly cwd: string;
@@ -437,7 +437,6 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
 
       // This fixture records only its pid: the flag assertions live with the
       // invocation test above, which is the one whose fake echoes argv.
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const invocation = JSON.parse(yield* fs.readFileString(invocationPath)) as {
         readonly pid: number;
       };

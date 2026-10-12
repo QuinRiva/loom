@@ -8,10 +8,7 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
-import {
-  passthroughLoomPiAdapterHooks,
-  touchLoomPiCache,
-} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { passthroughLoomPiAdapterHooks, touchLoomPiCache } from "@t3tools/provider-pi/server/loom";
 import * as LoomCacheBroadcast from "./LoomCacheBroadcast.ts";
 import * as LoomStore from "./LoomStore.ts";
 

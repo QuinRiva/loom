@@ -38,8 +38,8 @@ import * as Stream from "effect/Stream";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
-import { buildEmergentGoalPrompt } from "../../textGeneration/TextGenerationPrompts.ts";
-import { formatThreadTitleContext } from "../../textGeneration/ThreadTitleContext.ts";
+import { buildEmergentGoalPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
+import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { makePiOneShot } from "../textGeneration/piOneShot.ts";

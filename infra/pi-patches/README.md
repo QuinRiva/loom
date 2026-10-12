@@ -13,15 +13,16 @@ this file covers only the patches.
 Loom **bundles pi as a workspace dependency** and applies these patches
 automatically at install time via pnpm's `patchedDependencies`:
 
-- `apps/server/package.json` pins `@earendil-works/pi-coding-agent` at an **exact**
-  version (no `^`): the pnpm patch key is version-scoped, so a version bump that
+- `pnpm-workspace.yaml`'s `catalog` pins `@earendil-works/pi-coding-agent` at an
+  **exact** version (no `^`; `apps/server` and `packages/provider-pi` both take it
+  as `catalog:`): the pnpm patch key is version-scoped, so a version bump that
   forgets the patch fails `pnpm install` loudly instead of silently shipping an
   unpatched pi.
 - `pnpm-workspace.yaml` → `patchedDependencies` maps that exact version to
   `patches/@earendil-works__pi-coding-agent@<version>.patch` (generated from the
   patch below — see "Re-deriving").
-- `apps/server`'s `resolveLoomPiBinaryPath()`
-  (`src/provider/Drivers/Pi/bundledPi.loom.ts`) rewrites the default `pi`
+- `packages/provider-pi`'s `resolveLoomPiBinaryPath()`
+  (`src/server/bundledPi.loom.ts`) rewrites the default `pi`
   binary path to this copy's `bin.pi` once, where `PiDriver` builds its config,
   so every pi spawn — the RPC session, discovery, the version probe, text
   generation — and the update resolver run the bundled, patched binary, not
@@ -29,7 +30,7 @@ automatically at install time via pnpm's `patchedDependencies`:
   `#!/usr/bin/env node` shebang (POSIX only); an explicit `binaryPath` setting
   overrides it. Upstream's maintenance resolver treats the `node_modules` path
   as manual-only, so `pi update --self` is never offered for the bundled copy
-  (`src/provider/providerMaintenance.loom.test.ts`).
+  (`packages/provider-pi/src/server/maintenance.loom.test.ts`).
 
 ## ⚠️ Since pi 0.84, `bin.pi` is a pre-bundled file
 
@@ -145,7 +146,7 @@ test against the stock 1.1.0 bundle fails the same 7 of 9.
 
 Both places matter:
 
-- `apps/server/package.json` — the exact pin (no caret).
+- `pnpm-workspace.yaml` → `catalog` — the exact pin (no caret).
 - `pnpm-workspace.yaml` → `patchedDependencies` — the version-scoped patch key.
   Remove the old entry; never leave both versions registered.
 
@@ -207,7 +208,7 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   (separate-process readers; in-process readers falsely report clean): every
   `zeroByte`/`unparseable`/`emptyObject` count must be 0. Its import is
   hard-coded to the global install; for the bundled copy point it at the
-  resolved package (`readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent`)
+  resolved package (`readlink -f packages/provider-pi/node_modules/@earendil-works/pi-coding-agent`)
   instead. That exercises the readable tree — the bundle's write path is proven
   by `grep -c __loomWriteAuthAtomic` on the auth chunk (expect 2) with no raw
   `writeFileSync(this.authPath,next,AUTH_FILE_WRITE_OPTIONS)` left. Stock pi is dramatically dirty for
@@ -232,7 +233,7 @@ All of the above must run in a worktree that has itself run `pnpm install`
 since the bump: a sibling worktree that merely merged the commit still resolves
 the **old** pi, and the model probes pass on it anyway (builtin models come from
 `~/.pi/agent/models-store.json`, custom ones from the extensions). Assert
-`grep '"version"' "$(readlink -f apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`
+`grep '"version"' "$(readlink -f packages/provider-pi/node_modules/@earendil-works/pi-coding-agent)/package.json"`
 before trusting any result.
 
 ## 0001 — `--cwd <dir>` for headless session resume, and `cwdOverride` on RPC `switch_session`

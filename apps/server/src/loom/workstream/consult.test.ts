@@ -10,10 +10,11 @@ import {
   consultQuestionKey,
   type LoomLiveConsult,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -89,7 +90,7 @@ const shell = (id: ThreadId, title: string) =>
     settledAt: null,
   });
 
-describe.skipIf(HostProcessPlatform.defaultValue() === "win32")("consult_thread", () => {
+describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult_thread", () => {
   it.live("an aborted call kills a fork that never answers and keeps its transcript", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -115,7 +116,16 @@ describe.skipIf(HostProcessPlatform.defaultValue() === "win32")("consult_thread"
             getThreadRecords: () => Effect.succeed({ providerThreads: [providerThread] } as never),
           },
           consult: layer.pipe(
-            Layer.provide(ServerSettings.layerTest({ providers: { pi: { binaryPath } } })),
+            Layer.provide(
+              ServerSettings.layerTest({
+                providerInstances: {
+                  [ProviderInstanceId.make("pi")]: {
+                    driver: ProviderDriverKind.make("pi"),
+                    config: { binaryPath },
+                  },
+                },
+              }),
+            ),
             Layer.orDie,
           ),
         },
@@ -292,7 +302,7 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
-describe.skipIf(HostProcessPlatform.defaultValue() === "win32")("consult cancel", () => {
+describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult cancel", () => {
   it.live("Stop ends only the consult: ask fails with the stop sentence, the fork dies", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -339,7 +349,16 @@ describe.skipIf(HostProcessPlatform.defaultValue() === "win32")("consult cancel"
       }).pipe(
         Effect.provide(
           layer.pipe(
-            Layer.provide(ServerSettings.layerTest({ providers: { pi: { binaryPath: binary } } })),
+            Layer.provide(
+              ServerSettings.layerTest({
+                providerInstances: {
+                  [ProviderInstanceId.make("pi")]: {
+                    driver: ProviderDriverKind.make("pi"),
+                    config: { binaryPath: binary },
+                  },
+                },
+              }),
+            ),
           ),
         ),
       );

@@ -5,9 +5,8 @@
 // Unlike `orchestration.loom.ts`, importing `ModelSelection` (from
 // `modelSelection.ts`, its home since upstream's V2) here is safe: `settings.ts`
 // already imports it, and there is no value cycle back into `settings.ts`
-// (nothing imports settings.ts from this file). `PiSettings` deliberately stays in `settings.ts` — it is built
-// with the non-exported `makeBinaryPathSetting`, so moving it would create a
-// value-init cycle.
+// (nothing imports settings.ts from this file). `PiSettings` lives in
+// `@t3tools/provider-pi/settings` since upstream's provider packages (pull 10).
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";

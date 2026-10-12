@@ -25,7 +25,7 @@ import * as Schema from "effect/Schema";
 
 import { ServerConfig } from "../../config.ts";
 import { redeliveredSteerText } from "../orchestration/dispatcher/controlMessage.ts";
-import { LoomPiAdapterHooks } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { LoomPiAdapterHooks } from "@t3tools/provider-pi/server/loom";
 
 const stashDir = Effect.gen(function* () {
   const { stateDir } = yield* ServerConfig;

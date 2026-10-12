@@ -309,13 +309,12 @@ export function showContextMenuFallback<T extends string>(
       menu.dataset.level = String(level);
 
       const inner = document.createElement("div");
-      // loom: cap at the viewport (less clampMenuPosition's 4px margins), not
-      // min(24rem,70vh) — that clipped the thread menu's tail (Archive thread,
-      // Delete) behind a scroll even in tall windows.
+      // Fit the viewport (minus clampMenuPosition's 4px margins) so menus only
+      // scroll when the window is shorter than the menu itself.
       inner.className =
-        "max-h-[calc(100dvh-0.5rem)] min-w-0 max-w-sm overflow-y-auto overflow-x-hidden p-1";
+        "max-h-[calc(100vh-0.5rem)] min-w-0 max-w-sm overflow-y-auto overflow-x-hidden p-1";
       inner.style.cssText =
-        "max-height:calc(100dvh - 0.5rem);min-width:0;max-width:24rem;overflow-x:hidden;overflow-y:auto;padding:0.25rem;";
+        "max-height:calc(100vh - 0.5rem);min-width:0;max-width:24rem;overflow-x:hidden;overflow-y:auto;padding:0.25rem;";
 
       for (const item of entries) {
         if (item.separatorBefore === true && inner.children.length > 0) {

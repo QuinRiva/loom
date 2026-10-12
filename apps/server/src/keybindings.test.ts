@@ -12,7 +12,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import { KeybindingsConfigError, MAX_KEYBINDINGS_COUNT } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
 const encodeKeybindingsConfigJson = Schema.encodeEffect(KeybindingsConfigJson);
@@ -264,7 +264,6 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
       yield* fs.writeFileString(
         keybindingsConfigPath,
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify([
           { key: "mod+j", command: "terminal.toggle" },
           { key: "mod+shift+d+o", command: "terminal.new" },
@@ -306,8 +305,14 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         // conflict test below) and the "every default is present" check below fails
         // for an unrelated reason.
         const customRules: readonly KeybindingRule[] = [
-          { key: "mod+shift+u", command: "terminal.toggle" },
+          { key: "mod+shift+y", command: "terminal.toggle" },
           { key: "mod+shift+r", command: "script.run-tests.run" },
+          { key: "mod+shift+b", command: "script.custom-panel.run" },
+          {
+            key: "mod+shift+b",
+            command: "script.custom-composer.run",
+            when: "composerFocus",
+          },
         ];
         for (const rule of customRules) {
           assert.isFalse(
@@ -319,17 +324,15 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         }
         yield* writeKeybindingsConfig(keybindingsConfigPath, customRules);
 
-        yield* Effect.gen(function* () {
-          const keybindings = yield* Keybindings.Keybindings;
-          yield* keybindings.syncDefaultKeybindingsOnStartup;
-        });
+        const keybindings = yield* Keybindings.Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
 
         const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
         const byCommand = new Map(persisted.map((entry) => [entry.command, entry]));
 
         const persistedToggle = byCommand.get("terminal.toggle");
         assert.isNotNull(persistedToggle);
-        assert.equal(persistedToggle?.key, "mod+shift+u");
+        assert.equal(persistedToggle?.key, "mod+shift+y");
         assert.isFalse(
           persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
         );
@@ -338,6 +341,14 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
         }
         assert.isTrue(byCommand.has("script.run-tests.run"));
+
+        const configState = yield* keybindings.loadConfigState;
+        assert.deepEqual(
+          configState.keybindings
+            .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
+            .map((entry) => entry.command),
+          ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
+        );
       }).pipe(Effect.provide(layerKeybindings())),
   );
 
@@ -354,8 +365,8 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
 
       yield* keybindings.syncDefaultKeybindingsOnStartup;
       assert.deepStrictEqual(yield* backgroundRules, [
-        existing,
         { key: "mod+enter", command: "composer.sendBackground", when },
+        existing,
       ]);
 
       // Removing the added rule later must survive the next startup.
@@ -611,7 +622,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
   );
 
   // chmod cannot make a directory unwritable on Windows, so the write succeeds.
-  it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
     "fails when config directory is not writable",
     () =>
       Effect.gen(function* () {

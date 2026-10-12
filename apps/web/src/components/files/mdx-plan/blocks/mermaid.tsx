@@ -155,7 +155,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
         </div>
       ) : svg ? (
         <div
-          className="flex justify-center overflow-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          className="flex justify-center overflow-auto scrollbar-gutter-both [&_svg]:h-auto [&_svg]:max-w-full"
           // Mermaid output is sanitised (sanitizeSvgMarkup) before injection.
           dangerouslySetInnerHTML={{ __html: svg }}
         />

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -16,7 +17,7 @@ import * as Layer from "effect/Layer";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as CheckpointService from "./CheckpointService.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 it.effect.each([false, true, "interrupt"] as const)(
   "materializes baseline, lookup fails=%s",
@@ -60,6 +61,7 @@ it.effect.each([false, true, "interrupt"] as const)(
           }),
         ),
       ),
+      Layer.provideMerge(NodeCrypto.layer),
     );
 
     return Effect.gen(function* () {
@@ -90,7 +92,7 @@ it.effect.each([false, true, "interrupt"] as const)(
       assert.equal(baseline.ordinalWithinScope, 2);
       assert.equal(
         baseline.ref,
-        CheckpointService.checkpointRefForScopeOrdinal({
+        yield* CheckpointService.checkpointRefForScopeOrdinal({
           scopeId: scope.id,
           ordinalWithinScope: 2,
         }),

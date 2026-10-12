@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 
+import { observeResize } from "~/lib/observeResize";
+
 /**
  * CSS custom property the timeline publishes with the true content width its
  * viewport offers. Wide markdown blocks (tables, etc.) key their bleed budget
@@ -42,13 +44,7 @@ export function useTimelineAvailableWidthVar(
       onMeasure?.(viewportWidth);
     };
 
-    const frame = requestAnimationFrame(measure);
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
+    // observeResize delivers an initial entry, so no separate first measure.
+    return observeResize(element, measure);
   }, [element, onMeasure]);
 }

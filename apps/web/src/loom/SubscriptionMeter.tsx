@@ -22,7 +22,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { memo, type ReactNode, useEffect, useState } from "react";
 
-import { getDriverOption } from "~/components/settings/providerDriverMeta";
+import { providerClients } from "~/components/settings/providerDriverMeta";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { useSidebarVisibility } from "~/components/ui/sidebar";
 import { accountHue } from "~/components/usage/UsageLimitsPooled";
@@ -81,7 +81,7 @@ function useMeterReading(): { readonly view: MeterView; readonly now: number } {
 }
 
 function rowName(row: MeterRow, pool: MeterPool): string {
-  return row.label ?? getDriverOption(pool.driver)?.label ?? String(pool.driver);
+  return row.label ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
 }
 
 /**
@@ -387,7 +387,7 @@ function AccountRow({
             aria-label={`${name}: 5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
-            className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring"
+            className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           />
         }
       >
@@ -539,7 +539,7 @@ export function SubscriptionMeterChipView({
             onClick={() => void navigate({ to: "/usage" })}
             aria-label={`Subscription usage: 5-hour ${Math.round(bar.used)}% used`}
             className={cn(
-              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               pool.stale && "opacity-50",
             )}
           />

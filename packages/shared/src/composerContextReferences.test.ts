@@ -6,6 +6,7 @@ import {
   formatComposerContextHref,
   formatComposerContextProviderMarker,
   formatComposerContextReference,
+  isImageReferencesOnly,
   parseComposerContextHref,
   projectComposerContextForProvider,
   replaceComposerContextReferences,
@@ -84,6 +85,17 @@ describe("labels and reference links", () => {
   it("ignores links whose href does not parse", () => {
     expect(collectComposerContextReferences("[x](t3-context://v1/image/ctx_1?y)")).toEqual([]);
     expect(collectComposerContextReferences("[x](https://example.com)")).toEqual([]);
+  });
+
+  it("recognizes a prompt made only of image references", () => {
+    const image = "![a.png](t3-context://v1/image/ctx_1)";
+    const file = "[notes.md](t3-context://v1/file/ctx_3)";
+    expect(isImageReferencesOnly(image)).toBe(true);
+    expect(isImageReferencesOnly(` ${image}\n![b.png](t3-context://v1/image/ctx_2) `)).toBe(true);
+    expect(isImageReferencesOnly(`${image} what is this?`)).toBe(false);
+    expect(isImageReferencesOnly(file)).toBe(false);
+    expect(isImageReferencesOnly(`${image} ${file}`)).toBe(false);
+    expect(isImageReferencesOnly("  ")).toBe(false);
   });
 
   it("replaces occurrences in place", () => {
@@ -253,8 +265,8 @@ describe("provider projection", () => {
     expect(projected).toContain("name: pinchtab");
   });
 
-  // loom: a thread projects inline as the `thread://` link consult_thread documents (DL-752).
-  it("projects an attached thread as an inline thread:// link, never its history", () => {
+  // loom: a thread projects inline as the `t3-thread://v1/` link consult_thread documents (DL-752).
+  it("projects an attached thread as an inline t3-thread link, never its history", () => {
     const projected = projectComposerContextForProvider({
       text: "Compare with [Old title](t3-context://v1/thread/thread_abc)",
       records: [
@@ -269,7 +281,7 @@ describe("provider projection", () => {
         },
       ],
     });
-    expect(projected).toBe("Compare with [Old title](thread://abc)");
+    expect(projected).toBe("Compare with [Old title](t3-thread://v1/abc)");
   });
 
   it("marks duplicate identities unavailable instead of choosing one payload", () => {
