@@ -1,0 +1,316 @@
+---
+manager_sessions:
+  - id: 01a12fbc-acf1-7284-96ae-eb70b995a478
+    name: Pull 10 strategy plan
+    role: plan
+    authored_at: 2026-10-12T11:06:21.985Z
+---
+
+# Pull 10 strategy — a routine cadence pull with one structural prelude
+
+Loom is a Pi-first fork of `pingdotgg/t3code`. Pull 9 re-platformed Loom's orchestration layer onto upstream's Orchestration V2 and landed on `main` with `docs/upstream-sync/UPSTREAM_BASE` = `9bd1d8009a` (2026-10-06). Since then upstream has shipped **554 commits** (`upstream/main` = `58d253231d`, 2026-10-12, v0.0.46-nightly) and Loom has merged ten PRs (#345–#368). This plan decides how to merge those 554 commits into Loom while keeping Loom's own features, following the sync doctrine in `docs/upstream-sync/05-strategy.md`.
+
+**Done** means Carl has answered the form at the bottom, after which an orchestrator can write the runbook (`docs/upstream-sync/35-cadence-pull-10-v0.0.46-nightly-20261012.md`) and spawn the workstream in the section "Workstream graph" below without further design work.
+
+<Callout tone="decision">
+**The recommendation.** Pull 10 is a **routine single-pass cadence pull** in the shape of pull 8 (doc 27), not a phased re-platform like pull 9. The trial merge produces 104 conflicted files and 191 conflict markers — pull-8 sized — and upstream has not replaced anything Loom's orchestration layer stands on. What makes it more than a textbook pull is **one structural move upstream made** (every provider, Pi included, now lives in its own `packages/provider-*` package, so Loom's Pi hooks must move with it) and **four places where upstream now expresses functionality Loom built its own way** — those four are Carl's decisions, listed in the form at the bottom with my recommendation on each. Silence on a question accepts the recommended option.
+</Callout>
+
+## What changes for Loom's users, and what is at risk
+
+Carl drives Loom all day through Pi threads, the workstream graph, goals and the task tree, MDX plans, and the sidebar. After pull 10 lands, the visible gains from upstream's 554 commits are:
+
+- **Pi runs better.** Upstream fixed nine Pi-adapter defects Loom currently carries: workspace skills and slash commands are discovered again, selected skills load without dropping prompt text, Pi's native session rewinds are reconciled, extension approvals expire and cancel, thinking defaults are per model, tool images and structured results survive, shell exit codes and native abort outcomes are preserved, and known read-only T3 tools need no approval.
+- **Find in thread.** Cmd+F over messages and plans in the open thread (upstream #10439), plus find-in-diffs — complementary to Loom's cross-thread content search, which stays.
+- **Usage page.** Loads in under a second, filters by provider, and reads Pi's native sessions — upstream now ships its own Pi usage reader, which replaces the one Loom wrote (a decision below).
+- **Pull requests.** Guided reviews, review guides that agents can write and read, quick actions per host, PR actions that confirm in place, and GitHub access through the API instead of the `gh` CLI.
+- **Connections and permissions.** Scoped permissions (filesystem read/write, source-control write, preview control, diagnostics, environment administration), hosted agents (ChatGPT, Claude Code) signing in to the T3 MCP server over OAuth, and every MCP tool declaring who may call it.
+- **Everyday web polish.** Reopen closed tabs, drag to reorder right-panel tabs, a thread-details shortcut, parent-thread breadcrumbs, grouped keybinding settings, block-level Markdown in the composer, MCP apps rendered inline, the browser preview running on the environment server, perf fixes to the timeline, diff panel and sidebar.
+- **Platform.** Effect 4.0.2, typechecking with `tsc-rs`, Claude Haiku 5.5 in the catalogue (Loom already rolled this forward), and roughly eighty mobile commits that Loom takes verbatim because Loom carries nothing in `apps/mobile`.
+
+What is at risk is the same list every pull puts at risk, and it is bounded: the Pi driver's Loom hooks (quota classification, session-id sanitising, steer stash, thread-fork cut, per-turn spend, the bundled patched `pi`), the workstream MCP toolkit's registration on the bridge, Loom's thread-mention chips, the file-chip and artefact viewer in previews, the Pi-first settings defaults, and the sidebar seams. Each is named in the zone tables below with its disposition.
+
+## The measured surface
+
+Measured on this worktree at `0fdf508c3f` (`main`) against `upstream/main` `58d253231d`, merge-base `9bd1d8009a`, with git 2.56. Two independent measurements agree: a non-mutating `git merge-tree --write-tree` (result tree `4109518996`), and pull 9's `remeasure.sh` run in a throwaway detached worktree (its real `merge --no-commit` plus `classify.py`, `automerged.py`, `dangling.py`, `zones.py`; aborted and removed). Captures are in `.artifacts/pull10-measure/` (gitignored).
+
+<Table
+  columns={["Item", "Pull 10", "Pull 8 (doc 27, routine)", "Pull 9 (doc 29, structural)"]}
+  rows={[
+    ["Upstream commits past the base", "554 (no merges)", "364", "165"],
+    ["Upstream diff vs base", "2,863 files, +216,168 / −62,441", "—", "2,192 files, +419k / −212k"],
+    ["Loom diff vs base", "1,366 files, +271,526 / −2,156", "—", "1,222 files"],
+    ["Files changed by both sides", "230", "—", "—"],
+    ["Conflicted paths", "104: 99 content, 5 modify/delete, 0 add/add, 0 relocations", "91: 90 content, 1 modify/delete", "336: 153 UU, 95 UD, 86 AU, 2 AA"],
+    ["Conflict markers", "191 (61 files carry exactly one; the lockfile carries 12)", "~180", "468"],
+    ["Both-modified files git merged silently", "135 (2 lost an exported name on our side; both are false positives, re-exported from `@t3tools/shared`)", "—", "116 (17 defects found in review)"],
+    ["Files with a dangling relative import after the merge", "43 (24 Loom-only, 6 both-modified, 6 upstream-renamed Pi/provider-core files, 3 modify/delete, 4 pre-existing test fixtures)", "—", "121"],
+    ["Upstream renames", "329 (152 of them move provider and source-control code out of `apps/server` into packages)", "—", "11"],
+    ["Loom lines (`loom:`) inside conflicted files", "644", "—", "—"],
+  ]}
+/>
+
+Reproduce it:
+
+<Code
+  language="sh"
+  filename="reproduce"
+  code={"git fetch upstream main && git rev-parse upstream/main                 # 58d253231d83f669a2cdfefa5fe479751d22c582\ngit merge-base HEAD upstream/main                                       # 9bd1d8009a6b7c50f9dd9458e2bf27d481ff3b43\ngit rev-list --count 9bd1d8009a..upstream/main                          # 554\ngit -c merge.renameLimit=30000 merge-tree --write-tree --name-only HEAD upstream/main | head -1   # 41095189960443c82d8c5f41c6ee8b2056cc91e3 (exit 1 = conflicts)\n# full classification without touching this worktree's index:\ngit worktree add --detach /tmp/pull10-trial HEAD && (cd /tmp/pull10-trial && bash docs/upstream-sync/pull9-tools/remeasure.sh .artifacts/pull10-remeasure)\n#   -> conflicted: 104; by kind: 5 UD 99 UU; markers: 191; dangling: 43 files / 97 specifiers\ngit worktree remove --force /tmp/pull10-trial\n"}
+/>
+
+### Conflicted paths by area
+
+Zones follow pull 9's `zones.py` partition (`.artifacts/pull10-measure/zones.md` has every path). Markers are small: of the 191, only four files carry a hunk longer than sixty lines on our side (`packages/contracts/src/settings.ts` — the Pi settings block upstream moved out; `apps/web/src/markdown-links.ts` — Loom's file-chip gate; `apps/web/src/components/ChatMarkdown.tsx` — a 131-line block upstream relocated; `apps/web/src/index.css`).
+
+<Table
+  density="compact"
+  columns={["Zone", "Files", "Markers", "Loom lines", "What is in it"]}
+  rows={[
+    ["Server — provider-pi and provider-core (upstream-relocated)", "11", "26", "60", "`packages/provider-pi/src/server/{adapter,driver,rpc,status,mcpInjection,mcpExtensionSource}.ts`, `packages/provider-core/src/server/{IdAllocator,managedProvider,usageLimits.test}.ts`; conflicts show at the NEW paths because git followed the rename"],
+    ["Server — core and orchestration-v2", "16", "24", "151", "`Orchestrator.ts` (5 markers, 53 Loom lines), `ws.ts`, `server.ts`, `RpcAuthorization.ts`, `CheckpointService.ts`, `ProviderSessionManager.ts`, `RestartContinuation.ts`, `ThreadSettlementService.ts`, `EffectWorker.ts`, `LegacyV1ThreadImporter.ts`, two Pi replay fixtures"],
+    ["Server — other", "16", "29", "81", "usage (`UsageService.ts`, `usageTranscriptReader.ts`, `usageScanCache.ts`), workspace/assets (artefact viewer), terminal, project, vcs, checkpointing, `serverSettings.ts`, `pnpm-workspace.yaml`"],
+    ["Server — provider registry and tests", "6", "22", "22", "`builtInDrivers.ts` (Pi-only registry), `ProviderRegistry.test.ts` (12 markers — test expectations for a Pi-only registry), hydration, installation tests"],
+    ["Upstream deletions Loom had modified", "5", "0", "12", "`usage/usageTranscripts.ts` (+test) — Loom's Pi transcript parser; `sourceControl/GitHubSourceControlProvider.ts` (+test) — Loom's repo-wide PR listing; `Adapters/piT3McpExtensionSource.test.ts`"],
+    ["Contracts and shared", "6", "12", "53", "`settings.ts` (6 markers — Pi settings moved to `packages/provider-pi/src/settings.ts`), `orchestrationV2.ts` (1), `composerContext.ts`, `keybindings.ts` ×2"],
+    ["Web — chat", "10", "18", "118", "`ChatView.tsx` (6 markers, all under 15 lines), `ChatMarkdown.tsx`, `MessagesTimeline.*`, `ChatHeader.tsx`, `ComposerPendingUserInputPanel.tsx`, `session-logic.ts`"],
+    ["Web — panels, settings, files, other", "22", "34", "102", "`FilePreviewPanel.tsx` (artefact viewer + MDX plans), `markdown-links.ts`, `RightPanelTabs.tsx`, `CommandPalette.tsx`, provider settings panels, `index.css`, routes"],
+    ["Web — sidebar", "5", "7", "34", "`Sidebar.tsx` (2 markers), `Sidebar.logic.ts`, `SidebarChrome.tsx`, `__root.tsx`, `_chat.tsx`"],
+    ["Client-runtime", "1", "1", "9", "`state/shell.ts`"],
+    ["Lockfile and manifests", "6", "18", "2", "`pnpm-lock.yaml` (12 — regenerate, never merge), four `package.json`, `cli-external-packages.test.ts`"],
+    ["Mobile", "0", "0", "0", "7 files auto-merged; Loom carries no mobile code outside `quarantine/`"],
+  ]}
+/>
+
+## What upstream shipped, and where it meets Loom
+
+The 554 commits group into the themes below. The last column is the doctrine call from `05-strategy.md` §4.3: *where upstream now expresses the same functionality, upstream's mechanism is the baseline and Loom's variant is deleted*. Four rows say **supersedes** — those are Carl's decisions in the bottom form. Everything else is either disjoint (takes verbatim) or a textual re-apply of a Loom seam.
+
+<Table
+  density="compact"
+  columns={["Theme (≈ commits)", "What upstream did", "Loom feature it meets", "Verdict"]}
+  rows={[
+    ["Provider packages + Effect service conventions (≈30)", "Every provider moved to `packages/provider-{core,pi,opencode,cursor,grok,acp,acp-registry,muse}`; `ProviderDriver`, `ProviderAdapter`, `IdAllocator`, text generation, usage limits, MCP sessions into `provider-core`; adapter factories yield services; namespace imports", "Loom's Pi hooks in `PiAdapterV2.ts`, `PiDriver.ts`, `PiRpc.ts`, `piT3McpInjection.ts`, `piT3McpExtensionSource.ts`, and 23 Loom-only Pi modules under `apps/server/src/provider/Drivers/Pi/` and `orchestration-v2/Adapters/*.loom.ts`", "**Structural re-home** — git followed the renames (conflicts appear at the new paths); Loom-only modules move into the packages (see next section). No functionality decision."],
+    ["Pi adapter fixes (12)", "Skills/commands discovery, optional T3 tools discovered on demand via Pi's `tool_search` and `exposure: deferred`, extension wakes get an owned continuation turn, session rewinds reconciled, approvals expire, per-model thinking defaults, tool images, exit codes, abort outcomes, native sessions in usage", "Loom's `enable_toolset` (role-declared dormant tool families activated by an MCP tool) and Loom's prompt-snippet `_meta` on the bridge", "Take all fixes. **Supersedes?** — upstream's deferred-exposure mechanism and Loom's `enable_toolset` both implement a lean default tool surface; upstream's `directTools` list would defer Loom's `workstream_submit` and the other role tools. Decision below."],
+    ["Usage readers per driver (≈20)", "Transcript readers come from drivers; `packages/provider-pi/src/server/usage.ts` reads Pi sessions including tools and summaries; Usage page under a second, provider filter, cached scans", "Loom's `usage/usageTranscripts.ts` Pi parser, `piSessionIdFromPath`, and its hunks in `usageTranscriptReader.ts` / `UsageService.ts`", "**Supersedes** — recommend deleting Loom's Pi usage parsing. Loom's cli-proxy usage source (`UsageLimitSources.ts` carry-forward, `cliproxyApi.ts` credit redeem) is different functionality and stays."],
+    ["Thread links and agent thread awareness (6)", "`[title](t3-thread://v1/<threadId>)` is the canonical thread link in tool prose, orchestration instructions, `packages/shared/src/threadLinks.ts`, and `MarkdownThreadLink.tsx` renders it with the live title; agents see snooze state", "Loom's `[Title](thread://<id>)` @-mention form (composer `composerContextReferences.ts`, `ChatMarkdown.tsx` chip, `verifiedFileChips.tsx`, `consult_thread` prose)", "**Supersedes** — recommend adopting upstream's scheme. Decision below on whether old `thread://` text in transcripts still renders as a chip."],
+    ["Source-control packages + GitHub API (≈30)", "GitHub, GitLab, Bitbucket, Azure DevOps, Forgejo, GitCafe each in `packages/source-control-*`; GitHub calls the API with `gh` used only for the token; per-host settings and tokens; quick actions per host", "Loom's repo-wide PR listing (`gh pr list`, consumed by `VcsStatusBroadcaster.ts` and `GitVcsDriverCore.ts` for sidebar PR state) and the `thread.workstream` guard in the pull-requests toolkit", "**Supersedes the mechanism** — re-express repo-wide listing on `GitHubPullRequestApi` in `packages/source-control-github`; the toolkit guard re-applies. Decision below."],
+    ["Auth scopes and hosted MCP agents (≈15)", "Separate permissions per capability; hosted agents sign in to the T3 MCP server with OAuth; `McpToolAccess.ts` — every toolkit handler declares reads/writes and who may call it; `RpcAuthorization.ts` maps every ws method to a scope", "Loom's `wsMethods.ts` (Loom ws RPCs) and the workstream toolkit, which registers 21 tools by hand via `McpServer.addTool` with its own `requireWorkstreamCaller`", "Re-apply seams: Loom's ws methods get scope rows; the hand-registered toolkit is outside `McpToolAccess`'s construction guard, so it keeps its own authorisation — the reviewer gate confirms an OAuth-signed outside agent cannot reach workstream tools without a thread credential."],
+    ["Find in thread, Markdown pipeline (≈8)", "Cmd+F over messages and plans (`ThreadFind.ts`, 449 lines + ws method), find in diffs, Markdown link parsing moved to `packages/shared/src/markdownLinks.ts`, `ChatMarkdown.tsx` shrunk by 447 lines", "Loom's cross-thread content search (FTS5 + embeddings) — different feature, no collision; Loom's file-chip gate in `markdown-links.ts` (+361 lines) and the standalone-image block in `ChatMarkdown.tsx`", "Textual re-apply onto upstream's new layout; keep both searches."],
+    ["Thread lifecycle and continuations (≈15)", "Automatic continuations capped and on by default; threads settle on PR merge; project action on settle; worktree cleanup fixes; queued messages during setup; Claude subagent stop", "Loom's `RestartContinuation.ts` steer-stash hunk; Loom's settings flip that already defaulted continuations on; `Orchestrator.loom.ts` rule-0 veto", "Take upstream; drop Loom's now-redundant default flip (pre-ruling, not a question); confirm the cap does not fire on Loom children (reviewer item)."],
+    ["Pull requests UX (≈25)", "Guided reviews, review guides (migration 061), PR panel confirm-in-place, comment filters, PR tab on mobile", "Loom's `pull-requests` toolkit guard, workstream PR cards", "Take verbatim; one 5-line Loom hunk re-applies."],
+    ["Web UX (≈120 fix/feat(web))", "Reopen closed tabs, reorder right-panel tabs, thread-details shortcut, parent breadcrumb, grouped keybindings, block Markdown composer, MCP apps inline, terminal scrollback, timeline/diff perf", "Loom's sidebar seams, thread tabs keybindings, right-panel Loom tabs, composer intercepts, turn rail", "Textual re-apply; all hunks under 30 lines except `index.css`."],
+    ["Settings (4)", "Per-driver settings live in each provider package (`packages/provider-pi/src/settings.ts`); legacy per-driver providers map dropped; schema-declared secrets; providers on/off per project", "Loom's `settings.loom.ts` seam (stays), and two Pi hunks now inside `contracts/settings.ts` (Pi enabled by default; bundled-binary description)", "Move the two Pi hunks to `packages/provider-pi/src/settings.ts`."],
+    ["Tooling (≈10)", "`tsc-rs` replaces `tsgo`/`tsc` for `typecheck`; Effect 4.0.2; `@effect/tsgo` 0.51; CI gates on `allowBuilds`", "Loom's `vp run typecheck` gate, `*.loom.ts` under the new checker, `quarantine/` exclusions", "Take; first typecheck after the merge measures the real drift (the one number this plan cannot pre-measure)."],
+    ["Mobile (≈80), desktop (≈20), Muse provider, marketing", "Mobile v5 navigation, native PR review, perf; desktop default browser, passkeys; Muse Code native provider", "Nothing (registry stays Pi-only per standing ruling)", "Take verbatim."],
+  ]}
+/>
+
+## The structural prelude: Loom's Pi code moves into `packages/provider-pi`
+
+This is the one piece of pull 10 that a three-way merge does not do for you. Upstream extracted Pi into `@t3tools/provider-pi` (exports `./server`, `./server/usage`, `./settings`, `./client`) and the shared adapter machinery into `@t3tools/provider-core` (one export per module). A package cannot reach back into `apps/server/src` with relative imports, so the merged `packages/provider-pi/src/server/adapter.ts` currently imports `../../loom/prompt/provenance.ts` and `../../provider/Drivers/Pi/loomAdapterHooks.loom.ts` — the dangling imports in the table above.
+
+The good news is that Loom's Pi integration is already dependency-inverted: the adapter reads a `LoomPiAdapterHooks` Context tag with a passthrough default, and `apps/server/src/loom/serverLayers.ts` provides the live implementation. So the move is a relocation, not a redesign:
+
+<FileTree
+  title="Where each Loom Pi module lands"
+  entries={[
+    { path: "packages/provider-pi/src/server/loomAdapterHooks.loom.ts", change: "renamed", note: "from apps/server/src/provider/Drivers/Pi/ — the hooks tag, shape and passthrough (69 lines); `makeProviderFailure` now from @t3tools/provider-core/server/failure" },
+    { path: "packages/provider-pi/src/server/piThreadForkCut.loom.ts", change: "renamed", note: "from orchestration-v2/Adapters/ (60 lines, no imports)" },
+    { path: "packages/provider-pi/src/server/bundledPi.loom.ts", change: "renamed", note: "resolves the bundled patched pi; @earendil-works/pi-coding-agent becomes a provider-pi dependency (+ catalog entry)" },
+    { path: "packages/provider-pi/src/server/SessionIdSanitiser.loom.ts", change: "renamed", note: "113 lines, no imports; its test moves with it" },
+    { path: "packages/provider-pi/src/server/provenance.loom.ts", change: "added", note: "`labelledForModel` from apps/server/src/loom/prompt/provenance.ts (contracts-only imports) — or the whole module moves if nothing else in apps/server needs it" },
+    { path: "packages/provider-pi/src/settings.ts", change: "modified", note: "the two Pi hunks from contracts/settings.ts: enabled defaults on (DL-84); bundled-binary description (DT-49)" },
+    { path: "packages/provider-pi/package.json", change: "modified", note: "exports `./server/rpc`, `./server/mcpInjection`, `./server/mcpExtensionSource`, `./server/loom` for apps/server's Loom consumers (consult.ts, piOneShot.ts, consultTracker.ts, loomExtension.ts, serverLayers.ts)" },
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "`LoomOpenSessionFields` (today a type in loom/prompt/sessionComposer.ts) moves here so provider-core's ProviderAdapter and provider-pi's mcpInjection can name it" },
+    { path: "apps/server/src/provider/Drivers/Pi/piQuotaClassifier.loom.ts", change: "modified", note: "stays in apps/server (depends on Loom's ProviderHealthRegistry and exhaustionMapping); only its result types are referenced by the hooks shape — move the types, not the classifier" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtension.ts", change: "modified", note: "stays (it composes Loom's extension source from the workstream toolkit prose); imports the extension-source helpers from @t3tools/provider-pi/server/mcpExtensionSource" },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "imports the hooks tag from @t3tools/provider-pi/server/loom" },
+    { path: "apps/server/src/orchestration-v2/Adapters/PiAdapterV2.loom.test.ts", change: "renamed", note: "to packages/provider-pi/src/server/adapter.loom.test.ts, with PiRpc.test.ts, piT3McpExtensionSource.loom.test.ts, PiProvider.loom.test.ts, PiTextGeneration.loom.test.ts" },
+  ]}
+/>
+
+Twelve more Loom-only files in `apps/server/src/loom/` and `orchestration-v2/*.loom.test.ts` import `IdAllocator.ts`, `ProviderAdapter.ts`, `RandomUuid.ts`, `Notification.ts`, `ProviderFailure.ts` or `TextGenerationPrompts.ts` by relative path; each becomes an `@t3tools/provider-core/server/<module>` import — mechanical, and `dangling.py` reports zero when it is done.
+
+<Callout tone="info">
+Upstream's `packages/provider-pi/src/server.ts` barrel exports only `PiDriver` and `PiAdapterV2Driver`. Loom adds subpath exports rather than widening the barrel, following `provider-core`'s one-export-per-module shape; the `package.json` delta is JSON and cannot carry a `// loom:` marker, so the runbook's decision log records it and `unmarkedsweep.allow` does not need a row (it is under the 15-line threshold).
+</Callout>
+
+## Shape of the pull: five sessions, two of them in parallel
+
+Pull 9 was phased because upstream had deleted the engine Loom stood on; every structural row needed a redesign before anything compiled. Pull 10 has no such row: 99 of the 104 conflicts are textual, the five modify/deletes have a known destination, the relocation is a package move of already-seamed code, and `Migrations.ts` is byte-identical to the base (upstream adds 059–061; Loom's lane is 1001–1054; no contact). That is the pull-8 shape, so the runbook follows doc 27: one branch, one merge commit with `upstream/main` as its second parent, sessions with a definition of done each, and a decision log coders append to.
+
+<Mermaid
+  caption="Sessions and gates. Solid arrows are dependencies; S2a and S2b run concurrently on disjoint file sets in one worktree."
+  source={"flowchart TD\n  S0[\"S0 Cut the branch, re-measure, write the runbook skeleton\"] --> S1[\"S1 Merge: resolve 104 paths by pre-ruling, relocate Loom's Pi modules, dangling imports = 0, commit the merge\"]\n  S1 --> G1{\"Gate 1 reviewer: markers 0, pre-rulings honoured, unmarked sweep clean, lockfile regenerated\"}\n  G1 --> S2a[\"S2a Server + provider packages: typecheck and tests green for apps/server, packages/provider-*, contracts, shared\"]\n  G1 --> S2b[\"S2b Web + client-runtime: typecheck and tests green for apps/web, packages/client-runtime; preview harness for chips and MDX\"]\n  S2a --> S3[\"S3 Integrate: fresh install, vp run typecheck 33/33, vp check, full server/shared/contracts/provider tests, audits, UPSTREAM_BASE advanced\"]\n  S2b --> S3\n  S3 --> G2{\"Gate 2 reviewer: clean-overlap review of the 135 silent merges + the four supersessions\"}\n  G2 --> S4[\"S4 QA: dev-verify instance seeded with a workstream; boot on a copy of the live DB; Carl pairs\"]\n  S4 --> SHIP[\"Shipper: gates re-run on the exact tree, pnpm ship --merge-only after Carl's go\"]\n"}
+/>
+
+<Table
+  columns={["Session", "Delivers", "Definition of done"]}
+  rows={[
+    ["S0 — substrate (orchestrator, minutes)", "Branch `t3code/upstream-sync-20261012` from `main`; `remeasure.sh` re-run (origin/main may have moved); runbook doc 35 with the zone partition, pre-rulings from this plan, and an empty decision log starting at DL-900", "Counts match this plan or the deltas are explained; the runbook is signed"],
+    ["S1 — the merge (one coder, whole tree)", "`git -c rerere.enabled=false -c merge.renameLimit=30000 merge --no-commit --no-ff upstream/main`; every conflicted path resolved per its pre-ruling using pull-7 `hx.py`/`sideresolve.py`; `pnpm-lock.yaml` regenerated with `vp i`; the Pi relocation above; `dangling.py` = 0; one merge commit", "`git diff --check` clean, 0 markers, `parsesweep.mjs` clean, `unmarkedsweep.sh` clean vs `main`, every resolution that departed from a pre-ruling is a DL row. Typecheck is observed and recorded, not gated"],
+    ["S2a — server track (coder)", "`apps/server`, `packages/provider-*`, `packages/contracts`, `packages/shared` typecheck under `tsc-rs`; the usage supersession, the GitHub repo-wide listing re-expressed on the API, `McpToolAccess` conformance where Loom's hand-registered toolkit touches shared helpers, ws scope rows; targeted `vp test run` on every file touched", "`cd apps/server && vp run typecheck` and the same for each owned package exit 0; named Loom tests pass: `LoomMigrations.test.ts`, `PiCwdOverride.contract.test.ts`, `adapter.loom.test.ts`, `registration.test.ts`, `LoomV1WorkstreamImporter.test.ts`"],
+    ["S2b — web track (coder)", "`apps/web`, `packages/client-runtime` typecheck; thread-link scheme switch; file-chip gate re-applied onto `@t3tools/shared/markdownLinks`; `ChatMarkdown` image block re-homed; preview harness fixtures for thread chips, file chips and an MDX plan render", "Owned packages typecheck 0; `vp test run` on touched files; a `/preview` screenshot of each re-applied surface in the report"],
+    ["S3 — integrate (one coder)", "`rm -rf` every `node_modules`, `CI=true vp i`, `vp run typecheck` (now 33 packages with the new provider and source-control packages, up from 16), `vp check`, full `vp test` for `apps/server`, `packages/shared`, `packages/contracts`, `packages/provider-core`, `packages/provider-pi`; `unmarkedsweep.sh --report`; `lostdecls.py`; `whatismissing.sh`; `UPSTREAM_BASE` = `58d253231d`", "All green from a fresh install; the gate record table in doc 35 is filled; the clean-overlap list is handed to Gate 2"],
+    ["S4 — QA (orchestrator + Carl)", "Dev-verify recipe (`docs/dev-site-testing.md`): `vp run migrate-dev-db` from a snapshot of the live DB, `vp run dev:seed`, `vp run dev --share`; walk the smoke list below; Carl pairs with the URL", "The smoke list passes; defects found go back to S2a/S2b as rework rounds, not into the QA session"],
+  ]}
+/>
+
+### Pre-rulings the runbook carries (not questions)
+
+These follow directly from doctrine or from pull 9's rulings and need no new decision from Carl; the runbook lists them so S1 resolves without stopping.
+
+- **Lockfile:** take upstream's `pnpm-lock.yaml`, re-add Loom's dependencies, regenerate; never hand-merge the 12 hunks.
+- **`builtInDrivers.ts`:** registry stays Pi-only (standing ruling since pull 7; Muse joins the other dormant drivers). `ProviderRegistry.test.ts` expectations follow.
+- **Continuations:** upstream's cap-and-default-on replaces Loom's default flip in `contracts/settings.ts`; Loom's rule-0 veto in `Orchestrator.loom.ts` stays because it expresses a workflow rule upstream has no equivalent for.
+- **Settings seam:** `settings.loom.ts` and its re-exports stay exactly as they are; only the two Pi hunks move to the provider package.
+- **`Migrations.ts`:** upstream's side verbatim; it must not conflict (it does not).
+- **Keybindings:** the two "lost" exports are re-exports from `@t3tools/shared/keybindings`; no action beyond confirming the re-export line survives.
+- **`AGENTS.md`:** auto-merged; S1 reads the merged result once for the known Loom-supersedes-upstream bullets (repo-wide checks, PRs).
+- **Quarantine:** untouched; its deletion remains pull 9's open tail and is not folded into this pull.
+- **Model manifest:** Loom's rollover is ahead of upstream's; keep Loom's `model-manifest.json` (allow-listed).
+
+### Verification gates
+
+<Checklist
+  items={[
+    { id: "markers", label: "S1: 0 conflict markers, `parsesweep.mjs` clean, `dangling.py` reports 0 outside `quarantine/`", checked: false },
+    { id: "typecheck", label: "S3: `vp run typecheck` green from a fresh install under `tsc-rs` (the new checker is itself a risk — see Risks)", checked: false },
+    { id: "check", label: "S3: `vp check` 0 errors", checked: false },
+    { id: "tests", label: "S3: full `vp test` for apps/server, packages/shared, packages/contracts, packages/provider-core, packages/provider-pi; targeted tests in S2a/S2b", checked: false },
+    { id: "sweep", label: "S1 and S3: `unmarkedsweep.sh` gate clean vs main; `--report` audit recorded for the whole fork vs the new base", checked: false },
+    { id: "lost", label: "S3: lost-feature audit — `lostdecls.py` and `whatismissing.sh` against the base, every hit adjudicated as a DL row", checked: false },
+    { id: "ledger", label: "S3: migration ledger — `Migrations.ts` byte-identical to upstream's, `LoomMigrations.test.ts` 25/25, a boot on a copy of the live DB runs 059–061 in `effect_sql_migrations` and nothing in `loom_sql_migrations`", checked: false },
+    { id: "overlap", label: "Gate 2: clean-overlap semantic review of the 135 silently merged files, doc 29 method (three read-only reviewers by zone), every DEFECT fixed before S4", checked: false },
+    { id: "boot", label: "S4: boot smoke — a Pi turn completes through the relocated adapter and resumes after a server restart", checked: false },
+    { id: "live", label: "S4: live QA on the dev-verify instance (below) with Carl pairing", checked: false },
+  ]}
+/>
+
+The S4 smoke list, each item a real journey on the seeded instance: open the board and a workstream; spawn a child and watch its kickoff; `consult_thread` a sibling; a child submits and its dependent releases; a gated round (`needs_rework` → rework → `clean`); `enable_toolset delegation` then `notify_thread`; a `@thread` mention in the composer renders as a chip with the live title and reaches the agent as `t3-thread://v1/…`; open an MDX plan, annotate, answer a QuestionForm; open an `.artifacts/*.html` chip in the viewer; the Usage page shows Pi sessions and the cli-proxy accounts; Cmd+F in a thread; the context meter popover shows workstream spend; a quota error parks and resumes (`autoResumeLimitedThreads`); a Pi child launched in a worktree resolves `node_modules/.bin` first (#342).
+
+## Workstream graph
+
+Nodes, ownership and edges for the orchestrator to spawn. Everyone works in the orchestrator's worktree; concurrency is safe only because S2a and S2b own disjoint directories. Nothing is spawned by this plan.
+
+<Mermaid
+  caption="Thread graph. Review gates are the bounded cycles; the shipper is last."
+  source={"flowchart LR\n  ORCH((orchestrator)) --> S1C[coder: S1 merge]\n  S1C --> R1[reviewer: gate 1]\n  R1 -. needs_rework .-> S1C\n  R1 --> S2A[coder: S2a server]\n  R1 --> S2B[coder: S2b web]\n  S2A --> S3C[coder: S3 integrate]\n  S2B --> S3C\n  S3C --> R2a[reviewer: overlap server]\n  S3C --> R2b[reviewer: overlap web]\n  S3C --> R2c[reviewer: overlap packages/config]\n  R2a --> FIX[coder: overlap fixes]\n  R2b --> FIX\n  R2c --> FIX\n  FIX --> QA[orchestrator: S4 QA + Carl]\n  QA -. defects .-> S2A\n  QA -. defects .-> S2B\n  QA --> SHIP[shipper]\n"}
+/>
+
+<Table
+  density="compact"
+  columns={["Node", "Role / profile", "Owns (file set)", "Waits on", "Hands back"]}
+  rows={[
+    ["S1 merge", "coder, strong model (long context: 104 files, pre-rulings)", "Whole tree, alone", "S0", "The merge commit OID, the resolution ledger (one row per departure), typecheck observation"],
+    ["Gate 1", "reviewer", "Read-only", "S1", "`clean` / `fixed_inline` / `needs_rework` with the pre-ruling it found violated"],
+    ["S2a server", "coder", "`apps/server/**`, `packages/provider-*/**`, `packages/contracts/**`, `packages/shared/**`, `packages/source-control-*/**`, root manifests", "Gate 1", "Typecheck 0 for owned packages, test log, DL rows for the usage and GitHub supersessions"],
+    ["S2b web", "coder", "`apps/web/**`, `packages/client-runtime/**`, `apps/web/src/preview/**`", "Gate 1", "Typecheck 0 for owned packages, preview screenshots, DL rows for the thread-link switch"],
+    ["S3 integrate", "coder", "Whole tree (S2a/S2b done)", "S2a, S2b", "Gate record table, `UPSTREAM_BASE` bump, clean-overlap list split by zone"],
+    ["Gate 2 ×3", "reviewer (read-only, one per zone)", "Read-only", "S3", "Disposition table per file: n/a / kept-compatible / adapted / DEFECT"],
+    ["Overlap fixes", "coder", "Files named by the Gate 2 DEFECT rows only", "Gate 2 ×3", "Fixes committed, rows updated"],
+    ["S4 QA", "orchestrator inline, Carl pairs", "No edits", "Overlap fixes", "Smoke results; defects routed to S2a/S2b as rework"],
+    ["Shipper", "shipper", "Nothing new", "S4 + Carl's go", "PR merged via the guarded path (below), branch deleted"],
+  ]}
+/>
+
+**Landing.** The branch carries a `merge upstream/main` commit, so it must never be rebased: `pnpm ship --merge-only` is the encoded path (it skips the rebase, runs `vp check`, `vp run typecheck`, the unmarked sweep, opens the PR and merges). Pull 9 opened its PR by hand because Carl needed days of QA before any merge; for pull 10 the recommendation (question below) is S4's dev-verify pairing before the shipper runs, then `pnpm ship --merge-only` lands it in one go. Deploying to the production VM stays a separate, human-initiated act per `docs/operations/shipping.md`.
+
+## Where the runbook lives
+
+`docs/upstream-sync/35-cadence-pull-10-v0.0.46-nightly-20261012.md`, written by the orchestrator in S0 in doc 27's shape (headline, topology, zone sizing, upstream digest, pre-rulings, sequencing, gate checklist, decision log, risks, tooling, Appendix A reproduce, Appendix B file-to-zone partition), signed with `sign_document`. The decision log starts at **DL-900**: pull 9 used DL-80–DL-581 in its runbooks and DL-600–DL-810 in the QA-fix note, so a fresh hundred keeps the numbering unambiguous. Session records append to the same file. The clean-overlap review is `35-clean-overlap-review.md`, as pull 9 did with `29-clean-overlap-review.md`. `UPSTREAM_BASE` becomes `58d253231d83f669a2cdfefa5fe479751d22c582` in S3.
+
+## Risks
+
+<Table
+  columns={["Risk", "Why it is real", "How the plan bounds it"]}
+  rows={[
+    ["`tsc-rs` finds errors `tsgo` did not", "Upstream switched the typechecker (#16704); Loom's ~770 fork-side source files have never been checked by it. This is the one number the trial merge cannot measure", "S1 records the first typecheck as an observation; S2a/S2b own the fallout by package; if the count is above a few hundred the orchestrator re-plans S2 into more tracks rather than stretching the sessions"],
+    ["Silent merge damage in the 135 auto-merged files", "Pull 9's review found 17 defects in 116 such files (one consequential). The rate will be similar", "Gate 2 reads every one with the three-diff method before QA; fixes are a bounded coder node"],
+    ["The Pi relocation breaks a hook nobody tests", "The hooks tag has a passthrough default, so a mis-wired `LoomPiAdapterHooksLive` typechecks and silently reverts to upstream behaviour (no quota parking, no steer stash)", "S4's smoke list exercises quota park-and-resume and steer-across-restart explicitly; `adapter.loom.test.ts` asserts the live layer is bound"],
+    ["Upstream's deferred tool exposure hides Loom's role tools", "`directTools` is a three-name allow-list; anything else becomes `deferred` behind `tool_search` on Pi ≥ 0.99, and Loom bundles Pi 1.1.0", "The exposure question below is answered before S1; the chosen rule is a pre-ruling for `mcpExtensionSource.ts`"],
+    ["Hosted MCP agents reach workstream tools", "Upstream opened the MCP server to OAuth-signed outside agents; Loom's toolkit authorises on a thread credential, outside `McpToolAccess`", "Gate 1 reviewer item: an outside-agent session must be refused by `requireWorkstreamCaller`; S2a adds a test if there is none"],
+    ["Bundled `pi` and the worktree bin path", "`bundledPi.loom.ts` moves packages; `import.meta.resolve` of `@earendil-works/pi-coding-agent` must still find the patched copy from `packages/provider-pi`", "Dependency declared on `provider-pi`; S4 boots and confirms the spawn command path in the server log (#342's `node_modules/.bin` rule is in `PiRpc` → `rpc.ts`, which conflicts and is re-applied in S1)"],
+    ["`origin/main` moves during the pull", "Loom merged ten PRs in the last three days", "S0 re-measures; S3 merges `origin/main` into the branch (never rebases) before the gate record; the shipper uses `--merge-only`"],
+  ]}
+/>
+
+## Verification of this plan itself
+
+The numbers above are reproducible with the commands in "The measured surface"; the captures in `.artifacts/pull10-measure/` (`conflicts.json`, `zones.md`, `dangling-imports.json`, `both-modified-automerged.txt`, `upstream-log.txt`) are the evidence for every table. The trial worktree was removed; this worktree's index and branch were never touched.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "shape",
+      title: "Run pull 10 as a single-pass cadence pull on one branch, rather than phasing it like pull 9?",
+      subtitle: "The trial merge is pull-8 sized (104 conflicted files, 191 markers) and the only structural work is moving Loom's already-seamed Pi modules into upstream's new provider package.",
+      refs: [{ label: "Shape of the pull: five sessions, two of them in parallel", anchor: "shape-of-the-pull-five-sessions-two-of-them-in-parallel" }],
+      mode: "single",
+      options: [
+        { id: "single", label: "Yes — one branch, one merge commit, five sessions with two in parallel, two reviewer gates", recommended: true, detail: "Pull-8 shape; lands in days, not weeks." },
+        { id: "phased", label: "No — split into a provider-package relocation pull first, then the rest", detail: "Only worth it if the first typecheck under tsc-rs reveals drift in the hundreds; the plan already lets the orchestrator re-plan S2 if so." },
+      ],
+    },
+    {
+      id: "usage",
+      title: "Delete Loom's own Pi usage-transcript parser in favour of upstream's Pi usage reader?",
+      subtitle: "Upstream now reads Pi session files for the Usage page inside its Pi provider package, including tool and summary records; Loom wrote its own parser for the same page before upstream had one.",
+      refs: [{ label: "What upstream shipped, and where it meets Loom", anchor: "what-upstream-shipped-and-where-it-meets-loom" }],
+      mode: "single",
+      options: [
+        { id: "upstream", label: "Yes — upstream's reader is the baseline; Loom's parser and its hunks in the transcript reader and usage service go", recommended: true, detail: "Doctrine §4.3; Loom's cli-proxy account source and last-good-reading carry-forward are different functionality and stay." },
+        { id: "keep", label: "No — keep Loom's parser alongside upstream's", detail: "Two readers over the same files; the Usage page would double-count unless one is disabled." },
+      ],
+    },
+    {
+      id: "threadlinks",
+      title: "Switch Loom's thread mentions to upstream's link scheme?",
+      subtitle: "Loom writes a thread mention as a Markdown link with a `thread://<id>` address and renders it as a chip; upstream now defines `t3-thread://v1/<id>` for the same purpose across tool prose, the composer and the timeline, with the live title shown.",
+      refs: [{ label: "What upstream shipped, and where it meets Loom", anchor: "what-upstream-shipped-and-where-it-meets-loom" }],
+      mode: "single",
+      options: [
+        { id: "adopt", label: "Yes — emit and render only upstream's scheme; old `thread://` text in past transcripts becomes a plain link", recommended: true, detail: "One scheme everywhere, no shim; consult_thread's prose and the composer's @-mention change in the same pass." },
+        { id: "adopt-render-legacy", label: "Yes, but keep rendering old `thread://` mentions as chips in past transcripts", detail: "One extra parser arm, marked `// loom:`; keeps months of reports readable as chips at the cost of a permanent compat line." },
+        { id: "keep", label: "No — keep Loom's `thread://` scheme", detail: "Loom's agents and upstream's instructions would then disagree on how to link a thread." },
+      ],
+    },
+    {
+      id: "exposure",
+      title: "How should Loom's role-based tool surface coexist with upstream's on-demand tool discovery in Pi?",
+      subtitle: "Loom hides dormant tool families per role until an agent calls `enable_toolset`; upstream's Pi extension now lists only three tools directly and marks every other bridge tool as deferred, discoverable through Pi's built-in `tool_search` — which would hide Loom's `workstream_submit` and the other role tools behind a search.",
+      refs: [{ label: "What upstream shipped, and where it meets Loom", anchor: "what-upstream-shipped-and-where-it-meets-loom" }],
+      mode: "single",
+      options: [
+        { id: "direct", label: "Keep Loom's role-based activation and expose every tool Loom lists as direct (no deferral) — one marked line in the extension source", recommended: true, detail: "The server already lists only the active families; deferral on top would hide tools the role prompt promises. Smallest change, same behaviour as today." },
+        { id: "replace", label: "Replace `enable_toolset` with upstream's deferred exposure and tool_search, driving direct-vs-deferred from the role", detail: "Removes a Loom tool and its prompt doctrine in every role file; a follow-on project, not a pull resolution." },
+        { id: "both", label: "Keep `enable_toolset` and also let upstream defer the tools it defers", detail: "Two hiding mechanisms stacked; agents would need tool_search for tools their role said were available." },
+      ],
+    },
+    {
+      id: "prlist",
+      title: "Re-express Loom's repository-wide pull-request listing on upstream's GitHub API transport?",
+      subtitle: "Loom lists every open PR in a repository (not just the current branch's) through the `gh` CLI to drive sidebar PR state; upstream deleted that file and now talks to GitHub's API directly with `gh` used only for the token.",
+      refs: [{ label: "What upstream shipped, and where it meets Loom", anchor: "what-upstream-shipped-and-where-it-meets-loom" }],
+      mode: "single",
+      options: [
+        { id: "reexpress", label: "Yes — port the repo-wide listing onto the GitHub API client in the new source-control-github package", recommended: true, detail: "Keeps the sidebar PR state Loom's workstream cards rely on; a small Effect method beside upstream's per-branch listing." },
+        { id: "drop", label: "No — drop repo-wide listing and rely on upstream's per-branch PR lookups", detail: "Simplest; verify first that no Loom surface still reads the repo-wide list." },
+      ],
+    },
+    {
+      id: "landing",
+      title: "What must happen before the shipper merges the pull?",
+      subtitle: "Pull 9 ran a sandboxed QA instance for days before Carl allowed the merge, because it replaced the engine. Pull 10 is a routine pull; the shipping policy lets an agent merge once approved and green.",
+      refs: [{ label: "Workstream graph", anchor: "workstream-graph" }],
+      mode: "single",
+      options: [
+        { id: "pair", label: "The seeded dev-verify instance passes the smoke list and Carl pairs with it once; then the shipper merges with `pnpm ship --merge-only`", recommended: true, detail: "One shared dev instance via `vp run dev --share`, a copy of the live database, no systemd sandbox." },
+        { id: "sandbox", label: "A pull-9-style isolated QA world (systemd unit, private network, read-only home) before any merge", detail: "Days of setup for a pull that changes no engine; justified only if the first typecheck reveals the drift is far larger than measured." },
+        { id: "green", label: "Merge as soon as the gates are green; Carl verifies on the deployed instance", detail: "Fastest; a regression in a Loom seam would reach production before anyone drove it." },
+      ],
+    },
+  ]}
+/>
