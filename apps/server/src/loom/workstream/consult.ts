@@ -64,12 +64,9 @@ import {
   makePiRpcConnection,
   piRecordField,
   piRecordString,
-} from "../../orchestration-v2/Adapters/PiRpc.ts";
-import {
-  buildPiRpcLaunch,
-  resolvePiLaunchArgs,
-} from "../../orchestration-v2/Adapters/piT3McpInjection.ts";
-import { resolveLoomPiBinaryPath } from "../../provider/Drivers/Pi/bundledPi.loom.ts";
+} from "@t3tools/provider-pi/server/rpc";
+import { buildPiRpcLaunch, resolvePiLaunchArgs } from "@t3tools/provider-pi/server/mcpInjection";
+import { resolveLoomPiBinaryPath } from "@t3tools/provider-pi/server/loom";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { makeConsultTracker } from "./consultTracker.ts";

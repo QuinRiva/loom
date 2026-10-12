@@ -29,7 +29,7 @@ import * as NodePath from "node:path";
 
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
-import { resolveBundledPiCliPath } from "./bundledPi.loom.ts";
+import { resolveBundledPiCliPath } from "@t3tools/provider-pi/server/loom";
 
 const RPC_TIMEOUT_MS = 45_000;
 const SESSION_ID = "019fb200-0000-7000-8000-00000000abcd";

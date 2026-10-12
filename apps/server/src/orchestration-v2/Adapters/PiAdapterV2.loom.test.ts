@@ -39,27 +39,25 @@ import { threadErrorSummary } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as ServerConfig from "../../config.ts";
 import { LoomProviderHealthLive } from "../../loom/serverLayers.ts";
 import * as PendingSteering from "../../loom/steering/pendingSteering.ts";
-import {
-  LoomPiAdapterHooks,
-  type LoomPiAdapterHooksShape,
-} from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { LoomPiAdapterHooks, type LoomPiAdapterHooksShape } from "@t3tools/provider-pi/server/loom";
 import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifier.fixtures.loom.ts";
 import { ProviderHealthRegistry } from "../../provider/ProviderHealthRegistry.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
 import { notifyDeliveryCommand } from "../../mcp/toolkits/workstream/handlers/notify.ts";
 import { controlMessage } from "../../loom/orchestration/dispatcher/controlMessage.ts";
-import { AUTHOR_LABELS } from "../../loom/prompt/provenance.ts";
+import { AUTHOR_LABELS } from "@t3tools/provider-pi/server/loom";
 import { loomMessageFields } from "../Orchestrator.loom.ts";
+import { EMPTY_LOOM_OPEN_SESSION_FIELDS } from "../../loom/prompt/sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
-  EMPTY_LOOM_OPEN_SESSION_FIELDS,
-  type LoomOpenSessionFields,
-} from "../../loom/prompt/sessionComposer.ts";
-import * as IdAllocator from "../IdAllocator.ts";
-import { ProviderAdapterV2RuntimePolicy, type ProviderAdapterV2Event } from "../ProviderAdapter.ts";
-import { makePiAdapterV2 } from "./PiAdapterV2.ts";
-import { makePiRpcConnection, type PiRpcRecord } from "./PiRpc.ts";
-import { buildPiRpcLaunch } from "./piT3McpInjection.ts";
+  ProviderAdapterV2RuntimePolicy,
+  type ProviderAdapterV2Event,
+} from "@t3tools/provider-core/server/ProviderAdapter";
+import { makePiAdapterV2 } from "@t3tools/provider-pi/server/adapter";
+import { makePiRpcConnection, type PiRpcRecord } from "@t3tools/provider-pi/server/rpc";
+import { buildPiRpcLaunch } from "@t3tools/provider-pi/server/mcpInjection";
 
 const testLayer = Layer.mergeAll(
   NodeServices.layer,

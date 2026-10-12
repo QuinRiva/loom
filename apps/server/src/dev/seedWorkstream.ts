@@ -69,7 +69,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import type {
   ProviderAdapterV2Event,
   ProviderAdapterV2Shape,
-} from "../orchestration-v2/ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";

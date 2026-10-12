@@ -1084,3 +1084,21 @@ export const loomCommandThreadId = (command: LoomCommand): ThreadId => {
       return command.threadId;
   }
 };
+
+/**
+ * What Loom's session composer adds to a provider open (pull 9 Area G): the thread's prompt,
+ * skills, extensions and env. Here so provider-core's `ProviderAdapter` and provider-pi's
+ * `mcpInjection` can name it; composed in apps/server `loom/prompt/sessionComposer.ts`.
+ */
+export interface LoomOpenSessionFields {
+  /** Appended to pi's system prompt; `""` appends nothing. */
+  readonly appendSystemPrompt: string;
+  /** One `--skill <path>` each. */
+  readonly skills: ReadonlyArray<string>;
+  /** One `--extension <path>` each, beside upstream's bridge extension. */
+  readonly extensions: ReadonlyArray<string>;
+  /** Merged into the pi process env (`PI_CACHE_RETENTION`, DL-300; the agent git identity). */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Prepended to the pi process PATH: the agent git shim's directory (`agentGitIdentity.ts`). */
+  readonly pathPrepend?: string;
+}

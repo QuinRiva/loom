@@ -19,8 +19,8 @@ import { HttpClient, HttpClientResponse } from "effect/http";
 import { describe, expect } from "vite-plus/test";
 
 import type { AccountUsageSnapshot, AccountUsageWindow } from "./accountUsage.loom.ts";
-import type { ProviderInstance } from "./ProviderDriver.ts";
-import { applyUsageLimitsUpdate, removeUsageLimitWindows } from "./providerUsageLimits.ts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import { applyUsageLimitsUpdate, removeUsageLimitWindows } from "@t3tools/provider-core/server/usageLimits";
 import { ProviderHealthRegistry } from "./ProviderHealthRegistry.ts";
 import { ProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";

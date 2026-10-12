@@ -25,8 +25,8 @@ import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
   LoomSessionComposer,
   LoomSessionComposerError,
-  type LoomOpenSessionFields,
 } from "../loom/prompt/sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -35,13 +35,13 @@ import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type {
   ProviderAdapterV2OpenSessionInput,
   ProviderAdapterV2SessionRuntime,
   ProviderAdapterV2Shape,
-} from "./ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";

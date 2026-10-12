@@ -65,9 +65,9 @@ import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 import {
   LoomSessionComposer,
   LoomSessionComposerError,
-  type LoomOpenSessionFields,
   type LoomSessionComposerShape,
 } from "./sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
 
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(

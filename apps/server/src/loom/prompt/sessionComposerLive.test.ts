@@ -44,7 +44,8 @@ import {
 } from "../testkit/loomOrchestratorLayer.ts";
 import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } from "./prose.ts";
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
-import type { LoomOpenSessionFields, LoomSessionComposerShape } from "./sessionComposer.ts";
+import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import type { LoomSessionComposerShape } from "./sessionComposer.ts";
 import { makeLoomSessionComposer } from "./sessionComposerLive.ts";
 
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */

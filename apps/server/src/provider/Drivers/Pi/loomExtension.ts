@@ -33,10 +33,7 @@ import {
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
-import {
-  T3_MCP_BEARER_ENV,
-  T3_MCP_URL_ENV,
-} from "../../../orchestration-v2/Adapters/piT3McpExtensionSource.ts";
+import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
 
 export interface LoomExtensionPart {
   readonly name: string;

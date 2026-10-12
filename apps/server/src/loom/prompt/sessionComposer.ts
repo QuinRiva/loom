@@ -10,24 +10,11 @@
  *
  * @module loom/prompt/sessionComposer
  */
-import { ThreadId } from "@t3tools/contracts";
+import { type LoomOpenSessionFields, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-
-export interface LoomOpenSessionFields {
-  /** Appended to pi's system prompt; `""` appends nothing. */
-  readonly appendSystemPrompt: string;
-  /** One `--skill <path>` each. */
-  readonly skills: ReadonlyArray<string>;
-  /** One `--extension <path>` each, beside upstream's bridge extension. */
-  readonly extensions: ReadonlyArray<string>;
-  /** Merged into the pi process env (`PI_CACHE_RETENTION`, DL-300; the agent git identity). */
-  readonly env?: Readonly<Record<string, string>>;
-  /** Prepended to the pi process PATH: the agent git shim's directory (`agentGitIdentity.ts`). */
-  readonly pathPrepend?: string;
-}
 
 export const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = {
   appendSystemPrompt: "",

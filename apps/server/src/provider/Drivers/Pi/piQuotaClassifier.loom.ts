@@ -14,25 +14,10 @@
  */
 import type { IsoDateTime } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import type { ClassifiedPiFailure, PiFailureSelection } from "@t3tools/provider-pi/server/loom";
 
 import { PI_QUOTA_ERROR_RE, subscriptionScopeForSelection } from "../../exhaustionMapping.ts";
 import { type ExhaustionMark, isActive, matches } from "../../ProviderHealthRegistry.ts";
-
-export interface ClassifiedPiFailure {
-  readonly usageLimit: boolean;
-  /** Absent when neither the text nor a telemetry mark names a reset; never guessed. */
-  readonly resetAt?: IsoDateTime;
-  /** The provider's own wait, when the text carries one. */
-  readonly retryAfterMs?: number;
-  /** The tripped window ("5-hour", "weekly") when `resetAt` came from a telemetry mark. */
-  readonly windowLabel?: string;
-}
-
-/** The selection the failed turn ran with (pi slug in `model`, the pi instance in `instanceId`). */
-export interface PiFailureSelection {
-  readonly instanceId: string;
-  readonly model: string;
-}
 
 /** A malformed request replays identically; never a window, whatever else it says. */
 const BAD_REQUEST_RE = /invalid_request_error|\[HTTP 400\]|^400\b|should match pattern/i;

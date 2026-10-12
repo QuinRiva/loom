@@ -57,7 +57,7 @@ import * as Schema from "effect/Schema";
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
 import { LoomAskWaiters } from "../loom/userInput/askWaiters.ts";
 import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
-import type { IdAllocatorV2 } from "./IdAllocator.ts";
+import type { IdAllocatorV2 } from "@t3tools/provider-core/server/IdAllocator";
 import type { OrchestratorDispatchError, OrchestratorV2Error } from "./Orchestrator.ts";
 import type { ProjectionStoreV2 } from "./ProjectionStore.ts";
 import { runlessForkSource } from "./runlessFork.loom.ts";

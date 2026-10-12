@@ -45,7 +45,7 @@ import {
   seedThread,
   spawnChild,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { LoomPiAdapterHooks } from "../../provider/Drivers/Pi/loomAdapterHooks.loom.ts";
+import { LoomPiAdapterHooks } from "@t3tools/provider-pi/server/loom";
 import { LoomProviderHealthLive } from "../serverLayers.ts";
 import { restoreRerouteMarks, runRerouteSweepPass } from "./RerouteSweep.ts";
 import { insertReroute, listReroutes } from "./rerouteRecord.ts";
