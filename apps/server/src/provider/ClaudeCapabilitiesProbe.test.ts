@@ -437,7 +437,6 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
 
       // This fixture records only its pid: the flag assertions live with the
       // invocation test above, which is the one whose fake echoes argv.
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const invocation = JSON.parse(yield* fs.readFileString(invocationPath)) as {
         readonly pid: number;
       };

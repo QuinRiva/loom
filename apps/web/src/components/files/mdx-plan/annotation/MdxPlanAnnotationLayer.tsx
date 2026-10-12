@@ -732,10 +732,10 @@ export function MdxPlanAnnotationLayer({
         doc.addEventListener("scroll", refresh, { signal, capture: true, passive: true });
         doc.addEventListener("toggle", refresh, { signal, capture: true });
         doc.fonts.addEventListener("loadingdone", refresh, { signal });
-        reflow.observe(doc.documentElement);
+        stopReflows.push(observeResize([doc.documentElement], refresh)); // not a raw ResizeObserver: upstream's no-raw-resize-observer
       }
     };
-    const reflow = new ResizeObserver(refresh);
+    const stopReflows: Array<() => void> = [];
     // `load` does not bubble, but it does pass through a capturing ancestor.
     root.addEventListener(
       "load",
@@ -749,7 +749,7 @@ export function MdxPlanAnnotationLayer({
     wire();
     return () => {
       controller.abort();
-      reflow.disconnect();
+      for (const stop of stopReflows) stop();
       cancelAnimationFrame(pending);
     };
   }, [root, recompute, handleMouseUp, hoverOver]);

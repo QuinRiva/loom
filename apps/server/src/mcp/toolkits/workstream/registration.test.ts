@@ -99,21 +99,24 @@ const oauthScope = Effect.gen(function* () {
   expect(scope!.thread).toBeUndefined();
   return scope!;
 }).pipe(
-  Effect.provide(McpOAuth.layerMcpClientAuthenticator),
   Effect.provide(
-    Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-      authenticateMcpClient: () =>
-        Effect.succeed({
-          sessionId: "oauth-session-1",
-          label: "Outside agent",
-          access: "full-access",
-        } as unknown as EnvironmentAuth.McpClientSession),
-    }),
-  ),
-  Effect.provide(
-    Layer.mock(ServerEnvironment.ServerEnvironment)({
-      getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-1")),
-    }),
+    McpOAuth.layerMcpClientAuthenticator.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+            authenticateMcpClient: () =>
+              Effect.succeed({
+                sessionId: "oauth-session-1",
+                label: "Outside agent",
+                access: "full-access",
+              } as unknown as EnvironmentAuth.McpClientSession),
+          }),
+          Layer.mock(ServerEnvironment.ServerEnvironment)({
+            getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-1")),
+          }),
+        ),
+      ),
+    ),
   ),
 );
 
