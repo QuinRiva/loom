@@ -197,26 +197,33 @@ escalation. Posture:
 - **KEEP — live prototype in `<iframe sandbox="allow-scripts allow-forms">`**
   (`srcdoc`, **no `allow-same-origin`** → opaque origin; proven to block
   parent/DOM/cookie access while staying interactive). This is the primary and
-  sufficient boundary. Wire shape = a single `<Prototype html="…">` block. v1
-  annotation = whole-prototype (`visual` anchor); in-prototype node pins (C5) are
-  a deferred follow-on needing a postMessage geometry bridge.
+  sufficient boundary. Wire shape = a single `<Prototype html="…">` block.
+  Annotation = whole-prototype (`visual` anchor); in-prototype pins (C5) would
+  need a postMessage geometry bridge, since the host cannot read an opaque frame.
 - **KEEP — `script-src 'self'`/`'unsafe-inline'` in the prototype `srcdoc` CSP
   (no remote scripts by default).** Cheap, and justified now that untrusted
   content is in scope (stops a foreign prototype phoning home / pulling arbitrary
   libraries). Relaxable per-plan only on explicit user opt-in.
 - **KEEP — wireframe `sanitizeWireframeHtml` (D8)** — it injects into the **live
   parent DOM**, so the sanitiser is the boundary.
-- **HtmlBlock + Prototype — sandboxed iframe is the whole boundary; NO sanitiser.**
-  _(Updated: D9 originally said "HtmlBlock … + sanitise"; the build correctly
-  dropped the sanitiser and an independent real-browser security review
-  RATIFIED the drop — `docs/mdx-iframe-surfaces-review.md`.)_ Unlike the
-  wireframe surface, HtmlBlock/Prototype content lives in a **separate
-  opaque-origin `srcdoc` document**, not the live DOM. HtmlBlock uses
-  `sandbox=""` (zero JS) + CSP with no `script-src`; Prototype uses
-  `sandbox="allow-scripts allow-forms"` (no `allow-same-origin`) + CSP
-  `default-src 'none'` (no remote script, no egress). A sanitiser would be pure
-  redundancy behind that. **Pending: one-line user ack of the sanitiser drop**
-  (the "+ sanitise" phrasing was user-confirmed).
+- **HtmlBlock + Prototype — sandboxed iframe is the boundary; NO sanitiser.**
+  _(D9 originally said "HtmlBlock … + sanitise"; the build dropped the sanitiser
+  and an independent real-browser security review RATIFIED the drop —
+  `docs/mdx-iframe-surfaces-review.md`.)_ Unlike the wireframe surface,
+  HtmlBlock/Prototype content lives in a **separate `srcdoc` document**, not the
+  live DOM. Prototype uses `sandbox="allow-scripts allow-forms"` (no
+  `allow-same-origin` → opaque origin) + CSP `default-src 'none'` (no remote
+  script, no egress). HtmlBlock uses `sandbox="allow-same-origin"` and nothing
+  else — zero JS, but the host can read the frame, so a reviewer can select text
+  inside it and pin a comment there (an artboard-style `wireframe` anchor: host
+  block + element path + text quote). Same-origin makes the frame's own requests
+  carry the app's cookies, so its CSP has no `'self'` (`data:` images/fonts and
+  inline styles only), meta refresh and `<base>` are stripped before load, and
+  link activation (`click`/`auxclick` through any `<a>`/`<area>`) is cancelled —
+  see the review §4. **Never add `allow-scripts` to HtmlBlock:** same-origin plus
+  scripts is a full escape. A sanitiser would be pure redundancy behind this.
+  **Pending: one-line user ack of the sanitiser drop** (the "+ sanitise" phrasing
+  was user-confirmed).
 - **DROP — sanitising the prototype HTML _on top of_ the opaque-origin sandbox.**
   This was over-specified: the sandbox already fully isolates the prototype from
   the app session, so a second sanitise pass adds negligible session-safety and
@@ -242,4 +249,5 @@ nesting and lands before design screens.
 - **Mermaid diagrams**: lazy `await import()` per BuilderIO; added when needed.
 - **rough.js wireframe sketch overlay**: optional polish, deferred past C1.
 - **C5 in-prototype pin annotation**: postMessage geometry bridge; separate gated
-  tier, only if demanded.
+  tier, only if demanded. (HtmlBlock does not need it — its same-origin, no-script
+  frame takes in-frame text pins directly, see D9.)

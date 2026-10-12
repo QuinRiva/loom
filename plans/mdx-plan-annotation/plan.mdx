@@ -356,9 +356,11 @@ whole prototype is annotatable as one block (in-frame pins are a deferred tier).
 
 ## Embedded HTML
 
-An `<HtmlBlock>` shows arbitrary **static** HTML in a fully locked iframe
-(`sandbox=""` — no scripts run at all), so no sanitiser is needed on top of the
-sandbox. It carries `data-plan-block-type="html"` and is annotatable as one block.
+An `<HtmlBlock>` shows arbitrary **static** HTML in an iframe whose only sandbox
+capability is `allow-same-origin` — no scripts run at all, and a strict CSP plus
+a navigation strip keep it from requesting anything from the app. It carries
+`data-plan-block-type="html"`: comment on it as one block, or select text inside
+it to pin a comment to that spot.
 
 <HtmlBlock
   caption="Static marketing snippet"

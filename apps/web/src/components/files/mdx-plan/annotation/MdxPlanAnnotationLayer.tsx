@@ -47,6 +47,8 @@ import {
   collapsedSurfaceFor,
   type CollapsedSurface,
   flattenDocument,
+  frameDocument,
+  hostFrameOf,
   resolveAnchor,
 } from "./anchoring";
 
@@ -106,6 +108,9 @@ interface ComposerState {
   initialText: string;
   /** localStorage key the in-progress draft is cached under (issue 6). */
   draftKey: string;
+  /** Overrides the default text/block label (an in-frame pin names its card;
+   * an edit keeps the label the comment was created with). */
+  rangeLabel?: string;
   top: number;
   left: number;
 }
@@ -163,6 +168,19 @@ function scrollportOf(node: Node, root: Element): Element | null {
     el = el.parentElement;
   }
   return null;
+}
+
+/** A rect measured inside an HtmlBlock frame (relative to the frame's viewport),
+ * moved into host-document viewport coordinates. Identity for a host rect. */
+function toHostRect(rect: DOMRect, frame: HTMLIFrameElement | null): DOMRect {
+  if (!frame) return rect;
+  const origin = frame.getBoundingClientRect();
+  return new DOMRect(
+    rect.x + origin.x + frame.clientLeft,
+    rect.y + origin.y + frame.clientTop,
+    rect.width,
+    rect.height,
+  );
 }
 
 function fileNameOf(filePath: string): string {
@@ -427,7 +445,13 @@ export function MdxPlanAnnotationLayer({
           return detachedOverlay(comment);
         }
         if (!range) return detachedOverlay(comment);
-        const isText = comment.anchor?.anchorKind === "text";
+        // A text-quote range starts in a text node (prose, or a pin inside an
+        // HtmlBlock frame); a block/node anchor `selectNode`s an element.
+        const isText = range.startContainer.nodeType === Node.TEXT_NODE;
+        // Set when the range lives inside an HtmlBlock frame: its rects are
+        // frame-relative, and the frame element (not the in-frame node) is what
+        // a closed <details> / hidden tab hides.
+        const frame = hostFrameOf(range.startContainer, root);
         const element = anchorElement(range);
         // Content inside a closed <details> / hidden tab panel is laid out but
         // NOT painted (current Chromium uses `content-visibility:hidden`, not
@@ -451,9 +475,11 @@ export function MdxPlanAnnotationLayer({
             opacityProperty: true,
             visibilityProperty: true,
           });
-        const endEl = isText ? range.endContainer.parentElement : element;
-        if (!visible(element) || !visible(endEl)) {
-          const hiddenNode = visible(element) ? range.endContainer : range.startContainer;
+        const startEl = frame ?? element;
+        const endEl = frame ?? (isText ? range.endContainer.parentElement : element);
+        if (!visible(startEl) || !visible(endEl)) {
+          const hiddenNode =
+            frame ?? (visible(element) ? range.endContainer : range.startContainer);
           const surface = collapsedSurfaceFor(hiddenNode, root);
           if (surface) {
             const rect = surface.badgeElement.getBoundingClientRect();
@@ -476,11 +502,14 @@ export function MdxPlanAnnotationLayer({
         // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
         // wants ONE box from the element, drawn as a ring so it reads as "this
         // block is annotated", not "everything here is selected".
-        const port = isText ? scrollportOf(range.startContainer, root) : null;
+        // An in-frame highlight clips to the frame (its text can scroll inside it).
+        const port = isText ? (frame ?? scrollportOf(range.startContainer, root)) : null;
         const portRect = port?.getBoundingClientRect();
         const boxes = (
           isText
-            ? Array.from(range.getClientRects(), (rect) => clipToBox(rect, portRect))
+            ? Array.from(range.getClientRects(), (rect) =>
+                clipToBox(toHostRect(rect, frame), portRect),
+              )
             : element
               ? [toBox(element.getBoundingClientRect())]
               : []
@@ -570,6 +599,10 @@ export function MdxPlanAnnotationLayer({
   // Hide the selection affordance when the selection collapses.
   useEffect(() => {
     const onSelectionChange = () => {
+      // A selection inside an HtmlBlock frame is tracked by that frame's own
+      // listener (see the frame-wiring effect); the host's is irrelevant to it.
+      const pendingDoc = pendingRangeRef.current?.startContainer.ownerDocument;
+      if (pendingDoc && pendingDoc !== document) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) setSelectionAffordance(null);
     };
@@ -586,33 +619,150 @@ export function MdxPlanAnnotationLayer({
    * clear the cache, so every dismissal path (Esc, click-away, Cancel) keeps. */
   const dismissComposer = useCallback(() => setComposer(null), []);
 
-  const handleMouseUp = useCallback(() => {
-    requestAnimationFrame(() => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0);
-      if (!root || !root.contains(range.commonAncestorContainer)) {
-        setSelectionAffordance(null);
+  /** Offer the floating "Comment" button for the selection in `doc` — the host
+   * document, or an HtmlBlock frame's (whose rects are moved into host space). */
+  const handleMouseUp = useCallback(
+    (doc: Document = document) => {
+      requestAnimationFrame(() => {
+        const selection = doc.getSelection();
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        const frame = root && hostFrameOf(range.startContainer, root);
+        if (!root || !(frame || root.contains(range.commonAncestorContainer))) {
+          setSelectionAffordance(null);
+          return;
+        }
+        const rects = range.getClientRects();
+        const lastRect = rects[rects.length - 1];
+        if (!lastRect) return;
+        const last = toHostRect(lastRect, frame);
+        const wrapperRect = wrapperRectNow();
+        pendingRangeRef.current = range.cloneRange();
+        setSelectionAffordance({
+          top: last.bottom - wrapperRect.top + 6,
+          left: last.right - wrapperRect.left,
+        });
+      });
+    },
+    [root],
+  );
+
+  /** Show the per-block comment affordance for the block under `target`. */
+  const hoverOver = useCallback(
+    (target: Element) => {
+      const block = target.closest?.("[data-plan-block-id]");
+      if (!root || !block || !root.contains(block)) {
+        if (hoverBlockIdRef.current !== null) {
+          hoverBlockIdRef.current = null;
+          setHoverBlock(null);
+        }
         return;
       }
-      const rects = range.getClientRects();
-      const last = rects[rects.length - 1];
-      if (!last) return;
+      const id = block.getAttribute("data-plan-block-id");
+      if (!id || id === hoverBlockIdRef.current) return;
+      hoverBlockIdRef.current = id;
       const wrapperRect = wrapperRectNow();
-      pendingRangeRef.current = range.cloneRange();
-      setSelectionAffordance({
-        top: last.bottom - wrapperRect.top + 6,
-        left: last.right - wrapperRect.left,
+      const rect = block.getBoundingClientRect();
+      setHoverBlock({
+        id,
+        top: rect.top - wrapperRect.top + 4,
+        left: rect.right - wrapperRect.left - 30,
       });
-    });
-  }, [root]);
+    },
+    [root],
+  );
+
+  // HtmlBlock frames are separate (same-origin) documents: selections, hovers,
+  // clicks and scrolls inside one never reach the wrapper's handlers, so listen
+  // in each frame directly — wired once its srcdoc has loaded (a re-render of
+  // the srcdoc loads a fresh document, which is wired again). A handful of
+  // listeners and one resize observation per frame, none per element.
+  useEffect(() => {
+    if (!root) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const wired = new WeakSet<Document>();
+    let pending = 0;
+    const refresh = () => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(recompute);
+    };
+    const wire = () => {
+      for (const iframe of root.querySelectorAll<HTMLIFrameElement>(
+        '[data-plan-block-type="html"] iframe',
+      )) {
+        const doc = frameDocument(iframe);
+        if (!doc || wired.has(doc)) continue;
+        wired.add(doc);
+        doc.addEventListener("mouseup", () => handleMouseUp(doc), { signal });
+        doc.addEventListener(
+          "selectionchange",
+          () => {
+            const ownsPending = pendingRangeRef.current?.startContainer.ownerDocument === doc;
+            if (ownsPending && doc.getSelection()?.isCollapsed) setSelectionAffordance(null);
+          },
+          { signal },
+        );
+        // Entering the frame shows the whole-block affordance, as hovering any
+        // other block does (the host never sees mouse moves over the frame).
+        doc.addEventListener("mouseover", () => hoverOver(iframe), { signal });
+        // Leaving it: the wrapper's own mouseleave never fires when the pointer
+        // exits the frame straight out of the plan, so let the next host move
+        // decide — inside the wrapper (e.g. onto the affordance, which overlaps
+        // the frame) its own handler takes over; anywhere else, clear.
+        doc.documentElement.addEventListener(
+          "mouseleave",
+          () =>
+            document.addEventListener(
+              "mousemove",
+              (event) => {
+                if (wrapperRef.current?.contains(event.target as Node)) return;
+                hoverBlockIdRef.current = null;
+                setHoverBlock(null);
+              },
+              { signal, once: true },
+            ),
+          { signal },
+        );
+        // Click-away inside the frame dismisses the composer like it does outside.
+        doc.addEventListener("pointerdown", () => setComposer(null), { signal });
+        // In-frame highlights are frame-relative: re-measure on in-frame scroll,
+        // and on in-frame reflow the host cannot see (a <details> toggle, a
+        // data: web font landing) — neither resizes the fixed-height iframe.
+        doc.addEventListener("scroll", refresh, { signal, capture: true, passive: true });
+        doc.addEventListener("toggle", refresh, { signal, capture: true });
+        doc.fonts.addEventListener("loadingdone", refresh, { signal });
+        reflow.observe(doc.documentElement);
+      }
+    };
+    const reflow = new ResizeObserver(refresh);
+    // `load` does not bubble, but it does pass through a capturing ancestor.
+    root.addEventListener(
+      "load",
+      (event) => {
+        if (!(event.target instanceof HTMLIFrameElement)) return;
+        wire();
+        refresh(); // anchors in this frame can now resolve past whole-block
+      },
+      { signal, capture: true },
+    );
+    wire();
+    return () => {
+      controller.abort();
+      reflow.disconnect();
+      cancelAnimationFrame(pending);
+    };
+  }, [root, recompute, handleMouseUp, hoverOver]);
 
   const openComposerFromSelection = () => {
     const range = pendingRangeRef.current;
     if (!range || !root) return;
     const result = anchorFromRange(range, root);
     if (!result) return;
-    const { top, left } = placeBeside(range.getBoundingClientRect(), wrapperRectNow());
+    const { top, left } = placeBeside(
+      toHostRect(range.getBoundingClientRect(), hostFrameOf(range.startContainer, root)),
+      wrapperRectNow(),
+    );
     const draftKey = annotationDraftKey(composerDraftTarget, { anchor: result.anchor });
     setComposer({
       id: newCommentId(),
@@ -620,12 +770,13 @@ export function MdxPlanAnnotationLayer({
       quotedText: result.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? "",
       draftKey,
+      ...(result.rangeLabel ? { rangeLabel: result.rangeLabel } : {}),
       top,
       left,
     });
     setSelectionAffordance(null);
     setOpenCardId(null);
-    window.getSelection()?.removeAllRanges();
+    range.startContainer.ownerDocument?.getSelection()?.removeAllRanges();
   };
 
   const openComposerForBlock = (blockId: string) => {
@@ -657,6 +808,7 @@ export function MdxPlanAnnotationLayer({
       quotedText: comment.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? comment.text,
       draftKey,
+      rangeLabel: comment.rangeLabel,
       top: (badge?.top ?? 16) + 20,
       left: clampLeft(badge?.left ?? 16),
     });
@@ -677,9 +829,10 @@ export function MdxPlanAnnotationLayer({
       sectionId: anchor.sectionId ?? `file:${filePath}`,
       sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
       rangeLabel:
-        anchor.anchorKind === "text"
+        composer.rangeLabel ??
+        (anchor.anchorKind === "text"
           ? "annotation"
-          : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`,
+          : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`),
       text,
       anchor,
       quotedText: composer.quotedText,
@@ -764,33 +917,15 @@ export function MdxPlanAnnotationLayer({
     <div
       ref={wrapperRef}
       className="relative"
-      onMouseUp={handleMouseUp}
+      onMouseUp={() => handleMouseUp()}
       onMouseMove={(event) => {
-        if (!root) return;
         const target = event.target as Element;
         // Keep the affordance shown while the pointer is over it — it renders as
-        // a wrapper sibling (not inside the block), so the block lookup below
-        // would otherwise clear the hover the instant the cursor reaches the
-        // button and it would vanish out from under the click (flicker, issue 3).
+        // a wrapper sibling (not inside the block), so the block lookup would
+        // otherwise clear the hover the instant the cursor reaches the button
+        // and it would vanish out from under the click (flicker, issue 3).
         if (target.closest?.("[data-plan-comment-affordance]")) return;
-        const block = target.closest?.("[data-plan-block-id]");
-        if (!block || !root.contains(block)) {
-          if (hoverBlockIdRef.current !== null) {
-            hoverBlockIdRef.current = null;
-            setHoverBlock(null);
-          }
-          return;
-        }
-        const id = block.getAttribute("data-plan-block-id");
-        if (!id || id === hoverBlockIdRef.current) return;
-        hoverBlockIdRef.current = id;
-        const wrapperRect = wrapperRectNow();
-        const rect = block.getBoundingClientRect();
-        setHoverBlock({
-          id,
-          top: rect.top - wrapperRect.top + 4,
-          left: rect.right - wrapperRect.left - 30,
-        });
+        hoverOver(target);
       }}
       onMouseLeave={() => {
         hoverBlockIdRef.current = null;

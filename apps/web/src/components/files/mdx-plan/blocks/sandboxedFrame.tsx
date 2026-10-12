@@ -19,26 +19,52 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  * strings below are the entire boundary; see {@link PROTOTYPE_SANDBOX} /
  * {@link HTML_SANDBOX}.
  *
- * The two surfaces differ only in their sandbox capability + CSP:
+ * The two surfaces differ in their sandbox capability + CSP:
  *   - Prototype: `allow-scripts allow-forms` (interactive), NO `allow-same-origin`.
- *   - HtmlBlock: `sandbox=""` (fully locked — no scripts run at all).
+ *   - HtmlBlock: `allow-same-origin` and NOTHING else — no scripts run at all, but
+ *     the host can read the frame's DOM so a reviewer can comment on one card.
  *
  * ANNOTATION: the `<figure>` host carries `data-plan-block-type` +
- * `data-plan-block-id`, so the whole surface is annotatable as one block via the
- * existing `visual` (whole-block) anchor path — you cannot select *into* an
- * opaque-origin iframe, so whole-block is the v1 grain (in-frame pins need a
- * postMessage geometry bridge, the deferred C5 tier). Any `postMessage` from the
- * frame is treated as hostile: we register no listener and expose no parent
- * capability in v1.
+ * `data-plan-block-id`, so either surface is annotatable as one block via the
+ * `visual` (whole-block) anchor path. A Prototype's opaque-origin frame cannot be
+ * selected into, so that is its finest grain. An HtmlBlock frame is same-origin,
+ * so the annotation layer listens inside it and pins a selection to the card it
+ * was made in (`anchorForFrameRange` in `annotation/anchoring.ts`). Any
+ * `postMessage` from either frame is treated as hostile: we register no listener.
+ *
+ * WHY SAME-ORIGIN IS SAFE FOR HtmlBlock (and only HtmlBlock). `allow-same-origin`
+ * is dangerous with `allow-scripts` (frame script could reach the parent and
+ * strip its own sandbox). Without `allow-scripts` nothing in the frame ever
+ * executes — no `<script>`, handler, `javascript:` URL — so the only actor in
+ * that origin is OUR host code, which only reads text and geometry. What
+ * same-origin DOES change is that the frame's own requests become same-site,
+ * credentialed requests to the app (cookies ride along), so every way static
+ * HTML can make a request must be shut — CSP for fetches; for the navigations
+ * CSP has no directive for, a parse pass ({@link inertSrcDoc}) and a click guard
+ * ({@link blockLinkActivation}):
+ *   - subresources (`<img>`, `<link>`, CSS `url()` / `@import` / `@font-face`,
+ *     `<video>`/`<audio>`, `<object>`, nested frames, SVG `<image>`/`<use>`):
+ *     {@link HTML_CSP} — `default-src 'none'`, only `data:` images/fonts and
+ *     inline styles, and crucially no `'self'` (which now means the app);
+ *   - `<form action>`: no `allow-forms`, plus `form-action 'none'`;
+ *   - `<base href>`: `base-uri 'none'` (and stripped);
+ *   - `<meta http-equiv="refresh">` (self-navigation on load): stripped;
+ *   - link clicks (`<a>`, `<area>`, SVG `<a>`, any `target`): activation is
+ *     cancelled on load, whatever the `href` — stripping attributes cannot work,
+ *     since an `href` can arrive after parse (declarative shadow DOM, SVG SMIL
+ *     `<set attributeName="href">`). No `allow-popups` / `allow-top-navigation`
+ *     for a `target` to use either. Residual: a click in the few ms between first
+ *     paint and `load`, before the guard is attached.
  */
 
 /** Prototype iframe sandbox: interactive (scripts + forms) but opaque origin —
  * NO `allow-same-origin`, so the frame cannot touch the parent session. */
 export const PROTOTYPE_SANDBOX = "allow-scripts allow-forms";
 
-/** HtmlBlock iframe sandbox: fully locked (`sandbox=""`) — no `allow-scripts`,
- * so no JS (inline handlers, `<script>`, `javascript:`) executes at all. */
-export const HTML_SANDBOX = "";
+/** HtmlBlock iframe sandbox: `allow-same-origin` ONLY — no `allow-scripts`, so no
+ * JS (inline handlers, `<script>`, `javascript:`) executes at all; same-origin so
+ * the annotation layer can pin comments inside it (see the header comment). */
+export const HTML_SANDBOX = "allow-same-origin";
 
 /** Prototype `srcdoc` CSP: no remote script (`script-src 'self' 'unsafe-inline'`
  * only), no nested frames, no base/form escape. Interactive inline JS + CSS +
@@ -49,10 +75,54 @@ export const PROTOTYPE_CSP =
   "base-uri 'none'; form-action 'none'";
 
 /** HtmlBlock `srcdoc` CSP: no script at all (no `script-src`; `default-src
- * 'none'` denies it), inline CSS + data: images for static display only. */
+ * 'none'` denies it), inline CSS + data: images/fonts for static display only.
+ * No `'self'` anywhere: the frame is same-origin, so `'self'` would be the app. */
 export const HTML_CSP =
-  "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-  "font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; " +
+  "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+/** Strip what navigates the same-origin HtmlBlock frame on its own, on load (CSP
+ * has no navigation directive): every `<meta http-equiv>` except an extra CSP
+ * (which can only tighten) — i.e. `refresh` — and `<base>`. Parsed with the inert
+ * `DOMParser` (no fetch, no script), then re-parsed to confirm the serialisation
+ * did not resurrect one (mutation-XSS style) — if it did, the frame gets nothing.
+ * Link CLICKS are {@link blockLinkActivation}'s job. */
+export function inertSrcDoc(srcDoc: string): string {
+  // Returns whether anything was stripped.
+  const strip = (doc: Document) => {
+    const doomed = Array.from(doc.querySelectorAll("meta[http-equiv], base")).filter(
+      (el) =>
+        el.tagName === "BASE" ||
+        el.getAttribute("http-equiv")!.toLowerCase() !== "content-security-policy",
+    );
+    for (const el of doomed) el.remove();
+    return doomed.length > 0;
+  };
+  const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
+  const doc = parse(srcDoc);
+  strip(doc);
+  const out = `<!doctype html>${doc.documentElement.outerHTML}`;
+  return strip(parse(out)) ? "" : out;
+}
+
+/** Cancel every link activation in an HtmlBlock frame's document: a capture-phase
+ * `click` (mouse, or Enter on a focused link) or `auxclick` (middle-click → new
+ * tab) whose composed path — which crosses
+ * shadow roots — passes through an `<a>`/`<area>` (HTML or SVG). Other clicks
+ * keep their default, so `<details>`/`<summary>` in a mockup still toggle. */
+export function blockLinkActivation(doc: Document): void {
+  for (const type of ["click", "auxclick"])
+    doc.addEventListener(
+      type,
+      (event) => {
+        // `localName` is undefined on the path's Document/Window entries.
+        if (event.composedPath().some((node) => LINK_TAGS.has((node as Element).localName)))
+          event.preventDefault();
+      },
+      true,
+    );
+}
+const LINK_TAGS = new Set(["a", "area"]);
 
 /** Wrap an author HTML fragment in a minimal document carrying the CSP `<meta>`.
  * The CSP uses single-quoted keywords, safe to embed in the double-quoted
@@ -72,6 +142,8 @@ interface SandboxedHtmlFrameProps {
   html: string;
   sandbox: string;
   csp: string;
+  /** Run {@link inertSrcDoc} over the document (the same-origin HtmlBlock). */
+  inert?: boolean;
   blockType: string;
   blockId: string | undefined;
   title: string;
@@ -84,13 +156,17 @@ function SandboxedHtmlFrame({
   html,
   sandbox,
   csp,
+  inert,
   blockType,
   blockId,
   title,
   height,
   caption,
 }: SandboxedHtmlFrameProps) {
-  const srcDoc = useMemo(() => buildSrcDoc(html, csp), [html, csp]);
+  const srcDoc = useMemo(() => {
+    const doc = buildSrcDoc(html, csp);
+    return inert ? inertSrcDoc(doc) : doc;
+  }, [html, csp, inert]);
   return (
     <figure
       data-plan-block-id={blockId}
@@ -101,6 +177,15 @@ function SandboxedHtmlFrame({
         title={title}
         sandbox={sandbox}
         srcDoc={srcDoc}
+        // Each srcdoc (re)load is a fresh document, guarded again.
+        onLoad={
+          inert
+            ? (event) => {
+                const doc = event.currentTarget.contentDocument;
+                if (doc) blockLinkActivation(doc);
+              }
+            : undefined
+        }
         loading="lazy"
         className="block w-full border-0 bg-white"
         style={{ height }}
@@ -205,6 +290,7 @@ export function HtmlBlockRead({ data, blockId }: PlanBlockReadProps<HtmlBlockDat
       html={data.html}
       sandbox={HTML_SANDBOX}
       csp={HTML_CSP}
+      inert
       blockType="html"
       blockId={blockId}
       title={data.caption ?? "Embedded HTML"}
