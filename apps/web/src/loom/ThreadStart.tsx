@@ -56,7 +56,7 @@ export function ThreadStartRail({
       data-thread-start={start}
       className={cn(
         "pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full",
-        start === "agent" ? "bg-agent-start" : "bg-muted-foreground/45",
+        start === "agent" ? "bg-agent-start" : "bg-muted-foreground/70",
         dimmed &&
           "opacity-40 group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:opacity-100",
       )}

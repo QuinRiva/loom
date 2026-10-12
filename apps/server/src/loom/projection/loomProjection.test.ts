@@ -241,13 +241,11 @@ it.layer(TestLayer)("Loom projector", (it) => {
   it.effect("stamps a handoff destination with its origin; human is never downgraded", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;
-      const [orchestrator, source, drafter, agentRoot, handoffRoot] = [
-        "origin-orchestrator",
-        "origin-source",
-        "origin-drafter",
-        "origin-agent-root",
-        "origin-handoff-root",
-      ].map(ThreadId.make);
+      const orchestrator = ThreadId.make("origin-orchestrator");
+      const source = ThreadId.make("origin-source");
+      const drafter = ThreadId.make("origin-drafter");
+      const agentRoot = ThreadId.make("origin-agent-root");
+      const handoffRoot = ThreadId.make("origin-handoff-root");
       for (const threadId of [orchestrator, source, drafter, agentRoot, handoffRoot])
         yield* seedThread({ threadId });
       const now = DateTime.formatIso(yield* DateTime.now);
@@ -264,9 +262,21 @@ it.layer(TestLayer)("Loom projector", (it) => {
           [orchestrator, source, agentRoot, handoffRoot].map((id) => created(id, null)),
         )),
         yield* loomEvent("thread.workstream-created", drafter, {
-          ...(yield* created(drafter, null)).payload,
+          parentThreadId: null,
+          rootThreadId: drafter,
+          projectId,
+          goalId: null,
+          anchorTaskId: null,
           role: "handoff-drafter",
+          purpose: "Draft the handoff",
+          graphKey: null,
+          kickoffBriefPath: null,
+          held: false,
+          blockedBy: [],
+          routes: [],
+          spawnGeneration: null,
           forkFromThreadId: source,
+          continuesThreadId: null,
         }),
         // An orchestrator's own goal_handoff credits the caller as the agent.
         yield* record(orchestrator, orchestrator, agentRoot),
