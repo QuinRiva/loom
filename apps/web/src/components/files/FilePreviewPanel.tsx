@@ -102,7 +102,6 @@ import {
 } from "./longLinePreview.loom";
 // loom: MDX plan renderer + debounced save coordinator
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
-import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
@@ -925,10 +924,11 @@ function RenderedMarkdownSurface({
 
   // loom: `.mdx` always goes through the MDX renderer — the plain-markdown surface
   // escapes every JSX block as raw text, so falling back to it silently presents
-  // a healthy document as broken. Read-only (out-of-workspace) previews render
-  // the renderer BARE: without the annotation layer's providers the question /
-  // review blocks render as static state and no comment, answer or verdict write
-  // path exists (see `mdx-plan/questionAnswers.ts`).
+  // a healthy document as broken. It always gets the annotation layer, including
+  // out-of-workspace (absolute-path) previews: the layer never writes the file —
+  // comments, answers and verdicts become review chips in the VIEWING thread's
+  // composer — so a review doc handed to another worktree's thread stays
+  // triageable there while the file itself stays read-only.
   if (isMdxPreviewFile(relativePath)) {
     return (
       <ScrollArea className="min-h-0 flex-1">
@@ -937,15 +937,11 @@ function RenderedMarkdownSurface({
               directory and loads through a signed asset URL, exactly as a `.md`
               preview's `![](x.png)` does (see `FileMarkdownPreview`). */}
           <PlanDocumentContext.Provider value={documentLocation}>
-            {readOnly ? (
-              <MdxPlanRenderer source={contents} />
-            ) : (
-              <MdxPlanAnnotationLayer
-                source={contents}
-                filePath={relativePath}
-                composerDraftTarget={composerDraftTarget}
-              />
-            )}
+            <MdxPlanAnnotationLayer
+              source={contents}
+              filePath={relativePath}
+              composerDraftTarget={composerDraftTarget}
+            />
           </PlanDocumentContext.Provider>
         </BleedFrame>
       </ScrollArea>
