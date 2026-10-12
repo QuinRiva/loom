@@ -1,3 +1,4 @@
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -57,7 +58,9 @@ interface JsxAttrNode {
   position?: { start: Point };
 }
 
-const mdxParser = unified().use(remarkParse).use(remarkGfm).use(remarkMdx);
+// Frontmatter parsing matches the compile pipeline, so a `sign_document`
+// manifest is not misread as headings/anchors the renderer never emits.
+const mdxParser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm).use(remarkMdx);
 
 /**
  * Source-size budget. The `.mdx` preview reads up to an 8 MiB transport ceiling
