@@ -15,8 +15,10 @@
 // labelled only in a child thread (where every other message is an agent's or
 // the control plane's, the human writes rarely, and the cost of confusing the
 // two is highest). Origins that already frame themselves in their text — the
-// control-plane marker, the notify wrapper — are left alone, so no message
-// carries two headers.
+// control-plane marker, the notify wrapper, the consult question turn — are
+// left alone, so no message carries two headers. Known gap: a slash command is
+// always sent bare, so an agent-sent one (only `/compact`, which the adapter
+// diverts before this) would read as the human's.
 
 /** The author labels, each the first line of the message it heads. */
 export const AUTHOR_LABELS = {
@@ -103,7 +105,7 @@ export const renderHumanInChildDigestLine = (input: {
   readonly timestamp: string;
   readonly excerpt: string;
 }): string =>
-  `- 🧑 The human wrote to ${input.role ?? "sub-thread"} \`${input.id}\`${input.timestamp === "" ? "" : ` _${input.timestamp}_`}: “${input.excerpt}” — that instruction now outranks your brief and steers to it.`;
+  `- 🧑 The human wrote to ${input.role ?? "sub-thread"} \`${input.id}\`${input.timestamp === "" ? "" : ` _${input.timestamp}_`}: “${input.excerpt}” — what they said outranks your brief and your steers; read the full message before steering it again.`;
 
 /**
  * Appended to `QUIESCENT_REPORT_HEADER` when the turn the quiet child ended was

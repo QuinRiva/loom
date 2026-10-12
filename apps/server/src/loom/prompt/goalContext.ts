@@ -28,7 +28,7 @@ export const goalContextInstruction = (
   if (opts.asChildBackground) {
     const header = `Background context — your parent orchestrator is working toward this overall goal \`${goal.id}\` (${goal.slug}): ${goal.title}${
       description.length > 0
-        ? `\nParent's objective (background only, NOT your task): ${description}`
+        ? `\nParent's objective (an agent's summary; background only, NOT your task): ${description}`
         : ""
     }`;
     if (goal.tasks.length === 0) return header;
@@ -47,7 +47,9 @@ export const goalContextInstruction = (
         ].join("");
   }
   const header = `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}${
-    description.length > 0 ? `\nObjective: ${description}` : ""
+    description.length > 0
+      ? `\nObjective (an agent's summary; the human's messages outrank it): ${description}`
+      : ""
   }`;
   if (goal.tasks.length === 0) return header;
   return [

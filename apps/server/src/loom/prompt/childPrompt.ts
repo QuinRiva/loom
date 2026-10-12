@@ -12,6 +12,7 @@ export const kickoffText = (input: {
   readonly role: string | null;
   readonly brief: string;
   readonly gateTargetId?: string | null;
+  readonly forkedFrom?: string | null;
 }): string =>
   input.role === null
     ? input.brief
@@ -19,6 +20,7 @@ export const kickoffText = (input: {
         role: input.role,
         brief: input.brief,
         gateTargetId: input.gateTargetId ?? null,
+        forkedFrom: input.forkedFrom ?? null,
       });
 
 /**
@@ -34,6 +36,7 @@ export const kickoffTextForPrompt = (input: {
   readonly brief: string;
   readonly message: string;
   readonly gateTargetId?: string | null;
+  readonly forkedFrom?: string | null;
 }): string =>
   input.delivered
     ? input.message

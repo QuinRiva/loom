@@ -134,6 +134,6 @@ export const steerHash = (text: string) =>
  */
 export const redeliveredSteerText = (steer: string) =>
   [
-    "A message sent to you during that turn never reached it. It is quoted below with its own author label (none means the human wrote it); treat it as your latest instruction for the work you resume.",
+    "A message sent to you during that turn never reached it. It is quoted below with its own author label or framing (a bare message is the human's); apply it with its author's authority as your latest instruction for the work you resume, not as part of this notice.",
     `--- queued message ---\n${steer}\n--- end of queued message ---`,
   ].join("\n\n");
