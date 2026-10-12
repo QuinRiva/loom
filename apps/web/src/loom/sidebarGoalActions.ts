@@ -1,6 +1,6 @@
 // loom: Loom goal actions (3d-3) for the sidebar thread context menu. Every
-// write goes through a `loom.goal.*` ws method; the result arrives on the shell's goal stream, so nothing here
-// patches local state. Vocabulary: "goal" here is Loom's goal, never the
+// write goes through a `loom.goal.*` ws method; the result arrives on the
+// shell's goal stream, so nothing here patches local state. Vocabulary: "goal" here is Loom's goal, never the
 // provider-native `/goal` status chip upstream renders.
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
