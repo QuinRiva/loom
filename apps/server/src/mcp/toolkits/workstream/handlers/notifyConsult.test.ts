@@ -42,16 +42,13 @@ const TestLayer = makeHandlerTestLayer(
   Layer.mergeAll(
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
-    Layer.succeed(
-      LoomThreadConsult,
-      LoomThreadConsult.of({
-        ask: (input) =>
-          Effect.sync(() => {
-            asked.push(input);
-            return { answer: "The session settled on option B." };
-          }),
-      }),
-    ),
+    Layer.mock(LoomThreadConsult)({
+      ask: (input) =>
+        Effect.sync(() => {
+          asked.push(input);
+          return { answer: "The session settled on option B." };
+        }),
+    }),
   ),
 );
 

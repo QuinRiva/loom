@@ -11,6 +11,7 @@
  * @module loom/projection/LoomGoalBroadcast
  */
 import type {
+  LoomConsultShellStreamItem,
   LoomGoal,
   LoomGoalShell,
   LoomGoalShellStreamItem,
@@ -27,6 +28,7 @@ import * as Struct from "effect/Struct";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
+import { LoomThreadConsult } from "../workstream/consult.ts";
 import { LoomStoreV2 } from "./LoomStore.ts";
 
 export class LoomGoalBroadcast extends Context.Service<
@@ -111,7 +113,9 @@ export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectSh
  * The shell subscription's goal surface (DL-200): `goals` for the
  * authoritative snapshot and the live goal items, both empty unless the
  * subscriber passed `loom: true`. The subscription is taken here, before the
- * snapshot loads, so no write between snapshot and tail is lost.
+ * snapshot loads, so no write between snapshot and tail is lost. The live
+ * consult items (`LoomThreadConsult.subscribeLive`) ride the same tail: they
+ * have no snapshot field, since a subscription opens with the running ones.
  */
 export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   readonly loom?: boolean;
@@ -119,14 +123,15 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   if (input.loom !== true) {
     return {
       snapshotGoals: (_projects: ReadonlyArray<OrchestrationProjectShell>) => Effect.succeed({}),
-      items: Stream.empty as Stream.Stream<LoomGoalShellStreamItem>,
+      items: Stream.empty as Stream.Stream<LoomGoalShellStreamItem | LoomConsultShellStreamItem>,
     };
   }
   const loomStore = yield* LoomStoreV2;
   const subscription = yield* (yield* LoomGoalBroadcast).subscribe;
+  const consults = yield* (yield* LoomThreadConsult).subscribeLive;
   return {
     snapshotGoals: (projects: ReadonlyArray<OrchestrationProjectShell>) =>
       loomSnapshotGoals(projects).pipe(Effect.provideService(LoomStoreV2, loomStore)),
-    items: Stream.fromSubscription(subscription),
+    items: Stream.merge(Stream.fromSubscription(subscription), consults),
   };
 });

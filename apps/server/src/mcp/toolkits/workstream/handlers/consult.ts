@@ -66,7 +66,13 @@ export const consultThread = Effect.fn("LoomToolkit.consultThread")(function* (
   const { answer, forkSessionPath } = yield* asToolError(
     Effect.flatMap(LoomThreadConsult, (consult) =>
       Effect.flatMap(senderDescriptor(caller, target), (asker) =>
-        consult.ask({ sessionFile, question, asker }),
+        consult.ask({
+          sessionFile,
+          question,
+          asker,
+          askerThreadId: caller.threadId,
+          targetThreadId: target.id,
+        }),
       ),
     ),
   );

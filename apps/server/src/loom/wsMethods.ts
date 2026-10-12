@@ -6,8 +6,8 @@
  *
  * Seam 21 (integrated): 3b's drafter methods, 3d's goal methods (each writes
  * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
- * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438), and
- * the timeline's outcome history (DL-620).
+ * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438),
+ * the timeline's outcome history (DL-620), and the consult card's Stop.
  *
  * @module loom/wsMethods
  */
@@ -16,6 +16,7 @@ import {
   GoalTaskId,
   type HandoffDraftInput,
   LOOM_WS_METHODS,
+  type LoomConsultCancelInput,
   type LoomGoal,
   type LoomGoalTask,
   type LoomGoalTaskRewriteInput,
@@ -37,6 +38,7 @@ import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
 import { buildRetroDraftTurnStart } from "./handoff/retroDraft.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
+import { LoomThreadConsult } from "./workstream/consult.ts";
 import {
   type LoomGoalTaskInput,
   type LoomStoreError,
@@ -112,6 +114,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const broadcast = yield* LoomGoalBroadcast;
   const crypto = yield* Crypto.Crypto;
   const usageLedger = yield* LoomUsageLedger;
+  const consult = yield* LoomThreadConsult;
   const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
 
   const fail = (method: string, message: string, cause?: unknown) =>
@@ -238,6 +241,13 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
             fail(LOOM_WS_METHODS.threadHistory, `${LOOM_WS_METHODS.threadHistory} failed.`, cause),
           ),
         ),
+        { "rpc.aggregate": "loom" },
+      ),
+    // The consult card's Stop: the asker's tool call fails with the stop sentence and carries on.
+    [LOOM_WS_METHODS.consultCancel]: (input: LoomConsultCancelInput) =>
+      observeRpcEffect(
+        LOOM_WS_METHODS.consultCancel,
+        consult.cancel(input.consultId).pipe(Effect.map((stopped) => ({ stopped }))),
         { "rpc.aggregate": "loom" },
       ),
   };

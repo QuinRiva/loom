@@ -45,6 +45,8 @@ export const LOOM_WS_METHODS = {
   topSpend: "loom.topSpend",
   // QA fixes — the node timeline's event history (V1's lifecycle pull).
   threadHistory: "loom.threadHistory",
+  // The consult card's Stop: ends one running consult, never the asker's turn.
+  consultCancel: "loom.consult.cancel",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -213,6 +215,12 @@ export const LoomThreadHistoryResult = Schema.Struct({
 });
 export type LoomThreadHistoryResult = typeof LoomThreadHistoryResult.Type;
 
+/** `loom.consult.cancel`: `stopped` is false when the consult had already ended. */
+export const LoomConsultCancelInput = Schema.Struct({ consultId: Schema.String });
+export type LoomConsultCancelInput = typeof LoomConsultCancelInput.Type;
+export const LoomConsultCancelResult = Schema.Struct({ stopped: Schema.Boolean });
+export type LoomConsultCancelResult = typeof LoomConsultCancelResult.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -247,6 +255,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.threadHistory, {
     payload: LoomThreadHistoryInput,
     success: LoomThreadHistoryResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.consultCancel, {
+    payload: LoomConsultCancelInput,
+    success: LoomConsultCancelResult,
     error: LoomWsError,
   }),
 ] as const;

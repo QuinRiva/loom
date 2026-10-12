@@ -30,6 +30,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
+import { LoomThreadConsult } from "../workstream/consult.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
   completeOpenRuns,
@@ -63,6 +64,7 @@ const TestLayer = Layer.mergeAll(
   HandoffDrafterReactorServiceLive,
   LoomGoalBroadcast.layer,
   LoomUsageLedger.layer,
+  Layer.mock(LoomThreadConsult)({}),
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 
 /** An idle source whose one turn finished on `driver`; with `goal`, it is a Loom root with a row. */

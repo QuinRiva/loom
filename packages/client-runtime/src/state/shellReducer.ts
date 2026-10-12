@@ -105,7 +105,9 @@ export function applyShellStreamEvent(
   snapshot: OrchestrationV2ShellSnapshot,
   event: Exclude<
     OrchestrationV2ShellStreamItem,
-    { readonly kind: "snapshot" } | { readonly kind: "synchronized" }
+    | { readonly kind: "snapshot" }
+    | { readonly kind: "synchronized" }
+    | { readonly kind: "consult.updated" } // loom: kept off the snapshot (shell.ts)
   >,
 ): OrchestrationV2ShellSnapshot {
   // loom: goal items are unsequenced and apply before the sequence gate
