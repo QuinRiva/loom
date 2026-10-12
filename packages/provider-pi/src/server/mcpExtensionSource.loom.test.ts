@@ -1,12 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * The bridge's two Loom hunks: a tool listed with Loom's `_meta` prose is
- * registered in pi with that snippet and those guidelines (an upstream tool
- * keeps the generic ones), and no orchestration instructions are appended.
+ * registered in pi with that snippet and those guidelines (a tool without
+ * `_meta` gets none: upstream dropped the generic fallback, DL-905), and no
+ * orchestration instructions are appended.
  * The shipped source runs against a stub `pi` and a stub MCP server.
  */
 import * as NodeHttp from "node:http";
 import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
 import { assert, it } from "@effect/vitest";
 
@@ -14,8 +16,8 @@ import { PI_T3_MCP_EXTENSION_SOURCE } from "./mcpExtensionSource.ts";
 
 interface Registered {
   readonly name: string;
-  readonly promptSnippet: string;
-  readonly promptGuidelines: ReadonlyArray<string>;
+  readonly promptSnippet?: string;
+  readonly promptGuidelines?: ReadonlyArray<string>;
 }
 
 const TOOLS = [
@@ -41,9 +43,10 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
   const registered: Array<Registered> = [];
   const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
   const source = NodeModule.stripTypeScriptTypes(
-    PI_T3_MCP_EXTENSION_SOURCE.replace('import { Type } from "typebox";', "")
-      .replace(/^import \{ request as httpRequest \} from "node:http";.*$/m, "")
-      .replace("export default async function", "async function"),
+    PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
+      "export default async function",
+      "async function",
+    ),
   );
   const server = NodeHttp.createServer((req, res) => {
     let body = "";
@@ -62,7 +65,8 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
       env: { T3_MCP_URL: `http://127.0.0.1:${port}/mcp`, T3_MCP_BEARER_TOKEN: "token" },
     },
     AbortSignal,
-    Type: { Object: () => ({}) },
+    NodePath,
+    Type: { Unsafe: (schema: unknown) => schema },
     httpRequest: NodeHttp.request,
     pi: {
       on: (name: string, handler: (event: { systemPrompt: string }) => unknown) =>
@@ -78,8 +82,8 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
     "Rule two.",
   ]);
   assert.deepEqual(byName.get("mcp__t3-code__workstream_set_outcome")?.promptGuidelines, []);
-  assert.equal(byName.get("mcp__t3-code__delegate_task")?.promptSnippet, "Delegate.");
-  assert.equal(byName.get("mcp__t3-code__delegate_task")?.promptGuidelines.length, 1);
+  assert.isUndefined(byName.get("mcp__t3-code__delegate_task")?.promptSnippet);
+  assert.isUndefined(byName.get("mcp__t3-code__delegate_task")?.promptGuidelines);
   assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "BASE" }), {
     systemPrompt: "BASE\n\n",
   });

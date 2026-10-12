@@ -1,15 +1,17 @@
 /**
  * Loom's seam into upstream's `PiAdapterV2` (pull 9 Phase 3 track 3c).
  *
- * `PiAdapterV2Driver.create` yields {@link LoomPiAdapterHooks} and passes it as
- * the adapter's `loom` option. A reference, so the yield adds no layer
- * requirement: upstream's tests, the replay kit and any layer that does not
- * provide it get the passthrough default, which leaves upstream's behaviour
- * unchanged. The live hooks are `LoomPiAdapterHooksLive` in `loom/serverLayers.ts`.
+ * `makePiAdapterV2` takes the hooks from its `loom` option, else yields
+ * {@link LoomPiAdapterHooks} from the context `PiAdapterV2Driver.create` runs in.
+ * A reference, so the yield adds no layer requirement: upstream's tests, the
+ * replay kit and any layer that does not provide it get the passthrough default,
+ * which leaves upstream's behaviour unchanged (and the adapter logs a warning).
+ * The live hooks are `LoomPiAdapterHooksLive` in `apps/server/src/loom/serverLayers.ts`;
+ * `PiAdapterV2.loom.test.ts` proves they reach the driver (gate `hooks`).
  *
- * 3c-1 calls only `classifier`; `sanitiser` (3c-2, before `switch_session` on
- * resume) and `steerStash` (3c-3: pi's `queue_update` mirror, and the restart
- * continuation's read — DL-690/691) exist so their call sites need no further option change.
+ * `classifier` re-classes quota errors (3c-1), `sanitiser` runs before
+ * `switch_session` on resume (3c-2), and `steerStash` mirrors pi's
+ * `queue_update` for the restart continuation (3c-3, DL-690/691).
  *
  * @module provider-pi/server/loomAdapterHooks
  */

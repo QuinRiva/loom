@@ -123,7 +123,8 @@ describe("Pi MCP tool exposure", () => {
       { systemPrompt: "Pi system prompt" },
       { ui: { notify: () => undefined } },
     );
-    assert.include(prompt.systemPrompt, "orchestrator_capabilities");
+    // loom: no orchestration instructions — the role overlays and tool prose carry them (DL-905).
+    assert.equal(prompt.systemPrompt, "Pi system prompt\n\n");
     assert.equal(bridge.servers.length, 0);
     assert.equal(bridge.tools.length, 8);
     assert.deepEqual(bridge.getActiveTools(), ["read", "tool_search"]);
@@ -135,7 +136,7 @@ describe("Pi MCP tool exposure", () => {
         ["mcp__t3-code__orchestrator_capabilities", "direct"],
         ["mcp__t3-code__delegate_task", "direct"],
         ["mcp__t3-code__task_status", "direct"],
-        ["mcp__t3-code__preview_snapshot", "deferred"],
+        ["mcp__t3-code__preview_snapshot", "direct"], // loom: every t3-code tool direct (DL-905)
       ],
     );
     assert.deepEqual(
@@ -203,7 +204,7 @@ describe("Pi MCP tool exposure", () => {
       { ui: { notify: () => undefined } },
     );
     assert.equal(bridge.tools.length, 4);
-    assert.equal(bridge.tools.filter((tool) => tool.exposure === "direct").length, 3);
+    assert.equal(bridge.tools.filter((tool) => tool.exposure === "direct").length, 4); // loom: all direct (DL-905)
     const tool = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot");
     assert.isDefined(tool);
     assert.equal((await tool!.execute("selected", {})).content[0]?.text, "browser snapshot");

@@ -78,6 +78,63 @@ export async function loadMcpBridge(
       "async function",
     ),
   );
+  const fetchStub = async (
+    url: string,
+    transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
+  ) => {
+    transport.signal?.throwIfAborted();
+    transports.push({
+      url,
+      authorization: transport.headers.authorization!,
+      signal: transport.signal,
+    });
+    const request = JSON.parse(transport.body) as {
+      id: number;
+      method: string;
+      params?: unknown;
+    };
+    requests.push(request);
+    const result =
+      request.method === "tools/list"
+        ? { tools: catalog }
+        : request.method === "tools/call"
+          ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
+          : {};
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  // loom: the bridge posts through node:http (its post(), see mcpExtensionSource.ts); answer
+  // those requests from the same stub.
+  const httpRequest = (
+    url: string,
+    init: { headers: Record<string, string>; signal?: AbortSignal },
+    onResponse: (response: unknown) => void,
+  ) => {
+    let onError: (error: unknown) => void = () => undefined;
+    return {
+      on: (_event: "error", listener: (error: unknown) => void) => {
+        onError = listener;
+      },
+      end: (body: string) => {
+        fetchStub(url, { body, headers: init.headers, signal: init.signal })
+          .then(async (response) => {
+            const text = await response.text();
+            const listeners = new Map<string, (chunk?: string) => void>();
+            onResponse({
+              statusCode: response.status,
+              headers: Object.fromEntries(response.headers),
+              setEncoding: () => undefined,
+              on: (event: string, listener: (chunk?: string) => void) =>
+                listeners.set(event, listener),
+            });
+            listeners.get("data")?.(text);
+            listeners.get("end")?.();
+          })
+          .catch((error: unknown) => onError(error));
+      },
+    };
+  };
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: {
       env: {
@@ -90,32 +147,8 @@ export async function loadMcpBridge(
     AbortSignal,
     NodePath,
     Type: { Unsafe: (schema: unknown) => schema },
-    fetch: async (
-      url: string,
-      transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
-    ) => {
-      transport.signal?.throwIfAborted();
-      transports.push({
-        url,
-        authorization: transport.headers.authorization!,
-        signal: transport.signal,
-      });
-      const request = JSON.parse(transport.body) as {
-        id: number;
-        method: string;
-        params?: unknown;
-      };
-      requests.push(request);
-      const result =
-        request.method === "tools/list"
-          ? { tools: catalog }
-          : request.method === "tools/call"
-            ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
-            : {};
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
-        headers: { "content-type": "application/json" },
-      });
-    },
+    fetch: fetchStub,
+    httpRequest, // loom: see httpRequest
     pi: {
       on: (name: string, handler: AgentStartHook) => handlers.set(name, handler),
       registerTool: (tool: RegisteredTool) => {

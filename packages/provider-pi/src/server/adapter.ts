@@ -76,6 +76,7 @@ import * as ProviderContinuationRequests from "@t3tools/provider-core/server/Pro
 import {
   classifyLoomPiFailure,
   LoomPiAdapterHooks,
+  passthroughLoomPiAdapterHooks,
   type LoomPiAdapterHooksShape,
 } from "./loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
@@ -520,6 +521,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const { continuationRequests } = options;
   const loomHooks = options.loom ?? (yield* LoomPiAdapterHooks); // loom: 3c (live hooks in loom/serverLayers.ts)
+  // loom: gate `hooks` — a production boot that lost LoomProviderHealthLive says so.
+  if (loomHooks === passthroughLoomPiAdapterHooks)
+    yield* Effect.logWarning(
+      "loom: Pi adapter built without Loom's hooks (LoomProviderHealthLive not provided)",
+    );
 
   const protocolError = (detail: string, payload?: unknown) =>
     new ProviderAdapter.ProviderAdapterProtocolError({
@@ -1680,7 +1686,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               : {
                   turnTokenUsage: {
                     usageScope: "main_agent",
-                    usageStatus: !turn.interrupted && failure === null ? "complete" : "partial",
+                    usageStatus: !interrupted && failure === null ? "complete" : "partial",
                     inputTokens:
                       turn.loomTokens.input +
                       turn.loomTokens.cacheRead +
