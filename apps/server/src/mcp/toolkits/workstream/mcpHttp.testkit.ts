@@ -8,6 +8,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
 import * as ServerConfig from "../../../config.ts";
@@ -43,6 +44,12 @@ export interface McpServiceStubs {
     Partial<LoomStore.LoomStoreV2["Service"]>,
     "getWorkstream" | "listWorkstreamTree" | "listChildren"
   >;
+  /** A real consult layer; stubbed otherwise. */
+  readonly consult?: Layer.Layer<
+    LoomThreadConsult,
+    never,
+    ServerConfig.ServerConfig | ChildProcessSpawner.ChildProcessSpawner
+  >;
 }
 
 const stubServices = (stubs: McpServiceStubs) =>
@@ -60,11 +67,14 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),
     Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({}),
     Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
-    loomToolkitServiceStubs(stubs.loomStore),
+    loomToolkitServiceStubs(stubs.loomStore, stubs.consult),
   );
 
 /** Every service Loom's toolkit captures when `/mcp` builds, stubbed (one line in upstream's tests). */
-export const loomToolkitServiceStubs = (loomStore: McpServiceStubs["loomStore"] = {}) =>
+export const loomToolkitServiceStubs = (
+  loomStore: McpServiceStubs["loomStore"] = {},
+  consult: NonNullable<McpServiceStubs["consult"]> = Layer.mock(LoomThreadConsult)({}),
+) =>
   Layer.mergeAll(
     Layer.mock(LoomStore.LoomStoreV2)({
       goals: {} as never,
@@ -76,7 +86,7 @@ export const loomToolkitServiceStubs = (loomStore: McpServiceStubs["loomStore"] 
     Layer.mock(ProviderHealthRegistry)({}),
     Layer.mock(LoomGoalBroadcast.LoomGoalBroadcast)({}),
     Layer.mock(EmergentGoals)({ derive: () => Effect.void }),
-    Layer.mock(LoomThreadConsult)({}),
+    consult,
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   );
 

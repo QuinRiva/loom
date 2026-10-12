@@ -13,10 +13,9 @@ async function loadRequestHook(): Promise<RequestHook> {
   const handlers = new Map<string, RequestHook>();
   // Execute the shipped extension with MCP disabled; this path needs no Typebox.
   const source = NodeModule.stripTypeScriptTypes(
-    PI_T3_MCP_EXTENSION_SOURCE.replace('import { Type } from "typebox";', "").replace(
-      "export default async function",
-      "async function",
-    ),
+    PI_T3_MCP_EXTENSION_SOURCE.replace('import { Type } from "typebox";', "")
+      .replace(/^import \{ request as httpRequest \} from "node:http";.*$/m, "") // loom:
+      .replace("export default async function", "async function"),
   );
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: { env: {} },
