@@ -7,7 +7,7 @@
  * dispatcher pass would send, now or a day later). Read-only: the effect worker
  * does not run and the pass's dispatches are intercepted.
  *
- * Run: `T3CODE_HOME=<scratch> node apps/server/src/dev/verifySeed.ts`
+ * Run: `vp run dev:seed:verify` (this worktree's `.t3`) or `vp run dev:seed:verify --home-dir <scratch>`
  *
  * @module dev/verifySeed
  */
