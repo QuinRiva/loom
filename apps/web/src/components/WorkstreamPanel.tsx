@@ -15,6 +15,7 @@ import {
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
+import { useOpenHandoffOrigin } from "../loom/ThreadStart"; // loom: "Started by" lands at the handoff
 import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
 import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
@@ -83,6 +84,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const originTitle = useThreadShell(
     origin && scopeThreadRef(threadRef.environmentId, origin.threadId),
   )?.title;
+  const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
   const startedBy = origin && {
     ...origin,
     title: nodes.get(origin.threadId)?.title ?? originTitle ?? "an archived thread",
@@ -137,6 +139,8 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
             forkedFrom={forkedFrom}
             startedBy={startedBy}
             onNavigateToThread={onOpenThread}
+            // loom: the agent-started chip opens its origin at the handoff
+            onOpenStartedBy={() => origin && openHandoffOrigin(origin.threadId, threadRef.threadId)}
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">

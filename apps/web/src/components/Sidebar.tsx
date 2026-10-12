@@ -446,7 +446,13 @@ function SidebarThreadTooltip({
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
   return (
-    <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
+    <ThreadHoverCardPopup
+      side="right"
+      align="start"
+      sideOffset={4}
+      // loom: a handed-off root's card links its origin, so the pointer may enter it
+      className={thread.source.workstream?.handoffOrigin ? "pointer-events-auto" : undefined}
+    >
       <ThreadHoverCard
         title={thread.title}
         footer={

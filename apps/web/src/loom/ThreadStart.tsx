@@ -7,15 +7,25 @@
  *
  * The classification is a pure function of the row's shell (`threadStartOf`);
  * only the hover line, mounted while the card is open, reads the origin's title.
+ * The origin links back to the handoff's place in the origin's conversation
+ * (`useOpenHandoffOrigin`), resolved on click from the shell snapshot.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type ThreadStart, threadStartOf } from "@t3tools/client-runtime/state/loom/threadOrigin";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
+import * as DateTime from "effect/DateTime";
 import { BotIcon } from "lucide-react";
+import { useCallback } from "react";
 
 import { cn } from "../lib/utils";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useThreadShell } from "../state/entities";
+import { environmentSnapshotAtom } from "../state/shell";
+import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
+import { useConversationJumpStore } from "./conversationJump";
+import { handoffReceiptRows } from "./loomTimelineRows";
 
 export const THREAD_START_LABEL: Record<ThreadStart, string> = {
   agent: "started by an agent",
@@ -56,9 +66,10 @@ export function ThreadStartHoverLine({ thread }: { thread: SidebarThreadSummary 
   const origin = thread.source.workstream?.handoffOrigin ?? null;
   if (start === null) return null;
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <BotIcon className="size-3 shrink-0 stroke-muted-foreground" />
-      <div className="min-w-0 truncate text-foreground/75">
+    // Wraps rather than truncates: the origin's title is the link, so it must show.
+    <div className="flex min-w-0 items-start gap-2">
+      <BotIcon className="mt-0.5 size-3 shrink-0 stroke-muted-foreground" />
+      <div className="min-w-0 text-foreground/75">
         {origin === null ? (
           // No handoff behind it: an agent-made scheduled task launched it.
           thread.source.workstream === undefined ? (
@@ -71,6 +82,7 @@ export function ThreadStartHoverLine({ thread }: { thread: SidebarThreadSummary 
             environmentId={thread.environmentId}
             start={start}
             originId={origin.threadId}
+            destinationId={thread.id}
           />
         )}
       </div>
@@ -82,14 +94,59 @@ function OriginText({
   environmentId,
   start,
   originId,
+  destinationId,
 }: {
   environmentId: EnvironmentId;
   start: ThreadStart;
   originId: ThreadId;
+  destinationId: ThreadId;
 }) {
   const title = useThreadShell(scopeThreadRef(environmentId, originId))?.title;
+  const openOrigin = useOpenHandoffOrigin(environmentId);
   const lead = start === "agent" ? "Started by an agent" : "From your /handoff";
-  return title === undefined
-    ? `${lead} (origin archived)`
-    : `${lead} in ${title || "Untitled thread"}`;
+  if (title === undefined) return `${lead} (origin archived)`;
+  return (
+    <>
+      {lead} in{" "}
+      <button
+        type="button"
+        className="cursor-pointer text-left text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground"
+        // React bubbles the portalled card's events to the row's <li>: keep the press off its drag sensor.
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => openOrigin(originId, destinationId)}
+      >
+        {title || "Untitled thread"}
+      </button>
+    </>
+  );
+}
+
+/**
+ * Open a handed-off root's origin at the handoff: the receipt row the origin's
+ * timeline draws for this destination (`handoffReceiptRows` — the
+ * `goal_handoff` marker, or the `/handoff` drafter's row), else the
+ * destination's creation, inside the handoff call. With neither in the
+ * snapshot it just opens the origin. Read once per click, never subscribed.
+ */
+export function useOpenHandoffOrigin(environmentId: EnvironmentId) {
+  const navigate = useNavigate();
+  return useCallback(
+    (originId: ThreadId, destinationId: ThreadId) => {
+      const threads = appAtomRegistry.get(environmentSnapshotAtom(environmentId))?.threads ?? [];
+      const destination = threads.find((thread) => thread.id === destinationId);
+      const at =
+        handoffReceiptRows(threads, originId).find((row) =>
+          row.destinations.some((candidate) => candidate.threadId === destinationId),
+        )?.createdAt ??
+        (destination && DateTime.formatIso(destination.createdAt));
+      useConversationJumpStore
+        .getState()
+        .setRequest(at === undefined ? null : { threadId: originId, at });
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(environmentId, originId)),
+      });
+    },
+    [environmentId, navigate],
+  );
 }
