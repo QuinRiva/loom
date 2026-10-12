@@ -15,10 +15,12 @@ import {
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
+import { useOpenHandoffOrigin } from "../loom/ThreadStart"; // loom: "Started by" lands at the handoff
 import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
 import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
+import { useThreadShell } from "../state/entities"; // loom: agent-started origin title
 import { buildThreadLineage } from "../threadRouteLineage";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { Badge } from "./ui/badge";
@@ -77,6 +79,16 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const forkedFrom = node?.forkFromThreadId
     ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
     : null;
+  // The thread a `goal_handoff` root was started from; archived origins resolve through `nodes`.
+  const origin = node?.handoffOrigin ?? null;
+  const originTitle = useThreadShell(
+    origin && scopeThreadRef(threadRef.environmentId, origin.threadId),
+  )?.title;
+  const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
+  const startedBy = origin && {
+    ...origin,
+    title: nodes.get(origin.threadId)?.title ?? originTitle ?? "an archived thread",
+  };
 
   // Right-click / keyboard menu on a node: the app's canonical context menu.
   const onNodeContextMenu = async (target: WorkstreamNode, position: { x: number; y: number }) => {
@@ -125,7 +137,10 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
           <ThreadLineageBreadcrumb
             lineage={lineage}
             forkedFrom={forkedFrom}
+            startedBy={startedBy}
             onNavigateToThread={onOpenThread}
+            // loom: the agent-started chip opens its origin at the handoff
+            onOpenStartedBy={() => origin && openHandoffOrigin(origin.threadId, threadRef.threadId)}
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">

@@ -72,7 +72,9 @@ export function useConversationJump({
   const pending = request !== null && request.threadId === threadId;
 
   useEffect(() => {
-    if (request === null || request.threadId !== threadId || rows.length === 0) return;
+    // Wait for the thread's own entries: the handoff receipts splice in from the
+    // shell before its history arrives, and would otherwise take the jump.
+    if (request === null || request.threadId !== threadId || entries.length === 0) return;
     if (tried.current.request !== request)
       tried.current = { request, pages: new Set(), opened: new Set() };
     const { at } = request;

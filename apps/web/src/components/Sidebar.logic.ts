@@ -52,11 +52,14 @@ export function resolveSidebarRowAccessibility(input: {
   readonly statusLabel: string | null;
   readonly projectDisplayName: string | null;
   readonly isActive: boolean;
+  readonly startLabel?: string | null; // loom: agent-started cue (loom/ThreadStart.tsx)
 }): { readonly label: string; readonly current: "page" | undefined } {
   return {
     // The title is the row's identity and must lead when users scan tasks.
     // Only static context belongs here; nested action labels remain separate controls.
-    label: [input.title, input.statusLabel, input.projectDisplayName].filter(Boolean).join(", "),
+    label: [input.title, input.statusLabel, input.projectDisplayName, input.startLabel] // loom: startLabel
+      .filter(Boolean)
+      .join(", "),
     current: input.isActive ? "page" : undefined,
   };
 }
