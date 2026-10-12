@@ -133,11 +133,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
-  // loom: centre-panel thread tabs (mod+w is free outside terminal focus).
-  { key: "mod+w", command: "tab.close", when: "!terminalFocus" },
-  { key: "mod+shift+t", command: "tab.reopenClosed" },
-  // loom: tab traversal/jump on the near-unclaimed mod+alt+… prefix, so the
-  // sidebar keeps mod+shift+[/] and mod+1..9.
+  { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
+  { key: "mod+shift+t", command: "view.reopenClosed" },
+  // loom: thread-tab traversal/jump on the near-unclaimed mod+alt+… prefix, so
+  // the sidebar keeps mod+shift+[/] and mod+1..9. tab.close/tab.reopenClosed
+  // have no default: mod+w and mod+shift+t stay upstream's (DL-1012).
   { key: "mod+alt+[", command: "tab.previous" },
   { key: "mod+alt+]", command: "tab.next" },
   ...TAB_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({

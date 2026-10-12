@@ -1,5 +1,5 @@
 import type { ResolvedKeybindingsConfig, ScopedThreadRef } from "@t3tools/contracts";
-import { compileResolvedKeybindingsConfig, DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { act } from "react";
@@ -105,11 +105,7 @@ function press(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(state, {
-    // loom: mod+shift+t defaults to Loom's thread-tab reopen (DL-912), so bind upstream's chord here.
-    keybindings: compileResolvedKeybindingsConfig([
-      ...DEFAULT_KEYBINDINGS.filter((rule) => rule.command !== "tab.reopenClosed"),
-      { key: "mod+shift+t", command: "view.reopenClosed" },
-    ]),
+    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     params: {},
     paletteOpen: false,
     workspaceAvailable: true,
