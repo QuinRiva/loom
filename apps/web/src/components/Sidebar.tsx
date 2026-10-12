@@ -281,6 +281,8 @@ import {
 import { loomAttentionOf, loomTopStatus } from "./Sidebar.logic.loom";
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../loom/LoomRollupBadge";
+import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
+import { CacheHoverBlock } from "../loom/CacheHoverBlock"; // loom: prompt-cache liveness
 import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
 import { PendingQuestionWaitAge } from "../loom/pendingUserInputLoom"; // loom: S4
 import { readLoomGoal } from "../loom/loomGoalState";
@@ -540,6 +542,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        <CacheHoverBlock thread={thread} /> {/* loom: prompt-cache block */}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -1976,6 +1979,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <span className="flex-1" />
               )}
               {pinIndicator}
+              <CacheFuelRing thread={thread} /> {/* loom: prompt-cache fuel ring */}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
                   the hidden state out of flow lets the project label reclaim

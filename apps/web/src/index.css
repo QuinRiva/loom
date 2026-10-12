@@ -2948,6 +2948,19 @@ code {
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
+
+/* Prompt-cache fuel ring (loom/CacheFuelRing.tsx): the one urgent hue,
+   "expiring". Orange, kept clear of amber (approval, Woke), emerald (Done),
+   blue (Working) and indigo (Input). */
+@theme inline {
+  --color-cache-hot: var(--cache-hot);
+}
+:root {
+  --cache-hot: var(--color-orange-600);
+}
+.dark {
+  --cache-hot: var(--color-orange-400);
+}
 /* loom: end of fork-only UI */
 
 @layer components {
