@@ -1,5 +1,5 @@
 /**
- * Dev fixture seeder — populates a scratch `T3CODE_HOME` with a realistic Loom
+ * Dev fixture seeder — populates a fresh scratch home with a realistic Loom
  * workstream so agents (and humans) can verify UI states that are otherwise
  * unreachable against an empty database.
  *
@@ -16,7 +16,7 @@
  * seed exits only once the effect outbox is drained and a final re-drive pass
  * has nothing left to send, so a dev server booted on this home starts no pi.
  *
- * Run: `T3CODE_HOME=<scratch> node apps/server/src/dev/seedWorkstream.ts`
+ * Run: `vp run dev:seed` (this worktree's `.t3`) or `vp run dev:seed --home-dir <scratch>`
  *
  * @module dev/seedWorkstream
  */
@@ -413,15 +413,6 @@ const seedProgram = Effect.gen(function* () {
     Effect.mapError((cause) => new Error(`re-drive pass failed: ${String(cause)}`)),
   );
 
-  // ---- refuse a seeded home; lay out the shared checkout --------------------
-  if ((yield* loomStore.goals.get(SEED.goalId)) !== null) {
-    return yield* Effect.fail(
-      new Error(
-        `The seed is already applied to ${config.dbPath}; delete '${config.stateDir}' (or use a fresh T3CODE_HOME) to reseed.`,
-      ),
-    );
-  }
-
   // ---- goal + task tree (plain tables, LoomStoreV2) ----------------------------
   yield* loomStore.goals.upsert({
     id: SEED.goalId,
@@ -721,10 +712,18 @@ export const seedRuntimeLayer = (
 
 const main = Effect.gen(function* () {
   const config = yield* buildSeedConfig;
+  // A fresh home only: the seed never lands in a database it did not create (a real one, or its own).
+  if (NodeFS.existsSync(config.dbPath)) {
+    return yield* Effect.fail(
+      new Error(
+        `${config.dbPath} already exists; the seed needs a fresh home (delete '${config.stateDir}' or pass another --home-dir).`,
+      ),
+    );
+  }
   const workspaceRoot = NodePath.join(config.worktreesDir, "seed-workspace");
   const database = seedDatabaseLayer(config);
 
-  // 1. The project, through upstream's project service. A seeded home already has it.
+  // 1. The project, through upstream's project service.
   const projectLayer = RuntimeLayer.layerProjectService.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -751,13 +750,6 @@ const main = Effect.gen(function* () {
   );
   yield* Effect.gen(function* () {
     const projects = yield* ProjectService.ProjectService;
-    if ((yield* projects.getById(SEED.projectId)).pipe((found) => found._tag === "Some")) {
-      return yield* Effect.fail(
-        new Error(
-          `Seed project '${SEED.projectId}' already exists in ${config.dbPath}; delete '${config.stateDir}' (or use a fresh T3CODE_HOME) to reseed.`,
-        ),
-      );
-    }
     // The shared checkout lives under this home's worktreesDir: the foreign-home
     // guard reads provenance from it, and a git repo gates the Diff surface.
     NodeFS.rmSync(workspaceRoot, { recursive: true, force: true });

@@ -852,6 +852,54 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       }),
   );
 
+  it.effect(
+    "a parent holding an undecodable control message still gets its digest, as do the others",
+    () =>
+      Effect.gen(function* () {
+        const [poisoned, poisonedChild, other, otherChild] = [
+          "undecodable-root",
+          "undecodable-child",
+          "undecodable-other-root",
+          "undecodable-other-child",
+        ].map((id) => ThreadId.make(id));
+        yield* seedThread({ threadId: poisoned! });
+        yield* seedThread({ threadId: other! });
+        yield* spawnChild({ parentThreadId: poisoned!, threadId: poisonedChild!, graphKey: "x" });
+        yield* spawnChild({ parentThreadId: other!, threadId: otherChild!, graphKey: "y" });
+        // As a newer release (or a dev seed written by one) leaves it: an item kind this build lacks.
+        yield* dispatch(
+          controlMessage({
+            threadId: poisoned!,
+            id: "server:undecodable-notice",
+            tier: "fyi",
+            origin: "control_notice",
+            text: "From a newer release.",
+            payload: { kind: "digest", items: [{ kind: "terminal", title: "newer" }] },
+          }),
+        );
+        yield* completeOpenRuns(poisoned!);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE orchestration_v2_projection_messages
+        SET payload_json = json_set(payload_json, '$.loom.controlPayload.items[0].kind', 'from-a-newer-release')
+        WHERE message_id = 'message:server:undecodable-notice'`;
+        yield* submit(poisonedChild!);
+        yield* submit(otherChild!);
+
+        yield* runPass;
+        for (const [parent, child] of [
+          [other!, otherChild!],
+          [poisoned!, poisonedChild!],
+        ] as const) {
+          const [digest, ...rest] = yield* withPayload(parent, "digest");
+          assert.isEmpty(rest);
+          assert.deepEqual(
+            digest!.loom!.controlPayload!.items.map((item) => [item.kind, item.threadId]),
+            [["terminal", child]],
+          );
+        }
+      }),
+  );
+
   it.effect("imported rows (null episode stamps) wake nobody", () =>
     Effect.gen(function* () {
       const [root, done, yielded, flagged] = [
