@@ -207,7 +207,7 @@ const StashTestLayer = WorkstreamDispatcherLive.pipe(
 
 /** What the adapter mirrored for the seeded run's turn when the restart killed pi: one undelivered steer. */
 const stash = (threadId: ThreadId, text: string) =>
-  PendingSteering.write(threadId, seededRunIds(threadId).runId, [text]);
+  PendingSteering.write(threadId, seededRunIds(threadId).runId, [text], null);
 const stashText = (threadId: ThreadId) =>
   Effect.map(PendingSteering.read(threadId), (stash) => stash?.text ?? null);
 const stashed = (threadId: ThreadId) =>
@@ -532,7 +532,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
 
         // Pi accepts a fresh steer into the running turn: the adapter mirrors pi's queue.
         const live = "Also bump the version.";
-        yield* PendingSteering.write(flagged, humanRun.id, [live]);
+        yield* PendingSteering.write(flagged, humanRun.id, [live], null);
 
         yield* dispatcher.runPass;
         const [redelivered, ...more] = yield* redeliveries;
@@ -603,7 +603,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
             payload: { ...humanRun, status: "running", startedAt: yield* DateTime.now },
           } as OrchestrationV2DomainEvent,
         ]);
-        yield* PendingSteering.write(flagged, humanRun.id, []);
+        yield* PendingSteering.write(flagged, humanRun.id, [], null);
         yield* completeOpenRuns(flagged);
 
         const dispatcher = yield* WorkstreamDispatcher;
@@ -651,7 +651,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
         ]);
         // What the adapter mirrors when pi queues a steer into this live turn.
         const accepted = "Use the new tokenizer.";
-        yield* PendingSteering.write(child, run.id, [accepted]);
+        yield* PendingSteering.write(child, run.id, [accepted], null);
 
         yield* (yield* WorkstreamDispatcher).runPass;
         const messages = (yield* orchestrator.getThreadProjection(child)).messages;

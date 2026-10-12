@@ -20,7 +20,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
  * /preview harness) nothing is registered and lookups stay undefined.
  */
 const MAX_ENTRIES = 4000;
-// Freshness window. Matches the readFile/statPaths query staleness so a chip
+// Freshness window. Matches the readFile query staleness so a chip
 // re-verifies on the same cadence rather than trusting a first answer forever.
 const TTL_MS = 30_000;
 // Coalescing window: due keys accumulate this long before one batched RPC.

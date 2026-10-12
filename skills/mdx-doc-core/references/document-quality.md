@@ -219,12 +219,15 @@ is the only form that loads both when you open the file directly and when a
 human opens it in-app from its file chip. A page written elsewhere still renders,
 but its images resolve as `file://` and stay blank inside the app.
 
-To see it yourself, load it in a browser: `browser_navigate` to
-`file:///<absolute path to>/render.html`, then `browser_take_screenshot` (with
+To see it yourself, load it in a browser. The `browser_*` tools are deferred:
+they are not in your tool list until you load them, so `tool_search` for
+`browser_navigate` first. Then `browser_navigate` to
+`file:///<absolute path to>/render.html` and `browser_take_screenshot` (with
 `fullPage: true` for the whole document, or a `selector` for one block). If the
-browser tools are dormant for your role, `mcp__t3-code__enable_toolset` with `browser` first.
-That is the supported way to check a document visually — **do not boot a dev
-server for this.** Reserve a live app instance for what genuinely needs
+search returns no browser tools, the visual check is out of reach in this
+thread: say so in your report rather than boot a dev server. That is the
+supported way to check a document visually — **do not boot a dev server for
+this.** Reserve a live app instance for what genuinely needs
 interaction: annotation, `<Prototype>` flows, answering a `<QuestionForm>`, or a
 layout question that depends on the real panel width.
 

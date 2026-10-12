@@ -264,4 +264,36 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
       assert.isTrue(rootRefused.isError);
     }),
   );
+
+  it.effect("child ids resolve with the thread: prefix stripped; a bare segment does not", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const root = ThreadId.make("alias-root");
+      yield* seedThread({ threadId: root });
+      const first = yield* spawn(root, "First");
+      const second = yield* spawn(root, "Second");
+      const strip = (id: ThreadId) => id.slice("thread:".length);
+
+      const flagged = yield* callAs(root, "workstream_request_attention", {
+        threadId: strip(second),
+        reason: "needs_guidance",
+      });
+      assert.isFalse(flagged.isError, flagged.text);
+      assert.include(flagged.text, second);
+      assert.deepEqual((yield* store.getWorkstream(second))!.attention, ["needs_guidance"]);
+
+      const set = yield* callAs(root, "workstream_set_dependencies", {
+        threadId: strip(second),
+        blockedBy: [strip(first)],
+      });
+      assert.isFalse(set.isError, set.text);
+      assert.deepEqual((yield* store.getWorkstream(second))!.blockedBy, [first]);
+
+      // The trailing uuid alone names no thread: only the prefix is equated.
+      const segment = second.split(":").at(-1)!;
+      const refused = yield* callAs(root, "workstream_stop", { threadId: segment });
+      assert.isTrue(refused.isError);
+      assert.include(refused.text, `Thread ${segment} was not found.`);
+    }),
+  );
 });

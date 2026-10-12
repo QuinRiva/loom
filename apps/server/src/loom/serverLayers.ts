@@ -128,8 +128,10 @@ export const LoomPiAdapterHooksLive = Layer.effect(
           ? Effect.sync(() => sanitisePiSessionFile(sessionFilePath))
           : Effect.void,
       steerStash: {
-        write: (threadId, runId, steering) =>
-          PendingSteering.write(threadId, runId, steering).pipe(Effect.provide(stashContext)),
+        write: (threadId, runId, steering, sessionFile) =>
+          PendingSteering.write(threadId, runId, steering, sessionFile).pipe(
+            Effect.provide(stashContext),
+          ),
         read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
       },
       cacheTouched: cache.touch,

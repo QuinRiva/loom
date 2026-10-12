@@ -39,7 +39,7 @@ function ChatRouteGlobalShortcuts() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
   // loom: tab-strip keyboard bindings (tab.previous/next + tab.jump.N on
-  // mod+alt+…, mod+w close, mod+shift+t reopen). The sidebar keeps thread.*.
+  // mod+alt+…; tab.close/tab.reopenClosed unbound by default). The sidebar keeps thread.*.
   useThreadTabKeyboard(routeThreadRef);
   const canOperatePreview = useEnvironmentScope(
     routeThreadRef?.environmentId ?? null,

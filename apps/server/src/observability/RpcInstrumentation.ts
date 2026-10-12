@@ -145,7 +145,6 @@ const RPC_AGGREGATES = {
   // loom: out-of-workspace file chips and the chip index lookup (DL-89).
   [WS_METHODS.projectsReadAbsoluteFile]: "workspace",
   [WS_METHODS.projectsListAbsoluteDirectory]: "workspace",
-  [WS_METHODS.projectsStatPaths]: "workspace",
   [WS_METHODS.projectsLocateFiles]: "workspace",
   [WS_METHODS.projectsSearchContents]: "workspace",
   [WS_METHODS.projectsSearchEntries]: "workspace",

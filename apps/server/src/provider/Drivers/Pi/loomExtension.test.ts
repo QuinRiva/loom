@@ -119,8 +119,10 @@ const load = async (
   return {
     emit,
     register,
-    // What pi's tool_search does with a match: setActiveTools([...active, ...matches]).
-    search: (name: string) => pi.setActiveTools([...active, name]),
+    // What pi's tool_search does with a match: setActiveTools([...active, ...matches]), over
+    // deferred tools only — a direct tool outside the active set is unreachable.
+    search: (name: string) =>
+      all.get(name) === "deferred" ? pi.setActiveTools([...active, name]) : undefined,
     exposure: (name: string) => all.get(name),
     active: () => [...active].toSorted(),
     notices,
@@ -148,6 +150,20 @@ describe("Loom pi extension", () => {
     await pi.emit("before_agent_start");
 
     assert.deepEqual(pi.active(), ["read", SUBMIT, SPAWN, "tool_search"].toSorted());
+  });
+
+  // pi-browser registers its browser_* tools deferred, like the bridge's t3-code tools.
+  it("leaves a leaf role's browser tools deferred behind tool_search, and keeps them once searched in", async () => {
+    const pi = await load(serving(() => profile()));
+    pi.register("browser_navigate", "deferred");
+    await pi.emit("session_start");
+    assert.equal(pi.exposure("browser_navigate"), "deferred");
+    assert.notInclude(pi.active(), "browser_navigate");
+
+    pi.search("browser_navigate");
+    await pi.emit("before_agent_start");
+
+    assert.deepEqual(pi.active(), ["read", SUBMIT, "browser_navigate", "tool_search"].toSorted());
   });
 
   it("hides mcp__t3-code__ask_user_question on a child nobody has written to, and offers it once a person has", async () => {

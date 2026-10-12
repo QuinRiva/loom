@@ -1,7 +1,7 @@
 /**
  * Target resolution for the global `mcp__t3-code__consult_thread` / `mcp__t3-code__notify_thread` (any
- * thread the server knows, active or archived, across projects): an exact id,
- * or a fuzzy sidebar name ranked over `getShellSnapshot`. Titles are
+ * thread the server knows, active or archived, across projects): an id (see
+ * `resolveThreadRef`), or a fuzzy sidebar name ranked over `getShellSnapshot`. Titles are
  * non-unique, so an ambiguous name returns ranked candidates for the caller to
  * confirm — acting on the wrong thread is costly — and nothing runs. Ported
  * from V1's `threadResolve.ts` (DT-22); the session file is NOT resolved here:
@@ -9,11 +9,40 @@
  *
  * @module loom/workstream/threadResolve
  */
-import type { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import { type OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+
+export const THREAD_REF_PREFIX = "thread:";
+
+/**
+ * The ids a thread reference may name, the reference as given first. Ids come
+ * both bare (`<uuid>`) and prefixed (`thread:<uuid>`, `thread:mcp:…`), and
+ * agents both strip the prefix and add it (scaffold's documented `thread:<id>`
+ * form), so the one alias is the reference with `thread:` removed or added.
+ * Only that prefix is equated — never an id segment — so a reference names at
+ * most one thread besides itself.
+ */
+export const threadIdAliases = (ref: string): ReadonlyArray<ThreadId> => {
+  const text = ref.trim();
+  return [
+    text,
+    text.startsWith(THREAD_REF_PREFIX)
+      ? text.slice(THREAD_REF_PREFIX.length).trim()
+      : `${THREAD_REF_PREFIX}${text}`,
+  ].map((id) => ThreadId.make(id));
+};
+
+/**
+ * The id among `known` that `ref` names — an exact match before its alias —
+ * or the trimmed reference itself when none does, so the caller's not-found
+ * error quotes what the agent passed. Every Loom tool that takes a thread id
+ * resolves it here, over the threads that tool may act on.
+ */
+export const resolveThreadRef = (ref: string, known: ReadonlySet<ThreadId>): ThreadId =>
+  threadIdAliases(ref).find((id) => known.has(id)) ?? ThreadId.make(ref.trim());
 
 /** The minimal fields name ranking reads. */
 export interface ThreadNameCandidate {
@@ -111,7 +140,8 @@ export const resolveThread = Effect.fn("loom.resolveThread")(function* (target: 
   );
   const shells = [...snapshot.threads, ...snapshot.archivedThreads];
   if (threadId !== undefined) {
-    const shell = shells.find((candidate) => candidate.id === threadId);
+    const id = resolveThreadRef(threadId, new Set(shells.map((candidate) => candidate.id)));
+    const shell = shells.find((candidate) => candidate.id === id);
     return shell === undefined ? missing(`Thread ${threadId} was not found.`) : found(shell);
   }
   const ranked = rankThreadsByName(

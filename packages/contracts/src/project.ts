@@ -19,9 +19,8 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
-// loom: out-of-workspace file chips (absolute read, listing, batch stat).
+// loom: out-of-workspace file chips (absolute read, listing).
 const PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH = 4096;
-const PROJECT_STAT_PATHS_MAX_COUNT = 200;
 // loom: chat file-chip index lookup; see ProjectLocateFilesInput.
 const PROJECT_LOCATE_FILES_MAX_COUNT = 50;
 
@@ -570,36 +569,6 @@ export class ProjectReadAbsoluteFileError extends Schema.TaggedError<ProjectRead
 }
 
 /**
- * loom: batch existence check for chat file chips. Given a set of absolute paths,
- * report whether each exists and — when it does — whether it is a file or a
- * directory. This lets the renderer verify a chip's resolved target before
- * turning it into a clickable link (avoiding dead clicks on plausible-looking
- * paths that don't exist) and route directory targets sensibly. It is a cheap,
- * read-only probe: paths are neither read nor constrained to a workspace root,
- * mirroring the out-of-workspace absolute read.
- */
-export const ProjectStatPathsInput = Schema.Struct({
-  paths: Schema.Array(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH)),
-  ).check(Schema.isMaxLength(PROJECT_STAT_PATHS_MAX_COUNT)),
-});
-export type ProjectStatPathsInput = typeof ProjectStatPathsInput.Type;
-
-export const ProjectPathKind = Schema.Literals(["file", "directory", "other", "missing"]);
-export type ProjectPathKind = typeof ProjectPathKind.Type;
-
-export const ProjectPathStat = Schema.Struct({
-  path: TrimmedNonEmptyString,
-  kind: ProjectPathKind,
-});
-export type ProjectPathStat = typeof ProjectPathStat.Type;
-
-export const ProjectStatPathsResult = Schema.Struct({
-  entries: Schema.Array(ProjectPathStat),
-});
-export type ProjectStatPathsResult = typeof ProjectStatPathsResult.Type;
-
-/**
  * loom: resolve unanchored chat file references — a bare `prices.json`, an
  * unprefixed `src/models/x.py` — against the workspace's path index (the one
  * behind @-mentions), so a reference agents write relative to wherever they
@@ -632,22 +601,6 @@ export class ProjectLocateFilesError extends Schema.TaggedError<ProjectLocateFil
 ) {
   override get message(): string {
     return `Failed to locate files in '${this.cwd}'.`;
-  }
-}
-
-export class ProjectStatPathsError extends Schema.TaggedError<ProjectStatPathsError>()(
-  "ProjectStatPathsError",
-  {
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
-  constructor(props: { readonly cause?: unknown; readonly message?: string }) {
-    super({
-      ...props,
-      message: typeof props.message === "string" ? props.message : "Failed to stat paths.",
-    } as any);
   }
 }
 

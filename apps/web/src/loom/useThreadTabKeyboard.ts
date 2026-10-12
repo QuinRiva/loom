@@ -6,8 +6,10 @@
  *   - `tab.previous` / `tab.next` (`mod+alt+[` / `mod+alt+]`) → prev/next tab
  *     (strip order, no wrap)
  *   - `tab.jump.N` (`mod+alt+1..9`) → activate tab N
- *   - `tab.close` (`mod+w`) → close the active tab
- *   - `tab.reopenClosed` (`mod+shift+t`) → reopen the most recently closed tab
+ *   - `tab.close` → close the active tab
+ *   - `tab.reopenClosed` → reopen the most recently closed tab
+ *   (no default chord: `mod+w` / `mod+shift+t` stay upstream's; bind them in
+ *   Settings → Keybindings)
  *
  * This hook must never resolve or `preventDefault()` a non-`tab.*` command —
  * it runs in the capture phase (so composer/terminal bubble handlers cannot
@@ -15,14 +17,13 @@
  * Traversal and jump consume the key only when they resolve to a `tab.*`
  * command; a traversal at the strip edge or an out-of-range jump index simply
  * does nothing. `tab.close` / `tab.reopenClosed` consume unconditionally, so a
- * no-op close/reopen still shields the key from the browser's own `mod+w` /
- * `mod+shift+t`.
+ * no-op close/reopen still shields a bound key from the browser's own action.
  *
  * The shortcut context carries the two flags any shipped default `when` clause
  * can reference (`terminalFocus` + `modelPickerOpen`); it deliberately omits
  * the sidebars' `terminalOpen`, which no default references.
- * `terminalFocus` distinguishes `tab.close` from
- * `terminal.close` on `mod+w`, and `modelPickerOpen` keeps this hook's
+ * `terminalFocus` lets a user's `tab.close` binding share a chord with
+ * `terminal.close`, and `modelPickerOpen` keeps this hook's
  * resolution identical to every other listener's, so a `when`-gated command
  * elsewhere can never lose to a stale resolution here.
  */

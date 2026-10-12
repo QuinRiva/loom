@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   isUnambiguousMatch,
   rankThreadsByName,
+  resolveThreadRef,
   type ThreadNameCandidate,
 } from "./threadResolve.ts";
 
@@ -16,6 +17,24 @@ const candidate = (
   title,
   updatedAt: "2026-06-26T00:00:00.000Z",
   ...extra,
+});
+
+describe("resolveThreadRef", () => {
+  const known = (...ids: Array<string>) => new Set(ids as Array<ThreadId>);
+  const uuid = "af46e6ed-ee0a-4ea6-801d-738cf103a6f9";
+  const composite = `thread:mcp:${uuid}:workstream-spawn:1e191396-803b-4208-b452-be97b0c58bc1`;
+
+  it("adds or strips the thread: prefix, the exact id winning", () => {
+    expect(resolveThreadRef(` ${uuid} `, known(`thread:${uuid}`))).toBe(`thread:${uuid}`);
+    expect(resolveThreadRef(`thread:${uuid}`, known(uuid))).toBe(uuid);
+    expect(resolveThreadRef(composite.slice(7), known(composite))).toBe(composite);
+    expect(resolveThreadRef(uuid, known(uuid, `thread:${uuid}`))).toBe(uuid);
+  });
+
+  it("never matches an id segment, returning the reference as given", () => {
+    expect(resolveThreadRef(uuid, known(composite))).toBe(uuid);
+    expect(resolveThreadRef("thread:mcp:" + uuid, known(composite))).toBe(`thread:mcp:${uuid}`);
+  });
 });
 
 describe("rankThreadsByName", () => {

@@ -3,9 +3,9 @@ skills:
   - skills/mdx-visual-plan
   - skills/mdx-visual-recap
 # Working tools only — the server auto-unions the leaf lifeline (submit,
-# attention, list, consult, goal tasks, title, mcp__t3-code__enable_toolset), so those are
-# never listed here; `toolsets:` names the families this role keeps RESIDENT.
-# browser/studio stay dormant, one mcp__t3-code__enable_toolset call away.
+# attention, list, consult, goal tasks, title), so those are never listed here.
+# `toolsets:` names the families this role keeps RESIDENT; every other
+# permitted Loom tool stays deferred behind pi's `tool_search`.
 tools:
   [
     read,

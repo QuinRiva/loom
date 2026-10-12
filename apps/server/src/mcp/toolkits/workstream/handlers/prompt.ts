@@ -21,7 +21,7 @@
  *
  * @module mcp/toolkits/workstream/handlers/prompt
  */
-import { CommandId, type LoomThreadWorkstream, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, type LoomThreadWorkstream, MessageId } from "@t3tools/contracts";
 import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
 import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
 import * as Effect from "effect/Effect";
@@ -75,13 +75,13 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
   input: LoomToolInput<"workstream_prompt">,
   caller: WorkstreamCaller,
 ) {
-  const threadId = ThreadId.make(input.threadId.trim());
   if (input.message.trim().length === 0) return yield* fail("message is required.");
-  if (threadId === caller.threadId)
+  const row = yield* authoriseTarget(caller, input.threadId);
+  if (row === null || row.threadId === caller.threadId)
     return yield* fail(
       `${t("workstream_prompt")} messages a direct child, not the calling thread.`,
     );
-  const row = (yield* authoriseTarget(caller, threadId))!;
+  const threadId = row.threadId;
   if (row.outcome !== null)
     return yield* fail(
       `Thread ${threadId} is ${row.outcome}; prompting would re-engage it without changing its outcome. Reopen it with ${t("workstream_set_outcome")} 'none' first, or spawn a new child.`,

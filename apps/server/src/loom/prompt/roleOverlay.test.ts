@@ -11,7 +11,7 @@ import {
   LEAF_CORE,
   PULL_REQUESTS,
 } from "../../mcp/toolkits/workstream/families.ts";
-import { DELEGATION_TOOLSET_DIGEST } from "./prose.ts";
+import { LOOM_TOOL_DEFS } from "../../mcp/toolkits/workstream/defs.ts";
 import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 
 /** What the loader auto-unions into every restricted role allowlist. */
@@ -336,8 +336,15 @@ describe("the shipped roles/ directory", () => {
     }
   });
 
-  it("matches the role names the delegation digest promises", () => {
-    const listed = /The built-in roles are ([^;]+);/.exec(DELEGATION_TOOLSET_DIGEST)?.[1];
-    expect(listed?.split(/, | and /).sort()).toEqual([...names].sort());
+  // A leaf that searches the spawn tools in sees no roles catalogue; the `role`
+  // parameter's closed list is what it picks from, so it must match the files.
+  it("matches the built-in roles the spawn tools' `role` parameter lists", () => {
+    const spawn = LOOM_TOOL_DEFS.find((def) => def.name === "workstream_spawn")?.parameters as
+      | { properties: Record<string, { description: string }> }
+      | undefined;
+    const listed = /one of the built-in roles ([^;]+);/.exec(
+      spawn?.properties.role?.description ?? "",
+    )?.[1];
+    expect(listed?.split(/, | or /).sort()).toEqual([...names].sort());
   });
 });

@@ -68,7 +68,6 @@ export class GitWorkflowService extends Context.Service<
     >;
     readonly remoteStatuses: (
       input: {
-        readonly repositoryKey: string;
         readonly repositoryCwd: string;
         readonly gitCommonDir: string;
         readonly entries: ReadonlyArray<{

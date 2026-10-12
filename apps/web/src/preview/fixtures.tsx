@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 
-import { EnvironmentId, ThreadId, type ProjectPathKind } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type FilesystemEntryMetadata } from "@t3tools/contracts";
 import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
   derivePendingUserInputProgress,
@@ -16,7 +16,7 @@ import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
-import { __setStatFetcherForTests } from "../components/chat/usePathExistence";
+import { __setMetadataFetcherForTests } from "../components/chat/usePathExistence";
 import { SubscriptionMeterChipView, SubscriptionMeterView } from "../loom/SubscriptionMeter";
 import {
   METER_FIXTURE_STATES,
@@ -425,21 +425,21 @@ ${SCANNED_PATH_MISSING}
 `;
 
 /**
- * The harness has no backend, so the existence fixtures drive the shared stat
- * store directly — the same injection point their unit tests use. Installed once
+ * The harness has no backend, so the existence fixtures drive the shared
+ * existence store directly — the same injection point their unit tests use. Installed once
  * at module load (this module is DEV-only and tree-shaken out of a production
  * build): installing the stub *resets* the store, so doing it per mount would
  * race a mounted subject's path registration.
  */
-const PREVIEW_PATH_KINDS: Record<string, ProjectPathKind> = {
-  [FILE_CHIP_STATES_PRESENT]: "file",
-  [FILE_CHIP_STATES_MISSING]: "missing",
-  [SCANNED_PATH_VERIFIED]: "file",
-  [SCANNED_PATH_MISSING]: "missing",
-  [COLD_READER_DOC]: "file",
+const PREVIEW_PATH_METADATA: Record<string, FilesystemEntryMetadata | null> = {
+  [FILE_CHIP_STATES_PRESENT]: { kind: "file" },
+  [FILE_CHIP_STATES_MISSING]: null,
+  [SCANNED_PATH_VERIFIED]: { kind: "file" },
+  [SCANNED_PATH_MISSING]: null,
+  [COLD_READER_DOC]: { kind: "file" },
 };
-__setStatFetcherForTests((_environmentId, paths) =>
-  Promise.resolve(paths.map((path) => ({ path, kind: PREVIEW_PATH_KINDS[path] ?? "missing" }))),
+__setMetadataFetcherForTests((_environmentId, paths) =>
+  Promise.resolve(new Map(paths.map((path) => [path, PREVIEW_PATH_METADATA[path] ?? null]))),
 );
 
 function ScannedPathVerificationFixture() {

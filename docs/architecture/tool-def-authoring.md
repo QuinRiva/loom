@@ -21,9 +21,8 @@ The prose and the schema are separate files with separate authors.
 - **`apps/server/src/mcp/toolkits/workstream/prose.ts`** holds every text a
   model reads: `LOOM_TOOL_PROSE`, a typed record keyed by the tool's bare MCP
   name with `description`, `promptSnippet` and `promptGuidelines` (one rule per
-  line, or empty). It covers the 21 MCP tools and the two tools Loom's pi
-  extension registers itself (`mcp__t3-code__enable_toolset`,
-  `mcp__t3-code__ask_user_question`).
+  line, or empty). It covers the 21 MCP tools and the one tool Loom's pi
+  extension registers itself (`mcp__t3-code__ask_user_question`).
 - **`defs.ts`** (same directory) imports that record for its prose fields and
   adds what is mechanical — JSON-schema parameters with their per-field
   descriptions, `errorMode`, idempotency hints. Parameter descriptions are
@@ -47,7 +46,7 @@ The prose and the schema are separate files with separate authors.
   tool name anywhere outside `docs/upstream-sync/` and `plans/`.
 - **Prompt-side texts** that are not tool defs — the work-model addendum, the
   child readership clause, the identity and relocation clauses, the kickoff
-  wrapper, the delegation digest, the refusal texts — live in
+  wrapper, the refusal texts — live in
   `apps/server/src/loom/prompt/prose.ts` under the companion doctrine in
   [`prompt-surface-authoring.md`](./prompt-surface-authoring.md).
 

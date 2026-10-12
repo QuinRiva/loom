@@ -8,10 +8,11 @@
  *
  * @module mcp/toolkits/workstream/handlers/spawn
  */
-import { GoalTaskId, ThreadId } from "@t3tools/contracts";
+import { GoalTaskId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { writeWorkstreamBrief } from "../../../../loom/workstream/brief.ts";
+import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
@@ -31,7 +32,9 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
   const parent = yield* requireShell(caller.threadId);
   const parentRow = yield* authoriseTarget(caller);
   const children = yield* childrenOf(caller.threadId);
-  const forkFrom = input.forkFrom === undefined ? undefined : ThreadId.make(input.forkFrom.trim());
+  const childIds = new Set(children.map((child) => child.threadId));
+  const childRef = (ref: string) => resolveThreadRef(ref, childIds);
+  const forkFrom = input.forkFrom === undefined ? undefined : childRef(input.forkFrom);
   const source = children.find((child) => child.threadId === forkFrom);
   if (forkFrom !== undefined && (source === undefined || source.archivedAt !== null))
     return yield* fail(
@@ -61,9 +64,9 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
           selection: withUpstreamOptionIds((yield* requireShell(source.threadId)).modelSelection),
           warnings: [],
         };
-  const gateRework = input.gate === undefined ? undefined : ThreadId.make(input.gate.rework.trim());
+  const gateRework = input.gate === undefined ? undefined : childRef(input.gate.rework);
   const edges = withImpliedEdges({
-    blockedBy: (input.blockedBy ?? []).map((id) => ThreadId.make(id.trim())),
+    blockedBy: (input.blockedBy ?? []).map(childRef),
     gateRework,
     forkFrom,
   });

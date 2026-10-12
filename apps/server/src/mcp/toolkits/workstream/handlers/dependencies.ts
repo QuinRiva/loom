@@ -5,27 +5,27 @@
  *
  * @module mcp/toolkits/workstream/handlers/dependencies
  */
-import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
 import { appendWarnings } from "../render.ts";
-import { dispatch, fail, nowIso } from "./shared.ts";
+import { childrenOf, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamSetDependencies = Effect.fn("LoomToolkit.workstreamSetDependencies")(
   function* (input: LoomToolInput<"workstream_set_dependencies">, caller: WorkstreamCaller) {
-    const row = yield* authoriseTarget(
-      caller,
-      input.threadId === undefined ? undefined : ThreadId.make(input.threadId.trim()),
-    );
+    const row = yield* authoriseTarget(caller, input.threadId);
     if (row?.parentThreadId == null)
       return yield* fail(
         "Dependencies have no effect on a root thread — only sub-threads are dependency-gated. Nothing was changed.",
       );
-    const blockedBy = [...new Set(input.blockedBy.map((id) => ThreadId.make(id.trim())))];
+    const siblingIds = new Set(
+      (yield* childrenOf(row.parentThreadId)).map((sibling) => sibling.threadId),
+    );
+    const blockedBy = [...new Set(input.blockedBy.map((ref) => resolveThreadRef(ref, siblingIds)))];
     yield* dispatch({
       type: "thread.dependencies.set",
       commandId: stableCommandId(caller, yield* requestKey(undefined), "workstream-dependencies"),

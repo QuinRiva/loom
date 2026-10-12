@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { THREAD_REF_PREFIX, threadIdAliases } from "../../../../loom/workstream/threadResolve.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
 import { agentToolName as t } from "../families.ts";
 import { LoomToolError, type LoomToolInput } from "../defs.ts";
@@ -24,15 +25,7 @@ import { requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
 import { resolveChildModel, withUpstreamOptionIds } from "../modelSelection.ts";
 import { appendWarnings } from "../render.ts";
 import { anchorError, gateRoutes, nodeShapeError, trimmed, withImpliedEdges } from "./childNode.ts";
-import {
-  childrenOf,
-  dispatch,
-  fail,
-  nowIso,
-  requireShell,
-  SCAFFOLD_THREAD_REF_PREFIX,
-  threadRefIds,
-} from "./shared.ts";
+import { childrenOf, dispatch, fail, nowIso, requireShell } from "./shared.ts";
 
 const NOTHING = "Nothing was created.";
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,7 +47,7 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
     if (UUID_SHAPED.test(node.key.trim()))
       return yield* reject(
         node.key,
-        `the key is UUID-shaped; keys must be symbolic (reference an existing thread with the "${SCAFFOLD_THREAD_REF_PREFIX}" prefix instead). ${NOTHING}`,
+        `the key is UUID-shaped; keys must be symbolic (reference an existing thread with the "${THREAD_REF_PREFIX}" prefix instead). ${NOTHING}`,
       );
     const shapeError = nodeShapeError(node, NOTHING);
     if (shapeError !== undefined) return yield* reject(node.key, shapeError);
@@ -78,17 +71,13 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
   const liveIds = new Set(live.map((child) => child.threadId));
   const resolveRef = (key: string, field: string, ref: string) => {
     const text = ref.trim();
-    const existing = threadRefIds(text).find((id) => liveIds.has(id));
+    const existing = threadIdAliases(text).find((id) => liveIds.has(id));
     if (existing !== undefined) return Effect.succeed(existing);
-    if (text.startsWith(SCAFFOLD_THREAD_REF_PREFIX))
+    // A thread reference, in either form: the prefix is optional, so no prefix advice.
+    if (text.startsWith(THREAD_REF_PREFIX) || UUID_SHAPED.test(text))
       return reject(
         key,
         `${field} "${ref}" does not name an active existing child of this parent. ${NOTHING}`,
-      );
-    if (UUID_SHAPED.test(text))
-      return reject(
-        key,
-        `${field} "${ref}" is UUID-shaped but unprefixed — reference an existing thread with the "${SCAFFOLD_THREAD_REF_PREFIX}" prefix, or use a symbolic key. ${NOTHING}`,
       );
     const id = keyToId.get(text);
     return id === undefined

@@ -5,7 +5,6 @@
  *
  * @module mcp/toolkits/workstream/handlers/attention
  */
-import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
@@ -15,9 +14,7 @@ import { dispatch, nowIso } from "./shared.ts";
 
 export const workstreamRequestAttention = Effect.fn("LoomToolkit.workstreamRequestAttention")(
   function* (input: LoomToolInput<"workstream_request_attention">, caller: WorkstreamCaller) {
-    const threadId =
-      input.threadId === undefined ? caller.threadId : ThreadId.make(input.threadId.trim());
-    yield* authoriseTarget(caller, threadId);
+    const threadId = (yield* authoriseTarget(caller, input.threadId))?.threadId ?? caller.threadId;
     yield* dispatch({
       type: "thread.attention.raise",
       commandId: stableCommandId(caller, yield* requestKey(undefined), "workstream-attention"),

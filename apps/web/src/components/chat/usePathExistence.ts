@@ -1,5 +1,9 @@
-import type { EnvironmentId, ProjectPathKind } from "@t3tools/contracts";
-import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import {
+  FILESYSTEM_METADATA_BATCH_LIMIT,
+  type EnvironmentId,
+  type FilesystemEntryMetadata,
+} from "@t3tools/contracts";
+import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 
 import { createBatchedLookupStore } from "~/loom/batchedLookupStore";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -9,62 +13,84 @@ import { projectEnvironment } from "~/state/projects";
  * Verified existence of a resolved chip target. `exists` gates whether a chip
  * becomes a clickable link at all; `isDirectory` routes directory targets to a
  * non-file click behaviour. Only regular, readable files and directories are
- * ever `exists: true` — FIFOs/sockets/devices and unreadable files (server kind
- * `other`) are inert so no chip can click into a read error.
+ * ever `exists: true` — FIFOs/sockets/devices (kind `other`) and missing or
+ * unreadable files (null metadata) are inert so no chip can click into a read
+ * error.
  */
 export interface PathExistence {
   readonly exists: boolean;
   readonly isDirectory: boolean;
 }
 
-type StatFetcher = (
+/** Metadata per path, null when missing or unreadable; a path left out is unverified. */
+type MetadataFetcher = (
   environmentId: EnvironmentId,
   paths: string[],
-) => Promise<ReadonlyArray<{ readonly path: string; readonly kind: ProjectPathKind }>>;
+) => Promise<ReadonlyMap<string, FilesystemEntryMetadata | null>>;
 
-async function defaultStatFetcher(
+// getMetadata's per-path cap; a longer path stays unverified, as for the chip icon.
+const MAX_PATH_LENGTH = 512;
+
+/**
+ * Reads through upstream's per-path file-metadata cache — the one each chip's
+ * own icon fills — so verifying a chip costs no lookup of its own once the icon
+ * has one. Concurrent per-path reads share upstream's batched
+ * `filesystem.getMetadata` requests.
+ */
+async function defaultMetadataFetcher(
   environmentId: EnvironmentId,
   paths: string[],
-): ReturnType<StatFetcher> {
-  const atom = projectEnvironment.statPaths({ environmentId, input: { paths } });
-  const result = await executeAtomQuery(appAtomRegistry, atom, {
-    // The query atom family caches per (environment, path-set) behind an SWR
-    // wrapper that only re-reads when its node recomputes — and re-mounting an
-    // already-computed node neither recomputes it nor lets it expire, because
-    // each mount cancels the idle-TTL disposal. Without this, every
-    // revalidation re-reads the first answer for that path set and a chip
-    // stats `missing` once and stays missing until the page reloads. Freshness
-    // is the store's job (TTL, coalescing, backoff), so the query cache is
-    // deliberately bypassed.
-    refresh: true,
-    reportDefect: false,
-    reportFailure: false,
-  });
-  // A failure returns [], which the store treats as "no path resolved" → backoff.
-  return result._tag === "Success" ? result.value.entries : [];
+): ReturnType<MetadataFetcher> {
+  const entries = await Promise.all(
+    paths
+      .filter((path) => path.length <= MAX_PATH_LENGTH)
+      .map(async (path) => {
+        const result = await executeAtomQuery(
+          appAtomRegistry,
+          projectEnvironment.fileMetadata({ environmentId, input: { path } }),
+          // The query atom only re-reads when its node recomputes, and
+          // re-mounting a computed node does neither, so revalidation would
+          // re-read its first answer forever. Freshness is the store's job (TTL,
+          // coalescing, backoff); the metadata cache's own staleness still holds.
+          { refresh: true, reportDefect: false, reportFailure: false },
+        );
+        // A failure is left out, which the store treats as unverified → backoff.
+        return result._tag === "Success" ? [[path, result.value] as const] : [];
+      }),
+  );
+  return new Map(entries.flat());
 }
 
-// Only files and directories are clickable; `other` (non-regular or
-// unreadable) and `missing` render inert.
-const existenceForKind = (kind: ProjectPathKind): PathExistence => ({
-  exists: kind === "file" || kind === "directory",
-  isDirectory: kind === "directory",
+/** Drops the cached metadata for a path so the next read asks the server. */
+const defaultInvalidate = (environmentId: EnvironmentId, path: string) =>
+  runAtomCommand(
+    appAtomRegistry,
+    projectEnvironment.invalidateFileMetadata,
+    { environmentId, input: { paths: [path] } },
+    { reportDefect: false, reportFailure: false },
+  );
+let invalidate: (environmentId: EnvironmentId, path: string) => Promise<unknown> =
+  defaultInvalidate;
+
+// Only files and directories are clickable; `other` and null render inert.
+const existenceFor = (metadata: FilesystemEntryMetadata | null): PathExistence => ({
+  exists: metadata?.kind === "file" || metadata?.kind === "directory",
+  isDirectory: metadata?.kind === "directory",
 });
 
 const toStoreFetcher =
-  (fetchStats: StatFetcher) => async (environmentId: EnvironmentId, paths: string[]) =>
+  (fetchMetadata: MetadataFetcher) => async (environmentId: EnvironmentId, paths: string[]) =>
     new Map(
-      (await fetchStats(environmentId, paths)).map(({ path, kind }) => [
+      [...(await fetchMetadata(environmentId, paths))].map(([path, metadata]) => [
         path,
-        existenceForKind(kind),
+        existenceFor(metadata),
       ]),
     );
 
-/** Batched, TTL-revalidated stats for absolute paths; see `createBatchedLookupStore`. */
+/** Batched, TTL-revalidated existence for absolute paths; see `createBatchedLookupStore`. */
 const store = createBatchedLookupStore<PathExistence>({
-  fetch: toStoreFetcher(defaultStatFetcher),
-  // Must not exceed the ProjectStatPathsInput cap (200).
-  batchMax: 200,
+  fetch: toStoreFetcher(defaultMetadataFetcher),
+  batchMax: FILESYSTEM_METADATA_BATCH_LIMIT,
 });
 
 /**
@@ -75,19 +101,27 @@ const store = createBatchedLookupStore<PathExistence>({
 export const registerPathInterest = store.register;
 
 /**
- * Mark a known path due for an immediate re-stat. This is how a chip the server
- * once called missing gets back: background revalidation is bounded by the TTL,
- * and a human who doubts a "missing?" chip hovers it.
+ * Re-check a known path from the server soon. This is how a chip the server
+ * once called missing gets back: background revalidation is bounded by the TTL
+ * and the metadata cache, and a human who doubts a "missing?" chip hovers it.
  */
-export const revalidatePathExistence = store.revalidate;
+export function revalidatePathExistence(environmentId: EnvironmentId, path: string): void {
+  void invalidate(environmentId, path).then(() => store.revalidate(environmentId, path));
+}
 
 /**
- * Stat one path right now, bypassing the TTL. A chip rendered while its file
- * existed keeps looking live after the file moves, so a click re-verifies
- * through here first. A failed RPC resolves to the last-known value, so an
- * unhealthy stat never blocks an open.
+ * Check one path with the server right now, bypassing the TTL and the metadata
+ * cache. A chip rendered while its file existed keeps looking live after the
+ * file moves, so a click re-verifies through here first. A failed RPC resolves
+ * to the last-known value, so an unhealthy check never blocks an open.
  */
-export const refreshPathExistence = store.refresh;
+export async function refreshPathExistence(
+  environmentId: EnvironmentId,
+  path: string,
+): Promise<PathExistence | undefined> {
+  await invalidate(environmentId, path);
+  return store.refresh(environmentId, path);
+}
 
 /** Read the last-known existence for a path, or undefined if unverified. */
 export const readPathExistence = store.read;
@@ -95,12 +129,13 @@ export const readPathExistence = store.read;
 /**
  * Resolve existence for a set of absolute candidate paths. The lookup yields
  * `undefined` while a path is unverified (render it inertly, never as a dead
- * link). When `environmentId` is null (e.g. the /preview harness) nothing is
- * verified and the lookup always returns `undefined`.
+ * link). When `environmentId` is null nothing is verified and the lookup always
+ * returns `undefined`.
  */
 export const usePathExistence = store.useLookup;
 
-/** Test-only: override the stat fetcher and reset all module state. */
-export function __setStatFetcherForTests(fetcher: StatFetcher | null): void {
+/** Test-only: override the metadata fetcher (and skip cache invalidation) and reset all module state. */
+export function __setMetadataFetcherForTests(fetcher: MetadataFetcher | null): void {
+  invalidate = fetcher ? () => Promise.resolve() : defaultInvalidate;
   store.resetForTests(fetcher ? toStoreFetcher(fetcher) : null);
 }

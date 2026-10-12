@@ -8,7 +8,7 @@
  *
  * @module mcp/toolkits/workstream/handlers/outcome
  */
-import { type LoomGateWarningKind, ThreadId } from "@t3tools/contracts";
+import type { LoomGateWarningKind } from "@t3tools/contracts";
 import { isMemberOfUnresolvedGate } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 
@@ -33,10 +33,7 @@ export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome"
   input: LoomToolInput<"workstream_set_outcome">,
   caller: WorkstreamCaller,
 ) {
-  const row = yield* authoriseTarget(
-    caller,
-    input.threadId === undefined ? undefined : ThreadId.make(input.threadId.trim()),
-  );
+  const row = yield* authoriseTarget(caller, input.threadId);
   const threadId = row?.threadId ?? caller.threadId;
   if (input.outcome === "done" && threadId === caller.threadId && row !== null) {
     const tree = yield* asToolError(
