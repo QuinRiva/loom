@@ -189,7 +189,8 @@ describe("ProjectSetupScriptRunner (loom)", () => {
             type: "output",
             threadId: "thread-1",
             terminalId: "setup-setup",
-            data: `${sentinel}${settle}\r\n`,
+            // The prompt redraw after the sentinel is what upstream's completion waits for.
+            data: `${sentinel}${settle}\r\n$ `,
           });
           return {
             state: yield* awaitStateStatus(settle === 0 ? "ready" : "failed"),
@@ -218,6 +219,57 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       });
       expect(closeIdle).not.toHaveBeenCalled();
     }),
+  );
+
+  // The breadcrumb describes setup; a settle script (cargo clean, …) must neither rewrite it
+  // nor have its command rewritten or wrapped (overlap D4).
+  it.effect("a settle run leaves the setup breadcrumb and the settle command untouched", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectory({ prefix: "t3-settle-state-" });
+      const worktreePath = path.join(dir, "worktree");
+      const gitDir = path.join(dir, "gitdir");
+      yield* fs.makeDirectory(worktreePath);
+      yield* fs.makeDirectory(gitDir);
+      yield* fs.writeFileString(path.join(worktreePath, ".git"), `gitdir: ${gitDir}\n`);
+      yield* fs.writeFileString(path.join(worktreePath, "pnpm-lock.yaml"), "");
+      const statePath = path.join(gitDir, WORKTREE_SETUP_STATE_FILE);
+      const ready = '{"status":"ready","scriptId":"setup"}';
+      yield* fs.writeFileString(statePath, ready);
+      const project = makeProject("bun install", worktreePath);
+      const write = vi.fn((_input: Parameters<TerminalService["write"]>[0]) => Effect.void);
+
+      yield* runWith(
+        {
+          ...project,
+          scripts: [
+            ...project.scripts,
+            {
+              id: "clean",
+              name: "Clean",
+              command: "bun install",
+              icon: "configure" as const,
+              runOnWorktreeCreate: false,
+              runOnSettle: true,
+            },
+          ],
+        },
+        { open: () => Effect.succeed(terminalSession(worktreePath)), write },
+        Effect.gen(function* () {
+          const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+          yield* runner.runForThread({
+            threadId: "thread-1",
+            projectCwd: worktreePath,
+            worktreePath,
+            trigger: "settle",
+          });
+        }),
+      );
+
+      expect(write.mock.calls[0]?.[0].data).toBe("bun install\r");
+      expect(yield* fs.readFileString(statePath)).toBe(ready);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   // Nothing upstream settles a hung script, and an agent polling `pending`

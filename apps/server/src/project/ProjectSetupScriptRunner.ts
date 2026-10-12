@@ -417,16 +417,18 @@ export const make = Effect.gen(function* () {
       // Keep TERM's 256-color support without advertising truecolor here.
       COLORTERM: "",
     };
-    // loom: every run is observed, not only the ones a caller watches, because
-    // the worktree-readiness breadcrumb is written for every run.
-    const observe = input.observeCompletion ?? {};
+    // loom: every setup run is observed, not only the ones a caller watches, because
+    // it writes the worktree-readiness breadcrumb. Settle runs stay upstream's: no
+    // breadcrumb (it describes setup), no install rewrite, observed only on request.
+    const breadcrumb = trigger === "setup";
+    const observe = breadcrumb ? (input.observeCompletion ?? {}) : input.observeCompletion;
     const completionToken = observe
       ? (yield* crypto.randomUUIDv4.pipe(Effect.orDie)).replaceAll("-", "")
       : null;
     const commandLine =
       observe && completionToken
         ? wrapCommandForCompletion(
-            yield* setupInstallCommand(fs, path, cwd, script.command), // loom
+            breadcrumb ? yield* setupInstallCommand(fs, path, cwd, script.command) : script.command, // loom
             completionShell,
             completionSentinel(completionToken),
           )
@@ -464,8 +466,11 @@ export const make = Effect.gen(function* () {
           })
         : undefined;
 
+    // loom: breadcrumb (setup runs only)
+    const writeSetupState = (state: Parameters<typeof writeWorktreeSetupState>[3]) =>
+      breadcrumb ? writeWorktreeSetupState(fs, path, cwd, state) : Effect.void;
     const setupStateBase = { scriptId: script.id, scriptName: script.name }; // loom: breadcrumb
-    yield* writeWorktreeSetupState(fs, path, cwd, { ...setupStateBase, status: "pending" }); // loom
+    yield* writeSetupState({ ...setupStateBase, status: "pending" }); // loom
     yield* terminalManager
       .write({
         threadId: input.threadId,
@@ -485,7 +490,7 @@ export const make = Effect.gen(function* () {
         Effect.tapError(() => Effect.sync(() => observed?.unsubscribe())),
         // loom: breadcrumb
         Effect.tapError((error) =>
-          writeWorktreeSetupState(fs, path, cwd, {
+          writeSetupState({
             ...setupStateBase,
             status: "failed",
             detail: error.message,
@@ -511,7 +516,7 @@ export const make = Effect.gen(function* () {
       yield* Fiber.join(run).pipe(
         Effect.timeoutOption(SETUP_STATE_TIMEOUT),
         Effect.flatMap((result) =>
-          writeWorktreeSetupState(fs, path, cwd, {
+          writeSetupState({
             ...setupStateBase,
             ...settledWorktreeSetupState(result),
           }),

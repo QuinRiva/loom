@@ -83,7 +83,6 @@ const layer = (baseDir: string, options?: HarnessOptions) =>
           ),
     ),
     Layer.provideMerge(RuntimeLayer.layerProjectService),
-    Layer.provideMerge(ServerSettings.layerTest()), // loom: #292
     Layer.provideMerge(layerEnrichment),
     Layer.provideMerge(WorkspacePaths.layer),
     Layer.provideMerge(layerGitWorkflow(options?.vcsProcess)),
