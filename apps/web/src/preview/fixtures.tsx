@@ -380,12 +380,14 @@ const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 - Present: \`src/main.ts\` renders upstream's live chip.
 - Missing: \`src/removed-by-a-refactor.ts\` was moved or deleted, so it must NOT look clickable.
 - Non-file link: [the upstream repo](https://github.com/pingdotgg/t3code) is untouched by the seam.
-- Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) stays a thread chip.
+- Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) renders as a plain link.
 `;
 
-// loom: guards the `thread:` sanitiser allow-list — without it the mention
-// renders as an href-less `<a>` that does nothing on click.
-const THREAD_MENTION_MARKDOWN = `Ask [Use the mcp__t3-code__ask_user_question tool](thread://6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4).
+// loom: `t3-thread://v1/<id>` mentions (Loom's composer projection and agents'
+// prose) render as upstream's thread chip; the retired `thread://` form is a plain link.
+const THREAD_MENTION_MARKDOWN = `Ask [Use the mcp__t3-code__ask_user_question tool](t3-thread://v1/6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [the orchestrator](t3-thread://v1/thread:mcp:139c953e:workstream-scaffold:ac2f8496:4).
+
+Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) is plain text now.
 
 A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
 `;
@@ -1188,12 +1190,21 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "/Users/julius/project",
         true,
       ),
-      markdownFixture(
-        "thread-mention",
-        "Thread mentions (thread://)",
-        THREAD_MENTION_MARKDOWN,
-        "loom: an assistant `[Title](thread://<id>)` mention must render as a thread chip. Regression guard for the sanitiser stripping the thread: protocol, which left a dead href-less anchor.",
-      ),
+      {
+        id: "thread-mention",
+        title: "Thread mentions (t3-thread://)",
+        description:
+          "loom: an assistant `[Title](t3-thread://v1/<id>)` mention renders as upstream's thread chip — the live title once the thread is in this environment, otherwise the written label with a 'Thread no longer available' tooltip (the harness has no backend, so it shows the latter). Colon-bearing workstream ids survive. A legacy `thread://` mention renders as plain text.",
+        render: () => (
+          <TimelineLayoutFrame>
+            <ChatMarkdown
+              text={THREAD_MENTION_MARKDOWN}
+              cwd={undefined}
+              environmentId={EnvironmentId.make("preview-environment")}
+            />
+          </TimelineLayoutFrame>
+        ),
+      },
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
       markdownFixture(
@@ -1219,7 +1230,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: "file-chip-states",
         title: "File chips: present, missing, non-file link",
         description:
-          "loom's verification seam over upstream's chip renderer: an existing path renders upstream's chip unchanged, a path the server reports as gone renders muted with a 'missing — moved or deleted?' tooltip instead of a dead link, and a plain web link is untouched. The legacy thread:// mention keeps its thread chip.",
+          "loom's verification seam over upstream's chip renderer: an existing path renders upstream's chip unchanged, a path the server reports as gone renders muted with a 'missing — moved or deleted?' tooltip instead of a dead link, and a plain web link is untouched. The legacy thread:// mention renders as a plain link.",
         render: () => <FileChipStatesFixture />,
       },
       {

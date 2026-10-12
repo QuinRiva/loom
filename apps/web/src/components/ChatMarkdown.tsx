@@ -125,10 +125,8 @@ import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
 import { FileTagChipContent } from "./chat/FileTagChip";
 // loom: artifact-viewer routing for `.html` chips.
 import { isArtifactViewerPath } from "./artifact/artifactView";
-// loom: file-chip existence verification and legacy thread links.
+// loom: file-chip existence verification.
 import {
-  THREAD_LINK_HREF_PREFIX,
-  ThreadLinkChip,
   useScannedPathTargets,
   useUnanchoredInlineCodeChip,
   useVerifiedFileLinkChip,
@@ -223,6 +221,7 @@ import {
 import { useOpenLink } from "../browser/useOpenLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
+import { isPreviewSupportedInRuntime } from "../previewStateStore"; // loom: artifact-viewer gate
 import {
   isBrowserPreviewFile,
   openFileInPreview,
@@ -2549,9 +2548,6 @@ function useChatMarkdownState({
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref]);
   const markdownUrlTransform = useCallback((href: string) => {
-    // loom: legacy `thread://` mentions are the wire form the provider
-    // projection still emits, so they survive react-markdown's URL sanitiser.
-    if (href.startsWith(THREAD_LINK_HREF_PREFIX)) return href;
     if (parseAssistantCitationHref(href)) return href;
     if (parseComposerContextHref(href)) return href;
     if (parseThreadLinkHref(href)) return href;
@@ -3128,18 +3124,6 @@ const CHAT_MARKDOWN_COMPONENTS = {
       renderContextReference,
       text,
     } = use(ChatMarkdownRendererContext);
-    // loom: a `[Title](thread://<id>)` mention renders as a thread chip rather
-    // than a dead external link, and opens that thread when it is one this
-    // environment still has.
-    if (href?.startsWith(THREAD_LINK_HREF_PREFIX)) {
-      return (
-        <ThreadLinkChip
-          label={plainHastText(node) || "thread"}
-          threadId={href.slice(THREAD_LINK_HREF_PREFIX.length)}
-          environmentId={environmentId}
-        />
-      );
-    }
     const citation = href ? parseAssistantCitationHref(href) : null;
     if (citation) return <AssistantCitationChip citation={citation} />;
     // A thread link names a thread in this message's environment and opens it in the app.

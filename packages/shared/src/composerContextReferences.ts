@@ -10,6 +10,7 @@ import {
 // loom: MDX-plan annotations anchor to a passage, and their anchor detail is
 // part of the payload the agent needs.
 import { planCommentAnchorDetails } from "./planCommentAnchor.loom.ts";
+import { formatThreadLink } from "./threadLinks.ts"; // loom: DL-752
 
 /**
  * Canonical inline reference: `[label](t3-context://v1/<kind>/<contextId>)`, or the image
@@ -301,11 +302,11 @@ export function projectComposerContextForProvider(input: {
   }
   const body = replaceComposerContextReferences(input.text, (occurrence) => {
     const record = recordsById.get(occurrence.contextId);
-    // loom: a thread goes inline as `[Title](thread://<id>)`, the form Loom's
+    // loom: a thread goes inline as `[Title](t3-thread://v1/<id>)`, the form Loom's
     // consult_thread documents; Loom withholds upstream's t3_thread_read (DL-752).
     // (`"threadId" in record` also narrows away the open unknown-kind record.)
     if (record?.kind === "thread" && "threadId" in record)
-      return `[${occurrence.label}](thread://${record.threadId})`;
+      return formatThreadLink(record.threadId, occurrence.label);
     return formatComposerContextProviderMarker(
       record?.kind ?? occurrence.kind,
       occurrence.label,
