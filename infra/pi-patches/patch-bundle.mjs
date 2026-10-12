@@ -5,13 +5,13 @@
  * Since pi 0.84 the published `bin.pi` is `dist/bundle/cli.js` — an esbuild
  * bundle of the whole CLI into `dist/bundle/chunks/chunk-<hash>.js` files. The
  * readable `dist/` tree still ships (it is the package's `exports` entry) and
- * the `0001`/`0002` diffs still apply to it, but patching it alone leaves the
- * binary Loom actually runs unpatched. Hence this script: the same two changes,
+ * the `000N` diffs still apply to it, but patching it alone leaves the
+ * binary Loom actually runs unpatched. Hence this script: the same changes,
  * expressed as anchored replacements against the minified chunk.
  *
  * It is deliberately strict — every anchor must match the expected number of
  * times or nothing is written — so a pi bump whose bundle drifted fails loudly
- * instead of silently shipping an unpatched auth/session path.
+ * instead of silently shipping an unpatched pi.
  *
  * Usage: node infra/pi-patches/patch-bundle.mjs <pi-package-root> [--check]
  */
@@ -23,8 +23,9 @@ import * as NodePath from "node:path";
  * Since 0.99 esbuild splits the auth storage and the CLI's `main()` into
  * separate chunks (0.84–0.87 had both in one), so each patch names the chunk
  * it lands in by a string only that chunk contains, carries its own header,
- * and is marked — and so made idempotent — by the helper that header defines.
- * Both targets resolving to one chunk (the older layout) works the same way.
+ * and is marked — and so made idempotent — by a string only the patched chunk
+ * contains. Several targets resolving to one chunk (0001 and 0003 since 0.99;
+ * all of them on 0.84–0.87) works the same way.
  *
  * Headers are prepended to their chunk: the fs helpers the minified call sites
  * below need. Names are `__loom`-prefixed so they cannot collide with esbuild's
@@ -93,6 +94,10 @@ function __loomResolveRpcCwdOverride(cwdOverride) {
   }
   return { cwdOverride: resolved };
 }
+`;
+
+const IDLE_HORIZON_HEADER = `
+// LOOM PATCH — see infra/pi-patches/README.md (0003 idle cache-warming horizon, PI_CACHE_WARMING_IDLE_MAX_MS).
 `;
 
 /**
@@ -182,6 +187,26 @@ const TARGETS = [
       ],
     ],
   },
+  {
+    patch: "0003",
+    locator: "MAX_IDLE_WARMING_AGE_MS",
+    marker: "PI_CACHE_WARMING_IDLE_MAX_MS",
+    header: IDLE_HORIZON_HEADER,
+    edits: [
+      [
+        "0003 idle warming horizon reads PI_CACHE_WARMING_IDLE_MAX_MS",
+        /MAX_IDLE_WARMING_AGE_MS=30\*6e4/g,
+        "MAX_IDLE_WARMING_AGE_MS=Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS)||30*6e4",
+        1,
+      ],
+      [
+        "0003 idle safety-limit reason names the configured horizon",
+        /"30-minute idle safety limit reached"/g,
+        "`${MAX_IDLE_WARMING_AGE_MS/6e4}-minute idle safety limit reached`",
+        2,
+      ],
+    ],
+  },
 ];
 
 const root = process.argv[2];
@@ -197,7 +222,7 @@ const chunkPaths = NodeFS.readdirSync(chunkDir)
   .map((name) => NodePath.join(chunkDir, name));
 
 // Every target is computed before anything is written, so a drifted anchor in
-// either leaves the package untouched. Both targets may share one chunk.
+// any leaves the package untouched. Targets may share one chunk.
 const pending = new Map();
 let unpatched = false;
 for (const { patch, locator, marker, header, edits } of TARGETS) {

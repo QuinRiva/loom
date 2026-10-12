@@ -1,0 +1,34 @@
+--- a/dist/core/cache-warmer.js
++++ b/dist/core/cache-warmer.js
+@@ -2,8 +2,11 @@
+ import { getProviderEnvValue } from "@earendil-works/pi-ai/utils/provider-env";
+ /** Streaming warming never continues past this long after the real request that started it. */
+ const MAX_WARMING_AGE_MS = 60 * 60_000;
+-/** Idle warming uses a shorter horizon because continuation estimates become less reliable with age. */
+-const MAX_IDLE_WARMING_AGE_MS = 30 * 60_000;
++/**
++ * Idle warming uses a shorter horizon because continuation estimates become less reliable with age.
++ * LOOM PATCH (0003): `PI_CACHE_WARMING_IDLE_MAX_MS` overrides it per process; unset keeps 30 minutes.
++ */
++const MAX_IDLE_WARMING_AGE_MS = Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS) || 30 * 60_000;
+ /** A refresh is sent only when it is expected to save at least this many dollars. */
+ const CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS = 0.05;
+ /**
+@@ -157,7 +160,7 @@
+         run.phase = "idle";
+         const deadline = run.startedAt + MAX_IDLE_WARMING_AGE_MS;
+         if (run.nextWarmAt > deadline || Date.now() >= deadline) {
+-            this.stop("30-minute idle safety limit reached");
++            this.stop(`${MAX_IDLE_WARMING_AGE_MS / 60_000}-minute idle safety limit reached`);
+         }
+     }
+     /** Reconcile an active run after the persisted warming mode changes. */
+@@ -194,7 +197,7 @@
+         run.refreshDeadlineAt = run.nextWarmAt + Math.floor((run.ttlMs - run.delayMs) / 2);
+         const deadline = run.startedAt + (run.phase === "idle" ? MAX_IDLE_WARMING_AGE_MS : MAX_WARMING_AGE_MS);
+         if (run.nextWarmAt > deadline || Date.now() >= deadline) {
+-            this.stop(run.phase === "idle" ? "30-minute idle safety limit reached" : "one-hour safety limit reached");
++            this.stop(run.phase === "idle" ? `${MAX_IDLE_WARMING_AGE_MS / 60_000}-minute idle safety limit reached` : "one-hour safety limit reached");
+             return;
+         }
+         run.timer = setTimeout(() => void this.refresh(run), Math.max(0, run.nextWarmAt - Date.now()));
