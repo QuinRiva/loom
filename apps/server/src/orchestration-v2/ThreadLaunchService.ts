@@ -23,6 +23,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber"; // loom: cancel interrupts the branch rename
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -317,6 +318,7 @@ const make = Effect.gen(function* () {
     let createdWorktreePath: string | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
+    let branchRename: Fiber.Fiber<unknown> | null = null; // loom: cancel interrupts it (below)
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
@@ -505,7 +507,8 @@ const make = Effect.gen(function* () {
       ) {
         const oldBranch = branch;
         const worktreeCwd = worktreePath;
-        yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
+        // loom: the handle lets a cancel interrupt the rename
+        branchRename = yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
           Effect.flatMap(({ branch: newBranch, exactName }) =>
             git.renameBranch({
               cwd: worktreeCwd,
@@ -641,6 +644,8 @@ const make = Effect.gen(function* () {
           // the thread recorded, so a retry reuses it, and removes one it never
           // recorded, which a retry would otherwise duplicate.
           if (tracked && createdWorktreePath && (cancelled || !workspaceRecorded)) {
+            // loom: a rename still in flight would re-record the removed worktree after the cancel clears it.
+            if (branchRename) yield* Fiber.interrupt(branchRename);
             if (setupTerminalId)
               yield* terminals
                 .close({ threadId, terminalId: setupTerminalId, deleteHistory: true })
