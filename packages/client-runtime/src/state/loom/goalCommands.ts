@@ -20,8 +20,6 @@ export function createLoomCommandAtoms<R, E>(
     createEnvironmentRpcCommand(runtime, { label: `environment-data:${tag}`, tag });
   return {
     goalUpdate: command(LOOM_WS_METHODS.goalUpdate),
-    goalArchive: command(LOOM_WS_METHODS.goalArchive),
-    goalUnarchive: command(LOOM_WS_METHODS.goalUnarchive),
     goalTaskRewrite: command(LOOM_WS_METHODS.goalTaskRewrite),
     handoffDraft: command(LOOM_WS_METHODS.handoffDraft),
     retroDraft: command(LOOM_WS_METHODS.retroDraft),

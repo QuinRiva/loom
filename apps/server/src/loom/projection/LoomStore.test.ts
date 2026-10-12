@@ -341,8 +341,6 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       yield* store.tasks.upsert({ ...task("t2", null, 0), goalId, done: true });
       assert.isTrue((yield* store.tasks.listByGoal(goalId))[0]?.done);
 
-      assert.isNotNull((yield* store.goals.archive(goalId))?.archivedAt);
-      assert.isNull((yield* store.goals.unarchive(goalId))?.archivedAt);
       const deleted = yield* store.goals.softDeleteByProject(projectId);
       assert.deepEqual(
         deleted.map((entry) => entry.id),

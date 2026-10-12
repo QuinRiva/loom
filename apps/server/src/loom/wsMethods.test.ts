@@ -51,10 +51,6 @@ it.layer(TestLayer)("loom ws goal methods", (it) => {
 
         const renamed = yield* handlers[LOOM_WS_METHODS.goalUpdate]({ goalId, title: "Renamed" });
         assert.strictEqual(renamed.goal.title, "Renamed");
-        const archived = yield* handlers[LOOM_WS_METHODS.goalArchive]({ goalId });
-        assert.isNotNull(archived.goal.archivedAt);
-        const unarchived = yield* handlers[LOOM_WS_METHODS.goalUnarchive]({ goalId });
-        assert.isNull(unarchived.goal.archivedAt);
 
         // Branch rewrite: tick A1 and add a child under A; B is untouched.
         const branch = yield* handlers[LOOM_WS_METHODS.goalTaskRewrite]({
@@ -85,7 +81,7 @@ it.layer(TestLayer)("loom ws goal methods", (it) => {
         const published = yield* PubSub.takeAll(subscription);
         assert.deepStrictEqual(
           published.map((item) => (item.kind === "goal.updated" ? item.goal.title : item.kind)),
-          ["Renamed", "Renamed", "Renamed", "Renamed"],
+          ["Renamed", "Renamed"],
         );
         assert.strictEqual(
           (published.at(-1) as { goal: { tasks: ReadonlyArray<unknown> } }).goal.tasks.length,
