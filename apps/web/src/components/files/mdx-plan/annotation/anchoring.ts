@@ -562,7 +562,7 @@ export function resolveAnchor(
     } catch {
       return null; // malformed selector → detached rather than throw
     }
-    if (artboard && anchor.textQuote) {
+    if (artboard?.getAttribute("data-plan-block-type") === "html") {
       // An in-frame HtmlBlock pin. Until the (lazy) frame has parsed, ring the
       // whole host block so the comment stays visible rather than "detached".
       const frame = artboard.querySelector("iframe");

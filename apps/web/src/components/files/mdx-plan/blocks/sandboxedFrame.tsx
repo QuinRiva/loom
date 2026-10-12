@@ -39,8 +39,9 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  * that origin is OUR host code, which only reads text and geometry. What
  * same-origin DOES change is that the frame's own requests become same-site,
  * credentialed requests to the app (cookies ride along), so every way static
- * HTML can make a request must be shut — CSP for fetches, a parse pass
- * ({@link inertSrcDoc}) for the navigations CSP has no directive for:
+ * HTML can make a request must be shut — CSP for fetches; for the navigations
+ * CSP has no directive for, a parse pass ({@link inertSrcDoc}) and a click guard
+ * ({@link blockLinkActivation}):
  *   - subresources (`<img>`, `<link>`, CSS `url()` / `@import` / `@font-face`,
  *     `<video>`/`<audio>`, `<object>`, nested frames, SVG `<image>`/`<use>`):
  *     {@link HTML_CSP} — `default-src 'none'`, only `data:` images/fonts and
@@ -48,9 +49,12 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  *   - `<form action>`: no `allow-forms`, plus `form-action 'none'`;
  *   - `<base href>`: `base-uri 'none'` (and stripped);
  *   - `<meta http-equiv="refresh">` (self-navigation on load): stripped;
- *   - link clicks (`<a href>`, `<area>`, SVG `<a>`, any `target`): every
- *     non-fragment `href` is stripped, and there is no `allow-popups` /
- *     `allow-top-navigation` for a `target` to use anyway.
+ *   - link clicks (`<a>`, `<area>`, SVG `<a>`, any `target`): activation is
+ *     cancelled on load, whatever the `href` — stripping attributes cannot work,
+ *     since an `href` can arrive after parse (declarative shadow DOM, SVG SMIL
+ *     `<set attributeName="href">`). No `allow-popups` / `allow-top-navigation`
+ *     for a `target` to use either. Residual: a click in the few ms between first
+ *     paint and `load`, before the guard is attached.
  */
 
 /** Prototype iframe sandbox: interactive (scripts + forms) but opaque origin —
@@ -77,31 +81,21 @@ export const HTML_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; " +
   "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-/** Strip what can navigate the same-origin HtmlBlock frame (CSP has no navigation
- * directive): every `<meta http-equiv>` except an extra CSP (which can only
- * tighten), `<base>`, and every non-fragment `href` / `xlink:href` (links, image
- * maps, SVG `<a>`/`<use>`). Parsed with the inert `DOMParser` (no fetch, no
- * script), then re-parsed to confirm the serialisation did not resurrect one
- * (mutation-XSS style) — if it did, the frame gets nothing. */
+/** Strip what navigates the same-origin HtmlBlock frame on its own, on load (CSP
+ * has no navigation directive): every `<meta http-equiv>` except an extra CSP
+ * (which can only tighten) — i.e. `refresh` — and `<base>`. Parsed with the inert
+ * `DOMParser` (no fetch, no script), then re-parsed to confirm the serialisation
+ * did not resurrect one (mutation-XSS style) — if it did, the frame gets nothing.
+ * Link CLICKS are {@link blockLinkActivation}'s job. */
 export function inertSrcDoc(srcDoc: string): string {
   // Returns whether anything was stripped.
   const strip = (doc: Document) => {
-    const doomed = [
-      ...Array.from(doc.querySelectorAll("meta[http-equiv], base")).filter(
-        (el) =>
-          el.tagName === "BASE" ||
-          el.getAttribute("http-equiv")!.toLowerCase() !== "content-security-policy",
-      ),
-      ...Array.from(doc.querySelectorAll("*"), (el) =>
-        Array.from(el.attributes).filter(
-          (attr) => attr.localName === "href" && !attr.value.trim().startsWith("#"),
-        ),
-      ).flat(),
-    ];
-    for (const node of doomed) {
-      if (node instanceof Attr) node.ownerElement?.removeAttributeNode(node);
-      else node.remove();
-    }
+    const doomed = Array.from(doc.querySelectorAll("meta[http-equiv], base")).filter(
+      (el) =>
+        el.tagName === "BASE" ||
+        el.getAttribute("http-equiv")!.toLowerCase() !== "content-security-policy",
+    );
+    for (const el of doomed) el.remove();
     return doomed.length > 0;
   };
   const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
@@ -110,6 +104,23 @@ export function inertSrcDoc(srcDoc: string): string {
   const out = `<!doctype html>${doc.documentElement.outerHTML}`;
   return strip(parse(out)) ? "" : out;
 }
+
+/** Cancel every link activation in an HtmlBlock frame's document: a capture-phase
+ * `click` (mouse, or Enter on a focused link) whose composed path — which crosses
+ * shadow roots — passes through an `<a>`/`<area>` (HTML or SVG). Other clicks
+ * keep their default, so `<details>`/`<summary>` in a mockup still toggle. */
+export function blockLinkActivation(doc: Document): void {
+  doc.addEventListener(
+    "click",
+    (event) => {
+      // `localName` is undefined on the path's Document/Window entries.
+      if (event.composedPath().some((node) => LINK_TAGS.has((node as Element).localName)))
+        event.preventDefault();
+    },
+    true,
+  );
+}
+const LINK_TAGS = new Set(["a", "area"]);
 
 /** Wrap an author HTML fragment in a minimal document carrying the CSP `<meta>`.
  * The CSP uses single-quoted keywords, safe to embed in the double-quoted
@@ -164,6 +175,15 @@ function SandboxedHtmlFrame({
         title={title}
         sandbox={sandbox}
         srcDoc={srcDoc}
+        // Each srcdoc (re)load is a fresh document, guarded again.
+        onLoad={
+          inert
+            ? (event) => {
+                const doc = event.currentTarget.contentDocument;
+                if (doc) blockLinkActivation(doc);
+              }
+            : undefined
+        }
         loading="lazy"
         className="block w-full border-0 bg-white"
         style={{ height }}

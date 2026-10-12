@@ -893,7 +893,7 @@ const MDX_HTML_BLOCK_CARDS_HTML = [
   "<section class='opt'><h3>A · Dot on the row</h3><p>A small accent dot after the title marks agent-started threads.</p><div class='row'>Reconcile tenant audit gaps •</div></section>",
   "<section class='opt'><h3>B · Glyph before the title</h3><p>A robot glyph leads the row, so the cue reads before the title does.</p><div class='row'><span class='glyph'>⚙</span>Reconcile tenant audit gaps</div></section>",
   "<section class='opt'><h3>C · Tinted row</h3><p>The whole row takes a faint accent tint instead of a glyph.</p><div class='row' style='background:#0c1a2b'>Reconcile tenant audit gaps</div></section>",
-  "<section class='opt'><h3>D · Link that goes nowhere</h3><p>Links are stripped: <a href='/api/x'>clicking this</a> must not navigate the frame.</p></section>",
+  "<section class='opt'><h3>D · Link that goes nowhere</h3><p>Links are inert: <a href='/api/x'>clicking this</a> must not navigate the frame.</p></section>",
   "</div></body></html>",
 ].join("");
 

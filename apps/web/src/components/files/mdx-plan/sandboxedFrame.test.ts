@@ -12,6 +12,7 @@ import { assignBlockIds, compilePlanMdx } from "./MdxPlanRenderer";
 import {
   HTML_CSP,
   HTML_SANDBOX,
+  blockLinkActivation,
   HtmlBlockRead,
   inertSrcDoc,
   PROTOTYPE_CSP,
@@ -25,8 +26,8 @@ import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock 
  * untrusted-content boundary: the iframe sandbox + `srcdoc` CSP is THE security
  * mechanism (D9). These lock in the exact `sandbox`/CSP invariants a security
  * review depends on — no `allow-same-origin` on the prototype; on HtmlBlock
- * `allow-same-origin` alone (never with scripts), a CSP with no `'self'`, and no
- * author navigation paths — plus whole-block annotatability and the MDX wire
+ * `allow-same-origin` alone (never with scripts), a CSP with no `'self'`, no
+ * load-time navigation, and no link activation — plus whole-block annotatability and the MDX wire
  * round-trip.
  */
 
@@ -90,22 +91,38 @@ describe("HtmlBlock iframe — static, scripts fully disabled, same-origin", () 
     expect(HTML_CSP).not.toMatch(/https?:/);
   });
 
-  it("strips every author path that navigates the frame (CSP has no navigation directive)", () => {
+  it("strips what navigates the frame on load (CSP has no navigation directive)", () => {
     const srcdoc = renderHtmlBlock(
       `<meta http-equiv="refresh" content="0;url=/api/x"><base href="/">` +
-        `<a href="/api/a" target="_top">a</a><a href="#frag">f</a>` +
-        `<map><area href="/api/b"></map>` +
-        `<svg><a href="/api/c"><text>c</text></a><use xlink:href="/api/d#e"/><use href="#ok"/></svg>` +
-        `<p style="color:red">kept</p>`,
+        `<a href="/api/a">a</a><p style="color:red">kept</p>`,
     )
       .querySelector("iframe")!
       .getAttribute("srcdoc")!;
-    expect(srcdoc).not.toMatch(/refresh|<base|\/api\//);
-    expect(srcdoc).toContain('href="#frag"'); // in-document fragments are harmless
-    expect(srcdoc).toContain('href="#ok"');
+    expect(srcdoc).not.toMatch(/refresh|<base/);
     expect(srcdoc).toContain(`content="${HTML_CSP}"`); // our CSP meta survives
     expect(srcdoc).toContain('<p style="color:red">kept</p>');
     expect(inertSrcDoc(srcdoc)).toBe(srcdoc); // idempotent
+  });
+
+  it("cancels every link activation, including links an href strip cannot see", () => {
+    const doc = document.implementation.createHTMLDocument();
+    blockLinkActivation(doc);
+    doc.body.innerHTML =
+      `<a href="/api/a">a</a><map><area href="/api/b"></map>` +
+      `<svg><a><rect/></a></svg><div id="host"></div>` +
+      `<details><summary>s</summary>body</details>`;
+    // A link inside a shadow root (what declarative shadow DOM produces).
+    const shadow = doc.getElementById("host")!.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<a href="/api/c"><span>c</span></a>`;
+    const click = (el: Element) =>
+      !el.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, composed: true }),
+      );
+    expect(click(doc.querySelector("a")!)).toBe(true);
+    expect(click(doc.querySelector("area")!)).toBe(true);
+    expect(click(doc.querySelector("rect")!)).toBe(true); // SVG <a>, href set later by SMIL
+    expect(click(shadow.querySelector("span")!)).toBe(true);
+    expect(click(doc.querySelector("summary")!)).toBe(false); // <details> still toggles
   });
 });
 
