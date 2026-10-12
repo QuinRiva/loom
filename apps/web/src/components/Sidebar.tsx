@@ -452,6 +452,8 @@ function SidebarThreadTooltip({
       sideOffset={4}
       // loom: a handed-off root's card links its origin, so the pointer may enter it
       className={thread.source.workstream?.handoffOrigin ? "pointer-events-auto" : undefined}
+      // loom: React bubbles the portalled card's presses to the row's <li>; keep them off its drag sensor
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <ThreadHoverCard
         title={thread.title}

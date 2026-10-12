@@ -111,8 +111,6 @@ function OriginText({
       <button
         type="button"
         className="cursor-pointer text-left text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground"
-        // React bubbles the portalled card's events to the row's <li>: keep the press off its drag sensor.
-        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => openOrigin(originId, destinationId)}
       >
         {title || "Untitled thread"}
