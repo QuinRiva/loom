@@ -78,7 +78,8 @@ runtime does not use that copy, but the global pi is still a required part of
 every bump: `~/.pi/agent/auth.json` is shared by every pi process on the
 machine, so an unpatched terminal pi writing it non-atomically can hand a
 bundled cockpit thread an empty credential store — 0002 only works if _every_
-writer has it. Install the exact bundled version with `npm install -g` (so the
+writer has it. Terminal pi also shares the global `"cacheWarming": "idle"`
+setting, and without 0004 its idle pings are silently dropped. Install the exact bundled version with `npm install -g` (so the
 re-derived diffs below apply at zero offset; `pi update` installs latest and
 `--all` also reinstalls extensions, wiping their patches), then run `apply.sh`.
 
@@ -217,8 +218,9 @@ tarball) so `infra/pi-patches/` applies to the new dist at zero offset, then:
   was the exception: ~2–3 M zero-byte, ~50–90 unparseable and ~300 good reads
   per reader on 3 of 3 runs, so there the unparseable count carries the
   calibration. Patched 0.99.2 reads ~7 k good and zero of everything else;
-- the bundle honours `PI_CACHE_WARMING_IDLE_MAX_MS` (0003) — see that section
-  for the free check;
+- the bundle honours `PI_CACHE_WARMING_IDLE_MAX_MS` (0003) and still sends an
+  idle ping after a `turn_end` handler rebuilds the messages (0004) — see those
+  sections for the free checks;
 - `pnpm install` is idempotent (lockfile unchanged on a second run), and
   `vp check` / `vp run typecheck` pass;
 - every package pi pulls in has a license notice: `generateThirdPartyLicenseManifest`
