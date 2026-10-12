@@ -870,7 +870,8 @@ describe("provider enabled defaults", () => {
       resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make(driver), config: {} });
     expect(enabledByDefault("codex")).toBe(true);
     expect(enabledByDefault("claudeAgent")).toBe(true);
-    for (const driver of ["cursor", "grok", "muse", "pi", "opencode", "antigravity"]) {
+    expect(enabledByDefault("pi")).toBe(true); // loom: Pi-first (DL-84)
+    for (const driver of ["cursor", "grok", "muse", "opencode", "antigravity"]) {
       expect(enabledByDefault(driver)).toBe(false);
     }
   });
@@ -1336,8 +1337,9 @@ describe("server model preferences", () => {
       providerModelPreferences: { codex_work: { hiddenModels: ["astra"], modelOrder: ["sol"] } },
     };
     expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
-    expect(decodeServerSettingsPatch(input)).toEqual(input);
-    expect(decodeServerSettingsPatch({ migrateModelPreferences: input })).toEqual({
+    // loom: toMatchObject — Loom's allow-list fields (LoomModelPreferenceFields) decode to defaults.
+    expect(decodeServerSettingsPatch(input)).toMatchObject(input);
+    expect(decodeServerSettingsPatch({ migrateModelPreferences: input })).toMatchObject({
       migrateModelPreferences: input,
     });
   });
