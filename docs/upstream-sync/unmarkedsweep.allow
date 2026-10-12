@@ -23,7 +23,7 @@ apps/server/src/provider/model-manifest.json
 # subpath-export map for loom-only modules, which the module names already name.
 packages/shared/package.json
 packages/client-runtime/package.json
-# pull 10 (DL-9xx): JSON manifests cannot carry a marker — Loom deps and the provider-pi subpath exports
+# pull 10 (DL-921): JSON manifests cannot carry a marker — Loom deps and the provider-pi subpath exports
 apps/server/package.json
 apps/web/package.json
 packages/provider-pi/package.json
