@@ -16,6 +16,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import { TestClock } from "effect/testing";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 
@@ -48,6 +49,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
+const DEFAULT_IDLE_MS = 30 * 60_000;
 const driver = ProviderDriverKind.make("codex");
 const modelSelection = { instanceId, model: "gpt-5.4" };
 const runtimePolicy = {
@@ -87,8 +89,11 @@ const mcpRegistry = Layer.effect(
   Layer.provide(NodeServices.layer),
 );
 
-/** An adapter that records every open-session input it receives. */
-const recordingAdapter = (opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSessionInput>>) =>
+/** An adapter that records every open-session input it receives, and each session's close. */
+const recordingAdapter = (
+  opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSessionInput>>,
+  closes: Ref.Ref<number>,
+) =>
   ({
     instanceId,
     driver,
@@ -97,6 +102,7 @@ const recordingAdapter = (opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSess
     openSession: (input) =>
       Effect.gen(function* () {
         yield* Ref.update(opens, (all) => [...all, input]);
+        yield* Effect.addFinalizer(() => Ref.update(closes, (n) => n + 1));
         const now = yield* DateTime.now;
         return {
           instanceId,
@@ -119,16 +125,22 @@ const recordingAdapter = (opens: Ref.Ref<ReadonlyArray<ProviderAdapterV2OpenSess
       }),
   }) as ProviderAdapterV2Shape;
 
-const openWith = (composer: Layer.Layer<never> | undefined) =>
+const openWith = (
+  composer: Layer.Layer<never> | undefined,
+  afterOpen: (closes: Ref.Ref<number>) => Effect.Effect<void> = () => Effect.void,
+) =>
   Effect.gen(function* () {
     const opens = yield* Ref.make<ReadonlyArray<ProviderAdapterV2OpenSessionInput>>([]);
-    const registry = ProviderAdapterRegistry.layerSingle(recordingAdapter(opens));
+    const closes = yield* Ref.make(0);
+    const registry = ProviderAdapterRegistry.layerSingle(recordingAdapter(opens, closes));
     const ingestor = ProviderEventIngestor.layer.pipe(
       Layer.provide(
         Layer.mergeAll(eventSink, IdAllocator.layer, stores, ThreadCommandExecutor.layer),
       ),
     );
-    const manager = ProviderSessionManager.layerWithOptions({ idleTimeoutMs: 60_000 }).pipe(
+    const manager = ProviderSessionManager.layerWithOptions({
+      idleTimeoutMs: DEFAULT_IDLE_MS,
+    }).pipe(
       Layer.provide(
         Layer.mergeAll(
           registry,
@@ -180,7 +192,7 @@ const openWith = (composer: Layer.Layer<never> | undefined) =>
           },
         ],
       });
-      return yield* (yield* ProviderSessionManager.ProviderSessionManagerV2).open({
+      const opened = yield* (yield* ProviderSessionManager.ProviderSessionManagerV2).open({
         threadId,
         providerSessionId: yield* ids.allocate.providerSession({
           providerInstanceId: instanceId,
@@ -189,6 +201,8 @@ const openWith = (composer: Layer.Layer<never> | undefined) =>
         modelSelection,
         runtimePolicy,
       });
+      yield* afterOpen(closes);
+      return opened;
     }).pipe(
       Effect.provide(
         Layer.mergeAll(manager, eventSink, IdAllocator.layer).pipe(
@@ -262,5 +276,48 @@ it.effect("hands the production composer's prompt, extension and env to the adap
       PI_CACHE_RETENTION: "long",
       PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
     });
+  }),
+);
+
+/**
+ * A 1-hour root's composed `idleTimeoutMs` (2 h) outlives the manager's 30-minute default, so its
+ * pi process is still there for the ~54-minute idle ping; a session without one keeps the default.
+ */
+const liveAfter = (idleTimeoutMs: number | undefined, minutes: ReadonlyArray<number>) =>
+  Effect.gen(function* () {
+    const live: Array<boolean> = [];
+    const { exit } = yield* openWith(
+      Layer.succeed(LoomSessionComposer, {
+        compose: () =>
+          Effect.succeed({
+            ...EMPTY_LOOM_OPEN_SESSION_FIELDS,
+            ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
+          }),
+      }),
+      // Probe the adapter's close, not `manager.get`: a get counts as activity and re-arms the timer.
+      (closes) =>
+        Effect.forEach(minutes, (minute, index) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(`${minute - (minutes[index - 1] ?? 0)} minutes`);
+            yield* Effect.yieldNow;
+            live.push((yield* Ref.get(closes)) === 0);
+          }),
+        ).pipe(Effect.asVoid),
+    );
+    assert.isTrue(Exit.isSuccess(exit));
+    return live;
+  });
+
+it.effect(
+  "keeps a session with a composed idle timeout past the default and releases it then",
+  () =>
+    Effect.gen(function* () {
+      assert.deepEqual(yield* liveAfter(2 * 60 * 60_000, [31, 119, 121]), [true, true, false]);
+    }),
+);
+
+it.effect("releases a session without a composed idle timeout at the default", () =>
+  Effect.gen(function* () {
+    assert.deepEqual(yield* liveAfter(undefined, [29, 31]), [true, false]);
   }),
 );
