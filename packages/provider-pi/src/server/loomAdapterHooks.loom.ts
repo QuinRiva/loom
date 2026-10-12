@@ -57,6 +57,8 @@ export interface LoomPiAdapterHooksShape {
       threadId: ThreadId,
       runId: string | null,
       steering: ReadonlyArray<string>,
+      /** pi's session file, where a steer pi delivers is recorded. */
+      sessionFile: string | null,
     ) => Effect.Effect<void>;
     readonly read: (
       threadId: ThreadId,

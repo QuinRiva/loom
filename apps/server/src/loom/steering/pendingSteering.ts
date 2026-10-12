@@ -6,6 +6,9 @@
  * adapter's marked hunk `write`s pi's `queue_update` steering list on every change; pi drops a
  * steer from that list as it injects it into the conversation (before its user `message_start`),
  * so a consumed steer leaves the stash on its own and the stash is never cleared at turn end.
+ * A pi that dies with the server (DL-1002) can inject a steer after the server's last read of
+ * its `queue_update`, so each mirror also records how long pi's session file was when it was
+ * written, and `read` drops a steer that file's later user messages show was delivered.
  *
  * Only a restart that cut the stamped run delivers the stash (DL-694): upstream's restart
  * continuation of that run carries it (`withStashedSteer`, DL-690), else 3b's startup pass
@@ -20,6 +23,7 @@
 import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
@@ -36,33 +40,100 @@ const stashFile = (threadId: ThreadId) =>
   Effect.map(Effect.zip(stashDir, Path.Path), ([dir, path]) => path.join(dir, `${threadId}.json`));
 
 const StashFile = Schema.fromJsonString(
-  Schema.Struct({ runId: Schema.NullOr(Schema.String), steering: Schema.Array(Schema.String) }),
+  Schema.Struct({
+    runId: Schema.NullOr(Schema.String),
+    steering: Schema.Array(Schema.String),
+    /** pi's session file, and its byte length when this mirror was written. */
+    transcript: Schema.NullOr(Schema.Struct({ file: Schema.String, offset: Schema.Number })),
+  }),
 );
 const decodeStash = Schema.decodeUnknownEffect(StashFile);
 const encodeStash = Schema.encodeEffect(StashFile);
 
+/** A user message line of pi's session file (pi's own `contentText`: its text parts, joined). */
+const decodeUserMessage = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      type: Schema.Literal("message"),
+      message: Schema.Struct({
+        role: Schema.Literal("user"),
+        content: Schema.Union([
+          Schema.String,
+          Schema.Array(
+            Schema.Struct({ type: Schema.String, text: Schema.optional(Schema.String) }),
+          ),
+        ]),
+      }),
+    }),
+  ),
+);
+
+/** The texts of the user messages pi appended to `file` past `offset` (unreadable ⇒ none). */
+const deliveredSince = (file: string, offset: number) =>
+  Effect.gen(function* () {
+    const bytes = yield* (yield* FileSystem.FileSystem).readFile(file);
+    return new TextDecoder()
+      .decode(bytes.subarray(offset))
+      .split("\n")
+      .flatMap((line) =>
+        Option.match(decodeUserMessage(line), {
+          onNone: () => [],
+          onSome: ({ message: { content } }) => [
+            typeof content === "string"
+              ? content
+              : content.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : [])).join(""),
+          ],
+        }),
+      );
+  }).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+
 /**
- * The stash: its run, and its steers in send order joined by a blank line (one redelivery carries
- * them all); null when there is none.
+ * The stash: its run, and the steers pi has not delivered in send order joined by a blank line
+ * (one redelivery carries them all); null when there is none.
  */
 export const read = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const { runId, steering } = yield* decodeStash(
+    const { runId, steering, transcript } = yield* decodeStash(
       yield* fs.readFileString(yield* stashFile(threadId)),
     );
-    return steering.length > 0 ? { runId, text: steering.join("\n\n") } : null;
+    const pending = [...steering];
+    if (transcript !== null)
+      for (const text of yield* deliveredSince(transcript.file, transcript.offset)) {
+        const index = pending.indexOf(text);
+        if (index !== -1) pending.splice(index, 1);
+      }
+    return pending.length > 0 ? { runId, text: pending.join("\n\n") } : null;
   }).pipe(Effect.orElseSucceed(() => null));
 
-/** Mirrors pi's steering queue for `runId`'s turn (atomic: temp file, then rename); an empty queue removes the stash. */
-export const write = (threadId: ThreadId, runId: string | null, steering: ReadonlyArray<string>) =>
+/**
+ * Mirrors pi's steering queue for `runId`'s turn (atomic: temp file, then rename), with how far
+ * pi's `sessionFile` reached (none yet ⇒ 0: pi writes it at its first reply); an empty queue
+ * removes the stash.
+ */
+export const write = (
+  threadId: ThreadId,
+  runId: string | null,
+  steering: ReadonlyArray<string>,
+  sessionFile: string | null,
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const file = yield* stashFile(threadId);
     if (steering.length === 0) return yield* fs.remove(file, { force: true });
+    const transcript =
+      sessionFile === null
+        ? null
+        : {
+            file: sessionFile,
+            offset: yield* fs.stat(sessionFile).pipe(
+              Effect.map((info) => Number(info.size)),
+              Effect.orElseSucceed(() => 0),
+            ),
+          };
     yield* fs.makeDirectory(yield* stashDir, { recursive: true });
     const temp = `${file}.tmp-${process.pid}`;
-    yield* fs.writeFileString(temp, yield* encodeStash({ runId, steering }));
+    yield* fs.writeFileString(temp, yield* encodeStash({ runId, steering, transcript }));
     yield* fs.rename(temp, file);
   }).pipe(
     Effect.catchCause((cause) =>
@@ -73,7 +144,8 @@ export const write = (threadId: ThreadId, runId: string | null, steering: Readon
 /** Removes the stash once its steer is delivered, unless pi has mirrored a newer queue since (`read` ≠ `delivered`). */
 export const clear = (threadId: ThreadId, delivered: string | null) =>
   Effect.gen(function* () {
-    if (((yield* read(threadId))?.text ?? null) === delivered) yield* write(threadId, null, []);
+    if (((yield* read(threadId))?.text ?? null) === delivered)
+      yield* write(threadId, null, [], null);
   });
 
 /** Every thread with a stash file. */
