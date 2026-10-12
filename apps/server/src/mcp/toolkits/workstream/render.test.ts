@@ -259,7 +259,7 @@ describe("renderConsultCandidates", () => {
       ]),
     ).toBe(
       [
-        "Multiple threads match that name. Confirm which one with the user, then call mcp__t3-code__consult_thread again with its threadId:",
+        "Multiple threads match that name. Confirm which one with whoever named it (the human at a root; your parent, via mcp__t3-code__consult_thread, in a child), then call mcp__t3-code__consult_thread again with its threadId:",
         "- A — coder, ready [/w/a] (threadId: t1)",
         "- (untitled) — thread, unknown (threadId: t2)",
       ].join("\n"),

@@ -23,8 +23,10 @@ export const kickoffText = (input: {
 
 /**
  * What `mcp__t3-code__workstream_prompt` sends: an undelivered kickoff is
- * prepended to the parent's message so the brief is never lost; once the
- * kickoff was delivered the message goes alone (never re-prepended).
+ * prepended to the parent's message so the brief is never lost, with the
+ * message set apart so it reads as the parent's addendum rather than the tail
+ * of the brief; once the kickoff was delivered the message goes alone (never
+ * re-prepended).
  */
 export const kickoffTextForPrompt = (input: {
   readonly delivered: boolean;
@@ -32,4 +34,7 @@ export const kickoffTextForPrompt = (input: {
   readonly brief: string;
   readonly message: string;
   readonly gateTargetId?: string | null;
-}): string => (input.delivered ? input.message : `${kickoffText(input)}\n\n${input.message}`);
+}): string =>
+  input.delivered
+    ? input.message
+    : `${kickoffText(input)}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${input.message}`;

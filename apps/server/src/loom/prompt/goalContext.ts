@@ -43,7 +43,7 @@ export const goalContextInstruction = (
       : [
           header,
           `\n\nParent's plan at a glance, one line per phase with its subtree's done/total (a spawn snapshot; \`${t("goal_task_list")}\` reads the tree live and in full):\n${renderGoalTaskOverview(goal.tasks)}`,
-          `\n\nYou have no task of your own in this tree: your brief is your assignment. Record discovered actionable work with \`${t("goal_task_add")}\` under the phase it belongs to, as a short plain-language item naming the outcome and value for a reader outside this thread (the server rejects text over 300 characters); findings, verdicts and details go in your report or memo. Restructuring belongs to the tree's owner — \`${t("goal_tasks_rewrite")}\` is rejected for a child with no branch of its own, so report a bad shape.`,
+          `\n\nYou have no task of your own in this tree: your brief is your assignment — your parent's understanding of it, which you may depart from with the reasons stated in your report. Record discovered actionable work with \`${t("goal_task_add")}\` under the phase it belongs to, as a short plain-language item naming the outcome and value for a reader outside this thread (the server rejects text over 300 characters); findings, verdicts and details go in your report or memo. Restructuring belongs to the tree's owner — \`${t("goal_tasks_rewrite")}\` is rejected for a child with no branch of its own, so report a bad shape.`,
         ].join("");
   }
   const header = `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}${

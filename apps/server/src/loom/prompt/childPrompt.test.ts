@@ -11,7 +11,9 @@ describe("kickoffTextForPrompt", () => {
 
   it("prepends the composed kickoff (role framing + contract reference) when undelivered", () => {
     const text = kickoffTextForPrompt({ delivered: false, role: "assessor", brief, message });
-    expect(text).toBe(`${workstreamChildPrompt({ role: "assessor", brief })}\n\n${message}`);
+    expect(text).toBe(
+      `${workstreamChildPrompt({ role: "assessor", brief })}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${message}`,
+    );
     expect(text).toContain("mcp__t3-code__workstream_submit");
   });
 
@@ -38,7 +40,7 @@ describe("kickoffTextForPrompt", () => {
 
   it("falls back to the raw brief for a role-less child", () => {
     expect(kickoffTextForPrompt({ delivered: false, role: null, brief, message })).toBe(
-      `${brief}\n\n${message}`,
+      `${brief}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${message}`,
     );
   });
 });

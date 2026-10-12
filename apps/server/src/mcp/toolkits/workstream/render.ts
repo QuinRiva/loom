@@ -280,7 +280,7 @@ const renderThreadCandidates = (candidates: ReadonlyArray<ThreadCandidate>, tool
   candidates.length === 0
     ? "No matching thread was found."
     : [
-        `Multiple threads match that name. Confirm which one with the user, then call ${t(tool)} again with its threadId:`,
+        `Multiple threads match that name. Confirm which one with whoever named it (the human at a root; your parent, via ${t("consult_thread")}, in a child), then call ${t(tool)} again with its threadId:`,
         ...candidates.map(
           (candidate) =>
             `- ${candidate.title ?? "(untitled)"} — ${candidate.role ?? "thread"}, ${candidate.status ?? "unknown"}` +
