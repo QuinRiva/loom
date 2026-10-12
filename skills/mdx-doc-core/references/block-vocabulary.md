@@ -212,7 +212,7 @@ grids; use `<DataModel>` for typed entities, not this.
   columns={["Surface", "Origin", "Scripts"]}
   rows={[
     ["Prototype", "opaque (sandboxed)", "inline only"],
-    ["HtmlBlock", "opaque (sandboxed)", "none"],
+    ["HtmlBlock", "same-origin (sandboxed)", "none"],
   ]}
 />
 ```
@@ -609,14 +609,14 @@ the `--wf-*` theming does not apply there.
 
 ## Iframe surfaces: `<Prototype>` and `<HtmlBlock>`
 
-Both render author-supplied HTML inside a **sandboxed, opaque-origin iframe** —
-the frame cannot touch the parent app, cookies, or session. You write a
-self-contained document; **no remote scripts load** (the CSP blocks them), so
-inline everything. These are annotatable only as a whole block (you cannot select
-into the frame). `caption` and `height` (px) are optional.
+Both render author-supplied HTML inside a **sandboxed iframe**. You write a
+self-contained document; **nothing remote loads** (the CSP blocks it), so inline
+everything. `caption` and `height` (px) are optional.
 
 `<Prototype>` — **interactive**: scripts + forms run, so inline `<script>` and
-handlers work. Use it when the reviewer needs to _operate_ a flow.
+handlers work, in an opaque-origin frame that cannot touch the app. Use it when
+the reviewer needs to _operate_ a flow. A reviewer can comment on it **only as a
+whole block** — nothing inside the frame is selectable for a comment.
 
 ```mdx
 <Prototype
@@ -626,9 +626,14 @@ handlers work. Use it when the reviewer needs to _operate_ a flow.
 />
 ```
 
-`<HtmlBlock>` — **static**: the sandbox is fully locked, so no JS runs at all.
-Use it to embed a static HTML snippet (a legend, a rendered table) that the other
-blocks don't cover.
+`<HtmlBlock>` — **static**: no JS runs at all, and the frame loads nothing from
+the network or the app. Styles must be inline (`<style>` sheets and `style=""`
+both work), images and fonts must be `data:` URLs, and links are inert. A
+reviewer can comment on the whole block **or select text inside it to pin a
+comment to that spot**, so a grid of option cards in one `<HtmlBlock>` can be
+reviewed card by card — give each card some distinctive text to select. Use it
+for a static snippet the other blocks don't cover, or a mockup that needs a real
+stylesheet (which `<Design>` strips).
 
 ```mdx
 <HtmlBlock caption="Status legend" html={"<ul><li>done</li><li>in progress</li></ul>"} />
