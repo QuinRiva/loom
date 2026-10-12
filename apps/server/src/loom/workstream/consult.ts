@@ -16,16 +16,22 @@
  * The process runs in the SERVER's cwd, so a thread whose worktree has been
  * deleted still answers (smoke step 20). The session file is the caller's to
  * resolve — always the provider thread's strong `nativeThreadRef`, never a
- * name or path guess. The fork's transcript is kept under
- * `workstream-consults/` for inspection (best-effort; deleted otherwise).
+ * name or path guess. The fork writes its transcript straight into
+ * `workstream-consults/` (`--session-dir`), where it is kept for inspection.
+ *
+ * There is deliberately no duration bound: a consult exists so the asker gets
+ * an answer without spending its own context on the digging, and real digging
+ * can take many minutes. A quiet fork is not a hung one either (a long bash
+ * command emits nothing), so no stall bound would be anything but arbitrary.
+ * The bound is the asker's turn: stopping it aborts the tool call, which
+ * interrupts this effect, and the connection's scope kills the fork's process
+ * group. A fork that dies or loses its provider fails the transport instead.
  *
  * @module loom/workstream/consult
  */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
@@ -40,9 +46,6 @@ import {
 import { resolveLoomPiBinaryPath } from "../../provider/Drivers/Pi/bundledPi.loom.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
-
-/** One fork turn's bound; forking handles transcript size, so only duration needs one. */
-const CONSULT_TIMEOUT_MS = 120_000;
 
 /**
  * The consult framing rides the QUESTION TURN, not the system prompt: only the
@@ -100,21 +103,6 @@ export const layer = Layer.effect(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const settings = yield* ServerSettings.ServerSettingsService;
     const config = yield* ServerConfig;
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-
-    /** Moves the fork transcript under `workstream-consults/`, else deletes it. */
-    const retain = (forkFile: string) => {
-      const destination = path.join(
-        loomPaths(config).workstreamConsultsDir,
-        path.basename(forkFile),
-      );
-      return fs.makeDirectory(path.dirname(destination), { recursive: true }).pipe(
-        Effect.andThen(fs.rename(forkFile, destination)),
-        Effect.as(destination),
-        Effect.catch(() => fs.remove(forkFile).pipe(Effect.ignore, Effect.as(undefined))),
-      );
-    };
 
     const ask = Effect.fn("LoomThreadConsult.ask")(function* (input: ConsultForkInput) {
       const pi = (yield* settings.getSettings.pipe(
@@ -129,61 +117,58 @@ export const layer = Layer.effect(
         mcpSession: undefined,
         extensionPath: undefined,
       });
-      let forkFile: string | undefined;
-      const exit = yield* Effect.exit(
-        Effect.gen(function* () {
-          const connection = yield* makePiRpcConnection({
-            command: resolveLoomPiBinaryPath(pi.binaryPath),
-            args: [...launch.args, "--fork", input.sessionFile],
-            cwd: config.cwd,
-            env: launch.env,
-          });
-          forkFile = piRecordString(
-            yield* connection.request({ type: "get_state" }),
-            "sessionFile",
-          );
-          yield* connection.request({ type: "prompt", message: composeConsultTurn(input) });
-          // The latest assistant message's provider error, so an empty answer can say why.
-          let providerError: string | undefined;
-          while (true) {
-            const event = yield* Queue.take(connection.events);
-            if (event["type"] === "agent_settled") break;
-            const message = event["message"];
-            if (event["type"] === "message_end" && piRecordString(message, "role") === "assistant")
-              providerError =
-                piRecordString(message, "stopReason") === "error"
-                  ? piRecordString(message, "errorMessage")
-                  : undefined;
-            // No human is present: cancel any extension dialog instead of stalling.
-            if (
-              event["type"] === "extension_ui_request" &&
-              ["select", "confirm", "input", "editor"].includes(String(event["method"]))
-            ) {
-              yield* connection.send({
-                type: "extension_ui_response",
-                id: event["id"],
-                cancelled: true,
-              });
-            }
+      const { answer, providerError, forkSessionPath } = yield* Effect.gen(function* () {
+        const connection = yield* makePiRpcConnection({
+          command: resolveLoomPiBinaryPath(pi.binaryPath),
+          args: [
+            ...launch.args,
+            "--session-dir",
+            loomPaths(config).workstreamConsultsDir,
+            "--fork",
+            input.sessionFile,
+          ],
+          cwd: config.cwd,
+          env: launch.env,
+        });
+        const forkSessionPath = piRecordString(
+          yield* connection.request({ type: "get_state" }),
+          "sessionFile",
+        );
+        yield* connection.request({ type: "prompt", message: composeConsultTurn(input) });
+        // The latest assistant message's provider error, so an empty answer can say why.
+        let providerError: string | undefined;
+        while (true) {
+          const event = yield* Queue.take(connection.events);
+          if (event["type"] === "agent_settled") break;
+          const message = event["message"];
+          if (event["type"] === "message_end" && piRecordString(message, "role") === "assistant")
+            providerError =
+              piRecordString(message, "stopReason") === "error"
+                ? piRecordString(message, "errorMessage")
+                : undefined;
+          // No human is present: cancel any extension dialog instead of stalling.
+          if (
+            event["type"] === "extension_ui_request" &&
+            ["select", "confirm", "input", "editor"].includes(String(event["method"]))
+          ) {
+            yield* connection.send({
+              type: "extension_ui_response",
+              id: event["id"],
+              cancelled: true,
+            });
           }
-          const text = yield* connection.request({ type: "get_last_assistant_text" });
-          return { answer: (piRecordString(text, "text") ?? "").trim(), providerError };
-        }).pipe(
-          Effect.scoped,
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.mapError(consultError("Could not fork and replay the target session")),
-          Effect.timeoutOrElse({
-            duration: CONSULT_TIMEOUT_MS,
-            orElse: () =>
-              Effect.fail(
-                new LoomConsultError({ detail: "Timed out waiting for the fork to answer." }),
-              ),
-          }),
-        ),
+        }
+        const text = yield* connection.request({ type: "get_last_assistant_text" });
+        return {
+          answer: (piRecordString(text, "text") ?? "").trim(),
+          providerError,
+          forkSessionPath,
+        };
+      }).pipe(
+        Effect.scoped,
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.mapError(consultError("Could not fork and replay the target session")),
       );
-      // The fork transcript is kept (or removed) whether or not the turn answered.
-      const forkSessionPath = forkFile === undefined ? undefined : yield* retain(forkFile);
-      const { answer, providerError } = yield* exit;
       if (answer.length === 0)
         return yield* new LoomConsultError({
           detail:

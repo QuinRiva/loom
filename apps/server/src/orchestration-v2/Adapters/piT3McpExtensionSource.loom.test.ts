@@ -1,9 +1,11 @@
+// @effect-diagnostics nodeBuiltinImport:off
 /**
  * The bridge's two Loom hunks: a tool listed with Loom's `_meta` prose is
  * registered in pi with that snippet and those guidelines (an upstream tool
  * keeps the generic ones), and no orchestration instructions are appended.
  * The shipped source runs against a stub `pi` and a stub MCP server.
  */
+import * as NodeHttp from "node:http";
 import * as NodeModule from "node:module";
 import * as NodeVM from "node:vm";
 import { assert, it } from "@effect/vitest";
@@ -39,25 +41,29 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
   const registered: Array<Registered> = [];
   const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
   const source = NodeModule.stripTypeScriptTypes(
-    PI_T3_MCP_EXTENSION_SOURCE.replace('import { Type } from "typebox";', "").replace(
-      "export default async function",
-      "async function",
-    ),
+    PI_T3_MCP_EXTENSION_SOURCE.replace('import { Type } from "typebox";', "")
+      .replace(/^import \{ request as httpRequest \} from "node:http";.*$/m, "")
+      .replace("export default async function", "async function"),
   );
+  const server = NodeHttp.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => (body += chunk));
+    req.on("end", () => {
+      const { id, method } = JSON.parse(body) as { id?: number; method: string };
+      const result = method === "tools/list" ? { tools: TOOLS } : {};
+      res.setHeader("content-type", "application/json");
+      res.end(id === undefined ? "" : JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
-    process: { env: { T3_MCP_URL: "http://127.0.0.1:4100/mcp", T3_MCP_BEARER_TOKEN: "token" } },
+    process: {
+      env: { T3_MCP_URL: `http://127.0.0.1:${port}/mcp`, T3_MCP_BEARER_TOKEN: "token" },
+    },
     AbortSignal,
     Type: { Object: () => ({}) },
-    fetch: async (_url: string, init: { body: string }) => {
-      const { id, method } = JSON.parse(init.body) as { id?: number; method: string };
-      const result = method === "tools/list" ? { tools: TOOLS } : {};
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: (name: string) => (name === "content-type" ? "application/json" : null) },
-        text: async () => (id === undefined ? "" : JSON.stringify({ jsonrpc: "2.0", id, result })),
-      };
-    },
+    httpRequest: NodeHttp.request,
     pi: {
       on: (name: string, handler: (event: { systemPrompt: string }) => unknown) =>
         handlers.set(name, handler),
@@ -77,4 +83,5 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
   assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "BASE" }), {
     systemPrompt: "BASE\n\n",
   });
+  server.close();
 });

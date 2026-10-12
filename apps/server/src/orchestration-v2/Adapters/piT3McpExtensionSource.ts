@@ -24,6 +24,7 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { request as httpRequest } from "node:http"; // loom: see post()
 import { Type } from "typebox";
 
 const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
@@ -127,6 +128,39 @@ function isMcpToolError(result: unknown): boolean {
   );
 }
 
+// loom: node:http rather than fetch. pi installs a global undici dispatcher
+// that fails any request whose response headers take longer than its
+// httpIdleTimeoutMs (default 5 minutes), and a T3 tool call answers only when
+// it finishes: consult_thread and the waiting tools legitimately run longer.
+// The tool's abort signal (the turn being stopped) is their bound instead.
+function post(
+  endpoint: string,
+  headers: Record<string, string>,
+  body: string,
+  signal?: AbortSignal,
+): Promise<{ status: number; header: (name: string) => string | undefined; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(endpoint, { method: "POST", headers, signal }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => (text += chunk));
+      res.on("error", reject);
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          header: (name) => {
+            const value = res.headers[name];
+            return Array.isArray(value) ? value[0] : value;
+          },
+          text,
+        }),
+      );
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 function createMcpClient(endpoint: string, token: string) {
   let nextId = 1;
   let sessionId: string | undefined;
@@ -147,20 +181,20 @@ function createMcpClient(endpoint: string, token: string) {
 
   const request = async (method: string, params?: unknown, signal?: AbortSignal) => {
     const id = nextId++;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+    const response = await post( // loom: post(), not fetch
+      endpoint,
+      headers(),
+      JSON.stringify({ jsonrpc: "2.0", id, method, params }),
       signal,
-    });
-    const nextSession = response.headers.get("mcp-session-id");
+    );
+    const nextSession = response.header("mcp-session-id");
     if (nextSession) sessionId = nextSession;
-    const body = await response.text();
-    if (!response.ok) {
+    const body = response.text;
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(\`MCP \${method} failed (\${response.status}): \${body.slice(0, 400)}\`);
     }
     if (body.length === 0) return undefined;
-    const parsed = parseSseOrJson(body, response.headers.get("content-type") ?? "");
+    const parsed = parseSseOrJson(body, response.header("content-type") ?? "");
     if (parsed.error) {
       throw new Error(parsed.error.message ?? \`MCP \${method} returned an error\`);
     }
@@ -168,12 +202,7 @@ function createMcpClient(endpoint: string, token: string) {
   };
 
   const notify = async (method: string, params?: unknown, signal?: AbortSignal) => {
-    await fetch(endpoint, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ jsonrpc: "2.0", method, params }),
-      signal,
-    });
+    await post(endpoint, headers(), JSON.stringify({ jsonrpc: "2.0", method, params }), signal); // loom:
   };
 
   return {
