@@ -179,6 +179,7 @@ describe("resolveProjectSettings", () => {
           providerInstances: {
             [codex]: { enabled: false },
             [ProviderInstanceId.make("claudeAgent")]: { enabled: false },
+            [ProviderInstanceId.make("pi")]: { enabled: false }, // loom: pi is a built-in default (DL-84)
           },
         },
       },
