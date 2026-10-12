@@ -15,11 +15,11 @@ import {
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
-import { useActiveThreadTitle } from "../loom/ThreadStart";
 import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
 import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
+import { useThreadShell } from "../state/entities"; // loom: agent-started origin title
 import { buildThreadLineage } from "../threadRouteLineage";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { Badge } from "./ui/badge";
@@ -80,10 +80,9 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
     : null;
   // The thread a `goal_handoff` root was started from; archived origins resolve through `nodes`.
   const origin = node?.handoffOrigin ?? null;
-  const originTitle = useActiveThreadTitle(
-    threadRef.environmentId,
-    origin?.threadId ?? threadRef.threadId,
-  );
+  const originTitle = useThreadShell(
+    origin && scopeThreadRef(threadRef.environmentId, origin.threadId),
+  )?.title;
   const startedBy = origin && {
     ...origin,
     title: nodes.get(origin.threadId)?.title ?? originTitle ?? "an archived thread",

@@ -8,33 +8,19 @@
  * The classification is a pure function of the row's shell (`threadStartOf`);
  * only the hover line, mounted while the card is open, reads the origin's title.
  */
-import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type ThreadStart, threadStartOf } from "@t3tools/client-runtime/state/loom/threadOrigin";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { Atom } from "effect/reactivity";
 import { BotIcon } from "lucide-react";
 
 import { cn } from "../lib/utils";
-import { environmentSnapshotAtom } from "../state/shell";
+import { useThreadShell } from "../state/entities";
 import type { SidebarThreadSummary } from "../types";
 
 export const THREAD_START_LABEL: Record<ThreadStart, string> = {
   agent: "started by an agent",
   requested: "requested via /handoff",
 };
-
-/** An active thread's title, or null when it is not in the snapshot (archived, deleted). */
-const threadTitleAtom = Atom.family((key: `${EnvironmentId}\u0000${ThreadId}`) => {
-  const [environmentId, threadId] = key.split("\u0000") as [EnvironmentId, ThreadId];
-  return Atom.make(
-    (get) =>
-      get(environmentSnapshotAtom(environmentId))?.threads.find((thread) => thread.id === threadId)
-        ?.title ?? null,
-  ).pipe(Atom.withLabel(`loom-thread-title:${key}`));
-});
-
-export const useActiveThreadTitle = (environmentId: EnvironmentId, threadId: ThreadId) =>
-  useAtomValue(threadTitleAtom(`${environmentId}\u0000${threadId}`));
 
 /**
  * The rail, absolutely placed so it never competes with the row's own
@@ -101,7 +87,9 @@ function OriginText({
   start: ThreadStart;
   originId: ThreadId;
 }) {
-  const title = useActiveThreadTitle(environmentId, originId);
+  const title = useThreadShell(scopeThreadRef(environmentId, originId))?.title;
   const lead = start === "agent" ? "Started by an agent" : "From your /handoff";
-  return title === null ? `${lead} (origin archived)` : `${lead} in ${title || "Untitled thread"}`;
+  return title === undefined
+    ? `${lead} (origin archived)`
+    : `${lead} in ${title || "Untitled thread"}`;
 }
