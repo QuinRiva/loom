@@ -1262,6 +1262,7 @@ export const layer: Layer.Layer<
           ...(message.senderThreadId === undefined
             ? {}
             : { senderThreadId: message.senderThreadId }),
+          ...(message.loom === undefined ? {} : { loom: message.loom }), // loom: author label
         },
         modelSelection: run.modelSelection,
         runtimePolicy: resolvedRuntimePolicy,

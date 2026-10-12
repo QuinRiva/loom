@@ -63,6 +63,7 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
   scheduledTaskId: OrchestrationV2ConversationMessage.fields.scheduledTaskId,
   senderThreadId: OrchestrationV2ConversationMessage.fields.senderThreadId,
+  loom: OrchestrationV2ConversationMessage.fields.loom, // loom: origin / humanAuthored for the author label
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 

@@ -63,6 +63,13 @@ this repo's issues (GitHub redirects a PR number to the PR).
   commits on the goal branch are expected — they are the workstream's per-child
   worktree isolation and fan-in bookkeeping (writer children merge back with
   `git merge --no-ff`). They are not stray work.
+- **Agent commits are marked as such, automatically.** A pi process Loom
+  launches commits as author `Loom agent` (the configured email, so GitHub
+  credit is unchanged); its `git commit` calls add `Loom-Thread:` and
+  `Pi-Session:` trailers naming the thread and session, while merge, rebase and
+  cherry-pick commits get the author name only. Do not override the git
+  identity, and read a commit under the human's email as agent-made unless it
+  says otherwise.
 
 ## The gate
 

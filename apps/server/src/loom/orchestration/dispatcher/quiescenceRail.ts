@@ -89,6 +89,7 @@ export const quiescenceRail: PassStep = {
         run.id,
         lastAssistant?.text ?? "_The last run produced no assistant message._",
         formatGrace(humanStarted ? ctx.grace.humanStartedMs! : ctx.grace.controlStartedMs),
+        humanStarted,
       ).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("loom.dispatcher.quiescent-report-failed", {

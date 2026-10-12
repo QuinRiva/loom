@@ -60,7 +60,13 @@ import {
   renderRecoveredDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
-import { boundedExcerpt, buildChildWakeMessage, workstreamLane } from "./wakes.ts";
+import { renderHumanInChildDigestLine } from "../../prompt/provenance.ts";
+import {
+  boundedExcerpt,
+  buildChildWakeMessage,
+  formatWakeTimestamp,
+  workstreamLane,
+} from "./wakes.ts";
 import {
   type DeliveredItem,
   landed,
@@ -288,6 +294,63 @@ export const terminalDeltas: PassStep = {
             role: advice.item.role ?? null,
           },
           settle: () => byKey.delete(key),
+        });
+      }
+    }
+  }),
+};
+
+/**
+ * Past this age a human message no parent heard of is history, not news: the parent should read
+ * the thread rather than be woken by it. Bounds the backlog the first pass after this rail's
+ * deploy (or a long outage) would otherwise report.
+ */
+export const HUMAN_IN_CHILD_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The human wrote into a child: one FYI item per human-authored message to its parent, so the
+ * parent neither steers against an instruction it never saw nor relays it upward as its own.
+ * Told exactly once, keyed by the message id its delivered item carries; not told when the
+ * parent has since heard how the child ended (its report must quote what the human changed),
+ * nor past `HUMAN_IN_CHILD_HORIZON_MS`.
+ */
+export const humanInChild: PassStep = {
+  name: "humanInChild",
+  run: Effect.fn("loom.dispatcher.humanInChild")(function* (ctx: PassContext) {
+    for (const child of ctx.rows) {
+      const parentId = child.parentThreadId;
+      if (parentId === null || !fyiParent(ctx, parentId)) continue;
+      const messages = yield* ctx.humanMessages(child.threadId);
+      if (messages.length === 0) continue;
+      const delivered = yield* ctx.delivered(parentId);
+      const told = new Set(
+        delivered.flatMap(({ item }) =>
+          item.kind === "human-message" && item.messageId !== undefined ? [item.messageId] : [],
+        ),
+      );
+      for (const message of messages) {
+        const atMs = DateTime.toEpochMillis(message.createdAt);
+        if (
+          told.has(message.id) ||
+          nowMs(ctx) - atMs > HUMAN_IN_CHILD_HORIZON_MS ||
+          toldAbout(delivered, child.threadId, atMs)
+        )
+          continue;
+        stash(ctx, parentId, {
+          key: `human-message:${message.id}`,
+          eventAtMs: atMs,
+          extra: {
+            kind: "human-message",
+            line: renderHumanInChildDigestLine({
+              role: child.role,
+              id: child.threadId,
+              timestamp: formatWakeTimestamp(DateTime.formatIso(message.createdAt)),
+              excerpt: boundedExcerpt(message.text) ?? "",
+            }),
+            childId: child.threadId,
+            role: child.role,
+            messageId: message.id,
+          },
         });
       }
     }

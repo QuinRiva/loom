@@ -105,6 +105,7 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       brief,
       message: input.message,
       gateTargetId: gateLoopTargetOf(row),
+      forkedFrom: row.forkFromThreadId,
     });
   }
 

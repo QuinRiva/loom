@@ -43,8 +43,15 @@ import {
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } from "./prose.ts";
-import type { LoomSessionComposerShape } from "./sessionComposer.ts";
+import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
+import type { LoomOpenSessionFields, LoomSessionComposerShape } from "./sessionComposer.ts";
 import { makeLoomSessionComposer } from "./sessionComposerLive.ts";
+
+/** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
+const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
+  ...fields,
+  env: { ...fields.env, ...agentGitEnv(threadId) },
+});
 
 /** Where the stub adapter's sessions run (the testkit's inert provider session). */
 const STUB_SESSION_CWD = "/workspace/loom-test";
@@ -164,7 +171,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
         assert.include(appendSystemPrompt, "SHIPPING POLICY");
         assert.include(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, { PI_CACHE_RETENTION: "long" });
+        assert.deepEqual(env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(threadId) });
         assert.lengthOf(extensions, 1);
         assert.equal(NodePath.basename(extensions[0]!), LOOM_EXTENSION_FILENAME);
         assert.isTrue(NodeFS.existsSync(extensions[0]!));
@@ -202,7 +209,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           ),
         );
         assert.notInclude(appendSystemPrompt, "Available roles for spawning children");
-        assert.deepEqual(env, { PI_CACHE_RETENTION: "short" });
+        assert.deepEqual(env, { PI_CACHE_RETENTION: "short", ...agentGitEnv(child) });
       }),
     ),
   );
@@ -256,7 +263,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const sourceFields = yield* composer.compose(source);
           const sourceBytes = yield* fs.readFileString(sourceFile);
 
-          assert.deepEqual(yield* composer.compose(fork), sourceFields);
+          assert.deepEqual(yield* composer.compose(fork), asThread(sourceFields, fork));
           assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
 
           // Its relaunch is its own child identity, written once from then on (DL-740).
@@ -315,14 +322,14 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
               `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
             ),
           );
-          assert.deepEqual(freshFields.env, { PI_CACHE_RETENTION: "long" });
+          assert.deepEqual(freshFields.env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(fresh) });
 
           const sourceFields = yield* composer.compose(source);
           const target = yield* forkOf("thread:composer-v2-fork-target");
           const forked = yield* composer.compose(target);
-          assert.deepEqual(forked, sourceFields);
+          assert.deepEqual(forked, asThread(sourceFields, target));
           assert.notInclude(forked.appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
-          assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long" });
+          assert.deepEqual(forked.env, { PI_CACHE_RETENTION: "long", ...agentGitEnv(target) });
 
           // Its relaunch is its own root identity, written once from then on (DL-740).
           const relaunched = yield* composer.compose(target);
@@ -381,7 +388,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.notInclude(reviewed, "Available roles for spawning children");
 
           const replaying = yield* drafter("thread:composer-drafter", HANDOFF_DRAFTER_ROLE, source);
-          assert.deepEqual(yield* composer.compose(replaying), sourceFields);
+          assert.deepEqual(yield* composer.compose(replaying), asThread(sourceFields, replaying));
 
           const fresh = yield* drafter(
             "thread:composer-drafter-fresh",
