@@ -4,6 +4,7 @@ import {
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
   type ServerConfig,
+  isLoomCacheShellStreamItem, // loom:
   isLoomConsultShellStreamItem, // loom:
   isLoomGoalShellStreamItem, // loom:
 } from "@t3tools/contracts";
@@ -174,6 +175,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         applyLoomConsultItem(environmentId, item);
         continue;
       }
+      if (isLoomCacheShellStreamItem(item)) continue; // loom: cache touches stay off the persisted snapshot (web points this at its store)
       if (item.kind === "synchronized") {
         waiting = false;
         if (Option.isSome(next.snapshot)) {

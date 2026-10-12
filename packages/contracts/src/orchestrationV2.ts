@@ -74,6 +74,7 @@ import {
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 // loom: the sidecar contract spliced into the unions below (plan pull9 phase 2 §1)
 import {
+  LoomCacheShellStreamItemMembers,
   LoomClientCommandMembers,
   LoomConsultShellStreamItemMembers,
   LoomGoalShell,
@@ -1961,6 +1962,7 @@ export type OrchestrationV2ShellSnapshot = typeof OrchestrationV2ShellSnapshot.T
 export const OrchestrationV2ShellStreamItem = Schema.Union([
   ...LoomGoalShellStreamItemMembers, // loom: unsequenced goal items, applied ungated
   ...LoomConsultShellStreamItemMembers, // loom: unsequenced live-consult items, kept off the snapshot
+  ...LoomCacheShellStreamItemMembers, // loom: unsequenced cache touches, kept off the snapshot
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
   }),
