@@ -80,7 +80,7 @@ export interface ConsultForkInput {
 
 export interface ConsultForkResult {
   readonly answer: string;
-  /** The retained fork transcript, when retention succeeded. */
+  /** The fork transcript pi wrote into `workstream-consults/`, when it reported one. */
   readonly forkSessionPath?: string;
 }
 
