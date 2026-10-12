@@ -255,6 +255,24 @@ it.layer(TestLayer)("mcp__t3-code__notify_thread and mcp__t3-code__consult_threa
     }),
   );
 
+  it.effect("consult: a bare uuid resolves to its thread:<uuid> thread", () =>
+    Effect.gen(function* () {
+      const asker = yield* rootWithRow("bare-asker");
+      const uuid = "af46e6ed-ee0a-4ea6-801d-738cf103a6f9";
+      const target = ThreadId.make(`thread:${uuid}`);
+      yield* seedThread({ threadId: target });
+      yield* seedProviderThread(target, {
+        driver: "pi",
+        nativeId: "/sessions/bare.jsonl",
+        strength: "strong",
+      });
+      asked.length = 0;
+      const result = yield* callAs(asker, "consult_thread", { threadId: uuid, question: "?" });
+      assert.isFalse(result.isError, result.text);
+      assert.equal(asked[0]?.sessionFile, "/sessions/bare.jsonl");
+    }),
+  );
+
   it.effect("consult: a weak or non-pi session ref is refused and nothing is forked", () =>
     Effect.gen(function* () {
       const asker = yield* rootWithRow("refused-asker");

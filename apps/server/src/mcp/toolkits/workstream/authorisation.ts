@@ -11,6 +11,7 @@ import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../loom/projection/LoomStore.ts";
+import { resolveThreadRef } from "../../../loom/workstream/threadResolve.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { LoomToolError } from "./defs.ts";
 
@@ -43,15 +44,29 @@ const mapStoreError = Effect.mapError(
 );
 
 /**
- * The caller's own thread (the default) or a live thread it directly parents.
- * Returns the target's sidecar row; null only for the caller's own thread when
- * it has none yet (a root before its first Loom write).
+ * The caller's own thread (the default) or a live thread it directly parents,
+ * `targetRef` resolved over those by `resolveThreadRef`. Returns the target's
+ * sidecar row; null only for the caller's own thread when it has none yet (a
+ * root before its first Loom write) — so read the target id as
+ * `row?.threadId ?? caller.threadId`.
  */
 export const authoriseTarget = Effect.fn("LoomToolkit.authoriseTarget")(function* (
   caller: WorkstreamCaller,
-  targetThreadId: ThreadId = caller.threadId,
+  targetRef?: string,
 ) {
   const store = yield* LoomStore.LoomStoreV2;
+  const targetThreadId =
+    targetRef === undefined
+      ? caller.threadId
+      : resolveThreadRef(
+          targetRef,
+          new Set([
+            caller.threadId,
+            ...(yield* store
+              .listChildren(caller.threadId, { includeArchived: true })
+              .pipe(mapStoreError)).map((child) => child.threadId),
+          ]),
+        );
   const target = yield* store.getWorkstream(targetThreadId).pipe(mapStoreError);
   if (targetThreadId === caller.threadId) return target;
   if (target === null || target.deletedAt !== null)

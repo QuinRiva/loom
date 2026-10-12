@@ -8,18 +8,19 @@
 import * as Effect from "effect/Effect";
 
 import { writeWorkstreamBrief } from "../../../../loom/workstream/brief.ts";
+import { threadIdAliases } from "../../../../loom/workstream/threadResolve.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { asToolError, childrenOf, dispatch, fail, nowIso, threadRefIds } from "./shared.ts";
+import { asToolError, childrenOf, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamBrief = Effect.fn("LoomToolkit.workstreamBrief")(function* (
   input: LoomToolInput<"workstream_brief">,
   caller: WorkstreamCaller,
 ) {
   if (input.markdown.trim().length === 0) return yield* fail("markdown is required.");
-  const ids = threadRefIds(input.node);
+  const ids = threadIdAliases(input.node);
   const target = (yield* childrenOf(caller.threadId)).find(
     (child) =>
       child.archivedAt === null &&

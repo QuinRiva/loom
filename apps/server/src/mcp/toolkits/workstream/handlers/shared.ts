@@ -10,7 +10,7 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
-  ThreadId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -74,22 +74,6 @@ export const childrenOf = (parentThreadId: ThreadId) =>
     Effect.flatMap((store) => store.listChildren(parentThreadId, { includeArchived: true })),
     asToolError,
   );
-
-export const SCAFFOLD_THREAD_REF_PREFIX = "thread:";
-
-/**
- * The ids a thread reference may name: the reference as given (a spawned child's printed id
- * already starts with `thread:`), then, for the documented `thread:<id>` form, the id after it.
- */
-export const threadRefIds = (ref: string) => {
-  const text = ref.trim();
-  return [
-    text,
-    ...(text.startsWith(SCAFFOLD_THREAD_REF_PREFIX)
-      ? [text.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim()]
-      : []),
-  ].map((id) => ThreadId.make(id));
-};
 
 /**
  * The caller's active goal (live tasks included) and its sidecar row. The

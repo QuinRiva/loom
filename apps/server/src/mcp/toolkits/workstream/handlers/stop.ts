@@ -7,7 +7,7 @@
  *
  * @module mcp/toolkits/workstream/handlers/stop
  */
-import { CommandId, ThreadId } from "@t3tools/contracts";
+import { CommandId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
@@ -20,10 +20,9 @@ export const workstreamStop = Effect.fn("LoomToolkit.workstreamStop")(function* 
   input: LoomToolInput<"workstream_stop">,
   caller: WorkstreamCaller,
 ) {
-  const threadId = ThreadId.make(input.threadId.trim());
+  const threadId = (yield* authoriseTarget(caller, input.threadId))?.threadId ?? caller.threadId;
   if (threadId === caller.threadId)
     return yield* fail(`${t("workstream_stop")} pauses a direct child, not the calling thread.`);
-  yield* authoriseTarget(caller, threadId);
   const { activeRunId } = yield* requireShell(threadId);
   if (activeRunId === null)
     return `Workstream child ${threadId} has no active turn; nothing was stopped.`;
