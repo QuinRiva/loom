@@ -162,9 +162,8 @@ const digestClosing = (
 export const buildStandaloneDigest = (
   members: ReadonlyArray<WakeMember>,
   extras: ReadonlyArray<DigestExtra> = [],
-): string => {
-  const infoOnly = members.length === 0;
-  return [
+): string =>
+  [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
     "FYI digest — thread updates since you last heard. Nothing below is blocked on you.",
@@ -173,7 +172,6 @@ export const buildStandaloneDigest = (
     "",
     digestClosing(members, extras),
   ].join("\n");
-};
 
 /** The piggyback section appended AFTER a decision-bearing wake's own copy (the action leads). */
 export const buildDigestPiggyback = (
