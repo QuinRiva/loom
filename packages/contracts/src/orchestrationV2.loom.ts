@@ -98,6 +98,7 @@ export const LoomControlItemKind = Schema.Literals([
   "slow-tool",
   "spinning",
   "dead-episode",
+  "human-message",
 ]);
 export type LoomControlItemKind = typeof LoomControlItemKind.Type;
 
@@ -115,6 +116,8 @@ export const ControlPayloadItem = Schema.Struct({
   reportPath: Schema.optional(Schema.String),
   excerpt: Schema.optional(Schema.String),
   timestamp: Schema.optional(Schema.String),
+  /** On a `human-message` item: the child's message it reports, so each is told exactly once. */
+  messageId: Schema.optional(MessageId),
 });
 export type ControlPayloadItem = typeof ControlPayloadItem.Type;
 

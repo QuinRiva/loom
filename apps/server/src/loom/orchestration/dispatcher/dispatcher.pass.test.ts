@@ -469,6 +469,71 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
     }),
   );
 
+  it.effect("human in a child: each human message reaches the parent's digest once", () =>
+    Effect.gen(function* () {
+      const [root, child] = ["human-root", "human-child"].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: root! });
+      yield* spawnChild({ parentThreadId: root!, threadId: child!, graphKey: "child" });
+      let sent = 0;
+      const send = (threadId: ThreadId, text: string, from: "human" | "parent" = "human") =>
+        dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`human-msg:${++sent}`),
+          threadId,
+          messageId: MessageId.make(`message:human-msg:${sent}`),
+          text,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          ...(from === "human"
+            ? { createdBy: "user" as const, creationSource: "web" as const }
+            : {
+                createdBy: "agent" as const,
+                creationSource: "mcp" as const,
+                senderThreadId: root!,
+                loom: { origin: "orchestrator" as const },
+              }),
+        });
+      const humanItems = Effect.map(withPayload(root!, "digest"), (digests) =>
+        digests.map((digest) =>
+          digest
+            .loom!.controlPayload!.items.filter((item) => item.kind === "human-message")
+            .map((item) => [item.threadId, item.messageId]),
+        ),
+      );
+
+      yield* send(child!, "Use the staging bucket, not prod.");
+      yield* send(child!, "A parent steer is not news.", "parent");
+      yield* send(child!, "And keep the old flag.");
+      yield* send(root!, "The human at the root is nobody's child.");
+      yield* completeOpenRuns(child!);
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runPass;
+      assert.deepEqual(yield* humanItems, [
+        [
+          [child!, MessageId.make("message:human-msg:1")],
+          [child!, MessageId.make("message:human-msg:3")],
+        ],
+      ]);
+      const [digest] = yield* withPayload(root!, "digest");
+      assert.include(digest!.text, "Use the staging bucket, not prod.");
+
+      // Told is read back from the stored digest, not memory: no repeat.
+      yield* runPass;
+      yield* runFreshPass;
+      assert.lengthOf(yield* humanItems, 1);
+
+      yield* send(child!, "Actually, ship it today.");
+      yield* completeOpenRuns(child!);
+      yield* completeOpenRuns(root!);
+      yield* TestClock.adjust("3 minutes");
+      yield* runFreshPass;
+      assert.deepEqual((yield* humanItems).at(-1), [
+        [child!, MessageId.make("message:human-msg:5")],
+      ]);
+    }),
+  );
+
   it.effect("yield: one steered card into the running parent; the child's flag stands", () =>
     Effect.gen(function* () {
       const [root, child] = ["yield-root", "yield-child"].map((id) => ThreadId.make(id));

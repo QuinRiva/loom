@@ -214,6 +214,55 @@ it.layer(TestLayer)("staged roots, handoff and title", (it) => {
     }),
   );
 
+  it.effect(
+    "goal_continue launch: the stored brief sent as-is is the predecessor's kickoff; an edited one stays the human's",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const launch = Effect.fn("stagedRootsTest.launch")(function* (
+          name: string,
+          edit: (brief: string) => string,
+        ) {
+          const { root } = yield* goalRoot(name);
+          const staged = yield* callAs(root, "goal_continue", { brief: "Pick up at step 3." });
+          const threadId = ThreadId.make(
+            staged.text.match(/^Staged continuation session (\S+) /)![1]!,
+          );
+          const brief = yield* (yield* FileSystem.FileSystem).readFileString(
+            (yield* store.getWorkstream(threadId))!.kickoffBriefPath!,
+          );
+          // What the staged card's Launch (or Edit first, then send) dispatches: a human's composer send.
+          yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`command:${name}:launch`),
+            threadId,
+            messageId: `message:${name}:launch` as never,
+            text: edit(brief),
+            attachments: [],
+            createdBy: "user",
+            creationSource: "web",
+            dispatchMode: { type: "start_immediately" },
+          });
+          const [message] = yield* messagesOf(threadId);
+          return { root, message: message!, row: (yield* store.getWorkstream(threadId))! };
+        });
+
+        const asIs = yield* launch("continue-launch", (brief) => `${brief.trim()}\n`);
+        assert.equal(asIs.message.createdBy, "agent");
+        assert.equal(asIs.message.senderThreadId, asIs.root);
+        assert.deepEqual(asIs.message.loom, { origin: "kickoff", humanAuthored: false });
+        // The human's Launch still releases the hold and starts the thread.
+        assert.isFalse(asIs.row.held);
+        assert.isNotNull(asIs.row.kickoffAt);
+
+        const edited = yield* launch("continue-edited", (brief) => `${brief}\nAlso fix the docs.`);
+        assert.equal(edited.message.createdBy, "user");
+        assert.isUndefined(edited.message.senderThreadId);
+        assert.deepEqual(edited.message.loom, { humanAuthored: true });
+        assert.isFalse(edited.row.held);
+      }),
+  );
+
   it.effect("thread_fork: upstream fork transfer, goal set and held — a root in Loom's graph", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;

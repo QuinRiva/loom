@@ -306,6 +306,13 @@ export function buildPiRpcLaunch(input: {
     env: {
       ...environment,
       ...input.loom?.env, // loom: composer env (PI_CACHE_RETENTION, DL-300) overrides the inherited env, never T3's own vars
+      ...(input.loom?.pathPrepend === undefined // loom: the agent git shim goes first on PATH
+        ? {}
+        : {
+            PATH: [input.loom.pathPrepend, environment.PATH]
+              .filter((entry) => entry !== undefined && entry !== "")
+              .join(":"),
+          }),
       ...(hasT3Extension && input.runtimeMode !== undefined
         ? {
             [T3_PI_RUNTIME_MODE_ENV]:

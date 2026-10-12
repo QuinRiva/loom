@@ -14,7 +14,8 @@
  * it composes its own identity with its server-owned overlay (V1's
  * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
  * source has a record and composes fresh when it has none (an upstream-only
- * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300).
+ * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300) and, per launch,
+ * the agent git identity, whose shim directory rides `pathPrepend`.
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -28,7 +29,7 @@ import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import type * as Path from "effect/Path";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../../config.ts";
@@ -46,6 +47,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
+import { agentGitEnv, materializeGitShim } from "../workstream/agentGitIdentity.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
 import {
   type LaunchIdentityRecord,
@@ -86,6 +88,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   const extensionPath = yield* LoomExtensionPath;
   const identityDir = loomPaths(config).workstreamLaunchIdentityDir;
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+  const gitShimDir = yield* materializeGitShim(
+    (yield* Path.Path).join(config.providerStatusCacheDir, "loom-bin"),
+  );
 
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
   const composeIdentity = (
@@ -207,7 +212,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : identity.appendSystemPrompt,
         skills: identity.skills,
         extensions: identity.extensions,
-        env: identity.env,
+        // Per thread, never replayed: a fork commits under its own thread id.
+        env: { ...identity.env, ...agentGitEnv(threadId) },
+        pathPrepend: gitShimDir,
       } satisfies LoomOpenSessionFields;
     }).pipe(
       Effect.provide(context),

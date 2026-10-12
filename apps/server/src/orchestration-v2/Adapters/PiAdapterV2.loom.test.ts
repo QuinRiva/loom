@@ -21,6 +21,7 @@ import {
   RunId,
   ThreadId,
   type OrchestrationV2AppThread,
+  type OrchestrationV2ConversationMessage,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -46,6 +47,10 @@ import { PI_QUOTA_ERROR_TEXTS } from "../../provider/Drivers/Pi/piQuotaClassifie
 import { ProviderHealthRegistry } from "../../provider/ProviderHealthRegistry.ts";
 import { layerTest as serverSettingsLayerTest } from "../../serverSettings.ts";
 import { limitRecoveryCommand } from "../UsageLimitRecoveryWorker.ts";
+import { notifyDeliveryCommand } from "../../mcp/toolkits/workstream/handlers/notify.ts";
+import { controlMessage } from "../../loom/orchestration/dispatcher/controlMessage.ts";
+import { AUTHOR_LABELS } from "../../loom/prompt/provenance.ts";
+import { loomMessageFields } from "../Orchestrator.loom.ts";
 import {
   EMPTY_LOOM_OPEN_SESSION_FIELDS,
   type LoomOpenSessionFields,
@@ -688,6 +693,175 @@ describe("PiAdapterV2 (loom) — assistant citations", () => {
         // Quoted text is not skill-expanded.
         assert.include(prompt, "validates the result with $deploy");
       }
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+});
+
+// ── Author labels: every message reaches pi naming who wrote it ───────────────────────────
+
+/** A dispatch as the orchestrator records it and the turn services hand it to the adapter. */
+const stamped = (
+  command: Parameters<typeof loomMessageFields>[0] & {
+    readonly messageId: string;
+    readonly text: string;
+    readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+    readonly senderThreadId?: ThreadId | undefined;
+  },
+) => ({
+  messageId: command.messageId as never,
+  text: command.text,
+  attachments: [],
+  createdBy: command.createdBy,
+  creationSource: command.creationSource,
+  ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+  loom: loomMessageFields(command),
+});
+
+const PARENT_ID = ThreadId.make("thread-pi-loom-parent");
+
+/** The prompts pi received, in order, once `count` have arrived. */
+const prompts = (fake: { readonly requests: ReadonlyArray<PiRpcRecord> }, count: number) =>
+  Effect.gen(function* () {
+    while (fake.requests.filter((request) => request["type"] === "prompt").length < count)
+      yield* Effect.yieldNow;
+    return fake.requests
+      .filter((request) => request["type"] === "prompt")
+      .map((request) => String(request["message"]));
+  });
+
+/** Starts one turn on `thread`, then steers each of `steers` into it; returns every prompt sent. */
+const sendAll = Effect.fnUntraced(function* (
+  lineage: OrchestrationV2AppThread["lineage"],
+  first: ReturnType<typeof stamped>,
+  steers: ReadonlyArray<ReturnType<typeof stamped>>,
+) {
+  const { fake, runtime, events } = yield* openRuntime();
+  const providerThread = yield* runtime.ensureThread({
+    threadId: THREAD_ID,
+    modelSelection,
+    runtimePolicy,
+  });
+  const runId = RunId.make(`run:${THREAD_ID}:labels`);
+  yield* runtime.startTurn({
+    appThread: { ...(yield* appThread), lineage },
+    threadId: THREAD_ID,
+    runId,
+    runOrdinal: 1,
+    providerTurnOrdinal: 1,
+    attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+    rootNodeId: NodeId.make(`node:${runId}:root`),
+    providerThread,
+    message: first,
+    modelSelection,
+    runtimePolicy,
+  });
+  let providerTurnId: string | undefined;
+  while (providerTurnId === undefined) {
+    const event = yield* Queue.take(events);
+    if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
+  }
+  yield* fake.emit({ type: "agent_start" });
+  for (const message of steers)
+    yield* runtime.steerTurn({
+      threadId: THREAD_ID,
+      runId,
+      providerThread,
+      providerTurnId: providerTurnId as never,
+      message,
+    });
+  return yield* prompts(fake, 1 + steers.length);
+});
+
+describe("PiAdapterV2 (loom) — author labels", () => {
+  const human = (text: string) =>
+    stamped({ messageId: `message:human:${text}`, text, createdBy: "user", creationSource: "web" });
+  const parent = (text: string) =>
+    stamped({
+      messageId: `message:parent:${text}`,
+      text,
+      createdBy: "agent",
+      creationSource: "mcp",
+      senderThreadId: PARENT_ID,
+      loom: { origin: "orchestrator" },
+    });
+
+  it.effect(
+    "a child reads the human, its parent and the control plane apart; a root's human is bare",
+    () =>
+      Effect.gen(function* () {
+        const notice = controlMessage({
+          threadId: THREAD_ID,
+          id: "server:test-notice",
+          tier: "steered",
+          origin: "control_notice",
+          text: "[control plane] A sibling finished.",
+        });
+        const notify = notifyDeliveryCommand({
+          recordId: "record-1",
+          senderThreadId: PARENT_ID,
+          senderTitle: "Sibling",
+          targetThreadId: THREAD_ID,
+          framedMessage: "[notify from Sibling] FYI.",
+        });
+        const childPrompts = yield* sendAll(
+          { parentThreadId: PARENT_ID, relationshipToParent: "subagent", rootThreadId: PARENT_ID },
+          human("Use the staging bucket."),
+          [
+            parent("Also update the docs."),
+            stamped(notice),
+            stamped(notify),
+            parent("/skill:review the diff"),
+          ],
+        );
+        assert.deepEqual(childPrompts, [
+          `${AUTHOR_LABELS.human}\n\nUse the staging bucket.`,
+          `${AUTHOR_LABELS.parent}\n\nAlso update the docs.`,
+          // Already framed in their text: no second header.
+          "[control plane] A sibling finished.",
+          "[notify from Sibling] FYI.",
+          // pi must see the slash command first.
+          "/skill:review the diff",
+        ]);
+
+        const rootPrompts = yield* sendAll(
+          { parentThreadId: null, relationshipToParent: null, rootThreadId: THREAD_ID },
+          human("Plan the migration."),
+          [],
+        );
+        assert.deepEqual(rootPrompts, ["Plan the migration."]);
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("upstream's usage-limit resume reaches pi as an automated resume, not the human", () =>
+    Effect.gen(function* () {
+      const runId = RunId.make(`run:${THREAD_ID}:limited`);
+      const resetAt = "2026-01-01T01:00:00.000Z";
+      const command = limitRecoveryCommand(
+        {
+          id: THREAD_ID,
+          status: "failed",
+          lastErrorClass: "usage_limit",
+          latestRunId: runId,
+          usageLimitResetAt: resetAt,
+          archivedAt: null,
+          settledOverride: null,
+          pendingRuntimeRequest: null,
+          latestRunCompletedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+          updatedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+          limitRecovery: { runId, resetAt, autoResume: true, snooze: false },
+          snoozedUntil: null,
+        },
+        true,
+        Date.parse("2026-01-01T02:00:00.000Z"),
+      );
+      assert.equal(command?.type, "message.dispatch");
+      if (command?.type !== "message.dispatch") return;
+      const [resume] = yield* sendAll(
+        { parentThreadId: null, relationshipToParent: null, rootThreadId: THREAD_ID },
+        stamped({ ...command, creationSource: "server" }),
+        [],
+      );
+      assert.equal(resume, `${AUTHOR_LABELS.automatedResume}\n\nContinue where you left off.`);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

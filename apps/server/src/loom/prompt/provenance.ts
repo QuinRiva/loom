@@ -41,7 +41,7 @@ export const AUTHOR_LABELS = {
 /** The metadata the label is derived from; every field is already on the message record. */
 export interface AuthoredMessage {
   readonly text: string;
-  readonly createdBy: "user" | "agent";
+  readonly createdBy: "user" | "agent" | "system";
   readonly creationSource: string;
   readonly scheduledTaskId?: string | undefined;
   readonly senderThreadId?: string | undefined;
@@ -60,7 +60,7 @@ export interface AuthoredMessage {
  * in a root, and the two origins whose text is already framed at composition
  * (`control_notice`, `notify`). Order matters: a scheduled fire is automation
  * whoever created the task; `humanAuthored` is the server's predicate and wins
- * over `createdBy` (the usage-limit resume is `createdBy: "user"`).
+ * over `createdBy`.
  */
 export const authorLabel = (message: AuthoredMessage): string | null => {
   const origin = message.loom?.origin;
@@ -69,7 +69,10 @@ export const authorLabel = (message: AuthoredMessage): string | null => {
     return message.createdBy === "user"
       ? AUTHOR_LABELS.scheduledByHuman
       : AUTHOR_LABELS.scheduledByAgent;
-  if (message.loom?.humanAuthored === true) return message.hasParent ? AUTHOR_LABELS.human : null;
+  // Every dispatched message carries the stamp; one without a `loom` field never passed the
+  // orchestrator (an upstream fixture), so `createdBy` is all there is to go on.
+  if (message.loom?.humanAuthored ?? message.createdBy === "user")
+    return message.hasParent ? AUTHOR_LABELS.human : null;
   if (origin === "orchestrator" || origin === "kickoff")
     return message.hasParent
       ? AUTHOR_LABELS.parent

@@ -133,6 +133,7 @@ import {
   loomContinuationVetoed,
   loomHumanStopRaise,
   loomMessageFields,
+  loomStampContinueLaunch, // loom: provenance — goal_continue launch
   loomQueuedTurnAttentionClear,
   loomSettleBlockers,
   loomTurnStartRules,
@@ -4521,6 +4522,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const loomWorkstream = yield* loomStore
         .getWorkstream(command.threadId)
         .pipe(mapDispatchError(command));
+      // loom: a goal_continue launch of the stored brief is the predecessor agent's words
+      command = yield* loomStampContinueLaunch(command, loomWorkstream, fileSystem);
       const loomFields = loomMessageFields(command);
       // loom: rule 0 (DL-195) — a continuation of a Loom thread that is not continued is an accepted no-op
       if (

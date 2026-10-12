@@ -60,7 +60,13 @@ import {
   renderRecoveredDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
-import { boundedExcerpt, buildChildWakeMessage, workstreamLane } from "./wakes.ts";
+import { renderHumanInChildDigestLine } from "../../prompt/provenance.ts";
+import {
+  boundedExcerpt,
+  buildChildWakeMessage,
+  formatWakeTimestamp,
+  workstreamLane,
+} from "./wakes.ts";
 import {
   type DeliveredItem,
   landed,
@@ -288,6 +294,47 @@ export const terminalDeltas: PassStep = {
             role: advice.item.role ?? null,
           },
           settle: () => byKey.delete(key),
+        });
+      }
+    }
+  }),
+};
+
+/**
+ * The human wrote into a child: one FYI item per human-authored message to its parent, so the
+ * parent neither steers against an instruction it never saw nor relays it upward as its own.
+ * Told exactly once, keyed by the message id its delivered item carries.
+ */
+export const humanInChild: PassStep = {
+  name: "humanInChild",
+  run: Effect.fn("loom.dispatcher.humanInChild")(function* (ctx: PassContext) {
+    for (const child of ctx.rows) {
+      const parentId = child.parentThreadId;
+      if (parentId === null || !fyiParent(ctx, parentId)) continue;
+      const messages = yield* ctx.humanMessages(child.threadId);
+      if (messages.length === 0) continue;
+      const told = new Set(
+        (yield* ctx.delivered(parentId)).flatMap(({ item }) =>
+          item.kind === "human-message" && item.messageId !== undefined ? [item.messageId] : [],
+        ),
+      );
+      for (const message of messages) {
+        if (told.has(message.id)) continue;
+        stash(ctx, parentId, {
+          key: `human-message:${message.id}`,
+          eventAtMs: DateTime.toEpochMillis(message.createdAt),
+          extra: {
+            kind: "human-message",
+            line: renderHumanInChildDigestLine({
+              role: child.role,
+              id: child.threadId,
+              timestamp: formatWakeTimestamp(DateTime.formatIso(message.createdAt)),
+              excerpt: boundedExcerpt(message.text) ?? "",
+            }),
+            childId: child.threadId,
+            role: child.role,
+            messageId: message.id,
+          },
         });
       }
     }

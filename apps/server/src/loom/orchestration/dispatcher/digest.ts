@@ -5,7 +5,7 @@
  * piggybacked on the next decision-bearing wake). One traversal yields both the
  * model-visible text and the `controlPayload` items, so the two cannot drift.
  * Items carry the seam-6 `kind`: terminal | gate-resolved | recovered |
- * slow-tool | spinning | dead-episode.
+ * slow-tool | spinning | dead-episode | human-message.
  *
  * @module loom/orchestration/dispatcher/digest
  */
@@ -14,6 +14,7 @@ import type {
   ControlPayloadItem,
   LoomControlItemKind,
   LoomThreadWorkstream,
+  MessageId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
@@ -43,6 +44,8 @@ export interface DigestExtra {
   readonly line: string;
   readonly childId?: ThreadId;
   readonly role?: string | null;
+  /** A `human-message` extra's message, carried onto its card item as the told-once key. */
+  readonly messageId?: MessageId;
 }
 
 const EXTRA_CARD: Record<DigestExtra["kind"], { readonly title: string; readonly icon: string }> = {
@@ -50,6 +53,7 @@ const EXTRA_CARD: Record<DigestExtra["kind"], { readonly title: string; readonly
   "slow-tool": { title: "Still executing", icon: "⏳" },
   spinning: { title: "No visible progress", icon: "🌀" },
   "dead-episode": { title: "Control message failed", icon: "⚠️" },
+  "human-message": { title: "The human wrote to this child", icon: "🧑" },
 };
 
 /** One terminal member as a card item, mirroring the text section's icon, status and excerpt decision. */
@@ -96,6 +100,7 @@ const digestExtraToPayloadItem = (extra: DigestExtra): ControlPayloadItem => ({
   kind: extra.kind,
   ...(extra.childId !== undefined ? { threadId: extra.childId } : {}),
   ...(extra.role != null ? { role: extra.role } : {}),
+  ...(extra.messageId !== undefined ? { messageId: extra.messageId } : {}),
   title: EXTRA_CARD[extra.kind].title,
   status: extra.kind,
   icon: EXTRA_CARD[extra.kind].icon,
