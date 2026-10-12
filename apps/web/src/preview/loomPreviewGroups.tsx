@@ -223,8 +223,7 @@ const IMPORTED_V1_CONTROL: ReadonlyArray<{
       origin: "control_notice",
       controlPayload: {
         kind: "digest",
-        heading:
-          "FYI digest \u2014 the following items completed and were fully routed since you last heard.",
+        heading: "FYI digest \u2014 thread updates since you last heard.",
         items: [
           {
             threadId: loomPreviewThreads.done.id,

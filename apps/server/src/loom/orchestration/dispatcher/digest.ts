@@ -167,9 +167,7 @@ export const buildStandaloneDigest = (
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    infoOnly
-      ? "FYI digest — notices from the control plane since you last heard. Nothing below is blocked on you."
-      : "FYI digest — the following items completed and were fully routed by the control plane since you last heard. Nothing below is blocked on you.",
+    "FYI digest — thread updates since you last heard. Nothing below is blocked on you.",
     "",
     digestBodyParts(members, extras).text,
     "",
@@ -202,9 +200,7 @@ export const buildDigestPayload = (
   kind: "digest",
   heading: opts.piggyback
     ? "Also, FYI since you last heard"
-    : members.length === 0
-      ? "FYI digest — notices from the control plane since you last heard."
-      : "FYI digest — the following items completed and were fully routed since you last heard.",
+    : "FYI digest — thread updates since you last heard.",
   items: [...digestBodyParts(members, extras).items],
 });
 
