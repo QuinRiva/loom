@@ -21,10 +21,12 @@ import {
   LoomGoal,
   LoomGoalTask,
   type LoomActiveStep,
+  type LoomCacheRetention,
   LoomContextUsage,
   LoomOutcome,
   LoomRouteKind,
   LoomRouteRecord,
+  LoomThreadCache,
   LoomThreadConsultSummary,
   type LoomThreadHistoryEntry,
   LoomThreadPeerMessageSummary,
@@ -342,6 +344,13 @@ export interface LoomStoreV2Shape {
     /** Per-target consult summaries for the asker, newest first. */
     readonly listByAsker: (askerThreadId: ThreadId) => Op<ReadonlyArray<LoomThreadConsultSummary>>;
   };
+  /** `loom_thread_cache`: a pi thread's prompt-cache arm and last warming ping. */
+  readonly cache: {
+    /** The arm a launch runs (the session composer, every launch); keeps `touchedAt`. */
+    readonly record: (threadId: ThreadId, retention: LoomCacheRetention) => Op<void>;
+    /** pi refreshed the thread's cache at `at` (the pi adapter); a thread never launched has no row. */
+    readonly touch: (threadId: ThreadId, at: IsoDateTime) => Op<void>;
+  };
   readonly peerMessages: {
     /** Pending messages (all targets when omitted), oldest first. */
     readonly listPending: (targetThreadId?: ThreadId) => Op<ReadonlyArray<LoomPendingPeerMessage>>;
@@ -433,6 +442,7 @@ const ThreadStatsRow = Schema.Struct({
     ),
   ),
   modelSince: Schema.NullOr(IsoDateTime),
+  cache: Schema.NullOr(Schema.fromJsonString(LoomThreadCache)),
 });
 
 /** The card's step: the oldest in-flight tool, else the model since the last tool ended. */
@@ -569,9 +579,10 @@ const make = Effect.gen(function* () {
     );
 
   // The card's tool-call count: V1's imported count plus V2's tool items
-  // (index-only); and the context window: the active provider thread's, else
-  // V1's imported one (both migration 1053). The active step reads only the
-  // active run (the shell's own active-run shape), so idle threads cost nothing;
+  // (index-only); the context window: the active provider thread's, else
+  // V1's imported one (both migration 1053); and the prompt-cache row (1056).
+  // The active step reads only the active run (the shell's own active-run
+  // shape), so idle threads cost nothing;
   // `modelSince` moves at tool ends only, never per streamed token.
   const threadStats = (threadIds: ReadonlyArray<ThreadId>) =>
     sql`SELECT t.thread_id AS "threadId",
@@ -610,9 +621,12 @@ const make = Effect.gen(function* () {
             json_extract(ar.payload_json, '$.workStartedAt'),
             json_extract(ar.payload_json, '$.startedAt'),
             ar.requested_at
-          ) END AS "modelSince"
+          ) END AS "modelSince",
+          CASE WHEN c.thread_id IS NOT NULL
+            THEN json_object('retention', c.retention, 'touchedAt', c.touched_at) END AS "cache"
         FROM orchestration_v2_projection_threads t
         LEFT JOIN loom_thread_imported_metrics m ON m.thread_id = t.thread_id
+        LEFT JOIN loom_thread_cache c ON c.thread_id = t.thread_id
         LEFT JOIN orchestration_v2_projection_runs ar ON ar.run_id = (
           SELECT r.run_id FROM orchestration_v2_projection_runs r
           WHERE r.thread_id = t.thread_id AND r.status IN ('preparing', 'starting', 'running')
@@ -784,24 +798,25 @@ const make = Effect.gen(function* () {
         );
         const stats = yield* threadStats(rowIds);
         return new Map(
-          rows.map(
-            (row) =>
-              [
-                row.threadId,
-                {
-                  ...Struct.omit(row, SHELL_OMITTED),
-                  consults: (consults.get(row.threadId) ?? []).map((summary) =>
-                    Struct.omit(summary, ["askerThreadId"]),
-                  ),
-                  peerMessages: (peerMessages.get(row.threadId) ?? []).map((summary) =>
-                    Struct.omit(summary, ["senderThreadId"]),
-                  ),
-                  toolCalls: stats.get(row.threadId)?.toolCalls ?? 0,
-                  contextUsage: stats.get(row.threadId)?.contextUsage ?? null,
-                  activeStep: activeStepOf(stats.get(row.threadId)),
-                },
-              ] as const,
-          ),
+          rows.map((row) => {
+            const stat = stats.get(row.threadId);
+            return [
+              row.threadId,
+              {
+                ...Struct.omit(row, SHELL_OMITTED),
+                consults: (consults.get(row.threadId) ?? []).map((summary) =>
+                  Struct.omit(summary, ["askerThreadId"]),
+                ),
+                peerMessages: (peerMessages.get(row.threadId) ?? []).map((summary) =>
+                  Struct.omit(summary, ["senderThreadId"]),
+                ),
+                toolCalls: stat?.toolCalls ?? 0,
+                contextUsage: stat?.contextUsage ?? null,
+                activeStep: activeStepOf(stat),
+                ...(stat?.cache ? { cache: stat.cache } : {}),
+              },
+            ] as const;
+          }),
         );
       }).pipe(run("shellFields")),
     history: (threadId) =>
@@ -871,6 +886,19 @@ const make = Effect.gen(function* () {
         consultSummaries([askerThreadId]).pipe(
           Effect.map((rows) => rows.map((summary) => Struct.omit(summary, ["askerThreadId"]))),
           run("consults.listByAsker"),
+        ),
+    },
+    cache: {
+      record: (threadId, retention) =>
+        sql`INSERT INTO loom_thread_cache ${sql.insert({ thread_id: threadId, retention })}
+          ON CONFLICT (thread_id) DO UPDATE SET retention = excluded.retention`.pipe(
+          Effect.asVoid,
+          run("cache.record"),
+        ),
+      touch: (threadId, at) =>
+        sql`UPDATE loom_thread_cache SET touched_at = ${at} WHERE thread_id = ${threadId}`.pipe(
+          Effect.asVoid,
+          run("cache.touch"),
         ),
     },
     peerMessages: {

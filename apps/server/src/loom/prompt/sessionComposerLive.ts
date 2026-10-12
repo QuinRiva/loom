@@ -14,7 +14,9 @@
  * it composes its own identity with its server-owned overlay (V1's
  * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
  * source has a record and composes fresh when it has none (an upstream-only
- * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300).
+ * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
+ * arm for life. A 1-hour root's launch adds, outside the identity, the keep-alive
+ * policy: pi's idle-warming horizon and a longer idle release.
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -36,6 +38,8 @@ import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import {
   cacheRetentionForThread,
+  LONG_ROOT_IDLE_TIMEOUT_MS,
+  LONG_ROOT_IDLE_WARMING_MAX_MS,
   recordCacheRetentionLaunch,
 } from "../../provider/cacheRetention.loom.ts";
 import {
@@ -92,6 +96,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
+    longShare: number,
   ) =>
     Effect.gen(function* () {
       // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
@@ -125,13 +130,12 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       ]
         .filter((part): part is string => part !== undefined && part.trim().length > 0)
         .join("\n\n");
-      const { rootCacheRetention } = yield* settings.getSettings;
       return {
         appendSystemPrompt,
         skills: overlay?.skills ?? [],
         extensions: [extensionPath],
         env: {
-          PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, rootCacheRetention),
+          PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
         },
         modelSelection: thread.modelSelection,
         tools: overlay?.tools ?? [],
@@ -149,6 +153,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
+    longShare: number,
   ) =>
     Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
@@ -176,7 +181,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         );
       const record = Option.isSome(source)
         ? source.value
-        : yield* composeIdentity(thread, workstream, projectRoot);
+        : yield* composeIdentity(thread, workstream, projectRoot, longShare);
       yield* writeLaunchIdentity(identityDir, thread.id, record);
       return record;
     });
@@ -191,14 +196,21 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         Option.getOrNull(
           Option.map(yield* projects.get(thread.projectId), (project) => project.workspaceRoot),
         );
+      const { rootCacheLongShare } = yield* settings.getSettings;
       const identity = yield* launchIdentity(
         thread,
         yield* loomStore.getWorkstream(threadId),
         cwd ?? process.cwd(),
+        rootCacheLongShare,
       );
       const retention = identity.env.PI_CACHE_RETENTION;
-      if (retention === "long" || retention === "short")
-        yield* Effect.sync(() => recordCacheRetentionLaunch(config.stateDir, threadId, retention));
+      if (retention === "long" || retention === "short") {
+        yield* Effect.sync(() =>
+          recordCacheRetentionLaunch(config.stateDir, threadId, retention, rootCacheLongShare),
+        );
+        // The sidebar's cache indicator; never worth failing a launch over.
+        yield* loomStore.cache.record(threadId, retention).pipe(Effect.ignore({ log: true }));
+      }
       // A session that ran in another directory remembers paths that are now historical.
       const relocated = cwd !== null && providerSessions.some((session) => session.cwd !== cwd);
       return {
@@ -207,7 +219,15 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : identity.appendSystemPrompt,
         skills: identity.skills,
         extensions: identity.extensions,
-        env: identity.env,
+        ...(retention === "long"
+          ? {
+              env: {
+                ...identity.env,
+                PI_CACHE_WARMING_IDLE_MAX_MS: String(LONG_ROOT_IDLE_WARMING_MAX_MS),
+              },
+              idleTimeoutMs: LONG_ROOT_IDLE_TIMEOUT_MS,
+            }
+          : { env: identity.env }),
       } satisfies LoomOpenSessionFields;
     }).pipe(
       Effect.provide(context),

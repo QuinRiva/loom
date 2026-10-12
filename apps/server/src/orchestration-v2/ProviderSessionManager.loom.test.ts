@@ -249,7 +249,7 @@ it.effect("hands the production composer's prompt, extension and env to the adap
       LoomSessionComposerLive.pipe(
         Layer.provide(SqlitePersistence.layerMemory),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-composer-psm-" })),
-        Layer.provide(ServerSettings.layerTest({ rootCacheRetention: "long" })),
+        Layer.provide(ServerSettings.layerTest({ rootCacheLongShare: 1 })),
         Layer.provide(NodeServices.layer),
         Layer.orDie,
       ),
@@ -258,6 +258,9 @@ it.effect("hands the production composer's prompt, extension and env to the adap
     const loom = opens[0]?.loom;
     assert.isTrue(loom?.appendSystemPrompt.startsWith(WORK_MODEL_ADDENDUM));
     assert.lengthOf(loom?.extensions ?? [], 1);
-    assert.deepEqual(loom?.env, { PI_CACHE_RETENTION: "long" });
+    assert.deepEqual(loom?.env, {
+      PI_CACHE_RETENTION: "long",
+      PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
+    });
   }),
 );

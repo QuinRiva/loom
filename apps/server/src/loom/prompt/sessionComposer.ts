@@ -23,8 +23,13 @@ export interface LoomOpenSessionFields {
   readonly skills: ReadonlyArray<string>;
   /** One `--extension <path>` each, beside upstream's bridge extension. */
   readonly extensions: ReadonlyArray<string>;
-  /** Merged into the pi process env (`PI_CACHE_RETENTION`, DL-300). */
+  /**
+   * Merged into the pi process env: `PI_CACHE_RETENTION` (DL-300) and, for a
+   * 1-hour root, `PI_CACHE_WARMING_IDLE_MAX_MS` (pi's idle-warming horizon).
+   */
   readonly env?: Readonly<Record<string, string>>;
+  /** The idle release for this process when it differs from the default (1-hour roots). */
+  readonly idleTimeoutMs?: number;
 }
 
 export const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = {
