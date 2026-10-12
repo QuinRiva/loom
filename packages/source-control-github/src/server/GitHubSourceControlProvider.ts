@@ -56,6 +56,7 @@ import * as SourceControlHost from "@t3tools/source-control-core/server/SourceCo
 import { readSourceControlHostSettings } from "@t3tools/source-control-core/client/definition";
 
 import * as GitHubClient from "../client/definition.ts";
+import * as RepositoryPullRequests from "./GitHubRepositoryPullRequests.loom.ts"; // loom: repository-wide listing
 
 const decodeLinkSubject = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
@@ -360,6 +361,10 @@ type PullRequestListState = "open" | "closed" | "merged" | "all";
 /** The pull request fields every read selects, in GraphQL. */
 const PULL_REQUEST_NODE_SELECTION =
   "number title url baseRefName headRefName headRefOid state isDraft mergedAt closedAt updatedAt isCrossRepository headRepository { name nameWithOwner } headRepositoryOwner { login }";
+// loom: repository-wide listing (GitHubRepositoryPullRequests.loom.ts).
+const REPOSITORY_PULL_REQUESTS_QUERY = RepositoryPullRequests.repositoryPullRequestsQuery(
+  PULL_REQUEST_NODE_SELECTION,
+);
 const GRAPHQL_STATES: Record<PullRequestListState, ReadonlyArray<string>> = {
   open: ["OPEN"],
   closed: ["CLOSED"],
@@ -699,6 +704,47 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  // loom: repository-wide listing for GitManager's repositoryPrListCache (one read serves every
+  // worktree's PR badge in the repository).
+  const listRepositoryPullRequests = Effect.fn(
+    "GitHubSourceControlProvider.listRepositoryPullRequests",
+  )(function* (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext | undefined;
+    readonly state: PullRequestListState;
+    readonly limit?: number | undefined;
+  }) {
+    const locator = yield* resolveRepository({ ...input, host: contextHost(input.context) });
+    const allowReserve = yield* SourceControlRateLimit.Interactive;
+    const nodes = yield* RepositoryPullRequests.readRepositoryPullRequestNodes(
+      Math.max(1, Math.trunc(input.limit ?? 1_000)),
+      (page) =>
+        graphqlJson(
+          {
+            host: locator.host,
+            operation: "listRepositoryPullRequests",
+            query: REPOSITORY_PULL_REQUESTS_QUERY,
+            variables: {
+              owner: locator.owner,
+              name: locator.name,
+              states: GRAPHQL_STATES[input.state],
+              ...page,
+            },
+            allowReserve,
+          },
+          RepositoryPullRequests.decodeRepositoryPullRequests,
+          "GitHub returned an invalid change request list.",
+        ).pipe(
+          Effect.flatMap((decoded) =>
+            decoded.data.repository === null
+              ? Effect.fail(notFound("The repository could not be read."))
+              : Effect.succeed(decoded.data.repository.pullRequests),
+          ),
+        ),
+    );
+    return decodeGitHubPullRequestEntries(nodes);
+  });
+
   const readRepository = Effect.fn("GitHubSourceControlProvider.readRepository")(function* (
     locator: GitHubRepositoryLocator,
   ) {
@@ -984,6 +1030,12 @@ export const make = Effect.gen(function* () {
         Effect.mapError(
           providerError("listChangeRequests", input.cwd, { reference: input.headSelector }),
         ),
+      ),
+    // loom: repository-wide listing
+    listRepositoryChangeRequests: (input) =>
+      listRepositoryPullRequests(input).pipe(
+        Effect.map((records) => records.map(toChangeRequest)),
+        Effect.mapError(providerError("listRepositoryChangeRequests", input.cwd)),
       ),
     getChangeRequest: (input) =>
       readPullRequest({ ...input, host: contextHost(input.context) }).pipe(

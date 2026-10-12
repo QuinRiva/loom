@@ -568,6 +568,30 @@ function createGitHubProviderWithFakeGh(scenario: FakeGhScenario = {}): {
         limit: 100,
       }),
 
+      // loom: repository-wide listing, answered from the same CLI-shaped queue.
+      listRepositoryChangeRequests: (input) =>
+        execute({
+          operation: "listRepositoryChangeRequests",
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--state",
+            input.state,
+            "--limit",
+            String(input.limit ?? 1000),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ],
+        }).pipe(
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) =>
+            raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is FakePullRequestSummary => entry !== null)
+              .map(toChangeRequest),
+          ),
+        ),
       listChangeRequests: (input) =>
         input.state === "open"
           ? execute({
@@ -862,6 +886,15 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
                   Effect.tap(() =>
                     Effect.sync(() => {
                       remoteReads += 1;
+                    }),
+                  ),
+                ),
+              // loom: the broadcaster reads remote status in repository batches (DL-99).
+              remoteStatuses: (input, options) =>
+                manager.remoteStatuses(input, options).pipe(
+                  Effect.tap((statuses) =>
+                    Effect.sync(() => {
+                      remoteReads += statuses.length;
                     }),
                   ),
                 ),

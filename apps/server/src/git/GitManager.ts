@@ -196,6 +196,7 @@ const PR_LOOKUP_NO_OPEN_PR_CACHE_TTL = Duration.minutes(5);
 const PR_LOOKUP_FAILURE_BASE_TTL = Duration.seconds(20);
 const PR_LOOKUP_FAILURE_MAX_TTL = Duration.minutes(15);
 const PR_LOOKUP_CACHE_CAPACITY = 2_048;
+// loom: repository-wide PR listing (readRemoteStatuses, repositoryPrListCache).
 // One repo-wide `pr list` serves every subscribed worktree of a repo. The cap is
 // the point past which a very old branch's only (closed) PR falls out of the
 // window; the sticky last-known fallback is therefore not overwritten when the
@@ -659,6 +660,8 @@ function appendUnique(values: string[], next: string | null | undefined): void {
   values.push(trimmed);
 }
 
+// loom: the head-selector derivation shared by resolveBranchHeadContext and the batched
+// readRemoteStatuses, which has every worktree's remote URLs from one git batch already.
 function makeBranchHeadContext(
   details: { readonly branch: string; readonly upstreamRef: string | null },
   remoteName: string | null,
@@ -1193,6 +1196,7 @@ export const make = Effect.gen(function* () {
   // PR_LOOKUP_CACHE_TTL per branch. Git actions and user-driven refreshes bump
   // the epoch (invalidateStatus) to bypass the cache immediately.
   const prLookupEpochByCwd = new Map<string, number>();
+  // loom: a worktree's PR epoch bump also invalidates its repository's PR list.
   const repoPrEpochByKey = new Map<string, number>();
   const repoKeyByCwd = new Map<string, string>();
   const prLookupEpoch = (cwd: string) => prLookupEpochByCwd.get(cwd) ?? 0;
@@ -1200,7 +1204,7 @@ export const make = Effect.gen(function* () {
     normalizeStatusCacheKey(cwd).pipe(
       Effect.map((cacheKey) => {
         prLookupEpochByCwd.set(cacheKey, prLookupEpoch(cacheKey) + 1);
-        const repoKey = repoKeyByCwd.get(cacheKey);
+        const repoKey = repoKeyByCwd.get(cacheKey); // loom: repository PR epoch
         if (repoKey) repoPrEpochByKey.set(repoKey, (repoPrEpochByKey.get(repoKey) ?? 0) + 1);
       }),
     );
@@ -1512,6 +1516,9 @@ export const make = Effect.gen(function* () {
       pr,
     } satisfies VcsStatusRemoteResult;
   });
+  // loom: every worktree of one repository in a single git batch plus one repository-wide PR
+  // list (VcsStatusBroadcaster's repository-keyed poller, DL-99). Falls back to per-branch
+  // lookups when the provider has no repository-wide listing.
   const readRemoteStatuses = Effect.fn("readRemoteStatuses")(function* (
     input: {
       readonly repositoryKey: string;
@@ -1739,6 +1746,7 @@ export const make = Effect.gen(function* () {
     const remoteName =
       details.remoteName ??
       (yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`));
+    // loom: one derivation shared with readRemoteStatuses (makeBranchHeadContext).
     const [remoteUrl, originRemoteUrl] =
       remoteName === "origin"
         ? yield* readConfigValueNullable(cwd, "remote.origin.url").pipe(
@@ -2529,7 +2537,7 @@ export const make = Effect.gen(function* () {
       return yield* Cache.get(remoteStatusResultCache, cacheKey);
     },
   );
-  const remoteStatuses: GitManager["Service"]["remoteStatuses"] = readRemoteStatuses;
+  const remoteStatuses: GitManager["Service"]["remoteStatuses"] = readRemoteStatuses; // loom
   const status: GitManager["Service"]["status"] = Effect.fn("status")(function* (input) {
     const [local, remote] = yield* Effect.all([localStatus(input), remoteStatus(input)], {
       concurrency: "unbounded",
@@ -3242,7 +3250,7 @@ export const make = Effect.gen(function* () {
     createWorktree,
     localStatus,
     remoteStatus,
-    remoteStatuses,
+    remoteStatuses, // loom
     status,
     branchPullRequest,
     invalidateLocalStatus,
