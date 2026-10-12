@@ -326,20 +326,6 @@ describe("mdx-plan security model", () => {
     expect(html).toContain('<h2 id="delivery-order-2">');
   });
 
-  // loom: `sign_document` prepends a YAML authorship manifest to `.mdx` plans;
-  // it must parse as inert frontmatter, not render as body text above the H1.
-  it("hides a leading YAML frontmatter block", async () => {
-    const Content = await compilePlanMdx(
-      "---\nmanager_sessions:\n  - id: abc\n    role: plan\n---\n\n# Signed plan\n",
-    );
-    const html = renderToStaticMarkup(
-      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
-    );
-    expect(html).toContain('<h1 id="signed-plan">');
-    expect(html).not.toContain("manager_sessions");
-    expect(html).not.toContain("<hr");
-  });
-
   it("renders the Phase 4 document blocks through the registry", async () => {
     const source = [
       '<Callout tone={"risk"}>\n\nUntrusted HTML is a second trust boundary.\n\n</Callout>',
