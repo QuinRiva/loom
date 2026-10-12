@@ -187,6 +187,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           ),
         );
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
+        assert.notInclude(appendSystemPrompt, "Your parent is thread");
         assert.include(appendSystemPrompt, "SHIPPING POLICY");
         assert.include(appendSystemPrompt, "Available roles for spawning children");
         assert.deepEqual(env, longRootEnv(threadId));
@@ -223,9 +224,10 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt, env, idleTimeoutMs } = yield* composer.compose(child);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child)}\n\nYou are a coder sub-thread.`,
+            `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child, root)}\n\nYou are a coder sub-thread.`,
           ),
         );
+        assert.include(appendSystemPrompt, `Your parent is thread \`${root}\`.`);
         assert.notInclude(appendSystemPrompt, "Available roles for spawning children");
         assert.deepEqual(env, {
           PI_CACHE_RETENTION: "short",
@@ -293,7 +295,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const relaunched = yield* composer.compose(fork);
           assert.isTrue(
             relaunched.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork)}\n\nYou are a researcher sub-thread.`,
+              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork, root)}\n\nYou are a researcher sub-thread.`,
             ),
           );
           assert.deepEqual(yield* composer.compose(fork), relaunched);

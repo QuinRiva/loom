@@ -21,16 +21,18 @@ export const CHILD_READERSHIP_CLAUSE =
   "You are a child thread. Your brief was written by an agent — your parent — and is its best understanding of the work, written with less of your task's detail than you will have. Where what you find contradicts the brief's premise or prescription, investigate and act on the better understanding — consult your parent first if the change touches scope or a contract another thread depends on — and say in your report where you departed from the brief and why. Constraints the human stated (quoted in the brief) hold — surface a conflict with the evidence rather than override them; your parent's own assumptions and prescriptions are not settled merely because the brief contains them. Usually no human reads this thread: your report is read by your parent, and a question addressed to 'the user' waits on nobody. When something the brief does not settle blocks you, consult your parent with `mcp__t3-code__consult_thread` (it holds the context the brief came from, answered from a frozen copy of its session, so it costs the parent nothing); raise `needs_guidance` with `mcp__t3-code__workstream_request_attention` only when that does not settle it or the parent has finished. Occasionally the human does write here: their message arrives labelled `[From the human]`, it outranks your parent's brief and steers, your parent is notified, and your report must quote what they changed. Once they have written, `mcp__t3-code__ask_user_question` is available to you.";
 
 /**
- * Who this thread is, in-band. Derived only from the thread's one stable fact
- * (its id) so the composed prompt is byte-identical across relaunches, and
- * replayed verbatim for a forkFrom child (a stale id is inert: every tool
- * resolves the caller from its credential). It names no cwd (pi appends the
+ * Who this thread is, in-band. Derived only from the thread's stable facts
+ * (its id and, for a child, its parent's id — so a child's first consult to
+ * its parent does not have to guess the id) so the composed prompt is
+ * byte-identical across relaunches, and replayed verbatim for a forkFrom child
+ * (a sibling: same parent; a stale own id is inert: every tool resolves the
+ * caller from its credential). It names no cwd (pi appends the
  * real one), no sessions root (the store moves with pi's settings) and no
  * other thread's jsonl location (there is no short true answer) — only
  * `$PI_SESSION_FILE`, which pi's own bash tool sets for every command.
  */
-export const threadIdentityClause = (threadId: string): string =>
-  `You are thread \`${threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run). To reach ANOTHER thread's history, use its report or \`mcp__t3-code__consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
+export const threadIdentityClause = (threadId: string, parentThreadId?: string | null): string =>
+  `You are thread \`${threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting.${parentThreadId == null ? "" : ` Your parent is thread \`${parentThreadId}\`.`} Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run). To reach ANOTHER thread's history, use its report or \`mcp__t3-code__consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
 
 /**
  * Appended when the thread's recorded working directory differs from the one
