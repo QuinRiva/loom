@@ -113,8 +113,6 @@ export const findHandoffDuplicates = Effect.fn("loom.findHandoffDuplicates")(
     const candidates = snapshot.threads
       .filter(
         (shell) =>
-          shell.archivedAt === null &&
-          shell.settledOverride !== "settled" &&
           shell.workstream?.outcome == null &&
           !isProviderNativeSubagentThread(shell) &&
           !excluded.has(shell.id) &&
