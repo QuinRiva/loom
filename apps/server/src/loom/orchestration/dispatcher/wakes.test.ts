@@ -308,7 +308,7 @@ describe("slow-tool ladder", () => {
     );
   });
 
-  it("reportDocuments: the md/mdx/html files a report names, in order, minus mentions and reports", () => {
+  it("reportDocuments: the md/mdx/html files a report names, hand-back folders first, minus mentions and reports", () => {
     const reports = "/home/dev/.t3/userdata/workstream-reports";
     const report = [
       "## Round 2 is ready: 0 must-fix, 3 nice-to-have",
@@ -324,8 +324,8 @@ describe("slow-tool ladder", () => {
     assert.deepStrictEqual(reportDocuments(report, `${reports}/thread_mcp_abc_2.md`), [
       "plans/digest-chips/plan.mdx",
       ".artifacts/digest-mockups.html",
-      "docs/operations/shipping.md",
       "/home/dev/wt/.artifacts/pull10-followups-review-2.md",
+      "docs/operations/shipping.md",
     ]);
     assert.deepStrictEqual(reportDocuments(null, null), []);
   });

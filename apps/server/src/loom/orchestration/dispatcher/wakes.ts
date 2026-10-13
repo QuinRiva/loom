@@ -86,6 +86,8 @@ const REPORT_REFERENCE = /`([^`\n]+)`|\]\(\s*<?([^)\s>]+)/g;
  * globs and placeholders are dropped, as are files beside the report itself
  * (the workstream-reports directory: other threads' reports, never shown by name).
  */
+const HANDBACK_DIR = /(?:^|\/)(?:\.artifacts|plans|recaps|workbench)\//;
+
 export const reportDocuments = (report: string | null, reportPath: string | null): string[] => {
   const reportsDir = reportPath?.slice(0, reportPath.lastIndexOf("/") + 1);
   const paths = [...(report ?? "").matchAll(REPORT_REFERENCE)].flatMap(([, code, link]) => {
@@ -99,7 +101,11 @@ export const reportDocuments = (report: string | null, reportPath: string | null
       ? [path]
       : [];
   });
-  return [...new Set(paths)];
+  // Hand-back folders first, so the plan/review a child produced is never behind "+n more"
+  // when the report also cites repo files it edited (a stable sort keeps report order otherwise).
+  return [...new Set(paths)].sort(
+    (a, b) => Number(!HANDBACK_DIR.test(a)) - Number(!HANDBACK_DIR.test(b)),
+  );
 };
 
 /** A card item's report carriers: the reference, the bounded excerpt and the named documents. */
