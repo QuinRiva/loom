@@ -23,8 +23,14 @@ import {
   meterFixtureView,
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
+import { threadMentionStatus, ThreadMentionView } from "../loom/ThreadMention";
+import type { ProjectFaviconProject } from "../components/ProjectFavicon";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
-import { loomPreviewHandbackPathKinds } from "./loomFixtures";
+import {
+  loomPreviewEnvironmentId,
+  loomPreviewHandbackPathKinds,
+  loomPreviewThreads,
+} from "./loomFixtures";
 import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
 import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
@@ -385,13 +391,105 @@ const FILE_CHIP_STATES_MARKDOWN = `Three chip states in one message:
 `;
 
 // loom: `t3-thread://v1/<id>` mentions (Loom's composer projection and agents'
-// prose) render as upstream's thread chip; the retired `thread://` form is a plain link.
+// prose). The harness has no backend, so these resolve to nothing and show the
+// muted unavailable form; the retired `thread://` form is a plain link.
 const THREAD_MENTION_MARKDOWN = `Ask [Use the mcp__t3-code__ask_user_question tool](t3-thread://v1/6f3b0777-ab36-4d45-b6c2-d90da9e7160a) to confirm, then see [the orchestrator](t3-thread://v1/thread:mcp:139c953e:workstream-scaffold:ac2f8496:4).
 
 Legacy mention: [Slice 1 thread](thread://1513d6df-11d8-4848-85fc-7ef239ba00e4) is plain text now.
 
 A plain [web link](https://github.com/pingdotgg/t3code) alongside must stay an ordinary link.
 `;
+
+const MENTION_INDEX = new Map(
+  Object.values(loomPreviewThreads).map((thread) => [thread.id, thread] as const),
+);
+
+type PreviewMentionThread = (typeof loomPreviewThreads)[keyof typeof loomPreviewThreads];
+
+/** One mention, its status derived from the seed shells by the real rule. */
+function PreviewMention({
+  thread,
+  otherProject = null,
+}: {
+  thread: PreviewMentionThread | null;
+  otherProject?: ProjectFaviconProject | null;
+}) {
+  return (
+    <ThreadMentionView
+      environmentId={loomPreviewEnvironmentId}
+      threadId={thread?.id ?? ThreadId.make("preview-missing-thread")}
+      title={thread?.title ?? "Sync notes"}
+      resolved={thread !== null}
+      role={thread?.workstream?.role ?? null}
+      status={thread === null ? null : threadMentionStatus(thread, MENTION_INDEX)}
+      otherProject={otherProject}
+    />
+  );
+}
+
+const MENTION_STATE_ROWS: ReadonlyArray<{
+  label: string;
+  thread: PreviewMentionThread | null;
+  otherProject?: ProjectFaviconProject;
+}> = [
+  { label: "In progress (child)", thread: loomPreviewThreads.inProgress },
+  { label: "Blocked (child)", thread: loomPreviewThreads.blocked },
+  { label: "Ready (child)", thread: loomPreviewThreads.ready },
+  { label: "Needs attention · yielded", thread: loomPreviewThreads.quiescent },
+  { label: "Needs attention · approval", thread: loomPreviewThreads.awaitingApproval },
+  { label: "Needs attention · brief", thread: loomPreviewThreads.briefNeeded },
+  { label: "Needs attention · root", thread: loomPreviewThreads.needsGuidance },
+  { label: "Done", thread: loomPreviewThreads.done },
+  { label: "Cancelled (greyed)", thread: loomPreviewThreads.cancelled },
+  { label: "Root, running now", thread: loomPreviewThreads.root },
+  { label: "Root, staged", thread: loomPreviewThreads.held },
+  {
+    label: "Root, nothing to show",
+    thread: { ...loomPreviewThreads.needsGuidance, title: "Paste bug", workstream: undefined },
+  },
+  {
+    label: "Other project",
+    thread: loomPreviewThreads.surveying,
+    otherProject: {
+      environmentId: loomPreviewEnvironmentId,
+      workspaceRoot: "/home/dev/loom-slack-bridge",
+      title: "loom-slack-bridge",
+    },
+  },
+  { label: "Not found", thread: null },
+];
+
+/**
+ * loom: mention states (design B, live state dot). Rendered through
+ * `ThreadMentionView` because the harness has no shell store; each status comes
+ * from `threadMentionStatus` over the dev seed's shells. Hover for the words.
+ */
+function ThreadMentionStatesFixture() {
+  return (
+    <TimelineLayoutFrame>
+      <div className="chat-markdown w-full min-w-0 text-foreground/80 text-sm leading-relaxed">
+        <p>
+          I've briefed <PreviewMention thread={loomPreviewThreads.inProgress} /> and{" "}
+          <PreviewMention thread={loomPreviewThreads.quiescent} /> is waiting on me;{" "}
+          <PreviewMention thread={loomPreviewThreads.done} /> landed, and I cancelled{" "}
+          <PreviewMention thread={loomPreviewThreads.cancelled} /> in favour of it.
+        </p>
+        <ul>
+          {MENTION_STATE_ROWS.map(({ label, thread, otherProject }) => (
+            <li key={label}>
+              {label}: <PreviewMention thread={thread} otherProject={otherProject ?? null} />
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ChatMarkdown
+        text={THREAD_MENTION_MARKDOWN}
+        cwd={undefined}
+        environmentId={EnvironmentId.make("preview-environment")}
+      />
+    </TimelineLayoutFrame>
+  );
+}
 
 function FileChipStatesFixture() {
   return (
@@ -1241,16 +1339,8 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: "thread-mention",
         title: "Thread mentions (t3-thread://)",
         description:
-          "loom: an assistant `[Title](t3-thread://v1/<id>)` mention renders as upstream's thread chip — the live title once the thread is in this environment, otherwise the written label with a 'Thread no longer available' tooltip (the harness has no backend, so it shows the latter). Colon-bearing workstream ids survive. A legacy `thread://` mention renders as plain text.",
-        render: () => (
-          <TimelineLayoutFrame>
-            <ChatMarkdown
-              text={THREAD_MENTION_MARKDOWN}
-              cwd={undefined}
-              environmentId={EnvironmentId.make("preview-environment")}
-            />
-          </TimelineLayoutFrame>
-        ),
+          "loom: a `[Title](t3-thread://v1/<id>)` mention leads with the thread's live state — a static dot in its board colour (primary in progress, hollow amber blocked, amber halo needs attention, hollow grey cancelled and greyed), a green check when done, nothing for a quiet root — and the favicon only for another project. The tooltip names the state. The ChatMarkdown paragraph below resolves nothing (no backend), so it shows the muted unavailable form. Colon-bearing workstream ids survive; a legacy `thread://` mention is plain text.",
+        render: () => <ThreadMentionStatesFixture />,
       },
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
