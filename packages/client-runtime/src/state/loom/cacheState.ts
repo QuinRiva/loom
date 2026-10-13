@@ -11,7 +11,8 @@ import type {
  * rather than on the shell snapshot: the snapshot is persisted on every write,
  * and these arrive every few minutes per idle thread. The server publishes after
  * the write, so a row here is never older than the snapshot it followed; a new
- * snapshot supersedes them all ({@link clearLoomCacheState}). Readers take the
+ * authoritative snapshot supersedes them all ({@link clearLoomCacheState}). An
+ * enrichment-only snapshot (project identities, no threads) does not. Readers take the
  * live row when there is one, else the snapshot's `workstream.cache`.
  */
 const rows = new Map<string, LoomThreadCache>();
@@ -33,7 +34,7 @@ export function applyLoomCacheUpdate(
   notify(key);
 }
 
-/** A fresh snapshot carries every row as persisted: drop the environment's live rows. */
+/** A fresh authoritative snapshot carries every row as persisted: drop the environment's live rows. */
 export function clearLoomCacheState(environmentId: EnvironmentId): void {
   const prefix = `${environmentId}\u0000`;
   for (const key of [...rows.keys()].filter((key) => key.startsWith(prefix))) {

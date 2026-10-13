@@ -208,7 +208,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         applyLoomCacheUpdate(environmentId, item);
         continue;
       }
-      if (item.kind === "snapshot") clearLoomCacheState(environmentId); // loom: it carries every cache row
+      // loom: an authoritative snapshot carries every cache row; an enrichment-only one (roots set) carries no threads
+      if (item.kind === "snapshot" && item.resolvedRepositoryIdentityRoots === undefined)
+        clearLoomCacheState(environmentId);
       if (item.kind === "synchronized") {
         waiting = false;
         if (Option.isSome(next.snapshot)) {
