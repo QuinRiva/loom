@@ -16,6 +16,7 @@ import {
   parseEtaMarkerMs,
   renderWakePair,
   renderWakeSingle,
+  reportDocuments,
   slowToolDeferralMs,
   slowToolEstimateClause,
   slowToolNoticeIndex,
@@ -305,5 +306,27 @@ describe("slow-tool ladder", () => {
       slowToolEstimateClause({ estimateMs: m(145) + 24_000, inFlightMs: m(145) })!,
       "now overrun",
     );
+  });
+
+  it("reportDocuments: the md/mdx/html files a report names, hand-back folders first, minus mentions and reports", () => {
+    const reports = "/home/dev/.t3/userdata/workstream-reports";
+    const report = [
+      "## Round 2 is ready: 0 must-fix, 3 nice-to-have",
+      "Per `AGENTS.md` and the `plan.mdx` convention, I checked `apps/web/src/ChatView.tsx`.",
+      "Plan: [the plan](plans/digest-chips/plan.mdx#scope); mockup `.artifacts/digest-mockups.html`.",
+      "See `./docs/operations/shipping.md:42` and the round report",
+      `\`${reports}/thread_mcp_abc_workstream-scaffold_def_1.round-1.md\`.`,
+      "Not documents: `roles/*.md`, `roles/<role>.md`, `~/loom-releases/RUNBOOK.md`,",
+      "[upstream](https://github.com/pingdotgg/t3code/blob/main/README.md).",
+      "Full review: `/home/dev/wt/.artifacts/pull10-followups-review-2.md`",
+      "Again: [plan](plans/digest-chips/plan.mdx)",
+    ].join("\n");
+    assert.deepStrictEqual(reportDocuments(report, `${reports}/thread_mcp_abc_2.md`), [
+      "plans/digest-chips/plan.mdx",
+      ".artifacts/digest-mockups.html",
+      "/home/dev/wt/.artifacts/pull10-followups-review-2.md",
+      "docs/operations/shipping.md",
+    ]);
+    assert.deepStrictEqual(reportDocuments(null, null), []);
   });
 });

@@ -24,6 +24,7 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
+import { loomPreviewHandbackPathKinds } from "./loomFixtures";
 import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
 import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
@@ -437,6 +438,7 @@ const PREVIEW_PATH_METADATA: Record<string, FilesystemEntryMetadata | null> = {
   [SCANNED_PATH_VERIFIED]: { kind: "file" },
   [SCANNED_PATH_MISSING]: null,
   [COLD_READER_DOC]: { kind: "file" },
+  ...loomPreviewHandbackPathKinds,
 };
 __setMetadataFetcherForTests((_environmentId, paths) =>
   Promise.resolve(new Map(paths.map((path) => [path, PREVIEW_PATH_METADATA[path] ?? null]))),

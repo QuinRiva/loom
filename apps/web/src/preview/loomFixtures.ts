@@ -9,6 +9,7 @@
  * @module preview/loomFixtures
  */
 import {
+  type ControlPayload,
   EnvironmentId,
   GoalTaskId,
   type LoomGoalShell,
@@ -23,6 +24,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { LOOM_SEED, loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
+import type { FilesystemEntryMetadata } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 const T = LOOM_SEED.threads;
@@ -413,3 +415,130 @@ export const loomPreviewControlMessages: ReadonlyArray<OrchestrationV2Conversati
       controlPayload: control.payload,
     },
   }));
+
+// ---- a digest whose reports handed back documents (the card's chips) ------------
+
+/** The seed project's workspace: relative document paths resolve against it. */
+export const loomPreviewWorkspaceRoot = loomPreviewShellSnapshot.projects[0]!.workspaceRoot;
+const WS = loomPreviewWorkspaceRoot;
+
+/** What the harness's stat stub answers for the documents below; anything else reads missing. */
+export const loomPreviewHandbackPathKinds: Record<string, FilesystemEntryMetadata | null> = {
+  [`${WS}/.artifacts/pull10-followups-review-2.md`]: { kind: "file" },
+  [`${WS}/plans/browser-tools-exposure/plan.mdx`]: { kind: "file" },
+  [`${WS}/.artifacts/browser-tools-options.html`]: { kind: "file" },
+  [`${WS}/workbench/findings-auth.md`]: { kind: "file" },
+  [`${WS}/workbench/findings-sync.md`]: { kind: "file" },
+  [`${WS}/workbench/findings-ui.md`]: { kind: "file" },
+  [`${WS}/recaps/digest-chips/recap.mdx`]: { kind: "file" },
+  [`${WS}/plans/pull11-sync/plan.mdx`]: { kind: "file" },
+  [`${WS}/docs/old-plan.md`]: null,
+  [`${WS}/.artifacts/liveness-sweep-notes.md`]: { kind: "file" },
+};
+
+const handbackMessage = (
+  key: string,
+  text: string,
+  controlPayload: ControlPayload,
+): OrchestrationV2ConversationMessage => ({
+  createdBy: "agent",
+  creationSource: "server",
+  id: MessageId.make(`message:preview-handback:${key}`),
+  threadId: T.root,
+  runId: null,
+  nodeId: null,
+  role: "user",
+  text,
+  attachments: [],
+  streaming: false,
+  createdAt: NOW,
+  updatedAt: NOW,
+  loom: { origin: "control_notice", humanAuthored: false, controlPayload },
+});
+
+export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2ConversationMessage> = [
+  handbackMessage("digest", "[T3 Workstream control plane]\n\nFYI digest (preview).", {
+    kind: "digest",
+    heading:
+      "FYI digest — the following items completed and were fully routed since you last heard.",
+    items: [
+      {
+        kind: "gate-resolved",
+        threadId: T.gateReviewer,
+        role: "reviewer",
+        title: "Gate resolved (clean)",
+        status: "clean",
+        icon: "✅",
+        reportPath: `${REPORTS}/${T.gateReviewer}.md`,
+        excerpt: "## Round 2 is ready for shipping approval: 0 must-fix, 3 nice-to-have",
+        documents: [`${WS}/.artifacts/pull10-followups-review-2.md`],
+      },
+      {
+        kind: "terminal",
+        threadId: T.coderDone,
+        role: "planner",
+        title: "Completed",
+        status: "done",
+        icon: "☑️",
+        reportPath: `${REPORTS}/${T.coderDone}.md`,
+        excerpt: "# Browser tools exposure plan\nTwo options, one recommended.",
+        documents: [
+          "plans/browser-tools-exposure/plan.mdx",
+          ".artifacts/browser-tools-options.html",
+        ],
+      },
+      {
+        kind: "terminal",
+        threadId: T.cancelledLead,
+        role: "coder",
+        title: "Completed",
+        status: "done",
+        icon: "☑️",
+        reportPath: `${REPORTS}/${T.cancelledLead}.md`,
+        excerpt: "Bare uuid thread ids now resolve everywhere.",
+      },
+      {
+        kind: "terminal",
+        threadId: "seed-thread-surveying" as ThreadId,
+        role: "researcher",
+        title: "Completed",
+        status: "done",
+        icon: "☑️",
+        reportPath: `${REPORTS}/seed-thread-surveying.md`,
+        documents: [
+          "workbench/findings-auth.md",
+          "workbench/findings-sync.md",
+          "docs/old-plan.md",
+          "workbench/findings-ui.md",
+          "recaps/digest-chips/recap.mdx",
+          `${WS}/plans/pull11-sync/plan.mdx`,
+        ],
+      },
+      {
+        kind: "human-message",
+        threadId: T.gateCoder,
+        role: "coder",
+        title: "The human wrote to this child",
+        status: "human-message",
+        icon: "🧑",
+        excerpt: "Carl asked the coder to keep the old flag.",
+      },
+    ],
+  }),
+  handbackMessage("yield", "[T3 Workstream control plane]\n\nA sub-thread went quiet (preview).", {
+    kind: "yield",
+    synthesised: true,
+    heading: "A sub-thread went quiet; its report was synthesised.",
+    items: [
+      {
+        threadId: T.quiescent,
+        role: "researcher",
+        title: "Went quiet — report synthesised",
+        status: "yielded",
+        icon: "↩️",
+        reportPath: `${REPORTS}/${T.quiescent}.quiescent-run-1.md`,
+        documents: [".artifacts/liveness-sweep-notes.md"],
+      },
+    ],
+  }),
+];

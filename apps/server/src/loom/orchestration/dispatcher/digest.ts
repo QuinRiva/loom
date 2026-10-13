@@ -21,12 +21,12 @@ import type {
 import * as NodeCrypto from "node:crypto";
 
 import {
-  boundedExcerpt,
   formatWakeTimestamp,
   groupBatchForWake,
   isResolvedSource,
   renderWakePair,
   renderWakeSingle,
+  reportItemFields,
   slowToolEstimateClause,
   WORKSTREAM_CONTROL_PLANE_MARKER,
   type WakeMember,
@@ -69,7 +69,6 @@ const wakeMemberToPayloadItem = (member: WakeMember): ControlPayloadItem => {
       ? "Completed"
       : "Cancelled";
   const ts = formatWakeTimestamp(member.eventAt ?? null);
-  const excerpt = boundedExcerpt(member.report);
   return {
     kind: resolved ? "gate-resolved" : "terminal",
     threadId: member.id,
@@ -77,8 +76,7 @@ const wakeMemberToPayloadItem = (member: WakeMember): ControlPayloadItem => {
     title: `${base}${attentionClause}`,
     status: resolved && verdict !== null ? verdict : member.outcome,
     icon: resolved ? "✅" : member.outcome === "done" ? "☑️" : "🚫",
-    ...(member.reportPath !== null ? { reportPath: member.reportPath } : {}),
-    ...(excerpt !== undefined ? { excerpt } : {}),
+    ...reportItemFields(member.reportPath, member.report),
     ...(ts !== "" ? { timestamp: ts } : {}),
   };
 };
@@ -86,15 +84,19 @@ const wakeMemberToPayloadItem = (member: WakeMember): ControlPayloadItem => {
 /**
  * A resolved pair's target as a reference-only `terminal` item: only what the
  * pair text states about it (no excerpt, status or timestamp it never
- * received). The gate's resolution is the source's one `gate-resolved` item.
+ * received), plus its report's document chips. The gate's resolution is the
+ * source's one `gate-resolved` item.
  */
-const pairTargetToPayloadItem = (target: WakeMember): ControlPayloadItem => ({
-  kind: "terminal",
-  threadId: target.id,
-  ...(target.role !== null ? { role: target.role } : {}),
-  title: "Round report (verified by the gate)",
-  ...(target.reportPath !== null ? { reportPath: target.reportPath } : {}),
-});
+const pairTargetToPayloadItem = (target: WakeMember): ControlPayloadItem => {
+  const { excerpt: _excerpt, ...fields } = reportItemFields(target.reportPath, target.report);
+  return {
+    kind: "terminal",
+    threadId: target.id,
+    ...(target.role !== null ? { role: target.role } : {}),
+    title: "Round report (verified by the gate)",
+    ...fields,
+  };
+};
 
 /** An extra as a card item; its pre-rendered line is also its excerpt. */
 const digestExtraToPayloadItem = (extra: DigestExtra): ControlPayloadItem => ({

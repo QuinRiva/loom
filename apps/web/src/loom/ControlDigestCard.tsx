@@ -5,19 +5,37 @@
  *
  * Collapsed (the default) it says only *that* something arrived and from
  * whom — one line per item naming the sender and its verdict, no markdown
- * rendered, so the timeline pays nothing for a payload nobody is reading.
- * Expanding reveals per-item detail and "show raw payload" (the exact bytes the
- * model received). Everything shown comes from the persisted message, never
+ * rendered, so the timeline pays nothing for a payload nobody is reading. An
+ * item with a report opens it from its row (↗ opens the thread instead), and
+ * the documents its report named sit under it as chips. Expanding reveals
+ * per-item detail and "show raw payload" (the exact bytes the model received). Everything shown comes from the persisted message, never
  * live thread state, apart from the sender titles `senderLabels` resolves.
  * Free of router and timeline context (`ControlDigestRow` supplies both), so
  * `/preview` can mount it directly.
  */
-import type { ScopedThreadRef, ServerProviderSkill, ThreadId } from "@t3tools/contracts";
-import { ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import type {
+  EnvironmentId,
+  ScopedThreadRef,
+  ServerProviderSkill,
+  ThreadId,
+} from "@t3tools/contracts";
+import { ArrowUpRightIcon, ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 
+import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import ChatMarkdown from "~/components/ChatMarkdown";
+import { revalidatePathExistence, usePathExistence } from "~/components/chat/usePathExistence";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+import {
+  isAbsolutePreviewablePath,
+  resolveInlineCodeFileLinkMeta,
+  type MarkdownFileLinkMeta,
+} from "~/markdown-links";
+import { isPreviewSupportedInRuntime } from "~/previewStateStore";
+import { useRightPanelStore } from "~/rightPanelStore";
+
+import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
 import {
   CHANNEL_CLASSES,
@@ -98,6 +116,8 @@ export function ControlDigestCardView({
                 }
                 expanded={expanded}
                 markdown={markdown}
+                cwd={cwd}
+                threadRef={threadRef}
                 onOpen={onOpenThread}
               />
             ))}
@@ -132,12 +152,140 @@ export function ControlDigestCardView({
   );
 }
 
+/** Opens a handed-back document where a chat file chip would: the artefact viewer, the workspace file, or the read-only host file. */
+const openDocument = (threadRef: ScopedThreadRef, meta: MarkdownFileLinkMeta) => {
+  const panel = useRightPanelStore.getState();
+  if (meta.workspaceRelativePath === null) panel.openFileAbsolute(threadRef, meta.filePath);
+  else if (isArtifactViewerPath(meta.filePath) && !isPreviewSupportedInRuntime())
+    panel.openArtifact(threadRef, meta.workspaceRelativePath);
+  else panel.openFile(threadRef, meta.workspaceRelativePath);
+};
+
+/** A one-word name (`plan.mdx`, `README.md`) says what kind of file, not which: lead with its folder. */
+const documentLabel = ({ filePath, basename }: MarkdownFileLinkMeta) =>
+  /^[A-Za-z]+\.\w+$/.test(basename)
+    ? `${filePath.split("/").at(-2) ?? ""}/${basename}`.replace(/^\//, "")
+    : basename;
+
+const VISIBLE_DOCUMENTS = 3;
+
+/** A hover tooltip on one trigger element. */
+const Tip = ({ tip, children }: { tip: ReactNode; children: ReactElement }) => (
+  <Tooltip>
+    <TooltipTrigger render={children} />
+    <TooltipPopup side="top" className="max-w-[min(40rem,calc(100vw-2rem))]">
+      {tip}
+    </TooltipPopup>
+  </Tooltip>
+);
+
+/**
+ * The documents a report named, as chips under its row: up to three, then
+ * "+n more" expanding in place. Only the visible chips are stat'd (one batched
+ * lookup), and one the server reports gone renders struck through and inert
+ * until hovering re-checks it.
+ */
+function ReportDocumentChips({
+  documents,
+  cwd,
+  threadRef,
+  chipClass,
+}: {
+  documents: ReadonlyArray<string>;
+  cwd: string | undefined;
+  threadRef: ScopedThreadRef | null;
+  chipClass: string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const environmentId: EnvironmentId | null = threadRef?.environmentId ?? null;
+  const metas = useMemo(() => {
+    // Unresolvable without a workspace (no `cwd`), a relative name is dropped rather than misopened.
+    const resolved = documents.flatMap((path) => {
+      const meta = resolveInlineCodeFileLinkMeta(path, cwd);
+      return meta && isAbsolutePreviewablePath(meta.filePath) ? [meta] : [];
+    });
+    return resolved.filter(
+      (meta, index) => resolved.findIndex((other) => other.filePath === meta.filePath) === index,
+    );
+  }, [cwd, documents]);
+  const visible = useMemo(
+    () => (showAll ? metas : metas.slice(0, VISIBLE_DOCUMENTS)),
+    [metas, showAll],
+  );
+  const paths = useMemo(() => visible.map((meta) => meta.filePath), [visible]);
+  const lookupExistence = usePathExistence(environmentId, paths);
+  if (metas.length === 0) return null;
+  const chip =
+    "rounded border px-1.5 font-mono text-3xs leading-4.5 whitespace-nowrap focus-visible:ring-ring/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none";
+  return (
+    <div className="flex flex-wrap items-center gap-1 pt-1 pl-5">
+      {visible.map((meta) => {
+        const missing = lookupExistence(meta.filePath)?.exists === false;
+        return (
+          <Tip
+            key={meta.filePath}
+            tip={
+              <>
+                <div className="font-mono leading-tight wrap-anywhere">{meta.filePath}</div>
+                {missing ? <div className="mt-0.5">Missing — moved or deleted?</div> : null}
+              </>
+            }
+          >
+            {missing ? (
+              <span
+                className={cn(chip, chipClass, "line-through opacity-45")}
+                onPointerEnter={() =>
+                  environmentId !== null && revalidatePathExistence(environmentId, meta.filePath)
+                }
+              >
+                {documentLabel(meta)}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={cn(
+                  chip,
+                  chipClass,
+                  "transition-colors hover:brightness-125 disabled:cursor-default",
+                )}
+                disabled={threadRef === null}
+                onClick={() =>
+                  threadRef &&
+                  void verifyChipTargetBeforeOpen(environmentId, meta.filePath).then(
+                    (ok) => ok && openDocument(threadRef, meta),
+                  )
+                }
+              >
+                {documentLabel(meta)}
+              </button>
+            )}
+          </Tip>
+        );
+      })}
+      {metas.length > visible.length ? (
+        <button
+          type="button"
+          className={cn(
+            chip,
+            "border-dashed border-muted-foreground/30 text-muted-foreground/80 transition-colors hover:text-foreground/80",
+          )}
+          onClick={() => setShowAll(true)}
+        >
+          +{metas.length - visible.length} more
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ControlDigestItem({
   entry: { item, kindLabel },
   channel,
   sender,
   expanded,
   markdown,
+  cwd,
+  threadRef,
   onOpen,
 }: {
   entry: ControlCardItem;
@@ -145,70 +293,109 @@ function ControlDigestItem({
   sender: string | null;
   expanded: boolean;
   markdown: (body: string) => ReactNode;
+  cwd: string | undefined;
+  threadRef: ScopedThreadRef | null;
   onOpen: ((threadId: ThreadId) => void) | null;
 }) {
   const classes = CHANNEL_CLASSES[channel];
-  const threadId = item.threadId;
-  const open = threadId && onOpen ? () => onOpen(threadId) : null;
+  const { threadId, reportPath } = item;
+  const openThread = threadId && onOpen ? () => onOpen(threadId) : null;
+  // Reports live outside every worktree: they open read-only in this thread's panel.
+  const openReport =
+    reportPath && threadRef && isAbsolutePreviewablePath(reportPath)
+      ? () => useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath)
+      : null;
+  const open = openReport ?? openThread;
+  const label = (
+    <>
+      {item.icon ? (
+        <span className="shrink-0 text-xs" aria-hidden>
+          {item.icon}
+        </span>
+      ) : null}
+      {item.role ? (
+        <span
+          className={cn("shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs", classes.chip)}
+        >
+          {item.role}
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate text-xs leading-5">
+        {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
+        <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
+          {sender ? ` — ${item.title}` : item.title}
+        </span>
+      </span>
+      {openReport ? (
+        <span
+          className={cn(
+            "shrink-0 text-2xs opacity-0 transition-opacity group-hover/row:opacity-85 group-focus-visible/row:opacity-85",
+            classes.kicker,
+          )}
+        >
+          Open report
+        </span>
+      ) : null}
+      {kindLabel ? (
+        <span className="text-muted-foreground/70 shrink-0 text-3xs tracking-wide uppercase">
+          {kindLabel}
+        </span>
+      ) : null}
+      {item.status ? (
+        <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
+      ) : null}
+      {!openReport && openThread ? (
+        <ChevronRightIcon className="size-3.5 shrink-0 opacity-50" aria-hidden />
+      ) : null}
+    </>
+  );
   return (
     <li>
       <div className="rounded-md px-1.5 py-1">
         <div
           className={cn(
-            "flex items-center gap-2",
-            open && cn("cursor-pointer rounded-md transition-colors", classes.hover),
+            "flex items-center gap-1 rounded-md",
+            open && cn("transition-colors", classes.hover),
           )}
-          onClick={open ?? undefined}
-          role={open ? "button" : undefined}
-          tabIndex={open ? 0 : undefined}
-          onKeyDown={
-            open
-              ? (event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  open();
-                }
-              : undefined
-          }
         >
-          {item.icon ? (
-            <span className="shrink-0 text-xs" aria-hidden>
-              {item.icon}
-            </span>
-          ) : null}
-          {item.role ? (
-            <span
-              className={cn(
-                "shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs",
-                classes.chip,
-              )}
+          {open ? (
+            <button
+              type="button"
+              className="group/row focus-visible:ring-ring/70 flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none"
+              onClick={open}
             >
-              {item.role}
-            </span>
+              {label}
+            </button>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-2">{label}</div>
+          )}
+          {openReport && openThread ? (
+            <Tip tip="Open thread">
+              <button
+                type="button"
+                className="text-muted-foreground/70 hover:text-foreground focus-visible:ring-ring/70 grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none"
+                onClick={openThread}
+                aria-label="Open thread"
+              >
+                <ArrowUpRightIcon className="size-3.5" aria-hidden />
+              </button>
+            </Tip>
           ) : null}
-          <span className="min-w-0 flex-1 truncate text-xs leading-5">
-            {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
-            <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
-              {sender ? ` — ${item.title}` : item.title}
-            </span>
-          </span>
-          {kindLabel ? (
-            <span className="text-muted-foreground/70 shrink-0 text-3xs tracking-wide uppercase">
-              {kindLabel}
-            </span>
-          ) : null}
-          {item.status ? (
-            <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
-          ) : null}
-          {open ? <ChevronRightIcon className="size-3.5 shrink-0 opacity-50" aria-hidden /> : null}
         </div>
+        {item.documents?.length ? (
+          <ReportDocumentChips
+            documents={item.documents}
+            cwd={cwd}
+            threadRef={threadRef}
+            chipClass={classes.chip}
+          />
+        ) : null}
 
-        {expanded && (item.reportPath || item.excerpt || item.timestamp) ? (
+        {expanded && (item.excerpt || item.timestamp) ? (
           <div className={cn("mt-1 space-y-1 border-l pl-2.5 text-xs", classes.divider)}>
             {item.timestamp ? (
               <div className="text-muted-foreground/60 text-2xs">{item.timestamp}</div>
             ) : null}
-            {item.reportPath ? markdown(`Report: \`${item.reportPath}\``) : null}
             {item.excerpt ? (
               <div className="text-foreground/75">{markdown(item.excerpt)}</div>
             ) : null}

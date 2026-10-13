@@ -65,6 +65,7 @@ import {
   boundedExcerpt,
   buildChildWakeMessage,
   formatWakeTimestamp,
+  reportItemFields,
   workstreamLane,
 } from "./wakes.ts";
 import {
@@ -162,17 +163,13 @@ const childItem = (
   report: string | null,
   title: string,
   status: string,
-): ControlPayloadItem => {
-  const excerpt = boundedExcerpt(report);
-  return {
-    threadId: child.threadId,
-    ...(child.role !== null ? { role: child.role } : {}),
-    title,
-    status,
-    ...(child.reportPath !== null ? { reportPath: child.reportPath } : {}),
-    ...(excerpt !== undefined ? { excerpt } : {}),
-  };
-};
+): ControlPayloadItem => ({
+  threadId: child.threadId,
+  ...(child.role !== null ? { role: child.role } : {}),
+  title,
+  status,
+  ...reportItemFields(child.reportPath, report),
+});
 
 /**
  * Terminal deltas → FYI items: a child with a recorded submit (`lastOutcome.eventId`)
