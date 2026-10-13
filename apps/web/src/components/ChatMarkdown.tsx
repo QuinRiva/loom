@@ -3131,7 +3131,12 @@ const CHAT_MARKDOWN_COMPONENTS = {
     if (linkedThreadId) {
       const label = hastPlainTextDeep(node) || linkedThreadId;
       return environmentId ? (
-        <MarkdownThreadLink environmentId={environmentId} threadId={linkedThreadId} label={label} />
+        <MarkdownThreadLink
+          environmentId={environmentId}
+          threadId={linkedThreadId}
+          label={label}
+          fromThreadRef={threadRef} // loom: a mention in another project keeps its favicon
+        />
       ) : (
         <span>{label}</span>
       );
