@@ -1,10 +1,12 @@
 /**
  * loom: preview fixtures for the prompt-cache fuel ring and the hover card's
- * "Prompt cache" block — every ring state on both arms, plus an unpriced model
- * and a working thread. Times are relative to when the fixture renders.
+ * "Prompt cache" block — every ring state on both arms (keep-alive ping
+ * pending, landed, missed; undecided; stopped; past the horizon; cold), plus an
+ * unpriced model, no call on record and a working thread. Times are relative to
+ * when the fixture renders.
  */
 import { cacheLiveness } from "@t3tools/client-runtime/state/loom/cacheLiveness";
-import type { LoomCacheRetention } from "@t3tools/contracts";
+import type { LoomCacheRetention, LoomCacheWarming } from "@t3tools/contracts";
 import { CircleCheckIcon } from "lucide-react";
 
 import { ThreadHoverCard } from "../components/ThreadHoverCard";
@@ -15,79 +17,169 @@ import type { PreviewGroup } from "./fixtures";
 interface Case {
   readonly title: string;
   readonly retention: LoomCacheRetention;
-  /** Minutes since the last call or ping; null = none on record. */
-  readonly ago: number | null;
+  /** Minutes since the last real request was dispatched; null = none on record. */
+  readonly startedAgo: number | null;
+  /** How long that request ran, in seconds. */
+  readonly durationS: number;
+  /** Minutes since the last keep-alive ping landed; null = none. */
+  readonly pingedAgo: number | null;
+  readonly warming: LoomCacheWarming | null;
   readonly model: string;
   readonly context: number;
   readonly working?: boolean;
 }
 
+const OPUS = "cliproxy/claude-opus-5-5";
+const FABLE = "cliproxy/claude-fable-5-1";
+
 const CASES: ReadonlyArray<Case> = [
   {
-    title: "Warm 1-hour root",
+    title: "1-hour root, ping pending (+20m)",
     retention: "long",
-    ago: 22,
-    model: "cliproxy/claude-fable-5-1",
+    startedAgo: 20,
+    durationS: 40,
+    pingedAgo: null,
+    warming: "scheduled",
+    model: FABLE,
     context: 185_000,
   },
   {
-    title: "Expiring 1-hour root",
+    title: "1-hour root, after its ping (+70m)",
     retention: "long",
-    ago: 52,
-    model: "cliproxy/claude-opus-5-5",
+    startedAgo: 70,
+    durationS: 40,
+    pingedAgo: 16,
+    warming: "scheduled",
+    model: OPUS,
     context: 546_000,
+  },
+  {
+    title: "1-hour root, ping missed (+58m)",
+    retention: "long",
+    startedAgo: 58,
+    durationS: 40,
+    pingedAgo: null,
+    warming: "scheduled",
+    model: OPUS,
+    context: 310_000,
+  },
+  {
+    title: "1-hour root, draining (+105m)",
+    retention: "long",
+    startedAgo: 105,
+    durationS: 40,
+    pingedAgo: 51,
+    warming: "scheduled",
+    model: FABLE,
+    context: 402_000,
+  },
+  {
+    title: "5-minute, kept warm (+12m)",
+    retention: "short",
+    startedAgo: 12,
+    durationS: 20,
+    pingedAgo: 2.6,
+    warming: "scheduled",
+    model: OPUS,
+    context: 254_000,
+  },
+  {
+    title: "5-minute, undecided (+2m)",
+    retention: "short",
+    startedAgo: 2,
+    durationS: 20,
+    pingedAgo: null,
+    warming: null,
+    model: OPUS,
+    context: 154_000,
+  },
+  {
+    title: "5-minute, stopped (+1m)",
+    retention: "short",
+    startedAgo: 1,
+    durationS: 20,
+    pingedAgo: null,
+    warming: "stopped",
+    model: FABLE,
+    context: 120_000,
+  },
+  {
+    title: "5-minute, past the horizon (+31m)",
+    retention: "short",
+    startedAgo: 31,
+    durationS: 20,
+    pingedAgo: 3.8,
+    warming: "scheduled",
+    model: OPUS,
+    context: 254_000,
   },
   {
     title: "Cold 1-hour root",
     retention: "long",
-    ago: 85,
-    model: "cliproxy/claude-fable-5-1",
+    startedAgo: 130,
+    durationS: 40,
+    pingedAgo: 76,
+    warming: "stopped",
+    model: FABLE,
     context: 502_000,
   },
   {
-    title: "Warm 5-minute root",
+    title: "Cold 5-minute",
     retention: "short",
-    ago: 2,
-    model: "cliproxy/claude-opus-5-5",
-    context: 154_000,
-  },
-  {
-    title: "Cold 5-minute root",
-    retention: "short",
-    ago: 40,
+    startedAgo: 40,
+    durationS: 20,
+    pingedAgo: null,
+    warming: "stopped",
     model: "cliproxy/claude-sonnet-5-5",
     context: 90_000,
   },
   {
     title: "Unpriced model (Sonnet 5)",
     retention: "long",
-    ago: 12,
+    startedAgo: 12,
+    durationS: 40,
+    pingedAgo: null,
+    warming: "scheduled",
     model: "cliproxy/claude-sonnet-5",
     context: 120_000,
   },
   {
     title: "No call on record",
     retention: "short",
-    ago: null,
-    model: "cliproxy/claude-opus-5-5",
+    startedAgo: null,
+    durationS: 0,
+    pingedAgo: null,
+    warming: null,
+    model: OPUS,
     context: 0,
   },
   {
     title: "Working thread",
     retention: "long",
-    ago: 1,
-    model: "cliproxy/claude-opus-5-5",
+    startedAgo: 1,
+    durationS: 40,
+    pingedAgo: null,
+    warming: "scheduled",
+    model: OPUS,
     context: 210_000,
     working: true,
   },
 ];
 
-const viewOf = ({ retention, ago, model, context }: Case) => {
+const viewOf = (c: Case) => {
   const now = Date.now();
+  const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
+  const startedMs = c.startedAgo === null ? null : now - c.startedAgo * 60_000;
   return cacheView(
-    cacheLiveness(now, ago === null ? null : now - ago * 60_000, retention),
-    model,
-    context,
+    cacheLiveness(now, {
+      retention: c.retention,
+      requestStartedAt: iso(startedMs),
+      requestEndedAt: iso(startedMs === null ? null : startedMs + c.durationS * 1000),
+      pingedAt: iso(c.pingedAgo === null ? null : now - c.pingedAgo * 60_000),
+      warming: c.warming,
+    }),
+    c.model,
+    c.context,
   );
 };
 
@@ -135,13 +227,14 @@ export const CACHE_LIVENESS_PREVIEW_GROUP: PreviewGroup = {
       id: "loom-cache-ring-rows",
       title: "Fuel ring on sidebar rows",
       description:
-        "Warm (neutral), expiring (orange, the whole of a 5-minute cache), cold (snowflake); no ring when nothing is on record. Hover a ring for its tooltip.",
+        "Counts down to when the cache really goes cold, keep-alive pings included: full while a ping is coming, orange only in the last 10 minutes once no ping is coming (a missed ping, after the last one, or a stopped plan), neutral while undecided; snowflake once cold; no ring when nothing is on record. Hover a ring for its tooltip.",
       render: () => <SidebarRows />,
     },
     {
       id: "loom-cache-hover-block",
       title: "Prompt cache hover block",
-      description: "The hover card's block in every state, including unpriced and working threads.",
+      description:
+        'The hover card\'s block in every state: "Kept warm until" while a ping is coming, else "Expires"; unpriced and working threads too.',
       render: () => <HoverCards />,
     },
   ],

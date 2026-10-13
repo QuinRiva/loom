@@ -468,14 +468,14 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         ],
       );
       const store = yield* LoomStore.LoomStoreV2;
-      yield* store.cache.touch(long, "2026-10-12T00:00:00.000Z");
+      yield* store.cache.update(long, { requestEndedAt: "2026-10-12T00:00:00.000Z" });
       const sql = yield* SqlClient.SqlClient;
       assert.deepEqual(
-        yield* sql`SELECT thread_id, retention, touched_at FROM loom_thread_cache
+        yield* sql`SELECT thread_id, retention, request_ended_at FROM loom_thread_cache
             WHERE thread_id IN (${long}, ${short}) ORDER BY retention`,
         [
-          { thread_id: long, retention: "long", touched_at: "2026-10-12T00:00:00.000Z" },
-          { thread_id: short, retention: "short", touched_at: null },
+          { thread_id: long, retention: "long", request_ended_at: "2026-10-12T00:00:00.000Z" },
+          { thread_id: short, retention: "short", request_ended_at: null },
         ],
       );
     }),

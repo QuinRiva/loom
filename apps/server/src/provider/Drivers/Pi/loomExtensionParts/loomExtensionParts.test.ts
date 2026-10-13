@@ -17,18 +17,22 @@ type Handler = (event: Record<string, unknown>, ctx: { cwd: string }) => unknown
 
 const CONSULT = "mcp__t3-code__consult_thread";
 
-/** Runs a part's body against a stub pi and `ctx`, returning the handlers it registered. */
+/**
+ * Runs a part's body against a stub pi and `ctx` (and the assembled module's `loomFetch`, a free
+ * variable in the part), returning the handlers it registered.
+ */
 const loadPart = (
   part: LoomExtensionPart,
   ctx: Record<string, unknown> = {},
   tools: ReadonlyArray<string> = [],
+  loomFetch: (...args: ReadonlyArray<unknown>) => Promise<unknown> = () => Promise.resolve(null),
 ) => {
   const handlers = new Map<string, Handler>();
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     getAllTools: () => tools.map((name) => ({ name })),
   };
-  new Function("pi", "ctx", part.source)(pi, ctx);
+  new Function("pi", "ctx", "loomFetch", part.source)(pi, ctx, loomFetch);
   return handlers;
 };
 
@@ -358,15 +362,28 @@ describe("cacheWarmingGate part", () => {
   const idle = { type: "cache_warming_decision", continuationProbability: 0.15, action: "warm" };
   const streaming = { ...idle, continuationProbability: 1 };
   // The part reads PI_CACHE_RETENTION once, at load; pin it so the ambient env cannot leak in.
+  // Its plan reports go to a recording `loomFetch`.
   const load = (retention = "short") => {
     const ambient = process.env.PI_CACHE_RETENTION;
     process.env.PI_CACHE_RETENTION = retention;
-    const handlers = loadPart(cacheWarmingGatePart);
+    const reports: Array<unknown> = [];
+    const handlers = loadPart(cacheWarmingGatePart, {}, [], (_ctx, method, path, body) => {
+      reports.push([method, path, body]);
+      return Promise.resolve(null);
+    });
     if (ambient === undefined) delete process.env.PI_CACHE_RETENTION;
     else process.env.PI_CACHE_RETENTION = ambient;
     return {
+      /** The plans reported so far, in order; drained by each read. */
+      reported: () =>
+        reports.splice(0).map((report) => {
+          const [method, path, body] = report as [string, string, { warming: unknown }];
+          expect([method, path]).toEqual(["POST", "/cache-warming"]);
+          return body.warming;
+        }),
       decide: (event: Record<string, unknown>) =>
         handlers.get("cache_warming_decision")!(event, ctx),
+      settle: () => handlers.get("agent_settled")!({ type: "agent_settled" }, ctx),
       submit: (isError: boolean) =>
         handlers.get("tool_result")!({ toolName: SUBMIT, toolCallId: "s1", isError }, ctx),
       input: () => handlers.get("input")!({ type: "input", text: "again", source: "rpc" }, ctx),
@@ -374,6 +391,43 @@ describe("cacheWarmingGate part", () => {
         handlers.get("tool_result")!({ toolName, toolCallId: "t1", isError: false }, ctx),
     };
   };
+
+  it("reports the plan at settle: undecided, scheduled for a 1-hour root, stopped after a submit", async () => {
+    const short = load("short");
+    await short.settle();
+    short.submit(false);
+    await short.settle();
+    short.input();
+    await short.settle();
+    expect(short.reported()).toEqual([null, "stopped", null]);
+    const long = load("long");
+    await long.settle();
+    long.submit(false);
+    await long.settle();
+    expect(long.reported()).toEqual(["scheduled", "stopped"]);
+  });
+
+  it("reports each idle decision's final action and never an in-run one", () => {
+    const short = load("short");
+    short.decide(streaming);
+    expect(short.reported()).toEqual([]);
+    short.decide(idle);
+    short.decide({ ...idle, action: "stop" });
+    expect(short.reported()).toEqual(["scheduled", "stopped"]);
+    const long = load("long");
+    long.decide({ ...idle, action: "stop" });
+    long.submit(false);
+    long.decide(idle);
+    expect(long.reported()).toEqual(["scheduled", "stopped"]);
+  });
+
+  it("swallows a failed report", async () => {
+    const handlers = loadPart(cacheWarmingGatePart, {}, [], () =>
+      Promise.reject(new Error("down")),
+    );
+    await handlers.get("agent_settled")!({ type: "agent_settled" }, ctx);
+    expect(handlers.get("cache_warming_decision")!(idle, ctx)).toBeUndefined();
+  });
 
   it("stops idle warming after a successful submit, and leaves streaming refreshes alone", () => {
     const gate = load();

@@ -73,19 +73,38 @@ The process has to be alive to ping, so a 1-hour root's pi is released after
 **2 hours** idle instead of the usual 30 minutes. Past about 114 minutes its
 cache is dead anyway.
 
-Both values are constants in `apps/server/src/provider/cacheRetention.loom.ts`,
-not settings, and neither is part of the launch identity: a deploy that changes
-them reaches existing 1-hour roots at their next launch. The ping arithmetic
+Both values are constants, not settings: the horizon is `LOOM_CACHE_HORIZON_MS`
+in `packages/contracts/src/orchestrationV2.loom.ts` (the sidebar ring replays
+pi's schedule against it, so the two cannot drift), the idle release
+`LONG_ROOT_IDLE_TIMEOUT_MS` in `apps/server/src/provider/cacheRetention.loom.ts`.
+Neither is part of the launch identity: a deploy that changes them reaches
+existing 1-hour roots at their next launch. The ping arithmetic
 (why 90 minutes gives exactly one ping) is in
 [`infra/pi-patches/README.md`](../../infra/pi-patches/README.md) § 0003.
 
 ## Cache table and sidebar ring
 
 `loom_thread_cache` in `statev2.sqlite` has one row per thread that has been
-launched on pi: its `retention` (the arm) and `touched_at`, the end of its last
-cache refresh, whether a real request or an idle ping. It is the quickest
-read-only way to see a thread's arm and when its cache dies; a thread with no
-row has never run on pi and shows no ring.
+launched on pi: its `retention` (the arm), `request_started_at` and
+`request_ended_at` (the last real request's dispatch, which pi's keep-alive
+schedule counts from, and its end), `pinged_at` (the last keep-alive ping that
+landed) and `warming`, the plan for the current idle period: `scheduled` (pi
+will ping), `stopped` (it will not) or NULL (undecided: a 5-minute thread before
+pi's first idle decision at about 4.5 minutes). Loom's pi extension reports the
+plan when a run settles and at each idle decision; the server sets `stopped`
+when the pi process exits and, for every row, at boot. It is the quickest
+read-only way to see a thread's arm and its cache's state; a thread with no row
+has never run on pi and shows no ring.
+
+The ring and hover count down to when the cache really goes cold: while
+`warming` is `scheduled` they count through the pings pi will still send (the
+hover reads "Kept warm until ~HH:MM"; about 114 minutes after the dispatch for a
+1-hour root, about 32 for a 5-minute thread). A ping that has not landed by pi's
+own deadline (3.5 minutes late for a 1-hour cache, 45 seconds for a 5-minute
+one) is taken as not coming, and the countdown falls back to the last request
+or ping. The ring turns orange only in the last 10 minutes once no ping is
+coming, so a 5-minute thread whose plan is `stopped` is orange for its whole
+life, and an undecided one stays neutral.
 
 The sidebar ring and the hover card's "Prompt cache" block show only on rows
 where it is your move. Their dollar figures come from the price table in
@@ -189,7 +208,8 @@ is exported too (with 0003 applied).
   "conversation context changed" once any extension handles `turn_end`, which
   Carl's global pi packages do; pi patch 0004 fixes it. A pi bump that loses 0004 goes
   back to no idle pings with no error. Check that `cache_warm` entries, and
-  `loom_thread_cache.touched_at`, still move after a run has settled.
+  `loom_thread_cache.pinged_at`, still move after a run has settled, and that a
+  1-hour root's `warming` reads `scheduled` once its run settles.
 - **The env leaks to what a root spawns.** Anything a 1-hour root's pi process
   starts itself inherits `PI_CACHE_RETENTION=long` and the 90-minute horizon:
   `consult_manager`, pi-subagents runs, `pi` run from its bash. The readouts do

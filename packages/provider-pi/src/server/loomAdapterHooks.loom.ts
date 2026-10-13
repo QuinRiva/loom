@@ -11,13 +11,18 @@
  *
  * `classifier` re-classes quota errors (3c-1), `sanitiser` runs before
  * `switch_session` on resume (3c-2), and `steerStash` mirrors pi's
- * `queue_update` for the restart continuation (3c-3, DL-690/691). `cacheTouched`
+ * `queue_update` for the restart continuation (3c-3, DL-690/691). `cache`
  * feeds the sidebar's cache-liveness ring (prompt-cache-keeping, Workstream D)
- * through {@link touchLoomPiCache}.
+ * through {@link touchLoomPiCache}, and hears the warmer die with its process.
  *
  * @module provider-pi/server/loomAdapterHooks
  */
-import type { IsoDateTime, OrchestrationV2ProviderFailure, ThreadId } from "@t3tools/contracts";
+import type {
+  IsoDateTime,
+  LoomThreadCachePatch,
+  OrchestrationV2ProviderFailure,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -64,15 +69,15 @@ export interface LoomPiAdapterHooksShape {
       threadId: ThreadId,
     ) => Effect.Effect<{ readonly runId: string | null; readonly text: string } | null>;
   };
-  /** pi refreshed the thread's prompt cache at `at` (`LoomCacheBroadcast`). */
-  readonly cacheTouched: (threadId: ThreadId, at: IsoDateTime) => Effect.Effect<void>;
+  /** New facts about the thread's prompt cache (`LoomCacheBroadcast.update`). */
+  readonly cache: (threadId: ThreadId, patch: LoomThreadCachePatch) => Effect.Effect<void>;
 }
 
 export const passthroughLoomPiAdapterHooks: LoomPiAdapterHooksShape = {
   classifier: () => Effect.succeed({ usageLimit: false }),
   sanitiser: () => Effect.void,
   steerStash: { write: () => Effect.void, read: () => Effect.succeed(null) },
-  cacheTouched: () => Effect.void,
+  cache: () => Effect.void,
 };
 
 export class LoomPiAdapterHooks extends Context.Reference<LoomPiAdapterHooksShape>(
@@ -98,8 +103,10 @@ export const classifyLoomPiFailure = (
 
 /**
  * Reports a pi session event that refreshed the prompt cache: an assistant request ending (any
- * stop but error or abort) as it is seen, or an idle `cache_warm` ping (pi's `entry_appended`
- * with a `usage` entry) at its entry's timestamp. Every other event is a no-op.
+ * stop but error or abort) with its dispatch — pi-ai's `timestamp`, the anchor pi's keep-alive
+ * schedule counts from — and end (`timestamp + durationMs`; now when either is missing), or an
+ * idle `cache_warm` ping (pi's `entry_appended` with a `usage` entry) at its entry's timestamp.
+ * Every other event is a no-op.
  */
 export const touchLoomPiCache = (
   hooks: LoomPiAdapterHooksShape,
@@ -113,8 +120,20 @@ export const touchLoomPiCache = (
     stopReason !== "error" &&
     stopReason !== "aborted"
   ) {
+    const startedMs = piRecordField(message, "timestamp");
+    const durationMs = piRecordField(message, "durationMs");
     return DateTime.now.pipe(
-      Effect.flatMap((now) => hooks.cacheTouched(threadId, DateTime.formatIso(now))),
+      Effect.flatMap((now) => {
+        const nowMs = DateTime.toEpochMillis(now);
+        const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+        const stamped = typeof startedMs === "number";
+        return hooks.cache(threadId, {
+          requestStartedAt: iso(stamped ? startedMs : nowMs),
+          requestEndedAt: iso(
+            stamped && typeof durationMs === "number" ? startedMs + durationMs : nowMs,
+          ),
+        });
+      }),
     );
   }
   const entry = event["type"] === "entry_appended" ? event["entry"] : undefined;
@@ -122,6 +141,6 @@ export const touchLoomPiCache = (
   return piRecordField(entry, "type") === "usage" &&
     piRecordField(entry, "kind") === "cache_warm" &&
     typeof timestamp === "string"
-    ? hooks.cacheTouched(threadId, timestamp)
+    ? hooks.cache(threadId, { pingedAt: timestamp })
     : Effect.void;
 };

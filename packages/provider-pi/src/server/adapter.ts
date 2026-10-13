@@ -2342,6 +2342,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   protocolError("Pi transport closed during rollback"),
                 );
               pendingWake = null;
+              // loom: the warmer dies with the process — no further keep-alive pings (sidebar cache gauge)
+              yield* loomHooks.cache(state?.providerThread.appThreadId ?? input.threadId, {
+                warming: "stopped",
+              });
               const interrupted = state?.activeTurn?.interrupted === true;
               if (state?.activeTurn != null) {
                 state.activeTurn.failure = interrupted

@@ -1,7 +1,8 @@
 /**
  * loom: the prompt-cache fuel ring on sidebar and command-palette thread rows —
- * neutral while warm, orange in the last 10 minutes, a grey snowflake once
- * cold. Shown only on rows that are the user's move (never Working, Waiting on
+ * counting down to when the cache really goes cold, keep-alive pings included:
+ * neutral while warm or kept warm, orange in the last 10 minutes once no ping is
+ * coming, a grey snowflake once cold. Shown only on rows that are the user's move (never Working, Waiting on
  * sub-threads, Snoozed or Settled) and only on pi threads with a cache arm.
  * Re-evaluates on the shared minute tick; never animates.
  */
@@ -12,13 +13,12 @@ import {
   cacheLiveness,
   cacheModelPrice,
   cacheStakeUsd,
-  latestTouchMs,
 } from "@t3tools/client-runtime/state/loom/cacheLiveness";
 import {
-  cacheTouchKey,
-  getCacheTouch,
-  subscribeCacheTouch,
-} from "@t3tools/client-runtime/state/loom/cacheTouches";
+  cacheStateKey,
+  getCacheState,
+  subscribeCacheState,
+} from "@t3tools/client-runtime/state/loom/cacheState";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { LoomThreadCache } from "@t3tools/contracts";
 import { SnowflakeIcon } from "lucide-react";
@@ -59,23 +59,19 @@ export const cacheView = (
 
 const minuteIso = (nowMinute: string) => `${nowMinute}:00.000Z`;
 
-/** The thread's cache view on the minute tick, from its last run end, snapshot touch and live touches. */
+/** The thread's cache view on the minute tick, from its live cache row, else the snapshot's. */
 export function useCacheView(thread: SidebarThreadSummary, cache: LoomThreadCache): CacheView {
   const nowMinute = useNowMinute();
-  const key = cacheTouchKey(thread.environmentId, thread.id);
+  const key = cacheStateKey(thread.environmentId, thread.id);
   const subscribe = useCallback(
-    (listener: () => void) => subscribeCacheTouch(key, listener),
+    (listener: () => void) => subscribeCacheState(key, listener),
     [key],
   );
-  const liveTouch = useSyncExternalStore(subscribe, () => getCacheTouch(key));
+  const live = useSyncExternalStore(subscribe, () => getCacheState(key));
   // The minute tick is the clock: Date.now() between ticks would make renders disagree.
   const nowMs = Date.parse(minuteIso(nowMinute));
   return cacheView(
-    cacheLiveness(
-      nowMs,
-      latestTouchMs(thread.latestRun?.completedAt, cache.touchedAt, liveTouch),
-      cache.retention,
-    ),
+    cacheLiveness(nowMs, live ?? cache),
     thread.modelSelection.model,
     thread.source.workstream?.contextUsage?.usedTokens ?? null,
   );
@@ -98,13 +94,20 @@ const formatStakeRounded = (usd: number) =>
 export const cacheArmLabel = (liveness: CacheLiveness) =>
   liveness.retention === "long" ? "1-hour" : "5-minute";
 
+/** Local wall-clock time, `14:32`. */
+export const cacheClock = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 function ringTooltip({ liveness, stakeUsd }: CacheView): string {
   const arm = `${cacheArmLabel(liveness)} cache`;
   const remaining = liveness.remainingMs ?? 0;
   const stake = stakeUsd === null ? null : `≈ ${formatStakeRounded(stakeUsd)}`;
+  const ifCold = stake ? ` If it goes cold: ${stake} more.` : "";
   return liveness.state === "cold"
     ? `Cache cold for ~${formatCacheDuration(-remaining)} (${arm}).${stake ? ` Next reply ${stake} more than warm, now or later.` : ""}`
-    : `Cache warm, ~${formatCacheDuration(remaining)} left (${arm}).${stake ? ` If it goes cold: ${stake} more.` : ""}`;
+    : liveness.keptWarm
+      ? `Kept warm until ~${cacheClock(liveness.expiresAtMs ?? 0)} (${arm}).${ifCold}`
+      : `Cache warm, ~${formatCacheDuration(remaining)} left (${arm}).${ifCold}`;
 }
 
 /** Point on the ring at `deg` clockwise from 12 o'clock (viewBox 16, radius 6). */

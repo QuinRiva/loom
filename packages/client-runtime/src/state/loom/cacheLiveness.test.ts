@@ -1,62 +1,101 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type { LoomCacheRetention, LoomCacheWarming } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+
 import {
   cacheLiveness,
   cacheModelPrice,
   cacheStakeUsd,
   cacheWarmReadUsd,
-  latestTouchMs,
 } from "./cacheLiveness.ts";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-10-12T12:00:00.000Z");
 const ago = (minutes: number) => NOW - minutes * MIN;
+const iso = (minutes: number | null) =>
+  minutes === null ? null : DateTime.formatIso(DateTime.makeUnsafe(ago(minutes)));
+
+/** A thread whose last request was dispatched `started` min ago and ran 30 s. */
+const facts = (
+  retention: LoomCacheRetention,
+  started: number,
+  pinged: number | null,
+  warming: LoomCacheWarming | null,
+) => ({
+  retention,
+  requestStartedAt: iso(started),
+  requestEndedAt: iso(started - 0.5),
+  pingedAt: iso(pinged),
+  warming,
+});
 
 describe("cacheLiveness", () => {
   it.each([
-    // [retention, minutes since touch, state, lit steps of total]
-    ["long", 0, "warm", 12, 12],
-    ["long", 21, "warm", 8, 12], // 39 min left → ceil(39/5)
-    ["long", 49.5, "warm", 3, 12], // 10.5 min left
-    ["long", 50, "expiring", 2, 12], // exactly 10 min left counts as expiring
-    ["long", 59, "expiring", 1, 12],
-    ["long", 60, "cold", 0, 12],
-    ["long", 300, "cold", 0, 12],
-    ["short", 0, "expiring", 5, 5], // a 5-minute cache is all inside the last 10 minutes
-    ["short", 2.5, "expiring", 3, 5],
-    ["short", 5, "cold", 0, 5],
-  ] as const)("%s cache touched %s min ago is %s", (retention, minutes, state, lit, steps) => {
-    const liveness = cacheLiveness(NOW, ago(minutes), retention);
-    expect(liveness).toMatchObject({ state, litSteps: lit, steps, retention });
+    // [case, retention, dispatched min ago, last ping min ago, plan] → [state, expires min from now, kept warm, lit]
+    // 1-hour root: one ping at +54, alive to dispatch + 114.
+    ["1h pending ping", "long", 10, null, "scheduled", "warm", 104, true, 12],
+    ["1h ping due, within grace", "long", 57, null, "scheduled", "warm", 57, true, 12],
+    ["1h ping landed", "long", 54.1, 0.1, "scheduled", "warm", 59.9, false, 12],
+    ["1h after its ping, draining", "long", 105, 51, "scheduled", "expiring", 9, false, 2],
+    ["1h ping missed past grace", "long", 58, null, "scheduled", "expiring", 2.5, false, 1],
+    ["1h after a restart", "long", 30, null, "stopped", "warm", 30.5, false, 7],
+    ["1h after a restart, last 10", "long", 51, null, "stopped", "expiring", 9.5, false, 2],
+    ["1h cold", "long", 125, 71, "stopped", "cold", -11, false, 0],
+    // 5-minute thread: six pings while the next falls within 30 min, alive to ≈ dispatch + 32.
+    ["5m undecided", "short", 2, null, null, "warm", 3.5, false, 4],
+    ["5m pinging", "short", 12, 2.6, "scheduled", "warm", 20.4, true, 5],
+    ["5m first ping pending", "short", 4, null, "scheduled", "warm", 28, true, 5],
+    ["5m stopped", "short", 1, null, "stopped", "expiring", 4.5, false, 5],
+    ["5m pi said stop at +4.5", "short", 4.5, null, "stopped", "expiring", 1, false, 1],
+    ["5m after the horizon", "short", 31, 3.5, "scheduled", "expiring", 1.5, false, 2],
+    ["5m ping missed", "short", 5.6, null, "scheduled", "cold", -0.1, false, 0],
+    ["5m cold", "short", 40, null, "stopped", "cold", -34.5, false, 0],
+  ] as const)(
+    "%s",
+    (_case, retention, started, pinged, warming, state, expiresIn, keptWarm, lit) => {
+      const liveness = cacheLiveness(NOW, facts(retention, started, pinged, warming));
+      expect(liveness).toMatchObject({ state, keptWarm, litSteps: lit, retention });
+      expect((liveness.expiresAtMs! - NOW) / MIN).toBeCloseTo(expiresIn, 6);
+      expect(liveness.remainingMs).toBe(liveness.expiresAtMs! - NOW);
+    },
+  );
+
+  it("last touch is the later of the request end and the last ping", () => {
+    expect(cacheLiveness(NOW, facts("long", 60, 3, "stopped")).touchedAtMs).toBe(ago(3));
+    expect(cacheLiveness(NOW, facts("long", 20, 70, "stopped")).touchedAtMs).toBe(ago(19.5));
   });
 
-  it("reports when it expires and, once cold, how long ago", () => {
-    const cold = cacheLiveness(NOW, ago(75), "long");
-    expect(cold.expiresAtMs).toBe(ago(15));
-    expect(cold.remainingMs).toBe(-15 * MIN);
+  it("an earlier idle period's ping does not move the schedule", () => {
+    // Pinged 70 min ago, then a new turn 10 min ago: the anchor is the new dispatch.
+    expect(cacheLiveness(NOW, facts("long", 10, 70, "scheduled")).expiresAtMs).toBe(ago(-104));
   });
 
   it.each(["long", "short"] as const)(
-    "%s cache with no touch on record is unknown",
+    "%s cache with no request on record is unknown",
     (retention) => {
-      expect(cacheLiveness(NOW, null, retention)).toMatchObject({
-        state: "unknown",
-        expiresAtMs: null,
-        remainingMs: null,
-        litSteps: 0,
-      });
+      expect(
+        cacheLiveness(NOW, {
+          retention,
+          requestStartedAt: null,
+          requestEndedAt: null,
+          pingedAt: null,
+          warming: "scheduled",
+        }),
+      ).toMatchObject({ state: "unknown", expiresAtMs: null, remainingMs: null, litSteps: 0 });
     },
   );
-});
 
-describe("latestTouchMs", () => {
-  it("takes the latest of the run end, the snapshot touch and the live touch", () => {
-    expect(latestTouchMs("2026-10-12T11:00:00.000Z", null, ago(3), undefined)).toBe(ago(3));
-    expect(latestTouchMs("2026-10-12T11:30:00.000Z", "2026-10-12T11:10:00.000Z")).toBe(ago(30));
-  });
-
-  it("is null with nothing on record", () => {
-    expect(latestTouchMs(null, undefined)).toBeNull();
+  it("a migrated row (end only, stopped) counts down from its last touch", () => {
+    expect(
+      cacheLiveness(NOW, {
+        retention: "long",
+        requestStartedAt: null,
+        requestEndedAt: iso(20),
+        pingedAt: null,
+        warming: "stopped",
+      }),
+    ).toMatchObject({ state: "warm", expiresAtMs: ago(-40), keptWarm: false });
   });
 });
 

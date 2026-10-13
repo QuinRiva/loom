@@ -134,7 +134,7 @@ export const LoomPiAdapterHooksLive = Layer.effect(
           ),
         read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
       },
-      cacheTouched: cache.touch,
+      cache: cache.update,
     } satisfies LoomPiAdapterHooksShape;
   }),
 );

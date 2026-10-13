@@ -118,9 +118,9 @@ export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectSh
  * snapshot loads, so no write between snapshot and tail is lost. The live
  * consult items (`LoomThreadConsult.subscribeLive`) ride the same tail: they
  * have no snapshot field, since a subscription opens with the running ones.
- * So do the cache touches (`LoomCacheBroadcast`): kept off the snapshot, which
- * carries each thread's last persisted `workstream.cache.touchedAt` instead.
- * This tail is therefore goals, consults and cache touches, not goals alone.
+ * So do the cache-row updates (`LoomCacheBroadcast`): kept off the snapshot, which
+ * carries each thread's persisted `workstream.cache` instead.
+ * This tail is therefore goals, consults and cache rows, not goals alone.
  */
 export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   readonly loom?: boolean;
@@ -136,13 +136,13 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   const loomStore = yield* LoomStoreV2;
   const subscription = yield* (yield* LoomGoalBroadcast).subscribe;
   const consults = yield* (yield* LoomThreadConsult).subscribeLive;
-  const cacheTouches = yield* (yield* LoomCacheBroadcast).subscribe;
+  const cacheRows = yield* (yield* LoomCacheBroadcast).subscribe;
   return {
     snapshotGoals: (projects: ReadonlyArray<OrchestrationProjectShell>) =>
       loomSnapshotGoals(projects).pipe(Effect.provideService(LoomStoreV2, loomStore)),
     items: Stream.fromSubscription(subscription).pipe(
       Stream.merge(consults),
-      Stream.merge(Stream.fromSubscription(cacheTouches)),
+      Stream.merge(Stream.fromSubscription(cacheRows)),
     ),
   };
 });

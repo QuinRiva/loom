@@ -517,28 +517,48 @@ export const isLoomConsultShellStreamItem = <Item extends { readonly kind: strin
 export const LoomCacheRetention = Schema.Literals(["long", "short"]);
 export type LoomCacheRetention = typeof LoomCacheRetention.Type;
 
+/** A thread's idle keep-alive plan: pi will ping (`scheduled`) or will not (`stopped`). */
+export const LoomCacheWarming = Schema.Literals(["scheduled", "stopped"]);
+export type LoomCacheWarming = typeof LoomCacheWarming.Type;
+
 /**
- * A thread's prompt-cache state from `loom_thread_cache`: the arm its launches
- * run, and when pi last refreshed the cache with an idle ping (null until the
- * first). The last real request is the shell's `latestRunCompletedAt`.
+ * A thread's prompt-cache facts from `loom_thread_cache`, from which a client
+ * computes when the cache really goes cold: the arm its launches run, the last
+ * real request's dispatch (pi's keep-alive schedule anchor) and end, the last
+ * keep-alive ping that landed, and the plan for the current idle period (null =
+ * undecided, reported by Loom's pi extension; `stopped` once the process exits).
  */
 export const LoomThreadCache = Schema.Struct({
   retention: LoomCacheRetention,
-  touchedAt: Schema.NullOr(IsoDateTime),
+  requestStartedAt: Schema.NullOr(IsoDateTime),
+  requestEndedAt: Schema.NullOr(IsoDateTime),
+  pingedAt: Schema.NullOr(IsoDateTime),
+  warming: Schema.NullOr(LoomCacheWarming),
 });
 export type LoomThreadCache = typeof LoomThreadCache.Type;
+/** The facts one write changes; absent keys keep their stored value. */
+export type LoomThreadCachePatch = Partial<Omit<LoomThreadCache, "retention">>;
 
 /**
- * A cache-warming ping, the moment pi reports it. Spliced into
+ * pi's idle keep-alive horizon per arm, from the last request's dispatch: pi's
+ * 30-minute default for 5-minute threads, and the 90 minutes Loom's composer
+ * sets for 1-hour roots (`PI_CACHE_WARMING_IDLE_MAX_MS`, one ping at ≈ 54 min).
+ * The client's expiry estimate replays pi's schedule against these, so the
+ * composer reads the same constant.
+ */
+export const LOOM_CACHE_HORIZON_MS = { long: 90 * 60_000, short: 30 * 60_000 } as const;
+
+/**
+ * A thread's cache row after a write, the moment it lands. Spliced into
  * `OrchestrationV2ShellStreamItem` for `loom: true` subscribers: no `sequence`,
- * never persisted; the client keeps it out of the persisted shell and seeds
- * from the snapshot's `workstream.cache.touchedAt` on (re)connect.
+ * never persisted; the client keeps it out of the persisted shell and falls
+ * back to the snapshot's `workstream.cache` on (re)connect.
  */
 export const LoomCacheShellStreamItemMembers = [
   Schema.Struct({
-    kind: Schema.Literal("cache.touched"),
+    kind: Schema.Literal("cache.updated"),
     threadId: ThreadId,
-    touchedAt: IsoDateTime,
+    cache: LoomThreadCache,
   }),
 ] as const;
 export type LoomCacheShellStreamItem = (typeof LoomCacheShellStreamItemMembers)[number]["Type"];
@@ -546,7 +566,7 @@ export type LoomCacheShellStreamItem = (typeof LoomCacheShellStreamItemMembers)[
 export const isLoomCacheShellStreamItem = <Item extends { readonly kind: string }>(
   item: Item,
 ): item is Extract<Item, { readonly kind: LoomCacheShellStreamItem["kind"] }> =>
-  item.kind === "cache.touched";
+  item.kind === "cache.updated";
 
 /** The card ↔ live-consult correlation key: FNV-1a of the trimmed question, base 36. */
 export const consultQuestionKey = (question: string): string => {

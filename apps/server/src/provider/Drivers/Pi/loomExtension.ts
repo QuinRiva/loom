@@ -7,7 +7,8 @@
  * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries) and
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard` and `prompt-debug`, and `cacheWarmingGate` (no idle cache
- * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms)
+ * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
+ * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge)
  * (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with

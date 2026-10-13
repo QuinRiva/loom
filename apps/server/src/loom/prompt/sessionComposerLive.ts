@@ -22,6 +22,7 @@
  * @module loom/prompt/sessionComposerLive
  */
 import {
+  LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
   ThreadId,
@@ -40,7 +41,6 @@ import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import {
   cacheRetentionForThread,
   LONG_ROOT_IDLE_TIMEOUT_MS,
-  LONG_ROOT_IDLE_WARMING_MAX_MS,
   recordCacheRetentionLaunch,
 } from "../../provider/cacheRetention.loom.ts";
 import {
@@ -239,7 +239,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           ...agentGitEnv(threadId),
           ...LOOM_HIDDEN_TOOLS_ENV,
           ...(retention === "long" && {
-            PI_CACHE_WARMING_IDLE_MAX_MS: String(LONG_ROOT_IDLE_WARMING_MAX_MS),
+            PI_CACHE_WARMING_IDLE_MAX_MS: String(LOOM_CACHE_HORIZON_MS.long),
           }),
         },
         pathPrepend: gitShimDir,

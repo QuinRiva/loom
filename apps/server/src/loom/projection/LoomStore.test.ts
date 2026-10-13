@@ -191,12 +191,12 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
         VALUES ('stats-spans', 40, 9000, 1000000), ('stats-v1', 7, 250000, 1000000)`;
       // New under V2, nothing reported yet.
       yield* thread("stats-new", null);
-      // The prompt-cache row: absent until a launch records the arm; a ping sets touchedAt.
+      // The prompt-cache row: absent until a launch records the arm; a ping sets pingedAt.
       yield* store.cache.record(ThreadId.make("stats-spans"), "short");
       yield* store.cache.record(ThreadId.make("stats-spans"), "long");
-      yield* store.cache.touch(ThreadId.make("stats-spans"), T(5));
+      yield* store.cache.update(ThreadId.make("stats-spans"), { pingedAt: T(5) });
       yield* store.cache.record(ThreadId.make("stats-spans"), "long");
-      yield* store.cache.touch(ThreadId.make("stats-new"), T(5));
+      assert.isNull(yield* store.cache.update(ThreadId.make("stats-new"), { pingedAt: T(5) }));
 
       const fields = yield* store.shellFields(
         ["stats-spans", "stats-v1", "stats-new"].map((id) => ThreadId.make(id)),
@@ -210,7 +210,10 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       assert.deepEqual(stats("stats-new"), [0, null]);
       assert.deepEqual(fields.get(ThreadId.make("stats-spans"))?.cache, {
         retention: "long",
-        touchedAt: T(5),
+        requestStartedAt: null,
+        requestEndedAt: null,
+        pingedAt: T(5),
+        warming: null,
       });
       assert.notProperty(fields.get(ThreadId.make("stats-new")), "cache");
     }),
