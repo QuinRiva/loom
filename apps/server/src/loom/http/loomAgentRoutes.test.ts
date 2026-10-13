@@ -2,8 +2,8 @@
  * The `/loom/agent` routes over HTTP on the real orchestrator, with
  * credentials from the real `McpSessionRegistry`: the session profile's
  * `humanEngaged` reads only seam 14's stamp, a child's profile drops
- * `mcp__t3-code__ask_user_question`, ask + wait deliver an answer, and a credential without
- * `workstream` is refused.
+ * `mcp__t3-code__ask_user_question`, ask + wait deliver an answer, the cache-warming plan
+ * reaches the cache broadcast, and a credential without `workstream` is refused.
  */
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -20,6 +20,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
 import * as ServerConfig from "../../config.ts";
@@ -34,6 +36,10 @@ import {
   seedThread,
   spawnChild,
 } from "../testkit/loomOrchestratorLayer.ts";
+import {
+  LoomCacheBroadcast,
+  layer as LoomCacheBroadcastLayer,
+} from "../projection/LoomCacheBroadcast.ts";
 import { reactToAskEvent } from "../userInput/askUserQuestion.ts";
 import { LoomAgentRoutesLive } from "./loomAgentRoutes.ts";
 
@@ -43,7 +49,7 @@ const TestLayer = HttpRouter.serve(LoomAgentRoutesLive, {
   disableListenLog: true,
   disableLogger: true,
 }).pipe(
-  Layer.provideMerge(McpSessionRegistry.layer),
+  Layer.provideMerge(Layer.merge(McpSessionRegistry.layer, LoomCacheBroadcastLayer)),
   Layer.provide(
     Layer.mock(ServerEnvironment.ServerEnvironment)({
       getEnvironmentId: Effect.succeed("environment-loom-agent" as never),
@@ -201,6 +207,27 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
     }),
   );
 
+  it.effect("the cache-warming plan reaches the caller's cache row; anything else is a 400", () =>
+    Effect.gen(function* () {
+      const { threadId } = yield* seedThread({ threadId: "routes-cache" as ThreadId });
+      const auth = yield* credential(threadId, ["workstream"]);
+      const post = (body: unknown) =>
+        HttpClient.HttpClient.use((client) =>
+          client.post("/loom/agent/cache-warming", {
+            headers: { authorization: auth },
+            body: HttpBody.jsonUnsafe(body),
+          }),
+        ).pipe(
+          Effect.map((response) => response.status),
+          Effect.orDie,
+        );
+      assert.equal(yield* post({ warming: "scheduled" }), 204);
+      assert.equal(yield* post({ warming: "soon" }), 400);
+      const first = yield* (yield* LoomCacheBroadcast).coalesced.pipe(Stream.runHead);
+      assert.deepEqual(Option.getOrThrow(first), { threadId, patch: { warming: "scheduled" } });
+    }),
+  );
+
   it.effect("a credential without workstream gets 403, none gets 401", () =>
     Effect.gen(function* () {
       const { threadId } = yield* seedThread({ threadId: "routes-denied" as ThreadId });
@@ -209,6 +236,7 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
         ["GET", "/session-profile"],
         ["POST", "/user-input/ask"],
         ["GET", "/user-input/loom-ask%3Ax/wait"],
+        ["POST", "/cache-warming"],
       ] as const) {
         assert.equal((yield* call(auth, method, path, {})).status, 403);
         assert.equal((yield* call("Bearer nope", method, path, {})).status, 401);

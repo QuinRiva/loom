@@ -1,17 +1,19 @@
 /**
- * The two REST survivors beside `/mcp` (P3-3), for Loom's pi extension: the
- * session profile (seam 5) and `mcp__t3-code__ask_user_question`'s ask + long-poll wait.
+ * The REST routes beside `/mcp` (P3-3), for Loom's pi extension: the session
+ * profile (seam 5), `mcp__t3-code__ask_user_question`'s ask + long-poll wait, and
+ * the idle cache-warming plan report (the sidebar cache gauge).
  * The bearer is the thread's MCP credential, resolved through
  * `McpSessionRegistry.resolve` exactly as `/mcp` does; the caller is that
  * credential's thread and must hold the `workstream` capability.
  *
  * @module loom/http/loomAgentRoutes
  */
-import type { ThreadId } from "@t3tools/contracts";
+import { LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ServerConfig from "../../config.ts";
@@ -23,6 +25,7 @@ import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
+import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { loadRoleOverlay } from "../prompt/roleOverlay.ts";
 import { ASK_COULD_NOT_PRESENT, openAskUserQuestion } from "../userInput/askUserQuestion.ts";
@@ -156,4 +159,27 @@ const waitRoute = HttpRouter.route(
   ),
 );
 
-export const LoomAgentRoutesLive = HttpRouter.addAll([profileRoute, askRoute, waitRoute]);
+/** The extension's idle keep-alive plan for the caller's thread: at settle and at each idle decision. */
+const cacheWarmingRoute = HttpRouter.route(
+  "POST",
+  `${LOOM_AGENT_ROUTE_PREFIX}/cache-warming`,
+  asCaller((caller) =>
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const { warming } = yield* request.json.pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(Schema.Struct({ warming: Schema.NullOr(LoomCacheWarming) })),
+        ),
+      );
+      yield* (yield* LoomCacheBroadcast).update(caller.threadId, { warming });
+      return HttpServerResponse.empty({ status: 204 });
+    }).pipe(Effect.catch(() => Effect.succeed(reply(400, "Expected { warming }.")))),
+  ),
+);
+
+export const LoomAgentRoutesLive = HttpRouter.addAll([
+  profileRoute,
+  askRoute,
+  waitRoute,
+  cacheWarmingRoute,
+]);

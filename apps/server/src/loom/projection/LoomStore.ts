@@ -28,6 +28,7 @@ import {
   LoomRouteKind,
   LoomRouteRecord,
   LoomThreadCache,
+  type LoomThreadCachePatch,
   LoomThreadConsultSummary,
   type LoomThreadHistoryEntry,
   LoomThreadPeerMessageSummary,
@@ -348,12 +349,20 @@ export interface LoomStoreV2Shape {
     /** Per-target consult summaries for the asker, newest first. */
     readonly listByAsker: (askerThreadId: ThreadId) => Op<ReadonlyArray<LoomThreadConsultSummary>>;
   };
-  /** `loom_thread_cache`: a pi thread's prompt-cache arm and last warming ping. */
+  /** `loom_thread_cache`: a pi thread's prompt-cache arm and the facts its expiry is computed from. */
   readonly cache: {
-    /** The arm a launch runs (the session composer, every launch); keeps `touchedAt`. */
+    /** The arm a launch runs (the session composer, every launch); keeps the other facts. */
     readonly record: (threadId: ThreadId, retention: LoomCacheRetention) => Op<void>;
-    /** pi refreshed the thread's cache at `at` (the pi adapter); a thread never launched has no row. */
-    readonly touch: (threadId: ThreadId, at: IsoDateTime) => Op<void>;
+    /**
+     * Writes the patch's facts (`LoomCacheBroadcast`) and returns the row after the write; a
+     * thread never launched has no row, so null.
+     */
+    readonly update: (
+      threadId: ThreadId,
+      patch: LoomThreadCachePatch,
+    ) => Op<LoomThreadCache | null>;
+    /** Every plan `stopped`: at boot, when no pi process (and so no warmer) is alive. */
+    readonly stopAll: Op<void>;
   };
   readonly peerMessages: {
     /** Pending messages (all targets when omitted), oldest first. */
@@ -627,7 +636,9 @@ const make = Effect.gen(function* () {
             ar.requested_at
           ) END AS "modelSince",
           CASE WHEN c.thread_id IS NOT NULL
-            THEN json_object('retention', c.retention, 'touchedAt', c.touched_at) END AS "cache"
+            THEN json_object('retention', c.retention, 'requestStartedAt', c.request_started_at,
+              'requestEndedAt', c.request_ended_at, 'pingedAt', c.pinged_at, 'warming', c.warming)
+            END AS "cache"
         FROM orchestration_v2_projection_threads t
         LEFT JOIN loom_thread_imported_metrics m ON m.thread_id = t.thread_id
         LEFT JOIN loom_thread_cache c ON c.thread_id = t.thread_id
@@ -899,11 +910,32 @@ const make = Effect.gen(function* () {
           Effect.asVoid,
           run("cache.record"),
         ),
-      touch: (threadId, at) =>
-        sql`UPDATE loom_thread_cache SET touched_at = ${at} WHERE thread_id = ${threadId}`.pipe(
-          Effect.asVoid,
-          run("cache.touch"),
-        ),
+      update: (threadId, patch) => {
+        const columns = Object.fromEntries(
+          Object.entries({
+            request_started_at: patch.requestStartedAt,
+            request_ended_at: patch.requestEndedAt,
+            pinged_at: patch.pingedAt,
+            warming: patch.warming,
+          }).filter(([, value]) => value !== undefined),
+        );
+        return (
+          Object.keys(columns).length === 0
+            ? Effect.void
+            : sql`UPDATE loom_thread_cache SET ${sql.update(columns)} WHERE thread_id = ${threadId}`
+        ).pipe(
+          Effect.andThen(
+            sql`SELECT retention, request_started_at AS "requestStartedAt",
+                  request_ended_at AS "requestEndedAt", pinged_at AS "pingedAt", warming
+                FROM loom_thread_cache WHERE thread_id = ${threadId}`,
+          ),
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(LoomThreadCache))),
+          Effect.map((rows) => rows[0] ?? null),
+          run("cache.update"),
+        );
+      },
+      stopAll: sql`UPDATE loom_thread_cache SET warming = 'stopped'
+          WHERE warming IS NOT 'stopped'`.pipe(Effect.asVoid, run("cache.stopAll")),
     },
     peerMessages: {
       listPending: (targetThreadId) =>

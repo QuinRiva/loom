@@ -26,16 +26,6 @@ export const cacheRetentionForThread = (
     ? "long"
     : "short";
 
-/**
- * pi's idle-warming horizon for a 1-hour root, set per launch outside the launch
- * identity (the arm is identity; the horizon is policy). pi's warmer pings at 90%
- * of the TTL (54 min) after the last real request started, then 54 min after each
- * ping completes, while that next ping falls within this horizon of the start: 90
- * min admits the first (≈ 54 min) and not the second (≈ 108 min), so exactly one
- * ping, and the cache lives to ≈ 114 min.
- */
-export const LONG_ROOT_IDLE_WARMING_MAX_MS = 90 * 60_000;
-
 /** A 1-hour root's process outlives its one ping; past ≈ 114 min its cache is dead anyway. */
 export const LONG_ROOT_IDLE_TIMEOUT_MS = 2 * 60 * 60_000;
 

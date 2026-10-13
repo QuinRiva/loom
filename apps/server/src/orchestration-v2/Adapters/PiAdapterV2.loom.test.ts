@@ -52,7 +52,7 @@ import { controlMessage } from "../../loom/orchestration/dispatcher/controlMessa
 import { AUTHOR_LABELS } from "@t3tools/provider-pi/server/loom";
 import { loomMessageFields } from "../Orchestrator.loom.ts";
 import { EMPTY_LOOM_OPEN_SESSION_FIELDS } from "../../loom/prompt/sessionComposer.ts";
-import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import type { LoomOpenSessionFields, LoomThreadCachePatch } from "@t3tools/contracts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
@@ -165,7 +165,9 @@ const makeFakePi = Effect.gen(function* () {
       });
     }),
   );
-  return { spawner, emit, requests, spawns, switchedFiles };
+  // pi's stdout ends: the process went away.
+  const close = Queue.end(stdout);
+  return { spawner, emit, close, requests, spawns, switchedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -1023,34 +1025,61 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
 
 // ── Prompt-cache keeping D: cache refreshes reach the hook for the sidebar's liveness ring ───
 
-describe("PiAdapterV2 (loom) — cache touches", () => {
-  it.effect("reports idle pings at their timestamp and completed requests as they end", () =>
-    Effect.gen(function* () {
-      const touches = yield* Queue.unbounded<readonly [ThreadId, string]>();
-      const { fake } = yield* openRuntime(undefined, {
-        ...passthroughLoomPiAdapterHooks,
-        cacheTouched: (threadId, at) => Queue.offer(touches, [threadId, at]).pipe(Effect.asVoid),
-      });
-      const ping = "2026-10-12T13:54:00.000Z";
-      yield* fake.emit({ type: "entry_appended", entry: { type: "custom", customType: "x" } });
-      yield* fake.emit({
-        type: "message_end",
-        message: { role: "assistant", stopReason: "error", errorMessage: "boom" },
-      });
-      yield* fake.emit({
-        type: "entry_appended",
-        entry: { type: "usage", kind: "cache_warm", timestamp: ping },
-      });
-      // Neither the custom entry nor the failed request touched: the ping is first.
-      assert.deepEqual(yield* Queue.take(touches), [THREAD_ID, ping]);
-      yield* fake.emit({ type: "message_end", message: { role: "user" } });
-      yield* fake.emit({ type: "message_end", message: { role: "assistant", stopReason: "stop" } });
-      assert.deepEqual(yield* Queue.take(touches), [
-        THREAD_ID,
-        DateTime.formatIso(yield* DateTime.now),
-      ]);
-      assert.equal(yield* Queue.size(touches), 0);
-    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+describe("PiAdapterV2 (loom) — cache facts", () => {
+  it.effect(
+    "reports requests with their dispatch and end, idle pings, and the warmer's death",
+    () =>
+      Effect.gen(function* () {
+        const patches = yield* Queue.unbounded<readonly [ThreadId, LoomThreadCachePatch]>();
+        const { fake } = yield* openRuntime(undefined, {
+          ...passthroughLoomPiAdapterHooks,
+          cache: (threadId, patch) => Queue.offer(patches, [threadId, patch]).pipe(Effect.asVoid),
+        });
+        const ping = "2026-10-12T13:54:00.000Z";
+        yield* fake.emit({ type: "entry_appended", entry: { type: "custom", customType: "x" } });
+        yield* fake.emit({
+          type: "message_end",
+          message: { role: "assistant", stopReason: "error", errorMessage: "boom" },
+        });
+        yield* fake.emit({
+          type: "entry_appended",
+          entry: { type: "usage", kind: "cache_warm", timestamp: ping },
+        });
+        // Neither the custom entry nor the failed request is a fact: the ping is first.
+        assert.deepEqual(yield* Queue.take(patches), [THREAD_ID, { pingedAt: ping }]);
+        yield* fake.emit({ type: "message_end", message: { role: "user" } });
+        // pi-ai stamps the request's dispatch (ms) and duration: the schedule anchor and the refresh.
+        yield* fake.emit({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            stopReason: "toolUse",
+            timestamp: Date.parse("2026-10-12T14:00:00.000Z"),
+            durationMs: 12_500,
+          },
+        });
+        assert.deepEqual(yield* Queue.take(patches), [
+          THREAD_ID,
+          {
+            requestStartedAt: "2026-10-12T14:00:00.000Z",
+            requestEndedAt: "2026-10-12T14:00:12.500Z",
+          },
+        ]);
+        // Without pi-ai's stamps, both are now.
+        yield* fake.emit({
+          type: "message_end",
+          message: { role: "assistant", stopReason: "stop" },
+        });
+        const now = DateTime.formatIso(yield* DateTime.now);
+        assert.deepEqual(yield* Queue.take(patches), [
+          THREAD_ID,
+          { requestStartedAt: now, requestEndedAt: now },
+        ]);
+        // The process goes away, and its warmer with it.
+        yield* fake.close;
+        assert.deepEqual(yield* Queue.take(patches), [THREAD_ID, { warming: "stopped" }]);
+        assert.equal(yield* Queue.size(patches), 0);
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });
 

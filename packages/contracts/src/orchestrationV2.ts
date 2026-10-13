@@ -2056,7 +2056,7 @@ export type OrchestrationV2ShellSnapshot = typeof OrchestrationV2ShellSnapshot.T
 export const OrchestrationV2ShellStreamItem = Schema.Union([
   ...LoomGoalShellStreamItemMembers, // loom: unsequenced goal items, applied ungated
   ...LoomConsultShellStreamItemMembers, // loom: unsequenced live-consult items, kept off the snapshot
-  ...LoomCacheShellStreamItemMembers, // loom: unsequenced cache touches, kept off the snapshot
+  ...LoomCacheShellStreamItemMembers, // loom: unsequenced cache-row updates, kept off the snapshot
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
   }),

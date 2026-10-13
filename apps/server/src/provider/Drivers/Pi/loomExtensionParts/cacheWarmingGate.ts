@@ -16,12 +16,19 @@
 //    pi's idle horizon (`PI_CACHE_WARMING_IDLE_MAX_MS`) still bounds it to one ping.
 // Everything else (5-minute threads) is left to pi's economics.
 //
+// It also reports the resulting plan to Loom (`POST /loom/agent/cache-warming`), which the
+// sidebar's cache gauge needs to count down to when the cache really goes cold: at
+// `agent_settled` (`stopped` after a submit, `scheduled` for a 1-hour root, otherwise null —
+// undecided until pi's first idle decision), and at each idle decision (the final action).
+// The settle report is awaited, so it lands before any next turn (pi awaits `agent_settled`
+// handlers); the decision report never delays a ping. Both swallow every failure.
+//
 // An extension answer cannot override pi's safety stops: pi checks "conversation context
 // changed", "cache refresh deadline missed" and the warming mode before asking and again
 // after, so `warm` here only ever overrules the economics.
 //
 // As a part: `source` is a function body run once per pi process as `(pi, ctx) => { … }`
-// by Loom's extension assembler. It needs no `ctx` member.
+// by Loom's extension assembler; `loomFetch(ctx, …)` is the assembled module's.
 import { agentToolName } from "../../../../mcp/toolkits/workstream/families.ts";
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
@@ -30,16 +37,22 @@ export const cacheWarmingGatePart: LoomExtensionPart = {
   source: `
 const longRoot = process.env.PI_CACHE_RETENTION === "long";
 let submitted = false;
+const report = (warming) =>
+  loomFetch(ctx, "POST", "/cache-warming", { warming }, AbortSignal.timeout(5000)).catch(() => {});
 pi.on("tool_result", (event) => {
   if (event.toolName === ${JSON.stringify(agentToolName("workstream_submit"))} && !event.isError) submitted = true;
 });
 pi.on("input", () => {
   submitted = false;
 });
+pi.on("agent_settled", async () => {
+  await report(submitted ? "stopped" : longRoot ? "scheduled" : null);
+});
 pi.on("cache_warming_decision", (event) => {
   if (event.continuationProbability >= 1) return undefined;
-  if (submitted) return { action: "stop" };
-  return longRoot ? { action: "warm" } : undefined;
+  const action = submitted ? "stop" : longRoot ? "warm" : event.action;
+  void report(action === "warm" ? "scheduled" : "stopped");
+  return action === event.action ? undefined : { action };
 });
 `,
 };
