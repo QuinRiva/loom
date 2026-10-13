@@ -12,8 +12,8 @@ import type { ControlPayload, ControlPayloadItem, ThreadId } from "@t3tools/cont
 
 import { type DigestExtra, digestItems } from "./digest.ts";
 import {
-  boundedExcerpt,
   formatReportExcerpt,
+  reportItemFields,
   WORKSTREAM_CONTROL_PLANE_MARKER,
   type WakeMember,
 } from "./wakes.ts";
@@ -121,7 +121,6 @@ export const buildYieldPayload = (
   },
   flags: YieldFlags = { synthesised: false, gateParked: false },
 ): ControlPayload => {
-  const excerpt = boundedExcerpt(report);
   const items: ControlPayloadItem[] = [
     {
       threadId: child.id,
@@ -131,21 +130,18 @@ export const buildYieldPayload = (
         : `Yielded to you — outcome \`${outcome}\``,
       status: "yielded",
       icon: "↩️",
-      ...(child.reportPath !== null ? { reportPath: child.reportPath } : {}),
-      ...(excerpt !== undefined ? { excerpt } : {}),
+      ...reportItemFields(child.reportPath, report),
     },
   ];
   const counterpart = gate?.counterpart ?? null;
   if (counterpart !== null) {
-    const counterpartExcerpt = boundedExcerpt(counterpart.report);
     items.push({
       threadId: counterpart.id,
       ...(counterpart.role !== null ? { role: counterpart.role } : {}),
       title: "Gate counterpart — latest round report",
       status: "counterpart",
       icon: "🔁",
-      ...(counterpart.reportPath !== null ? { reportPath: counterpart.reportPath } : {}),
-      ...(counterpartExcerpt !== undefined ? { excerpt: counterpartExcerpt } : {}),
+      ...reportItemFields(counterpart.reportPath, counterpart.report),
     });
   }
   if (piggyback !== undefined) items.push(...digestItems(piggyback.members, piggyback.extras));

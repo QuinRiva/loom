@@ -5,7 +5,9 @@
  * 3d-4's user-input panel additions (DT-36).
  * Registered by one line in `fixtures.tsx`.
  */
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { LOOM_SEED } from "@t3tools/shared/loomSeedFixture.loom";
 import type { LoomMessageFields, RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
@@ -31,7 +33,9 @@ import {
   loomPreviewControlMessages,
   loomPreviewEnvironmentId,
   loomPreviewGoal,
+  loomPreviewHandbackMessages,
   loomPreviewThreads,
+  loomPreviewWorkspaceRoot,
 } from "./loomFixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
@@ -40,7 +44,16 @@ const shells = Object.values(loomPreviewThreads).map((thread) =>
 );
 const senderLabels = new Map(shells.map((thread) => [thread.id, thread.title] as const));
 
-function ControlCard({ loom, text }: { loom: LoomMessageFields | undefined; text: string }) {
+function ControlCard({
+  loom,
+  text,
+  live = false,
+}: {
+  loom: LoomMessageFields | undefined;
+  text: string;
+  /** Collapsed, with a thread and workspace: rows open reports and chips are stat'd. */
+  live?: boolean;
+}) {
   const model = controlCardModel(loom, text);
   return model === null ? (
     <p className="text-sm text-muted-foreground">
@@ -51,11 +64,11 @@ function ControlCard({ loom, text }: { loom: LoomMessageFields | undefined; text
       model={model}
       text={text}
       senderLabels={senderLabels}
-      cwd={undefined}
-      threadRef={null}
+      cwd={live ? loomPreviewWorkspaceRoot : undefined}
+      threadRef={live ? scopeThreadRef(loomPreviewEnvironmentId, LOOM_SEED.threads.root) : null}
       skills={[]}
-      onOpenThread={null}
-      defaultExpanded
+      onOpenThread={live ? () => undefined : null}
+      defaultExpanded={!live}
     />
   );
 }
@@ -267,6 +280,17 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         render: () => (
           <TimelineLayoutFrame>
             <ControlCard loom={loom} text={IMPORTED_V1_TEXT} />
+          </TimelineLayoutFrame>
+        ),
+      })),
+      ...loomPreviewHandbackMessages.map((message) => ({
+        id: `loom-control-handback-${message.loom?.controlPayload?.kind}`,
+        title: `${message.loom?.controlPayload?.kind}: handed-back documents`,
+        description:
+          'Collapsed, as in a timeline: a row with a report opens it (hover says so) and ↗ opens the thread; the report\'s documents are chips (a one-word name leads with its folder, three then "+n more", a missing one struck through); a row with no report keeps the chevron.',
+        render: () => (
+          <TimelineLayoutFrame>
+            <ControlCard loom={message.loom} text={message.text} live />
           </TimelineLayoutFrame>
         ),
       })),

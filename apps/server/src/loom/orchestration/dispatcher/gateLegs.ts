@@ -10,7 +10,7 @@
 import type { ThreadId } from "@t3tools/contracts";
 
 import type { GateLegComposer } from "../redrive.ts";
-import { boundedExcerpt, formatReportExcerpt, WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";
+import { formatReportExcerpt, reportItemFields, WORKSTREAM_CONTROL_PLANE_MARKER } from "./wakes.ts";
 
 interface GateParty {
   readonly id: ThreadId;
@@ -80,7 +80,6 @@ export const makeGateLegComposer =
     const report = party.reportPath === null ? null : (reports.get(party.reportPath) ?? null);
     const rework = leg.kind === "rework";
     const heading = rework ? "Review gate: rework requested" : "Review gate: re-verify";
-    const excerpt = boundedExcerpt(report);
     return {
       text: (rework ? buildGateReworkMessage : buildGateReverifyMessage)(party, leg.round, report),
       controlPayload: {
@@ -92,8 +91,7 @@ export const makeGateLegComposer =
             threadId: party.id,
             ...(party.role !== null ? { role: party.role } : {}),
             title: rework ? `Findings — round ${leg.round}` : `Rework — round ${leg.round}`,
-            ...(party.reportPath !== null ? { reportPath: party.reportPath } : {}),
-            ...(excerpt !== undefined ? { excerpt } : {}),
+            ...reportItemFields(party.reportPath, report),
           },
         ],
       },

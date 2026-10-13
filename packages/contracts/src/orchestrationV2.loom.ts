@@ -115,6 +115,8 @@ export const ControlPayloadItem = Schema.Struct({
   icon: Schema.optional(Schema.String),
   reportPath: Schema.optional(Schema.String),
   excerpt: Schema.optional(Schema.String),
+  /** The `.md`/`.mdx`/`.html` files the report names, as written (absolute, or workspace-relative): the card's document chips. */
+  documents: Schema.optional(Schema.Array(Schema.String)),
   timestamp: Schema.optional(Schema.String),
   /** On a `human-message` item: the child's message it reports, so each is told exactly once. */
   messageId: Schema.optional(MessageId),

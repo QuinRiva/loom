@@ -7,6 +7,7 @@
  * @module loom/orchestration/dispatcher/wakes
  */
 import type {
+  ControlPayloadItem,
   LoomAttentionReason,
   LoomOutcome,
   ThreadId,
@@ -70,6 +71,49 @@ export const boundedExcerpt = (report: string | null | undefined): string | unde
   return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
     ? `${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…`
     : trimmed;
+};
+
+// A backticked span or a markdown link target, in report order.
+const REPORT_REFERENCE = /`([^`\n]+)`|\]\(\s*<?([^)\s>]+)/g;
+
+/**
+ * The `.md` / `.mdx` / `.html` files a report names — backticked paths and
+ * markdown link targets — for its card item's document chips (the excerpt is
+ * cut before the "Full review: …" line reports usually end with). Kept as
+ * written: absolute, or relative to the child's workspace, which the parent
+ * shares and the client resolves against. Only paths with a directory part: a
+ * bare `AGENTS.md` / `plan.mdx` is a mention, not a hand-back. URLs, `~`,
+ * globs and placeholders are dropped, as are files beside the report itself
+ * (the workstream-reports directory: other threads' reports, never shown by name).
+ */
+export const reportDocuments = (report: string | null, reportPath: string | null): string[] => {
+  const reportsDir = reportPath?.slice(0, reportPath.lastIndexOf("/") + 1);
+  const paths = [...(report ?? "").matchAll(REPORT_REFERENCE)].flatMap(([, code, link]) => {
+    const path = (code ?? link ?? "")
+      .trim()
+      .replace(/(?::\d+)+$|#.*$/, "")
+      .replace(/^\.\//, "");
+    return /^(?!~)[^\s*?<>{}[\]$|…]*\/[^\s*?<>{}[\]$|…/]+\.(?:mdx?|html)$/i.test(path) &&
+      !/^[a-z][\w+.-]*:/i.test(path) &&
+      !(reportsDir && path.startsWith(reportsDir))
+      ? [path]
+      : [];
+  });
+  return [...new Set(paths)];
+};
+
+/** A card item's report carriers: the reference, the bounded excerpt and the named documents. */
+export const reportItemFields = (
+  reportPath: string | null,
+  report: string | null,
+): Pick<ControlPayloadItem, "reportPath" | "excerpt" | "documents"> => {
+  const excerpt = boundedExcerpt(report);
+  const documents = reportDocuments(report, reportPath);
+  return {
+    ...(reportPath !== null ? { reportPath } : {}),
+    ...(excerpt !== undefined ? { excerpt } : {}),
+    ...(documents.length > 0 ? { documents } : {}),
+  };
 };
 
 /** Formats an event time for a rendered wake item as `2026-07-07 14:32Z`; null/unparseable → "". */
