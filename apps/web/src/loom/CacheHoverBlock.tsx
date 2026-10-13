@@ -1,8 +1,9 @@
 /**
  * loom: the "Prompt cache" block in a sidebar row's hover card — the detail
- * behind the fuel ring: which cache, when it was last touched and expires, the
- * context and model price, and what a cold reply costs over a warm one (API-list
- * dollars, to the cent). Mounted only while the card is open.
+ * behind the fuel ring: which cache, when it was last touched and until when
+ * keep-alive pings hold it warm (or when it expires), the context and model
+ * price, and what a cold reply costs over a warm one (API-list dollars, to the
+ * cent). Mounted only while the card is open.
  */
 import {
   cacheWarmReadUsd,
@@ -17,13 +18,12 @@ import {
   CACHE_HOT_CLASS,
   type CacheView,
   cacheArmLabel,
+  cacheClock,
   formatCacheDuration,
   useCacheView,
 } from "./CacheFuelRing";
 import { formatCostUsd } from "./costFormat";
 
-const clock = (ms: number) =>
-  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const usd = (value: number) => formatCostUsd(value) ?? "$0.00";
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -88,10 +88,16 @@ export function CacheHoverBlockView({ view, working }: { view: CacheView; workin
             <Row label="Cache" value={cacheArmLabel(liveness)} />
             {liveness.touchedAtMs !== null && liveness.expiresAtMs !== null ? (
               <>
-                <Row label="Last call or ping ended" value={clock(liveness.touchedAtMs)} />
+                <Row label="Last call or ping ended" value={cacheClock(liveness.touchedAtMs)} />
                 <Row
-                  label={liveness.state === "cold" ? "Expired" : "Expires"}
-                  value={`~${clock(liveness.expiresAtMs)}`}
+                  label={
+                    liveness.state === "cold"
+                      ? "Expired"
+                      : liveness.keptWarm
+                        ? "Kept warm until"
+                        : "Expires"
+                  }
+                  value={`~${cacheClock(liveness.expiresAtMs)}`}
                 />
               </>
             ) : null}

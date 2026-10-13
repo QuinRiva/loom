@@ -30,7 +30,7 @@ import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
 import { applyLoomConsultItem } from "./loom/consults.ts"; // loom:
-import { applyLoomCacheTouch } from "./loom/cacheTouches.ts"; // loom:
+import { applyLoomCacheUpdate, clearLoomCacheState } from "./loom/cacheState.ts"; // loom:
 import { subscribeDynamic } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
@@ -203,11 +203,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         applyLoomConsultItem(environmentId, item);
         continue;
       }
-      // loom: cache touches go to their own store, never the persisted snapshot
+      // loom: cache rows go to their own store, never the persisted snapshot
       if (isLoomCacheShellStreamItem(item)) {
-        applyLoomCacheTouch(environmentId, item);
+        applyLoomCacheUpdate(environmentId, item);
         continue;
       }
+      if (item.kind === "snapshot") clearLoomCacheState(environmentId); // loom: it carries every cache row
       if (item.kind === "synchronized") {
         waiting = false;
         if (Option.isSome(next.snapshot)) {

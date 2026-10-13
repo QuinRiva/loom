@@ -1,11 +1,20 @@
 /**
  * loom: a thread's prompt-cache liveness, as the sidebar's fuel ring and hover
- * card show it (and the mobile list later). Anthropic reports no expiry, so it
- * is an estimate: the cache lives `ttl` after its last touch — the end of the
- * last real request or a pi warming ping — and a cold reply re-writes the whole
- * context instead of reading it.
+ * card show it (and the mobile list later): when the cache really goes cold if
+ * nobody replies, counting the keep-alive pings pi will send. Anthropic reports
+ * no expiry, so the cache is taken to live `ttl` after its last touch — the end
+ * of the last real request or ping — and pi's idle schedule is replayed from
+ * the row's facts: a ping `delay` after the last request's dispatch, then
+ * `delay` after each ping, while the next falls within the arm's horizon of
+ * that dispatch. A ping that has not landed by pi's own refresh deadline is not
+ * coming, and the estimate falls back to the last touch. A cold reply re-writes
+ * the whole context instead of reading it.
  */
-import type { LoomCacheRetention } from "@t3tools/contracts";
+import {
+  LOOM_CACHE_HORIZON_MS,
+  type LoomCacheRetention,
+  type LoomThreadCache,
+} from "@t3tools/contracts";
 
 const MINUTE_MS = 60_000;
 
@@ -13,6 +22,16 @@ export const CACHE_TTL_MS: Record<LoomCacheRetention, number> = {
   long: 60 * MINUTE_MS,
   short: 5 * MINUTE_MS,
 };
+
+/** pi pings at 90% of the TTL: 54 min on a 1-hour cache, 4.5 min on a 5-minute one. */
+const pingDelayMs = (retention: LoomCacheRetention) => 0.9 * CACHE_TTL_MS[retention];
+
+/**
+ * How late a ping may land before it is taken as not coming: pi abandons one past half its
+ * pre-expiry margin; 30 s more covers the transport. 3.5 min (1-hour), 45 s (5-minute).
+ */
+const pingGraceMs = (retention: LoomCacheRetention) =>
+  (CACHE_TTL_MS[retention] - pingDelayMs(retention)) / 2 + 30_000;
 
 /** Under this much left the cache is "expiring": the only urgent colour. */
 export const CACHE_EXPIRING_MS = 10 * MINUTE_MS;
@@ -22,50 +41,70 @@ export type CacheLivenessState = "warm" | "expiring" | "cold" | "unknown";
 export interface CacheLiveness {
   readonly state: CacheLivenessState;
   readonly retention: LoomCacheRetention;
-  /** Null while `unknown` (no request or ping on record). */
+  /** Null while `unknown` (no request or ping on record): the end of the last request or ping. */
   readonly touchedAtMs: number | null;
+  /** When the cache goes cold if nobody replies, counting the pings still coming. */
   readonly expiresAtMs: number | null;
   /** Negative once cold: how long ago it expired. */
   readonly remainingMs: number | null;
+  /** A keep-alive ping is still coming: `expiresAtMs` is after the last one pi will send. */
+  readonly keptWarm: boolean;
   /** Fuel-gauge steps: 12 five-minute steps on a 1-hour cache, 5 one-minute steps on a 5-minute one. */
   readonly steps: number;
   readonly litSteps: number;
 }
 
-/** The latest of the touch times on record; null when there are none. */
-export const latestTouchMs = (...touches: ReadonlyArray<string | number | null | undefined>) =>
-  touches.reduce<number | null>((latest, touch) => {
-    const ms = typeof touch === "string" ? Date.parse(touch) : touch;
-    return ms == null || Number.isNaN(ms) ? latest : Math.max(latest ?? ms, ms);
-  }, null);
+const ms = (iso: string | null) => (iso === null ? null : Date.parse(iso));
 
-export function cacheLiveness(
-  nowMs: number,
-  touchedAtMs: number | null,
-  retention: LoomCacheRetention,
-): CacheLiveness {
+export function cacheLiveness(nowMs: number, facts: LoomThreadCache): CacheLiveness {
+  const { retention, warming } = facts;
   const ttlMs = CACHE_TTL_MS[retention];
+  const delayMs = pingDelayMs(retention);
   const stepMs = retention === "long" ? 5 * MINUTE_MS : MINUTE_MS;
   const steps = ttlMs / stepMs;
-  if (touchedAtMs === null) {
+  const startedMs = ms(facts.requestStartedAt);
+  const endedMs = ms(facts.requestEndedAt);
+  const pingedMs = ms(facts.pingedAt);
+  if (endedMs === null) {
     return {
       state: "unknown",
       retention,
-      touchedAtMs,
+      touchedAtMs: null,
       expiresAtMs: null,
       remainingMs: null,
+      keptWarm: false,
       steps,
       litSteps: 0,
     };
   }
-  const expiresAtMs = touchedAtMs + ttlMs;
+  const touchedAtMs = Math.max(endedMs, pingedMs ?? endedMs);
+  // pi counts the next ping from the last ping's end, else from the request's dispatch.
+  const baseMs = pingedMs !== null && pingedMs > endedMs ? pingedMs : startedMs;
+  const horizonMs = startedMs === null ? null : startedMs + LOOM_CACHE_HORIZON_MS[retention];
+  const keptWarm =
+    warming === "scheduled" &&
+    baseMs !== null &&
+    horizonMs !== null &&
+    baseMs + delayMs <= horizonMs &&
+    nowMs < baseMs + delayMs + pingGraceMs(retention);
+  // Kept warm: alive until a TTL after the last ping the horizon admits.
+  const expiresAtMs = keptWarm
+    ? baseMs + Math.floor((horizonMs - baseMs) / delayMs) * delayMs + ttlMs
+    : touchedAtMs + ttlMs;
   const remainingMs = expiresAtMs - nowMs;
   return {
-    state: remainingMs <= 0 ? "cold" : remainingMs <= CACHE_EXPIRING_MS ? "expiring" : "warm",
+    state:
+      remainingMs <= 0
+        ? "cold"
+        : // Orange only once no ping is known to be coming; undecided stays neutral.
+          remainingMs <= CACHE_EXPIRING_MS && !keptWarm && warming !== null
+          ? "expiring"
+          : "warm",
     retention,
     touchedAtMs,
     expiresAtMs,
     remainingMs,
+    keptWarm,
     steps,
     litSteps: Math.min(steps, Math.max(0, Math.ceil(remainingMs / stepMs))),
   };
