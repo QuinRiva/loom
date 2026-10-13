@@ -26,7 +26,11 @@ import {
 import { threadMentionStatus, ThreadMentionView } from "../loom/ThreadMention";
 import type { ProjectFaviconProject } from "../components/ProjectFavicon";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
-import { loomPreviewEnvironmentId, loomPreviewHandbackPathKinds, loomPreviewThreads } from "./loomFixtures";
+import {
+  loomPreviewEnvironmentId,
+  loomPreviewHandbackPathKinds,
+  loomPreviewThreads,
+} from "./loomFixtures";
 import { LOOM_PREVIEW_GROUPS } from "./loomPreviewGroups";
 import { WORKSTREAM_PREVIEW_GROUP } from "./workstreamFixtures";
 
