@@ -128,10 +128,6 @@ export function CacheHoverBlockView({ view, working }: { view: CacheView; workin
               )}
             </div>
           ) : null}
-          <p className="text-2xs leading-snug">
-            Estimated from the last model call or ping: Anthropic doesn't report expiry. Dollars are
-            API-list equivalents.
-          </p>
         </>
       )}
     </div>
