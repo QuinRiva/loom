@@ -23,6 +23,22 @@ export const loomPaths = (config: Pick<ServerDerivedPaths, "stateDir">) => ({
 
 export type LoomPaths = ReturnType<typeof loomPaths>;
 
+/**
+ * A thread's captured system prompt (the pi prompt-debug part writes them): `latest`
+ * is rewritten at every agent start, `first` is the kickoff, written once. The
+ * session profile hands `latest` to pi; `loom.promptCapture` hands both to clients.
+ */
+export const promptCapturePathsOf = (
+  config: Pick<ServerDerivedPaths, "stateDir">,
+  threadId: string,
+) => {
+  const stem = NodePath.join(
+    loomPaths(config).workstreamPromptDebugDir,
+    threadId.replace(/[^A-Za-z0-9._-]/g, "_"),
+  );
+  return { latest: `${stem}.md`, first: `${stem}.first.md` };
+};
+
 /** Creates every Loom directory (idempotent); later sessions call it from their layers. */
 export const ensureLoomDirectories = (config: Pick<ServerDerivedPaths, "stateDir">) =>
   Effect.gen(function* () {

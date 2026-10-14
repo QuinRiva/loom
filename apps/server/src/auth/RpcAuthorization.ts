@@ -227,6 +227,7 @@ export const RPC_REQUIRED_SCOPES = {
   [LOOM_WS_METHODS.topSpend]: AuthOrchestrationReadScope,
   [LOOM_WS_METHODS.threadHistory]: AuthOrchestrationReadScope, // loom: QA fix DL-620, DL-770
   [LOOM_WS_METHODS.consultCancel]: AuthOrchestrationOperateScope, // loom: the consult card's Stop
+  [LOOM_WS_METHODS.promptCapture]: AuthOrchestrationReadScope, // loom: the workstream Prompt button
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

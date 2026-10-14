@@ -45,6 +45,8 @@ export const LOOM_WS_METHODS = {
   threadHistory: "loom.threadHistory",
   // The consult card's Stop: ends one running consult, never the asker's turn.
   consultCancel: "loom.consult.cancel",
+  // The workstream surface's Prompt button: where a thread's captured system prompt is.
+  promptCapture: "loom.promptCapture",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -216,6 +218,19 @@ export type LoomConsultCancelInput = typeof LoomConsultCancelInput.Type;
 export const LoomConsultCancelResult = Schema.Struct({ stopped: Schema.Boolean });
 export type LoomConsultCancelResult = typeof LoomConsultCancelResult.Type;
 
+/**
+ * `loom.promptCapture`: the absolute paths of a thread's captured system prompt
+ * (`latest`, rewritten at every agent start; `first`, the kickoff). Each is null
+ * while no such capture exists. Asked on demand, never carried on the shell.
+ */
+export const LoomPromptCaptureInput = Schema.Struct({ threadId: ThreadId });
+export type LoomPromptCaptureInput = typeof LoomPromptCaptureInput.Type;
+export const LoomPromptCaptureResult = Schema.Struct({
+  latest: Schema.NullOr(Schema.String),
+  first: Schema.NullOr(Schema.String),
+});
+export type LoomPromptCaptureResult = typeof LoomPromptCaptureResult.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -253,6 +268,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.consultCancel, {
     payload: LoomConsultCancelInput,
     success: LoomConsultCancelResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.promptCapture, {
+    payload: LoomPromptCaptureInput,
+    success: LoomPromptCaptureResult,
     error: LoomWsError,
   }),
 ] as const;

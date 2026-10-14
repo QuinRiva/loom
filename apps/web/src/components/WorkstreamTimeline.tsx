@@ -13,6 +13,7 @@ import {
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
 import { loomCommands } from "../loom/loomGoalState";
+import { PromptCaptureMenu } from "../loom/PromptCaptureMenu";
 import { LoomContextChip, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "./ui/button";
@@ -150,6 +151,13 @@ export function WorkstreamTimelineDrawer({
               <FileTextIcon />
               Report
             </Button>
+          ) : null}
+          {node ? (
+            <PromptCaptureMenu
+              threadId={node.id}
+              refreshKey={node.lastActivityAt}
+              onOpen={onOpenReport}
+            />
           ) : null}
           {node ? (
             <Button size="xs" variant="outline" onClick={() => onOpenThread(node.id)}>
