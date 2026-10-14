@@ -1,9 +1,10 @@
 import type { LoomPromptCaptureResult, ThreadId } from "@t3tools/contracts";
-import { BugIcon, ChevronDownIcon } from "lucide-react";
+import { BugIcon } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
 
 import { Button } from "../components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useAtomCommand } from "../state/use-atom-command";
 import { loomCommands } from "./loomGoalState";
@@ -50,13 +51,20 @@ export function PromptCaptureMenu({
   if (latest === null) return null;
   return (
     <Menu>
-      <MenuTrigger
-        render={<Button size="xs" variant="outline" aria-label="Open captured system prompt" />}
-      >
-        <BugIcon />
-        Prompt
-        <ChevronDownIcon />
-      </MenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <Button size="icon-xs" variant="outline" aria-label="Open captured system prompt" />
+              }
+            >
+              <BugIcon />
+            </MenuTrigger>
+          }
+        />
+        <TooltipPopup>Captured system prompt</TooltipPopup>
+      </Tooltip>
       <MenuPopup align="end">
         <MenuItem onClick={() => onOpen(latest)}>Latest system prompt</MenuItem>
         {first ? <MenuItem onClick={() => onOpen(first)}>Kickoff prompt</MenuItem> : null}
