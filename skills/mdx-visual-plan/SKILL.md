@@ -49,8 +49,10 @@ plans/<slug>/plan.mdx
 phases put sibling artefacts beside it. The `.mdx` extension is what routes the
 file to the renderer. When it is written and checked, tell the reader the path
 and ask them to open, review and annotate it — that request is the whole
-handoff. A plan may be signed with `sign_document`; the renderer hides the
-frontmatter it adds.
+handoff. A plan is signed with `sign_document` when the thread has the tool:
+an implementer who later meets a decision the plan does not settle consults
+its author through the signature (`consult_manager`), and an unsigned plan has
+no author to ask. The renderer hides the frontmatter it adds.
 
 ## Before drafting
 
@@ -77,12 +79,18 @@ Top to bottom (worked versions, for UI and for backend work, are in
 1. **First screen — the recommendation.** What you propose, what the user
    gets, the one or two bets it makes and roughly what it costs, in a
    paragraph a reader with no context can repeat. For UI work, the change as a
-   comparable Before / After pair (`<Columns>` of `<Screen>`) directly under
-   it; for a broad or abstract plan, one concrete product snapshot (a single
-   `<Screen>` or top `<DesignBoard>` artboard) and a sentence on what the user
-   sees, before any mode table or architecture.
+   comparable Before / After pair (`<Columns>` of `<Screen>`) under it, or
+   under the "what it means" lines when the pair is tall enough to push them
+   off the first screen; for a broad or abstract plan, one concrete product
+   snapshot (a single `<Screen>` or top `<DesignBoard>` artboard) and a
+   sentence on what the user sees, before any mode table or architecture.
 2. **What it means** — scope and non-goals in a few lines, what "done" means,
    and a one-line pointer to the open questions at the end if there are any.
+   The first screen as a whole (recommendation, bets, cost, what is being
+   approved) reads best under about 300 words; past that the reader is into
+   the evidence before they hold the answer, so for a plan with several
+   defects or bets, the "done" line can open `## 1` while the approval ask
+   stays on the first screen.
 3. **Numbered sections for the approach** — the key decisions with their
    rationale, each as settled prose or a `<Callout tone="decision">` with a
    `<Columns>` weighing the rejected alternative; the `<DataModel>` /
@@ -140,8 +148,9 @@ accepts, and prints the block types that mounted. Fix all `error` findings;
 read each `warning` and fix it unless the degradation is intended. Exit code 0
 means the document compiles and renders, so it will display in-app; a plan
 handed over on an unrun or failing check may open as an error card. `--out`
-also writes the rendered page beside the plan so you can look at it — how, and
-why it sits beside the document, is §10 of `document-quality.md`.
+also writes the rendered page beside the plan so you can look at it — how, why
+it sits beside the document, and what it cannot show (a `<Mermaid>` draws
+only in-app), is §10 of `document-quality.md`.
 
 If a reader reports the plan looking broken (JSX shown as literal escaped text)
 after a passing check, the document is healthy: that signature is the plain

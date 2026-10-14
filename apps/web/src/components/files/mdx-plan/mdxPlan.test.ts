@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import reviewFixtureSource from "../../../../../../plans/mdx-review-blocks/plan.mdx?raw";
 
 import { FieldDiffRead } from "./blocks/fieldDiff";
+import { buildTree, isFolder } from "./blocks/fileTree";
 import { compilePlanMdx } from "./MdxPlanRenderer";
 import { PlanEagerMountContext } from "./planEagerMount";
 import { PLAN_BLOCK_COMPONENTS, PLAN_BLOCKS, parsePlanBlock, serializePlanBlock } from "./registry";
@@ -75,6 +76,22 @@ describe("mdx-plan block round-trip", () => {
       ],
     };
     expect(roundTrip("FileTree", data)).toEqual(data);
+  });
+
+  it("folds FileTree entries in author order, with trailing-slash folders", () => {
+    const tree = buildTree([
+      { path: "worker/compileWorker.ts" },
+      { path: "client/", note: "main-thread side" },
+      { path: "client/planCompileClient.ts" },
+      { path: "client/MdxPlanRenderer.tsx" },
+      { path: "empty/", note: "nothing here yet" },
+      { path: "README.md" },
+    ]);
+    expect([...tree.children.keys()]).toEqual(["worker", "client", "empty", "README.md"]);
+    const client = tree.children.get("client")!;
+    expect([...client.children.keys()]).toEqual(["planCompileClient.ts", "MdxPlanRenderer.tsx"]);
+    expect(client.entry?.note).toBe("main-thread side");
+    expect([...tree.children.values()].map(isFolder)).toEqual([true, true, true, false]);
   });
 
   it("round-trips an AnnotatedCode block (multiline code + line annotations)", () => {

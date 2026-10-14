@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Children, type CSSProperties, isValidElement, type ReactNode } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -56,7 +56,9 @@ export const columnBlock: PlanBlock<ColumnData> = {
 
 /** Direct children are `<Column>` slots or bare blocks (a row of `<Card>`s needs
  * no wrappers); `columns` caps how many sit across — the grid still collapses
- * on a narrow panel. */
+ * on a narrow panel. Uncapped, the row balances: all `n` across when they fit,
+ * else `ceil(n/2)` across (four cards are 2×2, never 3 + 1), else one — and
+ * three go straight to one, since 2 + 1 is the orphan this avoids. */
 export interface ColumnsData {
   columns?: number;
 }
@@ -66,12 +68,20 @@ const columnsSchema = z.object({
 }) as unknown as z.ZodType<ColumnsData>;
 
 export function ColumnsRead({ data, blockId, children }: PlanBlockReadProps<ColumnsData>) {
+  const count = Children.toArray(children as ReactNode).filter(isValidElement).length;
   return (
     <div
       data-plan-block-id={blockId}
       data-plan-block-type="columns"
       className={cn("plan-columns my-4", data.columns && "plan-columns--capped")}
-      style={data.columns ? ({ "--plan-columns": data.columns } as CSSProperties) : undefined}
+      style={
+        (data.columns
+          ? { "--plan-columns": data.columns }
+          : {
+              "--plan-columns-n": count,
+              "--plan-columns-half": count === 3 ? 1 : Math.ceil(count / 2),
+            }) as unknown as CSSProperties
+      }
     >
       {children as ReactNode}
     </div>

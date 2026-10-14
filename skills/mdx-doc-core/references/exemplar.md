@@ -3,14 +3,15 @@
 Read this alongside `document-quality.md`. Each skeleton below is the order a
 good document of that genre reads in, top to bottom, with what the first screen
 holds spelled out — because the first screen is where these documents have most
-often gone wrong. The example subjects are invented.
+often gone wrong. The skeletons' subjects are invented; the shipped exemplar
+is a real document.
 
-> **Placeholder — real exemplars to follow.** A later phase adds complete,
-> real-content documents written under these skeletons and judged good by the
-> human who reads them: one plan, one recap, one decision batch, one explainer,
-> as `exemplar-<genre>.mdx` beside this file. Until they land, the skeletons
-> are the bar; once they land, read the exemplar for your genre before the
-> skeleton, and treat a conflict between them as the exemplar winning.
+> **One exemplar is shipped: the recap** (its section below points at the
+> document). The plan and explainer sections name candidate documents that
+> are written under these skeletons but not yet approved as canonical —
+> read them for the register, and take the skeleton as the bar where they
+> differ. Once an exemplar is approved, read it before the skeleton and treat
+> a conflict between them as the exemplar winning.
 
 ## A plan (UI work)
 
@@ -19,8 +20,9 @@ A plan for adding a bulk-archive action to a contacts list:
 1. **First screen — the recommendation and what the user gets.** One
    paragraph: _add a selection column and an "Archive selected" action to the
    existing toolbar; optimistic archive with an undo toast; about a day, web
-   only; the one bet is optimistic-with-undo over a confirm dialog._ Directly
-   under it, the change as a comparable pair — a `<Columns>` with
+   only; the one bet is optimistic-with-undo over a confirm dialog._ Under it
+   (or under the "what it means" lines, when the pair is tall enough to push
+   them off the first screen), the change as a comparable pair — a `<Columns>` with
    `<Column label="Before">` and `<Column label="After">`, each holding a
    `<Screen>` of the list header, every other control preserved so the delta
    is the only thing that differs. The column labels name the states; the
@@ -42,6 +44,10 @@ A plan for adding a bulk-archive action to a contacts list:
 Nothing repeats: the `<Screen>` pair shows the UI, the prose and code carry the
 depth the pictures cannot.
 
+Candidate, not yet approved: `plans/agent-started-thread-cue-v2/plan.mdx` (six
+options on one inbox, each a toned, badged card; a bottom form for the one
+choice).
+
 ## A plan (backend / architecture work)
 
 No visual surface. The first screen is the recommendation and the bets it
@@ -55,6 +61,10 @@ two-dimensional relationship (layering, data flow) clarifies something, and
 terse problem / solution / why prose with the codebase's names glossed on first
 use. The file map sits in a `<Details>`. It closes with a verification section
 and a bottom `<QuestionForm>` only if the next direction is genuinely open.
+
+Candidate, not yet approved: `plans/sqlite-read-lane-v2/plan.mdx` (the change,
+its cost and the headline number in the first four lines; rejected
+alternatives as badged cards).
 
 ## A decision batch (recap genre)
 
@@ -108,6 +118,55 @@ A recap of a finished change — a branch, a thread's work, an incident:
 5. **`## 4. Still open`** — risks, follow-ups, and the one-line pointer to a
    bottom `<QuestionForm>` if a direction is genuinely open.
 
+**The shipped exemplar** is `recaps/issue-280-fan-in-deadlock-v2/recap.mdx`:
+an incident recap, so it takes the diagnosis shape (`## 1` the moments as a
+`<Steps>` rail, `## 2` why, `## 3` the fix, `## 4` what is still in place
+today with the two decisions as `<ReviewChoice>`, `## 5` the evidence in
+`<Details>`) rather than the before/after sections above. Its first screen,
+trimmed, is the register to match — the answer in the lede with the numbers
+in bold, a `<Stats>` strip of the numbers the verdict rests on, and the
+consequence as the focus callout with the recurring states as badges:
+
+```mdx
+# The workstream that deadlocked on an edge nobody drew
+
+A five-thread workstream sat stuck for **43 minutes** after one child finished,
+and nobody was told. … The cause was **one dependency edge the graph had but
+never wrote down**: … A cycle of four edges, of which the cycle checker could
+see three.
+
+<Stats
+  items={[
+    {
+      value: "43 min",
+      label: "Silent deadlock",
+      tone: "risk",
+      detail: "Child done 12:36; nothing moved until the orchestrator intervened by hand at 13:16",
+    },
+    {
+      value: "4 fixes",
+      label: "Shipped next day",
+      tone: "success",
+      detail: "Today: 1 in place · 2 moot · 1 lost",
+      badge: { label: "1 lost", tone: "risk" },
+    },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  The fix (PR #288, merged the next day) drew the missing edge … **Ten days
+  later, pull 9 moved loom to shared checkouts** … so there is no merge step
+  and the invisible edge no longer exists. That leaves **one thing to act on**
+  … Both are decisions at the end of §4; an item left undecided takes its
+  recommendation.
+
+  <Badge tone="success">deadlock notice · in place</Badge> <Badge tone="neutral">missing-edge guard · moot</Badge> <Badge tone="risk">stale-flag clear · lost</Badge>
+</Callout>
+```
+
+Read the whole document before writing a recap: the audit of what is still in
+place today (`## 4`) is the part its reader valued most.
+
 ## An explainer (explainer genre)
 
 A document whose job is to make the reader understand something — a system,
@@ -119,9 +178,13 @@ a change, a diagnosis — rather than to approve or decide:
    nightly job double-counts because two rows share a key the merge step
    assumed unique; 14 of 212 buildings are affected, and each shows the same
    signature."_
-2. **`## 1. The mental model`** — the two to four pieces and how they relate:
-   a `<Mermaid>` of at most about ten nodes, or a `<Columns>` of `<Card>`s one
-   per piece, with a sentence under it saying how to read it.
+2. **`## 1. The mental model`** — the two to four things the reader will meet
+   and how they relate, by default the cases they experience (outcomes,
+   states, paths — each with what triggers it and what they see) rather than
+   the modules behind them: a `<Columns>` of `<Card>`s one per case, toned by
+   what it means for the reader, or a `<Mermaid>` of at most about ten nodes
+   when the relation is the point, with a sentence under it saying how to read
+   it.
 3. **`## 2. How it works`** — one section per piece. Each gives the mechanism
    as _input → what happens → output_ and one literal example: a real input
    and what came out, a record before and after, a quoted line.
@@ -133,6 +196,14 @@ a change, a diagnosis — rather than to approve or decide:
 
 No review protocol. A `<QuestionForm>` or `<ReviewChoice>` appears only where a
 decision genuinely rides on the explanation.
+
+Candidates, not yet approved: `explainers/mdx-document-pipeline/explainer.mdx`
+(one real snippet followed through every stage, each artefact quoted from a
+real run), `explainers/workstream-outcome-routing/explainer.mdx` (the
+mechanism with the exact messages the reader will receive, and an
+`<AnnotatedCode>` of the deciding function) and
+`explainers/document-classification-v2/explainer.mdx` (a port of an HTML
+explainer, useful for its in-place vocabulary-gap notes).
 
 ## Anti-patterns, and what each costs the reader
 

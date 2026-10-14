@@ -44,7 +44,10 @@ explainers/<slug>/explainer.mdx
 `<slug>` is a short kebab-case name for the subject. A folder per explainer so
 sibling artefacts (a rendered page, an image) can sit beside it. When it is
 written and checked, tell the reader the path and ask them to open it and mark
-anything that does not land.
+anything that does not land. A child thread's reader is reached through its
+parent: the report carries the path, the reader brief's three lines and the one
+thing that needs the human, so the parent can hand the document on without
+reading it first.
 
 ## Before drafting
 
@@ -85,16 +88,29 @@ Top to bottom (the worked version is in
    orientation: where the work is up to and the one thing that needs them, if
    anything does. A `<Callout tone="warning">` here for the one thing that is
    urgent; otherwise prose.
-2. **`## 1. The mental model`** — the two to four pieces the reader needs to
-   hold and how they relate: a `<Mermaid>` of about ten nodes at most, or a
-   `<Columns>` of `<Card>`s one per piece with a `badge` naming its role, with
-   a sentence under it saying how to read it. Overview before any detail; the
+2. **`## 1. The mental model`** — the two to four things the reader will meet
+   and how they relate. By default these are the cases the reader experiences —
+   the outcomes, states or paths, each with what triggers it and what the
+   reader sees — rather than the modules that implement them: a reader
+   recognises a case when it happens to them, and a module only once they have
+   read the code, so the module is named inside the case it implements. When
+   the subject is "what can happen to X", a `<Columns>` of `<Card>`s, one per
+   case and toned by what it means for the reader, usually reads fastest and
+   can sit on the first screen, since it is the answer; a `<Mermaid>` of about
+   ten nodes is for when the relation between the pieces is the point. A
+   sentence under either says how to read it. Overview before any detail; the
    detail goes in the next section.
 3. **`## 2. How it works`** — one sub-section per piece, each as _input → what
    happens → output_, with one literal example beside it: the record before
    and after (`<FieldDiff>`), the input line and the output line (`<Code>`),
-   the quoted sentence and what it was classified as. One example per piece is
-   the default; a second example is for a boundary the first does not show.
+   the quoted sentence and what it was classified as, the exact message or
+   tool result the reader will receive. When the output is an artefact — a
+   compiled string, a DOM fragment, a JSON record — the example is the
+   artefact itself, trimmed, in the block that matches its shape (`<Code>`,
+   `<Json>`). One example per piece is the default; a second is for a
+   boundary the first does not show. Past three or four pieces, a piece or a
+   worked example the reader will come back to can be its own numbered `##`
+   rather than a `###` here, since the outline is how they return to it.
 4. **`## 3. What this means for you`** — what to do next, what to watch, what
    is unaffected. A short list, or a `<Checklist>` when there are steps.
 5. **`## 4. Open edges`** (optional) — what the explanation does not cover,
@@ -111,10 +127,20 @@ may be three paragraphs and a diagram. Both open with the summary.
   this is") and give the code's name once, in the same sentence, so they can
   find it later. A thread id, an item code or "per the report" is replaced
   by what it refers to.
+- **One overview from the reader's seat.** When the reader is on the receiving
+  end of the system — they get its notices, wait on its results — the overview
+  they will come back to is indexed by what happened and answers what they
+  see, through which surface, and how soon. The code's own decomposition
+  serves the reader who wants the mechanism; a reader who returns mid-incident
+  looks up the event, not the module.
 - **Mechanism, not narration.** Walk the data, not the control flow: what
   comes in, what decision is made on it, what goes out. Code is quoted where
   the line itself is the point (`<AnnotatedCode>` with a note on that line);
-  otherwise the behaviour is stated and the file named.
+  otherwise the behaviour is stated and the file named. A workable budget is
+  one or two `<AnnotatedCode>` per document, each about fifteen lines with
+  notes on the three or four lines that carry the mechanism: a reader who
+  wanted the file would open it, and a long quote with a note per line is the
+  file again, read slower.
 - **Judgement in the block.** A piece's state — new, changed, removed, risky,
   the one that is wrong — is a `<Card>` `tone` and `badge`, or a `<Callout>`
   tone, with the prose carrying the why.
@@ -146,8 +172,13 @@ place, so the render-health check runs before the reader hears the path: lint
 that prints the block types that mounted. Fix all `error` findings and read
 each `warning`. Exit code 0 means the document compiles and renders, so it
 will display in-app. `--out` writes the rendered page beside the explainer so
-you can look at it (§10 of `document-quality.md`) — for this genre
-especially, since a diagram that does not read is the explanation failing.
+you can look at it (§10 of `document-quality.md`, which also says what the
+page cannot show: a `<Mermaid>` draws only in-app). For this genre the look
+matters more than most, since a figure that does not read is the explanation
+failing — so when the diagram is the one thing you cannot see, the mental
+model is safer as the cards or `<Steps>` ladder the page can check, with any
+`<Mermaid>` kept to the few-node, short-label shape that renders predictably
+and the sentence under it standing in for the picture.
 
 A reader reporting the document as broken (JSX shown as literal escaped text)
 after a passing check is seeing the plain markdown fallback — a view or

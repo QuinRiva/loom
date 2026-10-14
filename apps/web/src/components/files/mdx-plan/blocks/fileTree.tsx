@@ -11,7 +11,11 @@ import { useShikiHtml } from "../shiki";
 /**
  * The `<FileTree>` block — a nested file/change map. Slash-delimited `entries`
  * paths are folded into a real directory tree; each file carries an optional
- * change badge, note, and an expandable syntax-highlighted snippet. Schema + MDX
+ * change badge, note, and an expandable syntax-highlighted snippet. Rows render
+ * in the order the author listed the entries (there is no sort), so the author
+ * controls reading order — e.g. a pipeline in processing order. A path ending in
+ * `/` is a folder: its note/change sit on the folder row and later entries nest
+ * under it, even if none do. Schema + MDX
  * round-trip ported verbatim from `@agent-native/core` `file-tree.config.ts`
  * (the whole `entries` array is one JSON prop).
  */
@@ -77,11 +81,16 @@ const CHANGE_GLYPH: Record<FileChange, string> = {
 
 interface TreeNode {
   name: string;
+  /** Insertion-ordered: a node takes the position of the first entry naming it. */
   children: Map<string, TreeNode>;
   entry?: FileTreeEntry;
 }
 
-function buildTree(entries: FileTreeEntry[]): TreeNode {
+/** A node is a folder when anything nests under it or its own entry ends in `/`. */
+export const isFolder = (node: TreeNode) =>
+  node.children.size > 0 || !!node.entry?.path.endsWith("/");
+
+export function buildTree(entries: FileTreeEntry[]): TreeNode {
   const root: TreeNode = { name: "", children: new Map() };
   for (const entry of entries) {
     const segments = entry.path.split("/").filter(Boolean);
@@ -106,6 +115,33 @@ function Snippet({ code, language }: { code: string; language: string }) {
   }
   return (
     <div className="overflow-x-auto p-2 text-2xs" dangerouslySetInnerHTML={{ __html: html }} />
+  );
+}
+
+function EntryMeta({ entry }: { entry: FileTreeEntry }) {
+  return (
+    <>
+      {entry.change && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded text-3xs font-bold leading-none",
+                  CHANGE_BADGE[entry.change],
+                )}
+              />
+            }
+          >
+            {CHANGE_GLYPH[entry.change]}
+          </TooltipTrigger>
+          <TooltipPopup>{entry.change}</TooltipPopup>
+        </Tooltip>
+      )}
+      {entry.note && (
+        <span className="truncate text-2xs italic text-muted-foreground">— {entry.note}</span>
+      )}
+    </>
   );
 }
 
@@ -135,26 +171,7 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
         >
           {node.name}
         </span>
-        {entry.change && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded text-3xs font-bold leading-none",
-                    CHANGE_BADGE[entry.change],
-                  )}
-                />
-              }
-            >
-              {CHANGE_GLYPH[entry.change]}
-            </TooltipTrigger>
-            <TooltipPopup>{entry.change}</TooltipPopup>
-          </Tooltip>
-        )}
-        {entry.note && (
-          <span className="truncate text-2xs italic text-muted-foreground">— {entry.note}</span>
-        )}
+        <EntryMeta entry={entry} />
         {hasSnippet && (
           <IconChevronRight
             className={cn(
@@ -177,16 +194,10 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
 }
 
 function TreeLevel({ node, depth }: { node: TreeNode; depth: number }) {
-  // Folders first, then files; each alphabetical.
-  const children = [...node.children.values()].sort((a, b) => {
-    const aDir = a.children.size > 0 ? 0 : 1;
-    const bDir = b.children.size > 0 ? 0 : 1;
-    return aDir - bDir || a.name.localeCompare(b.name);
-  });
   return (
     <>
-      {children.map((child) =>
-        child.children.size > 0 ? (
+      {[...node.children.values()].map((child) =>
+        isFolder(child) ? (
           <div key={child.name}>
             <div
               className="flex items-center gap-1.5 px-1.5 py-1 text-sm"
@@ -194,6 +205,7 @@ function TreeLevel({ node, depth }: { node: TreeNode; depth: number }) {
             >
               <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="font-mono text-xs font-semibold text-foreground">{child.name}</span>
+              {child.entry && <EntryMeta entry={child.entry} />}
             </div>
             <TreeLevel node={child} depth={depth + 1} />
           </div>

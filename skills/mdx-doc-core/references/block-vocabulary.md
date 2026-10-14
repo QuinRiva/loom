@@ -2,8 +2,12 @@
 
 The shared block vocabulary for every MDX-document genre (plans,
 recaps / decision batches, and explainers). This file teaches the **common shape** of each
-block by example; [`block-schema.md`](block-schema.md) is the generated
-authority for exact props and enum values. Consult it — do not guess props.
+block by example and says what each prop _means_ (that `<Step at>` is the
+rail label and `aside` the right-hand column lives here, beside the example);
+[`block-schema.md`](block-schema.md) is the generated authority for exact
+prop names, types and enum values, and is where a prop is checked before it
+is written — a guessed prop fails validation and the block renders as an
+error card.
 
 ## The MDX contract (one paragraph)
 
@@ -16,7 +20,10 @@ the whole block (prose spans anchor by quoted text automatically). The full
 attribute-encoding rules (scalars, numbers, booleans, JSON literals, no free
 `{expressions}`) live in the **"Encoding recap"** preamble of
 [`block-schema.md`](block-schema.md); the validator catches mechanical mistakes,
-so this is a pointer rather than a re-statement. A handful of unstyled inline
+so this is a pointer rather than a re-statement. One case it does not spell
+out: an apostrophe inside a double-quoted attribute needs nothing
+(`summary="why it isn't"`), and the `{"…"}` form is for a value that holds a
+newline or a double quote. A handful of unstyled inline
 HTML tags (`span`, `mark`, `kbd`, `sub`, `sup`, `small`, `br`) pass through with
 their attributes stripped; any other lowercase tag is rejected and renders as an
 error card — pills come from `<Badge>`, grids from `<Columns>`/`<Card>`, a
@@ -92,6 +99,10 @@ responses. `method` and `path` are required; `params[].in` is
 ### `<FileTree>` — the file/change map
 
 Slash-delimited paths with per-file change badges, notes, and optional snippets.
+Entries render in the order written — there is no sorting — so list them in the
+order the reader should read them (e.g. a pipeline in processing order). A path
+ending in `/` is a folder: its `note` and `change` sit on the folder row, and
+later entries under that path nest inside it.
 
 ```mdx
 <FileTree
@@ -367,8 +378,8 @@ decodes the colours once, under the figure. The default look is Mermaid's clean
 `W["writer<br/>done · unmerged"]:::tone-warning`. The first line renders bold, the
 second as a small mono status line in the node's tone colour, so state reads at a
 glance without a sentence in the box. Keep each line short: Mermaid wraps a line
-over ~200 px, and a wrapped name spills into the status style. A label with no
-`<br/>` stays one style however it wraps.
+past about 28 characters at the rendered size, and a wrapped name spills into
+the status style. A label with no `<br/>` stays one style however it wraps.
 
 **Toned edges.** Name the tone as the edge's colour — `linkStyle 0
 stroke:tone-risk,color:tone-risk,stroke-width:2.5px` (`n` counts edges in source
@@ -601,7 +612,9 @@ current/target pair:
 </Columns>
 ```
 
-A `<Columns>` of `<Card>`s needs no `<Column>` wrappers: cards are columns. Use
+A `<Columns>` of `<Card>`s needs no `<Column>` wrappers: cards are columns, and
+a `<Column label>` around a single headed card stacks a second heading over
+its own. Use
 `<Column label>` when a side needs a label or holds several blocks (and then use
 it for every side). `columns={3}` caps the row at three across; it still
 collapses on a narrow panel.
@@ -647,6 +660,22 @@ moment where nothing happened. `badge` and `aside` (inline markdown) fill a
 right-hand column for what someone saw or what it cost — a string badge takes
 the step's tone. Put tone on the steps that went wrong and leave the rest
 default, so the reader sees where to look before reading a word.
+
+When a step is the moment someone receives something — a tool result, a
+notice, a card — quote it in the step body as its own block labelled with the
+recipient (a `>` quote opening **Coder receives:**, or `<Code language="text"
+wrap>` when the exact characters matter) and keep the step's prose to the one
+line of what happened: the reader of a worked example is learning to
+recognise that message when it reaches them, and a quote set apart reads as
+the artefact where an italic fragment inside a sentence reads as paraphrase.
+A title that opens with the actor ("Reviewer submits…", "The control
+plane…") lets the rail be read as who-did-what.
+
+The rail is vertical. A horizontal strip of stages with a line of text each —
+a pipeline's six steps across the page — is the shape neither this block nor
+`<Mermaid>` holds well: a six-wide `LR` chain with two-line nodes shrinks its
+text past reading in the column, so the default is this rail, or a names-only
+`LR` chain with the descriptions as a list under it.
 
 ```mdx
 <Steps>

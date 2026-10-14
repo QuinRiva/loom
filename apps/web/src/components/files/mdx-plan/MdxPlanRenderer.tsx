@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { LoaderCircle } from "lucide-react";
 
 import { cn } from "~/lib/utils";
@@ -147,8 +148,9 @@ export const PLAN_BLEED_ATTR = "data-plan-bleed";
 /** Mark the TOP-LEVEL non-prose blocks that may bleed past the prose measure.
  * Only direct children of the root are considered, so a block nested inside a
  * container block (`Columns`/`Tabs`/`Details`/`Card`/a canvas) never breaks out
- * of its container. Exported for verification. */
-function stampBleedingBlocks(root: HTMLElement): void {
+ * of its container. Exported for `lint-plan.mjs --out`, whose static page must
+ * bleed the same blocks the panel does. */
+export function stampBleedingBlocks(root: HTMLElement): void {
   for (const child of Array.from(root.children)) {
     // vocabulary v2: table — a GFM table in prose hugs like the `<Table>` block.
     // A prose-language `<Code>` (a quoted message, a markdown excerpt) stays at
@@ -173,23 +175,35 @@ interface MdxPlanRendererProps {
 /** A document with at least this many top-level sections gets an outline. */
 const OUTLINE_MIN_SECTIONS = 4;
 
-type OutlineItem = { id: string; text: string };
+type OutlineHeading = { id: string; text: string };
+type OutlineItem = OutlineHeading & { subsections: OutlineHeading[] };
 
 /** The document's top-level sections, read once per render from the H2s
- * `headingAnchors` stamped ids on. Headings nested in blocks are not sections. */
-const readOutline = (root: HTMLElement): OutlineItem[] =>
-  Array.from(root.querySelectorAll<HTMLElement>(":scope > h2[id]"), (heading) => ({
-    id: heading.id,
-    text: heading.textContent?.trim() ?? "",
-  }));
+ * `headingAnchors` stamped ids on, each with the H3s under it. Headings nested
+ * in blocks are not sections. */
+const readOutline = (root: HTMLElement): OutlineItem[] => {
+  const outline: OutlineItem[] = [];
+  for (const heading of root.querySelectorAll<HTMLElement>(":scope > :is(h2, h3)[id]")) {
+    const entry = { id: heading.id, text: heading.textContent?.trim() ?? "" };
+    if (heading.tagName === "H2") outline.push({ ...entry, subsections: [] });
+    else outline.at(-1)?.subsections.push(entry);
+  }
+  return outline;
+};
+
+const OUTLINE_CHIP =
+  "shrink-0 truncate rounded-full px-2.5 py-1 hover:bg-accent hover:text-foreground";
 
 /**
  * The sticky header row above the document: a section outline (one chip per H2,
  * click to jump) once the document is long enough to need one, plus the host's
- * `stickyEnd` slot. It sits OUTSIDE `[data-plan-root]` on purpose — inside, it
- * would take a top-level block id (shifting every persisted `plan-block-N`
- * anchor after it) and add its text to the text-quote search space. No scroll
- * listener and no current-section tracking: it is static chrome that sticks.
+ * `stickyEnd` slot. Jumping to a section that has H3s opens a second, lighter
+ * row of its sub-section chips — only the chosen section's, so a document with
+ * many sub-sections keeps a compact outline. It sits OUTSIDE `[data-plan-root]`
+ * on purpose — inside, it would take a top-level block id (shifting every
+ * persisted `plan-block-N` anchor after it) and add its text to the text-quote
+ * search space. No scroll listener and no scroll-spy: the open section is the
+ * last chip clicked, and the chrome otherwise just sticks.
  */
 function PlanStickyHeader({
   outline,
@@ -200,34 +214,60 @@ function PlanStickyHeader({
   rootRef: RefObject<HTMLDivElement | null>;
   stickyEnd: ReactNode;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   if (outline.length < OUTLINE_MIN_SECTIONS) {
     return stickyEnd ? (
       <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">{stickyEnd}</div>
     ) : null;
   }
+  const jumpTo = (id: string) =>
+    rootRef.current
+      // Slug ids are [a-z0-9-] but may start with a digit, which `#id` rejects.
+      ?.querySelector(`[id="${id}"]`)
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const subsections = outline.find((item) => item.id === openId)?.subsections ?? [];
   return (
-    <div className="sticky top-0 z-30 flex items-center border-b border-border bg-background pr-2">
-      <nav
-        aria-label="Sections"
-        className="mx-auto flex min-w-0 max-w-4xl flex-1 gap-1 overflow-x-auto px-6 py-1.5"
-      >
-        {outline.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="max-w-64 shrink-0 truncate rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() =>
-              rootRef.current
-                // Slug ids are [a-z0-9-] but may start with a digit, which `#id` rejects.
-                ?.querySelector(`[id="${item.id}"]`)
-                ?.scrollIntoView({ block: "start", behavior: "smooth" })
-            }
-          >
-            {item.text}
-          </button>
-        ))}
+    <div
+      className="sticky top-0 z-30 flex items-start border-b border-border bg-background pr-2"
+      data-plan-outline-nested={subsections.length > 0 || undefined}
+    >
+      <nav aria-label="Sections" className="mx-auto min-w-0 max-w-4xl flex-1 px-6 py-1.5">
+        <div className="flex gap-1 overflow-x-auto text-xs text-muted-foreground">
+          {outline.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={item.id === openId || undefined}
+              className={cn(
+                OUTLINE_CHIP,
+                "max-w-64 aria-[current]:bg-accent aria-[current]:text-foreground",
+              )}
+              onClick={() => {
+                // Commit the sub-row first, so the jump lands clear of the taller header.
+                flushSync(() => setOpenId(item.id));
+                jumpTo(item.id);
+              }}
+            >
+              {item.text}
+            </button>
+          ))}
+        </div>
+        {subsections.length > 0 && (
+          <div className="flex gap-0.5 overflow-x-auto pt-0.5 text-2xs text-muted-foreground/80">
+            {subsections.map((sub) => (
+              <button
+                key={sub.id}
+                type="button"
+                className={cn(OUTLINE_CHIP, "max-w-56 py-0.5")}
+                onClick={() => jumpTo(sub.id)}
+              >
+                {sub.text}
+              </button>
+            ))}
+          </div>
+        )}
       </nav>
-      {stickyEnd}
+      {stickyEnd && <div className="py-1.5">{stickyEnd}</div>}
     </div>
   );
 }

@@ -2535,6 +2535,10 @@ code {
 .plan-mdx :is(h1, h2, h3, h4, h5, h6):not([data-plan-block-type] *) {
   scroll-margin-top: 3.5rem;
 }
+/* loom: …and of the outline's second row while a section's sub-heads are open. */
+[data-plan-outline-nested] + .plan-mdx :is(h1, h2, h3, h4, h5, h6):not([data-plan-block-type] *) {
+  scroll-margin-top: 5.25rem;
+}
 .plan-mdx h1:not([data-plan-block-type] *) {
   margin-bottom: 1rem;
   font-size: 2.125rem;
@@ -2927,9 +2931,31 @@ code {
 /* Containers render nested plan *blocks* as children (MDX-native nesting), so   */
 /* there is no untrusted-HTML surface here — only layout.                       */
 /* -------------------------------------------------------------------------- */
+/* loom: an uncapped row balances instead of wrapping 3 + 1. ColumnsRead sets
+   --plan-columns-n (the child count) and --plan-columns-half (ceil(n/2)); the
+   min track is a width switch: (threshold - 100%) * 9999 is hugely negative
+   when the row is wider than the threshold and hugely positive when narrower,
+   so each clamp() picks its lower bound (n or n/2 across) or falls through to
+   the next level, ending at one column. Thresholds are n 240px tracks + gaps. */
 .plan-columns {
+  --plan-columns-n: 1;
+  --plan-columns-half: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      clamp(
+        calc((100% - (var(--plan-columns-n) - 1) * 1rem) / var(--plan-columns-n)),
+        (var(--plan-columns-n) * (240px + 1rem) - 1rem - 100%) * 9999,
+        clamp(
+          calc((100% - (var(--plan-columns-half) - 1) * 1rem) / var(--plan-columns-half)),
+          (var(--plan-columns-half) * (240px + 1rem) - 1rem - 100%) * 9999,
+          100%
+        )
+      ),
+      1fr
+    )
+  );
   gap: 1rem;
   align-items: start;
 }
