@@ -10,7 +10,7 @@
  *
  * @module loom/prompt/sessionComposer
  */
-import { type LoomOpenSessionFields, type RunId, ThreadId } from "@t3tools/contracts";
+import { type LoomOpenSessionFields, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,19 +33,10 @@ export interface LoomSessionComposerShape {
   readonly compose: (
     threadId: ThreadId,
   ) => Effect.Effect<LoomOpenSessionFields, LoomSessionComposerError>;
-  /**
-   * Called as each turn starts: text to send after the message when the thread's goal differs
-   * from the one the agent last saw (its launch prompt, or an earlier notice), else null.
-   */
-  readonly goalNotice: (
-    threadId: ThreadId,
-    runId: RunId,
-  ) => Effect.Effect<string | null, LoomSessionComposerError>;
 }
 
 const emptyComposer: LoomSessionComposerShape = {
   compose: () => Effect.succeed(EMPTY_LOOM_OPEN_SESSION_FIELDS),
-  goalNotice: () => Effect.succeed(null),
 };
 
 /**

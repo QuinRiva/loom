@@ -50,8 +50,6 @@ import {
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
 import { runlessForkSourceProviderThread } from "./runlessFork.loom.ts"; // loom: V1-imported fork source
-import { isSlashCommand } from "@t3tools/provider-pi/server/loom"; // loom: goal-change notice
-import { LoomSessionComposer } from "../loom/prompt/sessionComposer.ts"; // loom: goal-change notice
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -106,7 +104,6 @@ export const layer: Layer.Layer<
     const eventSink = yield* EventSink.EventSinkV2;
     const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
-    const sessionComposer = yield* LoomSessionComposer; // loom: goal-change notice
     const fileSystem = yield* FileSystem.FileSystem;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
@@ -958,21 +955,10 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      // loom: a goal that changed since the agent's frozen prompt is told once, after the message —
-      // never on a slash command (it would become the command's arguments) or a native continuation
-      const loomGoalNotice =
-        isSlashCommand(message.text) ||
-        (message.createdBy === "agent" && message.creationSource === "provider")
-          ? null
-          : yield* sessionComposer.goalNotice(projection.thread.id, run.id).pipe(
-              Effect.tapError((error) => Effect.logWarning("loom.goal-notice.failed", { error })),
-              Effect.orElseSucceed(() => null),
-            );
-      const userText =
-        projectComposerContextForProvider({
-          text: message.text,
-          records: message.context?.records ?? [],
-        }) + (loomGoalNotice === null ? "" : `\n\n${loomGoalNotice}`); // loom: goal-change notice
+      const userText = projectComposerContextForProvider({
+        text: message.text,
+        records: message.context?.records ?? [],
+      });
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

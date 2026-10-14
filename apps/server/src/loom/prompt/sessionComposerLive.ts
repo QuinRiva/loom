@@ -4,7 +4,7 @@
  * The prompt, in reading order: the work-model addendum, the child-readership
  * clause (children only), the identity clause, the role overlay, the ship
  * policy, the role catalogue (only when the surface delegates), the goal
- * context, and — appended per launch, never recorded — the relocation clause.
+ * context (a child's always; a root's only when it joins work in progress), and — appended per launch, never recorded — the relocation clause.
  * Everything but the relocation clause is the thread's launch identity: written
  * once at its first compose and replayed verbatim by every later compose, and
  * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
@@ -18,8 +18,6 @@
  * arm for life, and, per launch, the agent git identity, whose shim directory rides
  * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
- * A goal that differs from the frozen identity's (a re-goal, or the emergent goal landing after
- * the first launch) reaches the agent as a turn notice (`goalNotice`), never as a prompt rewrite.
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -27,7 +25,6 @@ import {
   LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
-  type RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveMergeAuthority, shipPolicyPromptBlock } from "@t3tools/shared/shipPolicy";
@@ -61,7 +58,7 @@ import {
   readLaunchIdentity,
   writeLaunchIdentity,
 } from "../workstream/launchIdentity.ts";
-import { goalChangeNotice, goalContextInstruction, promptGoalId } from "./goalContext.ts";
+import { goalContextInstruction } from "./goalContext.ts";
 import {
   CHILD_READERSHIP_CLAUSE,
   relocationClause,
@@ -108,14 +105,6 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     (yield* Path.Path).join(config.providerStatusCacheDir, "loom-bin"),
   );
 
-  /** The thread's goal as a launch now would name it: none when unset or deleted. */
-  const currentGoal = (workstream: LoomThreadWorkstream | null) =>
-    workstream?.goalId == null
-      ? Effect.succeed(null)
-      : loomStore.goals
-          .get(workstream.goalId)
-          .pipe(Effect.map((goal) => (goal === null || goal.deletedAt !== null ? null : goal)));
-
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
   const composeIdentity = (
     thread: OrchestrationV2AppThread,
@@ -132,7 +121,8 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
       const catalogue =
         overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
-      const goal = yield* currentGoal(workstream);
+      const goal =
+        workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
       const appendSystemPrompt = [
         WORK_MODEL_ADDENDUM,
         isChild ? CHILD_READERSHIP_CLAUSE : undefined,
@@ -145,7 +135,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
               ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
             ].join("\n")
           : undefined,
-        goal === null
+        // A root the human or a handoff starts has said nothing yet that a goal could
+        // summarise; only a root joining work in progress (its goal already has tasks) needs it.
+        goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
           ? undefined
           : goalContextInstruction(goal, {
               asChildBackground: isChild,
@@ -260,36 +252,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
     );
 
-  /**
-   * Once per change: when the thread's goal is not the one the agent last saw — its frozen
-   * prompt's goal block, or the last notice — the notice naming the current one, recorded on the
-   * identity (outside the prompt bytes). Nothing before the first launch, whose prompt is current.
-   */
-  const goalNotice = (threadId: ThreadId, runId: RunId) =>
-    Effect.gen(function* () {
-      const own = yield* readLaunchIdentity(identityDir, threadId);
-      if (Option.isNone(own)) return null;
-      const workstream = yield* loomStore.getWorkstream(threadId);
-      const goal = yield* currentGoal(workstream);
-      const seen = own.value.goalNotice;
-      const seenGoalId =
-        seen === undefined ? promptGoalId(own.value.appendSystemPrompt) : seen.goalId;
-      if ((goal?.id ?? null) === seenGoalId && seen?.runId !== runId) return null;
-      yield* writeLaunchIdentity(identityDir, threadId, {
-        ...own.value,
-        goalNotice: { goalId: goal?.id ?? null, runId },
-      });
-      const { thread } = yield* projections.getThreadRecords(threadId, []);
-      return goalChangeNotice(goal, seenGoalId !== null, {
-        asChildBackground: thread.lineage.relationshipToParent === "subagent",
-        anchorTaskId: workstream?.anchorTaskId ?? null,
-      });
-    }).pipe(
-      Effect.provide(context),
-      Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
-    );
-
-  return { compose, goalNotice } satisfies LoomSessionComposerShape;
+  return { compose } satisfies LoomSessionComposerShape;
 });
 
 /** The production composer; its reads are provided here, the server-wide services are not. */

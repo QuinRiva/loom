@@ -4,7 +4,7 @@
  * output, the write-once launch identity, first-launch fork replay and the drafter
  * exceptions to it, the child
  * readership clause, cache retention, the extension path and the relocation
- * clause; and the once-per-change goal notice for a goal that differs from the frozen prompt's.
+ * clause.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -13,8 +13,8 @@ import {
   CommandId,
   EventId,
   GoalId,
+  GoalTaskId,
   ProjectId,
-  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -519,77 +519,52 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
     ),
   );
 
-  it.effect("tells the agent once when its goal differs from its frozen prompt's", () =>
+  it.effect("gives a root the goal block only when its goal already has tasks", () =>
     withComposer(0, (composer) =>
       Effect.gen(function* () {
-        const { threadId, projectId } = yield* seedRoot("drift", tempCheckout());
-        const first = yield* addGoal(projectId, "drift-first");
-        const second = yield* addGoal(projectId, "drift-second");
-        const run = (n: number) => RunId.make(`run:drift:${n}`);
-        yield* setGoal(threadId, first.id, "first");
-        const launched = yield* composer.compose(threadId);
-        assert.include(launched.appendSystemPrompt, `Active goal \`${first.id}\``);
-        assert.isNull(yield* composer.goalNotice(threadId, run(1)));
+        const store = yield* LoomStore.LoomStoreV2;
+        const { threadId: goalless } = yield* seedRoot("goalless", tempCheckout());
+        const fresh = yield* seedRoot("fresh-goal", tempCheckout());
+        const joining = yield* seedRoot("joining", tempCheckout());
+        const goal = (slug: string, projectId: ProjectId) =>
+          store.goals.upsert({
+            id: GoalId.make(`goal:${slug}`),
+            projectId,
+            slug,
+            title: slug,
+            description: "",
+          });
+        const empty = yield* goal("no-tasks", fresh.projectId);
+        const inProgress = yield* goal("in-progress", joining.projectId);
+        yield* store.tasks.replaceTree(inProgress.id, [
+          {
+            id: GoalTaskId.make("task:next"),
+            parentTaskId: null,
+            text: "Next step",
+            done: false,
+            position: 0,
+          },
+        ]);
+        const join = (threadId: ThreadId, goalId: GoalId) =>
+          dispatch({
+            type: "thread.goal.set",
+            commandId: CommandId.make(`command:goal-set:${threadId}`),
+            threadId,
+            createdAt: DateTime.formatIso(DateTime.makeUnsafe(0)),
+            goalId,
+          });
+        yield* join(fresh.threadId, empty.id);
+        yield* join(joining.threadId, inProgress.id);
 
-        yield* setGoal(threadId, second.id, "second");
-        const notice = (yield* composer.goalNotice(threadId, run(2)))!;
-        assert.include(notice, "goal has changed since your system prompt was written");
-        assert.include(notice, `Active goal \`${second.id}\``);
-        // Once per change; a retry of the run that carried it repeats it.
-        assert.isNull(yield* composer.goalNotice(threadId, run(3)));
-        assert.equal(yield* composer.goalNotice(threadId, run(2)), notice);
-        // The frozen prompt never changes.
-        assert.deepEqual(yield* composer.compose(threadId), launched);
-
-        yield* setGoal(threadId, first.id, "back");
-        assert.include(
-          (yield* composer.goalNotice(threadId, run(4)))!,
-          `Active goal \`${first.id}\``,
+        assert.notInclude((yield* composer.compose(goalless)).appendSystemPrompt, "Active goal");
+        assert.notInclude(
+          (yield* composer.compose(fresh.threadId)).appendSystemPrompt,
+          "Active goal",
         );
-        yield* setGoal(threadId, null, "cleared");
-        assert.include(
-          (yield* composer.goalNotice(threadId, run(5)))!,
-          "no longer belongs to a goal",
-        );
-        assert.isNull(yield* composer.goalNotice(threadId, run(6)));
-      }),
-    ),
-  );
-
-  it.effect("tells a root launched goal-less of the goal it gains later", () =>
-    withComposer(0, (composer) =>
-      Effect.gen(function* () {
-        const { threadId, projectId } = yield* seedRoot("late-goal", tempCheckout());
-        yield* composer.compose(threadId);
-        assert.isNull(yield* composer.goalNotice(threadId, RunId.make("run:late:1")));
-        const goal = yield* addGoal(projectId, "late-goal");
-        yield* setGoal(threadId, goal.id, "late");
-        const notice = (yield* composer.goalNotice(threadId, RunId.make("run:late:2")))!;
-        assert.include(notice, "This thread now has a goal");
-        assert.include(notice, `Active goal \`${goal.id}\``);
+        const joined = (yield* composer.compose(joining.threadId)).appendSystemPrompt;
+        assert.include(joined, `Active goal \`${inProgress.id}\``);
+        assert.include(joined, "Next step");
       }),
     ),
   );
 });
-
-const addGoal = (projectId: ProjectId, slug: string) =>
-  Effect.flatMap(LoomStore.LoomStoreV2, (store) =>
-    store.goals.upsert({
-      id: GoalId.make(`goal:${slug}`),
-      projectId,
-      slug,
-      title: `Goal ${slug}`,
-      description: `Objective of ${slug}.`,
-    }),
-  );
-
-const setGoal = (threadId: ThreadId, goalId: GoalId | null, step: string) =>
-  Effect.flatMap(DateTime.now, (now) =>
-    dispatch({
-      type: "thread.goal.set",
-      commandId: CommandId.make(`command:goal-set:${threadId}:${step}`),
-      threadId,
-      createdAt: DateTime.formatIso(now),
-      goalId,
-    }),
-  );
