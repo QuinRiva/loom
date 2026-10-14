@@ -53,15 +53,16 @@ export const RETRO_SKILL_PATH = NodePath.join(LOOM_REPO_ROOT, "skills", "retro",
 /**
  * The retro reviewer's role overlay, SERVER-OWNED: the reviewer is minted by the
  * server, never spawned from the role catalogue, so its policy is this constant
- * rather than a role file. The session composer supplies it for the role.
- * Placeholder wording: model-read text, to be rewritten by its author.
+ * rather than a role file. The session composer supplies it for the role. It
+ * carries the standing identity and write scope only; the procedure is the retro
+ * skill the kickoff names (model-read text: edit under `llm-instruction-change`).
  */
-export const RETRO_REVIEWER_OVERLAY_PROMPT = `You are a retrospective reviewer in a fresh thread. You did not do the work under review and do not carry its transcript: your kickoff names the source workstream, its run directory (with \`manifest.json\` listing every thread, its report and its session file) and the retro skill.
+export const RETRO_REVIEWER_OVERLAY_PROMPT = `You are a retro reviewer: a fresh root thread with no parent, no goal and none of the reviewed work's transcript. The human typed \`/retro\` in a workstream; your kickoff names that workstream, its run directory and the retro skill, which is your whole procedure. The human reads this thread directly. Your workstream is this thread alone: workstream_list shows only you; the manifest is the reviewed tree, and consult_thread reaches any thread in it by id.
 
-- Read the retro skill first and follow it. Scan the source tree's session files with its scanner before reading reports or consulting any thread.
-- You are report-only: change nothing about the work under review — no code edits, no commits, no workstream or goal/task-tree mutations.
-- Write only under your run directory and \`~/loom-retro/\`.
-- There is no parent orchestrator: the human reads you directly. End your turn naming your recap's path for the human to triage.`;
+- You review the process, not the product: how the work was briefed, decomposed, gated and steered, and what its threads ran into. Whether the code is good was the source workstream's job.
+- You are report-only towards the reviewed work. Your cwd is its worktree: do not edit or commit in it, and do not spawn, prompt, stop or re-route any thread. Your goal and task-tree tools have no goal to act on and error if called.
+- Write only under the run directory and \`~/loom-retro/\`, plus the one catalogue handoff the skill describes.
+- Never call workstream_submit or workstream_request_attention: there is no parent to receive them, and a submit would mark this thread finished under the human. A turn ends by telling the human what to open.`;
 
 /** The reviewer's title, `Retro: <source title>`. */
 export const buildRetroTitle = (sourceTitle: string) => curatedTitle("Retro", sourceTitle);
@@ -143,22 +144,22 @@ export const retroManifestThread = (
 
 /**
  * The retro kickoff: identity, focus, the source, the run directory, the skill and
- * the tree as one line per thread. Placeholder wording: model-read text, to be
- * rewritten by its author.
+ * the tree as one line per thread. Data lines only; the procedure lives in the
+ * skill (model-read text: edit under `llm-instruction-change`).
  */
 export const buildRetroKickoffPrompt = (manifest: RetroManifest, skillPath: string) => {
   const { source } = manifest;
   const root = manifest.threads.find((thread) => thread.id === source.rootThreadId);
   return [
-    `You are a retrospective reviewer, started fresh by the human's \`/retro\`. Review how the source workstream's development process went.`,
+    `Retro of the workstream below, started by the human's \`/retro\`. Read the retro skill first; it is the whole procedure, and its first step is the scan.`,
     "",
     `- Focus: ${manifest.focus}`,
-    `- Source thread: ${source.threadId} "${source.title}"`,
+    `- Source thread (where \`/retro\` was typed): ${source.threadId} "${source.title}"`,
     `- Source root: ${source.rootThreadId} "${root?.title ?? source.title}"; goal: ${source.goalTitle === null ? "none" : `"${source.goalTitle}"`}`,
-    `- Run directory: \`${manifest.runDir}\` — \`manifest.json\` there lists every thread below with its report and session file.`,
-    `- Retro skill: \`${skillPath}\` — read it first and follow it.`,
+    `- Run directory (RUN): \`${manifest.runDir}\` — \`manifest.json\` there lists every thread below with its report and session file paths; everything you write for this run goes here.`,
+    `- Retro skill: \`${skillPath}\` — its directory is SKILL_DIR.`,
     "",
-    `Threads (${manifest.threads.length}; id, parent, role, title, outcome):`,
+    `Threads (${manifest.threads.length}, depth-first from the root; id, parent, role, title, outcome):`,
     ...manifest.threads.map(
       (thread) =>
         `- ${thread.id} parent=${thread.parentId ?? "none"} [${thread.role ?? "thread"}] "${thread.title}" outcome=${thread.outcome ?? "open"}`,
