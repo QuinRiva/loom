@@ -30,6 +30,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 
+import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
 import {
   type WorkstreamTreeThread,
   workstreamTreeView,
@@ -61,6 +62,25 @@ export const RETRO_REVIEWER_OVERLAY_PROMPT = `You are a retro reviewer: a fresh 
 - You are report-only towards the reviewed work. Your cwd is its worktree: do not edit or commit in it, and do not spawn, prompt, stop or re-route any thread. Your goal and task-tree tools have no goal to act on and error if called.
 - Write only under the run directory and \`~/loom-retro/\`, plus the one catalogue handoff the skill describes.
 - Never call workstream_submit or workstream_request_attention: there is no parent to receive them, and a submit would mark this thread finished under the human. A turn ends by telling the human what to open.`;
+
+/**
+ * The reviewer's resident tools: reading the evidence, writing the run directory, and the
+ * workstream reads its skill names. Without a profile pi activates every registered tool
+ * (~140, each t3 tool under two names): ~60k tokens re-read on every call. The catalogue
+ * handoff's `goal_handoff` stays reachable through `tool_search`, as the skill says.
+ */
+export const RETRO_REVIEWER_TOOLS = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "fd",
+  "rg",
+  "read_full",
+  agentToolName("workstream_list"),
+  agentToolName("consult_thread"),
+  agentToolName("set_thread_title"),
+];
 
 /** The reviewer's title, `Retro: <source title>`. */
 export const buildRetroTitle = (sourceTitle: string) => curatedTitle("Retro", sourceTitle);

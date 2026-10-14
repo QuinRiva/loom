@@ -39,7 +39,7 @@ import {
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
-import { RETRO_REVIEWER_OVERLAY_PROMPT } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
 import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { loomPaths } from "../loomPaths.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
@@ -381,7 +381,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   it.effect(
     "a retro reviewer (a fresh root) composes with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
     () =>
-      withComposer(0, (composer) =>
+      withComposer(0, (composer, identityDir) =>
         Effect.gen(function* () {
           const { threadId: source, projectId } = yield* seedRoot("drafted", tempCheckout());
           const { threadId: unlaunched } = yield* seedRoot("upstream-only", tempCheckout());
@@ -414,6 +414,13 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
 
           const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, null);
           const reviewed = (yield* composer.compose(reviewer)).appendSystemPrompt;
+          // A tool profile, not pi's full tool surface.
+          const reviewerIdentity = JSON.parse(
+            yield* (yield* FileSystem.FileSystem).readFileString(
+              identityFile(identityDir, reviewer),
+            ),
+          );
+          assert.deepEqual(reviewerIdentity.tools, RETRO_REVIEWER_TOOLS);
           assert.isTrue(
             reviewed.startsWith(
               `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(reviewer)}\n\n${RETRO_REVIEWER_OVERLAY_PROMPT}`,

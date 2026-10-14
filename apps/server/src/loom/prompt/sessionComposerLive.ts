@@ -48,7 +48,7 @@ import {
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
-import { RETRO_REVIEWER_OVERLAY_PROMPT } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
 import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { agentGitEnv, materializeGitShim } from "../workstream/agentGitIdentity.ts";
@@ -117,7 +117,11 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       const isChild = thread.lineage.relationshipToParent === "subagent";
       const overlay =
         workstream?.role === RETRO_REVIEWER_ROLE
-          ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT, delegation: false }
+          ? {
+              prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
+              delegation: false,
+              tools: RETRO_REVIEWER_TOOLS,
+            }
           : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
       const catalogue =
         overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];

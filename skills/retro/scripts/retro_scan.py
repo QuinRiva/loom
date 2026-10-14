@@ -31,6 +31,12 @@ SETTLED = {"terminal", "resolve"}
 EXCERPT, PER_SIGNAL = 200, 6
 
 
+def est_tokens(text):
+    """Claude tokens, not chars/4: these id-, path- and markup-dense files measured 2.2–2.5 chars
+    a token on a live run (digest 50.7k chars → 23k tokens; extract 293k → 117k)."""
+    return len(text) * 10 // 23
+
+
 def text_of(blocks):
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 
@@ -305,7 +311,7 @@ def scan(manifest, out):
                               "threads": dict(hits[s["id"]])} for s in catalogue},
         "toolErrors": [{"tool": tool, "signature": sig, "count": len(ids), "threads": dict(Counter(ids))} for (tool, sig), ids in groups.items()],
     }, indent=1))
-    print(f"{out / 'digest.md'}: {len(digest):,} chars (~{len(digest) // 4:,} tokens); {out / 'scan.json'}")
+    print(f"{out / 'digest.md'}: {len(digest):,} chars (~{est_tokens(digest):,} tokens); {out / 'scan.json'}")
 
 
 def render_args(v, indent=""):
@@ -350,7 +356,7 @@ def extract(manifest, tid, out):
     flush()
     path = out / f"extract-{re.sub(r'[:/]', '_', t['id'])}.md"
     path.write_text(text := "\n".join(L) + "\n")
-    print(f"{path}: {len(text):,} chars (~{len(text) // 4:,} tokens)")
+    print(f"{path}: {len(text):,} chars (~{est_tokens(text):,} tokens)")
 
 
 def main():
