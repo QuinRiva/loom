@@ -8,8 +8,9 @@
  * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
  * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
  * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
- * first turn can lay out its plan. Workstream children never derive one (they
- * inherit the parent's goal).
+ * first turn can lay out its plan. Workstream children never derive one (they inherit the parent's goal), and a goal set
+ * while the generation runs wins: the derivation re-checks before writing, and the
+ * orchestrator drops an emergent `thread.goal.set` on a thread that already has a goal.
  *
  * The generation is Loom's Pi one-shot (`makePiOneShot`) on the text-generation
  * model selection.
@@ -37,6 +38,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { LOOM_EMERGENT_GOAL_PREFIX } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { buildEmergentGoalPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
@@ -49,7 +51,7 @@ const MAX_EMERGENT_GOAL_RUNS = 2;
 
 export const emergentGoalId = (threadId: ThreadId) => GoalId.make(`goal:emergent:${threadId}`);
 export const emergentGoalCommandId = (threadId: ThreadId) =>
-  CommandId.make(`server:loom:emergent-goal:${threadId}`);
+  CommandId.make(`${LOOM_EMERGENT_GOAL_PREFIX}${threadId}`);
 
 export type EmergentGoalInterpretation = ReturnType<
   typeof buildEmergentGoalPrompt
@@ -130,6 +132,8 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
     const title = interpretation.goal.title.trim();
     if (title.length === 0) return;
     if (!input.force && interpretation.confidence !== "high") return;
+    // The generation takes seconds; a goal set meanwhile wins, and no orphan goal is written.
+    if (((yield* loomStore.getWorkstream(threadId))?.goalId ?? null) !== null) return;
     // `UNIQUE (project_id, slug)` reserves deleted goals' slugs too.
     const taken = new Set(
       (yield* loomStore.goals.listByProject(thread.projectId, { includeDeleted: true })).map(

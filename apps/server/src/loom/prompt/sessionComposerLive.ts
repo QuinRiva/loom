@@ -4,7 +4,7 @@
  * The prompt, in reading order: the work-model addendum, the child-readership
  * clause (children only), the identity clause, the role overlay, the ship
  * policy, the role catalogue (only when the surface delegates), the goal
- * context, and — appended per launch, never recorded — the relocation clause.
+ * context (a child's always; a root's only when it joins work in progress), and — appended per launch, never recorded — the relocation clause.
  * Everything but the relocation clause is the thread's launch identity: written
  * once at its first compose and replayed verbatim by every later compose, and
  * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
@@ -135,7 +135,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
               ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
             ].join("\n")
           : undefined,
-        goal === null || goal.deletedAt !== null
+        // A root the human or a handoff starts has said nothing yet that a goal could
+        // summarise; only a root joining work in progress (its goal already has tasks) needs it.
+        goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
           ? undefined
           : goalContextInstruction(goal, {
               asChildBackground: isChild,

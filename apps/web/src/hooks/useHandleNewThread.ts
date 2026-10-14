@@ -9,7 +9,6 @@ import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
   composerDraftHasUserContent,
-  goalDraftBucketKey, // loom: 3d-4 goal-keeping
   markPromotedDraftThreadByRef,
   type DraftId,
   type DraftThreadEnvMode,
@@ -94,7 +93,7 @@ export function useNewThreadHandler() {
         getDraftThread,
         applyStickyState,
         setDraftThreadContext,
-        setLogicalProjectDraftThreadId: setDraftMapping, // loom: 3d-4 wrapped below
+        setLogicalProjectDraftThreadId,
         setModelSelection,
       } = useComposerDraftStore.getState();
       const requestingRouteHref = router.state.location.href;
@@ -177,30 +176,9 @@ export function useNewThreadHandler() {
           ),
         });
       };
-      // loom: 3d-4 goal-keeping — a thread viewed under a Loom goal hands the goal on.
-      const loomGoalId =
-        carrySourceShell?.projectId === projectRef.projectId
-          ? (carrySourceShell.source.workstream?.goalId ?? null)
-          : null;
-      const projectLogicalKey = project
+      const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
-      const logicalProjectKey =
-        loomGoalId === null ? projectLogicalKey : goalDraftBucketKey(projectLogicalKey, loomGoalId);
-      // Every path maps the draft it opens through here: that draft's thread joins the goal on create.
-      const setLogicalProjectDraftThreadId: typeof setDraftMapping = (
-        key,
-        ref,
-        draftId,
-        mapping,
-      ) => {
-        setDraftMapping(key, ref, draftId, mapping);
-        const threadId = mapping?.threadId;
-        if (loomGoalId !== null && threadId !== undefined)
-          void import("../loom/goalKeeping").then((loom) =>
-            loom.inheritLoomGoal(ref.environmentId, threadId, loomGoalId),
-          );
-      };
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;

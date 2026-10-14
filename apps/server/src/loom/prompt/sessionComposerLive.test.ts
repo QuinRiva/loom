@@ -8,7 +8,15 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { CheckpointId, CommandId, EventId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  CheckpointId,
+  CommandId,
+  EventId,
+  GoalId,
+  GoalTaskId,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -507,6 +515,55 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           (yield* composer.compose(stayed)).appendSystemPrompt,
           "previously happened in a different working directory",
         );
+      }),
+    ),
+  );
+
+  it.effect("gives a root the goal block only when its goal already has tasks", () =>
+    withComposer(0, (composer) =>
+      Effect.gen(function* () {
+        const store = yield* LoomStore.LoomStoreV2;
+        const { threadId: goalless } = yield* seedRoot("goalless", tempCheckout());
+        const fresh = yield* seedRoot("fresh-goal", tempCheckout());
+        const joining = yield* seedRoot("joining", tempCheckout());
+        const goal = (slug: string, projectId: ProjectId) =>
+          store.goals.upsert({
+            id: GoalId.make(`goal:${slug}`),
+            projectId,
+            slug,
+            title: slug,
+            description: "",
+          });
+        const empty = yield* goal("no-tasks", fresh.projectId);
+        const inProgress = yield* goal("in-progress", joining.projectId);
+        yield* store.tasks.replaceTree(inProgress.id, [
+          {
+            id: GoalTaskId.make("task:next"),
+            parentTaskId: null,
+            text: "Next step",
+            done: false,
+            position: 0,
+          },
+        ]);
+        const join = (threadId: ThreadId, goalId: GoalId) =>
+          dispatch({
+            type: "thread.goal.set",
+            commandId: CommandId.make(`command:goal-set:${threadId}`),
+            threadId,
+            createdAt: DateTime.formatIso(DateTime.makeUnsafe(0)),
+            goalId,
+          });
+        yield* join(fresh.threadId, empty.id);
+        yield* join(joining.threadId, inProgress.id);
+
+        assert.notInclude((yield* composer.compose(goalless)).appendSystemPrompt, "Active goal");
+        assert.notInclude(
+          (yield* composer.compose(fresh.threadId)).appendSystemPrompt,
+          "Active goal",
+        );
+        const joined = (yield* composer.compose(joining.threadId)).appendSystemPrompt;
+        assert.include(joined, `Active goal \`${inProgress.id}\``);
+        assert.include(joined, "Next step");
       }),
     ),
   );

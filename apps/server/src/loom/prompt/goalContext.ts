@@ -4,7 +4,8 @@
  * child gets its branch, the spine it hangs off and a one-line pulse; an
  * UNBOUND child gets the top-level overview and "your brief is your
  * assignment"; the root gets the open plan and the full shaping guidance,
- * since it owns the tree. Every variant says it is a snapshot that
+ * since it owns the tree (the composer gives a root the goal only when its
+ * tree has tasks). Every variant says it is a snapshot that
  * `mcp__t3-code__goal_task_list` reads live.
  *
  * @module loom/prompt/goalContext
