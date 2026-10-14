@@ -3,6 +3,7 @@ import type { FC, ReactNode } from "react";
 import type { MdxAttrValue, PlanBlock } from "./blockTypes";
 import { createAttrReader, parseFirstJsxBlock, serializeBlockElement } from "./mdxAttrs";
 import { annotatedCodeBlock } from "./blocks/annotatedCode";
+import { badgeBlock } from "./blocks/badge";
 import { calloutBlock } from "./blocks/callout";
 import { cardBlock } from "./blocks/card";
 import {
@@ -30,9 +31,12 @@ import { questionFormBlock } from "./blocks/questionForm";
 import { reviewChoiceBlock } from "./blocks/reviewChoice";
 import { htmlBlock, prototypeBlock } from "./blocks/sandboxedFrame";
 import { designBlock, screenBlock } from "./blocks/screen";
+import { statsBlock } from "./blocks/stats";
+import { stepBlock, stepsBlock } from "./blocks/steps";
 import { tableBlock } from "./blocks/table";
 import { tabBlock, tabsBlock } from "./blocks/tabs";
 import { visualQuestionsBlock } from "./blocks/visualQuestions";
+import { rawHtmlTagMessage } from "./planBlockTags";
 
 /**
  * The closed plan-block registry: tag → block. This is the one place that lists
@@ -85,19 +89,30 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: tabBlock.mdx.tag, type: "tab", block: tabBlock },
   { tag: prototypeBlock.mdx.tag, type: "prototype", block: prototypeBlock },
   { tag: htmlBlock.mdx.tag, type: "html", block: htmlBlock },
+  // vocabulary v2 — one line per block, appended below.
+  { tag: badgeBlock.mdx.tag, type: "badge", block: badgeBlock },
+  { tag: statsBlock.mdx.tag, type: "stats", block: statsBlock },
+  { tag: stepsBlock.mdx.tag, type: "steps", block: stepsBlock },
+  { tag: stepBlock.mdx.tag, type: "step", block: stepBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
 
-/** Error card for a PascalCase tag that is not in the registry. The renderer's
- * remark pass rewrites such elements to this component (attrs/children dropped)
- * so ONE bad tag degrades to an inline card instead of `_missingMdxReference`
- * killing the whole document at the top-level error boundary. */
+/** Error card for a PascalCase tag that is not in the registry, or a lowercase
+ * HTML tag outside `ALLOWED_HTML_TAGS`. The renderer's remark pass rewrites such
+ * elements to this component (attrs/children dropped) so ONE bad tag degrades to
+ * an inline card instead of `_missingMdxReference` killing the whole document at
+ * the top-level error boundary — and raw HTML never reaches the page. */
 function UnknownPlanBlock({ tag }: { tag?: unknown }) {
+  const name = typeof tag === "string" ? tag : "?";
   return (
     <PlanBlockError
-      tag={typeof tag === "string" ? tag : "?"}
-      message={`Unknown block — available blocks: ${PLAN_BLOCKS.map((entry) => entry.tag).join(", ")}`}
+      tag={name}
+      message={
+        /^[a-z]/.test(name)
+          ? rawHtmlTagMessage(name)
+          : `Unknown block — available blocks: ${PLAN_BLOCKS.map((entry) => entry.tag).join(", ")}`
+      }
     />
   );
 }

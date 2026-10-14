@@ -1,7 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
+import { useTheme } from "~/hooks/useTheme";
+import { observeResize } from "~/lib/observeResize";
+
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { toneSchema } from "../tones";
 
 /**
  * The two untrusted-content iframe surfaces — `<Prototype>` (C4, interactive)
@@ -124,19 +128,57 @@ export function blockLinkActivation(doc: Document): void {
 }
 const LINK_TAGS = new Set(["a", "area"]);
 
-/** Wrap an author HTML fragment in a minimal document carrying the CSP `<meta>`.
- * The CSP uses single-quoted keywords, safe to embed in the double-quoted
- * `content` attribute; the fragment itself is confined by the sandbox, not
- * escaped here. */
-function buildSrcDoc(html: string, csp: string): string {
+// loom: vocabulary v2 — the app tokens a frame inherits, so a snippet written
+// against `var(--plan-tone-risk)` or `var(--foreground)` matches the document
+// around it in both themes. Values are resolved from the host at build time
+// (a srcdoc document cannot see the parent's stylesheet).
+const FRAME_THEME_TOKENS = [
+  "--background",
+  "--foreground",
+  "--card",
+  "--muted",
+  "--muted-foreground",
+  "--border",
+  "--font-sans",
+  "--font-mono",
+  ...toneSchema.options.flatMap((tone) => [`--plan-tone-${tone}`, `--plan-tone-${tone}-soft`]),
+];
+
+/** The host's resolved token values, as declarations for the frame's `:root`. */
+function hostTokens(): string {
+  if (typeof document === "undefined") return "";
+  const computed = getComputedStyle(document.documentElement);
+  return FRAME_THEME_TOKENS.flatMap((name) => {
+    const value = computed.getPropertyValue(name).trim();
+    return value ? [`${name}:${value}`] : [];
+  }).join(";");
+}
+
+/** Wrap an author HTML fragment in a minimal document carrying the CSP `<meta>`
+ * and the host theme (author `<style>` comes later, so it can override). The
+ * CSP uses single-quoted keywords, safe to embed in the double-quoted `content`
+ * attribute; the fragment itself is confined by the sandbox, not escaped here. */
+export function buildSrcDoc(html: string, csp: string, dark: boolean): string {
+  // loom: Chromium answers `prefers-color-scheme` inside a frame from the OS, not
+  // the app, so an author's `@media (prefers-color-scheme: dark)` is pinned to
+  // the app theme: the matching scheme becomes an always-true feature, the other
+  // an always-false one.
+  html = html.replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi, (_, scheme: string) =>
+    (scheme.toLowerCase() === "dark") === dark ? "(min-width: 0px)" : "(max-width: -1px)",
+  );
   return (
-    `<!doctype html><html><head><meta charset="utf-8">` +
+    `<!doctype html><html${dark ? ` class="dark"` : ""}><head><meta charset="utf-8">` +
     `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">` +
-    `<style>html,body{margin:0;padding:0;font-family:system-ui,sans-serif}</style>` +
+    `<style>:root{color-scheme:${dark ? "dark" : "light"};${hostTokens()}}html,body{margin:0;padding:0}` +
+    `body{background:var(--background);color:var(--foreground);font-family:var(--font-sans,system-ui,sans-serif)}</style>` +
     `</head><body>${html}</body></html>`
   );
 }
+
+/** Auto-height bounds for a frame with no explicit `height`. */
+const MIN_AUTO_HEIGHT = 48;
+const MAX_AUTO_HEIGHT = 4000;
 
 interface SandboxedHtmlFrameProps {
   html: string;
@@ -147,7 +189,9 @@ interface SandboxedHtmlFrameProps {
   blockType: string;
   blockId: string | undefined;
   title: string;
-  height: number;
+  /** Fixed height in px (the frame scrolls). Omitted: the frame sizes itself to
+   * its content — same-origin frames only (`inert`), the only ones measurable. */
+  height: number | undefined;
   caption: string | undefined;
 }
 
@@ -163,10 +207,17 @@ function SandboxedHtmlFrame({
   height,
   caption,
 }: SandboxedHtmlFrameProps) {
+  // A theme flip rebuilds the srcdoc with the new token values (and reloads it).
+  const dark = useTheme().resolvedTheme === "dark";
   const srcDoc = useMemo(() => {
-    const doc = buildSrcDoc(html, csp);
+    const doc = buildSrcDoc(html, csp, dark);
     return inert ? inertSrcDoc(doc) : doc;
-  }, [html, csp, inert]);
+  }, [html, csp, inert, dark]);
+  // Auto-height: measure the content on load, then again on resize only — the
+  // frame's viewport (a panel-width change) or its content (a <details> toggle).
+  const [autoHeight, setAutoHeight] = useState<number>();
+  const unwatch = useRef<(() => void) | null>(null);
+  useEffect(() => () => unwatch.current?.(), []);
   return (
     <figure
       data-plan-block-id={blockId}
@@ -181,14 +232,40 @@ function SandboxedHtmlFrame({
         onLoad={
           inert
             ? (event) => {
-                const doc = event.currentTarget.contentDocument;
-                if (doc) blockLinkActivation(doc);
+                const frame = event.currentTarget;
+                const doc = frame.contentDocument;
+                if (!doc) return;
+                blockLinkActivation(doc);
+                if (height !== undefined) return;
+                // The root's own box, not scrollHeight (never below the frame's
+                // current height, so it could not shrink).
+                const measure = () =>
+                  setAutoHeight(
+                    Math.min(
+                      MAX_AUTO_HEIGHT,
+                      Math.max(
+                        MIN_AUTO_HEIGHT,
+                        Math.ceil(doc.documentElement.getBoundingClientRect().height),
+                      ),
+                    ),
+                  );
+                measure();
+                unwatch.current?.();
+                // Not the <iframe> itself: setting its height would re-trigger
+                // the observer inside its own callback.
+                const view = frame.contentWindow!;
+                const unobserve = observeResize(doc.documentElement, measure);
+                view.addEventListener("resize", measure);
+                unwatch.current = () => {
+                  unobserve();
+                  view.removeEventListener("resize", measure);
+                };
               }
             : undefined
         }
         loading="lazy"
-        className="block w-full border-0 bg-white"
-        style={{ height }}
+        className="block w-full border-0 bg-background"
+        style={{ height: height ?? autoHeight }}
       />
       {caption ? (
         <figcaption className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
@@ -260,10 +337,9 @@ export interface HtmlBlockData {
   /** Arbitrary static HTML (rendered with scripts disabled by the sandbox). */
   html: string;
   caption?: string;
+  /** Fixed height in px, for a frame that should scroll; omitted, it auto-sizes. */
   height?: number;
 }
-
-const HTML_DEFAULT_HEIGHT = 240;
 
 const htmlBlockSchema = z.object({
   html: z.string().max(500_000),
@@ -294,7 +370,7 @@ export function HtmlBlockRead({ data, blockId }: PlanBlockReadProps<HtmlBlockDat
       blockType="html"
       blockId={blockId}
       title={data.caption ?? "Embedded HTML"}
-      height={data.height ?? HTML_DEFAULT_HEIGHT}
+      height={data.height}
       caption={data.caption}
     />
   );

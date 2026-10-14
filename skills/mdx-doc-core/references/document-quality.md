@@ -1,211 +1,272 @@
 # Document quality bar
 
-This is the shared quality core for every MDX-document genre — plans
-(`mdx-visual-plan`) and recaps / decision-review batches (`mdx-visual-recap`).
-The genre `SKILL.md` files carry the trigger, the genre discipline, and the
-skeleton; this file carries the depth that does not vary by genre. Read it
-before authoring the prose body of any document.
+Shared by every MDX-document genre — plans (`mdx-visual-plan`), recaps and
+decision batches (`mdx-visual-recap`), explainers (`mdx-visual-explainer`). The
+genre `SKILL.md` carries the trigger, the skeleton and the genre's own
+discipline; this file carries what does not vary: who the document is for, how
+it is ordered, how judgement and evidence are shown, and the check before
+handoff. Read it before drafting the body of any document. Everything here is
+a default with its reason attached; when a document is better served another
+way, take that way — the reasons are there so you can tell when.
 
-## Choose the representation
+## 1. Start with the reader, not the work
 
-Before reaching for a block, match the content to the representation that reads
-best — this is the single most important authoring decision, and getting it
-wrong is what makes a document lose to a hand-built HTML artefact. Pick from the
-table, then consult [`block-schema.md`](block-schema.md) for the exact props.
+Most of these documents are read by someone who was not in the conversation
+that produced them and has read none of the reports behind them; a child thread
+writing from a brief has never met its reader at all. An explainer written in
+conversation gets its reader contract for free — the person asking says, in
+their own words, what they want to understand. A document written cold gets
+nothing unless you write it down. So before drafting, write three lines into
+the document's frontmatter:
 
-| Content                                | Representation                                                        |
-| -------------------------------------- | --------------------------------------------------------------------- |
-| A few fields of a record change        | `<FieldDiff>`                                                         |
-| Line-oriented source change            | `<Diff>`                                                              |
-| N similar items each needing a verdict | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table>`         |
-| Bulk evidence / full records           | `<Details>` + `<Json>`/`<Code>` inside, `wrap` for prose-heavy values |
-| Balanced judgement calls (few)         | bottom `<QuestionForm>` with `recommended`                            |
-| Typed entities / API ops / change map  | `<DataModel>` / `<Endpoint>` / `<FileTree>`                           |
-| Genuine 2-D structure                  | `<Diagram>` / `<Mermaid>`                                             |
+```yaml
+---
+reader:
+  who: the system's owner, deciding whether to fund the next round of work
+  knows: the product and its review panel; none of the research behind this document
+  after_first_screen: which cause dominates, and whether the cheap fixes are worth doing now
+---
+```
 
-Two distinctions worth stating outright, because both are common mistakes:
+- `who` — the person, by role and situation rather than name, and what they
+  are there to do: decide, approve, understand, re-orient.
+- `knows` — what they already hold and what they do not: the chat you had,
+  the child reports, the codebase's names, the earlier plan.
+- `after_first_screen` — the sentence they should be able to say, or the
+  decision they should be able to make, having read only the first screen.
 
-- **`<FieldDiff>` vs `<Diff>`.** Use `<FieldDiff>` when the change is a few
-  fields of a record/config — it wraps long values and aligns them per field.
-  Use `<Diff>` **only** when the change is genuinely line-oriented source code.
-  A JSON string in a line diff (one horizontally-scrolled line, twice) is the
-  anti-pattern `<FieldDiff>` exists to retire.
-- **`<Card>` per item vs one flat list.** When a document reviews N similar
-  items each needing a verdict, give each item its own `<Card tone>` so the
-  reviewer triages the batch by colour at a glance, with the per-item evidence
-  and decision surface inside the card.
+The renderer hides frontmatter; these lines are for you and for the lint. What
+the reader sees is the first screen you then write _for that reader_. If the
+request does not say who reads, ask whoever made it before guessing (in a
+workstream, your parent via `mcp__t3-code__consult_thread`); if nobody can
+say, write for the human who owns the goal and record that assumption in `who`.
 
-## A serious technical plan, not marketing
+## 2. The first screen is the answer
 
-Write it the way a strong implementation plan reads: **outcome-first,
-prose-first, self-contained, specific.** State the objective and what "done"
-means, the scope and non-goals, the approach with the key decisions and their
-rationale, ordered steps that name real files/symbols/actions/data shapes, the
-risks, and a closing verification step. Replace vague prose with specifics —
-never a step like "make it work". No hero headings, gradients, logos, nav bars,
-slogans, value props, or marketing cards.
+Open with what the reader came for, in this order:
 
-## Prose first; blocks earn their place
+1. **The answer** — the recommendation, the verdict with its numbers, the
+   headline finding. _"Of 42 items, 30 apply as written, 9 need amending and 3
+   should be withdrawn."_ _"Recommend one export queue instead of two: about a
+   day's work, and it removes the second path that produced both duplicates."_
+2. **What it means for them** — the consequence, what changes, what they are
+   being asked to do.
+3. **The evidence** — causes, mechanism, per-item detail — in the numbered
+   sections that follow.
 
-The default surface is Markdown (GFM) prose, headings, and lists. Reach for a
-block only where structure genuinely beats a sentence, and place it **directly
-next to the prose it supports** — not in a block gallery at the end:
+When the answer has numbers — a count, a duration, a share — the lede states
+them and a `<Stats>` strip right under it shows them, one tile per number,
+toned by what the number means: the eye takes in four figures in a row faster
+than it finds them in a paragraph. The consequence (item 2) is a
+`<Callout focus title="What it means now">` directly under the lede or the
+strip, not a bold run-in inside the lede — a run-in is read as part of the
+summary, a titled box is read as the section it is.
 
-- `<AnnotatedCode>` for the file map: when a load-bearing file is worth reading,
-  carry the real syntax-highlighted code and anchor a few high-signal margin
-  notes to the lines that actually change (the new action, the changed schema,
-  the wiring point) — not one note per line, not an exhaustive list of every
-  touched file. Drop to a plain `<Code>` only for a throwaway snippet with
-  nothing to call out. When several files matter, group them in a vertical
-  `<TabsBlock>`.
-- `<DataModel>` for typed entities/fields/relations (not `<Table>`); `<Endpoint>`
-  / `<OpenApi>` for API operations; `<FileTree>` for the change map; `<Diff>`
-  when the change itself is the point.
-- `<Diagram>` / `<Mermaid>` for genuine two-dimensional relationships (layers,
-  before/after panels, data flow, state) — not a default left-to-right chain, and
-  only when it clarifies something real. Our `<Diagram>` is a constrained
-  `nodes`/`edges` + `x`/`y`% model; reach for `<Mermaid>` when auto-layout of a
-  flow/sequence/ER graph is enough, and for a rich layered/matrix architecture
-  picture prefer `<Mermaid>` or prose over forcing it into `<Diagram>`.
-- `<Columns>` for side-by-side before/after or current/target where each side
-  needs real nested blocks; label the columns.
-- `<Table>`, `<Checklist>`, `<Callout>` for scannable structure.
+Everything that is _about the document_ rather than about the subject comes
+after the answer. The review protocol ("an item left undecided takes its
+recommendation") is one line after the verdict, not the opening callout. The
+objective and scope of the work are a short paragraph after the recommendation,
+not before it. The file map, the diff tabs and the raw records sit in
+drill-downs (`<Details>`) or in the last sections. The reason: a reader decides
+in the first viewport whether to keep reading, and a viewport spent on protocol,
+or on the codebase's vocabulary, is spent before they know what the document
+says. The documents that have read best in this vocabulary all open this way;
+the ones that read worst opened with the review protocol or the work objective.
 
-A committed decision is settled **prose** or a `<Callout tone="decision">`
-(optionally with a `<Columns>` weighing the options) — not a mid-document form
-for a question you have already answered.
+The test, applied before handoff: **a reader who has read nothing can state the
+conclusion and their decision from the first screen.** If they cannot, the
+first screen is holding something else.
 
-## Make abstract plans instantly legible (concrete first read)
+## 3. Hierarchy: overview before detail
 
-If the idea is broad, strategic, or aimed at a reviewer who was not in the chat,
-put **one concrete product snapshot near the top** before dense architecture,
-mode tables, or roadmaps. For UI-capable work that snapshot is usually a single
-`<Screen>` (or one top `<DesignBoard>` artboard) plus a short paragraph saying
-what the user sees and what changes under the hood. Then put mechanics, data
-flow, and implementation detail in later sections. A reviewer should get the idea
-from the top snapshot before reading the technical plan.
+- **Number the sections** (`## 1. The causes`, `## 2. Evidence, one example per
+cause`). A long document needs a spine the reader can hold and a question can
+  point at; numbers are the cheapest one.
+- **Overview before detail.** The first section after the answer gives the whole
+  picture at the altitude of a table or a short ranked list — causes ranked,
+  options compared, items triaged — and the sections after it take one row
+  each. Detail that would push the overview below the fold goes under it in a
+  drill-down.
+- **One literal example beside each claim.** A rule, cause, risk or mechanism
+  gets one concrete instance next to it: the sentence as it was written, the
+  record as it was stored, the screen as it looks today — quoted or shown, not
+  described. Readers of these documents have said that abstract explanations
+  without a worked example are meaningless to them; one example per claim is
+  what turns a label into something they can picture.
+- **Judgement rides the block, not the sentence.** Where a verdict, state or
+  class fits a `<Card>` `tone`, `badge` or `meta` chip, a `<Callout>` tone or a
+  table column, put it there and let the prose carry the _why_. A badge reading
+  `RECOMMENDED · fix now` with meta chips `client only`, `no new RPC` is taken
+  in at a glance; the same content as three sentences per item is read slowly,
+  or not at all. Colour alone does not carry meaning (the badge or heading
+  names the class), but colour is what lets a batch be triaged before it is read.
+  A state or verdict that recurs through the document — `in place`, `moot`,
+  `lost`; `OURS`, `THEIRS` — is a `<Badge>` the first time and every time, so
+  the reader learns the colour once and finds every occurrence by eye. In a
+  table, that state is a badge cell and the rows that need finding carry a
+  tone — a reader should locate the lost item by colour before reading a word
+  of the table.
+- **Emphasis where it earns it.** A toned callout for the one thing that is
+  urgent, a card per option, bold on the number that decides: these are how the
+  main idea is made obvious in the first viewport, and they belong in a serious
+  technical document. The register to leave out is marketing — a hero heading,
+  a slogan, a "why this matters" card on a document whose first paragraph
+  already says why — because it adds weight without information.
+- **Gloss in the body, not only in the question form.** A document coins labels
+  as it goes — a phase number, an item id, a thread id, a codename, a section
+  title used as a noun — and the reader did not sit through the coining. The
+  first use in prose carries the plain-words meaning in the same sentence
+  ("the fan-in deadlock — two threads each waiting for the other to finish"); a thread id or report label is replaced by what it refers to
+  ("the reviewer thread", "the earlier research found …") rather than cited.
+  This is the rule that already governed `<QuestionForm>` fields, extended to
+  the body, because the body is where the reader meets the label first.
 
-## Preserve the user's level of abstraction
+## 4. Choose the representation
 
-A motivating use case is not automatically the architecture. When the prompt
-describes a broader framework, product mode, or reusable primitive, separate the
-reusable core from specific apps/providers/examples. Use the concrete example to
-make the plan understandable, then make clear which parts are core, which are
-app-specific adapters, and which are future examples.
+Match the content to the representation that reads fastest, then consult
+[`block-schema.md`](block-schema.md) for the exact props. A block where
+structure beats a sentence; a sentence where it does not; and the block placed
+directly beside the prose it supports, not in a gallery at the end.
 
-## Visuals and prose never duplicate each other
+| Content                                | Representation                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------- |
+| The answer and its numbers             | Lede paragraph with the numbers in bold; a `<Callout>` for the one urgent thing  |
+| Options or causes compared             | `<Table>` for the overview, a `<Card tone badge meta>` per option for the detail |
+| A few fields of a record change        | `<FieldDiff>`                                                                    |
+| Line-oriented source change            | `<Diff>`                                                                         |
+| N similar items each needing a verdict | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table filterable>`         |
+| Bulk evidence / full records           | `<Details>` + `<Json>`/`<Code>` inside, `wrap` for prose-heavy values            |
+| Balanced judgement calls (few)         | bottom `<QuestionForm>` with `recommended`                                       |
+| Typed entities / API ops / change map  | `<DataModel>` / `<Endpoint>` / `<FileTree>` (the map in a `<Details>`)           |
+| Before / after, current / target       | `<Columns>` with labelled columns, each side holding real blocks                 |
+| A load-bearing file                    | `<AnnotatedCode>` with a few margin notes on the lines that change               |
+| A sequence in time or in stages        | `<Steps>`, one `<Step>` per moment, tone on the ones that went wrong             |
+| Genuine 2-D structure                  | `<Diagram>` / `<Mermaid>`, about ten nodes at most                               |
 
-For UI work, the UI story lives in the visual surface (`<Screen>`/`<DesignBoard>`,
-plus `<Prototype>` when the flow must be operable); the prose carries the depth
-the visuals can't show — file/symbol maps, API and data contracts, code, phases,
-risks, validation. Repeat a wireframe in the body only for a genuinely new detail
-view or comparison. For a non-visual plan, skip visual surfaces entirely and
-write a clean rich document.
+A table of times is not a timeline: a reader scans a rail, not a column of
+wrapped timestamps. Moments in order — a timeline, a ladder of options, a
+pipeline's stages — are a `<Steps>` rail even when each carries three facts.
 
-## One open-questions block, at the bottom
+Three distinctions that are often got wrong:
 
-Surface answerable unresolved decisions in a single final `<QuestionForm>` — that
-is the **only** place that enumerates open questions. Never add a second
-questions list or a parallel "decisions" wall earlier in the document (a one-line
-pointer in the overview is fine). Use `single`/`multi` for clear choices,
-`freeform` for constraints, and mark the option you would pick
-`recommended: true`. Never add an "Other" option yourself — set `allowOther: true`
-and the renderer supplies the write-in field (automatic only for `freeform`).
-A complex plan with no open questions is fine only when every meaningful
-decision has been explicitly made.
+- **`<FieldDiff>` vs `<Diff>`.** A change to a few fields of a record or config
+  is a `<FieldDiff>`: it wraps long values and aligns them per field. `<Diff>`
+  is for line-oriented source. A JSON string in a line diff is one
+  horizontally-scrolled line, twice, and is what `<FieldDiff>` exists to retire.
+- **A card per item vs one flat list.** When a document reviews N similar items
+  each needing a verdict, each gets its own `<Card tone>` so the batch can be
+  triaged by colour before it is read, with the evidence and the decision
+  surface inside the card.
+- **An overview diagram vs one diagram for everything.** A diagram earns its
+  place by showing a real two-dimensional relationship — layers, data flow,
+  state — rather than a left-to-right chain the prose already states, and
+  readability of a `<Mermaid>` graph collapses past about ten nodes: draw the
+  five-to-eight-node overview, then a card or section per node for the
+  detail. `<Diagram>` is a constrained `nodes`/`edges` + `x`/`y`% model;
+  `<Mermaid>` auto-lays-out a flow, sequence or ER graph, and a rich layered
+  picture is often clearer in `<Mermaid>` or prose than forced into `<Diagram>`.
+  Tone the two or three nodes the reader should look at first (`:::tone-risk`)
+  and leave the rest untoned, with a `legend` that names the colours: a graph
+  where every node is the same grey makes the reader search for the point, and
+  one where every node is coloured does the same.
 
-**Every question stands alone.** It is answered by a reviewer who read the
-objective and skimmed the rest, so **never use a label the document coined —
-slice/phase/step N, a codename or acronym, a section title used as a noun — in a
-question `title`, `subtitle`, option `label` or option `detail` unless the same
-sentence says what it means in plain words.** `subtitle` is the context slot:
-any question that depends on something defined in the body carries one sentence
-saying what that thing is, naming the section that settles it in words if that
-helps. A question that turns on a section which defines or decides something
-also carries `refs: [{ label, anchor }]` — usually one, at most four — chipping
-that section open beside the question: `label` is the heading as written,
-`anchor` its slug (lowercased, runs of non-alphanumerics → `-`, so
-`## Delivery order` → `delivery-order`). Refs name headings, not blocks, and
-supplement the wording — **never lean on a ref to carry meaning the question
-text omits**. An option `label` states the choice, not the document's internal
-name for it — "Yes — register the hub first as a settings-only step", never
-"Yes — slice 0" — because the label is what the reviewer commits to by clicking.
+## 5. Keep the altitude the reader asked at
 
-## Verification exercises the real workflow
+A motivating example is not automatically the architecture. When the request
+describes a broader framework, product mode or reusable primitive, separate the
+reusable core from the specific app, provider or example: use the example to
+make the document concrete, then say which parts are core, which are adapters
+and which are future examples. For UI work the UI story lives in the visual
+surface (`<Screen>`, `<DesignBoard>`, `<Prototype>` when the flow must be
+operable) and the prose carries what the picture cannot — contracts, phases,
+risks, verification — so the two do not repeat each other. A document with no
+UI simply has no visual surface.
 
-When the plan changes UI, files, providers, or multi-step flows, include at least
-one end-to-end smoke that matches the user journey — a real repo/folder, real
-fixture, browser interaction, save/sync action, and an on-disk assertion — and
-name the command or manual path when known. Not just "typecheck passes".
+## 6. Decisions: settled ones in prose, open ones in one form at the bottom
 
-## `<HtmlBlock>` / `<Prototype>` are bounded escape hatches
+A decision you have made is settled prose or a `<Callout tone="decision">`,
+optionally with a `<Columns>` weighing the option you rejected — not a form
+asking a question you have already answered. A one-line pointer in the first
+screen ("two open questions at the end: rollout order and the schema name") is
+welcome; the questions themselves live in one `<QuestionForm>` at the end, so
+the reader meets them once, with the whole document behind them, rather than as
+a second list part-way through.
 
-Prefer native blocks for normal plans. `<HtmlBlock>` (static, no JS) and
-`<Prototype>` (interactive) are for a snippet the other blocks don't cover — never
-the primary home for a UI mockup that belongs in a `<Screen>`/`<DesignBoard>`, and
-never a "proof that custom HTML works" density demo. Author their HTML against the
-sandbox theme tokens so it reads in dark mode too.
+Use `single`/`multi` for clear choices, `freeform` for constraints, and mark the
+option you would pick `recommended: true`. For a write-in option set
+`allowOther: true` (the renderer supplies the field; automatic for `freeform`).
+A long document with no open questions is fine when every meaningful decision
+has been made in it.
 
-## Self-containment: never link out for evidence
+**Every question stands alone.** It is answered by someone who read the first
+screen and skimmed the rest, so a question `title`, `subtitle`, option `label`
+or option `detail` that uses a label the document coined says what it means in
+the same sentence (§3, gloss). `subtitle` is the context slot: one sentence
+saying what the question turns on. `refs: [{ label, anchor }]` — usually one,
+at most four — chips the section a question depends on open beside it (`label`
+is the heading as written, `anchor` its slug: lowercased, runs of
+non-alphanumerics → `-`, so `## Delivery order` → `delivery-order`). Refs name
+headings, not blocks, and supplement the wording; a reader who does not open
+the chip still has to be able to answer. An option label states the outcome
+the reader commits to by clicking — "Yes — register the hub first as a
+settings-only step" rather than "Yes — slice 0".
 
-A reviewer must be able to decide every item **without leaving the document**.
-Never point them at a companion file, external HTML, or another artefact for
-evidence the decision depends on — embed it in the document, behind a
-`<Details>` drill-down when it is bulky (full production records, raw packs,
-long logs). A document that says "see the attached HTML for the before/after"
-has already lost: the drill-down, not the companion file, is the mechanism.
-This is the one rule the motivating tier-A plan violated — it linked out to a
-companion HTML doc for its own evidence.
+## 7. Self-contained, whatever the size
 
-## Size budget: embed freely, the renderer carries it
+A reader decides every item without leaving the document. Evidence a decision
+depends on — the production record, the raw pack, the log, the before/after —
+is embedded, behind a `<Details>` drill-down when bulky, rather than pointed at
+in a companion file; the document that said "see the attached HTML for the
+before/after" was the one that lost its reader. Size is not a reason to link
+out: `.mdx` compiles off the main thread and collapsed `<Details>` mount lazily,
+so an evidence-heavy document of a few MB opens and stays responsive. Two
+practical bounds: keep a single `<Json>` payload to tens of KB (split a giant
+blob across drill-downs), and stay under the 8 MiB transport ceiling —
+`planLint` warns above 6 MB and errors above 8 MiB — by splitting a batch that
+large into per-pack documents rather than thinning its evidence. A filterable
+master `<Table>` keeps a large batch navigable without paying for the evidence
+up front.
 
-There is **no size reason to link out**. A fully evidence-embedded decision
-document is expected to reach a few MB, and the renderer carries that: `.mdx`
-plans compile off the main thread and collapsed `<Details>` mount lazily, so an
-evidence-heavy document opens and stays responsive. Embed the full record under
-`<Details>` + `<Json>` rather than referencing it. Two practical bounds:
+## 8. `<HtmlBlock>` and `<Prototype>` are bounded escape hatches
 
-- Keep a **single `<Json>` payload to tens of KB** each (the measured
-  comfortable shape); split a giant blob across several drill-downs rather than
-  one enormous one.
-- The transport ceiling is **8 MiB** of source. `planLint` **warns above 6 MB**
-  (compile stays multi-second even off-thread) and **errors above 8 MiB** (the
-  preview would truncate it before the renderer). A batch that large should be
-  split into per-pack documents, not thinned by linking evidence out.
+Native blocks are themed, annotatable per block and sized by the renderer; an
+iframe is none of those — its height is your guess, it draws its own
+background, and a comment can only anchor to the whole frame. So `<HtmlBlock>`
+(static) and `<Prototype>` (interactive) are for the figure the vocabulary
+genuinely lacks, authored against the sandbox theme tokens so it reads in dark
+mode. A UI mockup belongs in `<Screen>`/`<DesignBoard>`, where it keeps the
+surface footprint and the tokens.
 
-A filterable master `<Table>` (`filterable` prop) keeps a large batch navigable
-without paying for the evidence up front — the rows filter and sort client-side
-while the bulk stays in the collapsed drill-downs.
+## 9. Final checklist
 
-## Reader-experience final checklist
+Read the document as its reader, then check each line:
 
-Before handing back any document, read it as the reviewer will and check every
-line of this list — it is the bar that most directly separates a document worth
-annotating from a mechanically-valid one:
-
-- **No horizontal scrolling at desktop width.** Any long string is wrapped or
+- **The first screen test.** A reader who has read nothing can state the
+  conclusion and their decision from the first screen; the `after_first_screen`
+  line in the frontmatter is what they would say.
+- **Overview before detail**, sections numbered, drill-downs holding what the
+  reader does not need on the first pass (file map, diff tabs, raw records).
+- **Every claim has its example** — a quoted sentence, a shown record, a
+  screen — beside it.
+- **Judgement is in tone, badge, meta or callout**, and a batch is triaged by
+  tone at a glance rather than as identical grey headings.
+- **No label the document coined is left unglossed**, in the body or in the
+  question form; no thread id, item code or "per the report" stands in for
+  what it refers to.
+- **All evidence needed to decide is inside the document** (§7).
+- **Every decision the reader is asked for has a capture surface** — a
+  `<ReviewChoice>` per item, a `<QuestionForm>` for balanced calls, span
+  annotation for the rest — rather than "reply in chat with your verdicts".
+  (A document that asks for no decision has none of these; that is correct.)
+- **The question form reads in isolation** and every `refs[].anchor` resolves
+  (renaming a heading changes its slug; the lint flags a dangling one).
+- **No horizontal scrolling at desktop width**: long strings wrapped or
   wrap-toggleable (`<FieldDiff>` always wraps; `<Code>`/`<Json>`/`<Diff>` carry
-  a wrap toggle, and `wrap` ships them wrapped when the values are prose-heavy).
-- **Every item in a batch is visually triaged by tone at a glance** — a
-  `<Card tone>` whose colour maps to the verdict class, not 31 identical grey
-  headings.
-- **All evidence needed to decide an item is inside the document** (drill-down,
-  not a companion file — see self-containment above).
-- **Every decision the reviewer must make has an in-document capture surface** —
-  a `<ReviewChoice>` per item, a `<QuestionForm>` for balanced calls, or span
-  annotations — never a "reply in chat with your verdicts" instruction.
-- **The Open Questions block reads in isolation** — reread it as if only the
-  objective paragraph above had been read: every question and every option is
-  answerable from its own text, with no document-coined label left unglossed,
-  and every `refs[].anchor` still resolves (renaming a heading changes its slug;
-  the lint flags a dangling one).
-- **The first viewport states what is being decided and what happens on
-  sign-off** — for a decision doc, a top `<Callout tone="decision">` with the
-  review protocol and the silence-defaults rule.
+  a toggle, `wrap` ships them wrapped).
 
-## Before handoff, look at the rendered document
+## 10. Before handoff, look at the rendered document
 
-Render the document to a standalone HTML page and look at it:
+Render the document to a standalone page and look at it:
 
 ```
 node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html
@@ -213,32 +274,27 @@ node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html
 
 `--out` keeps the markup the render-health check already produces, with the
 app's stylesheet inlined and image sources resolved, so the page is what the
-reviewer sees. **Write it beside the document** (`render.html` in the
-document's own folder — gitignored): images are then relative to the page, which
-is the only form that loads both when you open the file directly and when a
-human opens it in-app from its file chip. A page written elsewhere still renders,
-but its images resolve as `file://` and stay blank inside the app.
+reader sees. Write it beside the document (`render.html` in the document's own
+folder — gitignored): images are then relative to the page, which is the only
+form that loads both when you open the file directly and when a human opens it
+in-app from its file chip.
 
-To see it yourself, load it in a browser. The `browser_*` tools are deferred:
-they are not in your tool list until you load them, so `tool_search` for
-`browser_navigate` first. Then `browser_navigate` to
-`file:///<absolute path to>/render.html` and `browser_take_screenshot` (with
-`fullPage: true` for the whole document, or a `selector` for one block). If the
-search returns no browser tools, the visual check is out of reach in this
-thread: say so in your report rather than boot a dev server. That is the
-supported way to check a document visually — **do not boot a dev server for
-this.** Reserve a live app instance for what genuinely needs
-interaction: annotation, `<Prototype>` flows, answering a `<QuestionForm>`, or a
-layout question that depends on the real panel width.
+To see it yourself, load it in a browser: the `browser_*` tools are deferred,
+so `tool_search` for `browser_navigate` first, then `browser_navigate` to
+`file:///<absolute path to>/render.html` and `browser_take_screenshot`
+(`fullPage: true` for the whole document, or a `selector` for one block). If
+the search returns no browser tools, the visual check is out of reach in this
+thread: say so in your report. A dev server is not needed for this check;
+reserve a live instance for what genuinely needs interaction — annotation,
+`<Prototype>` flows, a `<QuestionForm>`, a layout question that depends on the
+real panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
-controls, poor contrast, and unreadable diagrams before asking for approval.
-Check the visual surfaces in dark mode especially (the `--out` page renders
-dark, as the app does): a white mockup panel or low-contrast muted text is a
-defect — rewrite the HTML with `--wf-*` tokens and semantic helper classes
-before surfacing the plan.
-
-The check also reads the rendered _text_ for defects no static pass can see —
-literal `\uXXXX` escapes and latin-1 mojibake (`â€”`) that a build script or a
-re-encoded file wrote into captions and prose. Both are errors; fix the source
-that produced them rather than the symptom.
+controls, poor contrast and unreadable diagrams before handing off. Check the
+visual surfaces in dark mode especially (the `--out` page renders dark, as the
+app does): a white mockup panel or low-contrast muted text is a defect —
+rewrite the HTML with `--wf-*` tokens and semantic helper classes. The check
+also reads the rendered _text_ for defects no static pass can see — literal
+`\uXXXX` escapes and latin-1 mojibake (`â€”`) written into captions and prose
+by a build script or a re-encoded file. Both are errors; fix the source that
+produced them.

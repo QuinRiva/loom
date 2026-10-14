@@ -916,7 +916,9 @@ export function MdxPlanAnnotationLayer({
   return (
     <div
       ref={wrapperRef}
-      className="relative"
+      // The document's own surface (`.plan-surface`, index.css): its palette
+      // re-points the app's semantic tokens for everything inside.
+      className="plan-surface relative"
       onMouseUp={() => handleMouseUp()}
       onMouseMove={(event) => {
         const target = event.target as Element;
@@ -932,21 +934,24 @@ export function MdxPlanAnnotationLayer({
         setHoverBlock(null);
       }}
     >
-      {reviewChoiceTotal > 0 ? (
-        <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">
-          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-2xs font-medium text-muted-foreground shadow-sm backdrop-blur">
-            {decidedCount} of {reviewChoiceTotal} decided
-          </span>
-        </div>
-      ) : null}
-
       <PlanQuestionAnswersContext.Provider value={questionAnswers}>
         <PlanReviewChoicesContext.Provider value={reviewChoices}>
           {/* Force eager <Details> mounting only when annotation comments exist,
               so a comment anchored inside a closed drill-down resolves as
               `collapsed` rather than `detached`. Lazy everywhere else. */}
           <PlanEagerMountContext.Provider value={comments.length > 0}>
-            <MdxPlanRenderer source={source} />
+            {/* The decided pill rides the renderer's sticky header row, beside
+                the section outline rather than on top of it. */}
+            <MdxPlanRenderer
+              source={source}
+              stickyEnd={
+                reviewChoiceTotal > 0 ? (
+                  <span className="pointer-events-auto shrink-0 rounded-full border border-border bg-background/90 px-2.5 py-1 text-2xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+                    {decidedCount} of {reviewChoiceTotal} decided
+                  </span>
+                ) : null
+              }
+            />
           </PlanEagerMountContext.Provider>
         </PlanReviewChoicesContext.Provider>
       </PlanQuestionAnswersContext.Provider>

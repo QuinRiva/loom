@@ -51,6 +51,15 @@ function unwrap(zt: any): {
   return { inner: cur, optional, nullable, defaultValue };
 }
 
+/** `{ label, tone? }` — an object alternative named by its keys, so a union reads
+ * as `string | { label, tone? }` and each alternative is nested under that name. */
+function objectLabel(objSchema: any): string {
+  const keys = Object.entries(shapeOf(objSchema)).map(([key, raw]) =>
+    unwrap(raw).optional ? `${key}?` : key,
+  );
+  return `{ ${keys.join(", ")} }`;
+}
+
 /** A one-line type label for a fully-unwrapped schema node. */
 function typeLabel(zt: any): string {
   const d = def(zt);
@@ -65,26 +74,34 @@ function typeLabel(zt: any): string {
       return d.values.map((v: string) => JSON.stringify(v)).join(" | ");
     case "ZodLiteral":
       return JSON.stringify(d.value);
-    case "ZodArray":
-      return `${typeLabel(unwrap(d.type).inner)}[]`;
+    case "ZodArray": {
+      const label = typeLabel(unwrap(d.type).inner);
+      return label.includes(" | ") ? `(${label})[]` : `${label}[]`; // a union or an enum
+    }
     case "ZodObject":
       return "object";
     case "ZodUnion":
-      return d.options.map((o: any) => typeLabel(unwrap(o).inner)).join(" | ");
+      return d.options
+        .map((o: any) => {
+          const option = unwrap(o).inner;
+          return def(option)?.typeName === "ZodObject" ? objectLabel(option) : typeLabel(option);
+        })
+        .join(" | ");
     default:
       return d?.typeName ?? "unknown";
   }
 }
 
-/** The object node to nest under a prop, if any (an object, or an array-of-object). */
-function nestedObject(inner: any): any | undefined {
+/** The object nodes to nest under a prop: an object, reached through arrays
+ * and unions. `viaUnion` marks an alternative, which is nested under its
+ * {@link objectLabel} so the reader can tell the alternatives apart. */
+function nestedObjects(inner: any, viaUnion = false): Array<{ schema: any; viaUnion: boolean }> {
   const d = def(inner);
-  if (d?.typeName === "ZodObject") return inner;
-  if (d?.typeName === "ZodArray") {
-    const el = unwrap(d.type).inner;
-    if (def(el)?.typeName === "ZodObject") return el;
-  }
-  return undefined;
+  if (d?.typeName === "ZodObject") return [{ schema: inner, viaUnion }];
+  if (d?.typeName === "ZodArray") return nestedObjects(unwrap(d.type).inner, viaUnion);
+  if (d?.typeName === "ZodUnion")
+    return d.options.flatMap((o: any) => nestedObjects(unwrap(o).inner, true));
+  return [];
 }
 
 function shapeOf(objSchema: any): Record<string, any> {
@@ -103,8 +120,14 @@ function renderProps(objSchema: any, indent: string, childrenField?: string): st
     if (name === childrenField)
       parts.push("— written as **prose between the tags**, not an attribute");
     lines.push(parts.join(" "));
-    const nested = nestedObject(inner);
-    if (nested) lines.push(...renderProps(nested, `${indent}  `));
+    for (const nested of nestedObjects(inner)) {
+      if (!nested.viaUnion) lines.push(...renderProps(nested.schema, `${indent}  `));
+      else
+        lines.push(
+          `${indent}  - \`${objectLabel(nested.schema)}\` form:`,
+          ...renderProps(nested.schema, `${indent}    `),
+        );
+    }
   }
   return lines;
 }
@@ -147,7 +170,9 @@ export function generateBlockSchemaDoc(): string {
   for (const { tag, type, block } of PLAN_BLOCKS) {
     const childrenField = block.mdx.childrenField as string | undefined;
     out.push(`## \`<${tag}>\` — \`${type}\``, "");
-    if (block.mdx.passChildren && !childrenField) {
+    if (block.mdx.inline) {
+      out.push("Inline element: the **text between its tags** is its label.", "");
+    } else if (block.mdx.passChildren && !childrenField) {
       out.push(
         "Container block: renders nested plan blocks written **between its tags** as children.",
         "",

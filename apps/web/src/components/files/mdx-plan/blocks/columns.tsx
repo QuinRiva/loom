@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -36,7 +36,7 @@ export function ColumnRead({ data, children }: PlanBlockReadProps<ColumnData>) {
   return (
     <div className="plan-column">
       {data.label ? <div className="plan-column-label">{data.label}</div> : null}
-      <div className="plan-column-body">{children as ReactNode}</div>
+      <div className="prose-plan plan-column-body">{children as ReactNode}</div>
     </div>
   );
 }
@@ -54,16 +54,24 @@ export const columnBlock: PlanBlock<ColumnData> = {
 
 /* -------------------------------------------------------------------------- */
 
-export interface ColumnsData {}
+/** Direct children are `<Column>` slots or bare blocks (a row of `<Card>`s needs
+ * no wrappers); `columns` caps how many sit across — the grid still collapses
+ * on a narrow panel. */
+export interface ColumnsData {
+  columns?: number;
+}
 
-const columnsSchema = z.object({}) as unknown as z.ZodType<ColumnsData>;
+const columnsSchema = z.object({
+  columns: z.number().int().min(2).max(6).optional(),
+}) as unknown as z.ZodType<ColumnsData>;
 
-export function ColumnsRead({ blockId, children }: PlanBlockReadProps<ColumnsData>) {
+export function ColumnsRead({ data, blockId, children }: PlanBlockReadProps<ColumnsData>) {
   return (
     <div
       data-plan-block-id={blockId}
       data-plan-block-type="columns"
-      className={cn("plan-columns my-4")}
+      className={cn("plan-columns my-4", data.columns && "plan-columns--capped")}
+      style={data.columns ? ({ "--plan-columns": data.columns } as CSSProperties) : undefined}
     >
       {children as ReactNode}
     </div>
@@ -76,7 +84,7 @@ export const columnsBlock: PlanBlock<ColumnsData> = {
   mdx: {
     tag: "Columns",
     passChildren: true,
-    toAttrs: () => ({}),
-    fromAttrs: () => ({}) as ColumnsData,
+    toAttrs: (data) => ({ columns: data.columns }),
+    fromAttrs: (attrs) => ({ columns: attrs.number("columns") }) as ColumnsData,
   },
 };

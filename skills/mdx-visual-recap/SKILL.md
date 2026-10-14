@@ -2,211 +2,180 @@
 name: mdx-visual-recap
 description: >-
   Author a recap of work that already exists — or a decision/review batch
-  (sign-off gate, audit verdicts, PR-style review) — as a rich, reviewable MDX
-  document using T3 Code's supported block vocabulary, including the review
-  blocks (FieldDiff, Card, Details, ReviewChoice) that capture per-item
-  before/after evidence and tri-state verdicts inline. Use when the document
-  describes or reviews existing changes and the reviewer must triage items and
-  record decisions in-app. For a forward-looking implementation plan of work not
-  yet written, use mdx-visual-plan.
+  (sign-off gate, audit verdicts, PR-style review) — as a reviewable MDX
+  document that opens with the verdict and its numbers for a named reader,
+  using T3 Code's block vocabulary including the review blocks (FieldDiff,
+  Card, Details, ReviewChoice) that hold per-item before/after evidence and
+  tri-state verdicts inline. Use when the document describes or reviews
+  existing changes and the reader must triage items and record decisions
+  in-app. For a plan of work not yet written, use mdx-visual-plan; to explain,
+  orient or diagnose without asking for decisions, use mdx-visual-explainer.
 pi_global: true
 pi_global_requires: [mdx-doc-core]
 ---
 
-# MDX Visual Recaps & decision documents
+# MDX Visual Recaps and decision documents
 
-**Genres: the recap and the decision/review batch** — documents about work that
-**already exists**. Two activation spaces:
+**Genres: the recap and the decision batch** — documents about work or
+analysis that **already exists**, read by someone who must take it in and,
+usually, sign something off.
 
-- **Recap.** Explain a finished change — a branch, a thread's work, an incident
-  — as a reviewable artefact rather than a chat wall: what changed, why, and the
-  load-bearing diffs, with per-tab review controls when it doubles as a gate.
-- **Decision / review batch.** A sign-off over N items each needing a verdict —
-  a taxonomy sign-off, an audit, a PR-style review. The reviewer triages the
-  batch by tone at a glance, drills into per-item evidence, and records an
-  Accept / Reject / Discuss decision on each — all in one review turn.
+- **Recap.** A finished change — a branch, a thread's work, an incident — as a
+  reviewable artefact: what changed for the reader, why, and the load-bearing
+  evidence, with per-tab review controls when it doubles as a gate.
+- **Decision batch.** A sign-off over N items each needing a verdict — a
+  taxonomy review, an audit, a PR-style review. The reader triages the batch
+  by tone, drills into per-item evidence, and records Accept / Reject /
+  Discuss on each, all in one review turn.
 
-Both are **review of existing analysis or work, not forward planning.** Do not
-carry planning discipline here: "planning is read-only" and "the plan is the
-approval gate" do not apply — the work is done; the document reviews it. For a
-proposal of work not yet written, use the **`mdx-visual-plan`** skill.
+Both review what exists; the plan genre's "planning is read-only" and "the
+plan is the approval gate" do not apply here. For a proposal of work not yet
+written use **`mdx-visual-plan`**; for a document that explains or diagnoses
+without asking for verdicts use **`mdx-visual-explainer`**.
 
-T3 Code renders the MDX in its own in-app document panel and lets the reviewer
-annotate any span, answer question forms, and record per-item verdicts — each
-comes back as a normal review turn. **The artefact is the conversation.**
+T3 Code renders the `.mdx` in its document panel; the reader annotates spans,
+answers forms and records per-item verdicts, each arriving as a normal turn.
+The artefact is the conversation. Delivery is: write the file, run the check,
+hand back the path.
 
-This is a first-party, fully local capability: a recap is just an `.mdx` file the
-renderer reads. Delivery is one line — write the file, lint it, hand back the
-path. There is no MCP connector, no hosted publish step, and no never-inline
-rules; embed everything (see self-containment below).
-
-## Where the document goes
+## Where it goes
 
 ```
 recaps/<slug>/recap.mdx
 ```
 
-`<slug>` is a short kebab-case name for the work under review. Use a folder per
-recap so sibling artefacts can live beside it. (A decision batch is still a
-recap-genre artefact — `recaps/<slug>/recap.mdx` — unless it is clearly a plan's
-sign-off, in which case `plans/<slug>/…` is fine.) The `.mdx` extension routes
-the file to the renderer. After writing it, tell the reviewer the path and ask
-them to open, triage, and decide in-app.
+A folder per recap so sibling artefacts can sit beside it. A decision batch is
+a recap-genre artefact at the same path unless it is plainly a plan's sign-off,
+in which case `plans/<slug>/…` is fine. When it is written and checked, tell
+the reader the path and ask them to open, triage and decide in-app.
 
-## Validate before presenting (mandatory)
+## Before drafting
+
+**Write the reader brief first** — who reads this and what they are there to
+do, what they already know, what they must be able to say or decide after the
+first screen — in the frontmatter, per §1 of
+[`document-quality.md`](../mdx-doc-core/references/document-quality.md). The
+reader of a recap has usually read none of the thread, none of the child
+reports and none of the commits; the first screen is written for them, in
+their terms, with the codebase's names glossed on first use.
+
+**Settle the scope** (recap genre). The default unit is the whole piece of
+work — its commits, its diff against the base, the thread's decisions — not
+the latest message. Separate what _this_ work did from pre-existing dirty state
+and unrelated uncommitted edits; mention those only when they affect the
+review. When scope is genuinely ambiguous, state the assumption in the recap
+("this covers the branch's diff against `main`, excluding the lockfile churn")
+and ask only if the ambiguity would materially change what you review.
+
+## The decision-batch skeleton
+
+Top to bottom (the worked version is in
+[`exemplar.md`](../mdx-doc-core/references/exemplar.md)):
+
+1. **First screen — the verdict with its numbers.** _Of N items: a apply as
+   written, b apply once amended, c should be withdrawn._ Then one line on
+   what that means for the reader (the pattern behind the amendments, the one
+   item that is urgent), then **one line of protocol**: an item left undecided
+   takes its recommendation. The widget reports only explicit choices, so that
+   convention is document policy and has to be said — once, after the answer.
+2. **`## 1. All items`** — a compact `<Table filterable>`, one row per item
+   (subject, verdict class, recommendation). `filterable` adds a client-side
+   row filter and header-click sort (asc → desc → unsorted, numeric-aware), so
+   a large batch can be navigated by subject or by class; the evidence stays in
+   each item's collapsed drill-down, so the table stays cheap.
+3. **`## 2. The items`** — one `<Card>` per item, `tone` = the verdict class
+   with the `badge` naming it (colour triages; the badge carries the meaning),
+   `meta` chips for pack / confidence / recommended action. Inside, in order:
+   one or two sentences of _why_; the decisive evidence as a `<FieldDiff>`
+   (its null / absent / kept distinctions carry meaning — a JSON string in a
+   line `<Diff>` is the shape it exists to retire); a `<Details>` holding the
+   bulk evidence (full production entry, counterpart pack); a
+   `<ReviewChoice itemId>` whose id is unique in the document — a duplicate id
+   silently collapses two widgets onto one decision, and the lint reports it
+   as an error. The renderer shows a sticky "N of M decided" counter whenever
+   `<ReviewChoice>` items are present; it counts explicit decisions only.
+4. **A bottom `<QuestionForm>`** for the genuinely balanced calls only
+   (rollout strategy, a schema question), not a second copy of the per-item
+   decisions.
+
+## The recap skeleton
+
+1. **First screen — what changed for the reader, with the number that proves
+   it.** What they can now do, or what no longer happens, in their terms;
+   then what it means: what to check, what is still open, whether anything
+   needs their decision. The objective and the codebase's framing come after
+   this, not before it.
+2. **`## 1. Before and after`** — a `<Columns>` or `<Screen>` pair when the
+   change touched rendered UI; otherwise the behaviour before and after in
+   prose, one literal example each.
+3. **`## 2. How it works now`** — the mechanism in the reader's terms, an
+   example beside each piece; `<DataModel>` / `<Endpoint>` beside the prose
+   for any schema or API delta.
+4. **`## 3. The changes`** — the key changes as one horizontal `<TabsBlock>`
+   of `<Diff>` / `<AnnotatedCode>`, each tab with a one-line summary and a few
+   line notes; a `<ReviewChoice>` per tab when the recap doubles as a gate.
+   The `<FileTree>` change map in a `<Details>`.
+5. **`## 4. Still open`** — risks, follow-ups, and the pointer to a bottom
+   `<QuestionForm>` if a direction is genuinely open.
+
+## Budgets
+
+These are what keep a recap scannable:
+
+- **Key-change tabs: three to eight.** A reader does not tab through fifteen
+  diffs; group or summarise when more files matter.
+- **About 150 lines per excerpt.** The load-bearing hunk, not the whole file;
+  the rest in a `<Details>` if it is genuinely needed.
+- **One decision surface per item.** A `<ReviewChoice>` per item with a unique
+  `itemId`; the bottom `<QuestionForm>` for the balanced calls only.
+
+## Self-contained, whatever the size
+
+The reader decides every item without leaving the document. Evidence a
+decision depends on — full production records, raw packs, long logs, the
+before/after — is embedded, in a `<Details>` drill-down when bulky, rather than
+pointed at in a companion file; a recap that says "see the attached HTML" has
+sent its reader away at the moment they were deciding. Size is not a reason to
+link out: a fully evidence-embedded batch of a few MB opens and stays
+responsive (off-main-thread compile, lazy `<Details>`). The one hard bound is
+the 8 MiB transport ceiling `planLint` enforces (warn above 6 MB, error above
+8 MiB); a batch that large is split into per-pack documents, not thinned.
+§7 of `document-quality.md` has the practical bounds.
+
+## Validate before presenting
 
 ```
 node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx --out recaps/<slug>/render.html
 ```
 
-This is the render-health gate, in two stages against the real renderer
-modules: **lint** (compile gate, block registry, zod schemas) reporting
-`file:line` findings — including the **duplicate `<ReviewChoice itemId>`** check
-(duplicate ids silently collapse two widgets onto one decision, so this is an
-`error`) — then a headless **render** of the document through the real block
-registry, which catches what no static pass can see (a block that throws or
-degrades to an error card on a payload its schema accepts) and prints the block
-types that actually mounted, so you can confirm every `<ReviewChoice>` is there.
+The render-health gate, in two stages against the real renderer modules:
+**lint** (compile gate, block registry, zod schemas, the duplicate
+`<ReviewChoice itemId>` check) reporting `file:line` findings, then a headless
+**render** through the real block registry, which catches a block that throws
+or degrades on a payload its schema accepts and prints the block types that
+mounted — confirm every `<ReviewChoice>` is there. Fix all `error` findings
+and read each `warning`. Exit code 0 means the recap compiles and renders, so
+it will display in-app; a document handed over on an unrun or failing check
+may open as an error card. `--out` writes the rendered page beside the recap
+so you can look at it (§10 of `document-quality.md`).
 
-Fix all `error` findings and read each `warning` before handing the document
-back. Exit code 0 is the gate — it means the recap compiles AND renders, so it
-will display in-app; lint findings alone are not sufficient evidence, so never
-hand a recap back on an unrun or non-zero check.
+A reader reporting the recap as broken (JSX shown as literal escaped text)
+after a passing check is seeing the plain markdown fallback — a view or
+routing problem, not a document defect.
 
-`--out` also writes the rendered page beside the recap so you can look at it
-before handing off; how, and why it must sit beside the document, is in
-[`document-quality.md`](../mdx-doc-core/references/document-quality.md) under
-"Before handoff, look at the rendered document".
+## The reference core
 
-If a reviewer reports the recap looking broken (JSX shown as literal escaped
-text) after a passing check, the document is healthy — that signature is the
-plain markdown fallback, i.e. a view/routing problem, not a document defect.
+Shared across genres, in `mdx-doc-core`:
 
-## Scope-gathering (recap genre)
-
-Before drafting a recap, settle what is in scope — this is the recap-specific
-discipline the plan genre has no analogue for:
-
-- **Default scope is the whole work unit / thread, not the latest message.**
-  Gather the changes the work unit actually made — its commits, its diff against
-  the base, the thread's decisions — not just the most recent turn.
-- **Separate thread-owned changes from pre-existing dirty state.** A recap
-  describes what _this_ work did; exclude unrelated uncommitted edits and
-  pre-existing drift from the "what changed" story (mention them only if they
-  affect the review).
-- **When scope is genuinely ambiguous, state the assumption in the recap**
-  (e.g. "this recap covers the branch's diff against `main`, excluding the
-  unrelated lockfile churn") rather than blocking on a question. Only ask when
-  the ambiguity would materially change what you review.
-
-## Self-containment (both genres)
-
-**Never point the reviewer at a companion file for evidence the decision depends
-on** — embed it in the document, behind a `<Details>` drill-down when it is
-bulky (full production records, raw packs, long logs). A recap that says "see
-the attached HTML for the before/after" has already lost: the `<Details>`
-drill-down, not the companion file, is the mechanism. This is the single rule
-that most separates a self-contained MDX artefact from a linked-out one.
-
-This rule is **unqualified — there is no size exemption**. A fully
-evidence-embedded decision document is expected to reach a few MB, and the
-renderer carries it (off-main-thread compile, lazy `<Details>`). Embed the full
-records; do not thin the evidence or link out because the document is large. The
-only size limit is the 8 MiB transport ceiling `planLint` enforces (warn >6 MB,
-error >8 MiB) — a batch that big should be split into per-pack documents. See
-the **size budget** passage in `document-quality.md`.
-
-## Block vocabulary and reference core
-
-The block vocabulary, wire contract, quality bar, and routing/checklist guidance
-are **shared across genres** and live once in the `mdx-doc-core` reference core.
-Consult them — do not guess props:
-
-- **[`../mdx-doc-core/references/block-vocabulary.md`](../mdx-doc-core/references/block-vocabulary.md)**
-  — every block by example, including the **review blocks** (`<FieldDiff>`,
-  `<Card>`, `<Details>`, `<ReviewChoice>`) this genre leans on.
-- **[`../mdx-doc-core/references/block-schema.md`](../mdx-doc-core/references/block-schema.md)**
-  — the generated authority for exact props and enum values.
-- **[`../mdx-doc-core/references/document-quality.md`](../mdx-doc-core/references/document-quality.md)**
-  — the prose quality bar, the "Choose the representation" routing table, the
-  self-containment rule, and the **reader-experience final checklist**. Check
-  the recap against that checklist before handing it back.
-- **[`../mdx-doc-core/references/exemplar.md`](../mdx-doc-core/references/exemplar.md)**
-  — worked decision-review and recap skeletons, plus named anti-patterns. The
-  worked review-blocks fixture lives at `plans/mdx-review-blocks/plan.mdx`.
-
-The MDX contract is one paragraph: the tag names are the stable wire contract;
-use ordinary Markdown for everything else; the attribute-encoding rules live in
-the `block-schema.md` "Encoding recap" preamble, and the validator catches
-mechanical mistakes.
-
-## The decision-document skeleton
-
-A verdict batch (like a tier-A taxonomy sign-off) reads, top to bottom:
-
-1. **Top `<Callout tone="decision">`** stating the review protocol and the
-   **silence-defaults-to-recommendation** rule — the widget reports only explicit
-   choices, so the "silence = accept" convention is document policy stated here,
-   not in the widget. This is the first viewport: what is being decided and what
-   sign-off means.
-2. **A compact all-items `<Table filterable>`** — one row per item (id, subject,
-   verdict class, recommendation), so the whole batch is scannable before the
-   detail. Mark it `filterable` for a large batch: it adds a client-side row
-   filter and header-click sort (asc → desc → unsorted, numeric-aware) so the
-   reviewer can jump to a subject or sort by verdict class without scrolling the
-   whole batch. The evidence stays in each item's collapsed drill-down, so the
-   table stays cheap.
-3. **One `<Card>` per item**, `tone` = the verdict class (colour is triage only;
-   meaning rides the `badge`/heading), with `meta` chips for pack / confidence /
-   recommended action. Inside each card, in order:
-   - one or two sentences of verdict prose;
-   - the decisive evidence as a `<FieldDiff>` (use its null / absent / kept
-     distinctions) — never a line `<Diff>` of a JSON string;
-   - a `<Details>` drill-down embedding the bulk evidence (full production
-     entry, counterpart pack) — never a link out;
-   - a `<ReviewChoice itemId>` (unique id per document) capturing the per-item
-     Accept / Reject / Discuss decision.
-
-   When a document contains `<ReviewChoice>` items the renderer shows a sticky
-   **"N of M decided"** counter automatically — no authoring needed; it tracks
-   progress through a large batch. (The "silence = accept" rule still means an
-   undecided item ships the recommendation; the counter only reflects explicit
-   decisions recorded so far.)
-
-4. **A bottom `<QuestionForm>`** for only the genuinely balanced calls (rollout
-   strategy, a schema question) — not a second copy of the per-item decisions.
-
-## The recap skeleton
-
-A recap of a finished change reads:
-
-1. **UI-impact headline** — wireframes (`<Screen>`, or a `<Columns>` before/after
-   pair), but **only when the diff changed rendered UI**; skip it for pure
-   backend work.
-2. **A 1–3 paragraph outcome narrative** — what changed and why, in the
-   codebase's vocabulary.
-3. **Contract changes** — `<DataModel>` / `<Endpoint>` for any schema or API
-   delta.
-4. **A `<FileTree>` with change flags** — the change map.
-5. **`## Key changes`** as one horizontal `<TabsBlock>` of `<Diff>` /
-   `<AnnotatedCode>` — **3–8 tabs, ~150 lines per excerpt**, each with a one-line
-   summary and a few line annotations. Add a `<ReviewChoice>` per tab when the
-   recap doubles as a review gate.
-
-## Budgets
-
-Keep the document scannable — these budgets are what stop a recap sprawling:
-
-- **Key-change tabs: 3–8.** If more files matter, group or summarise; a reader
-  will not tab through fifteen diffs.
-- **~150 lines per code excerpt.** Excerpt the load-bearing hunk, not the whole
-  file; use a `<Details>` drill-down for the rest if it is genuinely needed.
-- **One decision surface per item.** A `<ReviewChoice>` per item (unique
-  `itemId`); a bottom `<QuestionForm>` only for the balanced calls — never a
-  second copy of the per-item decisions.
-
-Before handing back, check the recap against the **reader-experience final
-checklist** in
-[`../mdx-doc-core/references/document-quality.md`](../mdx-doc-core/references/document-quality.md)
-— that checklist is the single source of truth for the bar; work through every
-item on it.
+- [`document-quality.md`](../mdx-doc-core/references/document-quality.md) —
+  the reader brief, the first-screen rule, hierarchy, representation, the
+  question form, self-containment and the final checklist; run that checklist
+  before handing back.
+- [`exemplar.md`](../mdx-doc-core/references/exemplar.md) — the worked
+  decision-batch and recap skeletons and the anti-patterns with their cost.
+- [`block-vocabulary.md`](../mdx-doc-core/references/block-vocabulary.md) —
+  every block by example, including the review blocks this genre leans on;
+  [`block-schema.md`](../mdx-doc-core/references/block-schema.md) — the
+  generated authority for exact props and enum values and the
+  attribute-encoding rules. The tag names are the wire contract; ordinary
+  Markdown carries everything else.

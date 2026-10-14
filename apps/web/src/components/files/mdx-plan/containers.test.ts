@@ -16,6 +16,7 @@ import {
 } from "./annotation/anchoring";
 import { assignBlockIds, compilePlanMdx } from "./MdxPlanRenderer";
 import { ColumnRead, ColumnsRead } from "./blocks/columns";
+import { StepRead, StepsRead } from "./blocks/steps";
 import { TableRead } from "./blocks/table";
 import { TabRead, TabsRead } from "./blocks/tabs";
 import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock } from "./registry";
@@ -114,6 +115,61 @@ describe("containers — Columns nesting + annotation (A2)", () => {
   });
 });
 
+// vocabulary v2: steps — a <Step> is a structural slot like <Column>, so a block
+// in a step body gets its own annotation id and anchors resolve to it.
+describe("containers — Steps nesting + annotation", () => {
+  function setup(): HTMLElement {
+    const code = (text: string) =>
+      createElement(
+        "figure",
+        { "data-plan-block-type": "code" },
+        createElement("span", null, text),
+      );
+    const html = renderToStaticMarkup(
+      createElement(
+        StepsRead,
+        { data: {}, blockId: undefined },
+        createElement(
+          StepRead,
+          { data: { at: "12:21", title: "Scaffold" }, blockId: undefined },
+          code("first step code"),
+        ),
+        createElement(
+          StepRead,
+          {
+            data: { at: "12:36 → 13:16", tone: "neutral", dashed: true, aside: "silence" },
+            blockId: undefined,
+          },
+          code("second step code"),
+        ),
+      ),
+    );
+    document.body.innerHTML = `<div data-plan-root><h2>Timeline</h2>${html}</div>`;
+    const root = document.querySelector<HTMLElement>("[data-plan-root]")!;
+    assignBlockIds(root);
+    return root;
+  }
+
+  it("stamps the rail and each step-body block with distinct ids; the Step slot is not a block", () => {
+    const root = setup();
+    const ids = Array.from(root.querySelectorAll("[data-plan-block-type]"), (b) =>
+      b.getAttribute("data-plan-block-id"),
+    );
+    expect(ids.length).toBe(3); // Steps container + 2 nested code blocks
+    expect(new Set(ids).size).toBe(3);
+    expect(root.querySelector(".plan-step")!.hasAttribute("data-plan-block-type")).toBe(false);
+  });
+
+  it("anchors a selection in a step body to that step's block, not the rail", () => {
+    const root = setup();
+    const second = root.querySelectorAll('[data-plan-block-type="code"]')[1]!;
+    expect(enclosingBlock(second.querySelector("span")!.firstChild!)?.type).toBe("code");
+    const resolved = resolveAnchor(anchorForBlockElement(second, root).anchor, root);
+    expect(resolved?.toString()).toContain("second step code");
+    expect(resolved?.toString()).not.toContain("first step code");
+  });
+});
+
 /**
  * The reported bug, against the REAL `<Table>` renderer: dragging across a few
  * words in one cell must anchor to those words (not outline the whole table),
@@ -141,9 +197,10 @@ describe("table — intra-cell selection anchors to the selected text (real rend
     return root;
   }
 
-  /** The text node holding `cell`, in the rendered table. */
+  /** The text node holding `cell`, in the rendered table (inside the cell's
+   * inline-markdown span). */
   const cellText = (root: HTMLElement, cell: string): Text =>
-    Array.from(root.querySelectorAll("td")).find((td) => td.textContent === cell)!
+    Array.from(root.querySelectorAll("td")).find((td) => td.textContent === cell)!.firstChild!
       .firstChild as Text;
 
   it("anchors a phrase inside one cell to that phrase and round-trips a re-render", () => {
@@ -160,7 +217,7 @@ describe("table — intra-cell selection anchors to the selected text (real rend
     const reRendered = renderTable(); // full re-render, fresh DOM
     const back = resolveAnchor(res.anchor, reRendered)!;
     expect(back.toString()).toBe("inline LCS differ");
-    expect(back.startContainer.parentElement!.tagName).toBe("TD");
+    expect(back.startContainer.parentElement!.closest("td")).not.toBeNull();
   });
 
   it("keeps a cross-cell drag as a text anchor, separated at the cell boundary", () => {
@@ -281,6 +338,15 @@ describe("containers — MDX attr round-trip (wire contract)", () => {
       orientation: "vertical",
     });
     expect(roundTrip("Tab", { label: "Overview" })).toEqual({ label: "Overview" });
+    const step = {
+      at: "12:36 → 13:16",
+      title: "Nothing.",
+      tone: "neutral",
+      dashed: true,
+      badge: { label: "silence", tone: "neutral" },
+      aside: "Then the badge *Deadlocked*.",
+    };
+    expect(roundTrip("Step", step)).toEqual(step);
   });
 });
 

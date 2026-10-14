@@ -1,0 +1,306 @@
+---
+reader:
+  who: the owner of loom, about to decide which new MDX blocks to build, who wants the whole file-to-document pipeline in his head first
+  knows: React, MDX in general, that plans and recaps render in the side panel and can be annotated; has not read the mdx-plan source or the design docs
+  after_first_screen: can name the five stages an .mdx file passes through, say where the security guard sits, and say where the lint gate and the annotation anchoring live
+---
+
+# How an `.mdx` file becomes a rendered, annotated, lint-gated document
+
+An `.mdx` plan, recap or explainer is a markdown file that may use **33 block tags** and nothing else. When the file panel opens one, it goes through **five stages**: the panel **reads** it, a Web Worker **compiles** it while a guard throws out anything executable, the main thread **runs** the result against a closed list of block components, the rendered DOM is **stamped** so every block and sentence has an address, and the annotation layer turns a reader's gesture on that output into a **review comment** the agent receives on the next turn. The lint script runs stages 2 and 3 off-app, plus a static render, so an author sees a broken document before the reader does.
+
+The sentence to carry: **security is decided at compile time in the worker — before any code exists — and at run time by the closed registry; the lint gate reuses both; annotation lives entirely in the rendered DOM and never touches the file.**
+
+One thing to know before reading on: there is one known gap in the guard, stated in §2.2 without a recommendation, because a decision on it is pending.
+
+## 1. The mental model
+
+<Mermaid
+  caption="Five stages from file to agent turn. Solid arrows are the in-app path; dotted arrows show that the lint gate runs the same compile and run code outside the app."
+  source={
+    'flowchart LR\n  file[".mdx file on disk"] --> open["1 Read: file panel"]\n  open --> compile["2 Compile in a worker: guards, heading ids"]\n  compile --> run["3 Run: closed registry, prop schemas"]\n  run --> stamp["4 Stamp the DOM: block ids, bleed, outline"]\n  stamp --> annotate["5 Annotate: anchors, answers, verdicts"]\n  annotate --> chips["Composer chips"]\n  chips --> agent["Next agent turn"]\n  lint["Lint gate, off-app"] -.-> compile\n  lint -.-> run\n'
+  }
+/>
+
+Read it left to right as the life of one file. Four pieces carry the weight, and the rest is plumbing between them:
+
+<Columns>
+  <Column>
+    <Card
+      heading="The guard"
+      badge="STAGE 2"
+      tone="risk"
+      meta={["mdxCompileOptions.ts", "runs in the worker"]}
+    >
+      A remark pass that rejects `import`/`export`, raw `{expression}` bodies and any attribute
+      value that is not a plain literal, then rewrites unknown capitalised tags to an error card. It
+      runs during compile, so nothing has executed when it decides.
+    </Card>
+  </Column>
+  <Column>
+    <Card
+      heading="The closed registry"
+      badge="STAGE 3"
+      tone="risk"
+      meta={["registry.tsx", "planBlockTags.ts"]}
+    >
+      The only components MDX can resolve: the 33 block tags, plus `img` and `pre` overrides and the
+      unknown-tag card. Each tag validates its props with a zod schema before it renders.
+    </Card>
+  </Column>
+  <Column>
+    <Card
+      heading="The stamped DOM"
+      badge="STAGE 4"
+      tone="info"
+      meta={["MdxPlanRenderer.tsx", "headingAnchors.ts"]}
+    >
+      Every heading gets a slug `id`, every block a `data-plan-block-id`. That is what lets a
+      comment, a question's section peek and the outline point at a place in the document.
+    </Card>
+  </Column>
+  <Column>
+    <Card
+      heading="The annotation layer"
+      badge="STAGE 5"
+      tone="info"
+      meta={["annotation/", "reviewChoices.ts", "questionAnswers.ts"]}
+    >
+      Turns a text selection, a block hover or a verdict click into one review comment in the
+      viewing thread's composer. It reads the DOM; it never writes the file.
+    </Card>
+  </Column>
+</Columns>
+
+## 2. How it works, following one file
+
+Every stage below quotes what it does to this one snippet, which is a real file that passed the lint gate while this explainer was written:
+
+<Code
+  filename="example.mdx"
+  language="mdx"
+  wrap
+  code={
+    '---\nreader:\n  who: probe\n  knows: probe\n  after_first_screen: probe\n---\n## 2. The guard\n\nThe worker rejects raw `{expression}` bodies before any code exists.\n\n<Callout tone="warning">\n  A stray `<` in prose is a compile error that kills the whole document.\n</Callout>\n\n<Code language="ts" filename="guard.ts" code={"throw new Error(`Disallowed MDX construct: ${node.type}`);\\n"} />\n'
+  }
+/>
+
+### 2.1 Read — the panel hands the source to the MDX renderer
+
+**Input:** a path ending in `.mdx` opened in the file panel. **What happens:** the panel always routes it to the MDX renderer wrapped in the annotation layer (`FilePreviewPanel.tsx` → `MdxPlanAnnotationLayer` → `MdxPlanRenderer`). It never falls back to the plain-markdown viewer, because that viewer shows every block tag as literal escaped text and would present a healthy document as broken. The read budget is **8 MiB**, the server's ceiling for plan previews; the lint warns above 6 MB. **Output:** the source string, unchanged, plus the document's directory so an `<Image src>` can resolve relative to the file.
+
+The frontmatter is the first thing the next stage sees. `remark-frontmatter` parses the leading YAML block into an inert `yaml` node that MDX never renders — so the `reader:` brief at the top of this document, and a signing manifest, sit in the file without appearing on screen. Without that plugin the three dashes would render as a horizontal rule and the YAML as body text above the title.
+
+### 2.2 Compile — a worker runs the guard and stamps heading ids
+
+**Input:** the source string. **What happens:** `planCompileClient.ts` posts it to one shared Web Worker (`compileWorker.ts`), created on first use and kept for the page's life; where there is no `Worker` (server-side render, tests) the same compile runs on the calling thread with the same plugins. The worker calls `@mdx-js/mdx`'s `compile` with the plugin set in `mdxCompileOptions.ts` — frontmatter, GitHub-flavoured markdown, the two guard passes, and heading anchors. **Output:** a JavaScript function-body **string** plus a map of heading slug → source byte range. Nothing has executed; the string is inert until stage 3.
+
+The guard is three layers, in this order:
+
+<Columns>
+  <Column>
+    <Card heading="Reject" badge="THROWS" tone="risk">
+      `import`/`export`, a `{expression}` in the body, a `{...spread}` attribute, or an attribute expression that is not a literal — a string, number, boolean, array or object, or a template literal with no `${}`. Any of these aborts the whole compile; the reader sees an error card instead of the document.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Rewrite" badge="ERROR CARD" tone="warning">
+      A capitalised tag not in the 33-tag list becomes `UnknownPlanBlock` with the original name as its `tag` attribute; its attributes and children are dropped. One typo degrades one block, instead of hitting MDX's missing-component throw and killing the page.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Left alone" badge="KNOWN GAP" tone="neutral">
+      Lowercase tags are not inspected. MDX treats them as HTML elements and React renders them. A document containing `<iframe src="https://example.com">` renders a live iframe, and the lint gate reports `OK — no findings`. A decision on closing this is pending.
+    </Card>
+  </Column>
+</Columns>
+
+Why the attribute rule is load-bearing: `code={"…"}` compiles to a JavaScript expression in the output module, and the body-node walk never visits it. The literal-only check is what stops `code={fetch("/api/secrets")}` from running at render. Here is what the two rejecting paths say, verbatim, for a document that writes `Cost is {1 + 1} dollars.` and the `fetch` attribute:
+
+<Code
+  language="text"
+  wrap
+  code={
+    'Disallowed MDX construct: mdxTextExpression. Imports and raw {expressions} are not permitted in plans.\n\nDisallowed MDX attribute expression for "code": only literal values (strings, numbers, booleans, arrays, objects) are permitted in plans, not executable expressions.\n'
+  }
+/>
+
+In the same pass, `headingAnchors.ts` gives every heading a slug (`## 2. The guard` → `2-the-guard`, with `-2`, `-3` suffixes for repeats) and records the byte range of the section it opens. That one map is what a `<QuestionForm>`'s `refs` chips, the lint's dangling-anchor check and the in-app section peek all read, so they cannot disagree about where a section ends. For the example file the map is `{"2-the-guard": [87, 381]}` and the compiled output is:
+
+<AnnotatedCode
+  filename="compiled function body (excerpt)"
+  language="js"
+  wrap
+  code={
+    'const {Fragment: _Fragment, jsx: _jsx, jsxs: _jsxs} = arguments[0];\nfunction _createMdxContent(props) {\n  const _components = { code: "code", h2: "h2", p: "p", ...props.components },\n    {Callout, Code} = _components;\n  if (!Callout) _missingMdxReference("Callout", true);\n  if (!Code) _missingMdxReference("Code", true);\n  return _jsxs(_Fragment, { children: [\n    _jsx(_components.h2, { id: "2-the-guard", children: "2. The guard" }),\n    _jsxs(_components.p, { children: ["The worker rejects raw ", _jsx(_components.code, { children: "{expression}" }), " bodies before any code exists."] }),\n    _jsx(Callout, { tone: "warning", children: _jsxs(_components.p, { children: ["A stray ", _jsx(_components.code, { children: "<" }), " in prose is a compile error that kills the whole document."] }),\n    _jsx(Code, { language: "ts", filename: "guard.ts", code: "throw new Error(`Disallowed MDX construct: ${node.type}`);\\n" })\n  ]});\n}\n'
+  }
+  annotations={[
+    {
+      lines: "1",
+      label: "arguments[0]",
+      note: "the JSX runtime is injected when the main thread runs this string — the module imports nothing",
+    },
+    {
+      lines: "4",
+      label: "resolved by name",
+      note: "Callout and Code are looked up in props.components; stage 3 passes the closed registry there",
+    },
+    {
+      lines: "8",
+      label: "slug id",
+      note: "stamped at compile time by headingAnchors.ts, not by the browser",
+    },
+    {
+      lines: "11",
+      label: "a string, not a call",
+      note: "the guard let this attribute through because its estree node is a plain Literal; the ${…} inside is text",
+    },
+  ]}
+/>
+
+### 2.3 Run — the main thread instantiates it against the closed registry
+
+**Input:** the function-body string. **What happens:** `runPlanModule` calls MDX's `run`, which uses the `Function` constructor — so the render needs `unsafe-eval`. The web app sets no CSP on its own page today, so the guard plus the registry are what bound what that eval can reach; the desktop shell does set one (`apps/desktop/src/electron/ElectronProtocol.ts`), and its `script-src` allows only `'wasm-unsafe-eval'` — whether documents run there was not checked for this explainer. The resulting `MDXContent` component is rendered with `components={PLAN_BLOCK_COMPONENTS}`: the 33 registry entries, an `img` override so markdown images resolve like `<Image>`, a `pre` override so fenced code gets syntax highlighting, and the `UnknownPlanBlock` card. **Output:** React elements inside one error boundary keyed on the source, so a corrected file re-renders fresh.
+
+Each registry component does the same three things (`makeBlockComponent` in `registry.tsx`): parse the props with the block's zod schema, on failure render an error card carrying `data-plan-block-error`, on success call the block's `Read` with the clean data. The prose between a block's tags reaches `Read` as `children` only for blocks that declare it (`Callout`, `Card`, `Details`, `Columns`, `TabsBlock`, `Endpoint` and the canvas containers); a self-closing block gets none. An authored `id` becomes the block's `data-plan-block-id`; without one, stage 4 assigns one.
+
+What the schema says when a prop is wrong — this is the message the error card shows for `<Callout tone="loud">`, and the lint quotes the same text:
+
+<Code
+  language="text"
+  wrap
+  code={
+    "<Callout> props failed validation (renders an in-document error card): tone: Invalid enum value. Expected 'info' | 'decision' | 'risk' | 'warning' | 'success', received 'loud'\n"
+  }
+/>
+
+### 2.4 Stamp — ids, bleed and the outline, after mount
+
+**Input:** the rendered DOM under one `data-plan-root` container. **What happens:** three passes in `MdxPlanRenderer.tsx` run after each render.
+
+- `assignBlockIds` walks the root's direct children — headings, paragraphs and blocks alike — and any nested element carrying `data-plan-block-type` (a block inside `Columns`, a tab, a card), giving each without an authored id a `plan-block-N` from one document-wide counter. The walk is deterministic, so the same DOM yields the same ids and a persisted comment still finds its block after a re-render.
+- `stampBleedingBlocks` marks the **top-level** blocks allowed to escape the prose column with `data-plan-bleed`: `hug` for code, diffs, tables, file trees, JSON, Mermaid and `Columns` (take the width the content wants, up to a budget); `stretch` for canvases and iframes (take the budget). Prose-bearing blocks — callouts, cards, checklists, details, question forms — deliberately stay at the readable measure, and nothing nested inside a container bleeds.
+- `readOutline` collects the top-level `h2` elements; a document with **four or more** gets a sticky row of section chips above the page, outside the root so it takes no block id and adds no text to the annotation search space.
+
+**Output:** for the example file, four top-level nodes with ids `plan-block-0` to `plan-block-3`, and this markup (classes trimmed):
+
+<Code
+  language="html"
+  wrap
+  code={
+    '<div data-plan-root class="plan-mdx mx-auto max-w-4xl px-6 py-5">\n  <h2 id="2-the-guard">2. The guard</h2>\n  <p>The worker rejects raw <code>{expression}</code> bodies before any code exists.</p>\n  <aside data-plan-block-type="callout" class="… border-amber-300/60 …">\n    <div>Warning</div>\n    <div class="prose-plan …"><p>A stray <code>&lt;</code> in prose is a compile error that kills the whole document.</p></div>\n  </aside>\n  <figure data-plan-block-type="code" class="…">\n    <figcaption>guard.ts <span>ts</span> <button>Wrap</button></figcaption>\n    <pre>throw new Error(`Disallowed MDX construct: ${node.type}`);</pre>\n  </figure>\n</div>\n'
+  }
+/>
+
+### 2.5 Annotate and decide — a gesture becomes a review comment
+
+**Input:** one of three gestures on the stamped DOM — a text selection, a hover-and-click on a block's comment affordance, or a click in a `<QuestionForm>` option or a `<ReviewChoice>` verdict. **What happens:** all three converge on the same object, a review comment of kind `mdx-anchor` added to the **viewing thread's composer draft**. It shows as a removable chip; on send it is serialised into the user turn as a `<review_comment>` element carrying the anchor as JSON, the reviewer's words, and the quoted passage in a fence. Nothing is written to the file, which is why a document in another worktree can still be annotated from here. **Output:** the agent's next turn opens with the comments, each one locatable.
+
+The anchoring engine (`annotation/anchoring.ts`) decides how a comment finds its place again after a re-render:
+
+<Table
+  density="compact"
+  columns={["Gesture or block", "Anchor kind", "How it re-resolves"]}
+  rows={[
+    [
+      "Select prose, or text inside a table, checklist, code or JSON block",
+      "text",
+      "quote + 32 chars of context either side; re-found in the flattened document text, best context match wins; flagged ambiguous if the quote occurs twice",
+    ],
+    [
+      "Block comment affordance, or a selection inside a diagram, Mermaid, prototype or HtmlBlock",
+      "visual",
+      "a selector on the block's data-plan-block-id",
+    ],
+    [
+      "Click inside a Screen or Design artboard",
+      "wireframe",
+      "the artboard's id plus the node's data-wf-node id, falling back to a child-index path",
+    ],
+    [
+      "Select inside an HtmlBlock frame",
+      "wireframe",
+      "the host block's id, the element's child-index path, and a text quote measured over the frame body",
+    ],
+  ]}
+/>
+
+Flattening is the detail that makes text anchors readable: the document's text nodes are joined with a newline at every block boundary (paragraph, list item, table cell, heading), so a quote across two cells reads as two lines rather than `budget120`, and the same function is used to capture and to re-find. On every layout change each pending comment is re-resolved; one whose quote is gone degrades to a **detached** card, and one inside a closed `<Details>` or hidden tab becomes a **collapsed** badge on the disclosure's summary that opens it on navigate.
+
+Selecting the words `kills the whole document` in the example file produces exactly this anchor (the section id is the heading's block id, and the context after runs into the next block's figcaption because of the newline rule):
+
+<Json
+  title="anchor for a text selection"
+  json={
+    '{"anchorKind":"text","targetKind":"text","textQuote":"kills the whole document","contextBefore":"n prose is a compile error that ","contextAfter":".\\nguard.ts\\ntsWrap\\nthrow new Erro","blockType":"callout","sectionId":"plan-block-0","sectionTitle":"2. The guard"}'
+  }
+  wrap
+/>
+
+Answers and verdicts ride the same channel with one twist: their comment ids are deterministic — `mdx-question:<file>:<questionId>` and `mdx-review:<file>:<itemId>` — so re-answering **upserts** rather than duplicates, and the comment's presence _is_ the state: removing the chip un-answers the question. The structured selection (which options, which verdict, the note) lives in a local draft store because the comment's prose is not losslessly parseable back. The "N of M decided" pill counts `<ReviewChoice` occurrences in the source against review comments present. The comment text the agent reads is one line, for example `Review A-1 → accept — "keep the gate"`.
+
+### 2.6 The lint gate — stages 2 and 3, off-app, plus a static render
+
+**Input:** `node apps/web/scripts/lint-plan.mjs <file> [--out render.html]`. **What happens:** two stages against the renderer's real module graph, loaded through Vite with a jsdom for the DOM globals.
+
+1. **Lint** (`planLint.ts`): the size budget; a parse with the same remark set; a _warning_ when the `reader:` brief is missing; then AST rules — unknown tag with a did-you-mean, attribute resolution, each block's zod schema, unknown props (warning: zod strips them silently), slot nesting (`Tab` in `TabsBlock`, `Column` in `Columns`, canvas children), duplicate `id`s, duplicate `ReviewChoice` item ids, every question `refs[].anchor` against the heading slugs, `Diagram` edge endpoints, `Json` and `OpenApi` parse, `Mermaid` through the real Mermaid parser, ragged `Table` rows, and a dry run of the wireframe sanitiser reporting what it would strip. If no error was found it runs the **same compile** as the worker (`compilePlanMdx`) as the authoritative gate.
+2. **Render**: only a lint-clean document reaches it. `renderToStaticMarkup` through the real registry with `<Details>` forced open; it scans the HTML for `data-plan-block-error` cards (a prop failure lint could not see, such as prose children), `<Image>` files missing on disk, and rendered-text defects — literal `\u2014` escapes and latin-1 mojibake — and prints the block types that mounted.
+
+**Output:** `file:line:col severity: message` lines; exit 0 means the document renders in-app. `--out` writes the same markup as a standalone dark page with the app's stylesheet inlined. For the deliberately broken file from §2.2 with the `tone="loud"` callout added:
+
+<Code
+  language="text"
+  wrap
+  code={
+    "bad.mdx:9:9 error: Disallowed MDX construct (mdxTextExpression): imports/exports and raw {expressions} are rejected — the whole document fails to render. Escape a literal brace as \\{.\nbad.mdx:11:21 error: <Code> attribute \"code\": Unsupported MDX attribute expression for \"code\": {fetch(\"/api/secrets\")}. Use literal values or valid JSON.\nbad.mdx:13:1 error: <Callout> props failed validation (renders an in-document error card): tone: Invalid enum value. Expected 'info' | 'decision' | 'risk' | 'warning' | 'success', received 'loud'\n\n3 error(s), 0 warning(s)\n"
+  }
+/>
+
+And for the example file: `render: 2240 bytes of HTML, blocks mounted: callout×1, code×1` then `OK — no findings.`
+
+### 2.7 The escape hatches — where author HTML is allowed, and what guards each
+
+Three blocks accept raw HTML from the author. The guard in §2.2 passes that HTML through unread — it is a string attribute, which is data — so each surface has its own boundary:
+
+<Table
+  density="compact"
+  columns={["Block", "Where the HTML goes", "Boundary", "Annotation grain"]}
+  rows={[
+    [
+      "Screen, Design, Artboard",
+      "the live page DOM via dangerouslySetInnerHTML",
+      "sanitizeWireframeHtml.ts: drops script/style/iframe/object/form and SVG animators, strips on* handlers, URL attributes with unsafe schemes, inline styles with expression()/javascript: or position:fixed/sticky/absolute and huge z-index, and any data-plan-* / data-wf-node attribute the renderer owns",
+      "a pin on the element clicked",
+    ],
+    [
+      "HtmlBlock",
+      "an iframe srcdoc with sandbox=allow-same-origin only",
+      "no scripts can run (no allow-scripts); CSP default-src 'none' with inline styles and data: images only; meta refresh and base stripped on load; every link click cancelled. No sanitiser — the sandbox is the boundary",
+      "a text selection inside the frame, pinned to its card",
+    ],
+    [
+      "Prototype",
+      "an iframe srcdoc with sandbox=allow-scripts allow-forms",
+      "opaque origin — the frame cannot reach the parent window, cookies or RPCs; CSP allows inline script and style, data: images, no nested frames",
+      "the whole block",
+    ],
+  ]}
+/>
+
+The wireframe surface sanitises _because_ it injects into the live DOM, which is what gives it the same geometry model as prose for annotation. `HtmlBlock` is same-origin so the host can read into it and pin a comment to one card; that is safe only because nothing in it can execute, so the remaining risk — the frame's own requests being credentialed — is closed by the CSP and the navigation guards. Mermaid output gets a light second pass over the SVG, but Mermaid's own strict mode is the real boundary there.
+
+## 3. What this means for you
+
+If the decision in front of you is which blocks to add, this is where a new block plugs in and what it gets for free:
+
+- **One registry entry, one tag name, one zod schema** (`registry.tsx`, `planBlockTags.ts`, a file under `blocks/`). The tag list is a React-free copy of the registry because the worker cannot import components; a test asserts the two sets match. The generated `block-schema.md` the skills read comes from these schemas.
+- **Free from stage 4 and 5:** a `data-plan-block-id`, the per-block comment affordance, whole-block anchoring, and lint's prop validation and unknown-prop warning.
+- **Two opt-in decisions per block:** whether it bleeds past the prose column (`BLEED_MODE_BY_BLOCK_TYPE` in `MdxPlanRenderer.tsx` — a block not listed stays at the measure), and whether text inside it is quotable (`OPAQUE_BLOCK_TYPES` in `anchoring.ts` — listed blocks always anchor whole; everything else lets a reader highlight a phrase inside it). An inline device like a status pill inside a sentence would be a `mdxJsxTextElement`, which the registry already resolves, and a text anchor inside it works unchanged.
+- **What is unaffected by any new block:** the guard, the worker, the composer channel, the lint script's two stages. A block that only renders and validates needs no change outside its own file and the two registries.
+- **What to watch:** the lowercase-tag gap in §2.2; `unsafe-eval` at stage 3 if the web app ever sets a CSP, and the desktop shell's CSP, which already omits it; a Mermaid of more than about ten nodes stops reading, and it draws only in-app.
+
+## 4. Open edges
+
+- **The lowercase-tag gap** is stated in §2.2 as it stands; which way to close it, or whether to, is the pending decision and is not argued here.
+- **Not covered:** the canvas `DesignBoard` with its connectors and free-floating notes (anchor kind `canvas`, resolved through a board-to-pixel transform the canvas renderer owns); `<Image>` signing through the thread's asset URL; the project's reference-link rules that linkify prose after the guards; the question-form section peek beyond the fact that it compiles a section slice through the same worker and renders it outside the plan root so it cannot disturb existing anchors.
+- **A fact that is a reading of comments, not of behaviour I exercised:** that the annotation layer re-resolves on _every_ layout change is what the layer's header comment and the resize observer wiring say; I did not measure it. Everything quoted in §2 — the error messages, the compiled output, the rendered markup, the anchor JSON, the lint lines — was produced by running the real code on the example file.

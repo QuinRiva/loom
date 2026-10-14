@@ -133,7 +133,8 @@ renderable HTML to locations outside the worktree (the `visual_explainer`
 tool's `~/.agent/diagrams/` default cannot be rendered in-app — write the
 HTML to `.artifacts/` instead), and do not commit throwaway HTML under
 `experiments/` or `docs/`. For a reviewable plan or recap, prefer the MDX
-genres (`plans/<slug>/plan.mdx`, `recaps/<slug>/recap.mdx`) over a standalone
+genres (`plans/<slug>/plan.mdx`, `recaps/<slug>/recap.mdx`,
+`explainers/<slug>/explainer.mdx` for "help me understand" requests) over a standalone
 HTML artefact.
 
 ## Fork-specific notes

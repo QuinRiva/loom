@@ -1,0 +1,74 @@
+---
+reader:
+  who: loom's owner, deciding which of five candidate documents define what a "good" MDX document looks like
+  knows: the diagnosis of why HTML explainers read better than MDX, and the interventions already accepted; has not read the five documents or any child report
+  after_first_screen: which five documents to open, in what order, and what verdict each one is asking for
+---
+
+# Five candidate exemplars: is this what good looks like?
+
+Five documents were written under the rewritten MDX skills, then reviewed and tuned (facts re-checked against their sources, first screens repaired, register fixed). Three are same-subject re-authorings of documents you have already read, so the old and new versions sit side by side; one is a fresh explainer from code; one is a content-for-content port of an HTML explainer you liked. The reviewer's ranking, best to worst at closing the HTML gap: **fan-in recap → agent-started cue → sqlite read-lane → MDX pipeline explainer → document-classification port.** The port is the least finished-looking and the most useful: its fourteen in-place *Vocabulary gap —* notes are the inventory of what new blocks would have to do.
+
+Each card below asks one thing: **Accept** = this is the bar, promote it into the skill as the shipped exemplar; **Reject** = not the bar, say what is missing; **Discuss** = annotate. An item left undecided takes its recommendation. Open the documents in the order listed; the first is the medium test.
+
+## 1. The documents
+
+<Card id="ex-fanin" heading="Fan-in deadlock recap, with an HTML twin" tone="success" badge="RECOMMENDED · READ FIRST" meta={["recap genre", "same writer, same brief, both media", "3,300 words"]}>
+  **New MDX:** `recaps/issue-280-fan-in-deadlock-v2/recap.mdx`. **HTML twin:** `.artifacts/fan-in-deadlock-explainer.html`. **Old:** `recaps/issue-280-fan-in-deadlock/recap.mdx`.
+
+  Old → new MDX shows what the instructions alone changed; new MDX → HTML shows what only the medium changes. Both new documents open with the same verdict and the same four numbers. **The recap has since been re-authored with the v2 vocabulary** (kicker, number strip, focus box, timeline rail, rule and verdict cards, toned graph and table rows) and the pair is ready for a second read: your first read of it is what the vocabulary was built to close, so the question now is whether you still prefer the HTML, and for which device.
+
+  *Also a finding:* re-checking the facts against today's tree, the writer found that one of PR #288's four fixes (clearing a stale `needs_guidance` flag on re-point) was dropped in pull 9 with no decision recorded. See §2.
+
+  <ReviewChoice itemId="ex-fanin" label="Fan-in recap as exemplar" />
+</Card>
+
+<Card id="ex-cue" heading="Agent-started cue: a decision document that opens with its recommendation" tone="success" badge="RECOMMENDED" meta={["decision genre", "before/after", "4,700 words incl. mockups"]}>
+  **New:** `plans/agent-started-thread-cue-v2/plan.mdx`. **Old:** `plans/agent-started-thread-cue/plan.mdx`.
+
+  Six options shown on the same inbox mockup, each a toned, badged card. Caveat from the reviewer: it is written with hindsight — it recommends the rail you chose, so it tests your reaction to the shape, not to the advice. Its tall before/after pair pushes "what this covers" about a screen and a half down.
+
+  <ReviewChoice itemId="ex-cue" label="Agent-started cue as exemplar" />
+</Card>
+
+<Card id="ex-sqlite" heading="SQLite read-lane plan: answer and cost in the first four lines" tone="success" badge="RECOMMENDED" meta={["plan genre", "before/after", "3,400 words"]}>
+  **New:** `plans/sqlite-read-lane-v2/plan.mdx`. **Old:** `plans/sqlite-read-lane/plan.mdx`.
+
+  The largest before/after improvement from the instructions alone: the old opening was a 190-word Objective paragraph with the decision 130 words later; the new one states the change, why it is the small fix, and what you are approving. As a backend plan it stays text-heavy; the first screen still runs ~330 words.
+
+  <ReviewChoice itemId="ex-sqlite" label="SQLite plan as exemplar" />
+</Card>
+
+<Card id="ex-pipeline" heading="MDX document pipeline: a fresh explainer from the code" tone="neutral" badge="EXPLAINER · NEW GENRE" meta={["explainer genre", "fresh", "3,600 words"]}>
+  **New:** `explainers/mdx-document-pipeline/explainer.mdx`. No "before".
+
+  How an `.mdx` file becomes a rendered, annotated, lint-gated document — every artefact shown is real output from the real code. Dense and code-heavy; fewer visual devices than an HTML explainer would use. It surfaced a possible defect: the desktop app's content-security policy may block MDX rendering (§2).
+
+  <ReviewChoice itemId="ex-pipeline" label="MDX pipeline explainer as exemplar" />
+</Card>
+
+<Card id="ex-docclass" heading="Document-classification explainer: the HTML you liked, ported to MDX" tone="warning" badge="MEDIUM TEST · LEAST FINISHED" meta={["explainer genre", "content unchanged", "5,200 words"]}>
+  **New:** `explainers/document-classification-v2/explainer.mdx`. **Source:** the August HTML explainer at `/home/Carl/.agent/diagrams/docclass-v2-explainer.html`.
+
+  Same facts, same order, same reader; only the medium changed. Fourteen *Vocabulary gap —* notes mark where the port lost something: the step strip with stage chips, inline pills, muted text for a version line and sources footer, the ordered file map. Whatever reads worse here is the medium or the skill's shape, not the writing. One departure: the reviewer moved "why v2 exists" above the version strip, because the renderer now sets the first paragraph as a large lede.
+
+  <ReviewChoice itemId="ex-docclass" label="Document-classification port as exemplar" />
+</Card>
+
+## 2. Two loom findings the exercise surfaced
+
+<Card id="f-staleflag" heading="Restore the stale-flag clear lost in pull 9" tone="risk" badge="LOOM BUG · NOT MDX WORK" meta={["small", "evidence in the fan-in recap §4"]}>
+  PR #288 cleared the control-plane `needs_guidance` flag when a wedged dependent is re-pointed, and gave the wake its own wording. Pull 9 kept the raise and dropped the clear: `cancelledDependencyOf` is still exported with zero callers, and the wake copy reverted to "a human is in the loop". Recommendation: restore it as a small separate change.
+
+  <ReviewChoice itemId="f-staleflag" label="Restore the stale-flag clear" />
+</Card>
+
+<Card id="f-csp" heading="Verify MDX renders in the desktop app under its content-security policy" tone="warning" badge="VERIFY" meta={["an hour", "may be a non-issue"]}>
+  The desktop shell sets a `script-src` that allows only `'wasm-unsafe-eval'`; MDX's runtime uses the `Function` constructor, which needs `unsafe-eval`. If that is right, plans and recaps do not render in the desktop app. Nobody has checked. Recommendation: verify, then fix or close.
+
+  <ReviewChoice itemId="f-csp" label="Desktop CSP check" />
+</Card>
+
+## 3. What happens after your verdicts
+
+Accepted documents are copied into the skill as the shipped exemplars, replacing the placeholder. The writers' and reviewer's feedback on the skills — about twenty-five items, the largest being an incident-recap variant of the recap skeleton, a stated form for vocabulary-gap notes, a tone convention for rejected options, and a note that the first paragraph renders as the lede — is folded into the skills in one pass. The vocabulary-gap notes across the five documents then size the new-block work (inline badge first, then rich table cells, number strip, steps) that you already accepted.

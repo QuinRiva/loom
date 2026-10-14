@@ -184,6 +184,8 @@ Props:
 Props:
 
 - `tone` — `"info" | "decision" | "risk" | "warning" | "success"` _(optional)_
+- `title` — `string` _(optional)_
+- `focus` — `boolean` _(optional)_
 - `body` — `string` _(optional)_ — written as **prose between the tags**, not an attribute
 
 ## `<Checklist>` — `checklist`
@@ -201,7 +203,25 @@ Props:
 Props:
 
 - `columns` — `string[]` **(required)**
-- `rows` — `string[][]` **(required)**
+- `rows` — `((string | { md?, badge?, tone? })[] | { tone?, cells })[]` **(required)**
+  - `{ md?, badge?, tone? }` form:
+    - `md` — `string` _(optional)_
+    - `badge` — `string | { label, tone? }` _(optional)_
+      - `{ label, tone? }` form:
+        - `label` — `string` **(required)**
+        - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+  - `{ tone?, cells }` form:
+    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+    - `cells` — `(string | { md?, badge?, tone? })[]` **(required)**
+      - `{ md?, badge?, tone? }` form:
+        - `md` — `string` _(optional)_
+        - `badge` — `string | { label, tone? }` _(optional)_
+          - `{ label, tone? }` form:
+            - `label` — `string` **(required)**
+            - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+        - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `align` — `("left" | "center" | "right")[]` _(optional)_
 - `density` — `"compact" | "normal" | "relaxed"` _(optional)_
 - `filterable` — `boolean` _(optional)_
 
@@ -256,6 +276,10 @@ Props:
 
 - `source` — `string` **(required)**
 - `caption` — `string` _(optional)_
+- `look` — `"classic" | "handDrawn"` _(optional)_
+- `legend` — `object[]` _(optional)_
+  - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` **(required)**
+  - `label` — `string` **(required)**
 
 ## `<Screen>` — `wireframe`
 
@@ -357,6 +381,11 @@ Props:
 - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 - `badge` — `string` _(optional)_
 - `meta` — `string[]` _(optional)_
+- `eyebrow` — `string` _(optional)_
+- `badges` — `(string | { label, tone? })[]` _(optional)_
+  - `{ label, tone? }` form:
+    - `label` — `string` **(required)**
+    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 
 ## `<ReviewChoice>` — `review-choice`
 
@@ -370,7 +399,9 @@ Props:
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
-_No attributes._
+Props:
+
+- `columns` — `integer` _(optional)_
 
 ## `<Column>` — `column`
 
@@ -411,3 +442,47 @@ Props:
 - `html` — `string` **(required)**
 - `caption` — `string` _(optional)_
 - `height` — `integer` _(optional)_
+
+## `<Badge>` — `badge`
+
+Inline element: the **text between its tags** is its label.
+
+Props:
+
+- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+
+## `<Stats>` — `stats`
+
+Props:
+
+- `items` — `object[]` **(required)**
+  - `value` — `string` **(required)**
+  - `label` — `string` **(required)**
+  - `detail` — `string` _(optional)_
+  - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+  - `badge` — `string | { label, tone? }` _(optional)_
+    - `{ label, tone? }` form:
+      - `label` — `string` **(required)**
+      - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+
+## `<Steps>` — `steps`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+_No attributes._
+
+## `<Step>` — `step`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+Props:
+
+- `at` — `string` _(optional)_
+- `title` — `string` _(optional)_
+- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `dashed` — `boolean` _(optional)_
+- `badge` — `string | { label, tone? }` _(optional)_
+  - `{ label, tone? }` form:
+    - `label` — `string` **(required)**
+    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `aside` — `string` _(optional)_

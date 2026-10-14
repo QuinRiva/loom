@@ -1,38 +1,46 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { InlineMarkdown } from "../inlineMarkdown";
+import { type BadgeSpec, badgeSpecSchema, type Tone, toneColor, toneSchema } from "../tones";
+import { PlanBadge } from "./badge";
 
 /**
  * The `<Card>` block (§3) — a toned item container for verdict/review batches: a
- * 4px left border in a categorical tone colour, a header row (heading + optional
- * badge pill + optional meta chips) and a `passChildren` body. Give each item an
+ * top edge in a categorical tone colour (none for neutral), a header row
+ * (heading left, badge pills right), a line of meta chips under it, and a
+ * `passChildren` body (`.plan-card*` in `index.css`). Give each item an
  * `id` so annotations anchor to the whole card and nested `<Details>` drill-downs
  * live inside it.
  *
- * The tone palette is a CLOSED six-slot CATEGORICAL palette of its own (not
- * shared with `<Callout>`'s status semantics): a Card tone is a category colour,
- * not a status, so meaning always rides the badge/heading text and colour is
- * triage only. `<Card>` is a container like `<Columns>` — it does not participate
+ * The tone is the shared six-slot CATEGORICAL palette (`tones.ts`; not
+ * `<Callout>`'s status semantics): a Card tone is a category colour, not a
+ * status, so meaning always rides the badge/heading text and colour is triage
+ * only. `eyebrow` is the small line above the heading (`RULE 1`, `OPTION B`);
+ * `badges` are extra pills with their own tones after `badge`. The heading is
+ * inline markdown, so `code` and *emphasis* in it render. `<Card>` is a container like `<Columns>` — it does not participate
  * in the document's heading/section model; headings inside it render normally.
  */
 
-export type CardTone = "neutral" | "info" | "success" | "warning" | "risk" | "accent";
-
 export interface CardData {
   heading: string;
-  tone?: CardTone;
+  tone?: Tone;
   badge?: string;
   meta?: string[];
+  eyebrow?: string;
+  badges?: BadgeSpec[];
 }
 
 const cardSchema = z.object({
   heading: z.string().trim().min(1).max(300),
-  tone: z.enum(["neutral", "info", "success", "warning", "risk", "accent"]).optional(),
+  tone: toneSchema.optional(),
   badge: z.string().trim().max(60).optional(),
   meta: z.array(z.string().trim().min(1).max(120)).max(8).optional(),
+  eyebrow: z.string().trim().max(40).optional(),
+  badges: z.array(badgeSpecSchema).max(6).optional(),
 }) as unknown as z.ZodType<CardData>;
 
 const cardMdx: BlockMdxConfig<CardData> = {
@@ -43,67 +51,58 @@ const cardMdx: BlockMdxConfig<CardData> = {
     tone: data.tone,
     badge: data.badge,
     meta: data.meta,
+    eyebrow: data.eyebrow,
+    badges: data.badges,
   }),
   fromAttrs: (attrs) =>
     ({
       heading: attrs.string("heading") ?? "",
-      tone: attrs.string("tone") as CardTone | undefined,
+      tone: attrs.string("tone") as Tone | undefined,
       badge: attrs.string("badge"),
       meta: attrs.array<string>("meta"),
+      eyebrow: attrs.string("eyebrow"),
+      badges: attrs.array<BadgeSpec>("badges"),
     }) as CardData,
 };
 
-const TONE: Record<CardTone, { border: string; badge: string }> = {
-  neutral: { border: "border-l-border", badge: "bg-muted text-muted-foreground" },
-  info: { border: "border-l-blue-500", badge: "bg-blue-500/15 text-blue-700 dark:text-blue-300" },
-  success: {
-    border: "border-l-emerald-500",
-    badge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  },
-  warning: {
-    border: "border-l-amber-500",
-    badge: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-  },
-  risk: { border: "border-l-red-500", badge: "bg-red-500/15 text-red-700 dark:text-red-300" },
-  accent: {
-    border: "border-l-violet-500",
-    badge: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
-  },
-};
-
 function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
-  const tone = TONE[data.tone ?? "neutral"];
+  const tone = data.tone ?? "neutral";
+  const badges = [...(data.badge ? [data.badge] : []), ...(data.badges ?? [])];
   return (
     <section
       data-plan-block-id={blockId}
       data-plan-block-type="card"
-      className={cn(
-        "my-4 overflow-hidden rounded-lg border border-l-4 border-border bg-card",
-        tone.border,
-      )}
+      className={cn("plan-card my-4", tone !== "neutral" && "plan-card--toned")}
+      style={{ "--plan-card-tone": toneColor(tone) } as CSSProperties}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-2">
-        <span className="font-semibold text-foreground">{data.heading}</span>
-        {data.badge && (
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide",
-              tone.badge,
-            )}
-          >
-            {data.badge}
+      {data.eyebrow && (
+        <div
+          className="plan-card-eyebrow"
+          style={{ color: toneColor(tone === "neutral" ? "warning" : tone) }}
+        >
+          {data.eyebrow}
+        </div>
+      )}
+      <div className="plan-card-head">
+        <span className="plan-card-heading">
+          <InlineMarkdown text={data.heading} />
+        </span>
+        {badges.length > 0 && (
+          <span className="plan-card-badges">
+            {badges.map((spec, index) => (
+              <PlanBadge key={index} spec={spec} hostTone={tone} />
+            ))}
           </span>
         )}
-        {data.meta?.map((chip) => (
-          <span
-            key={chip}
-            className="shrink-0 rounded-full border border-border px-2 py-0.5 text-3xs text-muted-foreground"
-          >
-            {chip}
-          </span>
-        ))}
       </div>
-      <div className="prose-plan px-3 py-2 text-sm">{children as ReactNode}</div>
+      {data.meta && data.meta.length > 0 && (
+        <div className="plan-card-meta">
+          {data.meta.map((chip) => (
+            <span key={chip}>{chip}</span>
+          ))}
+        </div>
+      )}
+      <div className="prose-plan plan-card-body">{children as ReactNode}</div>
     </section>
   );
 }

@@ -1,0 +1,242 @@
+# Why the HTML explainers read better than our MDX plans and recaps
+
+Most of the gap is **who wrote the document, for whom, and how it was told to open** — not what the MDX renderer can draw. Every genuine HTML page was written by a thread that had been talking to its reader for hours and was asked, in the reader's own words, to "help me understand"; five of the six MDX documents were written by a child thread from a brief, for a reader it never met, whose job was to approve or decide. The MDX skill then tells that child to open with the review protocol and the work objective, in the codebase's vocabulary, with prose by default and emphasis banned. The renderer adds a real but bounded second layer: no inline pill, no number strip, no tone in a table cell, a 20px title over 16px body text. Roughly: **the writing ~45%, the writer's situation ~25%, the medium ~30%**. The two best MDX recaps in the sample already read nearly as well as the HTML, using today's vocabulary.
+
+<HtmlBlock
+  caption="The verdict as a number strip. This is an iframe escape hatch, not a native block: its height is a guess by the author, it draws its own background and follows the OS colour scheme rather than the app's, and no tile can be annotated on its own. The cost of reaching outside the vocabulary, shown in place."
+  html={"<style>:root{color-scheme:light dark}body{margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111}@media (prefers-color-scheme:dark){body{background:#0f1115;color:#e6e6e6}.t{border-color:#2a2f3a}}.g{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:10px 12px}.t{border:1px solid #d9d9d9;border-radius:8px;padding:10px 14px}.n{font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.l{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin-top:6px}.p{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;margin-top:8px;letter-spacing:.04em}.w{color:#2563eb}.m{color:#d97706}.c{color:#7c3aed}.ok{color:#16a34a}.pw{background:#dbeafe;color:#1e40af}.pm{background:#fef3c7;color:#92400e}.pc{background:#ede9fe;color:#5b21b6}.pg{background:#dcfce7;color:#166534}</style><div class='g'><div class='t'><div class='n w'>~45%</div><div class='l'>the writing</div><span class='p pw'>FIX: SKILL TEXT</span></div><div class='t'><div class='n c'>~25%</div><div class='l'>writer's situation</div><span class='p pc'>FIX: THE BRIEF</span></div><div class='t'><div class='n m'>~30%</div><div class='l'>the medium</div><span class='p pm'>FIX: CSS + BLOCKS</span></div><div class='t'><div class='n ok'>2 of 6</div><div class='l'>MDX docs already close</div><span class='p pg'>TODAY'S VOCABULARY</span></div></div>"}
+/>
+
+## 1. The causes, ranked
+
+| # | Cause | Kind | Share | Where the fix lives |
+|---|---|---|---|---|
+| 1 | **Writer's situation and task genre.** HTML: a root thread in conversation with the reader, asked to explain. MDX: a child from a brief, never met the reader, asked to produce a decision gate. | Confound — strong | ~25% | The orchestrator's brief; an explainer genre |
+| 2 | **The first screen carries the work objective or the review protocol, not the answer.** | Authoring, caused by instruction | ~18% | Skill skeletons |
+| 3 | **Devices the vocabulary lacks:** inline pill, number strip, toned table cells, proportion bar, stepper. | Medium — vocabulary | ~18% | New blocks |
+| 4 | **Insider register and code narration:** thread ids, "M4", "D2 item 2 of the July 6 plan", no worked example. | Authoring, caused by instruction | ~15% | A reader step; gloss rule for body prose |
+| 5 | **Judgement written as sentences where a badge or tone already exists.** | Authoring | ~12% | Doctrine and exemplars |
+| 6 | **Flat rendering:** 20px title over 16px body, no section rule or nav, grids squeezed to one column width, 10px grey chrome. | Medium — renderer CSS | ~12% | One stylesheet |
+
+The shares are a judgement from reading all ten artefacts, not a measurement. The model is **not** a cause: the same Fable and Opus generations wrote both sides. How strong is cause 1? Role and briefing split the sample almost perfectly, so this corpus cannot separate "MDX is worse" from "children writing cold for a decision write worse". Two counterpoints keep it honest: the one HTML page a root synthesised from child reports with no human request is the one Carl rejected; and the MDX plans did their decision job — the forms were answered and the work shipped.
+
+Each intervention in section 3 has an Accept / Reject / Discuss control; one left undecided takes its stated recommendation.
+
+## 2. Evidence, one example per cause
+
+### 2.1 Writer's situation and task genre
+
+<Columns>
+  <Column label="How the HTML pages were commissioned">
+    Carl, in the thread, after a prose walkthrough and two question-and-answer turns:
+
+    > I'm still reading through this - but whilst I do, can you create a visualisation to help me understand it better. Maybe a HTML doc would help
+
+    Carl, for the document-classification explainer:
+
+    > I want you to prepare a html artefact that explains the workings of the new document classification system… an explainer that helps me understand all the new pieces and one that would enable *me* to communicate…
+  </Column>
+  <Column label="How the MDX documents were commissioned">
+    An orchestrator's brief to a child researcher:
+
+    > Deliver an annotatable MDX recap per the `mdx-visual-recap` skill with the answers above…
+
+    Another, to a child planner:
+
+    > delivered as a signed, reviewable plan… The human reviews the direction before any code is written, so the plan must let a reader who has not seen the research decide with confidence.
+  </Column>
+</Columns>
+
+Four of four HTML pages were written by a root thread; three of four were asked for by a human in plain words naming a comprehension goal. Five of six MDX documents were written by a child from a brief naming an approval job. Only two of the four HTML pages ran the visual-explainer `prepare` step at all, and its goal and audience fields are optional — the reader contract came from the human's own request, which no child ever hears.
+
+### 2.2 The first screen
+
+<Columns>
+  <Column label="An MDX plan opens (first 60 of 190 words)">
+    > **Objective.** Loom's server has two SQLite connections: an in-process writer (the default `SqlClient`) and a worker-thread reader (`SqlReadClient`, `PRAGMA query_only`). Two defects share one cause: (1) which repositories actually run on the reader is decided by Effect layer-memoisation order, not by the code — …
+
+    The decision itself is a second 130-word callout. In the recaps, the first block after the title is the review protocol: *"If you leave a finding undecided, it counts as accepting the recommendation."*
+  </Column>
+  <Column label="An HTML verdict page opens">
+    > Of 69 items: **10 apply as-is, 15 apply once amended, 23 should be withdrawn**, 10 deferred, 10 correctly parked, 1 reclassified. Five further corrections the dossier never wrote should be added.
+
+    …followed immediately by a six-tile number grid, one coloured number per disposition. The orientation page opens with a red box: *"**The one clock that is ticking:** 19 tenancies across 13 buildings currently display audit advice instructing clients to **overwrite correct ERP dates with our wrong inferred ones**…"*
+  </Column>
+</Columns>
+
+The instruction that produces each shape. The recap skill: *"Top `<Callout tone="decision">` stating the review protocol and the silence-defaults-to-recommendation rule … This is the first viewport: what is being decided and what sign-off means."* The visual-explainer skill: *"visual hierarchy makes the main idea obvious in the first viewport."*
+
+### 2.3 Devices the vocabulary lacks
+
+Of the twelve devices that carry most of the meaning in the four HTML pages, **three are native** in MDX (toned callout, collapsible drill-down, before/after columns), **five are degraded** (card grids, stepper, pipeline, tables with meaning in colour, title and section hierarchy) and **four are impossible** with the documented vocabulary: inline status pills, the number strip, the state-coloured matrix and timeline, and proportion bars. Pills are the one device all four pages lean on hardest — in sentences, table cells, headings and legends. The strip at the top of this document is what reaching for the escape hatch costs.
+
+### 2.4 Insider register
+
+<Columns>
+  <Column label="MDX recap, the answer paragraph">
+    > The skill-author `e1494212` was the rework target of the reviewer `skill-review` (`6bb5e721`), and that reviewer was still `ready`. But the scaffolded graph made that reviewer wait, through `script-review` (`87121b33`), on the coder `e6edff99`.
+  </Column>
+  <Column label="HTML explainer, the opening">
+    > Your v1 system answers *"what type is this file?"* — flat per-document labels, per company, via a LangGraph of prompt/invoke/parse nodes. That leaves downstream consumers (extraction, audit) to *guess* at everything relational…
+  </Column>
+</Columns>
+
+The instruction behind the left column is the recap skeleton: *"A 1–3 paragraph outcome narrative — what changed and why, in the codebase's vocabulary."* Nothing in the MDX pipeline asks who the reader is or what they already know; the only gloss rule ("never leave a label the document coined … unglossed") applies to the question form, not the body. Carl has asked for the missing thing directly in past sessions: *"walk me through with examples… these abstract explanations are meaningless to me."*
+
+### 2.5 Judgement as sentences
+
+One row of a six-option weighing table in an MDX plan, as authored:
+
+> "weak: colour-only, and the title already encodes unread / receded / active by colour and weight", "collides with the title's existing state styling", "no (tooltip could add it)", "trivial, web only"
+
+The same job in the HTML orientation page is a column of `OURS` / `THEIRS` / `BOTH` pills and an evidence footer per card. Half of this is authoring: `Card` already has a `badge` and `meta` chips, and the two best MDX recaps use them exactly this way (`badge="RECOMMENDED · fix now"`, `meta` of `"client only", "no new RPC", "removes ~91% of false chips"`). The other half is medium: a table cell cannot hold a pill. Here is the nearest this vocabulary gets —
+
+<Table
+  density="compact"
+  columns={["Axis", "Whose defect", "Fix kind"]}
+  rows={[
+    ["A3 · The audit gives orders it hasn't earned", "OURS", "CODE"],
+    ["A4 · Trading name invented from a safety report", "BOTH", "EXPLAIN"],
+  ]}
+/>
+
+— plain strings, no colour, and bold or inline code in a cell renders as literal characters. The doctrine that discourages the badge even where it exists: *"Prose first; blocks earn their place. The default surface is Markdown (GFM) prose"* and *"No hero headings, gradients, logos, nav bars, slogans, value props, or marketing cards."*
+
+### 2.6 Flat rendering
+
+This section's heading is the evidence: in the stylesheet, a document title is 1.25rem, a section heading 1.125rem and a sub-heading 1rem, all over 16px body text, with no rule between sections and no generated outline. The HTML pages run 30–34px titles and 21–24px section heads over 15px body, with numbered `01…06` heads and a sticky section nav. Card badges and meta chips are 10px grey, so status reads as metadata rather than signal. Prose and every container block sit in a ~848px column — four cards side by side are impossible, while the HTML pages use 1060–1180px.
+
+## 3. Interventions
+
+Grouped by cost. Each card says what changes for you as a reader, the rough effort, and a recommendation.
+
+### 3.1 Cheap — text in the skills and the briefs
+
+<Card id="iv-reader-brief" heading="A reader brief before any document is drafted" tone="success" badge="RECOMMENDED" meta={["hours", "addresses causes 1 and 4"]}>
+  Before writing, the author states who reads this, what they already know, and what they must be able to say or decide after the first screen — in the frontmatter, lint-checked for presence. The same three lines become a required field in every orchestrator brief, so a child writing cold inherits the reader contract the HTML authors got from conversation. For you: documents open by answering your question rather than the brief's.
+
+  <ReviewChoice itemId="iv-reader-brief" label="Reader brief step" />
+</Card>
+
+<Card id="iv-skeletons" heading="Rewrite the plan and recap skeletons to lead with the answer" tone="success" badge="RECOMMENDED" meta={["about a day", "addresses cause 2"]}>
+  First screen: the verdict and its numbers, then what it means, then the evidence. The review-protocol callout becomes one line *after* the answer; file maps and diff tabs move into drill-downs; plans open with the recommendation, not the work objective. The final checklist gains one line: a reader who has read nothing can state the conclusion and their decision from the first screen.
+
+  <ReviewChoice itemId="iv-skeletons" label="Skeleton rewrite" />
+</Card>
+
+<Card id="iv-doctrine" heading="Replace 'prose first, emphasis banned' with an information-hierarchy doctrine" tone="success" badge="RECOMMENDED" meta={["hours", "addresses causes 4 and 5"]}>
+  Main idea in the first viewport; overview before detail; one literal example beside every claim; judgement in `Card` tone, badge and meta rather than in sentences; numbered sections; the gloss rule extended to body prose. Keep the ban only for marketing copy. For you: fewer sentences per judgement, and no "M4" without a gloss.
+
+  <ReviewChoice itemId="iv-doctrine" label="Hierarchy doctrine" />
+</Card>
+
+<Card id="iv-exemplars" heading="Ship two or three real exemplars instead of syntax recipes" tone="success" badge="RECOMMENDED" meta={["1–2 days", "addresses causes 2, 4, 5"]}>
+  Today's worked example is a renderer test fixture with placeholder text; the skeleton reference contains no MDX at all. Replace them with complete real-content documents — a recap, an explainer, a decision batch — that open with a verdict and carry one example per claim. Section 4's test produces the first one for free.
+
+  <ReviewChoice itemId="iv-exemplars" label="Real exemplars" />
+</Card>
+
+<Card id="iv-explainer-genre" heading="Add an explainer genre" tone="success" badge="RECOMMENDED" meta={["about a day", "addresses cause 1"]}>
+  MDX has a plan and a recap. Your HTML requests are mostly *explain, orient, diagnose* — a third job with no genre, so it lands in a decision skeleton or the agent reaches for HTML. An explainer reads summary, mental model, mechanism with examples, what to do next; no review protocol. For you: the "help me understand" document arrives in the annotatable panel instead of a standalone file.
+
+  <ReviewChoice itemId="iv-explainer-genre" label="Explainer genre" />
+</Card>
+
+### 3.2 Medium — the renderer's stylesheet
+
+<Card id="iv-type-scale" heading="Type scale, section rhythm and chrome size" tone="success" badge="RECOMMENDED" meta={["hours", "one CSS file", "addresses cause 6"]}>
+  Title to about 1.75rem, section heads to about 1.375rem with a top rule, a lede style for the first paragraph, a small muted style for provenance lines, card badges and meta chips up from 10px. For you: a long document stops reading as one undifferentiated column.
+
+  <ReviewChoice itemId="iv-type-scale" label="Type scale" />
+</Card>
+
+<Card id="iv-bleed" heading="Let grids use the panel's width" tone="success" badge="RECOMMENDED" meta={["hours", "addresses cause 6"]}>
+  Let `Columns` (and probably `Card`) bleed past the prose column as code and tables already do; keep the prose measure, which is right for reading. For you: four option cards side by side instead of three plus an orphan.
+
+  <ReviewChoice itemId="iv-bleed" label="Grid bleed" />
+</Card>
+
+<Card id="iv-nav" heading="A generated section outline" tone="neutral" badge="LATER" meta={["about a day", "addresses cause 6"]}>
+  A sticky outline for documents with four or more sections, from the heading ids the renderer already stamps. Numbered headings get most of the benefit first; do this if a long document still feels unnavigable after that.
+
+  <ReviewChoice itemId="iv-nav" label="Section outline" />
+</Card>
+
+### 3.3 Larger — new blocks
+
+<Card id="iv-badge" heading="An inline Badge" tone="success" badge="RECOMMENDED · FIRST" meta={["1–2 days", "addresses causes 3 and 5"]}>
+  An inline element for sentences, list items, table cells and column labels, on the card palette, plus a `badges` array on `Card` so a pill's colour is independent of the card's tone. The one device every HTML page leans on hardest and MDX cannot do at all. For you: `OURS` / `THEIRS` and `HOLD` / `READY` read at a glance.
+
+  <ReviewChoice itemId="iv-badge" label="Inline Badge" />
+</Card>
+
+<Card id="iv-table" heading="Rich table cells" tone="success" badge="RECOMMENDED" meta={["1–2 days", "addresses cause 3"]}>
+  Cells as inline markdown (so badges, code and bold work), column alignment, per-row or per-cell tone. Today bold and backticks render as literal characters, and the highlighted-row matrix two HTML pages are built around has no home. For you: comparison tables you scan by colour.
+
+  <ReviewChoice itemId="iv-table" label="Rich tables" />
+</Card>
+
+<Card id="iv-stats" heading="A Stats number strip" tone="success" badge="RECOMMENDED" meta={["about a day", "addresses cause 3"]}>
+  Tiles of large numbers with a label and tone, auto-fitting across the panel — the native version of the strip at the top of this document, themed and annotatable.
+
+  <ReviewChoice itemId="iv-stats" label="Stats strip" />
+</Card>
+
+<Card id="iv-steps" heading="A Steps / Flow block" tone="neutral" badge="DEFER" meta={["2–3 days", "addresses cause 3"]}>
+  Ordered stage cards with connectors, horizontal for a pipeline or vertical for a ladder, each with a badge, meta line and a done / dropped / hot state. Real value, but it appeared in two pages each; wait for a document that needs it.
+
+  <ReviewChoice itemId="iv-steps" label="Steps block" />
+</Card>
+
+<Card id="iv-htmlblock" heading="Make the HtmlBlock escape hatch practical" tone="success" badge="RECOMMENDED" meta={["about a day", "addresses cause 3"]}>
+  Auto-size the frame from its content (it is same-origin, so the host can measure it), inject the app's theme tokens, and add a small proportion-bar block. For you: a bespoke figure stops arriving as a clipped white box with a guessed height.
+
+  <ReviewChoice itemId="iv-htmlblock" label="HtmlBlock fixes" />
+</Card>
+
+### 3.4 A decision needed regardless of the gap work
+
+<Card id="iv-raw-html" heading="Raw lowercase HTML passes lint and renders in the live app" tone="risk" badge="SECURITY · DECIDE NOW" meta={["hours to close", "independent of the gap"]}>
+  The guard that limits MDX to the documented blocks only checks capitalised tags; lowercase tags render as live DOM. Probes confirmed that `style` sheets (which restyle the whole app), fixed-position overlays and a remote iframe all lint clean and render. Recommendation: reject lowercase tags outside a small unstyled allow-list (span, mark, kbd, sub, sup, small), and get pills from the Badge block rather than by sanctioning styled spans.
+
+  <ReviewChoice itemId="iv-raw-html" label="Raw HTML hole" />
+</Card>
+
+## 4. The cheapest test that would prove this
+
+One child thread, one brief, two documents. Reuse the brief that produced the fan-in deadlock recap (the most insider-heavy MDX in the sample) with three added lines — who reads it, what they know, what they must be able to say after the first screen. The child writes the HTML page with the visual-explainer skill and the MDX recap with today's vocabulary under a one-page draft of the reader-brief and answer-first rules. You then have three documents on one subject.
+
+Existing MDX against new MDX isolates the instruction effect (same role, same medium). New MDX against new HTML isolates the medium (same writer context). What the cold-written HTML loses against the four root-written pages is the writer's-situation effect. Cost: about an hour of child time and a short reading pass. If the new MDX closes most of the distance, the cheap tier suffices and renderer work can follow at leisure; if not, the residual names which blocks matter. Zero-cost fallback: next time you ask a root for a "help me understand" page, have it produce the MDX too.
+
+This document is a smaller version of the same test — written under the proposed rules with today's vocabulary and one escape-hatch figure. Where it could not do what the HTML pages do, the text says so in place.
+
+## 5. One open question
+
+<QuestionForm
+  questions={[
+    {
+      id: "sequencing",
+      title: "Run the test before any renderer or block work, or start the cheap tier and the stylesheet pass now and let the test decide only the new blocks?",
+      subtitle: "The cheap tier (reader brief, skeletons, doctrine, exemplars, explainer genre) and the stylesheet pass are hours to a day each and low-risk; the new blocks are the larger investment the test is meant to size.",
+      mode: "single",
+      options: [
+        {
+          id: "cheap-and-css-now",
+          label: "Start the cheap tier and the stylesheet pass now; use the test to decide which new blocks to build",
+          recommended: true,
+          detail: "Fastest visible change; the test then sizes only the expensive part."
+        },
+        {
+          id: "test-first",
+          label: "Run the test first and let it decide the whole programme",
+          detail: "Cleanest evidence, but delays changes that are cheap and unlikely to be wrong."
+        },
+        {
+          id: "all-parallel",
+          label: "Do all three tiers in parallel; the test becomes a check, not a gate",
+          detail: "Most work in flight at once; the risk is building blocks the writing fixes would have made unnecessary."
+        }
+      ]
+    }
+  ]}
+/>

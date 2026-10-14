@@ -12,6 +12,10 @@ import { MdxPlanRenderer } from "../components/files/mdx-plan/MdxPlanRenderer";
 import { lintPlanSource } from "../components/files/mdx-plan/planLint";
 import { MDX_QUESTION_REFS_FIXTURE_SOURCE } from "./fixtures";
 
+// Anchor resolution is an error-level rule; fixtures carry no reader brief (a warning).
+const lintErrors = async (source: string) =>
+  (await lintPlanSource(source)).filter((finding) => finding.severity === "error");
+
 /**
  * loom — the "peek at the referenced section" feature, driven against the REAL
  * renderer. It earns a test because its risk is invisible to a static read: the
@@ -34,7 +38,10 @@ const renderPlan = async (source: string) => {
   });
   await settle();
   const button = (label: string) =>
-    [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)!;
+    // Skip the section outline, whose chips repeat the H2 texts the refs name.
+    [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === label && !b.closest('nav[aria-label="Sections"]'),
+    )!;
   const click = async (label: string) => {
     await act(async () => button(label).click());
     await settle();
@@ -190,7 +197,7 @@ describe("question ref peek", () => {
           `${name} / ${slug}`,
         ).resolves.toBeTruthy();
       }
-      expect(await lintPlanSource(source), name).toEqual([]);
+      expect(await lintErrors(source), name).toEqual([]);
     }
 
     const nested = await compilePlanDocument(GNARLY["heading nested in a container"]!);
@@ -215,7 +222,7 @@ describe("question ref peek", () => {
   });
 
   it("lints clean (every ref anchor resolves to a heading)", async () => {
-    expect(await lintPlanSource(MDX_QUESTION_REFS_FIXTURE_SOURCE)).toEqual([]);
+    expect(await lintErrors(MDX_QUESTION_REFS_FIXTURE_SOURCE)).toEqual([]);
   });
 
   it("reveals the section without disturbing document anchoring", async () => {
