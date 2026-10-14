@@ -40,7 +40,7 @@ import * as Stream from "effect/Stream";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { LOOM_EMERGENT_GOAL_PREFIX } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { forkParked } from "../../serverActivation.ts";
-import { RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { buildEmergentGoalPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";

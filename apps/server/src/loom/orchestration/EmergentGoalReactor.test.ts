@@ -15,7 +15,7 @@ import * as PubSub from "effect/PubSub";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import { RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {

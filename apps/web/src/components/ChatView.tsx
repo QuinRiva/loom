@@ -9194,7 +9194,6 @@ export default function ChatView(props: ChatViewProps) {
       isServerThread &&
       (await interceptLoomDraftCommand({
         source: scopeThreadRef(activeThread.environmentId, activeThread.id),
-        sourceMidTurn: phase === "running", // loom: mid-turn, /retro stays on this thread
         submittedPrompt: promptForSend,
         trimmedPrompt: trimmed,
         hasAttachmentsOrContexts: composerHasNonPromptContent,

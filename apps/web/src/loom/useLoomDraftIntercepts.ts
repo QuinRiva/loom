@@ -19,7 +19,6 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { waitForThreadShell } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -33,8 +32,6 @@ import { loomCommands } from "./loomGoalState";
 
 export interface LoomDraftInterceptPorts {
   readonly source: ScopedThreadRef;
-  /** The source is mid-turn: `/retro` stays on it and offers the reviewer in a toast. */
-  readonly sourceMidTurn: boolean;
   readonly submittedPrompt: string;
   readonly trimmedPrompt: string;
   readonly hasAttachmentsOrContexts: boolean;
@@ -123,25 +120,13 @@ export function useLoomDraftIntercepts() {
           // missing thread and bounces to `/` (as upstream's fork action avoids).
           (result) => {
             const reviewer = scopeThreadRef(source.environmentId, result.reviewerThreadId);
-            const open = () =>
-              void waitForThreadShell(reviewer).then((ready) => {
-                if (ready)
-                  void navigate({
-                    to: "/$environmentId/$threadId",
-                    params: buildThreadRouteParams(reviewer),
-                  });
-              });
-            // Mid-turn, stay with the running source and offer the reviewer instead.
-            if (ports.sourceMidTurn)
-              toastManager.add(
-                stackedThreadToast({
-                  type: "info",
-                  title: "Retro started",
-                  description: "The retro reviewer is running in its own thread.",
-                  actionProps: { children: "Open retro", onClick: open },
-                }),
-              );
-            else open();
+            void waitForThreadShell(reviewer).then((ready) => {
+              if (ready)
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(reviewer),
+                });
+            });
           },
         );
       }

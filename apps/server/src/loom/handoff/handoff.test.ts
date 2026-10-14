@@ -63,10 +63,10 @@ import {
   buildRetroKickoffPrompt,
   buildRetroTitle,
   launchRetro,
-  RETRO_REVIEWER_ROLE,
   RETRO_SKILL_PATH,
   type RetroManifest,
 } from "./retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "./retroRole.ts";
 
 const pi = ProviderDriverKind.make("pi");
 const createdAt = "2026-01-01T00:00:00.000Z";

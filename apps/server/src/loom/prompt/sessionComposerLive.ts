@@ -48,7 +48,8 @@ import {
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
-import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { agentGitEnv, materializeGitShim } from "../workstream/agentGitIdentity.ts";
 import * as LoomStore from "../projection/LoomStore.ts";

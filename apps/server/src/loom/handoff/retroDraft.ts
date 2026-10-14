@@ -40,9 +40,7 @@ import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { LOOM_REPO_ROOT } from "../prompt/roleOverlay.ts";
 import { writeWorkstreamBrief } from "../workstream/brief.ts";
 import { curatedTitle } from "./handoffDraft.ts";
-
-/** The role every retro-reviewer special case keys on (the composer's server-owned overlay). */
-export const RETRO_REVIEWER_ROLE = "retro-reviewer";
+import { RETRO_REVIEWER_ROLE } from "./retroRole.ts";
 
 /** Where each retro's run directory (manifest, digest, recap) is claimed. */
 export const RETRO_RUNS_DIR = NodePath.join(NodeOS.homedir(), "loom-retro", "runs");
@@ -278,10 +276,12 @@ export const launchRetro = (input: {
         ),
       { concurrency: 8 },
     );
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const now = yield* DateTime.now;
+    const createdAt = DateTime.formatIso(now);
+    // The run directory carries the server's local date, as the human reads it.
     const runDir = yield* claimRunDir(
       input.runsDir,
-      `${createdAt.slice(0, 10)}-${slugify(root.title, "retro")}`,
+      `${DateTime.formatIsoDate(DateTime.setZone(now, DateTime.zoneMakeLocal()))}-${slugify(root.title, "retro")}`,
     );
     const focus = input.focus ?? "general";
     const manifest: RetroManifest = {
