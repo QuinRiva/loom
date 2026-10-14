@@ -89,12 +89,12 @@ export const LOOM_HIDDEN_TOOLS_ENV = {
 
 /**
  * How long a goal-less root's first launch waits for its emergent goal (`EmergentGoalGate`) so
- * the goal lands in the launch identity. The generation runs 1–10 s from the user's message and
- * the session open overlaps it, so the wait is usually a few seconds; past this a stuck
- * generation would only delay the first turn, and its goal still reaches the agent later as a
- * goal-change notice.
+ * the goal lands in the launch identity. The derivation takes about 7 s from the user's message
+ * (11.5 s at most across 43 recorded ones); worktree preparation overlaps part of it. Past the
+ * cap a stuck generation would only hold up the first turn (and an effect-worker slot); its goal
+ * still reaches the agent as a goal-change notice.
  */
-const FIRST_LAUNCH_GOAL_WAIT = "10 seconds";
+const FIRST_LAUNCH_GOAL_WAIT = "15 seconds";
 
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(
