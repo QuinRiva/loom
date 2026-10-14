@@ -330,7 +330,7 @@ export const launchRetro = (input: {
       `${JSON.stringify(manifest, null, 2)}\n`,
     );
 
-    const reviewerThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4);
+    const reviewerThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
     const kickoff = buildRetroKickoffPrompt(manifest, RETRO_SKILL_PATH);
     for (const command of buildRetroCommands({
       source,
