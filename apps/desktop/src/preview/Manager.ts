@@ -2304,7 +2304,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         const onNavigated = (
           event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
         ) => {
-          if (event.isMainFrame) settle(null);
+          // loom: pushState/hash changes keep the document, and with it the
+          // pop-up and its note; settling here orphaned the note's submit.
+          if (event.isMainFrame && !event.isSameDocument) settle(null);
         };
         const registerPickElement = Effect.fn("PreviewManager.registerPickElement")(function* () {
           // Two picks on one tab can overlap. Swap this session in and cancel

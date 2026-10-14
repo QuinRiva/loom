@@ -3954,7 +3954,8 @@ describe("PreviewManager", () => {
     ),
   );
 
-  effectIt.effect("keeps element picking active during subframe navigation", () =>
+  // loom: same-document navigation keeps the pick too
+  effectIt.effect("keeps element picking active during subframe and same-document navigation", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -4003,6 +4004,16 @@ describe("PreviewManager", () => {
           url: "about:blank",
           isSameDocument: false,
           isMainFrame: false,
+          frame: null,
+        });
+        yield* Effect.yieldNow;
+        expect(pick.pollUnsafe()).toBeUndefined();
+
+        // loom: a pushState/hash change keeps the document and its pop-up
+        listeners.get("did-start-navigation")?.({
+          url: "https://example.com/#section",
+          isSameDocument: true,
+          isMainFrame: true,
           frame: null,
         });
         yield* Effect.yieldNow;

@@ -369,6 +369,7 @@ import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
+import { usePreviewSurfaceAnnotating } from "../loom/previewAnnotationPicks"; // loom: annotation picks
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -2332,6 +2333,12 @@ export default function ChatView(props: ChatViewProps) {
   );
   const activePreviewState = useThreadPreviewState(activeThreadRef);
   const activePreviewServerEpoch = activePreviewState.serverEpoch;
+  // loom: whether the visible preview has an annotation pop-up open
+  const previewAnnotating = usePreviewSurfaceAnnotating(
+    activeThreadRef,
+    activePreviewState,
+    activeRightPanelSurface,
+  );
   const previewSessionsReady = !activeEnvironmentServerBrowser || activePreviewState.listLoaded;
   const resolvePreviewRuntimeTabId = useMemo(
     () =>
@@ -5813,7 +5820,10 @@ export default function ChatView(props: ChatViewProps) {
     }
     if (!clientSettingsHydrated) return;
 
-    const proactivePanelsEnabled = settings.proactivePanelsEnabled && !shouldUsePlanSidebarSheet;
+    // loom: no automatic opens over a preview being annotated — switching away
+    // would hide the annotation pop-up mid-note (seed, don't override).
+    const proactivePanelsEnabled =
+      settings.proactivePanelsEnabled && !shouldUsePlanSidebarSheet && !previewAnnotating;
     const eligibleLink =
       proactivePanelsEnabled &&
       shouldOpenProactivePullRequest(previousTargetKey, proactivePullRequestsKey);
@@ -5902,7 +5912,7 @@ export default function ChatView(props: ChatViewProps) {
     pullRequestsCapabilityKnown,
     pullRequestsSurfaceAvailable,
     visiblePullRequestCount,
-
+    previewAnnotating, // loom: annotation picks
     settings.proactivePanelsEnabled,
     shouldUsePlanSidebarSheet,
     threadDetailLoading,
