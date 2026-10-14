@@ -7,7 +7,8 @@
  * Seam 21 (integrated): 3b's drafter methods, 3d's goal methods (each writes
  * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
  * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438),
- * the timeline's outcome history (DL-620), and the consult card's Stop.
+ * the timeline's outcome history (DL-620), the consult card's Stop, and the
+ * Prompt button's captured-prompt lookup.
  *
  * @module loom/wsMethods
  */
@@ -22,6 +23,7 @@ import {
   type LoomGoalTaskRewriteInput,
   type LoomGoalTaskRewriteNode,
   type LoomGoalUpdateInput,
+  type LoomPromptCaptureInput,
   type LoomThreadHistoryInput,
   type LoomThreadSpendInput,
   type LoomTopSpendInput,
@@ -30,13 +32,16 @@ import {
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Struct from "effect/Struct";
 
+import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
 import { buildRetroDraftTurnStart } from "./handoff/retroDraft.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
+import { promptCapturePathsOf } from "./loomPaths.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
 import {
   type LoomGoalTaskInput,
@@ -213,6 +218,18 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     // The consult card's Stop: the asker's tool call fails with the stop sentence and carries on.
     [LOOM_WS_METHODS.consultCancel]: (input: LoomConsultCancelInput) =>
       consult.cancel(input.consultId).pipe(Effect.map((stopped) => ({ stopped }))),
+    // The Prompt button: each captured-prompt path, or null while that file is absent.
+    [LOOM_WS_METHODS.promptCapture]: (input: LoomPromptCaptureInput) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const { latest, first } = promptCapturePathsOf(yield* ServerConfig, input.threadId);
+        const present = (path: string) =>
+          fileSystem.exists(path).pipe(
+            Effect.orElseSucceed(() => false),
+            Effect.map((exists) => (exists ? path : null)),
+          );
+        return { latest: yield* present(latest), first: yield* present(first) };
+      }),
   };
 });
 

@@ -1,0 +1,66 @@
+import type { LoomPromptCaptureResult, ThreadId } from "@t3tools/contracts";
+import { BugIcon, ChevronDownIcon } from "lucide-react";
+import { useContext, useEffect, useState } from "react";
+
+import { Button } from "../components/ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
+import { isAbsolutePreviewablePath } from "../markdown-links";
+import { useAtomCommand } from "../state/use-atom-command";
+import { loomCommands } from "./loomGoalState";
+import { WorkstreamEnvironmentContext } from "./WorkstreamSpendSlot";
+
+const previewable = (path: string | null | undefined) =>
+  path && isAbsolutePreviewablePath(path) ? path : null;
+
+/**
+ * The workstream surface's Prompt menu: opens a thread's captured system prompt
+ * (pi's prompt-debug sidecar), either the latest agent start's or the kickoff's.
+ * Asks `loom.promptCapture` when the thread changes or `refreshKey` moves (only
+ * whether a capture exists can change; the file is read fresh on open). Renders
+ * nothing until a capture exists.
+ */
+export function PromptCaptureMenu({
+  threadId,
+  refreshKey,
+  onOpen,
+}: {
+  readonly threadId: ThreadId;
+  readonly refreshKey: string;
+  readonly onOpen: (path: string) => void;
+}) {
+  const environmentId = useContext(WorkstreamEnvironmentContext);
+  const load = useAtomCommand(loomCommands.promptCapture, { reportFailure: false });
+  const [loaded, setLoaded] = useState<{
+    readonly threadId: ThreadId;
+    readonly capture: LoomPromptCaptureResult;
+  } | null>(null);
+  useEffect(() => {
+    if (environmentId === null) return;
+    let cancelled = false;
+    void load({ environmentId, input: { threadId } }).then((result) => {
+      if (!cancelled && result._tag === "Success") setLoaded({ threadId, capture: result.value });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [environmentId, threadId, refreshKey, load]);
+  const capture = loaded?.threadId === threadId ? loaded.capture : null;
+  const latest = previewable(capture?.latest);
+  const first = previewable(capture?.first);
+  if (latest === null) return null;
+  return (
+    <Menu>
+      <MenuTrigger
+        render={<Button size="xs" variant="outline" aria-label="Open captured system prompt" />}
+      >
+        <BugIcon />
+        Prompt
+        <ChevronDownIcon />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuItem onClick={() => onOpen(latest)}>Latest system prompt</MenuItem>
+        {first ? <MenuItem onClick={() => onOpen(first)}>Kickoff prompt</MenuItem> : null}
+      </MenuPopup>
+    </Menu>
+  );
+}

@@ -14,6 +14,7 @@ import {
 } from "../lib/workstreamPresentation";
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
+import { PromptCaptureMenu } from "../loom/PromptCaptureMenu";
 import { ThreadLineageBreadcrumb } from "../loom/ThreadLineageBreadcrumb";
 import { useOpenHandoffOrigin } from "../loom/ThreadStart"; // loom: "Started by" lands at the handoff
 import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamState";
@@ -124,6 +125,14 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
               <WorkstreamTotalSpend threadIds={workstream} />
+              {/* The root renders only as graph bridges, so its prompt is reached here. */}
+              {rootId ? (
+                <PromptCaptureMenu
+                  threadId={rootId}
+                  refreshKey={nodes.get(rootId)?.lastActivityAt ?? ""}
+                  onOpen={onOpenReport}
+                />
+              ) : null}
               {rollup ? (
                 <Badge size="sm" variant="outline">
                   {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total}{" "}

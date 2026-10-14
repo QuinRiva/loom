@@ -226,6 +226,7 @@ const RPC_AGGREGATES = {
   [LOOM_WS_METHODS.topSpend]: "loom",
   [LOOM_WS_METHODS.threadHistory]: "loom",
   [LOOM_WS_METHODS.consultCancel]: "loom",
+  [LOOM_WS_METHODS.promptCapture]: "loom", // loom: the workstream Prompt button
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

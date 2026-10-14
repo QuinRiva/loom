@@ -12,7 +12,6 @@ import { LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
@@ -23,7 +22,7 @@ import { HUMAN_INPUT, UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstr
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
-import { loomPaths } from "../loomPaths.ts";
+import { loomPaths, promptCapturePathsOf } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
@@ -100,10 +99,7 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
     hasParent,
     denyList: UPSTREAM_WITHHELD_TOOLS,
     // V1 captured every pi thread's prompt; there is no setting to gate it.
-    promptDebugPath: (yield* Path.Path).join(
-      promptDebugDir,
-      `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}.md`,
-    ),
+    promptDebugPath: promptCapturePathsOf(config, threadId).latest,
   } satisfies LoomSessionProfile;
 });
 
