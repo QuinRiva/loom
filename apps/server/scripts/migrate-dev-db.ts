@@ -154,6 +154,8 @@ export interface RunMigrateDevDbInput {
   readonly source?: string | undefined;
   readonly projects: number;
   readonly threadsPerProject: number;
+  /** loom: a workstream root whose whole family is kept even when settled or archived. */
+  readonly root?: string | undefined;
 }
 
 export interface RunMigrateDevDbOptions {
@@ -269,6 +271,12 @@ const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
   AND json_extract(root.payload_json, '$.settledAt') IS NULL
   AND json_extract(root.payload_json, '$.settledOverride') IS NOT 'settled'`;
 
+// loom: `--root` keeps one family whatever its visibility (a finished, settled tree for /retro).
+const rootIsCopied = (sql: SqlClient.SqlClient, root: string | undefined) =>
+  root === undefined
+    ? rootIsVisible(sql)
+    : sql`(${rootIsVisible(sql)} OR root.thread_id = ${root})`;
+
 /**
  * Copies the source into the empty snapshot, without the rows of thread families whose root is
  * hidden. The prune drops those anyway, and they hold nearly all of a long-lived database's
@@ -276,7 +284,10 @@ const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
  * A source from before the V2 thread tables has no visibility to filter on, so it is copied
  * whole. One transaction reads the source, so the copy is consistent while the real server writes.
  */
-const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath: string) {
+const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
+  sourcePath: string,
+  root: string | undefined, // loom: --root
+) {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`ATTACH DATABASE ${`${NodeURL.pathToFileURL(sourcePath).href}?mode=ro`} AS src`;
   const schema = yield* sql<{ type: string; name: string; sql: string }>`
@@ -286,7 +297,15 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
     SELECT m.name, c."notnull" FROM src.sqlite_master m, pragma_table_info(m.name, 'src') c
     WHERE m.type = 'table' AND c.name = 'thread_id'`;
   const threadIdNullable = new Map(threadColumns.map((row) => [row.name, row.notnull === 0]));
-  const tables = schema.filter((entry) => entry.type === "table");
+  // loom: an FTS5 table's shadow tables (`<name>_data`, …) are created with it and refilled by
+  // copying its rows, so creating or copying them directly fails ("reserved for internal use").
+  const virtualTables = schema.flatMap((entry) =>
+    /^CREATE VIRTUAL TABLE/i.test(entry.sql) ? [`${entry.name}_`] : [],
+  );
+  const tables = schema.filter(
+    (entry) =>
+      entry.type === "table" && !virtualTables.some((prefix) => entry.name.startsWith(prefix)),
+  );
   const filtered = tables.some((table) => table.name === "orchestration_v2_projection_threads");
 
   yield* sql.withTransaction(
@@ -298,7 +317,7 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
           SELECT family.thread_id FROM src.orchestration_v2_projection_threads family
           JOIN src.orchestration_v2_projection_threads root ON root.thread_id =
             COALESCE(json_extract(family.payload_json, '$.lineage.rootThreadId'), family.thread_id)
-          WHERE ${rootIsVisible(sql)}`;
+          WHERE ${rootIsCopied(sql, root)}`; // loom: --root
       }
       for (const { name } of tables) {
         if (CLEARED_TABLES.includes(name)) continue;
@@ -397,6 +416,13 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       )
       WHERE recency_rank <= ${input.threadsPerProject}
     )`;
+  // loom: --root's family and project are kept on top of the recency slice.
+  if (input.root !== undefined) {
+    yield* sql`INSERT INTO kept_projects
+      SELECT project_id FROM orchestration_v2_projection_threads WHERE thread_id = ${input.root}`;
+    yield* sql`INSERT INTO kept_threads
+      SELECT thread_id FROM thread_families WHERE root_id = ${input.root}`;
+  }
 
   // Every V2 table and every V1 table the lazy importer reads is keyed by
   // thread_id, so one sweep covers both and new tables need no change here.
@@ -536,7 +562,8 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
   // Make sure the snapshot is removed even when a phase fails partway through.
   const { executedMigrations, pruned } = yield* Effect.gen(function* () {
     yield* Console.log(`Copying visible threads from ${sourcePath} (read-only)...`);
-    yield* copySourceSlice(sourcePath).pipe(
+    yield* copySourceSlice(sourcePath, input.root).pipe(
+      // loom: --root
       Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
       wrapPhase("snapshot", sourcePath),
     );
@@ -641,14 +668,22 @@ export const migrateDevDbCommand = Command.make(
       Flag.optional,
       Flag.withDescription("Source database. Defaults to ~/.t3/userdata/statev2.sqlite."),
     ),
+    // loom: --root
+    root: Flag.String("root").pipe(
+      Flag.optional,
+      Flag.withDescription(
+        "A workstream root thread id whose whole family is kept, even when settled or archived.",
+      ),
+    ),
   },
-  ({ projects, threadsPerProject, baseDir, source }) =>
+  ({ projects, threadsPerProject, baseDir, source, root }) =>
     Effect.gen(function* () {
       const result = yield* runMigrateDevDb({
         projects,
         threadsPerProject,
         baseDir: Option.getOrUndefined(baseDir),
         source: Option.getOrUndefined(source),
+        root: Option.getOrUndefined(root), // loom: --root
       });
       yield* Console.log("");
       yield* Console.log(
