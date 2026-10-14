@@ -147,6 +147,16 @@ export const LOOM_TOOL_PROSE = {
       "title must be a non-empty string. Set a clear, specific title when the current one is unhelpful or your scope has sharpened.",
     ].join("\n"),
   },
+  snooze_thread: {
+    description:
+      "Snooze THIS thread out of the human's inbox once your current turn ends, until the ISO-8601 datetime you pass (`until`, at most 30 days ahead). The thread is always resolved from the session, so you can only ever snooze yourself — never another thread or a child. The snooze is deferred, not immediate: a snooze applied mid-turn would be undone the moment the run completes, so the server records your request and applies it when this turn finishes idle. It is a quiet-until-something-happens hold, not a lock: any inbound message — a pull-request watch wake, a notification, a human reply, a parent's prompt — un-snoozes the thread at once, and the thread wakes on its own when `until` passes. Use it after a triage pass on work you are only babysitting (typically a watched pull request), so the thread costs the human no attention until the watch wakes you or the snooze lapses. Calling it again simply replaces the pending request — re-snooze with the same `until` after each wake you have handled; pass cancel: true to withdraw a request made earlier this turn. A turn that ends with a pending question or an attention flag is never hidden — the human must see those.",
+    promptSnippet:
+      "hide this thread from the human's inbox once your turn ends, until a datetime you pass; any inbound message (a PR watch wake, a reply) un-snoozes it.",
+    promptGuidelines: [
+      "Call it as the last act of a babysitting pass, then end your turn: the snooze lands only when the turn finishes idle, and a turn that ends with a question or an attention flag is not snoozed — the human must see those.",
+      "You never pass a thread id — this always snoozes the calling thread. Compute `until` once and reuse it on every re-snooze; it is not a timer you must honour — a pull-request watch wake or any message clears it, so plan for being woken early.",
+    ].join("\n"),
+  },
   thread_fork: {
     description:
       "Fork THIS thread: create a new held thread that starts with a full copy of this thread's conversation context and then diverges independently. Use it to explore an alternate direction without disturbing this thread — the fork inherits this thread's goal, model, and worktree, and its FIRST launch forks this thread's pi session (native fork), so no tokens are spent until a human sends the divergent first message. The fork is a SIBLING that never merges back (it is divergence, not delegation — use mcp__t3-code__workstream_spawn for delegated sub-work). Returns the new threadId.",

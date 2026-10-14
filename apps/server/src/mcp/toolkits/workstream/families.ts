@@ -23,13 +23,14 @@ export const agentToolName = <const Name extends string>(name: Name) =>
 const prefixed = <const Names extends ReadonlyArray<string>>(names: Names) =>
   names.map(agentToolName) as { readonly [K in keyof Names]: `mcp__t3-code__${Names[K]}` };
 
-/** Resident for every role: completion, attention, orientation, consultation, task-tree upkeep. */
+/** Resident for every role: completion, attention, orientation, consultation, self-upkeep (title, snooze), task-tree upkeep. */
 export const LEAF_CORE = prefixed([
   "workstream_submit",
   "workstream_request_attention",
   "workstream_list",
   "consult_thread",
   "set_thread_title",
+  "snooze_thread",
   "goal_task_list",
   "goal_task_add",
   "goal_task_update",

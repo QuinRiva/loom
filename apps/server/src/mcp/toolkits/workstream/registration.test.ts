@@ -153,7 +153,7 @@ it.effect("an OAuth-signed outside agent is refused by every Loom tool before it
     const scope = yield* oauthScope;
     expect(scope.capabilities.has("workstream")).toBe(false);
     const { ran, results } = yield* callEveryTool(scope);
-    expect(results).toHaveLength(21);
+    expect(results).toHaveLength(22);
     for (const { def, result } of results) {
       // A soft-mode tool refuses as plain text; only throw-mode tools set isError.
       expect(result.isError, def.name).toBe(def.errorMode === "throw");
@@ -190,7 +190,7 @@ it.effect("unknown or mistyped parameters are refused, closed like the JSON sche
   }),
 );
 
-it.effect("/mcp lists exactly the 21 Loom tools with _meta prose, object schemas and hints", () =>
+it.effect("/mcp lists exactly the 22 Loom tools with _meta prose, object schemas and hints", () =>
   Effect.gen(function* () {
     const mcp = yield* serveMcp({}, { threadId: LOOM_TEST_THREAD, capabilities: ["workstream"] });
     const tools = yield* mcp.listTools;
@@ -198,7 +198,7 @@ it.effect("/mcp lists exactly the 21 Loom tools with _meta prose, object schemas
     expect(loom.map((tool) => tool.name).toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => def.name).toSorted(),
     );
-    expect(loom).toHaveLength(21);
+    expect(loom).toHaveLength(22);
     for (const tool of loom) {
       const prose = LOOM_TOOL_PROSE[tool.name as keyof typeof LOOM_TOOL_PROSE];
       expect(tool.description).toBe(prose.description);

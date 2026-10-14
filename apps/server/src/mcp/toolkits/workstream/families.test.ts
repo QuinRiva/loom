@@ -23,13 +23,13 @@ const namesOf = (toolkit: { readonly tools: Record<string, unknown> }) =>
   Object.keys(toolkit.tools).map(agentToolName);
 
 describe("Loom tool families", () => {
-  it("LEAF_CORE and DELEGATION partition the 21 MCP tools with no overlap", () => {
+  it("LEAF_CORE and DELEGATION partition the 22 MCP tools with no overlap", () => {
     const families: ReadonlyArray<string> = [...LEAF_CORE, ...DELEGATION];
     expect(new Set(families).size).toBe(families.length);
     expect(families.toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)).toSorted(),
     );
-    expect(LOOM_TOOL_DEFS).toHaveLength(21);
+    expect(LOOM_TOOL_DEFS).toHaveLength(22);
   });
 
   it("HUMAN_INPUT names only the extension's mcp__t3-code__ask_user_question", () => {
