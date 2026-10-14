@@ -23,13 +23,17 @@ import { asToolError, candidateOf, dispatch, fail, senderDescriptor } from "./sh
 
 const QUESTION_MAX_CHARS = 8_000;
 
-/** The pi session file a fork of `shell` reads: its active (else latest pi) provider thread's strong ref. */
-const consultSessionFile = Effect.fn("LoomToolkit.consultSessionFile")(function* (
+/**
+ * The pi session file a fork of `shell` reads (its active, else latest pi, provider thread's
+ * strong ref) and the directory the fork runs in: the target's worktree, else the directory its
+ * latest provider session ran in (the project root, as `RuntimePolicy` resolved it).
+ */
+const consultSource = Effect.fn("LoomToolkit.consultSource")(function* (
   shell: OrchestrationV2ThreadShell,
 ) {
-  const { providerThreads } = yield* asToolError(
+  const { providerThreads, providerSessions } = yield* asToolError(
     Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
-      orchestrator.getThreadRecords(shell.id, ["providerThreads"]),
+      orchestrator.getThreadRecords(shell.id, ["providerThreads", "providerSessions"]),
     ),
   );
   const ref = (
@@ -44,7 +48,10 @@ const consultSessionFile = Effect.fn("LoomToolkit.consultSessionFile")(function*
           : `its provider thread exposes a ${ref.strength} ${ref.driver} session ref, not a strong pi session file`
       }. Nothing was consulted.`,
     );
-  return ref.nativeId;
+  const cwd =
+    shell.worktreePath ??
+    providerSessions.toSorted((a, b) => DateTime.Order(a.createdAt, b.createdAt)).at(-1)?.cwd;
+  return { sessionFile: ref.nativeId, ...(cwd == null ? {} : { cwd }) };
 });
 
 export const consultThread = Effect.fn("LoomToolkit.consultThread")(function* (
@@ -60,14 +67,14 @@ export const consultThread = Effect.fn("LoomToolkit.consultThread")(function* (
   if (resolved.kind === "candidates")
     return renderConsultCandidates(resolved.shells.map(candidateOf));
   const target = resolved.shell;
-  const sessionFile = yield* consultSessionFile(target);
+  const source = yield* consultSource(target);
 
   const startedAt = yield* DateTime.now;
   const { answer, forkSessionPath } = yield* asToolError(
     Effect.flatMap(LoomThreadConsult, (consult) =>
       Effect.flatMap(senderDescriptor(caller, target), (asker) =>
         consult.ask({
-          sessionFile,
+          ...source,
           question,
           asker,
           askerThreadId: caller.threadId,

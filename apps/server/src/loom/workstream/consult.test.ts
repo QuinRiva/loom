@@ -29,6 +29,7 @@ import {
   mcpTestLayer,
   serveMcp,
 } from "../../mcp/toolkits/workstream/mcpHttp.testkit.ts";
+import { McpSessionRegistry } from "../../mcp/McpSessionRegistry.ts";
 import { v2PullRequestThread } from "../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
@@ -113,9 +114,12 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult_thread
             getShellSnapshot: () =>
               Effect.succeed({ threads: [caller, target], archivedThreads: [] } as never),
             getThreadShell: (id) => Effect.succeed(id === caller.id ? caller : target),
-            getThreadRecords: () => Effect.succeed({ providerThreads: [providerThread] } as never),
+            getThreadRecords: () =>
+              Effect.succeed({ providerThreads: [providerThread], providerSessions: [] } as never),
           },
           consult: layer.pipe(
+            // The target has no launch identity record, so the fork is cold and mints nothing.
+            Layer.provide(Layer.mock(McpSessionRegistry)({})),
             Layer.provide(
               ServerSettings.layerTest({
                 providerInstances: {
@@ -349,6 +353,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult cancel
       }).pipe(
         Effect.provide(
           layer.pipe(
+            Layer.provide(Layer.mock(McpSessionRegistry)({})),
             Layer.provide(
               ServerSettings.layerTest({
                 providerInstances: {

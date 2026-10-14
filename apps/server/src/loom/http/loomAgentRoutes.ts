@@ -17,7 +17,10 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ServerConfig from "../../config.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
-import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisation.ts";
+import {
+  isReadOnlyCaller,
+  type WorkstreamCaller,
+} from "../../mcp/toolkits/workstream/authorisation.ts";
 import { HUMAN_INPUT, UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstream/families.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
@@ -53,13 +56,26 @@ const asCaller = <E, R>(
     return yield* handle({ scope, threadId: scope.thread.threadId });
   });
 
+/** As `asCaller`, but a read-only consult fork (whose thread is the target's) gets 403. */
+const asWritingCaller = <E, R>(
+  handle: (caller: WorkstreamCaller) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  asCaller((caller) =>
+    isReadOnlyCaller(caller.scope)
+      ? Effect.succeed(reply(403, "A read-only consult fork cannot do this."))
+      : handle(caller),
+  );
+
 /**
  * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
  * message (or the human's Launch of a staged continuation) — never the shell's
  * `latestUserAuthoredMessageAt`, which counts a human-created scheduled task's fire. A child nobody has written to does not keep
  * `mcp__t3-code__ask_user_question` resident whatever its role says.
  */
-export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (threadId: ThreadId) {
+export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
+  threadId: ThreadId,
+  readOnly = false,
+) {
   const { thread, messages } = yield* (yield* OrchestratorV2).getThreadRecords(
     threadId,
     ["messages"],
@@ -99,7 +115,8 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (thread
     hasParent,
     denyList: UPSTREAM_WITHHELD_TOOLS,
     // V1 captured every pi thread's prompt; there is no setting to gate it.
-    promptDebugPath: promptCapturePathsOf(config, threadId).latest,
+    // A consult fork answers as the target, so it must not overwrite the target's capture.
+    promptDebugPath: readOnly ? null : promptCapturePathsOf(config, threadId).latest,
   } satisfies LoomSessionProfile;
 });
 
@@ -107,7 +124,7 @@ const profileRoute = HttpRouter.route(
   "GET",
   `${LOOM_AGENT_ROUTE_PREFIX}/session-profile`,
   asCaller((caller) =>
-    sessionProfile(caller.threadId).pipe(
+    sessionProfile(caller.threadId, isReadOnlyCaller(caller.scope)).pipe(
       Effect.map((profile) => HttpServerResponse.jsonUnsafe(profile)),
       Effect.catch((error) => Effect.succeed(reply(500, error.message))),
     ),
@@ -117,7 +134,7 @@ const profileRoute = HttpRouter.route(
 const askRoute = HttpRouter.route(
   "POST",
   `${LOOM_AGENT_ROUTE_PREFIX}/user-input/ask`,
-  asCaller((caller) =>
+  asWritingCaller((caller) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const body = (yield* request.json.pipe(Effect.orElseSucceed(() => ({})))) as {
@@ -159,7 +176,7 @@ const waitRoute = HttpRouter.route(
 const cacheWarmingRoute = HttpRouter.route(
   "POST",
   `${LOOM_AGENT_ROUTE_PREFIX}/cache-warming`,
-  asCaller((caller) =>
+  asWritingCaller((caller) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { warming } = yield* request.json.pipe(

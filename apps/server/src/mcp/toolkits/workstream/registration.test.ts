@@ -180,6 +180,33 @@ it.effect("a thread-less caller is refused even if it ever holds the workstream 
   }),
 );
 
+// A consult fork answers as its target under a read-only client: the server must refuse every
+// Loom tool that changes state (consult_thread included, so forks cannot recurse) before its
+// handler runs, and serve only the two reads.
+it.effect("a read-only consult fork reaches only workstream_list and goal_task_list", () =>
+  Effect.gen(function* () {
+    const { ran, results } = yield* callEveryTool({
+      ...scope(["workstream", "pull-requests"]),
+      client: { sessionId: "consult-1", label: "consult fork", access: "read-only" },
+    });
+    expect(results).toHaveLength(22);
+    for (const { def, result } of results) {
+      if (def.name === "workstream_list" || def.name === "goal_task_list") {
+        expect(result.content, def.name).toEqual([{ type: "text", text: "ran" }]);
+        continue;
+      }
+      expect(result.isError, def.name).toBe(def.errorMode === "throw");
+      expect(result.content, def.name).toEqual([
+        {
+          type: "text",
+          text: `This is a read-only consult fork of thread thread-caller: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
+        },
+      ]);
+    }
+    expect(ran.toSorted()).toEqual(["goal_task_list", "workstream_list"]);
+  }),
+);
+
 it.effect("unknown or mistyped parameters are refused, closed like the JSON schema", () =>
   Effect.gen(function* () {
     const extra = yield* call("workstream_stop", { threadId: "t", staged: true });

@@ -20,8 +20,10 @@ Children are always 5-minute.
 
 A **root** is a thread with no parent (`parent_thread_id IS NULL`). That includes
 `mcp__t3-code__thread_fork` forks, goal handoff/continue successors, and the `/handoff` and
-`/retro` fork threads. The read-only `mcp__t3-code__consult_thread` fork, pi text generation
-(titles, commit messages) and every child are always short.
+`/retro` fork threads. Pi text generation (titles, commit messages) and every child are
+always short. The read-only `mcp__t3-code__consult_thread` fork is launched like its target
+(same tools, prompt and extensions), so it reads the target's warm cache on either arm while
+its own throwaway writes stay on the short arm.
 
 **It applies only to roots launched after the change.** A root's arm is decided
 at its first pi launch and recorded in its write-once launch-identity sidecar

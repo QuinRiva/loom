@@ -15,7 +15,12 @@ import * as Schema from "effect/Schema";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import { requireWorkstreamCaller, type WorkstreamCaller } from "./authorisation.ts";
+import {
+  CONSULT_READ_TOOLS,
+  isReadOnlyCaller,
+  requireWorkstreamCaller,
+  type WorkstreamCaller,
+} from "./authorisation.ts";
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolDef, type LoomToolHandlers } from "./defs.ts";
 import { makeLoomToolHandlers } from "./handlers.ts";
 
@@ -30,6 +35,11 @@ const textResult = (text: string, isError: boolean) =>
 export const callLoomTool = (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) =>
   Effect.gen(function* () {
     const caller = yield* requireWorkstreamCaller();
+    // A consult fork answers as its target but may only read (refused before decoding).
+    if (isReadOnlyCaller(caller.scope) && !CONSULT_READ_TOOLS.has(def.name))
+      return yield* new LoomToolError({
+        message: `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
+      });
     const input = yield* Schema.decodeUnknownEffect(def.input)(payload ?? {}, {
       onExcessProperty: "error",
     }).pipe(

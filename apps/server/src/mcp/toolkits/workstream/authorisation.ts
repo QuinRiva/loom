@@ -22,6 +22,16 @@ export interface WorkstreamCaller {
 
 const fail = (message: string) => Effect.fail(new LoomToolError({ message }));
 
+/** A consult fork's credential: the target's thread with a read-only client beside it. */
+export const isReadOnlyCaller = (scope: McpInvocationContext.McpInvocationScope) =>
+  scope.client?.access === "read-only";
+
+/** The only Loom tools a read-only caller may run; everything else changes state. */
+export const CONSULT_READ_TOOLS: ReadonlySet<string> = new Set([
+  "workstream_list",
+  "goal_task_list",
+]);
+
 /** The `workstream` capability and a thread caller, or the error the agent reads. */
 export const requireWorkstreamCaller = Effect.fn("LoomToolkit.requireWorkstreamCaller")(
   function* () {

@@ -7,7 +7,9 @@ import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
@@ -59,7 +61,10 @@ export interface McpServiceStubs {
   readonly consult?: Layer.Layer<
     LoomThreadConsult,
     never,
-    ServerConfig.ServerConfig | ChildProcessSpawner.ChildProcessSpawner
+    | ServerConfig.ServerConfig
+    | ChildProcessSpawner.ChildProcessSpawner
+    | FileSystem.FileSystem
+    | Path.Path
   >;
 }
 
