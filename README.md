@@ -6,7 +6,7 @@ Loom drives agents through [pi](https://github.com/badlogic/pi-mono). Codex, Cla
 
 <img src="./docs/screenshots/readme/workstream-graph.png" width="100%" alt="A workstream graph" />
 
-<sub>A workstream: planner, coder, reviewer and benchmark-runner threads wired by dependencies and a review loop, with the live thread's model, cost and state on hover.</sub>
+<sub>A workstream across three waves of orchestration: planner, coder, reviewer and benchmark-runner threads wired by dependencies and a review loop; a coder in progress, a shipper blocked behind it, and the live thread's model, cost and state on hover.</sub>
 
 ## Why fork?
 
