@@ -2,16 +2,20 @@
  * The emergent goal (P3-16) on the real orchestrator with a stub generator: a
  * goal-less root gets `goal:emergent:<threadId>` (published, attached under
  * `server:loom:emergent-goal:<threadId>`) once; run 1 needs a confident answer,
- * a forced derivation (run 2, or a goal tool) takes the best guess; a child never derives one.
+ * a forced derivation (run 2, or a goal tool) takes the best guess; a child never derives one;
+ * a goal set while the generation runs is never overwritten; run 1's derivation is shared
+ * through the gate the session composer joins.
  */
 import { assert, it } from "@effect/vitest";
-import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
+import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
@@ -25,23 +29,30 @@ import {
   EmergentGoalGenerator,
   emergentGoalCommandId,
   emergentGoalId,
+  EmergentGoalsLive,
 } from "./EmergentGoalReactor.ts";
+import * as EmergentGoalGate from "./emergentGoalGate.ts";
 
 let confidence: "high" | "low" = "high";
 const prompts: Array<string> = [];
-const TestLayer = Layer.mergeAll(
-  LoomGoalBroadcast.layer,
-  Layer.succeed(EmergentGoalGenerator, {
-    generate: (input) =>
-      Effect.sync(() => {
-        prompts.push(input.prompt);
-        return {
-          goal: { title: "Fix the flaky login test", description: "Make login CI green." },
-          confidence,
-        };
+/** Runs inside the stub generation: a writer racing the model call. */
+let duringGeneration: Effect.Effect<void> = Effect.void;
+const generatorLayer = Layer.succeed(EmergentGoalGenerator, {
+  generate: (input) =>
+    Effect.sync(() => prompts.push(input.prompt)).pipe(
+      Effect.andThen(Effect.suspend(() => duringGeneration)),
+      Effect.as({
+        goal: { title: "Fix the flaky login test", description: "Make login CI green." },
+        confidence,
       }),
-  }),
-).pipe(Layer.provideMerge(LoomOrchestratorTestLayer));
+    ),
+});
+const TestLayer = EmergentGoalsLive.pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(LoomGoalBroadcast.layer, generatorLayer, EmergentGoalGate.layer),
+  ),
+  Layer.provideMerge(LoomOrchestratorTestLayer),
+);
 
 const talk = (threadId: ThreadId) =>
   dispatch({
@@ -100,5 +111,72 @@ it.layer(TestLayer)("Loom emergent goal", (it) => {
       assert.lengthOf(prompts, 2);
       assert.isNull(yield* store.goals.get(emergentGoalId(child)));
     }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "never overwrites a goal set while the generation runs, and writes no orphan goal",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const orchestrator = yield* OrchestratorV2;
+        const root = ThreadId.make("emergent-raced-root");
+        yield* seedThread({ threadId: root });
+        yield* talk(root);
+        const chosen = yield* store.goals.upsert({
+          id: GoalId.make("goal:chosen-meanwhile"),
+          projectId: ProjectId.make("project:loom-test"),
+          slug: "chosen-meanwhile",
+          title: "Chosen meanwhile",
+          description: "",
+        });
+        const setChosen = orchestrator
+          .dispatch({
+            type: "thread.goal.set",
+            commandId: CommandId.make(`goal-set-meanwhile:${root}`),
+            threadId: root,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+            goalId: chosen.id,
+          })
+          .pipe(Effect.orDie, Effect.asVoid);
+        duringGeneration = setChosen;
+        yield* deriveEmergentGoal({ threadId: root, force: true }).pipe(
+          Effect.ensuring(Effect.sync(() => (duringGeneration = Effect.void))),
+        );
+        assert.equal((yield* store.getWorkstream(root))!.goalId, chosen.id);
+        assert.isNull(yield* store.goals.get(emergentGoalId(root)));
+
+        // The orchestrator's own guard: an emergent set on a thread with a goal is a no-op.
+        yield* store.goals.upsert({
+          id: emergentGoalId(root),
+          projectId: ProjectId.make("project:loom-test"),
+          slug: "late-emergent",
+          title: "Late emergent",
+          description: "",
+        });
+        yield* dispatch({
+          type: "thread.goal.set",
+          commandId: emergentGoalCommandId(root),
+          threadId: root,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          goalId: emergentGoalId(root),
+        });
+        assert.equal((yield* store.getWorkstream(root))!.goalId, chosen.id);
+      }),
+  );
+
+  it.effect("shares run 1's derivation between the reactor and the session composer", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const gate = yield* EmergentGoalGate.EmergentGoalGate;
+      const root = ThreadId.make("emergent-gated-root");
+      yield* seedThread({ threadId: root });
+      yield* talk(root);
+      confidence = "high";
+      const before = prompts.length;
+      yield* Effect.all([gate.settle(root), gate.settle(root)], { concurrency: "unbounded" });
+      yield* gate.settle(root);
+      assert.lengthOf(prompts, before + 1);
+      assert.equal((yield* store.getWorkstream(root))!.goalId, emergentGoalId(root));
+    }),
   );
 });

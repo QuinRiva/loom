@@ -18,6 +18,9 @@
  * arm for life, and, per launch, the agent git identity, whose shim directory rides
  * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
+ * A goal-less root's first compose waits, bounded, for its emergent goal; a goal that differs
+ * from the frozen identity's later reaches the agent as a turn notice (`goalNotice`), never as a
+ * prompt rewrite.
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -25,6 +28,7 @@ import {
   LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
+  type RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveMergeAuthority, shipPolicyPromptBlock } from "@t3tools/shared/shipPolicy";
@@ -58,7 +62,8 @@ import {
   readLaunchIdentity,
   writeLaunchIdentity,
 } from "../workstream/launchIdentity.ts";
-import { goalContextInstruction } from "./goalContext.ts";
+import * as EmergentGoalGate from "../orchestration/emergentGoalGate.ts";
+import { goalChangeNotice, goalContextInstruction, promptGoalId } from "./goalContext.ts";
 import {
   CHILD_READERSHIP_CLAUSE,
   relocationClause,
@@ -82,6 +87,15 @@ export const LOOM_HIDDEN_TOOLS_ENV = {
   ),
 };
 
+/**
+ * How long a goal-less root's first launch waits for its emergent goal (`EmergentGoalGate`) so
+ * the goal lands in the launch identity. The generation runs 1–10 s from the user's message and
+ * the session open overlaps it, so the wait is usually a few seconds; past this a stuck
+ * generation would only delay the first turn, and its goal still reaches the agent later as a
+ * goal-change notice.
+ */
+const FIRST_LAUNCH_GOAL_WAIT = "10 seconds";
+
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(
   "LoomForkSourceIdentityMissing",
@@ -100,10 +114,19 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const extensionPath = yield* LoomExtensionPath;
   const identityDir = loomPaths(config).workstreamLaunchIdentityDir;
+  const emergentGoals = yield* EmergentGoalGate.EmergentGoalGate;
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
   const gitShimDir = yield* materializeGitShim(
     (yield* Path.Path).join(config.providerStatusCacheDir, "loom-bin"),
   );
+
+  /** The thread's goal as a launch now would name it: none when unset or deleted. */
+  const currentGoal = (workstream: LoomThreadWorkstream | null) =>
+    workstream?.goalId == null
+      ? Effect.succeed(null)
+      : loomStore.goals
+          .get(workstream.goalId)
+          .pipe(Effect.map((goal) => (goal === null || goal.deletedAt !== null ? null : goal)));
 
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
   const composeIdentity = (
@@ -121,8 +144,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
       const catalogue =
         overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
-      const goal =
-        workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
+      const goal = yield* currentGoal(workstream);
       const appendSystemPrompt = [
         WORK_MODEL_ADDENDUM,
         isChild ? CHILD_READERSHIP_CLAUSE : undefined,
@@ -135,7 +157,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
               ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
             ].join("\n")
           : undefined,
-        goal === null || goal.deletedAt !== null
+        goal === null
           ? undefined
           : goalContextInstruction(goal, {
               asChildBackground: isChild,
@@ -193,9 +215,20 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         return yield* Effect.fail(
           new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
         );
+      // A goal-less root's first launch waits (bounded) for its emergent goal, then re-reads.
+      const settled =
+        firstLaunch && Option.isNone(source) && (workstream?.goalId ?? null) === null
+          ? yield* emergentGoals
+              .settle(thread.id)
+              .pipe(
+                Effect.timeout(FIRST_LAUNCH_GOAL_WAIT),
+                Effect.ignore({ log: true }),
+                Effect.andThen(loomStore.getWorkstream(thread.id)),
+              )
+          : workstream;
       const record = Option.isSome(source)
         ? source.value
-        : yield* composeIdentity(thread, workstream, projectRoot, longShare);
+        : yield* composeIdentity(thread, settled, projectRoot, longShare);
       yield* writeLaunchIdentity(identityDir, thread.id, record);
       return record;
     });
@@ -250,7 +283,36 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
     );
 
-  return { compose } satisfies LoomSessionComposerShape;
+  /**
+   * Once per change: when the thread's goal is not the one the agent last saw — its frozen
+   * prompt's goal block, or the last notice — the notice naming the current one, recorded on the
+   * identity (outside the prompt bytes). Nothing before the first launch, whose prompt is current.
+   */
+  const goalNotice = (threadId: ThreadId, runId: RunId) =>
+    Effect.gen(function* () {
+      const own = yield* readLaunchIdentity(identityDir, threadId);
+      if (Option.isNone(own)) return null;
+      const workstream = yield* loomStore.getWorkstream(threadId);
+      const goal = yield* currentGoal(workstream);
+      const seen = own.value.goalNotice;
+      const seenGoalId =
+        seen === undefined ? promptGoalId(own.value.appendSystemPrompt) : seen.goalId;
+      if ((goal?.id ?? null) === seenGoalId && seen?.runId !== runId) return null;
+      yield* writeLaunchIdentity(identityDir, threadId, {
+        ...own.value,
+        goalNotice: { goalId: goal?.id ?? null, runId },
+      });
+      const { thread } = yield* projections.getThreadRecords(threadId, []);
+      return goalChangeNotice(goal, {
+        asChildBackground: thread.lineage.relationshipToParent === "subagent",
+        anchorTaskId: workstream?.anchorTaskId ?? null,
+      });
+    }).pipe(
+      Effect.provide(context),
+      Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
+    );
+
+  return { compose, goalNotice } satisfies LoomSessionComposerShape;
 });
 
 /** The production composer; its reads are provided here, the server-wide services are not. */
@@ -264,6 +326,7 @@ export const LoomSessionComposerRealLive = Layer.effect(
       ProjectStore.layer,
       LoomStore.layer,
       LoomExtensionPathLive,
+      EmergentGoalGate.layer,
     ),
   ),
 );

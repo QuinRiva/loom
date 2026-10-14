@@ -172,6 +172,9 @@ const isServerCommand = (command: { readonly commandId: string }) =>
 /** The re-drive planner's cancel-cascade id prefix; its outcome writes carry cause `cascade`. */
 export const LOOM_CASCADE_CANCEL_PREFIX = "server:loom:cascade-cancel:";
 
+/** The emergent goal's id prefix: its `thread.goal.set` only fills a goal-less thread, never overwrites. */
+export const LOOM_EMERGENT_GOAL_PREFIX = "server:loom:emergent-goal:";
+
 const asNode = (row: LoomThreadWorkstream) => ({ ...row, id: row.threadId });
 const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
   new Set(left).size === new Set(right).size && left.every((entry) => right.includes(entry));
@@ -1210,6 +1213,8 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     case "thread.goal.set": {
       const thread = yield* requireThread(command.threadId);
       const row = yield* workstreamOf(command.threadId);
+      if (command.commandId.startsWith(LOOM_EMERGENT_GOAL_PREFIX) && (row?.goalId ?? null) !== null)
+        return {};
       if (command.goalId !== null) {
         const goal = yield* read(loomStore.goals.get(command.goalId));
         if (goal === null || goal.deletedAt !== null)

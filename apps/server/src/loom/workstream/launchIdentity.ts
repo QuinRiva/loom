@@ -10,7 +10,7 @@
  *
  * @module loom/workstream/launchIdentity
  */
-import { ModelSelection, ThreadId } from "@t3tools/contracts";
+import { GoalId, ModelSelection, RunId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -27,6 +27,12 @@ export const LaunchIdentityRecord = Schema.Struct({
   tools: Schema.Array(Schema.String),
   /** Set on a fork's first-launch replay of this source's record: valid for that launch only. */
   replayedFrom: Schema.optional(ThreadId),
+  /**
+   * The goal the agent was last told of by a turn notice, superseding the prompt's goal block,
+   * and the run that carried it (a retry of that run repeats the notice). Outside the prompt
+   * bytes, so writing it never changes the launched identity.
+   */
+  goalNotice: Schema.optional(Schema.Struct({ goalId: Schema.NullOr(GoalId), runId: RunId })),
 });
 export type LaunchIdentityRecord = typeof LaunchIdentityRecord.Type;
 

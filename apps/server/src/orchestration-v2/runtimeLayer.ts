@@ -168,6 +168,7 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerProviderAuthServiceProvided,
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
+      LoomSessionComposerLive, // loom: the turn's goal-change notice
     ),
   ),
 );

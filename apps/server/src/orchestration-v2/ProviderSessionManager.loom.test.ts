@@ -234,7 +234,10 @@ it.effect("hands a provided composer's fields to the adapter", () =>
       extensions: ["/e/loom.ts"],
     };
     const { opens } = yield* openWith(
-      Layer.succeed(LoomSessionComposer, { compose: () => Effect.succeed(fields) }),
+      Layer.succeed(LoomSessionComposer, {
+        compose: () => Effect.succeed(fields),
+        goalNotice: () => Effect.succeed(null),
+      }),
     );
     assert.deepEqual(opens[0]?.loom, fields);
   }),
@@ -246,6 +249,7 @@ it.effect("fails the open, before the adapter runs, when composition fails", () 
       Layer.succeed(LoomSessionComposer, {
         compose: (threadId) =>
           Effect.fail(new LoomSessionComposerError({ threadId, cause: "overlay unreadable" })),
+        goalNotice: () => Effect.succeed(null),
       }),
     );
     assert.isTrue(Exit.isFailure(exit));
@@ -299,6 +303,7 @@ const liveAfter = (idleTimeoutMs: number | undefined, minutes: ReadonlyArray<num
             ...EMPTY_LOOM_OPEN_SESSION_FIELDS,
             ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
           }),
+        goalNotice: () => Effect.succeed(null),
       }),
       // Probe the adapter's close, not `manager.get`: a get counts as activity and re-arms the timer.
       (closes) =>

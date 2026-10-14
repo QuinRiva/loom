@@ -8,8 +8,11 @@
  * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
  * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
  * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
- * first turn can lay out its plan. Workstream children never derive one (they
- * inherit the parent's goal).
+ * first turn can lay out its plan. Run 1's derivation is shared with the session composer
+ * through `EmergentGoalGate`, which waits for it before freezing the launch identity.
+ * Workstream children never derive one (they inherit the parent's goal), and a goal set
+ * while the generation runs wins: the derivation re-checks before writing, and the
+ * orchestrator drops an emergent `thread.goal.set` on a thread that already has a goal.
  *
  * The generation is Loom's Pi one-shot (`makePiOneShot`) on the text-generation
  * model selection.
@@ -37,19 +40,21 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { LOOM_EMERGENT_GOAL_PREFIX } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { buildEmergentGoalPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { makePiOneShot } from "../textGeneration/piOneShot.ts";
+import { EmergentGoalGate } from "./emergentGoalGate.ts";
 
 const GENERATION_TIMEOUT = "180 seconds";
 const MAX_EMERGENT_GOAL_RUNS = 2;
 
 export const emergentGoalId = (threadId: ThreadId) => GoalId.make(`goal:emergent:${threadId}`);
 export const emergentGoalCommandId = (threadId: ThreadId) =>
-  CommandId.make(`server:loom:emergent-goal:${threadId}`);
+  CommandId.make(`${LOOM_EMERGENT_GOAL_PREFIX}${threadId}`);
 
 export type EmergentGoalInterpretation = ReturnType<
   typeof buildEmergentGoalPrompt
@@ -130,6 +135,8 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
     const title = interpretation.goal.title.trim();
     if (title.length === 0) return;
     if (!input.force && interpretation.confidence !== "high") return;
+    // The generation takes seconds; a goal set meanwhile wins, and no orphan goal is written.
+    if (((yield* loomStore.getWorkstream(threadId))?.goalId ?? null) !== null) return;
     // `UNIQUE (project_id, slug)` reserves deleted goals' slugs too.
     const taken = new Set(
       (yield* loomStore.goals.listByProject(thread.projectId, { includeDeleted: true })).map(
@@ -179,27 +186,28 @@ export const EmergentGoalsLive = Layer.effect(
       OrchestratorV2 | LoomStoreV2 | LoomGoalBroadcast | EmergentGoalGenerator
     >();
     const threadLocks = yield* KeyedLock.make<ThreadId>();
-    return {
-      derive: (input) =>
-        threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
-          ),
-          Effect.provideContext(services),
+    const derive = (input: { readonly threadId: ThreadId; readonly force: boolean }) =>
+      threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
         ),
-    };
+        Effect.provideContext(services),
+      );
+    yield* (yield* EmergentGoalGate).bind((threadId) => derive({ threadId, force: false }));
+    return { derive };
   }),
 );
 
 /**
  * Started post-activation: each of a goal-less root's first two runs is tried once per
  * process, at its creation (the user's message), forked so a generation never holds up
- * the event stream.
+ * the event stream. Run 1 goes through the gate the session composer joins.
  */
 export const EmergentGoalReactorLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
     const emergentGoals = yield* EmergentGoals;
+    const gate = yield* EmergentGoalGate;
     const scope = yield* Effect.scope;
     const attempted = new Set<RunId>();
     yield* forkParked(
@@ -212,9 +220,11 @@ export const EmergentGoalReactorLive = Layer.effectDiscard(
           return Effect.void;
         }
         attempted.add(event.payload.id);
-        return emergentGoals
-          .derive({ threadId: event.threadId, force: event.payload.ordinal > 1 })
-          .pipe(Effect.forkIn(scope), Effect.asVoid);
+        return (
+          event.payload.ordinal > 1
+            ? emergentGoals.derive({ threadId: event.threadId, force: true })
+            : gate.settle(event.threadId)
+        ).pipe(Effect.forkIn(scope), Effect.asVoid);
       }),
     );
   }),
