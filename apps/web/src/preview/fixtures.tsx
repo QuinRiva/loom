@@ -680,6 +680,11 @@ function PendingUserInputPreview({
   return (
     <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
       <ComposerPendingUserInputPanel
+        cwd={undefined}
+        threadRef={{
+          environmentId: loomPreviewEnvironmentId,
+          threadId: ThreadId.make("preview-question-thread"),
+        }}
         pendingUserInputs={[
           {
             requestId: "preview-request" as RuntimeRequestId,

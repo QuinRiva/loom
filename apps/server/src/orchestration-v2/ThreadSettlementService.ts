@@ -367,7 +367,7 @@ export const make = Effect.gen(function* () {
           loomFinishedRootAt: loomSettlement.get(thread.id)?.finishedRootAt ?? null, // loom:
         });
         if (settledAt === null) return thread;
-        const uuid = yield* crypto.randomUUIDv4;
+        const uuid = yield* crypto.randomUUIDv4();
         yield* orchestrator.dispatch({
           type: "thread.auto-settle",
           commandId: CommandId.make(`server:auto-settle:${thread.id}:${uuid}`),
@@ -629,6 +629,7 @@ export const make = Effect.gen(function* () {
     switch (event.type) {
       case "thread.settled":
         return cleanUpSettledThread(event.threadId);
+      case "thread.pull-request-link-updated":
       case "thread.pull-request-synced":
       case "provider-session.detached":
         return worker.enqueue(event.threadId);

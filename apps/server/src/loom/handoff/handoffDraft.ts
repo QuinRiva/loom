@@ -251,7 +251,7 @@ export const launchDraftFork = (input: {
         `This thread's pi session cannot be forked (no native session reference), so it cannot be ${input.verb}.`,
       );
     }
-    const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4);
+    const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
     const launch = yield* dispatchDraftFork(
       input.build(
         {

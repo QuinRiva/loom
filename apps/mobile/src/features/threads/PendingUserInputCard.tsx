@@ -22,6 +22,9 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/time"; // loom: "asked N ago"
+import { SelectableMarkdownText } from "../../native/SelectableMarkdownText";
+import { useOpenPullRequest } from "../../native/useOpenPullRequest";
+import { useMarkdownPreviewStyles } from "../files/FileMarkdownPreview";
 import {
   isPendingUserInputOptionSelected,
   type PendingUserInput,
@@ -97,6 +100,19 @@ const askedAgo = (createdAt: string) => {
   const age = relativeTime(createdAt);
   return age === "<1m" ? "Asked just now" : `Asked ${age} ago`;
 };
+
+/** Renders question text as markdown so agent-provided links open on tap. */
+function QuestionText(props: { readonly markdown: string }) {
+  const styles = useMarkdownPreviewStyles();
+  const openLink = useOpenPullRequest();
+  return (
+    <SelectableMarkdownText
+      markdown={props.markdown}
+      textStyle={styles.nativeTextStyle}
+      onLinkPress={(href) => void openLink(href)}
+    />
+  );
+}
 
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const questionCount = props.pendingUserInput.questions.length;
@@ -288,9 +304,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
               <Text className="font-t3-bold text-xs uppercase tracking-[1px] text-foreground-muted">
                 {question.header}
               </Text>
-              <Text className="font-sans text-base leading-snug text-foreground">
-                {question.question}
-              </Text>
+              <QuestionText markdown={question.question} />
               <View className="gap-2">
                 {question.options.map((option) => {
                   const optionValue = option.value ?? option.label.trim();

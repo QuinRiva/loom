@@ -24,11 +24,7 @@ export function useComposerTypingGuard(scope: string, requestIds: readonly strin
       state: updateComposerTypingGuard(
         current.scope === scope
           ? current.state
-          : {
-              ...createComposerTypingGuardState(),
-              focused: current.state.focused,
-              commenting: current.state.commenting, // loom: the pop-up is UI, not per-thread
-            },
+          : { ...createComposerTypingGuardState(), focused: current.state.focused },
         { type: "requests", requestIds, now: Date.now() },
       ),
     }));
@@ -43,11 +39,6 @@ export function useComposerTypingGuard(scope: string, requestIds: readonly strin
   const onFocus = useCallback(() => dispatch({ type: "focus" }), [dispatch]);
   const onBlur = useCallback(() => dispatch({ type: "blur" }), [dispatch]);
   const onSend = useCallback(() => dispatch({ type: "send" }), [dispatch]);
-  // loom: the composer's citation comment pop-up opened or closed.
-  const onCommentOpenChange = useCallback(
-    (open: boolean) => dispatch({ type: "comment", open }),
-    [dispatch],
-  );
   useEffect(() => {
     if (state.held.size === 0) return;
     const timeout = window.setTimeout(
@@ -56,12 +47,5 @@ export function useComposerTypingGuard(scope: string, requestIds: readonly strin
     );
     return () => window.clearTimeout(timeout);
   }, [state.held, state.lastTypedAt, dispatch]);
-  return {
-    heldRequestIds: state.held,
-    onDraftChange,
-    onFocus,
-    onBlur,
-    onSend,
-    onCommentOpenChange, // loom
-  };
+  return { heldRequestIds: state.held, onDraftChange, onFocus, onBlur, onSend };
 }

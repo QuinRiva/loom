@@ -8,7 +8,12 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { LOOM_SEED } from "@t3tools/shared/loomSeedFixture.loom";
-import type { LoomMessageFields, RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
+import {
+  ThreadId,
+  type LoomMessageFields,
+  type RuntimeRequestId,
+  type UserInputQuestion,
+} from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
@@ -101,14 +106,17 @@ function LoomPendingUserInputPreview() {
   const customAnswer = progress.customAnswer;
   useEffect(() => {
     hostLoomPendingInputForPreview(requestId, {
-      cwd: undefined,
-      threadRef: undefined,
       onReplyInChat: () => setSent(customAnswer.trim()),
     });
   }, [customAnswer, requestId]);
   return (
     <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
       <ComposerPendingUserInputPanel
+        cwd={undefined}
+        threadRef={{
+          environmentId: loomPreviewEnvironmentId,
+          threadId: ThreadId.make("preview-question-thread"),
+        }}
         pendingUserInputs={[
           {
             requestId,

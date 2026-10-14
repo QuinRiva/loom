@@ -29,12 +29,14 @@
 //      database. Guard 2 covers the hand-made case that guard 1 lets through.
 //
 //   2. `ensureHomeNotLive` refuses to boot when another live server already
-//      holds the home, reading the runtime-state file the server already
-//      writes (`<stateDir>/server-runtime.json`) rather than inventing a
-//      second lock. `claimServerHome` writes that file early — before the
-//      database is opened — so the refusal covers the migration window, which
-//      is where the incident did its damage. The normal post-activation write
-//      overwrites it with the real bound port, and shutdown clears it.
+//      holds the home, reading the runtime-state file the owner publishes
+//      (`<stateDir>/server-runtime.json`). It is a read-only preflight that
+//      runs before this boot's first write (`ensureServerDirectories` sweeps
+//      stale pending attachments). The lock itself is upstream's
+//      `serverOwnership.ts`, which holds `server-owner.sqlite` from before the
+//      database opens until exit, so it covers the migration window. Loom's
+//      early `claimServerHome` write retired with it (pull 11): a record
+//      without an `ownerId` reads to that lock as a live legacy owner.
 //
 // There is no `--force`: an operator who really means it deletes the file.
 import * as NodeFS from "node:fs";
@@ -45,12 +47,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type * as ServerConfig from "../config.ts";
-import {
-  isProcessAlive,
-  makePersistedServerRuntimeState,
-  persistServerRuntimeState,
-  readPersistedServerRuntimeState,
-} from "../serverRuntimeState.ts";
+import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { isInsideDirectory } from "./foreignHomeGuard.loom.ts";
 
 /** Which rule chose the home. Reported verbatim in the startup log line. */
@@ -191,23 +188,4 @@ export const ensureHomeNotLive = Effect.fn("loom.ensureHomeNotLive")(function* (
     holderStartedAt: holder.value.startedAt,
     holderOrigin: holder.value.origin,
   });
-});
-
-/**
- * Take the home before the database is opened. A stale file (dead pid) is
- * overwritten here; `runServer` rewrites this with the real bound port once it
- * is listening, and clears it on shutdown.
- */
-export const claimServerHome = Effect.fn("loom.claimServerHome")(function* (
-  config: Pick<
-    ServerConfig.ServerConfig["Service"],
-    "host" | "devUrl" | "port" | "serverRuntimeStatePath"
-  >,
-) {
-  const state = yield* makePersistedServerRuntimeState({ config, port: config.port });
-  yield* persistServerRuntimeState({ path: config.serverRuntimeStatePath, state }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Failed to claim the T3 home at boot", { cause }),
-    ),
-  );
 });

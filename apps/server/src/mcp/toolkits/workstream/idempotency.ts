@@ -20,7 +20,7 @@ import type { WorkstreamCaller } from "./authorisation.ts";
 export const requestKey = (clientRequestId: string | undefined) =>
   clientRequestId === undefined
     ? Crypto.Crypto.pipe(
-        Effect.flatMap((crypto) => crypto.randomUUIDv4),
+        Effect.flatMap((crypto) => crypto.randomUUIDv4()),
         Effect.orDie,
       )
     : Effect.succeed(clientRequestId);
