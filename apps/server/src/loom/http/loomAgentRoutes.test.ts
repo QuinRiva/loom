@@ -61,13 +61,20 @@ const TestLayer = HttpRouter.serve(LoomAgentRoutesLive, {
   Layer.provideMerge(NodeServices.layer),
 );
 
-const credential = (threadId: ThreadId, capabilities: ReadonlyArray<McpCapability>) =>
+const credential = (
+  threadId: ThreadId,
+  capabilities: ReadonlyArray<McpCapability>,
+  readOnly = false,
+) =>
   Effect.gen(function* () {
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
     const issued = yield* registry.issue({
       threadId,
       providerInstanceId: ProviderInstanceId.make("codex"),
       capabilities: new Set(capabilities),
+      ...(readOnly && {
+        client: { sessionId: "consult-1", label: "consult fork", access: "read-only" as const },
+      }),
     });
     return issued.config.authorizationHeader;
   });
@@ -225,6 +232,36 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
       assert.equal(yield* post({ warming: "soon" }), 400);
       const first = yield* (yield* LoomCacheBroadcast).coalesced.pipe(Stream.runHead);
       assert.deepEqual(Option.getOrThrow(first), { threadId, patch: { warming: "scheduled" } });
+    }),
+  );
+
+  it.effect("a read-only consult fork cannot ask a human or touch the target's cache gauge", () =>
+    Effect.gen(function* () {
+      const { threadId } = yield* seedThread({ threadId: "routes-consult" as ThreadId });
+      yield* seedRunningRun({ threadId });
+      const auth = yield* credential(threadId, ["workstream"], true);
+      const ask = yield* call(auth, "POST", "/user-input/ask", {
+        toolCallId: "call-1",
+        questions: [
+          {
+            header: "Ship",
+            question: "Ship it?",
+            options: [
+              { label: "Yes", description: "Merge." },
+              { label: "No", description: "Hold." },
+            ],
+          },
+        ],
+      });
+      assert.equal(ask.status, 403);
+      assert.equal(
+        (yield* call(auth, "POST", "/cache-warming", { warming: "scheduled" })).status,
+        403,
+      );
+      // The profile is served as the target's, minus the target's prompt capture path.
+      const profile = yield* call(auth, "GET", "/session-profile");
+      assert.equal(profile.status, 200);
+      assert.isNull(profile.body.promptDebugPath);
     }),
   );
 

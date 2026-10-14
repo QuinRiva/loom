@@ -22,6 +22,7 @@ export interface McpCredentialRequest {
    */
   readonly browserToolsAvailable?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
+  readonly client?: McpInvocationContext.McpClientCaller; // loom: a consult fork's read-only caller beside the target thread
 }
 
 export interface McpIssuedCredential {
@@ -136,7 +137,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerSessionId,
           providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
         },
-        client: undefined,
+        client: request.client, // loom: consult forks carry a read-only client
         // loom: issue exactly the requested set — Loom threads ask for workstream +
         // pull-requests and are denied orchestration / worktree (pull 9 P3-6); a request
         // naming nothing keeps upstream's default.

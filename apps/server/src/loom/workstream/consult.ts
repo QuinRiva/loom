@@ -6,14 +6,27 @@
  * touched:
  *
  *  - the fork is a SEPARATE session file (pi's fork never writes the source);
- *  - it carries no MCP credential (`buildPiRpcLaunch` strips the T3 bridge
- *    env), so it cannot act as the target in the workstream;
- *  - otherwise it keeps the target's own tools, so it can inspect whatever the
- *    answer needs; not modifying anything is an instruction in the consult turn.
- *    Narrowing the tools would make pi declare a mid-conversation tool removal,
- *    which the request then has to replay (DL-634).
+ *  - it is launched as the target was: the target's launch identity record
+ *    (appended prompt, skills, the Loom extension, env), upstream's bridge and
+ *    an MCP credential, so it registers exactly the tools the transcript
+ *    declares. pi replays it with no tool delta, the request's `tools` →
+ *    `system` → `messages` prefix is the target's, and a warm target's cache is
+ *    read rather than rewritten. Narrowing the tools would make pi declare a
+ *    mid-conversation tool change and miss the cache (DL-634);
+ *  - the credential is minted for the target's thread with a READ-ONLY client
+ *    beside it, so the server refuses every state-changing call: upstream's
+ *    `McpToolAccess` for its tools, `callLoomTool` for Loom's (only
+ *    `workstream_list` / `goal_task_list` run), the `/loom/agent` routes for
+ *    ask and cache-warming. It is issued with `registry.issue`, never the
+ *    thread-revoking helper, so the target's live credential is untouched, and
+ *    is revoked by its own id when the consult ends. `T3_LOOM_CONSULT_FORK`
+ *    makes the Loom extension block `edit` / `write`; bash stays open for
+ *    inspection, governed by the consult turn's instruction;
+ *  - a target with no launch identity (never launched through the composer)
+ *    gets a cold fork: no credential, no Loom extension, today's tools.
  *
- * The process runs in the SERVER's cwd, so a thread whose worktree has been
+ * The process runs in the target's worktree when the caller passes one that
+ * still exists, else the SERVER's cwd, so a thread whose worktree has been
  * deleted still answers (smoke step 20). The session file is the caller's to
  * resolve — always the provider thread's strong `nativeThreadRef`, never a
  * name or path guess. The fork writes its transcript straight into
@@ -51,8 +64,10 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -61,20 +76,27 @@ import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/process";
 
 import { ServerConfig } from "../../config.ts";
+import { McpSessionRegistry } from "../../mcp/McpSessionRegistry.ts";
 import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
 import {
   makePiRpcConnection,
   piRecordField,
   piRecordString,
 } from "@t3tools/provider-pi/server/rpc";
-import { buildPiRpcLaunch, resolvePiLaunchArgs } from "@t3tools/provider-pi/server/mcpInjection";
+import {
+  buildPiRpcLaunch,
+  materializePiT3McpExtension,
+  resolvePiLaunchArgs,
+} from "@t3tools/provider-pi/server/mcpInjection";
 import { resolveLoomPiBinaryPath } from "@t3tools/provider-pi/server/loom";
 import { PI_PROVIDER } from "@t3tools/provider-pi/server";
 import { PiSettings } from "@t3tools/provider-pi/settings";
 import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
+import { LOOM_HIDDEN_TOOLS_ENV } from "../prompt/sessionComposerLive.ts";
 import { makeConsultTracker } from "./consultTracker.ts";
+import { readLaunchIdentity } from "./launchIdentity.ts";
 
 /** The live card hears from a fork at most this often (it ticks its own clocks between). */
 const PUBLISH_INTERVAL_MS = 500;
@@ -102,7 +124,7 @@ Question:
 
 ${input.question}
 
-Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; the workstream tools this transcript shows you using are gone, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
+Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; every tool that changes state — the workstream tools, edits, questions to a human — is refused in this fork; use the read-only ones and your context, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
 
 export class LoomConsultError extends Schema.TaggedError<LoomConsultError>()("LoomConsultError", {
   detail: Schema.String,
@@ -122,6 +144,8 @@ export interface ConsultForkInput {
   /** The asker's and target's ids, for the asker's live consult card. */
   readonly askerThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
+  /** The target's worktree (else project root); the server's cwd when absent or deleted. */
+  readonly cwd?: string;
 }
 
 export interface ConsultForkResult {
@@ -164,6 +188,9 @@ export const layer = Layer.effect(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const settings = yield* ServerSettings.ServerSettingsService;
     const config = yield* ServerConfig;
+    const registry = yield* McpSessionRegistry;
+    const fs = yield* FileSystem.FileSystem;
+    const fsContext = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
     const live = yield* PubSub.unbounded<LoomConsultShellStreamItem>();
     const running = new Map<string, RunningConsult>();
     const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -181,14 +208,63 @@ export const layer = Layer.effect(
       );
       const launchArgs = resolvePiLaunchArgs(pi.launchArgs);
       if (!launchArgs.ok) return yield* new LoomConsultError({ detail: launchArgs.message });
+      const consultId = NodeCrypto.randomUUID();
+      const identity = yield* readLaunchIdentity(
+        loomPaths(config).workstreamLaunchIdentityDir,
+        input.targetThreadId,
+      ).pipe(Effect.provide(fsContext));
+      if (Option.isNone(identity))
+        yield* Effect.logWarning("loom.consult.cold-fork", {
+          targetThreadId: input.targetThreadId,
+          reason: "the target has no launch identity record",
+        });
+      // Launched like the target so the declared tools match its transcript (see the module doc).
+      const warm = Option.isNone(identity)
+        ? undefined
+        : {
+            // The bridge first: a failure there must not strand an issued credential.
+            bridge: yield* materializePiT3McpExtension(config.providerStatusCacheDir).pipe(
+              Effect.provide(fsContext),
+              Effect.mapError(consultError("Could not materialise the T3 MCP bridge")),
+            ),
+            credential: yield* registry.issue({
+              threadId: input.targetThreadId,
+              providerInstanceId: identity.value.modelSelection.instanceId,
+              capabilities: new Set(["workstream", "pull-requests"]),
+              client: {
+                sessionId: consultId,
+                label: `consult fork of ${input.targetThreadId}`,
+                access: "read-only",
+              },
+            }),
+            loom: {
+              appendSystemPrompt: identity.value.appendSystemPrompt,
+              skills: identity.value.skills,
+              extensions: identity.value.extensions,
+              // One short-lived turn: the 5-minute arm; reads are content-keyed.
+              env: {
+                ...identity.value.env,
+                ...LOOM_HIDDEN_TOOLS_ENV,
+                PI_CACHE_RETENTION: "short",
+                T3_LOOM_CONSULT_FORK: "1",
+              },
+            },
+          };
       const launch = buildPiRpcLaunch({
         launchArgs: launchArgs.args,
-        // One short-lived turn: always the 5-minute prompt cache.
+        // One short-lived turn: always the 5-minute prompt cache (a warm fork's env says so too).
         environment: { ...process.env, PI_CACHE_RETENTION: "short" },
-        mcpSession: undefined,
-        extensionPath: undefined,
+        mcpSession: warm?.credential.config,
+        extensionPath: warm?.bridge,
+        // The bridge's confirm hook passes everything; any other mode would block bash (dialogs are cancelled).
+        runtimeMode: "full-access",
+        ...(warm === undefined ? {} : { loom: warm.loom }),
       });
-      const consultId = NodeCrypto.randomUUID();
+      const cwd =
+        input.cwd !== undefined &&
+        (yield* fs.exists(input.cwd).pipe(Effect.orElseSucceed(() => false)))
+          ? input.cwd
+          : config.cwd;
       const tracker = makeConsultTracker({
         consultId,
         askerThreadId: input.askerThreadId,
@@ -210,7 +286,13 @@ export const layer = Layer.effect(
       // The consult's last item, however it ends: the card freezes on it and the server forgets it.
       const finish = Effect.suspend(() => {
         running.delete(consultId);
-        return nowIso.pipe(
+        // Only the consult's own credential: revokeThread would kill the target's live token.
+        return (
+          warm === undefined
+            ? Effect.void
+            : registry.revokeProviderSession(warm.credential.config.providerSessionId)
+        ).pipe(
+          Effect.andThen(nowIso),
           Effect.flatMap((at) => {
             tracker.end(at);
             return publish;
@@ -228,7 +310,7 @@ export const layer = Layer.effect(
             "--fork",
             input.sessionFile,
           ],
-          cwd: config.cwd,
+          cwd,
           env: launch.env,
         });
         const state = yield* connection.request({ type: "get_state" });

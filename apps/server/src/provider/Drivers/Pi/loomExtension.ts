@@ -8,8 +8,8 @@
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard` and `prompt-debug`, and `cacheWarmingGate` (no idle cache
  * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
- * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge)
- * (`loomExtensionParts/`).
+ * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
+ * `consultGuard` (a consult fork refuses `edit` / `write`) (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with
  * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,
@@ -29,6 +29,7 @@ import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
 import { agentToolName, HUMAN_INPUT } from "../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
 import { cacheWarmingGatePart } from "./loomExtensionParts/cacheWarmingGate.ts";
+import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
 import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
@@ -192,6 +193,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   searchGuardPart,
   promptDebugPart,
   cacheWarmingGatePart,
+  consultGuardPart,
 ];
 
 export const assembleLoomExtensionSource = (parts: ReadonlyArray<LoomExtensionPart>): string => `\
