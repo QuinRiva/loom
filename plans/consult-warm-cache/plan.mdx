@@ -1,0 +1,242 @@
+---
+kicker: "Implementation plan · consult_thread warm-cache reuse · October 2026"
+reader:
+  who: Carl, the maintainer, approving or redirecting the design before a coder starts
+  knows: Loom, how consults fork a pi session, Anthropic prompt caching in general; not the researcher's report nor the pi 1.1 tool-transcript mechanics
+  after_first_screen: every consult pays a full cache write because the fork registers a different tool set; launch the fork like the target under a read-only credential and warm consults cost 6–12× less; read-only stays a server-side refusal; three small decisions to make
+manager_sessions:
+  - id: 01a13a2c-8df2-7264-8d7c-ba4d2dc46226
+    name: Warm-cache consult fork design
+    role: plan
+    authored_at: 2026-10-14T11:47:40.882Z
+---
+
+# Consult forks should read the target's warm cache
+
+Every `consult_thread` call today pays to re-read the whole target context as a **cache write**, however warm the target is: **about $3.08 for a 213k-token Fable thread and $6.19 at 481k**, where a warm read would be **about $0.25–0.30**. The cause is one thing: the fork is launched without the target's extensions and MCP credential, so it registers **29 tools where the target has 51**; pi 1.1 then declares that difference to the model, the request's `tools` array changes, and Anthropic's cache key (`tools` → `system` → `messages`) misses from the first byte.
+
+**Recommendation.** Launch the consult fork *exactly* as the target was launched — its recorded launch identity (appended prompt, skills, the Loom extension), upstream's bridge extension and an MCP credential — so the fork registers the same tools and pi replays the transcript with no tool delta. Keep it read-only by minting that credential as a **read-only caller**: upstream's `McpToolAccess` already refuses every state-changing upstream tool for a read-only caller, and three small gates do the same for Loom's tools and REST routes. No pi patch, no second cache breakpoint, no change to how targets are launched. About a day of work for one coder, plus the live check.
+
+<Stats
+  items={[
+    { value: "≈12×", label: "Cheaper warm consult", tone: "success", detail: "$3.08 → ~$0.25 on a 213k Fable thread; $6.19 → ~$0.30 at 481k" },
+    { value: "80 of 287", label: "Past Anthropic consults that ran warm", tone: "risk", detail: "within 5 min of the target's last request; every one wrote the full context" },
+    { value: "29 vs 51", label: "Tools the fork sends vs the target", tone: "warning", detail: "no mcp__t3-code__* tools, no Loom profile; a 12k-token tools update follows" },
+    { value: "0", label: "Breakpoint changes needed", tone: "info", detail: "Anthropic's 20-block lookback already reaches the target's entry" },
+  ]}
+/>
+
+<Callout focus title="What it means now">
+  Consults of a warm root or orchestrator drop to roughly a tenth of today's price, so a retro or a planner can consult the live orchestrator as a matter of course rather than once. Children stay cold (their keep-warm stops at submit), so consults of finished children cost what they cost today. Read-only is preserved by server-side refusal, not by prompt, and the fork keeps bash for inspection exactly as it has today. Three decisions are at the end: approve the launch-like-the-target route over a fork-only stub hook, whether the fork should also block `edit`/`write`, and whether it should run in the target's worktree.
+</Callout>
+
+**Scope.** `apps/server/src/loom/workstream/consult.ts` and the four files that make a read-only caller real. Not in scope: keeping children warm after they submit, changing cache retention arms, or pi patches. **Done** means a consult of a warm target shows most of its first request as `cacheRead` in the fork's session usage, and every state-changing tool call from a fork is refused by the server — both checked by the recipe in section 6.
+
+## 1. Why every consult misses
+
+Anthropic hashes the request prefix in the order `tools` → `system` → `messages`; a change at any level invalidates it and everything after. The fork's `system` and `messages` already match the target's — pi 1.1 stores the system prompt in the session and replays it word for word — so only `tools` is in play. The table is the whole diagnosis.
+
+<Table
+  density="compact"
+  columns={["Prefix level", "Target's last request", "Fork today", "Match?"]}
+  rows={[
+    ["`tools`", "51 declarations: pi builtins, Carl's global extensions, `mcp__t3-code__*` from the bridge, `tool_search`", "29: no bridge (no credential, no `--extension`), no Loom extension", { badge: { label: "miss", tone: "risk" }, md: "every later level misses too" }],
+    ["`system`", "the initial system message replayed from the transcript", "the same bytes (pi replays the first system message verbatim)", { badge: { label: "match", tone: "success" }, md: "" }],
+    ["`messages`", "the whole history, breakpoint on the last user / tool-result block", "the same history, then the question, then a ~12k-token “Updated system prompt section tools” message", { badge: { label: "match", tone: "success" }, md: "the appended messages land after the history" }],
+  ]}
+/>
+
+**The mechanism in pi 1.1.** A pi session transcript declares its tools: the leading system message carries `toolsAdded`, and every later change is a system message with `toolsAdded` / `toolsRemoved` deltas. Before each request `declareToolChanges` (pi-agent-core, `agent-loop.js`) compares the transcript's current tools with the tools the process has registered and active; a difference becomes a new delta, and for a model without native mid-conversation tool changes the request's `tools` array becomes the post-delta list. On a `--fork`, pi restores the active loadout from the transcript (`_restoreToolsFromTranscript` in `agent-session.js`) — but only tools that are *registered* can be active. The fork registers none of the `mcp__t3-code__*` tools, so 22 of them are declared removed. Order does not matter: the request's tool order is the transcript's declaration order, not the fork's registration order.
+
+The researcher's dump of a real Loom fork request shows it: 29 tools, and after the question a system message that begins `Updated system prompt section "tools": <tools> - read: …` — the system prompt's tools section regenerated for the smaller set.
+
+<Callout tone="info" title="A finding that departs from the researcher's report">
+  The report lists a second cause — "two consults of one target cannot share, because pi's single breakpoint sits after the question" — and proposes a fork-only second breakpoint. That is not needed. The target's own last request wrote a cache entry at the end of its last user / tool-result block. A fork's breakpoint sits after the question; Anthropic's lookback checks up to 20 positions behind a breakpoint for entries prior requests wrote, and the target's entry is two to five positions back (the target's final assistant message, then the question). So fork 1 reads the target's entry, and that read refreshes the entry at no cost, so fork 2 within the lifetime reads it too. The second cause was an observation under the tool mismatch, not an independent cause. (Anthropic: *"The cache is refreshed for no additional cost each time the cached content is used"*; lookback window: 20 blocks, consecutive tool-use or tool-result runs counting as one.)
+</Callout>
+
+**The 1-hour arm.** Forks run with `PI_CACHE_RETENTION=short`, so their breakpoints carry no `ttl`. Anthropic's documentation keys cache hits on content — *"cache hits require 100% identical prompt segments"* — and its mixed-TTL billing example shows a 5-minute marker hitting an existing entry, so a short fork should read a 1-hour root's entry. Keeping the fork short is right regardless: its own writes (the question and the answer's tool turns) are throwaway and the 5-minute write is 1.25× base against 2× for 1-hour. The live check in section 6 confirms both arms; if the long arm does not read, the one-line fallback is to launch the fork with the target's retention.
+
+## 2. The fix: launch the fork as the target was launched, under a read-only credential
+
+<Callout tone="decision" title="Decision: reuse the target's launch, not a fork-only hook">
+  The consult fork is built with the same inputs `ProviderSessionManager` gives the target — the launch identity record (`workstream-launch-identity/<threadId>.json`: appended prompt, skills, extensions, env, model selection, tool profile), upstream's bridge extension, and an MCP credential — so the bridge registers the identical `mcp__t3-code__*` declarations, the Loom extension's profile part computes the identical active set, and pi's transcript restore finds every declared tool registered. Parity is by construction: whatever changes in how targets are launched flows to forks unchanged. The credential is minted as a read-only caller so nothing it reaches can change state (section 3).
+</Callout>
+
+<Columns>
+  <Card eyebrow="Recommended" heading="Launch like the target + read-only credential" tone="success" badge="parity by construction" meta={["5 files", "≈ 60 lines", "no pi patch"]}>
+    The fork gets the target's recorded composer fields, the bridge, and a credential whose scope says `access: "read-only"`. Tool declarations match because the same code registers them from the same MCP catalogue (`tools/list` is the same for every credential) and the same prose. Read-only rides upstream's existing `McpToolAccess` refusal plus three Loom gates. Drift risk: nil for declarations; the one moving part is the credential's scope.
+  </Card>
+  <Card eyebrow="Rejected" heading="Fork-only hook that stubs the transcript's declarations" tone="neutral" badge="hackier" meta={["no credential", "≈ 80 lines", "tracks pi internals"]}>
+    A fork-only extension reads the transcript's declared tools and registers refusing stubs with the same name, description and parameters, then re-asserts the active set. Read-only is absolute (no credential exists). But declarations must match pi's `toToolDeclaration` byte for byte, including `constrainedSampling`, and the system prompt's `tools` / `rules` sections need each tool's prompt snippet and guidelines, which the transcript does not store — so the server would ship its prose table into the stub extension, a second registration path for the same tools that silently misses the cache the day pi or the bridge changes a detail. The researcher's simpler variant (swap the wire `tools` in `before_provider_request`) is worse again: pi still tells the model the tools were removed, and the swapped-in tools are not callable.
+  </Card>
+</Columns>
+
+**What the fork is launched with, before and after.** Everything in the *after* column is read from existing records or constants; nothing new is persisted.
+
+<Table
+  density="compact"
+  columns={["Launch input", "Today", "After", "Why it matters"]}
+  rows={[
+    ["`--append-system-prompt`, `--skill`, `--extension` (Loom)", "none", "the target's `LaunchIdentityRecord` verbatim (`readLaunchIdentity`)", "the Loom extension applies the target's tool profile; the prompt's `addendum` and `skills` sections match, so no section-update message is appended"],
+    ["bridge `--extension` + `T3_MCP_URL` / `T3_MCP_BEARER_TOKEN`", "stripped", "`materializePiT3McpExtension` + a read-only consult credential", "registers the identical `mcp__t3-code__*` declarations, snippets and guidelines; same hidden set via `T3_LOOM_HIDDEN_TOOLS`"],
+    ["`T3_PI_RUNTIME_MODE`", "unset (no hook at all)", "`full-access`", "the bridge's `tool_call` confirm hook passes everything, as today; consult.ts cancels every dialog, so any other mode would block bash"],
+    ["`PI_CACHE_RETENTION`", "`short`", "`short` (overrides the identity's arm)", "throwaway writes at the 5-minute price; reads are content-keyed"],
+    ["agent git identity, `PATH` shim, idle keep-alive horizon", "none", "none", "a fork never commits and is killed when the consult ends"],
+    ["`cwd`", "the server's cwd", "the target's worktree when it still exists, else the server's cwd (decision 3)", "removes the `cwd` and `project_context` section updates and makes `git log` / `rg` in the fork mean something"],
+    ["`T3_LOOM_CONSULT_FORK`", "—", "`1`", "lets the Loom extension block `edit` / `write` in forks (decision 2)"],
+  ]}
+/>
+
+**The load-bearing block.** The launch in `consult.ts`, as it should read after the change (shape, not final code):
+
+<AnnotatedCode
+  filename="apps/server/src/loom/workstream/consult.ts"
+  language="ts"
+  code={"const identity = yield* readLaunchIdentity(loomPaths(config).workstreamLaunchIdentityDir, input.targetThreadId);\nconst consultId = NodeCrypto.randomUUID();\n// A target that never launched under the composer gets today's cold fork.\nconst warm = Option.isSome(identity)\n  ? {\n      credential: yield* registry.issue({\n        threadId: input.targetThreadId,\n        providerInstanceId: identity.value.modelSelection.instanceId,\n        capabilities: new Set([\"workstream\", \"pull-requests\"]),\n        client: { sessionId: consultId, label: `consult fork of ${input.targetThreadId}`, access: \"read-only\" },\n      }),\n      bridge: yield* materializePiT3McpExtension(config.providerStatusCacheDir),\n      loom: {\n        appendSystemPrompt: identity.value.appendSystemPrompt,\n        skills: identity.value.skills,\n        extensions: identity.value.extensions,\n        env: { ...identity.value.env, ...LOOM_HIDDEN_TOOLS_ENV, PI_CACHE_RETENTION: \"short\", T3_LOOM_CONSULT_FORK: \"1\" },\n      },\n    }\n  : undefined;\nconst launch = buildPiRpcLaunch({\n  launchArgs: launchArgs.args,\n  environment: process.env,\n  mcpSession: warm?.credential.config,\n  extensionPath: warm?.bridge,\n  runtimeMode: \"full-access\",\n  ...(warm === undefined ? {} : { loom: warm.loom }),\n});\n// … makePiRpcConnection({ cwd: input.cwd ?? config.cwd, … }) as today …\n// finish: registry.revokeProviderSession(warm.credential.config.providerSessionId)\n"}
+  annotations={[
+    { lines: "1", label: "the target's record", note: "the same bytes ProviderSessionManager replays for the target's own relaunches; read only, never written" },
+    { lines: "6-11", label: "read-only caller", note: "registry.issue, never issueActiveMcpCredential: that helper revokes the thread's live credential first" },
+    { lines: "13-18", label: "composer fields", note: "verbatim from the record; only the env is adjusted (short retention, consult marker)" },
+    { lines: "24", label: "mode", note: "full-access keeps bash usable; the fork cancels every confirm dialog" },
+    { lines: "29", label: "revoke", note: "by the consult's own credential id in the existing `finish`; never revokeThread, which would kill the target's token" },
+  ]}
+/>
+
+Two prose changes ride along: the module comment's claim that the fork's prefix is byte-identical becomes true and is reworded to say how; and `composeConsultTurn`'s sentence *"the workstream tools this transcript shows you using are gone"* becomes *"every tool that changes state — the workstream tools, edits, questions to a human — is refused in this fork; use the read-only ones and your context"*. That sentence is read by the model, so keep the rest of the turn unchanged and watch the first few consult transcripts for narration of refused calls.
+
+## 3. How read-only is guaranteed after the change
+
+Today's guarantee is "no credential": the fork cannot reach `/mcp` at all. The replacement is a credential whose scope carries `client.access === "read-only"` beside the thread caller, and a refusal at every surface that credential can reach. Declarations are unchanged — the model sees the same 51 tools — and the *effect* of each state-changing one is a server-side refusal the model reads as a tool error.
+
+<Table
+  density="compact"
+  columns={["Surface", "Gate", "Status"]}
+  rows={[
+    ["Upstream `t3-code` tools (orchestrator, thread, preview, device, worktree, pull requests, environment, project, attachment)", "`McpToolAccess.refuseReadOnlyClient` runs before every `actsAsCaller` / `writes*` / `startsThreads` handler; `reads` and `readsAsCaller` pass", { badge: { label: "exists", tone: "success" }, md: "nothing to add; Loom credentials never carry orchestration / worktree anyway" }],
+    ["Loom workstream tools (22, `callLoomTool`)", "after `requireWorkstreamCaller`: a read-only caller may call only `workstream_list` and `goal_task_list`; everything else — including `consult_thread`, so forks cannot recurse — fails with a message naming the fork and the tool", { badge: { label: "new", tone: "warning" }, md: "one condition in `registration.ts`; allowed set in `authorisation.ts`" }],
+    ["`POST /loom/agent/user-input/ask`", "403 for a read-only caller (no human reads a fork)", { badge: { label: "new", tone: "warning" }, md: "`loomAgentRoutes.ts`" }],
+    ["`POST /loom/agent/cache-warming`", "403 for a read-only caller — otherwise the fork would overwrite the *target's* sidebar cache gauge, since the credential's thread is the target", { badge: { label: "new", tone: "warning" }, md: "the extension's `.catch(() => {})` already swallows it" }],
+    ["`GET /loom/agent/session-profile`", "served (the fork needs the target's tool profile); `promptDebugPath` is `null` for a read-only caller so the fork cannot overwrite the target's prompt capture", { badge: { label: "new", tone: "warning" }, md: "one conditional in `sessionProfile`" }],
+    ["The credential itself", "issued with `registry.issue` (not the thread-revoking helper), never written to the thread's `McpProviderSessions` slot, revoked by its own id when the consult ends", { badge: { label: "new", tone: "warning" }, md: "`consult.ts` `finish`" }],
+    ["pi's non-MCP tools: `bash`, `edit`, `write`, `fd`, `rg`, …", "unchanged from today: governed by the consult turn's instruction. Optionally (decision 2) the Loom extension blocks `edit` / `write` when `T3_LOOM_CONSULT_FORK=1`, via pi's blocking `tool_call` hook", { badge: { label: "as today", tone: "neutral" }, md: "bash stays open: the fork's value is inspection" }],
+  ]}
+/>
+
+Why `client.access` rather than a new flag: `McpInvocationScope` already has `client: { sessionId, label, access }` for an outside caller approved as read-only, and upstream's policy for it is exactly the one wanted here — *"A client approved for read-only access changes nothing."* A scope with both `thread` (the target, so profile and reads answer as the target) and a read-only `client` needs no new type, no change to `McpToolAccess`, and reads as a consult in logs through its label. The only upstream edit is two marked lines in `McpSessionRegistry.issue` to accept and copy a `client` into the scope.
+
+**Bounds worth stating.** A fork's reads answer as the target: `workstream_list` and `goal_task_list` show the target's branch, which is what a consult about that thread wants. If the target's provider session is relaunched mid-consult, `prepareMcpSession` revokes every credential on that thread id, the fork's included; its next MCP call fails and the model sees a tool error — rare and harmless. A target with no launch identity record (a thread that never launched through the composer) gets today's cold fork and a warning in the log.
+
+**The test worth writing.** The read-only property is the one thing that must not regress, and it is table-driven: in `registration.test.ts`, for every entry of `LOOM_TOOL_DEFS`, call `callLoomTool` with a scope whose `client.access` is `"read-only"` and handlers that fail the test if invoked; assert the two allowed tools reach their handler and every other returns the refusal text. One more assertion in `loomAgentRoutes.test.ts`: the ask route answers 403 to a read-only caller.
+
+## 4. Ordered steps
+
+1. **`apps/server/src/mcp/McpSessionRegistry.ts`** — `McpCredentialRequest` gains `client?: McpInvocationContext.McpClientCaller`; `issue` copies it into the scope (`client: request.client`). Two `// loom:` lines.
+2. **`apps/server/src/mcp/toolkits/workstream/authorisation.ts`** — export `isReadOnlyCaller(scope)` (`scope.client?.access === "read-only"`) and `CONSULT_READ_TOOLS = new Set(["workstream_list", "goal_task_list"])`.
+3. **`apps/server/src/mcp/toolkits/workstream/registration.ts`** — in `callLoomTool`, after the caller resolves: refuse when `isReadOnlyCaller(caller.scope) && !CONSULT_READ_TOOLS.has(def.name)` with `LoomToolError`: *"This is a read-only consult fork of thread ‹id›: ‹tool› changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work."*
+4. **`apps/server/src/loom/http/loomAgentRoutes.ts`** — `askRoute` and `cacheWarmingRoute` reply 403 for a read-only caller; `sessionProfile` takes the caller and returns `promptDebugPath: null` when read-only.
+5. **`apps/server/src/loom/workstream/consult.ts`** — the launch block above; `ConsultForkInput` gains `cwd?: string`; `finish` revokes the consult credential; the layer requires `McpSessionRegistry`, `FileSystem` and `Path` (all provided at the server's application level — `McpSessionRegistry.layer` is `provideMerge`d above `layerRuntimeServices` in `server.ts`); rewrite the module comment and the one consult-turn sentence.
+6. **`apps/server/src/mcp/toolkits/workstream/handlers/consult.ts`** — pass `cwd: target.worktreePath ?? ‹project workspaceRoot›` (the shell carries `worktreePath` and `projectId`; `ProjectStoreV2` resolves the root), only when decision 3 is yes.
+7. **`apps/server/src/provider/Drivers/Pi/loomExtensionParts/consultGuard.ts`** (new, only when decision 2 is yes) — a part that, when `process.env.T3_LOOM_CONSULT_FORK === "1"`, returns `{ block: true, reason }` from `tool_call` for `edit` and `write`; registered in `LOOM_EXTENSION_PARTS`. Changing the extension source changes nothing in the request: hooks are not declarations.
+8. **Tests** — the table-driven read-only test in `registration.test.ts`; the 403 assertion in `loomAgentRoutes.test.ts`.
+9. **`docs/operations/prompt-cache-retention.md`** — the sentence at line 23 that describes the consult fork now says it reads the target's cache and stays on the short arm.
+
+Then `vp check` and `vp run typecheck`, then the live recipe in section 6, then ship via `pnpm ship`.
+
+<Details summary="Change map — every touched file">
+  <FileTree
+    title="Consult warm-cache reuse"
+    entries={[
+      { path: "apps/server/src/loom/workstream/consult.ts", change: "modified", note: "launch with identity + bridge + read-only credential; cwd; revoke in finish; comment and turn wording" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/consult.ts", change: "modified", note: "pass the target's cwd (decision 3)" },
+      { path: "apps/server/src/mcp/McpSessionRegistry.ts", change: "modified", note: "loom: optional client on a credential request, copied into the scope" },
+      { path: "apps/server/src/mcp/toolkits/workstream/authorisation.ts", change: "modified", note: "isReadOnlyCaller + CONSULT_READ_TOOLS" },
+      { path: "apps/server/src/mcp/toolkits/workstream/registration.ts", change: "modified", note: "read-only gate in callLoomTool" },
+      { path: "apps/server/src/loom/http/loomAgentRoutes.ts", change: "modified", note: "403 on ask and cache-warming for read-only; promptDebugPath null" },
+      { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/consultGuard.ts", change: "added", note: "block edit/write in forks (decision 2)" },
+      { path: "apps/server/src/provider/Drivers/Pi/loomExtension.ts", change: "modified", note: "register the part (decision 2)" },
+      { path: "apps/server/src/mcp/toolkits/workstream/registration.test.ts", change: "modified", note: "table-driven read-only refusal over LOOM_TOOL_DEFS" },
+      { path: "apps/server/src/loom/http/loomAgentRoutes.test.ts", change: "modified", note: "ask route refuses a read-only caller" },
+      { path: "docs/operations/prompt-cache-retention.md", change: "modified", note: "consult fork sentence" },
+    ]}
+  />
+</Details>
+
+## 5. Risks and what bounds them
+
+<Table
+  density="compact"
+  columns={["Risk", "Effect", "Bound"]}
+  rows={[
+    [{ tone: "warning", md: "`humanEngaged` flips between the target's last turn and the consult (a human writes to a child that has not run since)" }, "the fork's profile activates `ask_user_question` where the target's transcript did not → one tool delta → full miss for that consult", "rare, self-limiting, costs what today costs; the ask itself is refused server-side"],
+    ["A global pi extension (Carl's `~/.pi/agent`) changed a tool's description or schema since the target's last turn", "a declaration delta → full miss", "the target's own next turn pays the same miss; nothing consult-specific"],
+    ["cliproxy routes the fork to a different OAuth organisation than the target", "caches are per organisation: full miss", "the researcher saw consistent routing; the live check reads the fork's provider from `get_state`"],
+    ["The `tools` array of the fork differs for a reason this plan did not see", "miss persists", "section 6 step 5 dumps the fork's first request and diffs its `tools` against the target's — the diagnosis is mechanical"],
+    ["A credential with both `thread` and `client` set reaches an upstream path that assumes one or the other", "an unexpected refusal or an unexpected pass on an upstream tool", "Loom credentials carry only workstream / pull-requests, so the reachable upstream tools are the pull-request reads (`McpToolAccess.reads`) and writes (refused); the table-driven test pins Loom's side"],
+    ["Children are cold by the time anyone consults them", "no saving on child consults", "stated in scope; the win is roots, orchestrators and planners consulted while live"],
+  ]}
+/>
+
+## 6. Verification
+
+Unit: `vp test run apps/server/src/mcp/toolkits/workstream/registration.test.ts apps/server/src/loom/http/loomAgentRoutes.test.ts`, then `vp check` and `vp run typecheck`.
+
+Live, using the dev-verify recipe (`docs/dev-site-testing.md`: an isolated dev instance on this worktree's `.t3`, seeded with `vp run dev:seed`). A later thread runs this; it is written to be followed cold.
+
+<Steps>
+  <Step at="1" title="Make a warm target on each arm.">
+    Set `rootCacheLongShare` to `1` in the dev instance's settings and start a root thread A (every root is then a 1-hour root); set it to `0` and start root thread B (5-minute). Send each a prompt that makes it read a few files so its context is comfortably above the 512-token cache minimum, and let it settle. Note each thread's last assistant `usage` from its pi session file (`<worktree>/.t3/userdata/…/sessions/`): `cacheRead + cacheWrite + input` is the context size the fork should read.
+  </Step>
+  <Step at="2" title="Consult each target within 4 minutes of its last request.">
+    From a third thread (or any thread with the workstream tools), call `mcp__t3-code__consult_thread` with the target's id and a question that needs no tools ("In one sentence, what was the last file you read?"). The consult card shows the fork's session path; it is also under `<worktree>/.t3/userdata/loom/workstream-consults/`.
+  </Step>
+  <Step at="3" title="Read the fork's first request usage." tone="warning" badge="the done criterion">
+    In the fork's session file, the first assistant message's `usage` must show `cacheRead` at roughly the target's context size (within the target's final assistant turn plus the question) and `cacheWrite` a few thousand tokens at most. Both arms must read; if B reads and A does not, the 1-hour entry is not readable by a short request — switch the fork to the target's `PI_CACHE_RETENTION` (one line in step 5 of section 4) and re-run.
+  </Step>
+  <Step at="4" title="Consult the same target again within 4 minutes.">
+    A different question. The second fork's first request must also show `cacheRead` at the context size: the first fork's read refreshed the target's entry.
+  </Step>
+  <Step at="5" title="Prove no tool delta was declared.">
+    Grep the fork's session file for system entries written after the fork point: none may carry `toolsAdded` or `toolsRemoved`; a `sections` patch, if any, may touch only `cwd`, `project_context` or `addendum`. If a delta appears, dump the fork's first request with a `before_provider_request` extension (the researcher's `/tmp/cc/dump.ts` pattern: write `event.payload` and exit) and diff its `tools` names against the target's last request.
+  </Step>
+  <Step at="6" title="Prove read-only." tone="risk">
+    Consult a target with: "Call `mcp__t3-code__goal_task_add` with text 'probe from consult', then call `mcp__t3-code__workstream_list`, and report exactly what each returned." The fork's transcript must show the refusal text for `goal_task_add` and a normal listing for `workstream_list`; the target's goal tree must be unchanged. If decision 2 is yes, add "then write the file /tmp/consult-probe.txt" and check the file does not exist. The target's sidebar cache gauge must not change during the consult (the cache-warming post is refused).
+  </Step>
+</Steps>
+
+<QuestionForm
+  questions={[
+    {
+      id: "route",
+      title: "Make the consult fork reuse the target's cache by launching it like the target under a read-only credential?",
+      subtitle: "This is the plan's main bet: the fork gets the target's recorded launch inputs plus an MCP credential marked read-only, instead of a fork-only extension that fakes the tool declarations.",
+      refs: [{ label: "2. The fix", anchor: "2-the-fix-launch-the-fork-as-the-target-was-launched-under-a-read-only-credential" }],
+      mode: "single",
+      options: [
+        { id: "credential", label: "Yes — launch like the target, mint a read-only credential, gate Loom's tools and routes", recommended: true, detail: "Declarations match by construction; read-only rides upstream's existing refusal plus three small Loom gates; about a day." },
+        { id: "stub", label: "No — build the fork-only stub extension instead, with no credential", detail: "Absolute read-only, but a second registration path that must track pi's declaration rules and ship the tool prose; misses silently when either drifts." },
+        { id: "defer", label: "Not now — leave consults cold", detail: "Keeps today's $3–6 per warm consult." },
+      ],
+    },
+    {
+      id: "edits",
+      title: "Should the fork also refuse pi's edit and write tools mechanically?",
+      subtitle: "Today the fork can run bash, edit and write and is told not to modify anything; this keeps bash (the fork's value is inspection) and blocks only the two tools whose sole purpose is changing files.",
+      refs: [{ label: "3. How read-only is guaranteed", anchor: "3-how-read-only-is-guaranteed-after-the-change" }],
+      mode: "single",
+      options: [
+        { id: "block", label: "Yes — block edit and write in consult forks via the Loom extension", recommended: true, detail: "A few lines in a new extension part gated on T3_LOOM_CONSULT_FORK; bash stays prompt-governed as today." },
+        { id: "prompt", label: "No — keep all pi tools prompt-governed, as today", detail: "No change to the fork's file tools." },
+      ],
+    },
+    {
+      id: "cwd",
+      title: "Run the fork in the target's worktree when it still exists?",
+      subtitle: "Today every fork runs in the server's directory. Running in the target's worktree makes its git log and file reads refer to the right tree and removes two system-prompt section updates; a deleted worktree falls back to today's behaviour.",
+      mode: "single",
+      options: [
+        { id: "worktree", label: "Yes — the target's worktree, falling back to the server's cwd", recommended: true, detail: "A few lines in the consult handler and consult.ts; no effect on the cache prefix either way." },
+        { id: "server", label: "No — keep the server's cwd", detail: "Smaller change; the fork's commands keep running against the wrong tree." },
+      ],
+    },
+  ]}
+/>
