@@ -116,6 +116,7 @@ it.layer(TestLayer)("Loom projector", (it) => {
       assert.isNotNull(mid.dependenciesSince);
       assert.equal(mid.kickoffBriefPath, "/brief.md");
       assert.equal(mid.kickoffAt, "2026-01-01T00:00:00.000Z"); // first write wins
+      assert.equal(mid.kickoffOrigin, "kickoff"); // with its origin
       assert.isTrue(mid.pendingRework);
 
       const outcome = yield* loomEvent("thread.outcome-set", threadId, {

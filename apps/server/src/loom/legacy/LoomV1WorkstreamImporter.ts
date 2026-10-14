@@ -322,6 +322,7 @@ export const mapLegacyThread = (
       outcomeAt: terminal ? since : null,
       outcomeEventId: null,
       kickoffAt,
+      kickoffOrigin: null, // V1 kept no kickoff origin
       attention,
       attentionEpisodes: {},
       blockedBy: blockedBy.map((id) => ThreadId.make(id)),

@@ -383,6 +383,14 @@ export const LoomThreadWorkstream = Schema.Struct({
   outcomeEventId: Schema.NullOr(EventId),
   /** When the first turn was delivered, by anyone. */
   kickoffAt: Schema.NullOr(IsoDateTime),
+  /**
+   * Who wrote that first turn (`thread.kickoff-recorded`'s origin); null before it, or unknown
+   * (a V1 import). A `goal_continue` launch is `kickoff` when the human sent the predecessor's
+   * brief unedited, `user` when they edited it.
+   */
+  kickoffOrigin: Schema.NullOr(LoomKickoffOrigin).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   attention: Schema.Array(LoomAttentionReason),
   /**
    * The `thread.attention-raised` event id per standing reason — the attention
