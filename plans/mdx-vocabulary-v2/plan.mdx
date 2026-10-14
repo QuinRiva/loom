@@ -1,0 +1,544 @@
+---
+reader:
+  who: loom's owner, approving the block contracts before any coder starts, having just read the fan-in recap beside its HTML twin and said which devices the HTML does better
+  knows: the MDX document pipeline in general (closed tag registry, zod schemas, the lint gate), the Phase 1 renderer defaults, and the exact HTML devices he reacted to; has not read the renderer source
+  after_first_screen: which blocks and props are being added, what the acceptance test is, how the work is split so coders can run in parallel, and what is deferred
+manager_sessions:
+  - id: 01a13844-36a1-72f9-b1d6-25fa760da0e5
+    name: MDX vocabulary v2 block contracts
+    role: plan
+    authored_at: 2026-10-14T02:50:03.188Z
+---
+
+# MDX vocabulary v2: the blocks that let the fan-in recap read like its HTML twin
+
+Three new blocks (**`Badge`**, **`Stats`**, **`Steps`**), new props on four existing ones (**`Table`**, **`Callout`**, **`Card`**, **`Mermaid`**), a frontmatter **kicker**, two renderer fixes (**`Columns`** of cards, **`HtmlBlock`** auto-height and theme) and one guard that closes the raw lowercase-HTML path. Every item is traced to a device in `.artifacts/fan-in-deadlock-explainer.html` that `recaps/issue-280-fan-in-deadlock-v2/recap.mdx` could not express. **Acceptance test:** the fan-in recap re-authored with these blocks reads like its HTML twin — §1 shows the exact MDX for every device on that page. Six tones — `neutral | info | success | warning | risk | accent` — become the one palette every new surface shares. Nothing becomes required, no block is removed, and the doctrine gains defaults with reasons rather than prohibitions. Five coder packages (§4): one prerequisite, four in parallel.
+
+<Table
+  density="compact"
+  columns={["Device on the HTML page", "MDX after this plan", "Kind", "Package"]}
+  rows={[
+    ["Pills in sentences, cells, card headers", "<Badge tone>; badges on Card, Stats, Step and Table cells", "new block + shared spec", "A"],
+    ["RULE 1 eyebrow; a pill whose colour differs from the card's", "Card eyebrow, badges", "new props", "A"],
+    ["Three or four cards across", "Columns accepts Card directly; columns={n}", "lint + CSS", "A"],
+    ["<style>, fixed overlays, remote iframes rendering", "Lowercase tags rejected outside span/mark/kbd/sub/sup/small/br", "guard", "A"],
+    ["The 43 min / 3 of 4 / 10 s / 4 fixes strip", "<Stats items>", "new block", "B"],
+    ["The 'What it means now' box", "Callout title, focus", "new props", "B"],
+    ["The gold line above the title", "frontmatter kicker:", "frontmatter", "B"],
+    ["The timeline with a coloured marker per moment", "<Steps> of <Step at title tone dashed badge aside>", "new block", "C"],
+    ["Tinted rows, pills and code in cells", "Table cells as markdown or { md, badge, tone }; rows as { tone, cells }; align", "schema change", "D"],
+    ["Green, gold and grey graph nodes with a legend", "Mermaid look, legend, :::tone-* classes", "new props", "E"],
+    ["A bespoke figure in the page's own theme", "HtmlBlock auto-height, app tokens injected", "renderer fix", "E"]
+  ]}
+/>
+
+## 1. The acceptance test: the HTML twin, device by device
+
+The HTML page, top to bottom, and the MDX an author writes for each device once this plan ships. Snippets are shown as code because the tags do not exist yet; the re-authored recap in package F (§4) is where they go live.
+
+### 1.1 Kicker, title, lede
+
+The HTML opens with a gold mono line above the title (*Incident recap · QuinRiva/loom #280 · 26 Sep 2026 · fix merged 27 Sep (PR #288)*), then a 36px title and a 17px lede. The title and lede already exist since Phase 1. The kicker becomes a frontmatter field, next to the reader brief the author already writes:
+
+```mdx
+---
+kicker: Incident recap · QuinRiva/loom #280 · 26 Sep 2026 · fix merged 27 Sep (PR #288)
+reader:
+  who: …
+---
+
+# The workstream that deadlocked on an edge nobody drew
+```
+
+### 1.2 The number strip
+
+Four tiles — *43 min / 3 of 4 / 10 s / 4 fixes* — each a large number in a tone, a mono label, and a one-line detail. The fourth tile's detail carries a pill (*1 lost*).
+
+```mdx
+<Stats
+  items={[
+    { "value": "43 min", "label": "Silent deadlock", "tone": "risk",
+      "detail": "Child done 12:36; nothing moved until the orchestrator intervened by hand at 13:16" },
+    { "value": "3 of 4", "label": "Edges the checker could see", "tone": "warning",
+      "detail": "The fourth — “wait for the reviewer” — was implied by two rules, written by neither" },
+    { "value": "10 s", "label": "To merge, once the reviewer was cancelled", "tone": "info",
+      "detail": "Nothing else changed in that window: the causal proof" },
+    { "value": "4 fixes", "label": "Shipped next day", "tone": "success",
+      "detail": "Today: 1 in place · 2 moot · 1 lost", "badge": { "label": "1 lost", "tone": "risk" } }
+  ]}
+/>
+```
+
+### 1.3 "What it means now"
+
+A box with a 4px gold left border, a mono uppercase title, body at reading size, and a row of four pills whose colours are independent of the box. In the MDX recap this was a bold run-in inside the lede, which is why it was "buried". It becomes a `Callout` with a title, the `focus` weight, and a paragraph of inline badges:
+
+```mdx
+<Callout tone="decision" title="What it means now" focus>
+  The fix (PR #288) drew the missing edge … **Ten days later, pull 9 moved loom to shared checkouts** …
+  That leaves **one thing to act on** — the stale-flag fix was lost in the re-platform without a decision — and one note to record for a future isolation opt-in. Both are in §4.
+
+  <Badge tone="success">deadlock notice · in place</Badge> <Badge tone="neutral">missing-edge guard · moot</Badge> <Badge tone="neutral">honest submit reply · moot</Badge> <Badge tone="risk">stale-flag clear · lost</Badge>
+</Callout>
+```
+
+### 1.4 The timeline
+
+Four moments on a rail: a mono time column that never wraps, a bold title with a sentence under it, a coloured marker (blue ring by default, red filled for the lie, grey dashed for the silence), and a right-hand aside carrying a pill and a short line. The MDX recap used a `Table`, and Carl could not tell it was a timeline.
+
+```mdx
+<Steps>
+  <Step at="12:21 UTC" title="All five children created in one scaffold call." badge={{ "label": "orchestrator saw", "tone": "info" }} aside="A normal workstream.">
+    The cycle check passed.
+  </Step>
+  <Step at="12:36" tone="risk" title="The writer finished and submitted." badge="a lie" aside="“Work submitted … dependents released” — a fixed string.">
+    Its branch was never merged; the coder, which waited on the writer, could not start.
+  </Step>
+  <Step at="12:36 → 13:16" tone="neutral" dashed title="Nothing." badge="silence" aside="Then the sidebar badge *Deadlocked · no path forward*.">
+    The merge step ran on every pass and returned early each time. The 13:07 digest listed the researcher only.
+  </Step>
+  <Step at="13:16 → 13:19" tone="warning" title="Manual recovery." badge="misleading" aside="A pause notice saying “a human is in the loop” when none was.">
+    The orchestrator merged the branch by hand, cancelled the coder and the script reviewer, re-pointed the skill reviewer onto live threads, then cancelled it too. The merge completed on its own ten seconds later.
+  </Step>
+</Steps>
+```
+
+The proof box under it (*The causal proof.* …) is a `<Callout tone="info" title="The causal proof">` — the title prop alone closes that one.
+
+### 1.5 The three rules, 3-up
+
+Three neutral cards with a gold `RULE 1` eyebrow, a heading, a sentence and an italic quote. Today the recap writes them as a numbered list; the explainer skill prescribes `Columns` of `Card`s but the lint warns on it. The eyebrow is new; `Columns` accepting `Card` directly is a lint change.
+
+```mdx
+<Columns columns={3}>
+  <Card eyebrow="Rule 1" heading="A dependent of a child with its own branch waits for the merge, not just for `done`.">
+    The coder's start was refused with exactly this:
+
+    > dependency 'the writer' is done, but its fan-in has not completed (fanInState: none)
+  </Card>
+  <Card eyebrow="Rule 2" heading="A child under review merges exactly once, when its reviewer resolves the gate.">
+    Until then the merge step skips it silently — no event, no notice — because a rework round could reopen it.
+  </Card>
+  <Card eyebrow="Rule 3" heading="The cycle check only follows the edges written in `blockedBy`.">
+    Rule 2 makes a dependent wait on a reviewer; nothing records that edge, so the checker cannot see it.
+  </Card>
+</Columns>
+```
+
+### 1.6 The graph
+
+Hand-drawn SVG in the HTML: the done node green, the unmerged writer gold, the three blocked nodes grey, the unwritten edge a red dashed line, and a legend under the figure. The MDX `Mermaid` renders every node the same grey in a hand-drawn look. Authors get a clean default look, six `tone-*` classes that map to the shared palette, and a legend prop:
+
+```mdx
+<Mermaid
+  caption="Every ready node had an unsatisfied dependency, and nothing in flight could change that."
+  legend={[
+    { "tone": "neutral", "label": "written dependency (blockedBy)" },
+    { "tone": "risk", "label": "the edge the graph had but never wrote down (rule 2)" }
+  ]}
+  source={"flowchart LR\n  R[\"researcher · done\"]:::tone-success\n  W[\"writer · done, unmerged\"]:::tone-warning\n  C[\"coder · ready, blocked\"]:::tone-neutral\n  SR[\"script reviewer · ready, blocked\"]:::tone-neutral\n  KR[\"skill reviewer · ready, blocked\"]:::tone-neutral\n  W --> R\n  C -->|waits for merge| W\n  SR --> C\n  KR --> SR\n  KR --> W\n  C -.->|the unwritten edge| KR\n  linkStyle 5 stroke:#e5484d,stroke-width:3px\n"}
+/>
+```
+
+### 1.7 Deadlocked vs merged in 2 s
+
+Two panels with a coloured top border, a heading carrying a pill, a sentence, and a mono chain. The MDX recap used two `Column`s each holding a `Code` block, and Carl "glossed over it assuming it was a code block". With cards that carry their own badge tone and a chain in inline code, the verdict is in the header:
+
+```mdx
+<Columns>
+  <Card tone="risk" heading="The scaffolded graph" badges={[{ "label": "deadlocked", "tone": "risk" }]}>
+    The reviewer waits on a sibling that waits on the thread under review.
+
+    `skill reviewer → script reviewer → coder` · `coder → writer's merge → skill reviewer`
+  </Card>
+  <Card tone="success" heading="The two later spawns" badges={[{ "label": "merged in 2 s", "tone": "success" }]}>
+    Each reviewer waits *only* on its own coder, so the gate resolves the moment the coder submits.
+
+    `reviewer → coder` · `coder's merge → reviewer → resolves at once`
+  </Card>
+</Columns>
+```
+
+### 1.8 The four fixes, 2-up
+
+The HTML lays the four fix cards out two across. The cards already exist in the recap; they go inside `<Columns columns={2}>` with no other change. The decision cards in §4 of the recap do the same.
+
+### 1.9 The status table
+
+The device Carl mocked up himself: the row for the lost fix tinted red, the row for the one still in place tinted green, a pill in the *Today* column, inline code in the *Why* column. Today a cell is a plain string.
+
+```mdx
+<Table
+  density="compact"
+  columns={["Fix", "Today", "Why"]}
+  rows={[
+    ["Draw the missing edge", { "badge": "moot", "md": "deliberately deleted" }, "Recorded in the pull-9 log as “always empty under shared-only”; the code is in git history at `468176f710`"],
+    { "tone": "success", "cells": ["Deadlock notice to the orchestrator", { "badge": { "label": "in place", "tone": "success" }, "md": "ported" }, "Lives in the dispatcher's deadlock rail, “logic unchanged minus the fan-in clauses”; still the only server-side deadlock detector"] },
+    ["Honest submit reply", { "badge": "moot", "md": "reverted to the fixed string" }, "Without a merge step, done really does release dependents, so “dependents released” is true again"],
+    { "tone": "risk", "cells": ["Clear the stale flag on re-point", { "badge": { "label": "lost", "tone": "risk" }, "md": "no decision recorded" }, "The raise survived (re-drive planner); the clear and the dedicated wake copy did not. A re-pointed dependent carries `needs_guidance` until its first turn"] }
+  ]}
+/>
+```
+
+The event-log table in the evidence section uses the same shape: `{ "tone": "risk", "cells": […] }` on the 12:36 row and `"success"` on the 13:18:57 row, with the sequence and time cells in inline code so they render mono.
+
+### 1.10 The warning box and the footer
+
+*The one thing to act on* is `<Callout tone="warning" title="The one thing to act on">` — the bold run-in moves into the title. The sources footer is an H6 line, which Phase 1 already styles as the document's small muted text.
+
+### What the test shows
+
+Every device on the HTML page maps to one block or one prop; nothing needs `HtmlBlock`. Two of the recap's in-place *Vocabulary gap —* notes disappear (both are the table). The remaining difference is the HTML's 1240px canvas and its fonts, which are outside this plan.
+
+## 2. The shared palette and two helpers
+
+Three things every package depends on, landed first by package A.
+
+**One tone palette.** `Card`'s six categorical tones are the palette for every new surface — `Badge`, `Stats`, `Steps`, `Table` rows and cells, `Mermaid` node classes — exported from a new `apps/web/src/components/files/mdx-plan/tones.ts` as the zod enum `toneSchema`, the `Tone` type, and a `BadgeSpec` shape (`string | { label, tone? }`) that `Card.badges`, `Step.badge`, `Stats` items and `Table` cells all reuse, so "a badge" is written the same way everywhere. `Callout` keeps its own five status tones (`info | decision | risk | warning | success`); they are a wire contract used by every existing document and they mean status, not category.
+
+**CSS variables, not Tailwind classes, for the new surfaces.** `index.css` gains `--plan-tone-<name>` and `--plan-tone-<name>-soft` for the six tones under `:root` and `.dark`, derived from the colours `Card` already uses (blue, emerald, amber, red, violet, and the muted grey). The new blocks style with plain classes (`.plan-badge--risk { color: var(--plan-tone-risk); background: var(--plan-tone-risk-soft) }`), which is what lets the same variables reach Mermaid's SVG `<style>` and the `HtmlBlock` iframe (§3.6, §3.9) — a Tailwind class cannot cross either boundary. `Card` keeps its Tailwind maps; nothing existing is restyled.
+
+**An inline-markdown helper.** `apps/web/src/components/files/mdx-plan/inlineMarkdown.tsx` exports `InlineMarkdown({ text })`: one module-level `unified().use(remarkParse).use(remarkGfm)` processor parses the string, and the component renders the first paragraph's inline children — text, `strong`, `emphasis`, `inlineCode`, `delete`, `link`, `break` — as React, memoised on the string. Anything else (an `html` node, an image, a second paragraph) renders as its text. No HTML, no JSX, no second markdown library: it reuses the parser the linter already imports. `Table` cells, `Stats` details and `Step` asides are the string props that become inline markdown.
+
+<Callout tone="info">
+  **Why a cell string cannot hold a Badge tag.** A string attribute is never parsed as MDX, so `"<Badge>lost</Badge>"` inside `rows` would render as literal text. That is why the string props that want a pill take a `badge` field beside the markdown instead, and why `Badge` as an inline *tag* is for prose: sentences, list items, `Callout` and `Card` bodies, `Step` bodies.
+</Callout>
+
+## 3. The contracts
+
+Each block: the props with their zod shape, how it renders, what lint says, the vocabulary entry, and the doctrine line that tells an author when to reach for it. Existing props are unchanged unless named.
+
+### 3.1 `Badge` — an inline pill
+
+The one device every HTML page leans on hardest. An `mdxJsxTextElement`: it lives inside a paragraph, a list item, a heading, a `Card` or `Callout` body. The label is the prose between the tags.
+
+```ts
+// blocks/badge.tsx
+const badgeSchema = z.object({ tone: toneSchema.optional() });
+mdx: { tag: "Badge", passChildren: true }
+```
+
+- **Renders** `<span class="plan-badge plan-badge--{tone}">` — mono, 0.6875rem, weight 600, uppercase via `text-transform`, letter-spacing 0.06em, `padding: 0.1em 0.55em`, `border-radius: 999px`, `white-space: nowrap`, `vertical-align: middle`. The tone colours come from the variables in §2; default `neutral`. It carries **no** `data-plan-block-type` and no block id: it is text, so the annotation layer treats a selection through it as prose and `assignBlockIds` never stamps it. A `Badge` written alone on a line parses as a flow element and takes a top-level block id like any paragraph would — harmless, and the vocabulary says to put it in a sentence.
+- **Lint.** None beyond the registry checks. (A tone outside the enum is already a schema error.)
+- **Vocabulary entry.** *`<Badge tone>` — an inline pill for a state, class or verdict inside a sentence, list item, table cell object or card body: `<Badge tone="risk">lost</Badge>`. Six tones; the text names the meaning, the colour makes it scannable. For a pill in a `Table` cell or a `Card` header use the `badge` fields there — a string attribute is never parsed for tags.*
+- **Doctrine line** (§3 of `document-quality.md`, the "judgement rides the block" bullet): *a state or verdict that recurs through the document — `in place`, `moot`, `lost`; `OURS`, `THEIRS` — is a `<Badge>` the first time and every time, so the reader learns the colour once and finds every occurrence by eye.*
+
+### 3.2 `Card` — eyebrow and multi-tone badges
+
+Two optional props on the existing block.
+
+```ts
+eyebrow: z.string().trim().max(40).optional(),
+badges: z.array(badgeSpecSchema).max(6).optional(),   // string | { label, tone? }
+```
+
+- **Renders.** `eyebrow` sits above the heading as a mono uppercase line (0.6875rem, letter-spacing 0.1em) in the card's tone text colour — for a `neutral` card the `accent` tone, which is what gives the HTML's gold `RULE 1` its lift. `badges` render after the existing `badge` in the header row; a string entry takes the card's tone, an object its own. `badge` stays as the one-pill shorthand.
+- **Lint.** None new. The generated `block-schema.md` needs `blockSchemaDoc.ts` to render a union of object alternatives (today `typeLabel` prints `string | object` with no sub-shape); package A adds that so `badges`, and later `Table` cells, document themselves.
+- **Vocabulary entry addition.** *`eyebrow` is the small line above the heading — `RULE 1`, `OPTION B`, `STAGE 3` — for a numbered or classified series of cards. `badges` is a list of pills with their own tones when the card's single `badge` is not enough: `badges={[{ "label": "deterministic", "tone": "success" }, "x3 calls"]}`.*
+
+### 3.3 `Columns` — cards as direct children
+
+The explainer skill already prescribes `<Columns>` of `<Card>`s (goal task 8db9454f), and the CSS grid already lays any direct child out as a cell; only the lint rule `EXPECTED_CHILDREN.Columns = ["Column"]` says otherwise. One optional prop and a lint relaxation:
+
+```ts
+columns: z.number().int().min(2).max(6).optional(),   // the most columns to lay out
+```
+
+- **Renders.** `.plan-columns` keeps `repeat(auto-fit, minmax(min(240px, 100%), 1fr))`; with `columns={n}` the min track becomes `max(240px, calc((100% - (n - 1) * gap) / n))`, so the grid never shows more than *n* across and still collapses on a narrow panel. Direct block children lose their `my-4` inside the grid (`.plan-columns > [data-plan-block-type] { margin-block: 0 }`), so a card row has no vertical slop.
+- **Lint.** `EXPECTED_CHILDREN.Columns` becomes: a direct child is either a `Column` or any registered block; warn only when the two are mixed in one `Columns` (a labelled slot beside a bare card renders at different heights). `REQUIRED_PARENT.Column` is unchanged.
+- **Vocabulary entry addition.** *A `<Columns>` of `<Card>`s needs no `<Column>` wrappers: cards are columns. Use `<Column label>` when a side needs a label or holds several blocks. `columns={3}` caps the row at three across.*
+
+### 3.4 `Stats` — the number strip
+
+```ts
+const statSchema = z.object({
+  value: z.string().trim().min(1).max(24),
+  label: z.string().trim().min(1).max(80),
+  detail: z.string().trim().max(300).optional(),      // inline markdown
+  tone: toneSchema.optional(),
+  badge: badgeSpecSchema.optional(),
+});
+const statsSchema = z.object({ items: z.array(statSchema).min(1).max(8) });
+```
+
+- **Renders** `<div data-plan-block-type="stats" class="plan-stats">` of tiles: `value` at 2rem, weight 700, `tabular-nums`, in the tone colour (`neutral` → foreground); `label` mono uppercase 0.6875rem muted; `detail` 0.8125rem muted through `InlineMarkdown`; `badge` after the detail. Grid `repeat(auto-fit, minmax(min(11rem, 100%), 1fr))`, gap 0.875rem; each tile `bg-card`, 1px border, radius 0.625rem. **Bleed mode `stretch`** in `BLEED_MODE_BY_BLOCK_TYPE` — a strip of short tiles has no useful max-content, so it takes the budget outright and the tiles share it; that is what makes four tiles sit on one line in the panel. Each tile's text is distinctive, so a text-quote annotation pins to one tile.
+- **Lint.** None new; `max(8)` is the schema's own guard (nine tiles wrap into two uneven rows).
+- **Vocabulary entry.** *`<Stats items>` — the numbers the answer rests on, as large tiles under the lede: `{ value, label, detail?, tone?, badge? }`. Three to six tiles; `value` is the headline figure (`43 min`, `3 of 4`), `label` names it, `detail` is the one line that makes it mean something.*
+- **Doctrine line** (§2, the first screen): *when the answer has numbers — a count, a duration, a share — the lede states them and a `<Stats>` strip right under it shows them, one tile per number, toned by what the number means.*
+
+### 3.5 `Steps` / `Step` — the rail
+
+A container and a slot, on the `Columns`/`Column` pattern: each step's body is MDX prose (so inline `Badge`, code and lists all work), the chrome is props.
+
+```ts
+// Steps: no props (container, passChildren)
+const stepSchema = z.object({
+  at: z.string().trim().max(40).optional(),            // the left column: a time, a number, a stage name; never wraps
+  title: z.string().trim().max(200).optional(),        // the bold first line of the body
+  tone: toneSchema.optional(),                         // colours the marker and the `at` label; default info
+  dashed: z.boolean().optional(),                      // hollow dashed marker: nothing happened, dropped, ghost
+  badge: badgeSpecSchema.optional(),                   // first line of the aside; a string takes the step's tone
+  aside: z.string().trim().max(400).optional(),        // inline markdown under the badge
+});
+```
+
+- **Renders** `<section data-plan-block-type="steps" class="plan-steps">` with a 2px rail (`::before`, `var(--border)`) and one `<div class="plan-step">` per child. The container is the grid and each step is `display: contents`, so the `at` column lines up down the whole rail: `grid-template-columns: minmax(5.5rem, max-content) minmax(0, 1fr)`, and `.plan-steps:has(.plan-step-aside)` adds a third track `minmax(0, 15rem)` — a container cannot read its children's props (they arrive as React nodes), and `:has()` needs no introspection; a steps block with no asides stays two-column. The marker is a 12px circle on the rail: ring in the tone colour by default, filled when `tone` is `risk` or `warning` (the HTML fills the bad moment), dashed ring when `dashed`. `at` is mono 0.75rem muted with `white-space: nowrap` — the wrapping of *12:36 → 13:16* was half of why the table did not read as a timeline. When every step omits `at`, the marker carries the step number instead. `title` renders bold as the body's first line; the body is `prose-plan` at 0.9375rem. Not bled: a prose-bearing block keeps the measure, as `Card` does; three columns inside the measure give the body ~28rem, the HTML's own proportion.
+- **Lint.** `REQUIRED_PARENT.Step = ["Steps"]`, `EXPECTED_CHILDREN.Steps = ["Step"]` — the same two tables `Column` and `Tab` use.
+- **Vocabulary entry.** *`<Steps>` of `<Step at title tone dashed badge aside>` — moments or stages in order on a rail: a timeline when `at` is a time, a ladder when it is a stage, numbered when it is omitted. The body between the tags is the detail; `aside` is the right-hand column for what someone saw or what it cost.*
+- **Doctrine line** (§4 table, new row): *A sequence in time or in stages — a timeline, a ladder of options, a pipeline's steps: `<Steps>`, one `<Step>` per moment, tone on the ones that went wrong.* And one sentence beside it: *a table of times is not a timeline; a reader scans a rail, not a column of wrapped timestamps.*
+- **Deferred:** `orientation="horizontal"` (the left-to-right pipeline the document-classification port wants three times). The vertical rail is the acceptance test; the horizontal form's hard part is what six stages do at the reading measure, which needs a document in hand to tune. Bottom form.
+
+### 3.6 `Table` — markdown cells, badges, tones, alignment
+
+```ts
+const cellSchema = z.union([
+  z.string(),                                            // inline markdown
+  z.object({
+    md: z.string().optional(),                           // inline markdown
+    badge: badgeSpecSchema.optional(),                   // a pill before the text; a string takes the cell's tone, else neutral
+    tone: toneSchema.optional(),                         // tints this cell
+  }),
+]);
+const rowSchema = z.union([
+  z.array(cellSchema),
+  z.object({ tone: toneSchema.optional(), cells: z.array(cellSchema) }),   // tints the whole row
+]);
+const tableSchema = z.object({
+  columns: z.array(z.string()),
+  rows: z.array(rowSchema),
+  align: z.array(z.enum(["left", "center", "right"])).optional(),
+  density: …, filterable: …                              // unchanged
+});
+```
+
+- **Renders.** Every cell goes through `InlineMarkdown`, so `**bold**`, `` `code` ``, `*italic*`, `~~struck~~` and links work in a cell for the first time — today they render as literal characters. A row tone sets `background: var(--plan-tone-{tone}-soft)` on its cells; a cell tone does the same for one cell. A badge renders as the same `.plan-badge` span the inline block uses, before the text, `white-space: nowrap` on that cell so the pill and its word stay on one line. `align[i]` sets `text-align` on column *i* (header and cells); omitted columns stay left. Filter and sort use a `cellText(cell)` that joins badge label and markdown source, so `filterable` keeps working with no visible change. Bleed stays `hug`.
+- **GFM tables** (`| a | b |` in prose) get two of the same defaults without a prop: `stampBleedingBlocks` treats a top-level `<table>` as `hug`, and the `.plan-mdx table` header row gets the block's muted fill. They do not get tones or badges — reach for the block for those; the doctrine says which is which.
+- **Lint.** The ragged-row check reads `cells` from a row object; a cell object with neither `md` nor `badge` warns (it renders empty); an `align` array whose length is not `columns.length` warns (extra entries ignored, missing ones default). The row/cell union needs the `blockSchemaDoc.ts` union rendering from package A to document itself.
+- **Vocabulary entry** (replaces the current paragraph). *Cells are inline markdown — bold, code, links work. A cell can be an object `{ "md", "badge", "tone" }` to carry a pill or a tint, and a row can be `{ "tone", "cells": […] }` to tint the whole row — so a status column is a column of pills and the one row that matters is found before the table is read. `align` sets per-column alignment (`"right"` for numbers). A GFM table in prose is fine for a quick grid; use the block for tones, badges, density or a filter.*
+- **Doctrine line** (§3, judgement bullet, after the Badge sentence): *in a table, that state is a badge cell and the rows that need finding carry a tone — a reader should locate the lost item by colour before reading a word of the table.*
+
+### 3.7 `Callout` — title and focus
+
+```ts
+title: z.string().trim().max(120).optional(),   // replaces the fixed tone label ("Note", "Warning")
+focus: z.boolean().optional(),                  // the document's one box of emphasis
+```
+
+- **Renders.** `title` replaces the tone's label text in the existing small uppercase line; the icon and frame are unchanged, so an untitled callout looks exactly as it does today. With `focus`: no icon; a 4px left border in the tone colour on a `bg-card` surface instead of the tinted frame; the title at 0.8125rem mono uppercase in the tone colour; the body at 1rem (reading size — today's `text-sm` is one reason the "what it means now" paragraph read as an aside); margin `1.5rem 0`. A paragraph of `Badge`s inside renders as a pill row because badges are inline and wrap.
+- **Lint.** None new.
+- **Vocabulary entry addition.** *`title` names the box (`What it means now`, `The causal proof`, `The one thing to act on`) in place of the tone's generic label. `focus` is for the one box the reader must not pass — the verdict or the thing to act on — rendered as a bordered panel at reading size; one or two per document, or the emphasis is gone.*
+- **Doctrine line** (§2, "what it means for them"): *the consequence paragraph is a `<Callout focus title="What it means now">` directly under the lede or the stats, not a bold run-in inside the lede — a run-in is read as part of the summary, a titled box is read as the section it is.*
+
+### 3.8 `Mermaid` — clean look, node tones, legend
+
+```ts
+look: z.enum(["classic", "handDrawn"]).optional(),       // default classic
+legend: z.array(z.object({ tone: toneSchema, label: z.string().trim().min(1).max(80) })).max(6).optional(),
+```
+
+- **Why `handDrawn` was the default and why it changes.** The July port chose `look: "handDrawn"` as the slimmer stand-in for BuilderIO's Excalidraw sketch conversion — a wireframe aesthetic, not a readability choice (`mermaid.tsx` header comment, commit 2cd3595dd9). `classic` is Mermaid's own default; it renders crisp strokes and text, and nothing in the security posture depends on the look (`securityLevel: "strict"`, `htmlLabels: false` and the SVG sanitiser are unchanged). `handDrawn` stays as an opt-in for a diagram that should read as a sketch.
+- **Node tones.** `renderMermaidSvg` passes a `themeCSS` string with six rules of the form `.tone-risk > rect, .tone-risk > polygon, .tone-risk > circle, .tone-risk > path { fill: var(--plan-tone-risk-soft); stroke: var(--plan-tone-risk) }` plus a label colour rule. Authors attach a class with Mermaid's own syntax — `W["writer"]:::tone-warning` or `class W,C tone-neutral` — nothing new to learn and no `classDef` hexes to invent. The SVG is injected inline into the document, so `var(--plan-tone-*)` resolves from the app's `:root`/`.dark` and the diagram flips theme without a re-render; the `--out` render page inlines the same stylesheet. Edges keep Mermaid's `linkStyle n stroke:…`: the vocabulary names the one hex per tone to use (`#e5484d` for risk is already in the recap) so authors stop guessing.
+- **Legend.** Renders under the figure, above the caption, as a row of `.plan-badge` swatches with their labels.
+- **Lint.** A `:::tone-x` or `class … tone-x` whose `x` is not one of the six tones warns (the class silently styles nothing).
+- **Vocabulary entry addition.** *Colour a node by meaning with `:::tone-success` / `:::tone-risk` / … (the shared six-tone palette); `legend` decodes the colours once under the figure. The default look is clean; `look="handDrawn"` for a sketch. Keep an edge's colour to the palette hexes listed in `block-schema.md`'s preamble.*
+- **Doctrine line** (§4, the diagram distinction): *tone the two or three nodes the reader should look at first and leave the rest neutral — a graph where every node is the same grey makes the reader search; a graph where every node is coloured does the same.*
+
+### 3.9 `HtmlBlock` — auto-height and app theme
+
+The escape hatch, made cheap to use well. Accepted earlier; two changes, no new props.
+
+- **Auto-height.** `height` becomes optional-as-override: when omitted, the frame measures itself. The frame is same-origin (`allow-same-origin`, no scripts), so the host reads `contentDocument.documentElement.scrollHeight` on `load` and sets the iframe height, then attaches a `ResizeObserver` to the frame's `body` so a panel-width change reflows it. Bounds 48–4000px. The default `240` goes; a `height` given explicitly is honoured as today (for a frame that should scroll). `Prototype` keeps its explicit height — its origin is opaque and cannot be measured.
+- **Theme.** `buildSrcDoc` injects, for both surfaces, a `:root` block carrying `color-scheme` and the app's `--background`, `--foreground`, `--card`, `--muted`, `--muted-foreground`, `--border` plus the six `--plan-tone-*` pairs, read from `getComputedStyle(document.documentElement)` at build time, and mirrors the host's `dark` class onto the srcdoc `<html>`; `body` gets `background: var(--background); color: var(--foreground)` and the app's font stack. `srcDoc` is memoised on the resolved theme (`useTheme`), so a theme flip reloads the frame with the new values. The iframe's `bg-white` becomes `bg-background`. A snippet written against `var(--plan-tone-risk)` then matches the document around it in both themes.
+- **Lint.** None new.
+- **Vocabulary entry addition.** *The frame sizes itself to its content; give `height` only when it should scroll. Write its CSS against the app's variables — `var(--foreground)`, `var(--border)`, `var(--plan-tone-risk)` — and it follows the theme.*
+
+### 3.10 Raw lowercase HTML — the allow-list guard
+
+`remarkUnknownBlockFallback` leaves lowercase tags to MDX, so `<style>` sheets that restyle the app, `position: fixed` overlays and a remote `<iframe>` all lint clean and render today (confirmed by probes in the capability report). No document in `plans/`, `recaps/` or `explainers/` uses a lowercase tag outside a string attribute, so closing the path breaks nothing.
+
+- **Guard** (`mdxCompileOptions.ts`, the same remark pass; the allow-list lives beside the tag set in `planBlockTags.ts` because the worker imports no React): a lowercase `mdxJsxFlowElement`/`mdxJsxTextElement` whose name is not in `{ span, mark, kbd, sub, sup, small, br }` is rewritten to `UnknownPlanBlock` with its `tag` preserved; an allowed tag has every attribute stripped. `UnknownPlanBlock`'s message branches on case: *Raw HTML `<div>` is not rendered — pills are `<Badge>`, grids are `<Columns>`/`<Card>`, a bespoke figure is `<HtmlBlock>`.*
+- **Lint** (`planLint.ts`): the same test as an `error` with the same wording; stripped attributes a `warning`.
+- **Doctrine.** The contract paragraph in `block-vocabulary.md` adds one sentence: *a handful of unstyled inline HTML tags (`span`, `mark`, `kbd`, `sub`, `sup`, `small`, `br`) pass through; anything else lowercase is rejected — pills come from `<Badge>`.*
+
+### 3.11 Kicker — frontmatter, rendered above the title
+
+- **Pipeline.** A small remark plugin `remarkKicker` in `PLAN_REMARK_PLUGINS` (beside `remarkHeadingAnchors`, not in the guard set the section peek uses) reads the leading `yaml` node, and when it carries a non-empty `kicker` string inserts a `paragraph` node with `data.hProperties.className = "plan-kicker"` immediately after the frontmatter. The reader-brief lint already parses that YAML; the plugin reuses the same decode.
+- **Renders.** `.plan-mdx .plan-kicker`: mono 0.6875rem, uppercase, letter-spacing 0.12em, in the `accent` tone colour, `margin-bottom: 0.5rem`; `.plan-kicker + h1 { margin-top: 0 }` so the title keeps its position. The kicker becomes the document's first top-level block, so a document that *adds* a kicker after being annotated shifts its fallback `plan-block-N` anchors by one — the same thing any added paragraph does, and authored block ids are unaffected.
+- **Lint.** None (an empty or non-string `kicker` is ignored).
+- **Vocabulary entry** (a new "Frontmatter" paragraph under the contract): *`kicker:` is the small line above the title — genre, subject, date, the PR — `Incident recap · #280 · 26 Sep 2026`. It is where the document says what it is, so the title can say what it found.*
+
+## 4. Work packages
+
+Five coder packages plus the re-authoring. Package A lands first: it owns the palette, the badge spec, the inline-markdown helper and the schema-doc change the others import. B–E then run in parallel in one worktree. F runs once all five are in.
+
+<Mermaid
+  caption="A is the prerequisite; B–E are independent; F re-authors the recap against everything."
+  source={"flowchart LR\n  A[\"A · palette, Badge, Card, Columns, raw-HTML guard\"]\n  B[\"B · Stats, Callout, kicker\"]\n  C[\"C · Steps\"]\n  D[\"D · Table\"]\n  E[\"E · Mermaid, HtmlBlock\"]\n  F[\"F · the fan-in recap, re-authored\"]\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  B --> F\n  C --> F\n  D --> F\n  E --> F\n"}
+/>
+
+<Callout tone="warning">
+  **Six files are shared by every package.** `registry.tsx`, `planBlockTags.ts`, `planLint.ts`, `index.css`, `block-vocabulary.md` and `document-quality.md` each take one small addition per package, and the fan-in recap takes one snippet each. In a shared worktree the rule is **append in your own delimited region, by exact-text edit at a unique anchor, never a wholesale rewrite** — a registry line, a tag line, a lint block headed `// vocabulary v2: <block>`, a CSS region headed `/* MDX vocabulary v2: <block> */` at the end of the plan styles, a vocabulary section in the block's place. `block-schema.md` is generated (`UPDATE_BLOCK_SCHEMA=1 pnpm --filter @t3tools/web test run blockSchemaDoc`): each package regenerates it after its own schema change and commits the result; the drift test keeps it honest if two land close together.
+</Callout>
+
+### Package A — palette, `Badge`, `Card`, `Columns`, raw-HTML guard
+
+<FileTree
+  title="Package A"
+  entries={[
+    { "path": "apps/web/src/components/files/mdx-plan/tones.ts", "change": "added", "note": "toneSchema, Tone, badgeSpecSchema, BadgeSpec; the CSS class helpers" },
+    { "path": "apps/web/src/components/files/mdx-plan/inlineMarkdown.tsx", "change": "added", "note": "InlineMarkdown — remark-parse + gfm, inline nodes → React" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/badge.tsx", "change": "added", "note": "the inline pill" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/card.tsx", "change": "modified", "note": "eyebrow, badges" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/columns.tsx", "change": "modified", "note": "columns prop" },
+    { "path": "apps/web/src/components/files/mdx-plan/mdxCompileOptions.ts", "change": "modified", "note": "lowercase-tag guard in remarkUnknownBlockFallback" },
+    { "path": "apps/web/src/components/files/mdx-plan/planBlockTags.ts", "change": "modified", "note": "Badge; ALLOWED_HTML_TAGS" },
+    { "path": "apps/web/src/components/files/mdx-plan/registry.tsx", "change": "modified", "note": "Badge entry; UnknownPlanBlock message for lowercase tags" },
+    { "path": "apps/web/src/components/files/mdx-plan/planLint.ts", "change": "modified", "note": "Columns children rule; raw-HTML error + stripped-attribute warning" },
+    { "path": "apps/web/src/components/files/mdx-plan/blockSchemaDoc.ts", "change": "modified", "note": "render union-of-object alternatives with their sub-shapes" },
+    { "path": "apps/web/src/index.css", "change": "modified", "note": "--plan-tone-* variables; .plan-badge; .plan-columns columns + child margin reset; card eyebrow" },
+    { "path": "skills/mdx-doc-core/references/block-vocabulary.md", "change": "modified", "note": "Badge entry; Card, Columns additions; raw-HTML sentence" },
+    { "path": "skills/mdx-doc-core/references/document-quality.md", "change": "modified", "note": "the Badge doctrine sentence in §3" },
+    { "path": "recaps/issue-280-fan-in-deadlock-v2/recap.mdx", "change": "modified", "note": "rules 3-up (§1.5) and the compare cards (§1.7)" }
+  ]}
+/>
+
+Definition of done: the §1.5 and §1.7 snippets in the recap render; `planLint.test.ts` covers a disallowed lowercase tag (error), an allowed one with an attribute (warning), and `Columns` holding cards (clean); `blockSchemaDoc.test.ts` regenerated; `vp test run apps/web/src/components/files/mdx-plan` and `vp run --filter @t3tools/web typecheck` green. This package also closes goal task 8db9454f (the explainer skill's `Columns` of `Card`s now lints clean).
+
+### Package B — `Stats`, `Callout`, kicker
+
+<FileTree
+  title="Package B"
+  entries={[
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/stats.tsx", "change": "added" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/callout.tsx", "change": "modified", "note": "title, focus" },
+    { "path": "apps/web/src/components/files/mdx-plan/kicker.ts", "change": "added", "note": "remarkKicker" },
+    { "path": "apps/web/src/components/files/mdx-plan/mdxCompileOptions.ts", "change": "modified", "note": "remarkKicker in PLAN_REMARK_PLUGINS" },
+    { "path": "apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx", "change": "modified", "note": "stats → stretch in BLEED_MODE_BY_BLOCK_TYPE" },
+    { "path": "apps/web/src/components/files/mdx-plan/planBlockTags.ts", "change": "modified", "note": "Stats" },
+    { "path": "apps/web/src/components/files/mdx-plan/registry.tsx", "change": "modified", "note": "Stats entry" },
+    { "path": "apps/web/src/index.css", "change": "modified", "note": ".plan-stats; .plan-kicker; focus callout" },
+    { "path": "skills/mdx-doc-core/references/block-vocabulary.md", "change": "modified", "note": "Stats entry; Callout addition; frontmatter paragraph" },
+    { "path": "skills/mdx-doc-core/references/document-quality.md", "change": "modified", "note": "§2 stats and focus-callout sentences" },
+    { "path": "recaps/issue-280-fan-in-deadlock-v2/recap.mdx", "change": "modified", "note": "kicker, the strip (§1.2), the focus box (§1.3), the two titled callouts" }
+  ]}
+/>
+
+Definition of done: the recap's first screen is kicker → title → lede → strip → focus box; a `kicker:` in `mdxPlan.test.ts` renders before the H1 and an absent one renders nothing; the same test gates as A.
+
+### Package C — `Steps`
+
+<FileTree
+  title="Package C"
+  entries={[
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/steps.tsx", "change": "added", "note": "Steps container + Step slot" },
+    { "path": "apps/web/src/components/files/mdx-plan/planBlockTags.ts", "change": "modified", "note": "Steps, Step" },
+    { "path": "apps/web/src/components/files/mdx-plan/registry.tsx", "change": "modified" },
+    { "path": "apps/web/src/components/files/mdx-plan/planLint.ts", "change": "modified", "note": "REQUIRED_PARENT.Step, EXPECTED_CHILDREN.Steps" },
+    { "path": "apps/web/src/components/files/mdx-plan/containers.test.ts", "change": "modified", "note": "Steps nests like Columns: ids, annotation resolution" },
+    { "path": "apps/web/src/index.css", "change": "modified", "note": ".plan-steps rail, marker states, at column, aside track" },
+    { "path": "skills/mdx-doc-core/references/block-vocabulary.md", "change": "modified" },
+    { "path": "skills/mdx-doc-core/references/document-quality.md", "change": "modified", "note": "§4 sequence row" },
+    { "path": "recaps/issue-280-fan-in-deadlock-v2/recap.mdx", "change": "modified", "note": "the timeline (§1.4) replaces the four-moment table" }
+  ]}
+/>
+
+Definition of done: the §1.4 snippet renders with the three-track layout, a filled red marker on the lie and a dashed one on the silence, and `12:36 → 13:16` on one line; `containers.test.ts` shows a `Step` body block getting its own annotation id like a `Column` child does.
+
+### Package D — `Table`
+
+<FileTree
+  title="Package D"
+  entries={[
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/table.tsx", "change": "modified", "note": "cell/row unions, align, InlineMarkdown cells, cellText for filter/sort" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/table.test.ts", "change": "modified", "note": "markdown in a cell, badge cell, toned row, filter over cellText, align" },
+    { "path": "apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx", "change": "modified", "note": "top-level GFM <table> stamped hug" },
+    { "path": "apps/web/src/components/files/mdx-plan/planLint.ts", "change": "modified", "note": "ragged check over row objects; empty cell object; align length" },
+    { "path": "apps/web/src/index.css", "change": "modified", "note": "toned rows/cells; badge cell nowrap; GFM header fill" },
+    { "path": "skills/mdx-doc-core/references/block-vocabulary.md", "change": "modified", "note": "Table entry rewritten" },
+    { "path": "skills/mdx-doc-core/references/document-quality.md", "change": "modified", "note": "§3 table sentence" },
+    { "path": "recaps/issue-280-fan-in-deadlock-v2/recap.mdx", "change": "modified", "note": "the status table (§1.9), the event log; both Vocabulary gap notes removed" }
+  ]}
+/>
+
+Definition of done: the status table renders the red and green rows with pills and inline code; the two *Vocabulary gap —* notes in the recap are gone; the Phase 2 skill-feedback item "Table cells are plain strings" (goal task e19276f4) is obsolete and the orchestrator strikes it.
+
+### Package E — `Mermaid`, `HtmlBlock`
+
+<FileTree
+  title="Package E"
+  entries={[
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/mermaid.tsx", "change": "modified", "note": "look, legend, themeCSS tone rules, classic default" },
+    { "path": "apps/web/src/components/files/mdx-plan/blocks/sandboxedFrame.tsx", "change": "modified", "note": "auto-height on load + ResizeObserver; theme token injection; bg-background" },
+    { "path": "apps/web/src/components/files/mdx-plan/sandboxedFrame.test.ts", "change": "modified", "note": "srcdoc carries the token block and the dark class; CSP strings unchanged" },
+    { "path": "apps/web/src/components/files/mdx-plan/planLint.ts", "change": "modified", "note": "unknown tone-* class warning" },
+    { "path": "apps/web/src/index.css", "change": "modified", "note": "mermaid legend row" },
+    { "path": "skills/mdx-doc-core/references/block-vocabulary.md", "change": "modified", "note": "Mermaid and HtmlBlock additions; the palette hexes in block-schema's preamble" },
+    { "path": "skills/mdx-doc-core/references/document-quality.md", "change": "modified", "note": "§4 diagram-tone sentence" },
+    { "path": "recaps/issue-280-fan-in-deadlock-v2/recap.mdx", "change": "modified", "note": "the graph (§1.6)" },
+    { "path": "recaps/mdx-vs-html-gap/recap.mdx", "change": "modified", "note": "drop height={128} from its HtmlBlock strip — the auto-height proof" }
+  ]}
+/>
+
+Definition of done: the graph renders with green, gold and grey nodes and a legend in both themes of the `--out` page; the diagnosis recap's `HtmlBlock` strip sizes itself with no `height`; `sandboxedFrame.test.ts` asserts `HTML_CSP`/`PROTOTYPE_CSP` and both sandbox strings are byte-identical to today — the theme injection must not touch the boundary.
+
+### Package F — the recap, re-authored end to end
+
+One writer, after A–E: re-author `recaps/issue-280-fan-in-deadlock-v2/recap.mdx` as a whole against §1 (the packages' snippets are placeholders that prove each block; this pass makes the document read), delete every *Vocabulary gap —* note, lint it, render it with `--out`, and hand Carl the pair: the re-authored recap and `.artifacts/fan-in-deadlock-explainer.html`. His read of the pair is the acceptance test; the plan has done its job when he no longer prefers the HTML for reasons the vocabulary can fix.
+
+## 5. Scope, non-goals, risks
+
+**In scope:** the ten items above, their lint rules, the vocabulary and doctrine text, the recap re-authoring. **Explicitly not:** a horizontal `Steps` (bottom form); a proportion-bar block (one page used it; `HtmlBlock` with theme tokens now covers it cheaply); a sticky in-document nav beyond Phase 1's outline; fonts or the 1240px canvas; `FileTree` author ordering (its own goal task 57400541); promoting the reader-brief lint warning to an error (Phase 2); any change to `Callout`'s tone enum, `Card`'s existing props, or `Table`'s `filterable`/`density`.
+
+**Constraints honoured.** No new required prop anywhere; every new behaviour is a default an author can override (`look`, `height`, `columns`, `focus`) and every doctrine line says *when* and *why*, not *only*. The registry stays closed; attribute values stay literal; the lowercase-HTML guard narrows what renders rather than opening a styled subset. No continuous animation: the one new observer (`HtmlBlock` auto-height) fires on resize events only.
+
+**Risks.**
+
+- *Shared-file collisions in one worktree.* Six files take a line or a region from every package. Mitigated by the append-in-your-region rule and by A landing alone first; the orchestrator sequences the B–E commits and runs the full `mdx-plan` test directory once after each.
+- *`InlineMarkdown` on large tables.* A 300-cell table parses 300 short strings on first render (~tens of ms, once, memoised per string). If a filterable master table in a decision batch feels slow, the processor result can be cached module-wide by string; not expected to be needed.
+- *Mermaid `themeCSS` and the SVG sanitiser.* `sanitizeSvgMarkup` strips `script`/`foreignObject` and event attributes only, so the `<style>` Mermaid already emits survives with the tone rules in it. Package E confirms in the `--out` page that `var(--plan-tone-*)` resolves inside the inline SVG in both themes; if a browser refuses custom properties inside an SVG `<style>` (none should), the fallback is to resolve the six colours at render time from `getComputedStyle` and emit hexes — same authoring contract.
+- *Kicker shifts fallback annotation ids.* Adding a kicker to an already-annotated document moves every un-id'd block's `plan-block-N` by one. Authored ids are unaffected; this is the same cost as inserting any paragraph above the title.
+- *Lowercase guard surprises a future author.* The error card and the lint message both say what to use instead; and because the guard lives in the compile path, the `--out` render fails loudly before a human sees it.
+
+## 6. Verification
+
+Per package: `vp test run apps/web/src/components/files/mdx-plan` and `vp run --filter @t3tools/web typecheck`, plus `node apps/web/scripts/lint-plan.mjs recaps/issue-280-fan-in-deadlock-v2/recap.mdx --out recaps/issue-280-fan-in-deadlock-v2/render.html` exiting 0 with the package's block listed among the mounted types. For the whole: the same lint run on every document under `plans/`, `recaps/` and `explainers/` (the lowercase guard and the `Table` union must not regress a single existing document — the corpus check in §3.10 says they will not), then the Package F read by Carl. One live check in the app, after F: open the re-authored recap in the file panel, flip the theme, confirm the strip, the rail, the toned rows and the graph follow it, and leave one annotation on a `Step` body to confirm it anchors to that step.
+
+## 7. Open questions
+
+<QuestionForm
+  questions={[
+    {
+      "id": "steps-horizontal",
+      "title": "Ship the left-to-right pipeline form of the Steps rail now, or defer it until a document needs it?",
+      "subtitle": "Steps is the new block that lays moments or stages out on a vertical rail (§3.5). A horizontal form — stage boxes joined by arrows, as the document-classification explainer wants in three places — is a CSS variant whose hard part is what six stages do inside the reading measure.",
+      "refs": [{ "label": "3.5 Steps / Step — the rail", "anchor": "3-5-steps-step-the-rail" }],
+      "mode": "single",
+      "options": [
+        { "id": "defer", "label": "Defer: vertical only now; add orientation=\"horizontal\" when the first document is re-authored with it", "recommended": true, "detail": "The acceptance test needs only the vertical rail; the horizontal form is tuned best against a real six-stage pipeline." },
+        { "id": "now", "label": "Include it in package C now, collapsing to vertical below ~720px", "detail": "Closes three gaps in the document-classification port in the same pass; adds a breakpoint and a day to package C." }
+      ]
+    },
+    {
+      "id": "badge-case",
+      "title": "Should inline badges render in uppercase by default, as the HTML pills and today's Card badges do?",
+      "subtitle": "The pill's text is written in natural case in the source; a CSS transform decides how it displays. Uppercase matches every HTML page Carl rated and the existing Card badge; natural case reads softer in a sentence.",
+      "refs": [{ "label": "3.1 Badge — an inline pill", "anchor": "3-1-badge-an-inline-pill" }],
+      "mode": "single",
+      "options": [
+        { "id": "upper", "label": "Uppercase, matching the HTML pills and Card badges", "recommended": true, "detail": "One pill look across the document; the source text stays natural so a quote of it reads normally." },
+        { "id": "natural", "label": "Natural case, with Card badges left uppercase", "detail": "Two pill looks in one document." }
+      ]
+    },
+    {
+      "id": "raw-html-mode",
+      "title": "When a document uses a disallowed raw HTML tag, should the renderer show an error card in its place or refuse to render the document?",
+      "subtitle": "Today an unknown capitalised tag becomes an inline error card and the rest of the document renders; imports and raw expressions fail the whole document. The lint reports both as errors before handoff either way.",
+      "refs": [{ "label": "3.10 Raw lowercase HTML — the allow-list guard", "anchor": "3-10-raw-lowercase-html-the-allow-list-guard" }],
+      "mode": "single",
+      "options": [
+        { "id": "card", "label": "An error card in place, like an unknown block tag", "recommended": true, "detail": "The reader still sees the document; the card says what to use instead. The tag's content is dropped, so nothing it carried can render." },
+        { "id": "fail", "label": "Fail the whole document, like an import or a raw expression", "detail": "Louder, and consistent with the other security guards; costs the reader the rest of the document for one stray tag." }
+      ]
+    }
+  ]}
+/>

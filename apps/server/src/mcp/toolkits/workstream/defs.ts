@@ -124,7 +124,7 @@ const childFields = {
 
 const brief = described(
   Schema.String,
-  `The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).`,
+  `The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read (a plan, a recap, an explainer), include its reader brief — who reads it and what they are there to do, what they already know, what they must be able to say or decide after the first screen — because the child has never met that reader and has none of the conversation you had. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).`,
 );
 
 interface LoomToolSpec {

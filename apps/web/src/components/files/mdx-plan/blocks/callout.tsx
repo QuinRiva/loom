@@ -5,12 +5,12 @@ import {
   IconInfoCircle,
   IconShieldExclamation,
 } from "@tabler/icons-react";
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import { z } from "zod";
 
-import { cn } from "~/lib/utils";
-
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { InlineMarkdown } from "../inlineMarkdown";
+import { type Tone, toneColor } from "../tones";
 
 /**
  * The `<Callout>` block — an emphasised note with a tone (info/decision/risk/
@@ -18,18 +18,29 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  * between the tags). Schema + MDX round-trip ported verbatim from
  * `@agent-native/core` `callout.config.ts` (`tone` is an attribute; `body` is
  * `childrenField` prose, not an attribute).
+ *
+ * `title` (inline markdown) replaces the tone's generic label ("Note", "Warning"); untitled it
+ * looks exactly as before. `focus` marks the document's one box of emphasis —
+ * the verdict or the thing to act on: no icon, a 4px left border in the tone's
+ * palette colour on a card surface, body at reading size (`.plan-callout--focus`).
+ * Every callout takes its colour from the shared palette (`tones.ts`): a faint
+ * tint, a hairline border and the title in the tone (`.plan-callout`).
  */
 
 export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";
 
 export interface CalloutData {
   tone?: CalloutTone;
+  title?: string;
+  focus?: boolean;
   /** Markdown body, rendered as MDX children. */
   body: string;
 }
 
 const calloutSchema = z.object({
   tone: z.enum(["info", "decision", "risk", "warning", "success"]).optional(),
+  title: z.string().trim().max(120).optional(),
+  focus: z.boolean().optional(),
   // `body` is the MDX prose *children*, not a prop, so it is absent from the
   // props the registry validates (mirrors `<Endpoint>`'s optional description).
   body: z.string().trim().max(10_000).optional(),
@@ -38,68 +49,62 @@ const calloutSchema = z.object({
 const calloutMdx: BlockMdxConfig<CalloutData> = {
   tag: "Callout",
   childrenField: "body",
-  toAttrs: (data) => ({ tone: data.tone }),
+  toAttrs: (data) => ({ tone: data.tone, title: data.title, focus: data.focus }),
   fromAttrs: (attrs, children) =>
     ({
       tone: attrs.string("tone") as CalloutTone | undefined,
+      title: attrs.string("title"),
+      focus: attrs.bool("focus"),
       body: children,
     }) as CalloutData,
 };
 
-const TONE: Record<
-  CalloutTone,
-  { icon: ComponentType<{ className?: string }>; label: string; frame: string; accent: string }
-> = {
-  info: {
-    icon: IconInfoCircle,
-    label: "Note",
-    frame: "border-blue-300/60 bg-blue-50/60 dark:border-blue-500/25 dark:bg-blue-500/10",
-    accent: "text-blue-600 dark:text-blue-300",
-  },
-  decision: {
-    icon: IconBulb,
-    label: "Decision",
-    frame: "border-violet-300/60 bg-violet-50/60 dark:border-violet-500/25 dark:bg-violet-500/10",
-    accent: "text-violet-600 dark:text-violet-300",
-  },
-  risk: {
-    icon: IconShieldExclamation,
-    label: "Risk",
-    frame: "border-red-300/60 bg-red-50/60 dark:border-red-500/25 dark:bg-red-500/10",
-    accent: "text-red-600 dark:text-red-300",
-  },
-  warning: {
-    icon: IconAlertTriangle,
-    label: "Warning",
-    frame: "border-amber-300/60 bg-amber-50/60 dark:border-amber-500/25 dark:bg-amber-500/10",
-    accent: "text-amber-600 dark:text-amber-300",
-  },
-  success: {
-    icon: IconCircleCheck,
-    label: "Success",
-    frame:
-      "border-emerald-300/60 bg-emerald-50/60 dark:border-emerald-500/25 dark:bg-emerald-500/10",
-    accent: "text-emerald-600 dark:text-emerald-300",
-  },
+const TONE: Record<CalloutTone, { icon: ComponentType<{ className?: string }>; label: string }> = {
+  info: { icon: IconInfoCircle, label: "Note" },
+  decision: { icon: IconBulb, label: "Decision" },
+  risk: { icon: IconShieldExclamation, label: "Risk" },
+  warning: { icon: IconAlertTriangle, label: "Warning" },
+  success: { icon: IconCircleCheck, label: "Success" },
+};
+
+/** A focus callout's colour: the status tone's slot in the shared palette. */
+const PALETTE: Record<CalloutTone, Tone> = {
+  info: "info",
+  decision: "accent",
+  risk: "risk",
+  warning: "warning",
+  success: "success",
 };
 
 function CalloutRead({ data, blockId, children }: PlanBlockReadProps<CalloutData>) {
-  const tone = TONE[data.tone ?? "info"];
-  const Icon = tone.icon;
+  const { icon: Icon, label } = TONE[data.tone ?? "info"];
+  const body = children ?? <p>{data.body}</p>;
+  const title = data.title ? <InlineMarkdown text={data.title} /> : label;
+  const style = { "--plan-callout-tone": toneColor(PALETTE[data.tone ?? "info"]) } as CSSProperties;
+  if (data.focus) {
+    return (
+      <aside
+        data-plan-block-id={blockId}
+        data-plan-block-type="callout"
+        className="plan-callout--focus"
+        style={style}
+      >
+        <div className="plan-callout-title">{title}</div>
+        <div className="prose-plan plan-callout-body">{body}</div>
+      </aside>
+    );
+  }
   return (
     <aside
       data-plan-block-id={blockId}
       data-plan-block-type="callout"
-      className={cn("my-4 flex gap-3 rounded-xl border p-4", tone.frame)}
+      className="plan-callout my-4"
+      style={style}
     >
-      <Icon className={cn("mt-0.5 size-5 shrink-0", tone.accent)} />
+      <Icon className="plan-callout-icon" />
       <div className="min-w-0 flex-1">
-        <div className={cn("text-xs font-semibold uppercase tracking-wide", tone.accent)}>
-          {tone.label}
-        </div>
-        <div className="prose-plan mt-1 text-sm text-foreground">
-          {children ?? <p>{data.body}</p>}
-        </div>
+        <div className="plan-callout-title">{title}</div>
+        <div className="prose-plan plan-callout-body">{body}</div>
       </div>
     </aside>
   );

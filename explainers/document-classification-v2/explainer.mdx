@@ -1,0 +1,612 @@
+---
+reader:
+  who: the owner of the lease-extraction system, re-learning the v2 document classifier well enough to explain it to others under questioning
+  knows: the v1 classifier ("what type is this file?") and the pipeline around it; has not read the v2 code
+  after_first_screen: what v2 answers that v1 did not, and the names of its main pieces
+---
+
+# Document Classification v2 — How It Works
+
+Your v1 system answers _"what type is this file?"_ — flat per-document labels, per company, via a LangGraph of prompt/invoke/parse nodes. That leaves downstream consumers (extraction, audit) to _guess_ at everything relational: which documents together form one legal instrument, which lease was superseded by which deed, which referenced side-deed was never supplied, whether "Oldco Pty Ltd" and "Newco Group" are the same landlord across time.
+
+v2 answers _"what is the legal-instrument graph of this tenancy?"_. Per tenant it emits a typed **entity graph**: entities (instruments, with embedded sub-documents nested inside them), relationship edges between them, dated lifecycle events, documents concluded to be **missing**, explicitly **waived** expectations, and party substitutions — all validated against a 314-type taxonomy, with an LLM self-repair loop enforcing the taxonomy's obligations.
+
+<Callout tone="success">
+  **The core inversion:** v1 asked the model to label files and trusted the answer. v2 asks the
+  model to assert a graph, then *machine-checks the graph against the taxonomy's declared
+  obligations* and makes the model repair specific, named violations. Correctness is enforced by
+  validators, not hoped for in prompts.
+</Callout>
+
+The entity-graph classifier replacing the v1 flat labeller · state as shipped on `develop` / PR #3980 (v2 stack `718e3b523`, native extraction read `ee207aae1`; PROMPT_VERSION v2.27.0, PIPELINE_VERSION v2.4.0, stitcher 0.0.16) · **cutover landed** — Exlake invokes `document-classification-v2` · pooled 131/133 on judged gold corpora vs 129/133 baseline, zero hallucinations · claim-by-claim re-verified against the code 2026-08-06
+
+_Vocabulary gap — the HTML shows the line above as a muted subtitle directly under the title, and the line below as a row of pill-shaped section links. Here the first paragraph under the title renders as a large lede, so the answer moved up into that slot and the version line follows it as plain prose; there is no subtitle style, no pill and no sticky navigation, so the links are a plain line._
+
+[The 30-second shape](#1-the-30-second-shape) · [Pipeline walkthrough](#2-pipeline-walkthrough) · [The three-call architecture](#3-the-three-call-architecture-per-bucket) · [The taxonomy & prompting](#4-the-taxonomy-how-it-reaches-the-prompt) · [Validation & the repair loop](#5-validation-the-repair-loop) · [Corpus-level reconciliation](#6-corpus-level-reconciliation-stage-2) · [Downstream consumers](#7-downstream-one-native-reader-one-legacy-shim) · [Caching, retries, failure](#8-caching-retries-failure-containment) · [v1 → v2 crosswalk](#9-v1-v2-crosswalk) · [File map](#10-file-map) · [Q&A crib sheet](#11-q-a-crib-sheet-likely-questions-defensible-answers)
+
+## 1. The 30-second shape
+
+_Vocabulary gap — the HTML shows this as six boxes in a left-to-right row joined by arrows, each with a bold name and a muted one-line description inside the box; `Mermaid` is the closest native form, but with the descriptions inside the nodes the six-wide chain scales down to ~7px text in the reading column, so the boxes carry the names only and the descriptions follow as a list._
+
+<Mermaid
+  caption="The six pieces, in the order data flows through them"
+  source={
+    'flowchart LR\n  pfc["PFC output"] --> bucketer["Bucketer"] --> worker["Worker × N in parallel"] --> assembler["Assembler"] --> stage2["Stage 2"] --> reads["Two reads"]\n'
+  }
+/>
+
+- **PFC output** — files grouped by tenant_id + building files (upstream, unchanged)
+- **Bucketer** — one EntityBucket per tenant + one `__building__` bucket
+- **Worker × N in parallel** — 3 LLM calls per bucket: phase 1, phase 2, adjudication
+- **Assembler** — `corpus_classification.json`
+- **Stage 2** — building→tenant matcher + party reconciler (2 more LLM calls, corpus-wide)
+- **Two reads** — **native:** data extraction reads `corpus_classification.json` directly · **legacy:** converter also emits `aggregated_classification.json` for the not-yet-migrated readers
+
+**Cost envelope:** per tenant, 1 phase-1 call + one phase-2 call per parent with a non-empty containment closure + an adjudication that is often free (no LLM call if the graph validates), then 2 per corpus; cached, bounded repair (max 7 validation attempts per call). **No LangGraph** — plain `asyncio.gather` with a semaphore (50 buckets).
+
+## 2. Pipeline walkthrough
+
+_Vocabulary gap — the HTML shows this as six numbered stage cards stacked with ▼ arrows between them, each title carrying a DETERMINISTIC (green) or LLM ×N (purple) chip; a stack of `Card`s with a `badge` and a `tone` per kind is the closest native form — the step numbers move into the heading text and the arrows are lost._
+
+<Card heading="1 · Bucketer — bucketer.py" badge="DETERMINISTIC" tone="success">
+  The **only** module that speaks PFC's vocabulary (`tenant_files`, `building_files`). Emits one
+  `EntityBucket` per tenant, keyed by the production-stable `tenant_id` (dbt id or md5 fallback),
+  slugged to a `bucket_id` used for cache keys and filenames. Building files are **partitioned, not
+  duplicated**: a file PFC marked building-level is removed from every tenant bucket and placed in a
+  single `__building__` bucket, which is classified through the same machinery (this fixed
+  cross-building adjudication failures). A tenant whose *every* file turned out building-scoped is
+  **dropped** — the one legitimate absence downstream joins must tolerate, and the reason extraction
+  makes the identical cut on the file map before joining. Bucket-id collisions raise rather than
+  silently shadowing a tenant; `unresolved_files` (tenant-scoped but unidentified) are deferred with
+  a warning, not classified.
+</Card>
+
+<Card heading="2 · Orchestrator — orchestrator.py" badge="DETERMINISTIC" tone="success">
+  Loads the taxonomy into a filtered Pydantic view, sets up the cache and Langfuse tracing, then
+  dispatches one worker per bucket via `asyncio.gather` bounded by a semaphore
+  (`MAX_PARALLEL_BUCKETS`). **Tenant-level failure is strict; corpus-level is not fail-fast** —
+  complete buckets are written, failed buckets get debug sidecars under `_debug/failed_tenants/` and
+  a `FailedEntityBucket` record in metadata, and a rerun replays cached successes.
+</Card>
+
+<Card heading="3 · Worker — worker.py (the heart; see next section)" badge="LLM ×3" tone="accent">
+  Classifies one bucket end-to-end: phase 1 (standalone instruments), phase 2 (embedded
+  sub-documents per parent), then a single adjudication of the assembled graph against the **full**
+  taxonomy. Programmatically stamps `tenant_id` / `tenant_name` from the batch key after the LLM
+  turns *and* on every cache hit (a cached artefact may predate the field or have been produced
+  under a different tenant_id — tenant_id is not part of the cache key). Both fields are `DERIVED —
+  do not populate` in the schema: tenant identity is an upstream fact (PE-1369) the model can never
+  influence.
+</Card>
+
+<Card heading="4 · Assembler — assembler.py" badge="DETERMINISTIC" tone="success">
+  Pure function: wraps the per-bucket results in a metadata envelope (taxonomy provenance,
+  completeness status, failed buckets) → `corpus_classification.json`. Buckets sorted by
+  `tenant_id`, `__building__` last.
+</Card>
+
+<Card
+  heading="5 · Stage 2 reconciliation — building_tenant_matcher.py + party_reconciler.py"
+  badge="LLM ×2"
+  tone="accent"
+>
+  Two corpus-wide passes that **self-gate on a complete corpus** (a half-seen corpus must not
+  testify about links or succession). Each is deterministic candidate generation + ONE bounded LLM
+  adjudication + a typed validated store. Details below.
+</Card>
+
+<Card heading="6 · Legacy converter — legacy_output.py" badge="DETERMINISTIC" tone="success">
+  Written alongside `corpus_classification.json` on every run. Maps the entity graph down to the v1
+  `aggregated_classification.json` contract so the readers that have *not* migrated
+  (Exlake/DataNexus ingest, the tenant audit's classification context) are untouched by the swap.
+  The one judgement call — `active` *recomputed* from dated lifecycle events at an `as_at` date (v2
+  deleted the point-in-time boolean) — now lives in `liveness.py`, shared with the native extraction
+  read so the two cannot drift.
+</Card>
+
+## 3. The three-call architecture (per bucket)
+
+The key architectural invariant, worth internalising because most design questions trace back to it:
+
+<Callout tone="info">
+  **Slices shape prompts; obligations are adjudicated once, against everything.** Each pass sees a
+  *narrowed taxonomy slice* (fewer candidate types → less run-to-run variance), but the slice only
+  shapes the prompt. No obligation checking happens per pass. The concatenated graph is validated
+  ONCE against the FULL taxonomy — so a narrowed menu can never truncate a necessity challenge, and
+  a role can never end up both edged and waived.
+</Callout>
+
+_Vocabulary gap — the HTML shows the three calls as a three-column panel grid, each with a heading and a muted "Schema · slice" line; `Columns` of three `Card`s with the schema and slice as `meta` chips is the closest native form — three columns in the ~850px reading column are narrow._
+
+<Columns>
+  <Column>
+    <Card heading="Call 1 — Phase 1: standalone" tone="accent" meta={["Schema: StandalonePass", "slice: the 181 standalone types"]}>
+      Classifies top-level instruments only. Because this is the **only pass that reads every document in full**, it owns three bucket-wide obligations:
+
+      - **Document accounting** — every input filename appears exactly once: on an entity's `source_documents` or in `unclassified_documents` with a reason.
+      - **Content-first missing-document scan** — the pipeline's *primary* missing-doc signal: verbatim quotes of in-content references to absent documents.
+      - **Party-substitution scan** — in-document succession assertions ("the Lessor's interest was assigned to…").
+    </Card>
+
+  </Column>
+  <Column>
+    <Card heading="Call 2 — Phase 2: embedded" tone="accent" meta={["Schema: GraphFragment", "slice: parent type + containment closure", "one call per parent"]}>
+      For each standalone entity with a non-empty containment closure, extracts the sub-documents *within* it (clauses, schedules, embedded guarantees) against only the parent type + what may transitively nest inside it. The parent is passed as **read-only context** — never re-emitted. Child entity ids are prefixed (`parent__child`) at assembly so siblings under different parents can't collide.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Call 3 — Adjudication" tone="accent" meta={["Schema: EntityBucketClassification", "FULL taxonomy", "often zero LLM calls"]}>
+      The passes are concatenated and validated. **If validation passes, no LLM call happens at all.** On failure, ONE stitcher `aupdate` repair session runs: the model sees the whole graph plus every violation class at once and patches it. This is where taxonomy-expectation missing documents and waivers get added — and where phase-1 content findings are protected from being dropped (see below).
+    </Card>
+  </Column>
+</Columns>
+
+### What the graph contains
+
+_Vocabulary gap — the HTML shows this as a three-column table with inline code in the cells (`EntityNode`, `type_id`, `INHERITS_PARENT`…); `Table` is the closest native form — its cells are plain strings, so the code formatting inside them is lost._
+
+<Table
+  columns={["Piece", "What it asserts", "Notable design choice"]}
+  rows={[
+    [
+      "EntityNode",
+      "One classified instrument/sub-document: type_id, source documents, parties, date, contained_within",
+      "date is an affirmed choice: ISO date or INHERITS_PARENT / NOT_STATED sentinels — a bare null conflating three states is rejected",
+    ],
+    [
+      "lifecycle_events",
+      "Dated events: commencement / expiry / scheduled_event",
+      "Replaces v1's is_active boolean — activeness is computed at query time from durable dated facts, never asserted at extraction time",
+    ],
+    [
+      "RelationshipEdge",
+      "Typed edge bound to a taxonomy role_id (e.g. supersedes_prior_lease)",
+      "A novel role uses an emergent-role object escape hatch, never a free string",
+    ],
+    [
+      "MissingDocument",
+      "A document concluded absent, with basis: referenced_in_content (verbatim quote required) or taxonomy_expectation (≥1 unmet_roles claim required)",
+      "An absent document discharges required roles via unmet_roles claims — never by waiver",
+    ],
+    [
+      "WaivedExpectation",
+      "A taxonomy-expected role that legitimately does not apply here, with reasoning",
+      "The no-edge∧waive guard: a role cannot be both satisfied and waived",
+    ],
+    [
+      "PartySubstitution",
+      "In-document succession with verbatim evidence_text and partial-precision effective date",
+      "Elicited only in phase 1; adjudication may correct but never add or re-derive",
+    ],
+  ]}
+/>
+
+## 4. The taxonomy & how it reaches the prompt
+
+_Vocabulary gap — the HTML shows the artefact and the view as two side-by-side panels; `Columns` of two `Card`s is the closest native form._
+
+<Columns>
+  <Column>
+    <Card heading="The artefact" tone="neutral">
+      `models/taxonomy.json` (schema `beta-2`, 6 recorded amendments) — **314 types** (181 standalone, 69 embedded-independent, 64 embedded-dependent), **820 relationship roles** (136 `required`, 441 conditional, 193 expected, 50 optional), each role with acceptable targets, inverse-role links, and — critical since v2.26 — relational *prose*: `purpose_description` per role, `applicability_condition` per target, `containment_description` per containment context. Produced by the taxonomy refinement pipeline (PE-1593 owns it); the classifier consumes the copy baked into the image. Exlake still mounts the *old-shape* taxonomy blob at `--taxonomy-path`; v2 accepts that flag and **ignores** it rather than forking behaviour.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="The view — schemas/taxonomy_view.py" tone="neutral">
+      `TaxonomyForClassification` is a filtered, frozen Pydantic view exposing only what classification needs. Key operations:
+
+      - `restrict_to(ids)` — the per-pass slice (prompt-shaping only)
+      - `containment_closure(parent)` — transitive embeddable types for phase 2
+      - `same_family_lifecycle_roles(t)` — **data-driven** lifecycle eligibility: a type is lifecycle-eligible iff it declares a succession-verb role (`supersedes/renews/replaces/terminates`) targeting its own type. No hardcoded type list — retiring a role in the taxonomy moves the eligible set with zero code change.
+    </Card>
+
+  </Column>
+</Columns>
+
+### Prompt construction — `prompts.py` + templates
+
+- **Three honest system prompts** (phase1 / phase2 / adjudication), not one template with a retracted scope note. Each tells the model its place in the three-call architecture so its output composes with the others.
+- **Schema-first principle**: field-level instructions live in Pydantic `Field(description=...)` strings, not in the templates. The four LLM-visible channels (class docstrings, field descriptions, validator error strings, Jinja templates) may only use _invented_ examples — evaluation-corpus content can never leak into the prompt.
+- **Taxonomy as compact JSON** in the system prompt, with uniform empty-elision (nulls never serialised). One deliberate omission: `document_scope` stays off the classification prompt — it is Stage-2-only metadata.
+- **Prompt-cache lever**: types are emitted standalone-first, so phase 1's taxonomy block is a byte-for-byte _prefix_ of the adjudication prompt and the provider's implicit prefix cache carries across passes.
+- **The when-gate rule** (v2.26): a target's `applicability_condition` is a factual trigger — if the condition is unmet, the role is _waived_, not "missing". This is what lets a government tenant correctly waive commercial-only expectations while a commercial tenant emits them.
+
+## 5. Validation & the repair loop
+
+The schema hierarchy separates what one pass extracts from what the whole graph must satisfy:
+
+<Code
+  language="text"
+  caption="The schema hierarchy, and which validators run at each level"
+  code={
+    "GraphFragment                    structural only: entity-id uniqueness, referential integrity\n  └─ StandalonePass              + bucket header, unclassified_documents, document accounting\n       └─ EntityBucketClassification   + the whole-graph validators (adjudication only):\n            • taxonomy integrity        every type_id / role_id / target drawn from the taxonomy\n            • necessity challenge       every `required` role resolved via an explicit channel\n            • lifecycle challenge       co-existing same-family instruments chained or waived\n            • no-edge∧waive guard      a role cannot be both satisfied and waived\n            • content-survival arm      phase-1 missing docs cannot be silently dropped\n"
+  }
+/>
+
+<Callout tone="info">
+  **Everything at once, in one error.** `_validate_against_taxonomy` aggregates all violation
+  classes into ONE raised error (integrity + necessity + lifecycle + dropped-content, as markdown
+  sections). Historically these were sequential validators; Pydantic stops at the first failure, so
+  the model never saw necessity errors until integrity cleared — producing "class ping-pong" that
+  burned the repair budget. One combined error lets one repair plan address everything.
+</Callout>
+
+### How a repair turn actually works (stitcher 0.0.16)
+
+_Vocabulary gap — the HTML shows the repair turn as three boxes in a left-to-right row joined by arrows; `Mermaid` is the closest native form — the inline code in the patch-op shape is lost in the label._
+
+<Mermaid
+  caption="One repair turn: validate → patch prompt → apply + revalidate, looping until clean or 7 attempts"
+  source={
+    'flowchart LR\n  v["1. Validate<br/>Pydantic raises the combined markdown error"]\n  p["2. Patch prompt<br/>model sees its previous JSON + the current errors,<br/>replies with JSON-Patch ops {op, path, value}"]\n  a["3. Apply + revalidate<br/>patch applied to the dict, validated again;<br/>loop until clean or 7 attempts"]\n  v --> p --> a\n'
+  }
+/>
+
+- **Native since 0.0.16** (upstreamed from the pipeline, subclass deleted): shape-informed apply-failure feedback (on a bad JSON-Pointer the model is shown the _actual current value_ at the failing path), a separate inner apply-retry budget (3) so mechanical pointer errors never burn semantic attempts, repeated-error rollup (explanation once + a path list), and `initial_error` seeding via the `aupdate` kwarg.
+- **No validation state in the system channel.** The adjudication `SystemMessage` carries durable task guidance only; the initial error seeds turn 1's patch prompt and is replaced by the real current error each turn — a pinned error would go stale and mislead later turns.
+- **Content-first findings are load-bearing.** The repair regenerates the whole document, so it could silently drop a phase-1 `referenced_in_content` entry while adding a taxonomy expectation. The pre-repair entries are threaded into validation context as `preserved_content_missing_docs` (keyed on verbatim `reference_text`, as a multiset) and the survival arm fails any repair that loses one.
+- **Shape-coaching** (v2.27): the terminal failure shapes seen in benchmarks — bare strings in `unmet_roles`, bare items in `lifecycle_events` — get recovery-first error messages that show the exact accepted object shape, so one repair turn fixes them.
+- **Affirmed emptiness**: at fresh-generation boundaries, an omitted or null scope list is rejected ("emit `[]`") — "scanned, none found" stays distinct from "never considered", with no sentinel strings on the wire.
+
+## 6. Corpus-level reconciliation (Stage 2)
+
+Both stages share one shape — **deterministic, unit-tested candidate generation → ONE bounded LLM adjudication → typed validated store** — and both run only on a _complete_ corpus (enforced twice: in code and by the store validator).
+
+_Vocabulary gap — the HTML shows the two reconcilers as side-by-side panels with a muted file-name line under each heading; `Columns` of two `Card`s with the file names as `meta` chips is the closest native form._
+
+<Columns>
+  <Column>
+    <Card
+      heading="Building→tenant matcher"
+      tone="neutral"
+      meta={["building_tenant_matcher.py", "relational_eligibility.py"]}
+    >
+      Links relational building-level documents (a per-shop floor plan) to the tenant lease(s) they
+      concern, and reattributes PFC misfiles. The over-linking guard is **type + asset-class aware**
+      eligibility: a thermographic survey is relational in retail but whole-building in office —
+      only `(type, asset_class)` pairs with an explicit spec are ever candidates. The LLM judges
+      only the semantic step (premises correspondence: "Shop 248" ≈ "T248"). Output:
+      `building_tenant_links` + `unresolved_building_docs`.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Party-identity reconciler" tone="neutral" meta={["party_reconciler.py"]}>
+      Links (never merges) party surface forms across buckets on exactly **three evidence bases**:
+      explicit substitution text (up to high confidence), a shared ABN/ACN (up to high), or a
+      synchronised role-transition corroborated across ≥2 independent tenancies (capped at medium).
+      The discipline is **structural, not prompt hope**: name similarity and world knowledge
+      generate nothing because no basis in the enum fits them, and the verdict×basis compatibility
+      table is code-enforced at build and re-checked at rest. Output: `party_identity_links` +
+      `unreconciled_party_groups`.
+    </Card>
+  </Column>
+</Columns>
+
+<Callout tone="info">
+  **The `reconciliation_ran` marker.** An empty store with `reconciliation_ran=true` means
+  "genuinely nothing to link"; with `false` it means "never ran" — the distinction a completeness
+  gate needs, since both stages self-gate and silently produce nothing on a partial corpus. (The dev
+  line's `splice.py`, which re-runs one flaked bucket and must therefore clear the stores plus this
+  marker, was deferred off the rollout train and is **not** in the shipped tree: production handles
+  a flaked bucket by rerun-with-cache.)
+</Callout>
+
+## 7. Downstream: one native reader, one legacy shim
+
+The rollout no longer has a single downstream path. Since `ee207aae1` (2026-07-30) **data extraction reads the v2 artefact natively**; the legacy converter continues to serve the readers that have not migrated.
+
+_Vocabulary gap — the HTML shows these as two side-by-side panels whose headings carry a NATIVE (blue) and a SHIM (amber) chip; `Columns` of two `Card`s with a `badge` and a `tone` is the closest native form._
+
+<Columns>
+  <Column>
+    <Card heading="Extraction — data_extraction/classification_view.py" badge="NATIVE" tone="info">
+      Owns the *entire* v2 read: Pydantic-validates `corpus_classification.json`, computes
+      per-entity activeness at the run date, and projects one `TenantClassificationView` per tenant
+      (`doc_meta` for selection/batching, `doc_blocks` for the prompt, `missing_documents`). The
+      prompt block is an **exclusion-list** projection of `EntityNode`, so a future classifier field
+      reaches prompts by default instead of being silently dropped. No compat shim and no dual-shape
+      detection: the tenant join is exact on `tenant_id`, and a partial corpus or an unjoinable
+      tenant stops the run loudly.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Legacy converter — legacy_output.py" badge="SHIM" tone="warning">
+      Maps the graph down to v1's `aggregated_classification.json`, written on every run beside the
+      v2 artefact. Remaining readers: the Exlake/DataNexus ingest blob and the tenant audit's
+      classification context (`tenant_audit/processor.py`). Two mappings carry judgement —
+      **`active` reconstruction** (per entity at an `as_at` date from lifecycle events + succession
+      edges, then projected to documents; succession verbs `supersedes/renews/replaces/terminates` +
+      reverses retire a predecessor, amendment verbs `modifies`/`varies` leave both live, all read
+      from the taxonomy role each edge declares) and **graph flattening** (entities → classified
+      documents per company, edges → `DocumentRelationship` rows, v2 missing documents → the legacy
+      shape).
+    </Card>
+  </Column>
+</Columns>
+
+<Callout tone="success">
+  **One activeness implementation, two callers.** The verdict-precedence and partial-date rules were
+  lifted out of the converter into `liveness.py` as a pure move, so the legacy projection and the
+  native extraction read cannot drift on what "live at this date" means.
+</Callout>
+
+Deployment status: the cutover has **landed** — `DocumentClassificationTask.command = v2Command` (`exlake/…/DataTypes.scala:4896`). Both CLIs still ship in the same image (`document-classification` → `legacy/`, `document-classification-v2` → v2), so reverting the one-line token flip is still the rollback.
+
+## 8. Caching, retries, failure containment
+
+_Vocabulary gap — the HTML shows these as a three-column panel grid; `Columns` of three `Card`s is the closest native form — three columns in the reading column are narrow._
+
+<Columns>
+  <Column>
+    <Card heading="Cache — runtime/cache.py" tone="neutral">
+      Per-bucket `FileBatchCache`. The key is the invalidation contract:
+
+      - `PROMPT_VERSION` bump → everything misses
+      - taxonomy file hash change → everything misses
+      - one bucket's documents change → only that bucket misses
+      - code-only changes → hits
+
+      `PROMPT_VERSION` (now v2.27.0) is bumped whenever *any LLM-visible byte* changes; `PIPELINE_VERSION` (now v2.4.0) is the second axis, recording code releases that deliberately do *not* invalidate the cache. `config.py` carries a running changelog of every bump on both axes and every deliberate non-bump. Production runs from scratch: Exlake's `--reset` / `--force-cache-rebuild` are accepted as aliases that disable caching, exactly as `--no-cache` does. Fan-out is `MAX_PARALLEL_BUCKETS = 50`.
+    </Card>
+
+  </Column>
+  <Column>
+    <Card heading="Two retry layers" tone="neutral">
+      - **Inside stitcher**: up to 7 validation attempts per call (semantic repair), with an inner 3-try apply budget for mechanical patch failures.
+      - **Outside** (`runtime/retry.py`): transport-level retry for provider errors (deadline, empty response, max-tokens), wrapping the whole attempt.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="Failure containment" tone="neutral">
+      A bucket that exhausts everything raises `BucketClassificationError` carrying the stage, attempt count, the assembled graph and the final validation error — written as a debug sidecar. The corpus completes partial; completeness metadata gates Stage 2; a rerun replays cached successes and retries only the failure.
+    </Card>
+  </Column>
+</Columns>
+
+**Tracing:** every LLM call is a single named Langfuse generation span (`docclass.phase1` / `phase2` / `adjudicate` / `patch`), tagged by corpus, tenant and phase — one trace per corpus run.
+
+## 9. v1 → v2 crosswalk
+
+_Vocabulary gap — the HTML shows this as a three-column table with inline code in the cells; `Table` is the closest native form — cells are plain strings, so the code formatting is lost._
+
+<Table
+  columns={["Concern", "v1 (legacy/, yours)", "v2"]}
+  rows={[
+    [
+      "Question answered",
+      '"What type is each file?"',
+      '"What is the instrument graph, what\'s missing, what changed hands?"',
+    ],
+    [
+      "Orchestration",
+      "LangGraph StateGraphs (main → company → worker node chains)",
+      "Plain asyncio.gather + semaphore; no graph framework",
+    ],
+    [
+      "Structured output",
+      "trustcall create_extractor",
+      "stitcher Extractor: JSON-schema-bound generation + validate-and-JSON-Patch repair loop",
+    ],
+    [
+      "Type system",
+      "Flat label set",
+      "314-type taxonomy with containment, 820 relationship roles, necessity levels, applicability prose",
+    ],
+    [
+      "Correctness mechanism",
+      "Prompt instructions",
+      "Pydantic validators raising named violations the model must repair; structural > prompt hope throughout",
+    ],
+    [
+      "Activeness",
+      "is_active boolean asserted at extraction",
+      "Dated lifecycle events; computed at query time by liveness.py — one implementation shared by the legacy converter and the native extraction read",
+    ],
+    [
+      "Missing documents",
+      "Separate missing-doc prompt pass",
+      'Two graded bases: content-referenced (primary, verbatim quote) + taxonomy-expectation (secondary, role-claimed), with waivers as the explicit "doesn\'t apply" channel',
+    ],
+    [
+      "Cross-tenant identity",
+      "—",
+      "Party reconciler (three closed evidence bases) + building→tenant matcher",
+    ],
+    [
+      "Output contract",
+      "aggregated_classification.json",
+      "corpus_classification.json (read natively by extraction) + the converter still emitting the identical legacy artefact for the unmigrated readers",
+    ],
+    [
+      "Evaluation",
+      "—",
+      "Judged gold corpora (5 buildings), semantic LLM judging, frozen evidence dirs; benchmark-first test philosophy",
+    ],
+  ]}
+/>
+
+## 10. File map
+
+_Vocabulary gap — the HTML shows this as a monospace tree in pipeline order (run → orchestrator → bucketer → worker …) with a muted note per file; `FileTree` is the native equivalent, but it alphabetises the entries, shows the bare directories (`runtime/`, `docs/`, `templates/`, `legacy/`) with a file icon, and the HTML's one combined `input.py · final_output.py` row is split into two entries._
+
+<FileTree
+  title="src/pipelines/document_classification/"
+  entries={[
+    {
+      path: "src/pipelines/document_classification/run.py",
+      note: "CLI; all paths derivable from --corpus-id",
+    },
+    {
+      path: "src/pipelines/document_classification/orchestrator.py",
+      note: "classify_corpus: fan-out, cache, tracing, reconcile, write",
+    },
+    {
+      path: "src/pipelines/document_classification/bucketer.py",
+      note: "PFC output → EntityBuckets (sole PFC-aware module)",
+    },
+    {
+      path: "src/pipelines/document_classification/worker.py",
+      note: "the 3-call classification of one bucket",
+    },
+    {
+      path: "src/pipelines/document_classification/prompts.py",
+      note: "message building; taxonomy JSON projection",
+    },
+    { path: "src/pipelines/document_classification/assembler.py", note: "pure envelope assembly" },
+    {
+      path: "src/pipelines/document_classification/legacy_output.py",
+      note: "v2 graph → v1 aggregated_classification.json (276 lines; was ~500 before the liveness lift)",
+    },
+    {
+      path: "src/pipelines/document_classification/liveness.py",
+      note: "point-in-time activeness: verdict precedence, partial-date bounds, succession verbs (shared with extraction)",
+    },
+    {
+      path: "src/pipelines/document_classification/building_tenant_matcher.py",
+      note: "Stage 2b: building docs → tenant leases",
+    },
+    {
+      path: "src/pipelines/document_classification/party_reconciler.py",
+      note: "Stage 2: cross-bucket party identity",
+    },
+    {
+      path: "src/pipelines/document_classification/relational_eligibility.py",
+      note: "(type, asset-class) eligibility specs",
+    },
+    {
+      path: "src/pipelines/document_classification/config.py",
+      note: "PROMPT_VERSION / PIPELINE_VERSION + their changelog discipline",
+    },
+    {
+      path: "src/pipelines/document_classification/runtime/",
+      note: "cache keys, transport retry, run_with_retry (repair loop now lives in stitcher)",
+    },
+    {
+      path: "src/pipelines/document_classification/docs/",
+      note: "signed design docs (party_reconciliation_design.md) + the v1-rewrite intent brief",
+    },
+    {
+      path: "src/pipelines/document_classification/schemas/taxonomy_view.py",
+      note: "filtered taxonomy + slice/closure/lifecycle ops",
+    },
+    {
+      path: "src/pipelines/document_classification/schemas/llm_output.py",
+      note: "the schema hierarchy + ALL validators (2.5k lines; the contract)",
+    },
+    { path: "src/pipelines/document_classification/schemas/input.py", note: "bucket input" },
+    {
+      path: "src/pipelines/document_classification/schemas/final_output.py",
+      note: "corpus envelope + stores",
+    },
+    {
+      path: "src/pipelines/document_classification/templates/",
+      note: "3 system prompts + shared human/taxonomy/context partials",
+    },
+    {
+      path: "src/pipelines/document_classification/legacy/",
+      note: "v1, intact; no longer the default (cutover landed) — retained as the revert-in-one-line rollback",
+    },
+  ]}
+/>
+
+The native consumer lives outside this tree: `src/pipelines/data_extraction/classification_view.py` (396 lines) is the only module in extraction that knows the v2 shape. `splice.py` appears in dev-line write-ups but is not in this tree.
+
+**External dependency:** `stitcher` (first-party, github.com/QuinRiva/stitcher, pinned 0.0.16 @ `e5486e33`) — generic structured extraction: JSON-schema-bound generation, validation, JSON-Patch repair with shape-informed apply feedback. All lease-specific logic stays in the pipeline's validators.
+
+## 11. Q&A crib sheet — likely questions, defensible answers
+
+_Vocabulary gap — the HTML shows these as collapsible question panels, the first one open; `Details` is the native equivalent._
+
+<Details summary='"How do you stop the LLM inventing document types or relationships?"' open>
+  Taxonomy integrity is a validator, not a request: every `type_id`, `role_id` and edge target must
+  exist in the taxonomy or validation fails and the model must repair. A genuinely novel
+  relationship has one legal escape hatch — an emergent-role *object* with declared fields — so
+  nothing degrades into free text. Judged result across all gold corpora: zero hallucinated
+  findings.
+</Details>
+
+<Details summary={'"What happens when a required document just isn\'t there?"'}>
+  The necessity challenge forces every `required` role into exactly one explicit channel: an edge
+  (it's present), a `missing_documents` entry with an `unmet_roles` claim (it's absent but evidenced
+  or expected), or a `waived_expectations` entry (it genuinely doesn't apply, with reasoning — e.g.
+  an applicability condition that isn't triggered). Silence is not an option; the validator rejects
+  an unresolved required role and the repair loop makes the model choose a channel.
+</Details>
+
+<Details summary='"Why three LLM calls instead of one big one?"'>
+  Variance and honesty. One call against 314 types produced unstable classifications; narrowing each
+  pass's menu (standalone slice, then parent+closure) reduces run-to-run variance. But narrowing
+  prompts is dangerous if it also narrows *checking* — so obligations are deliberately adjudicated
+  once against the full taxonomy, where the slices can't hide anything. The third call frequently
+  costs nothing: if the assembled graph validates, no adjudication LLM call is made.
+</Details>
+
+<Details summary='"How does the repair loop work, and how do you know it terminates?"'>
+  Failed validation → the model gets its previous JSON plus a combined markdown error naming every
+  violation → it replies with JSON-Patch operations → apply, revalidate, repeat. Bounded at 7
+  validation attempts; mechanical patch-apply failures get their own inner 3-try budget with
+  shape-informed feedback (the model is shown the actual value at the failing pointer), so pointer
+  typos can't burn semantic attempts. Total LLM calls ≤ 7×3 per extraction. All of this now lives
+  natively in stitcher 0.0.16.
+</Details>
+
+<Details summary={'"Is it deterministic? What\'s actually cached?"'}>
+  LLM outputs are not deterministic; the architecture contains the variance (narrow slices, single
+  adjudication, validators as hard rails) and the evaluation is judged semantically against gold
+  rather than byte-compared. Caching is per bucket, keyed on prompt version + taxonomy hash +
+  domain-context hash + the bucket's documents (contents, not just paths) — so a rerun replays every
+  unchanged bucket byte-identically and re-runs only what changed. Production runs from scratch:
+  Exlake passes `--reset --force-cache-rebuild`, accepted as aliases of `--no-cache`.
+</Details>
+
+<Details summary='"How can you swap this in without breaking consumers?"'>
+  Two answers, because the answer changed. For consumers that have *not* migrated, the converter
+  emits the exact legacy `aggregated_classification.json` contract alongside the new artefact — same
+  shape, same fields, `active` recomputed from lifecycle events at the run date — so they never
+  learn the classifier changed. Data extraction, the biggest consumer, was then migrated properly:
+  it reads `corpus_classification.json` directly, with no compat shim and no dual-shape detection,
+  and every contract corruption stops the run loudly. The Exlake cutover itself was a one-line
+  command-token flip (now landed) whose revert is the rollback; both classifiers remain deployed in
+  the same image.
+</Details>
+
+<Details summary='"What stops the party reconciler merging two companies that just have similar names?"'>
+  Structure, not prompting. Links are generated only from three closed evidence bases — explicit
+  substitution text, shared ABN/ACN, or a synchronised role-transition corroborated across ≥2
+  independent tenancies — and the verdict×basis compatibility table is enforced in code at store
+  build and re-checked at rest. Name similarity has no basis in the enum, so a confident merge on
+  names alone is structurally impossible. And it links; it never merges records.
+</Details>
+
+<Details summary='"How is this evaluated?"'>
+  Benchmark-first: judged gold corpora over 5 real buildings, semantic LLM judging (never string
+  matching), frozen evidence directories per prompt version under
+  `/home/Carl/data/lease_extraction/_eval_*`. Current anchor: v2.27 gate at 131/133 pooled vs
+  129/133 baseline, zero hallucinations, plus a targeted repair-path re-gate for the stitcher 0.0.16
+  migration. Unit tests exist only for at-rest contract corruption and rare-LLM-shape determinism —
+  correctness claims rest on the judged benchmarks. Since the gate, the rollout added platform-scale
+  validation on `develop`: a 13-tenant building (040049) run end-to-end on the native path with a
+  fix-isolating baseline diff over 364 fields, an over-firing control building (002338), and a
+  5-building v2-vs-v1 regression batch where every consistency-eval gate passed (llm_variance
+  1.8–10.2% against a 15% threshold). Those are rollout evidence, not a re-run of the judged gate.
+</Details>
+
+<Details summary='"What are the known weak points?"'>
+  Honest list: (1) one adjudication bucket still converges at exactly the 7-attempt ceiling on the
+  densest corpus — zero headroom, a watch item; (2) two known-flaky role-selection/landlord-identity
+  items (NEURO-E9, CORP-A1) that predate the current version; (3) `unresolved_files` from PFC are
+  deferred, not classified; (4) mega-tenants past the 1M-token context (~1 in 500) fail loudly per
+  bucket rather than being split; (5) taxonomy prompt-copy and validator must move in lockstep —
+  drift between them creates unwinnable repair loops, so taxonomy syncs are atomic PRs; (6)
+  **doc-type vocabulary coupling downstream** — v2 emits `lease_agreement` while
+  `models/data_schema.json`'s `authoritative_source_document_type` vocabulary is still v1
+  (`commercial_lease_agreement`). Harmless where the mapping is semantic (the LLM bridges the
+  names), but `data_extraction/processor.py:650` (`_build_entity_document_type_map`) is the one
+  place a doc-type string is a literal set-membership key: inert at the default
+  `--doc-selection=all-documents`, live under the `active-only` / `active-plus-recent-inactive-tail`
+  token-limit escape hatches.
+</Details>
+
+_Vocabulary gap — the HTML shows the line below as a muted footer; plain prose is the closest native form._
+
+Sources: pipeline code at `data-pipeline-jobs/lease-extraction/src/pipelines/document_classification/` as shipped on `develop` / PR #3980, the native reader at `src/pipelines/data_extraction/classification_view.py`, the command-token flip at `exlake/src/main/scala/exlake/DataTypes.scala:4884-4897`, stitcher 0.0.16 (`e5486e33`), gate evidence under `/home/Carl/data/lease_extraction/_eval_v2_27_gate/` and `_eval_v2_28_repair_regate/`, rollout evidence under `/home/Carl/data/lease_extraction/040049/` and `…/<id>/_v2_batch_20260806/`. Every claim above re-verified against that code on 2026-08-06.

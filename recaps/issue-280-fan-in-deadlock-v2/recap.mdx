@@ -1,0 +1,267 @@
+---
+kicker: "Incident recap · QuinRiva/loom #280 · 26 Sep 2026 · fix merged 27 Sep (PR #288)"
+reader:
+  who: loom's owner, opening this cold weeks after the incident to decide whether the fix was right and whether anything else needs doing
+  knows: how workstreams, review gates and the control plane work in general; has not read the issue thread, the earlier recap or any child report
+  after_first_screen: what deadlocked, why, what the fix was, and whether anything is still open
+---
+
+# The workstream that deadlocked on an edge nobody drew
+
+A five-thread workstream sat stuck for **43 minutes** after one child finished, and nobody was told. The child's branch never merged, three downstream threads sat "ready" with nothing able to start, and the only sign was the sidebar badge *Deadlocked · no path forward*. The cause was **one dependency edge the graph had but never wrote down**: a thread under review only merges when its reviewer signs off, so anything waiting on that merge is also waiting on the reviewer — and here the reviewer was, three hops later, waiting on it. A cycle of four edges, of which the cycle checker could see three.
+
+<Stats
+  items={[
+    { "value": "43 min", "label": "Silent deadlock", "tone": "risk",
+      "detail": "Child done 12:36; nothing moved until the orchestrator intervened by hand at 13:16" },
+    { "value": "3 of 4", "label": "Edges the checker could see", "tone": "warning",
+      "detail": "The fourth — “wait for the reviewer” — was implied by two rules, written by neither" },
+    { "value": "10 s", "label": "To merge, once the reviewer was cancelled", "tone": "info",
+      "detail": "Nothing else changed in that window: the causal proof" },
+    { "value": "4 fixes", "label": "Shipped next day", "tone": "success",
+      "detail": "Today: 1 in place · 2 moot · 1 lost", "badge": { "label": "1 lost", "tone": "risk" } }
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  The fix (PR #288, merged the next day) drew the missing edge so the checker rejects the shape, told the orchestrator when a workstream deadlocks, stopped the submit reply claiming "dependents released" when they were not, and cleared a stale flag the recovery left behind. **Ten days later, pull 9 moved loom to shared checkouts** — the ninth merge from upstream T3 Code re-platformed loom's orchestration and dropped per-child branches, so there is no merge step and the invisible edge no longer exists. That leaves **one thing to act on** — the stale-flag fix was lost in the re-platform without a decision — and one note to record for a future isolation opt-in. Both are decisions at the end of §4; an item left undecided takes its recommendation.
+
+  <Badge tone="success">deadlock notice · in place</Badge> <Badge tone="neutral">missing-edge guard · moot</Badge> <Badge tone="neutral">honest submit reply · moot</Badge> <Badge tone="risk">stale-flag clear · lost</Badge>
+</Callout>
+
+## 1. What happened, in four moments
+
+Roles rather than thread ids throughout. The five children were a **researcher**, a **writer** (a skill-author, working in its own branch), a **coder** (its own branch), a **script reviewer** gating the coder, and a **skill reviewer** gating the writer.
+
+<Steps>
+  <Step at="12:21 UTC" title="All five children created in one scaffold call." badge={{ "label": "orchestrator saw", "tone": "info" }} aside="A normal workstream.">
+    The cycle check passed.
+  </Step>
+  <Step at="12:36" tone="risk" title="The writer finished and submitted." badge="a lie" aside="“Work submitted … dependents released” — a fixed string.">
+    Its branch was never merged; the coder, which waited on the writer, could not start.
+  </Step>
+  <Step at="12:36 → 13:16" tone="neutral" dashed title="Nothing." badge="silence" aside="Then the sidebar badge *Deadlocked · no path forward*.">
+    The merge step ran on every pass and returned early each time. The 13:07 digest listed the researcher only.
+  </Step>
+  <Step at="13:16 → 13:19" tone="warning" title="Manual recovery." badge="misleading" aside="A pause notice saying “a human is in the loop” when none was.">
+    The orchestrator merged the branch by hand, cancelled the coder and the script reviewer, re-pointed the skill reviewer onto live threads, then cancelled it too. The merge completed on its own ten seconds later.
+  </Step>
+</Steps>
+
+<Callout tone="info" title="The causal proof">
+  The writer's branch merged **10 seconds** after the skill reviewer was cancelled, and nothing else changed in that window. The merge was waiting on the reviewer, and only on the reviewer.
+</Callout>
+
+## 2. Why it deadlocked
+
+Three rules of the control plane as it then stood, each true on its own, combined into a cycle:
+
+<Columns columns={3}>
+  <Card eyebrow="Rule 1" heading="A dependent of a child with its own branch waits for the merge, not just for `done`.">
+    The coder's start was refused with exactly this:
+
+    > dependency 'the writer' is done, but its fan-in has not completed (fanInState: none)
+  </Card>
+  <Card eyebrow="Rule 2" heading="A child under review merges exactly once, when its reviewer resolves the gate.">
+    Until then the merge step skips it silently — no event, no notice — because a rework round could reopen it.
+  </Card>
+  <Card eyebrow="Rule 3" heading="The cycle check only follows the edges written in `blockedBy`.">
+    Rule 2 makes a dependent wait on a reviewer; nothing records that edge, so the checker cannot see it.
+  </Card>
+</Columns>
+
+The scaffolded graph, with that edge drawn in. An arrow A → B means A waits on B; follow the arrows from the coder and you return to the coder: *coder → writer's merge → skill reviewer → script reviewer → coder*.
+
+<Mermaid
+  caption="Every ready node had an unsatisfied dependency, and nothing in flight could change that."
+  legend={[
+    { "tone": "neutral", "label": "written dependency (blockedBy)" },
+    { "tone": "risk", "label": "the edge the graph had but never wrote down (rule 2)" }
+  ]}
+  source={"flowchart TB\n  C[\"coder<br/>ready · blocked\"]:::tone-neutral\n  KR[\"skill reviewer<br/>ready · blocked\"]:::tone-neutral\n  W[\"writer<br/>done · unmerged\"]:::tone-warning\n  SR[\"script reviewer<br/>ready · blocked\"]:::tone-neutral\n  R[\"researcher<br/>done\"]:::tone-success\n  C -.->|the unwritten edge| KR\n  KR --> SR\n  SR --> C\n  C -->|waits for merge| W\n  KR --> W\n  W --> R\n  linkStyle 0 stroke:tone-risk,stroke-width:2.5px,color:tone-risk\n"}
+/>
+
+**Why the issue blamed the wrong thing.** The issue was filed suspecting the scaffold launch path, because two later children created one at a time merged cleanly. The difference was graph shape, not launch path:
+
+<Columns>
+  <Card tone="risk" heading="The scaffolded graph" badges={[{ "label": "deadlocked", "tone": "risk" }]}>
+    The reviewer waits on a sibling that waits on the thread under review.
+
+    <Code code={"skill reviewer → script reviewer → coder\ncoder → writer's merge → skill reviewer"} />
+  </Card>
+  <Card tone="success" heading="The two later spawns" badges={[{ "label": "merged in 2 s", "tone": "success" }]}>
+    Each reviewer waits *only* on its own coder, so the gate resolves the moment the coder submits.
+
+    <Code code={"reviewer → coder\ncoder's merge → reviewer → resolves at once"} />
+  </Card>
+</Columns>
+
+A single-spawn call would have accepted the deadlocked shape too — both paths used the same checker over the same edges.
+
+**The guidance that would have prevented it.** The orchestrator role already said: *wire everything downstream on the reviewer (or on both), never on the coder alone*. The coder was wired on the writer alone. Nothing enforced the rule, and this is the one shape where breaking it deadlocks rather than merely risking a stale dependent.
+
+## 3. The fix that shipped
+
+PR #288, merged 27 September. Four changes:
+
+<Columns columns={2}>
+  <Card id="fix-edge" heading="Draw the missing edge, so the cycle check rejects the shape" tone="success" badge="primary" meta={["spawn", "scaffold", "set-dependencies", "late gate"]}>
+    Whenever a thread is wired on a child under review in its own branch, the reviewer is added to that thread's `blockedBy` explicitly, with a warning saying why. The ordinary cycle check then sees the whole cycle and rejects it with a message that names the implicit edge and says what to do instead:
+
+    > The edge coder → skill reviewer is implicit: coder depends on writer, whose branch fans in only once its gate reviewer skill reviewer resolves the review, so coder waits on skill reviewer either way — while skill reviewer waits (through the rest of the cycle) on coder. Wire the dependent on the reviewer.
+
+    The earlier investigation had proposed teaching the checker about the edge without writing it; the shipped version writes it, which also makes the dependency visible on the board.
+  </Card>
+  <Card id="fix-notice" heading="Tell the orchestrator when its workstream is deadlocked" tone="success" badge="backstop" meta={["server-side", "once per entry into the state"]}>
+    The sidebar's deadlock predicate (every unfinished child is released, unstarted and waiting on another stuck sibling) moved into shared code, and the dispatcher now wakes the orchestrator once per episode with each stuck child, what it waits on, and the ways out.
+
+    The investigation had called this "more machinery than the defect needs"; it shipped anyway, and §4 is why that was the right call.
+  </Card>
+  <Card id="fix-reply" heading="Stop the submit reply lying" tone="success" badge="honesty" meta={["one string"]}>
+    "Work submitted … (dependents released)" was a fixed string. The writer saw it twice — once on its first submit, once after the orchestrator reopened and resubmitted it hoping to re-trigger the merge — and both times its dependents were not released.
+
+    The reply now says *dependents are NOT released yet: they wait for your branch to fan in, which happens only once reviewer X resolves its review gate*.
+  </Card>
+  <Card id="fix-flag" heading="Clear the stale flag a cancel leaves on its dependents" tone="success" badge="recovery" meta={["raise kept", "clear added", "wake copy fixed"]}>
+    Cancelling a thread flags any unstarted dependent `needs_guidance`, correctly — a cancelled dependency never releases. But re-pointing that dependent onto live threads did not clear the flag, and the wake told the orchestrator *a human is in the loop — plan around the pause*, when the control plane had raised it and the right move was to re-plan the graph.
+
+    The fix clears the flag when a re-point leaves no cancelled dependency, and gives that wake its own wording.
+  </Card>
+</Columns>
+
+## 4. What is still in place today
+
+Pull 9 (merged 7 October) re-platformed loom's orchestration onto upstream's V2 engine and, by a decision you made for that pull, dropped per-child worktree isolation. The pull-9 strategy plan records it as: *"Shared checkout is the default and the only mode in pull 9 (about 2,400 lines not ported); isolation returns later as an opt-in only if wanted."* With no per-child branch there is no merge step, so rule 1 above is gone and the invisible edge cannot exist. That changes what each of the four fixes is worth:
+
+<Table
+  density="compact"
+  columns={["Fix", "Today", "Why"]}
+  rows={[
+    ["Draw the missing edge", { "badge": "moot", "md": "deliberately deleted" }, "Recorded in the pull-9 log as “always empty under shared-only”; the code is in git history at `468176f710`"],
+    { "tone": "success", "cells": ["Deadlock notice to the orchestrator", { "badge": { "label": "in place", "tone": "success" }, "md": "ported" }, "Lives in the dispatcher's deadlock rail, “logic unchanged minus the fan-in clauses”; still the only server-side deadlock detector"] },
+    ["Honest submit reply", { "badge": "moot", "md": "reverted to the fixed string" }, "Without a merge step, done really does release dependents, so “dependents released” is true again"],
+    { "tone": "risk", "cells": ["Clear the stale flag on re-point", { "badge": { "label": "lost", "tone": "risk" }, "md": "no decision recorded" }, "The raise survived (in the re-drive planner, which re-derives control-plane flags from state); the clear and the dedicated wake copy did not. A re-pointed dependent carries `needs_guidance` until its first turn, and the wake again says “a human is in the loop”"] },
+  ]}
+/>
+
+<Callout tone="warning" title="The one thing to act on">
+  The stale-flag fix was lost in the re-platform without anyone deciding to drop it. The flag does not block the thread from starting (a kickoff ignores attention and clears it), so the cost is the same as before the fix: a misleading `needs_guidance` on the board and a wake that steers the orchestrator away from re-planning its own graph — exactly what prolonged this incident by several minutes.
+</Callout>
+
+<Columns columns={2}>
+  <Card id="d-restore-flag" heading="Restore the stale-flag clear and its wake copy" tone="risk" badge="recommended" meta={["small", "re-drive planner + wakes.ts", "the raise already exists"]}>
+    The re-drive planner already derives the raise from state (an unstarted node blocked on a cancelled sibling). Deriving the clear from the same state — an unstarted node carrying `needs_guidance` whose current `blockedBy` names no cancelled sibling — is the mirror rule in the same place, and the wake copy from PR #288 ("the control plane flagged it for that reason — no human raised it; re-point its dependencies, revive the cancelled thread, or cancel this node too") is in git history. Rejecting means accepting the pre-fix behaviour as the permanent one.
+
+    <ReviewChoice itemId="d-restore-flag" label="Restore the stale-flag clear" />
+  </Card>
+  <Card id="d-optin-note" heading="Tie the missing-edge guard to any future isolation opt-in" tone="info" badge="recommended" meta={["a note, not code", "strategy plan's opt-in row"]}>
+    If per-child branches ever return as an opt-in, rule 1 returns with them and so does the invisible edge. The guard is in git history; the risk is that the opt-in is ported without it, since the pull-9 log records only that it was deleted, not that it is a precondition of isolation. Record that precondition on the opt-in row of the pull-9 strategy plan (or wherever the opt-in is next sized). Rejecting means relying on the deadlock notice alone if isolation comes back.
+
+    <ReviewChoice itemId="d-optin-note" label="Record the guard as a precondition of isolation" />
+  </Card>
+</Columns>
+
+## 5. Evidence
+
+Everything above was checked against the live event log (read-only), the deployed commit at the time (`3450c80`, identical to the investigation's checkout for `apps/` and `packages/`), and the tree as it stands today. Server trace logs for the incident window had rolled over; the event log was sufficient on its own.
+
+<Details summary="The event log, in order">
+  <Table
+    density="compact"
+    columns={["Seq", "Time (UTC)", "Event", "Meaning"]}
+    rows={[
+      ["`1217113–17`", "`12:21:16`", "5× `thread.created` from one scaffold command", "The writer is isolated (own branch); the skill reviewer gates it and waits on the script reviewer and the writer"],
+      ["`1217441/47`", "`12:30:07`", "Brief set, worktree provisioned", "The writer gets its own ws/ branch — the same shape a single-spawn child gets"],
+      { "tone": "risk", "cells": ["`1217597`", "`12:36:06`", "Writer: lane set done (submit)", "Merge step armed. Parent idle 12:32–13:07; child's turn settled at 12:36:11"] },
+      ["—", "`12:36` → `13:18`", "No fanin-set, no fan-in activity for the writer", "Every pass, including the 60 s tick, returned at the gate skip"],
+      ["`1217613`", "`13:07:08`", "Orchestrator turn (FYI digest)", "Digest names only the researcher; the writer is held back as a gate member"],
+      ["`1217690/96`", "`13:12:08`", "Coder: planned → ready (orchestrator bounce)", "Irrelevant: the merge had been stuck for 36 minutes already"],
+      ["`1217724–45`", "`13:13:41`", "Writer: reopened, then resubmitted done", "`fanInState` reset to none (it already was). Same gate check, same skip"],
+      ["`1217763`", "`13:16:10`", "Orchestrator runs `git merge --ff-only` by hand", "The branch reaches the parent outside the control plane"],
+      ["`1217769–73`", "`13:16:25`", "Coder cancelled, then script reviewer cancelled", "Cancel cascade flags the script reviewer, then the skill reviewer, `needs_guidance`"],
+      ["`1217819`", "`13:17:25`", "Skill reviewer re-pointed to live threads", "Cycle broken. Flag not cleared; gate still unresolved"],
+      ["`1217855`", "`13:18:23`", "Wake for the skill reviewer", "Pause notice: \"a human is in the loop\""],
+      ["`1217879`", "`13:18:47`", "Skill reviewer cancelled", "Gate dissolved"],
+      { "tone": "success", "cells": ["`1217899`", "`13:18:57`", "Writer: fanin-set completed", "First pass after the parent's turn ended (13:18:55). Merge found the branch already up to date"] },
+    ]}
+  />
+
+  In the same window no other isolated child anywhere on the server reached `done`, so this was not the merge step stalling globally.
+</Details>
+
+<Details summary="The three rules, as code at the time (release 3450c80)">
+  Rule 2 — the merge step skips a gate member, silently:
+
+  <AnnotatedCode
+    filename="apps/server/src/orchestration/Layers/WorkstreamFanInReactor.ts (at 3450c80)"
+    language="ts"
+    code={"if (\n  child.planLane === \"done\" &&\n  (child.fanInState === \"none\" || child.fanInState === \"conflicted\")\n) {\n  // Gate members fan in exactly once, at resolution: skip while the gate\n  // is unresolved. The both-parties `done` at resolution — or a\n  // parent-override dissolve — re-arms this pass.\n  if (isMemberOfUnresolvedGate(child, threads)) return;\n"}
+    annotations={[{ "lines": "8", "label": "the skip", "note": "Returns with no event, no activity and no notice. With the skill reviewer unable to resolve, this ran on every pass for 43 minutes." }]}
+  />
+
+  Rule 1 — a non-reviewer dependent waits on the merge, and this is the text the coder's start was refused with:
+
+  <AnnotatedCode
+    filename="packages/shared/src/workstreamDependencies.ts (at 3450c80)"
+    language="ts"
+    code={"if (thread.isolation === \"attached\") continue;\nif (dep.isolation === \"isolated\" && dep.fanInState !== \"completed\")\n  return `dependency '${depId}' is done, but its fan-in has not completed (fanInState: ${dep.fanInState})`;\n"}
+    annotations={[{ "lines": "2-3", "label": "rule 1", "note": "Reviewers (attached) are exempt; everyone else waits for the merge." }]}
+  />
+
+  Rule 3 — the cycle check sees `blockedBy` only; routes (which carry the gate) are dropped. Spawn and set-dependencies used the same function:
+
+  <AnnotatedCode
+    filename="apps/server/src/orchestration/decider.loom.ts (at 3450c80)"
+    language="ts"
+    code={"const cycle = findDependencyCycle([\n  ...parentChildren.filter((t) => t.archivedAt === null)\n    .map((t) => ({ id: t.id, parentThreadId: t.parentThreadId, blockedBy: t.blockedBy })),\n  ...command.nodes.map((node) => ({\n    id: node.threadId,\n    parentThreadId: command.parentThreadId,\n    blockedBy: node.blockedBy ?? [],\n  })),\n]);\n"}
+    annotations={[{ "lines": "3", "label": "rule 3", "note": "Only blockedBy goes in. The gate's loop route — the thing that makes rule 2 an edge — is not part of the input." }]}
+  />
+</Details>
+
+<Details summary="The repro, without a server">
+  The investigation fed the 12:36 graph state to the real shared predicates with bun:
+
+  <Code
+    language="text"
+    code={"$ bun .t3/issue280/repro.ts\nreactor skip (isMemberOfUnresolvedGate writer): true\ndigest holdback (isFanInPending writer): true\ndeps(coder): dependency 'writer' is done, but its fan-in has not completed (fanInState: none)\ndeps(script reviewer): dependency 'coder' is not done yet (lane: ready)\ndeps(skill reviewer): dependency 'script reviewer' is not done yet (lane: ready)\nscaffold cycle check: null\n"}
+  />
+
+  The merge skip, the digest holdback, the exact refusal text and a passing cycle check, all from one graph: every ready node blocked and the checker content.
+</Details>
+
+<Details summary="What the fix looked like, and what the live tree looks like now">
+  The primary fix, as shipped — the implicit edge materialised into `blockedBy` before the cycle check, with the warning the orchestrator would see:
+
+  <AnnotatedCode
+    filename="apps/server/src/mcp/WorkstreamSpawnHttp.ts (at 468176f710)"
+    language="ts"
+    code={"const implicitEdges = implicitGateEdges([...others, { ...self, blockedBy: effectiveBlockedBy }])\n  .filter((edge) => edge.from === self.id || (target === undefined && edge.to === self.id));\nfor (const edge of implicitEdges) {\n  warnings.push(\n    `blockedBy names ${edge.via}, an isolated thread under review by gate reviewer ${edge.to}: its branch fans in only once that review resolves, so ${edge.to} was added to blockedBy automatically.`,\n  );\n}\neffectiveBlockedBy = uniqueIds([...effectiveBlockedBy, ...implicitEdges.map((edge) => edge.to)]);\nconst cycle = findDependencyCycle([...others, { ...self, blockedBy: effectiveBlockedBy }]);\n"}
+    annotations={[{ "lines": "8-9", "note": "The reviewer joins blockedBy, then the ordinary checker runs over the complete graph." }]}
+  />
+
+  The deadlock notice as it stands today, ported onto the V2 dispatcher. The header is the record that the port was deliberate and what it dropped:
+
+  <AnnotatedCode
+    filename="apps/server/src/loom/orchestration/dispatcher/deadlock.ts (today)"
+    language="ts"
+    code={"/**\n * The deadlock notice (V1 issue #280), ported with logic unchanged minus the\n * fan-in clauses: every unfinished child of a parent is not held, not started\n * and waiting on another stuck sibling, so only re-planning the graph can\n * release one. `deadlockedNodes` (shared with the board's badge) decides; this\n * module keys the episode and composes the text.\n */\n"}
+    annotations={[{ "lines": "2-3", "note": "\"Minus the fan-in clauses\": the predicate no longer needs to ask whether a merge is still pending, because there are no merges." }]}
+  />
+
+  The raise that survived, in the re-drive planner — and the absence beside it. There is no mirror rule deriving a clear, and no caller of `cancelledDependencyOf` (still exported from shared) anywhere in the server:
+
+  <AnnotatedCode
+    filename="apps/server/src/loom/orchestration/redrive.ts (today)"
+    language="ts"
+    code={"// wedged dependents: a live, unstarted node blocked on a cancelled same-parent sibling\n...rows\n  .filter((r) => r.outcome === null && r.kickoffAt === null && !r.attention.includes(\"needs_guidance\"))\n  .flatMap((r) =>\n    r.blockedBy.flatMap((depId) => {\n      const dep = byId.get(depId);\n      return dep?.outcome === \"cancelled\" && dep.outcomeEventId !== null && dep.parentThreadId === r.parentThreadId\n        ? [attentionRaise(r.threadId, \"needs_guidance\", now, `server:loom:wedged:${dep.outcomeEventId}:${r.threadId}`)]\n        : [];\n    }),\n  ),\n"}
+    annotations={[{ "lines": "1", "note": "The raise. The clear from PR #288 would be the same shape with the condition inverted; it is not here." }]}
+  />
+
+  The wake copy today (`apps/server/src/loom/orchestration/dispatcher/wakes.ts`) has one `needs_guidance` branch again: *"If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself."* The pull-9 decision log (`docs/upstream-sync/30-cadence-pull-9-phase2.md`, DL-208 and DL-228) records the deletion of the edge guard and of a related `dependencies.set` refusal; it does not mention the flag clear or the wake copy.
+</Details>
+
+<Details summary="Corrections to the earlier recap">
+  The earlier recap's facts, evidence and seven answers all held when re-checked against release `3450c80` and the event log. Two things it could not have known, which change the conclusion rather than the facts: the shipped fix took a different route from the one it recommended (writing the edge rather than teaching the checker about it) and included the server-side deadlock notice it had argued against; and pull 9 then removed the mechanism the whole incident depended on, which is what makes the deadlock notice the most durable part of the fix and leaves the stale-flag clear as the only open item.
+</Details>
+
+###### Sources: QuinRiva/loom#280 and its two comments · PR #288 (468176f710, 647aedb229) · release 3450c80 · docs/upstream-sync/30-cadence-pull-9-phase2.md · the live tree at 8a7acc80a7.

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { TableRead, tableMdx } from "./table";
+import { cellText, TableRead, tableBlock, tableMdx, type TableData } from "./table";
 
 /**
  * The `<Table filterable>` affordance (C1): the plain table is unchanged, and
@@ -12,6 +12,10 @@ import { TableRead, tableMdx } from "./table";
  * all cells (with a filtered/total count) plus header-click sort that cycles
  * asc → desc → unsorted with a numeric-aware comparison. The `filterable`
  * attribute round-trips only when true.
+ *
+ * Vocabulary v2: a cell is inline markdown or `{ md, badge, tone }`, a row is
+ * cells or `{ tone, cells }`, `align` sets per-column alignment, and filter/sort
+ * read `cellText` (badge label + markdown source).
  */
 
 const COLUMNS = ["Item", "Score"];
@@ -110,6 +114,112 @@ describe("Table filterable interaction", () => {
     // third click clears the sort → original document order (banana first).
     await act(async () => scoreHeader.click());
     expect(firstCell()).toBe("banana");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});
+
+const render = (data: TableData) =>
+  renderToStaticMarkup(createElement(TableRead, { data, blockId: undefined }));
+
+describe("Table v2 cells and rows", () => {
+  it("renders inline markdown in a string cell", () => {
+    const html = render({ columns: ["A"], rows: [["**bold** and `code`"]] });
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).not.toContain("**");
+  });
+
+  it("renders a badge cell: pill before the text, bare label takes the cell tone, nowrap", () => {
+    const html = render({
+      columns: ["Today"],
+      rows: [[{ badge: "lost", md: "no *decision*", tone: "risk" }]],
+    });
+    expect(html).toMatch(
+      /<td class="[^"]*whitespace-nowrap[^"]*" style="background:var\(--plan-tone-risk-soft\)"><span class="plan-badge plan-badge--risk">lost<\/span> <span class="plan-inline-md">no <em>decision<\/em>/,
+    );
+  });
+
+  it("tints a toned row and leaves plain rows untouched", () => {
+    const html = render({
+      columns: ["A"],
+      rows: [{ tone: "success", cells: ["kept"] }, ["plain"]],
+    });
+    expect(html).toContain('style="background:var(--plan-tone-success-soft)"');
+    expect(html.match(/plan-tone-/g)).toHaveLength(1);
+  });
+
+  it("aligns header and cells per column; omitted columns carry no style", () => {
+    const html = render({ columns: ["Name", "Count"], rows: [["a", "3"]], align: ["left"] });
+    expect(html.match(/text-align:left/g)).toHaveLength(2);
+    expect(html).not.toContain("text-align:right");
+    const right = render({
+      columns: ["Name", "Count"],
+      rows: [["a", "3"]],
+      align: ["left", "right"],
+    });
+    expect(right.match(/text-align:right/g)).toHaveLength(2);
+  });
+
+  it("validates both row and cell shapes and rejects an unknown tone", () => {
+    const ok = tableBlock.schema.safeParse({
+      columns: ["A", "B"],
+      rows: [
+        ["x", { badge: { label: "y", tone: "info" } }],
+        { tone: "risk", cells: ["z", { md: "w" }] },
+      ],
+      align: ["left", "right"],
+    });
+    expect(ok.success).toBe(true);
+    expect(
+      tableBlock.schema.safeParse({ columns: ["A"], rows: [{ tone: "red", cells: ["x"] }] })
+        .success,
+    ).toBe(false);
+  });
+
+  it("cellText joins the badge label and the markdown source", () => {
+    expect(cellText("plain")).toBe("plain");
+    expect(cellText({ badge: { label: "in place", tone: "success" }, md: "ported" })).toBe(
+      "in place ported",
+    );
+    expect(cellText({ badge: "moot" })).toBe("moot");
+  });
+
+  it("filters over cellText, so a badge label matches its row", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(TableRead, {
+          data: {
+            columns: ["Fix", "Today"],
+            rows: [
+              ["Draw the edge", { badge: "moot", md: "deleted" }],
+              {
+                tone: "risk",
+                cells: ["Clear the flag", { badge: { label: "lost", tone: "risk" } }],
+              },
+            ],
+            filterable: true,
+          },
+          blockId: undefined,
+        }),
+      );
+    });
+    const input = container.querySelector("input")!;
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(input, "LOST");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const bodyText = container.querySelector("tbody")!.textContent ?? "";
+    expect(bodyText).toContain("Clear the flag");
+    expect(bodyText).not.toContain("Draw the edge");
 
     await act(async () => root.unmount());
     container.remove();

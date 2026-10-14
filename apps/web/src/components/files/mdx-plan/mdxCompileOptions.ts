@@ -8,8 +8,9 @@ import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links"
 import { remarkReferenceLinks } from "~/loom/remarkReferenceLinks";
 
 import { type PlanSections, remarkHeadingAnchors } from "./headingAnchors";
+import { remarkKicker } from "./kicker";
 import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
-import { PLAN_BLOCK_TAGS } from "./planBlockTags";
+import { ALLOWED_HTML_TAGS, PLAN_BLOCK_TAGS } from "./planBlockTags";
 
 /**
  * The single source of truth for the MDX plan compile pipeline: the remark
@@ -29,9 +30,11 @@ import { PLAN_BLOCK_TAGS } from "./planBlockTags";
  *      executable JS. JSON-literal attribute expressions — `entities={[…]}`,
  *      `data={{…}}`, `code={"…"}` — remain allowed; that is the block wire format.
  *   3. Unknown-component fallback — a remark pass rewrites any capitalized JSX
- *      tag not in the registry to the inline `UnknownPlanBlock` error card
+ *      tag not in the registry, and any lowercase (HTML) tag outside
+ *      `ALLOWED_HTML_TAGS`, to the inline `UnknownPlanBlock` error card
  *      (attrs/children dropped), so one bad tag cannot reach MDX's
- *      `_missingMdxReference` throw and kill the whole document.
+ *      `_missingMdxReference` throw and kill the whole document, and raw HTML
+ *      cannot restyle or overlay the app. Allowed tags lose every attribute.
  */
 
 const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
@@ -82,10 +85,11 @@ const MDX_JSX_NODE_TYPES = new Set(["mdxJsxFlowElement", "mdxJsxTextElement"]);
 
 /**
  * remark plugin: rewrite any capitalized JSX tag that is not in the closed
- * registry to the `UnknownPlanBlock` error card (original tag preserved as its
- * `tag` attr; other attrs and children dropped). Runs AFTER the code-escape
- * guard, so smuggled attribute expressions are still rejected doc-wide rather
- * than silently discarded here. Lowercase (HTML) tags are left to MDX.
+ * registry, and any lowercase (HTML) tag outside `ALLOWED_HTML_TAGS`, to the
+ * `UnknownPlanBlock` error card (original tag preserved as its `tag` attr; other
+ * attrs and children dropped); strip every attribute from an allowed HTML tag.
+ * Runs AFTER the code-escape guard, so smuggled attribute expressions are still
+ * rejected doc-wide rather than silently discarded here.
  */
 function remarkUnknownBlockFallback() {
   return (tree: GuardNode) => {
@@ -93,12 +97,10 @@ function remarkUnknownBlockFallback() {
       for (const child of node.children ?? []) {
         walk(child as GuardNode);
       }
-      if (
-        MDX_JSX_NODE_TYPES.has(node.type) &&
-        node.name &&
-        /^[A-Z]/.test(node.name) &&
-        !PLAN_BLOCK_TAGS.has(node.name)
-      ) {
+      if (!MDX_JSX_NODE_TYPES.has(node.type) || !node.name) return;
+      if (ALLOWED_HTML_TAGS.has(node.name)) {
+        node.attributes = [];
+      } else if (!PLAN_BLOCK_TAGS.has(node.name)) {
         node.attributes = [{ type: "mdxJsxAttribute", name: "tag", value: node.name }];
         node.name = "UnknownPlanBlock";
         node.children = [];
@@ -122,8 +124,9 @@ const PLAN_GUARD_PLUGINS = [
 /** Guards + `remarkHeadingAnchors`, which is not a guard: it stamps heading slug
  * ids and publishes each section's source bounds. It lives here so the worker,
  * the linter and the main-thread render agree both on the anchors a question's
- * `refs` may name and on what "that section" is. */
-const PLAN_REMARK_PLUGINS = [...PLAN_GUARD_PLUGINS, remarkHeadingAnchors];
+ * `refs` may name and on what "that section" is. `remarkKicker` (vocabulary v2)
+ * renders the frontmatter `kicker:` above the title — whole documents only. */
+const PLAN_REMARK_PLUGINS = [...PLAN_GUARD_PLUGINS, remarkHeadingAnchors, remarkKicker];
 
 export type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 // The authored demo plan, imported raw so the test drives the REAL render
 // pipeline against the REAL file (Vite `?raw`).
@@ -10,6 +11,7 @@ import demoPlanSource from "../../../../../../plans/mdx-plan-annotation/plan.mdx
 import { anchorForBlockElement, resolveAnchor } from "./annotation/anchoring";
 import { assignBlockIds, compilePlanMdx } from "./MdxPlanRenderer";
 import {
+  buildSrcDoc,
   HTML_CSP,
   HTML_SANDBOX,
   blockLinkActivation,
@@ -41,6 +43,106 @@ const renderPrototype = (html = "<p>hi</p>") =>
   parse(renderToStaticMarkup(createElement(PrototypeRead, { data: { html }, blockId: "proto-1" })));
 const renderHtmlBlock = (html = "<p>hi</p>") =>
   parse(renderToStaticMarkup(createElement(HtmlBlockRead, { data: { html }, blockId: "html-1" })));
+
+// loom: vocabulary v2 — the theme injection and auto-height must not move the
+// boundary: these are the exact strings the security review signed off.
+describe("sandboxed frames — the boundary strings are unchanged", () => {
+  it("keeps both sandbox and CSP strings byte-identical", () => {
+    expect(PROTOTYPE_SANDBOX).toBe("allow-scripts allow-forms");
+    expect(HTML_SANDBOX).toBe("allow-same-origin");
+    expect(PROTOTYPE_CSP).toBe(
+      "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:; font-src 'self' data:; frame-src 'none'; object-src 'none'; " +
+        "base-uri 'none'; form-action 'none'",
+    );
+    expect(HTML_CSP).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; " +
+        "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
+    );
+  });
+});
+
+describe("sandboxed frames — app theme", () => {
+  it("carries the host's resolved tokens and the theme into the srcdoc", () => {
+    const root = document.documentElement;
+    root.style.setProperty("--foreground", "rgb(1, 2, 3)");
+    root.style.setProperty("--plan-tone-risk", "rgb(4, 5, 6)");
+    try {
+      const dark = buildSrcDoc("<p>hi</p>", HTML_CSP, true);
+      expect(dark).toContain('<html class="dark">');
+      expect(dark).toContain("color-scheme:dark;");
+      expect(dark).toContain("--foreground:rgb(1, 2, 3)");
+      expect(dark).toContain("--plan-tone-risk:rgb(4, 5, 6)");
+      expect(dark).toContain("body{background:var(--background);color:var(--foreground)");
+      // Both surfaces build through it; the CSP meta still leads the head.
+      for (const host of [renderHtmlBlock(), renderPrototype()]) {
+        const srcdoc = host.querySelector("iframe")!.getAttribute("srcdoc")!;
+        expect(srcdoc).toContain("--plan-tone-risk:rgb(4, 5, 6)");
+        expect(srcdoc).toContain(
+          '<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"',
+        );
+        expect(srcdoc).toContain("color-scheme:light;");
+      }
+    } finally {
+      root.removeAttribute("style");
+    }
+  });
+
+  it("sizes an HtmlBlock to its content (clamped) unless a height is given", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = (el: Element) => observed.push(el);
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const mount = (height?: number) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      act(() =>
+        root.render(
+          createElement(HtmlBlockRead, {
+            data: { html: "<p>x</p>", ...(height && { height }) },
+            blockId: "html-auto",
+          }),
+        ),
+      );
+      const iframe = container.querySelector("iframe")!;
+      return { root, iframe };
+    };
+    const load = (iframe: HTMLIFrameElement, contentHeight: number) => {
+      iframe.contentDocument!.documentElement.getBoundingClientRect = () =>
+        ({ height: contentHeight }) as DOMRect;
+      act(() => iframe.dispatchEvent(new Event("load")));
+    };
+    try {
+      const auto = mount();
+      expect(auto.iframe.style.height).toBe(""); // no guessed default
+      load(auto.iframe, 131.2);
+      expect(auto.iframe.style.height).toBe("132px");
+      expect(observed).toEqual([auto.iframe.contentDocument!.documentElement]);
+      // A panel-width change resizes the frame's viewport and reflows the content.
+      auto.iframe.contentDocument!.documentElement.getBoundingClientRect = () =>
+        ({ height: 200 }) as DOMRect;
+      act(() => auto.iframe.contentWindow!.dispatchEvent(new Event("resize")));
+      expect(auto.iframe.style.height).toBe("200px");
+      load(auto.iframe, 9_000);
+      expect(auto.iframe.style.height).toBe("4000px");
+      act(() => auto.root.unmount());
+
+      const fixed = mount(300);
+      load(fixed.iframe, 131);
+      expect(fixed.iframe.style.height).toBe("300px"); // an explicit height scrolls
+      act(() => fixed.root.unmount());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("Prototype iframe — interactive but isolated", () => {
   it("uses sandbox 'allow-scripts allow-forms' with NO allow-same-origin", () => {

@@ -105,7 +105,7 @@ export function ReviewChoiceRead({ data, blockId }: PlanBlockReadProps<ReviewCho
       {api ? (
         <NoteInput value={choice.note} placeholder={placeholder} onCommit={setNote} />
       ) : (
-        <div className="min-w-0 flex-1 rounded-md border border-dashed border-border px-2.5 py-1 text-2xs italic text-muted-foreground">
+        <div className="min-w-0 flex-1 basis-40 rounded-md border border-dashed border-border px-2.5 py-1 text-2xs italic text-muted-foreground">
           {placeholder}
         </div>
       )}
@@ -136,7 +136,7 @@ function NoteInput({
       value={text}
       placeholder={placeholder}
       aria-label={`Note for ${placeholder}`}
-      className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-2.5 py-1 text-2xs text-foreground placeholder:italic placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+      className="min-w-0 flex-1 basis-40 rounded-md border border-border bg-transparent px-2.5 py-1 text-2xs text-foreground placeholder:italic placeholder:text-muted-foreground focus:border-ring focus:outline-none"
       onChange={(event) => setText(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {

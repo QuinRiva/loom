@@ -80,28 +80,48 @@ function CodeBody({ code, language, wrap }: { code: string; language: string; wr
   );
 }
 
+/** Languages whose content is prose, not code: a quoted message, a markdown
+ * excerpt. Their max-content width is one long line, which would take the
+ * whole bleed budget for no gain, so they keep the reading measure and wrap
+ * by default (the stamping in `MdxPlanRenderer` reads `data-plan-code-prose`). */
+const PROSE_LANGUAGES = new Set(["text", "txt", "plain", "plaintext", "markdown", "md", "mdx"]);
+
 function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
   const language = data.language?.trim() || "text";
+  const prose = PROSE_LANGUAGES.has(language.toLowerCase());
   const lines = useMemo(() => data.code.split("\n"), [data.code]);
   const maxLines = data.maxLines ?? DEFAULT_CODE_MAX_LINES;
   const collapsible = maxLines > 0 && lines.length > maxLines;
   const [expanded, setExpanded] = useState(false);
-  const [wrap, setWrap] = useState(data.wrap ?? false);
+  const [wrap, setWrap] = useState(data.wrap ?? prose);
   const shownCode = collapsible && !expanded ? lines.slice(0, maxLines).join("\n") : data.code;
+  // A plain-text snippet with no filename has nothing to label: it renders as a
+  // bare panel, its wrap toggle surfacing on hover (`.plan-code--bare`).
+  const header = Boolean(data.filename) || language !== "text";
 
   return (
     <figure
       data-plan-block-id={blockId}
       data-plan-block-type="code"
-      className="my-4 overflow-hidden rounded-lg border border-border bg-card"
+      data-plan-code-prose={prose ? "" : undefined}
+      className={cn(
+        "my-4 overflow-hidden rounded-lg border border-border bg-card",
+        !header && "plan-code--bare",
+      )}
     >
-      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
-        <div className="flex shrink-0 items-center gap-2">
-          {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
+      {header ? (
+        <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
+            <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
+          </div>
+        </figcaption>
+      ) : (
+        <div className="plan-code-tools">
           <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
         </div>
-      </figcaption>
+      )}
       <CodeBody code={shownCode} language={language} wrap={wrap} />
       {collapsible && (
         <button

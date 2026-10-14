@@ -463,6 +463,38 @@ describe("mdx-plan security model", () => {
     expect(html).toContain("After.");
   });
 
+  // vocabulary v2: raw lowercase HTML was a styling/overlay escape hatch; only an
+  // unstyled inline allow-list renders, with every attribute stripped.
+  it("renders a disallowed HTML tag as an error card and strips allowed tags' attributes", async () => {
+    const Content = await compilePlanMdx(
+      '<div style="position:fixed;inset:0">overlay</div>\n\nPress <kbd class="evil" style="color:red">Esc</kbd> now, <Badge tone="risk">lost</Badge>.',
+    );
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).toContain('data-plan-block-error="div"');
+    expect(html).toContain("Raw HTML &lt;div&gt;");
+    expect(html).not.toContain("overlay");
+    expect(html).not.toContain("position:fixed");
+    expect(html).toContain("<kbd>Esc</kbd>");
+    expect(html).toContain('<span class="plan-badge plan-badge--risk">lost</span>');
+  });
+
+  // vocabulary v2: kicker — the frontmatter line renders above the title (quoted:
+  // an unquoted ` #` starts a YAML comment).
+  it("renders a frontmatter kicker before the H1, and nothing when it is absent", async () => {
+    const render = async (frontmatter: string) =>
+      renderToStaticMarkup(
+        createElement(await compilePlanMdx(`---\n${frontmatter}\n---\n\n# Title\n`), {
+          components: PLAN_BLOCK_COMPONENTS,
+        }),
+      );
+    expect(await render('kicker: "Incident recap \u00b7 #280"\nreader:\n  who: x')).toBe(
+      '<p class="plan-kicker">Incident recap \u00b7 #280</p>\n<h1 id="title">Title</h1>',
+    );
+    expect(await render("reader:\n  who: x")).toBe('<h1 id="title">Title</h1>');
+  });
+
   // S1 regression: an un-id'd block must NOT emit `data-plan-block-id=""` — the
   // empty attr defeats the `assignBlockIds` fallback and collides every un-id'd
   // block onto the first `[data-plan-block-id=""]` match.

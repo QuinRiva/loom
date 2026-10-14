@@ -1,7 +1,7 @@
 # Block vocabulary
 
-The shared block vocabulary for every MDX-document genre (plans and
-recaps / decision batches). This file teaches the **common shape** of each
+The shared block vocabulary for every MDX-document genre (plans,
+recaps / decision batches, and explainers). This file teaches the **common shape** of each
 block by example; [`block-schema.md`](block-schema.md) is the generated
 authority for exact props and enum values. Consult it — do not guess props.
 
@@ -16,14 +16,24 @@ the whole block (prose spans anchor by quoted text automatically). The full
 attribute-encoding rules (scalars, numbers, booleans, JSON literals, no free
 `{expressions}`) live in the **"Encoding recap"** preamble of
 [`block-schema.md`](block-schema.md); the validator catches mechanical mistakes,
-so this is a pointer rather than a re-statement.
+so this is a pointer rather than a re-statement. A handful of unstyled inline
+HTML tags (`span`, `mark`, `kbd`, `sub`, `sup`, `small`, `br`) pass through with
+their attributes stripped; any other lowercase tag is rejected and renders as an
+error card — pills come from `<Badge>`, grids from `<Columns>`/`<Card>`, a
+bespoke figure from `<HtmlBlock>`.
+
+**Frontmatter.** Besides the `reader:` brief, `kicker:` is the small line
+rendered above the title — genre, subject, date, the PR:
+`kicker: "Incident recap · #280 · 26 Sep 2026"`. It is where the document
+says what it is, so the title can say what it found. Quote the value: an
+unquoted ` #` starts a YAML comment and silently cuts the line short.
 
 ## Block groups
 
 The blocks fall into five groups: **document blocks** (prose-embedded structure
 — the default), **review blocks** (field diffs, cards, drill-downs, per-item
-decisions — for decision/recap documents), **containers** (side-by-side / tabbed
-layout), **visual surfaces** (wireframe / design / canvas, for UI work), and
+decisions — for decision/recap documents), **containers** (side-by-side, tabbed or
+stepped layout), **visual surfaces** (wireframe / design / canvas, for UI work), and
 **iframe surfaces** (embedded HTML / interactive prototypes).
 
 Each block is shown with a short, real example. Only the fields you need are
@@ -181,10 +191,71 @@ title row gains a wrap toggle).
 A highlighted aside. `tone` is `info | decision | risk | warning | success`
 (default `info`); the **prose between the tags is the body**.
 
+`title` names the box (`What it means now`, `The causal proof`, `The one thing
+to act on`) in place of the tone's generic label, so a bold run-in at the start
+of the body becomes the title. `focus` is for the box the reader must not pass
+— the verdict, its consequence, or the thing to act on — rendered as a
+bordered panel at reading size with no icon. Keep it to one or two per
+document: emphasis on every box is emphasis on none. A paragraph of inline
+`<Badge>`s inside it reads as a status row.
+
+```mdx
+<Callout tone="decision" title="What it means now" focus>
+  Pull 9 removed the merge step, so the missing edge no longer exists. **One thing is left to act on** — the stale-flag fix was lost.
+
+  <Badge tone="success">deadlock notice · in place</Badge> <Badge tone="risk">stale-flag clear · lost</Badge>
+</Callout>
+```
+
 ```mdx
 <Callout tone="risk">
   The MDX runtime uses `evaluate()`, which needs `unsafe-eval`; the remark guard bounds the surface.
 </Callout>
+```
+
+### `<Badge>` — an inline pill
+
+A pill for a state, class or verdict **inside a sentence**, list item, `<Card>`
+or `<Callout>` body: the text between the tags is the label, `tone` is the
+six-slot palette (`neutral | info | success | warning | risk | accent`, default
+`neutral`). The text names the meaning; the colour makes it scannable. Write the
+label in natural case — it displays uppercase.
+
+```mdx
+The stale-flag clear was <Badge tone="risk">lost</Badge> in the re-platform; the deadlock notice is <Badge tone="success">in place</Badge>.
+```
+
+For a pill in a `<Card>` header use its `badge`/`badges` props, and in a
+`<Table>` cell the cell's `badge` field — a string attribute is never parsed
+for tags, so `"<Badge>lost</Badge>"` inside a prop renders as literal text.
+
+### `<Stats>` — the number strip
+
+The numbers the answer rests on, as large tiles under the lede. Each item is
+`{ value, label, detail?, tone?, badge? }`: `value` is the headline figure
+(`43 min`, `3 of 4`), `label` names it, `detail` is the one line that makes it
+mean something (inline markdown), `tone` colours the figure by what it means
+(the six-slot palette; `neutral` stays the text colour), and `badge` adds a
+pill after the detail. Three to six tiles read best; eight is the limit.
+
+```mdx
+<Stats
+  items={[
+    {
+      value: "43 min",
+      label: "Silent deadlock",
+      tone: "risk",
+      detail: "Child done 12:36; nothing moved until 13:16",
+    },
+    {
+      value: "4 fixes",
+      label: "Shipped next day",
+      tone: "success",
+      detail: "Today: 1 in place · 2 moot · 1 lost",
+      badge: { label: "1 lost", tone: "risk" },
+    },
+  ]}
+/>
 ```
 
 ### `<Checklist>` — a static list of ticked/unticked items
@@ -201,18 +272,39 @@ interactive). Each item is `{ id, label, checked?, note? }`.
 />
 ```
 
-### `<Table>` — a simple grid
+### `<Table>` — a grid of cells, pills and toned rows
 
-Header `columns` + string `rows` (each row an array of cell strings). Optional
-`density` is `compact | normal | relaxed`. Good for comparisons and parameter
-grids; use `<DataModel>` for typed entities, not this.
+Header `columns` + `rows`. Cells are inline markdown — bold, code, links work. A
+cell can be an object `{ "md", "badge", "tone" }` to carry a pill (a `BadgeSpec`,
+rendered before the text; a bare-string badge takes the cell's tone, else
+neutral) or a tint, and a row can be `{ "tone", "cells": […] }` to tint the
+whole row — so a status column is a column of pills and the one row that
+matters is found before the table is read. `align` sets per-column alignment
+(`"right"` for numbers). Optional `density` is `compact | normal | relaxed`;
+`filterable` adds a filter box and header-click sort over the cells' text
+(badge label + markdown). A GFM table in prose is fine for a quick grid; use the
+block for tones, badges, density or a filter, and `<DataModel>` for typed
+entities. A string attribute is never parsed for tags, so `<Badge>` inside a
+cell renders as literal text — use the cell's `badge` field.
 
 ```mdx
 <Table
-  columns={["Surface", "Origin", "Scripts"]}
+  density="compact"
+  columns={["Fix", "Today", "Why"]}
   rows={[
-    ["Prototype", "opaque (sandboxed)", "inline only"],
-    ["HtmlBlock", "same-origin (sandboxed)", "none"],
+    [
+      "Draw the missing edge",
+      { badge: "moot", md: "deliberately deleted" },
+      "The code is in git history at `468176f710`",
+    ],
+    {
+      tone: "risk",
+      cells: [
+        "Clear the stale flag",
+        { badge: { label: "lost", tone: "risk" }, md: "no decision recorded" },
+        "A re-pointed dependent carries `needs_guidance`",
+      ],
+    },
   ]}
 />
 ```
@@ -263,10 +355,45 @@ Use `<Diagram>` for a hand-placed spatial
 layout; use `<Mermaid>` when Mermaid's auto-layout of a flow/sequence/ER graph is
 enough.
 
+**Node tones, legend, look.** Colour a node by meaning with Mermaid's own class
+syntax and the shared six-tone palette — `W["writer"]:::tone-warning`, or
+`class W,C tone-neutral` on its own line — with no `classDef` hexes to invent; the
+colours follow the app theme. Tone the two or three nodes the reader should look
+at first and leave the rest untoned. `legend` (up to six `{ tone, label }`)
+decodes the colours once, under the figure. The default look is Mermaid's clean
+`classic`; `look="handDrawn"` is for a diagram that should read as a sketch.
+
+**Two-line nodes.** Write a node as `name<br/>status` —
+`W["writer<br/>done · unmerged"]:::tone-warning`. The first line renders bold, the
+second as a small mono status line in the node's tone colour, so state reads at a
+glance without a sentence in the box. Keep each line short: Mermaid wraps a line
+over ~200 px, and a wrapped name spills into the status style. A label with no
+`<br/>` stays one style however it wraps.
+
+**Toned edges.** Name the tone as the edge's colour — `linkStyle 0
+stroke:tone-risk,color:tone-risk,stroke-width:2.5px` (`n` counts edges in source
+order from 0). The path, its arrowhead and (via `color:`) its label take the
+palette colour and follow the theme. Edge labels render as small mono text on the
+line; keep them to a few words. Tone one edge — the one the figure is about. A
+`tone-*` class or edge colour outside the palette lints as a warning — it styles
+nothing.
+
+**Layout: order the source so the shape you mean is the shape you get.** Mermaid
+(dagre) ranks nodes along the direction and breaks a cycle by reversing the edge
+that closes it _in source order_. To show a loop, use `flowchart TB`, declare the
+loop's nodes first and its edges in loop order, starting at the node the reader
+should start from; the closing edge then routes back up the side and the loop
+reads round. Hang everything else off it afterwards. `flowchart LR` suits a
+chain; a cycle in `LR` flattens into one row with long crossing curves. If the
+figure needs nodes at exact positions (two rows, a grid), use `<Diagram>`.
+
 ```mdx
 <Mermaid
-  caption="Review loop"
-  source={"flowchart LR\n  Plan --> Review\n  Review --> Implement\n"}
+  caption="The review loop never closes"
+  legend={[{ tone: "risk", label: "the edge nobody wrote" }]}
+  source={
+    'flowchart TB\n  C["coder<br/>ready · blocked"]\n  R["reviewer<br/>waiting"]:::tone-warning\n  C -.->|implied| R\n  R --> C\n  linkStyle 0 stroke:tone-risk,color:tone-risk\n'
+  }
 />
 ```
 
@@ -414,7 +541,14 @@ A bordered card with a coloured left border, a header row (`heading`, optional
 its own `<Card id>` so the batch is triaged by tone at a glance and annotations
 anchor to the whole card. `tone` is a **six-slot categorical palette**
 (`neutral | info | success | warning | risk | accent`) — colour is triage only;
-meaning rides the badge/heading text.
+meaning rides the badge/heading text. The heading is inline markdown, so
+`` `code` `` and _emphasis_ in it render.
+
+`eyebrow` is the small line above the heading — `RULE 1`, `OPTION B`, `STAGE 3`
+— for a numbered or classified series of cards. `badges` is a list of pills with
+their own tones when the single `badge` is not enough:
+`badges={[{ "label": "deterministic", "tone": "success" }, "x3 calls"]}` (a bare
+string takes the card's tone).
 
 ```mdx
 <Card
@@ -438,19 +572,20 @@ A compact one-row widget: an Accept / Reject / Discuss toggle plus a note field.
 The decision lands as a structured review comment on the next turn — no export
 step (this is where MDX beats a static HTML doc). `itemId` is the aggregation
 key and **must be unique per document** (the linter flags duplicates). In a bare
-renderer/test context it renders read-only. State the "silence = accept the
-recommendation" convention in a top `<Callout tone="decision">`, not the widget.
+renderer/test context it renders read-only. State the "an item left undecided takes its
+recommendation" convention once in the document — one line on the first screen,
+after the verdict — because the widget reports only explicit choices.
 
 ```mdx
 <ReviewChoice itemId="a1" label="A-1" placeholder="Why, if rejecting…" />
 ```
 
-## Containers: `<Columns>` and `<TabsBlock>`
+## Containers: `<Columns>`, `<TabsBlock>` and `<Steps>`
 
-Containers lay out **other blocks** side by side or in tabs. Each container is
-one annotatable block; its nested blocks keep their own annotation ids. The
-inner slot tags are `<Column>` and `<Tab>` (the container tag is `TabsBlock`,
-not `Tabs`); a per-slot `label` names it.
+Containers lay out **other blocks** side by side, in tabs or on a rail. Each
+container is one annotatable block; its nested blocks keep their own annotation
+ids. The inner slot tags are `<Column>`, `<Tab>` and `<Step>` (the container tag
+is `TabsBlock`, not `Tabs`); a per-slot `label` names a column or tab.
 
 `<Columns>` — side-by-side, the common case being a before/after or
 current/target pair:
@@ -463,6 +598,25 @@ current/target pair:
   <Column label="After">
     <Code language="ts" code={"const x = 2;\n"} />
   </Column>
+</Columns>
+```
+
+A `<Columns>` of `<Card>`s needs no `<Column>` wrappers: cards are columns. Use
+`<Column label>` when a side needs a label or holds several blocks (and then use
+it for every side). `columns={3}` caps the row at three across; it still
+collapses on a narrow panel.
+
+```mdx
+<Columns columns={3}>
+  <Card eyebrow="Rule 1" heading="A dependent waits for the merge, not just for `done`.">
+    …
+  </Card>
+  <Card eyebrow="Rule 2" heading="A child under review merges exactly once.">
+    …
+  </Card>
+  <Card eyebrow="Rule 3" heading="The cycle check only follows `blockedBy`.">
+    …
+  </Card>
 </Columns>
 ```
 
@@ -480,6 +634,38 @@ one `<Tab label>` per panel:
     <Endpoint method="GET" path="/api/comments" summary="List comments" />
   </Tab>
 </TabsBlock>
+```
+
+`<Steps>` of `<Step at title tone dashed badge aside>` — moments or stages in
+order on a vertical rail: a timeline when `at` is a time, a ladder when it is a
+stage, numbered when every step omits it. `at` never wraps, so a range like
+`12:36 → 13:16` stays one label. `title` is the bold first line; the body between
+the tags is the lighter detail (prose, inline `<Badge>`, code, even nested
+blocks). `tone` colours the marker and the `at` label (default: a blue ring;
+`risk` and `warning` fill it), and `dashed` makes it a hollow dashed ring for a
+moment where nothing happened. `badge` and `aside` (inline markdown) fill a
+right-hand column for what someone saw or what it cost — a string badge takes
+the step's tone. Put tone on the steps that went wrong and leave the rest
+default, so the reader sees where to look before reading a word.
+
+```mdx
+<Steps>
+  <Step at="12:21" title="All five children created." aside="A normal workstream.">
+    The cycle check passed.
+  </Step>
+  <Step
+    at="12:36"
+    tone="risk"
+    title="The writer submitted."
+    badge="a lie"
+    aside="“dependents released” — a fixed string."
+  >
+    Its branch was never merged.
+  </Step>
+  <Step at="12:36 → 13:16" tone="neutral" dashed title="Nothing." badge="silence">
+    The merge step returned early on every pass.
+  </Step>
+</Steps>
 ```
 
 ## Visual surfaces (UI work)
@@ -611,7 +797,12 @@ the `--wf-*` theming does not apply there.
 
 Both render author-supplied HTML inside a **sandboxed iframe**. You write a
 self-contained document; **nothing remote loads** (the CSP blocks it), so inline
-everything. `caption` and `height` (px) are optional.
+everything. `caption` and `height` (px) are optional. Both frames inherit the
+app's theme: write CSS against its variables — `var(--foreground)`,
+`var(--muted-foreground)`, `var(--border)`, `var(--card)`, the palette's
+`var(--plan-tone-risk)` / `var(--plan-tone-risk-soft)` (and the other five tones),
+`var(--font-mono)` — and the frame matches the document around it in light and
+dark (the body already takes the app background, text colour and font).
 
 `<Prototype>` — **interactive**: scripts + forms run, so inline `<script>` and
 handlers work, in an opaque-origin frame that cannot touch the app. Use it when
@@ -633,7 +824,10 @@ reviewer can comment on the whole block **or select text inside it to pin a
 comment to that spot**, so a grid of option cards in one `<HtmlBlock>` can be
 reviewed card by card — give each card some distinctive text to select. Use it
 for a static snippet the other blocks don't cover, or a mockup that needs a real
-stylesheet (which `<Design>` strips).
+stylesheet (which `<Design>` strips). The frame **sizes itself to its content**
+and follows a panel-width change; give `height` only when it should scroll.
+(`<Prototype>` cannot be measured — its origin is opaque — so it keeps an
+explicit `height`, 420 by default.)
 
 ```mdx
 <HtmlBlock caption="Status legend" html={"<ul><li>done</li><li>in progress</li></ul>"} />

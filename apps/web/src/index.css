@@ -1525,7 +1525,8 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
 
 /* Recompute contrast wherever a subtree owns its own semantic color palette. */
 :root,
-[data-app-sidebar] {
+[data-app-sidebar],
+.plan-surface /* loom: the MDX document surface (see "document surface" below) */ {
   --contrast-toolbar-foreground: color-mix(
     in oklab,
     color-mix(
@@ -2493,8 +2494,8 @@ code {
 }
 
 .plan-mdx :is(p, ul, ol, blockquote, pre, table):not([data-plan-block-type] *),
-.prose-plan :is(p, ul, ol, blockquote, table),
-.prose-plan pre:not(.prose-plan [data-plan-block-type] *) {
+.prose-plan :is(p, ul, ol, blockquote),
+.prose-plan :is(pre, table):not(.prose-plan [data-plan-block-type] *) {
   margin: 0.65rem 0;
 }
 
@@ -2505,25 +2506,86 @@ code {
   line-height: 1.3;
   color: var(--foreground);
 }
-.plan-mdx h1:not([data-plan-block-type] *),
 .prose-plan h1 {
   font-size: 1.25rem;
 }
-.plan-mdx h2:not([data-plan-block-type] *),
 .prose-plan h2 {
   font-size: 1.125rem;
 }
-.plan-mdx h3:not([data-plan-block-type] *),
 .prose-plan h3 {
   font-size: 1rem;
 }
-.plan-mdx :is(h4, h5, h6):not([data-plan-block-type] *),
 .prose-plan :is(h4, h5, h6) {
   font-size: 0.875rem;
 }
-.plan-mdx h6:not([data-plan-block-type] *),
 .prose-plan h6 {
   color: var(--muted-foreground);
+}
+
+/* Document-level hierarchy. A long plan/recap must chunk at a glance, so the
+   steps are deliberately larger than chat markdown's (the visual-explainer HTML
+   pages run section:body ≈ 1.4): a title, sections opened by a rule and extra
+   space, sub-heads stepped down from there. Headings inside blocks
+   (.prose-plan) keep the compact scale above. scroll-margin keeps a jumped-to
+   heading clear of the sticky section outline (MdxPlanRenderer). */
+.plan-mdx {
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+.plan-mdx :is(h1, h2, h3, h4, h5, h6):not([data-plan-block-type] *) {
+  scroll-margin-top: 3.5rem;
+}
+.plan-mdx h1:not([data-plan-block-type] *) {
+  margin-bottom: 1rem;
+  font-size: 2.125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.plan-mdx h2:not([data-plan-block-type] *) {
+  margin: 2.75rem 0 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.375rem;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+/* No double rule under an authored `---` or straight under the title, and no
+   rule above a leading section. */
+.plan-mdx :is(hr, h1) + h2:not([data-plan-block-type] *),
+.plan-mdx > h2:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.plan-mdx > :is(h1, h2):first-child {
+  margin-top: 0;
+}
+.plan-mdx h3:not([data-plan-block-type] *) {
+  margin-top: 1.75rem;
+  font-size: 1.125rem;
+}
+.plan-mdx h4:not([data-plan-block-type] *) {
+  font-size: 1rem;
+}
+.plan-mdx h5:not([data-plan-block-type] *) {
+  font-size: 0.875rem;
+}
+/* H6 is the document's small muted line — provenance, sources, a kicker —
+   rather than a sixth heading level (unused as one in the corpus). */
+.plan-mdx h6:not([data-plan-block-type] *) {
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+/* The lede: the paragraph right under the title carries the answer, so it
+   reads a step up from body text. */
+.plan-mdx > h1 + p {
+  margin-bottom: 1.25rem;
+  font-size: 1.0625rem;
+  line-height: 1.6;
 }
 
 .plan-mdx ul:not([data-plan-block-type] *),
@@ -2615,21 +2677,22 @@ code {
 }
 
 /* Raw GFM tables authored in document prose (block-rendered tables live inside
-   [data-plan-block-type] and are excluded). Mirrors .chat-markdown table look. */
+   [data-plan-block-type] and are excluded — in a .prose-plan body too, or a
+   <Table> in a <Details> loses its density). Mirrors .chat-markdown table look. */
 .plan-mdx table:not([data-plan-block-type] *),
-.prose-plan table {
+.prose-plan table:not(.prose-plan [data-plan-block-type] *) {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem;
 }
 .plan-mdx :is(th, td):not([data-plan-block-type] *),
-.prose-plan :is(th, td) {
+.prose-plan :is(th, td):not(.prose-plan [data-plan-block-type] *) {
   padding: 0.45rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .plan-mdx thead th:not([data-plan-block-type] *),
-.prose-plan thead th {
+.prose-plan thead th:not(.prose-plan [data-plan-block-type] *) {
   font-weight: 600;
   white-space: nowrap;
 }
@@ -2874,11 +2937,12 @@ code {
   min-width: 0;
 }
 .plan-column-label {
-  margin-bottom: 0.375rem;
-  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.1em;
   color: var(--muted-foreground);
 }
 .plan-column-body > :first-child {
@@ -3014,6 +3078,561 @@ code {
   border: 1px solid color-mix(in srgb, var(--warn, #d97706) 40%, transparent);
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* -------------------------------------------------------------------------- */
+/* loom: MDX vocabulary v2 — the shared tone palette (tones.ts). Plain CSS      */
+/* variables, not Tailwind classes, so the same colours reach a Mermaid SVG     */
+/* <style> and a sandboxed <HtmlBlock> frame. Derived from <Card>'s colours.    */
+/* Each later v2 block appends its own region below, headed                    */
+/* `MDX vocabulary v2: <block>`.                                                */
+/* -------------------------------------------------------------------------- */
+:root {
+  /* sRGB hex, not Tailwind's oklch scale: on a wide-gamut display the oklch
+     tones render past sRGB and read as over-saturated beside the text. The
+     values are the visual-explainer HTML pages' palette. */
+  --plan-tone-neutral: var(--plan-fg-muted);
+  --plan-tone-info: #1d4ed8;
+  --plan-tone-success: #15803d;
+  --plan-tone-warning: #b45309;
+  --plan-tone-risk: #b91c1c;
+  --plan-tone-accent: #6d28d9;
+  --plan-tone-neutral-soft: color-mix(in srgb, var(--plan-tone-neutral) 14%, transparent);
+  --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 11%, transparent);
+  --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 12%, transparent);
+  --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 12%, transparent);
+  --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 11%, transparent);
+  --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 11%, transparent);
+
+  @variant dark {
+    --plan-tone-info: #7aa2ff;
+    --plan-tone-success: #4ade80;
+    --plan-tone-warning: #f0b454;
+    --plan-tone-risk: #f87171;
+    --plan-tone-accent: #b39dfa;
+    --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 14%, transparent);
+    --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 14%, transparent);
+    --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 14%, transparent);
+    --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 14%, transparent);
+    --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 14%, transparent);
+  }
+}
+
+/* loom: MDX vocabulary v2: document surface — a plan/recap/explainer reads on its
+   own surface rather than the app's near-black canvas: dark is a grey-blue page
+   with cards a step lighter, light is warm paper with white cards. Each value
+   is the app token tinted (so a custom theme still shows through), computed at
+   :root so `.plan-surface` can re-point the semantic tokens (--background,
+   --card, --muted, …) at them without a cycle — every block inside then takes
+   the surface with no per-block colour. */
+:root {
+  --plan-surface: color-mix(in srgb, var(--background) 95%, #a8823a);
+  --plan-surface-raised: var(--card);
+  --plan-surface-sunken: color-mix(in srgb, var(--plan-surface) 94%, #8a7a5a);
+  --plan-fg: var(--foreground);
+  --plan-fg-muted: color-mix(in oklab, var(--muted-foreground) 85%, #1b2432);
+  --plan-border: color-mix(in srgb, var(--plan-fg) 12%, transparent);
+
+  @variant dark {
+    --plan-surface: color-mix(in srgb, var(--background) 90%, #5a82c8);
+    --plan-surface-raised: color-mix(in srgb, var(--plan-surface) 94%, #a8b8d4);
+    --plan-surface-sunken: color-mix(in srgb, var(--plan-surface) 89%, #a8b8d4);
+    --plan-fg: color-mix(in oklab, var(--foreground) 92%, var(--plan-surface));
+    --plan-fg-muted: color-mix(in srgb, var(--muted-foreground) 60%, #b4c0d4);
+    --plan-border: color-mix(in srgb, var(--plan-fg) 10%, transparent);
+  }
+}
+.plan-surface {
+  --background: var(--plan-surface);
+  --card: var(--plan-surface-raised);
+  --card-foreground: var(--plan-fg);
+  --muted: var(--plan-surface-sunken);
+  --foreground: var(--plan-fg);
+  --muted-foreground: var(--plan-fg-muted);
+  --border: var(--plan-border);
+  --code-background: var(--plan-surface-sunken);
+  min-height: 100%;
+  background: var(--background);
+  color: var(--contrast-foreground);
+}
+
+/* MDX vocabulary v2: Badge — the one pill look (inline <Badge>, Card badges,
+   and every block that carries a BadgeSpec). Source text stays natural case. */
+.plan-badge {
+  display: inline-block;
+  /* The label is all caps, which sit high in a line box sized for descenders:
+     trim the box to cap height so equal padding centres the letters (browsers
+     without text-box get a slightly taller, still-balanced pill). */
+  padding: 0.4em 0.75em;
+  border: 1px solid color-mix(in srgb, currentcolor 18%, transparent);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-box: trim-both cap alphabetic;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.plan-badge--neutral {
+  color: var(--plan-tone-neutral);
+  background: var(--plan-tone-neutral-soft);
+}
+.plan-badge--info {
+  color: var(--plan-tone-info);
+  background: var(--plan-tone-info-soft);
+}
+.plan-badge--success {
+  color: var(--plan-tone-success);
+  background: var(--plan-tone-success-soft);
+}
+.plan-badge--warning {
+  color: var(--plan-tone-warning);
+  background: var(--plan-tone-warning-soft);
+}
+.plan-badge--risk {
+  color: var(--plan-tone-risk);
+  background: var(--plan-tone-risk-soft);
+}
+.plan-badge--accent {
+  color: var(--plan-tone-accent);
+  background: var(--plan-tone-accent-soft);
+}
+
+/* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — code and links in a
+   string prop rendered outside .prose-plan (a card heading, a table cell). */
+.plan-inline-md code {
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--muted);
+  padding: 0.05rem 0.3rem;
+  font-size: 0.85em;
+}
+.plan-inline-md a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* MDX vocabulary v2: Card (blocks/card.tsx) — a raised panel whose tone is a
+   3px top edge (a neutral card has none); the eyebrow above the heading (colour
+   inline: the card's tone, or the warning gold on a neutral card); heading left,
+   pills right; meta chips on their own line; the body at card reading size. */
+.plan-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--card);
+  padding: 1rem 1.25rem 1.125rem;
+}
+.plan-card--toned {
+  border-top: 3px solid var(--plan-card-tone);
+}
+.plan-card-eyebrow {
+  margin-bottom: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.plan-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+.plan-card-heading {
+  min-width: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.plan-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  padding-top: 0.125rem;
+}
+.plan-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+.plan-card-meta > span {
+  border-radius: 0.25rem;
+  background: var(--muted);
+  padding: 0.0625rem 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+.plan-card-body {
+  margin-top: 0.625rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.plan-card-body > :first-child {
+  margin-top: 0;
+}
+.plan-card-body > :last-child {
+  margin-bottom: 0;
+}
+/* A plain snippet in a card is a padded inset panel, not a framed block. */
+.plan-card-body [data-plan-block-type="code"].plan-code--bare {
+  margin: 0.625rem 0;
+  border: 0;
+  border-radius: 0.375rem;
+  background: var(--muted);
+}
+
+/* MDX vocabulary v2: Code (blocks/code.tsx) — the surface owns the colour, so a
+   Shiki theme's own page colour never paints over it; a bare snippet (plain
+   text, no filename) has no header and shows its wrap toggle on hover. */
+.plan-mdx [data-plan-block-type="code"] .shiki {
+  background-color: transparent !important;
+}
+.plan-code--bare {
+  position: relative;
+}
+.plan-code--bare > div:not(.plan-code-tools) {
+  padding: 0.625rem 0.875rem;
+  line-height: 1.6;
+}
+/* Plain text has no syntax to colour: read it at text colour, not the theme's dim default. */
+.plan-code--bare .shiki,
+.plan-code--bare .shiki span {
+  color: color-mix(in srgb, var(--foreground) 88%, transparent) !important;
+}
+.plan-code-tools {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  opacity: 0;
+}
+.plan-code--bare:is(:hover, :focus-within) > .plan-code-tools {
+  opacity: 1;
+}
+
+/* MDX vocabulary v2: Columns — `columns={n}` caps the row at n across (the min
+   track never drops below 1/n of the row) while still collapsing on a narrow
+   panel; blocks laid out directly in the grid lose their vertical margin, and
+   a row of cards shares one height. */
+.plan-columns--capped {
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      max(min(240px, 100%), calc((100% - (var(--plan-columns) - 1) * 1rem) / var(--plan-columns))),
+      1fr
+    )
+  );
+}
+.plan-columns > [data-plan-block-type] {
+  margin-block: 0;
+}
+.plan-columns > [data-plan-block-type="card"] {
+  align-self: stretch;
+}
+/* loom: …including a card that is a `<Column>`'s only content. */
+.plan-columns > .plan-column:has(> .plan-column-body > [data-plan-block-type="card"]:only-child) {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+.plan-column-body:has(> [data-plan-block-type="card"]:only-child) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.plan-column-body > [data-plan-block-type="card"]:only-child {
+  flex: 1;
+  margin-block: 0;
+}
+
+/* loom: MDX vocabulary v2: stats — the number strip under the lede (blocks/stats.tsx).
+   Bled `stretch`, so the tiles share the panel's width; the value's tone
+   colour is inline (neutral stays foreground). */
+.plan-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  gap: 0.875rem;
+  margin: 1.25rem 0;
+}
+.plan-stat {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--card);
+  padding: 1rem 1.125rem;
+}
+.plan-stat-value {
+  font-size: 2.125rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.plan-stat-label {
+  margin-top: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.plan-stat-detail {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+/* MDX vocabulary v2: callout (blocks/callout.tsx sets --plan-callout-tone from
+   the shared palette). A plain callout is a faint tint of its tone with a
+   hairline border and the title in the tone. `focus`, the document's one box
+   of emphasis: no icon, a 4px tone bar on a card surface (square where the bar
+   meets the box), the body at reading size. */
+.plan-callout {
+  display: flex;
+  gap: 0.75rem;
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, var(--plan-callout-tone) 11%, transparent);
+  padding: 0.875rem 1.125rem;
+}
+.plan-callout-icon {
+  margin-top: 0.0625rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  color: var(--plan-callout-tone);
+}
+.plan-callout .plan-callout-title {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--plan-callout-tone);
+}
+.plan-callout .plan-callout-body {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.plan-callout--focus {
+  margin: 1.5rem 0;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--plan-callout-tone);
+  border-radius: 0 0.625rem 0.625rem 0;
+  background: var(--card);
+  padding: 1.125rem 1.375rem;
+}
+.plan-callout--focus .plan-callout-title {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--plan-callout-tone);
+}
+.plan-callout--focus .plan-callout-body {
+  margin-top: 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--foreground);
+}
+/* A line of nothing but <Badge>s is unwrapped by MDX into bare spans with the
+   spaces between them dropped; space the pills of such a row apart. Badges
+   inside a sentence (a <p>/<li> parent) keep their authored spaces. */
+:is(.prose-plan, .plan-mdx) > .plan-badge {
+  margin: 0.125rem 0.375rem 0.125rem 0;
+}
+
+/* MDX vocabulary v2: kicker — the frontmatter `kicker:` line above the title
+   (kicker.ts). The title keeps its position under it. */
+.plan-mdx > p.plan-kicker {
+  margin: 0 0 0.625rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--plan-tone-warning);
+}
+.plan-mdx > .plan-kicker + h1 {
+  margin-top: 0;
+}
+
+/* loom: MDX vocabulary v2: table — a GFM table in prose shares two of the
+   <Table> block's defaults: it is stamped `hug` at the top level (so it takes
+   its content's width, not the measure's 100%), and its header row gets the
+   block's muted fill. Tones and badges stay on the block. */
+.plan-mdx > table[data-plan-bleed] {
+  width: max-content;
+}
+.plan-mdx thead th:not([data-plan-block-type] *),
+.prose-plan thead th:not(.prose-plan [data-plan-block-type] *) {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+/* loom: MDX vocabulary v2: steps — the rail (blocks/steps.tsx). The rail is one
+   grid; each <Step> is `display: contents`, so the `at` column lines up down
+   the whole rail. The aside track appears only when some step has an aside;
+   when no step has an `at`, the track collapses and the marker carries the
+   step number. Below ~36rem of panel the tracks stack. No animation. */
+.plan-steps {
+  container-type: inline-size;
+}
+.plan-steps-rail {
+  --plan-steps-pad: 1.75rem;
+  --plan-steps-marker: 0.75rem;
+  --plan-steps-at: minmax(5.5rem, max-content);
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--plan-steps-at) minmax(0, 1fr) var(--plan-steps-aside,);
+  column-gap: 1.125rem;
+  padding-left: var(--plan-steps-pad);
+  counter-reset: plan-step;
+}
+.plan-steps-rail:has(> .plan-step > .plan-step-aside) {
+  --plan-steps-aside: minmax(0, 15rem);
+}
+.plan-steps-rail:not(:has(> .plan-step > .plan-step-at:not(:empty))) {
+  --plan-steps-pad: 1.875rem;
+  --plan-steps-marker: 1.375rem;
+  --plan-steps-at: 0;
+}
+.plan-steps-rail::before {
+  content: "";
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.5rem;
+  left: calc(var(--plan-steps-marker) / 2 - 1px);
+  width: 2px;
+  background: var(--border);
+}
+.plan-step {
+  display: contents;
+}
+.plan-step-at,
+.plan-step-body,
+.plan-step-aside {
+  min-width: 0;
+  padding-bottom: 1.25rem;
+}
+.plan-step:last-child > * {
+  padding-bottom: 0;
+}
+.plan-step-at {
+  grid-column: 1;
+  position: relative;
+  padding-top: 0.1875rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  counter-increment: plan-step;
+}
+.plan-step-at::before {
+  content: "";
+  position: absolute;
+  top: calc(0.75rem - var(--plan-steps-marker) / 2);
+  left: calc(-1 * var(--plan-steps-pad));
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: var(--plan-steps-marker);
+  height: var(--plan-steps-marker);
+  border: 2px solid var(--plan-step-tone);
+  border-radius: 999px;
+  background: var(--background);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--plan-step-tone);
+}
+.plan-steps-rail:not(:has(> .plan-step > .plan-step-at:not(:empty))) .plan-step-at::before {
+  content: counter(plan-step);
+}
+.plan-step--filled .plan-step-at::before {
+  background: var(--plan-step-tone);
+  color: var(--background);
+}
+.plan-step--dashed .plan-step-at::before {
+  border-style: dashed;
+}
+.plan-step-body {
+  grid-column: 2;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+.plan-step-title {
+  display: block;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.plan-step-body > .plan-step-title + * {
+  margin-top: 0.125rem;
+}
+.plan-step-aside {
+  grid-column: 3;
+  padding-top: 0.125rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.plan-step-aside > .plan-badge {
+  margin-bottom: 0.25rem;
+}
+@container (max-width: 36rem) {
+  .plan-steps-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plan-step-at,
+  .plan-step-body,
+  .plan-step-aside {
+    grid-column: 1;
+  }
+  .plan-step-at,
+  .plan-step-body:has(+ .plan-step-aside) {
+    padding-bottom: 0.25rem;
+  }
+}
+
+/* loom: MDX vocabulary v2: mermaid — the legend row under a diagram
+   (blocks/mermaid.tsx); each swatch is coloured inline from its tone, drawn
+   like a toned node (soft fill, tone border). */
+.plan-mermaid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.375rem 1.125rem;
+  margin: 0.625rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.plan-mermaid-legend > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.plan-mermaid-swatch {
+  width: 0.875rem;
+  height: 0.625rem;
+  border: 1.5px solid;
+  border-radius: 0.1875rem;
+  flex-shrink: 0;
 }
 
 /* Prompt-cache fuel ring (loom/CacheFuelRing.tsx): the one urgent hue,

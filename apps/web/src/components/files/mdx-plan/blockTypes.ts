@@ -60,6 +60,9 @@ export interface BlockMdxConfig<TData> {
    * field. Set this to forward `children` to `Read` when there is no
    * `childrenField` prose body. */
   passChildren?: boolean;
+  /** An inline (text) element such as `<Badge>`: written inside a sentence, its
+   * children are its label, not nested blocks. Documentation only. */
+  inline?: boolean;
 }
 
 /** Props passed to a block's read-only renderer. */

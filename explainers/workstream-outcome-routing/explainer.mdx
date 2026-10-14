@@ -1,0 +1,535 @@
+---
+kicker: "Explainer · workstream control plane · October 2026"
+reader:
+  who: the owner of loom, who orchestrates workstreams daily and wants the routing rules in his head so a control-plane notice never surprises him again
+  knows: the work model (goals, task tree, workstream, roles), that children submit reports and parents are woken; has not read the dispatcher code
+  after_first_screen: can say the four things that can happen to a submitted outcome — complete, route inside the gate, yield to the parent, hold for a human — and which one line of the decider picks each
+---
+
+# What happens to a child's submitted outcome
+
+When a child calls `mcp__t3-code__workstream_submit`, its report is written to disk and **one pure function decides, from the outcome string and the gate state, which of four roads the child takes** — the control plane then drives the consequences on its next pass. The four roads: **complete** (`done`, or a verdict that resolves a gate — the child is done and its dependents start), **route inside the review gate** (a reviewer's `needs_rework`, or anything a coder submits mid-round — the counterpart is resumed and you hear nothing), **yield** (an outcome that matches no route, an exhausted round cap, or a child that went quiet — the child is flagged `awaiting_orchestrator` and you get a steered card with its report), and **hold for a human** (`needs_human` — the child is flagged `needs_guidance` and you get a pause notice).
+
+The sentence to carry: **only `done` and a resolving verdict finish a child; every other outcome leaves it unfinished, and the control plane tells you — a steered card for a yield or a hold, silence while a gate loops, and an FYI digest line only after something actually completed.**
+
+<Stats
+  items={[
+    {
+      value: "4",
+      label: "roads out of a submit",
+      tone: "info",
+      detail: "complete · route in gate · yield · hold for a human",
+    },
+    {
+      value: "2",
+      label: "rework rounds by default",
+      tone: "neutral",
+      detail: "`gate.maxRounds`; the third `needs_rework` yields the reviewer to you",
+    },
+    {
+      value: "10 min",
+      label: "quiet grace before a synthesised yield",
+      tone: "warning",
+      detail: "`quiescenceGraceMs`; never, by default, for a turn a human started",
+    },
+    {
+      value: "60 s",
+      label: "control-plane tick",
+      tone: "neutral",
+      detail: "plus a pass on every outcome, route and flag event",
+    },
+  ]}
+/>
+
+<Callout tone="warning" title="The three surprises this document removes" focus>
+  **A reviewer's plain `done` is not a verdict.** It completes the reviewer alone, dissolves the
+  gate, and can leave a reworked coder stranded at no outcome with no flag and no wake (§2.3, §4).
+  **A coder's `done` releases its dependents before the review** — the gate does not delay that;
+  wire downstream work on the reviewer. **During a rework round you hear nothing** — the rework and
+  re-verify messages go to the two gate parties, never to you; the first word you get is the
+  resolution digest line or a yield.
+</Callout>
+
+## 1. The mental model
+
+<Mermaid
+  caption="The four roads out of a submit and what each does. Which road is taken is decided in a fixed order — the table in §2.1 is that order; the first rule that matches wins."
+  legend={[
+    { tone: "success", label: "child finished; an FYI digest line later" },
+    { tone: "warning", label: "child unfinished; a steered card wakes you now" },
+  ]}
+  source={
+    'flowchart LR\n  S["submit<br/>report + outcome"]\n  C["complete<br/>done · clean · fixed_inline"]:::tone-success\n  G["route inside the gate<br/>needs_rework · mid-round"]\n  Y["yield<br/>unmatched · cap · quiet"]:::tone-warning\n  H["hold for a human<br/>needs_human"]:::tone-warning\n  C2["outcome done<br/>dependents released"]:::tone-success\n  G2["counterpart resumed<br/>you hear nothing"]\n  Y2["awaiting_orchestrator<br/>steered card to you"]:::tone-warning\n  H2["needs_guidance<br/>pause notice to you"]:::tone-warning\n  S --> C --> C2\n  S --> G --> G2\n  S --> Y --> Y2\n  S --> H --> H2\n'
+  }
+/>
+
+The decider is the function `routeWorkSubmit` in `packages/shared/src/workstreamGraph.ts`. Four pieces carry the weight:
+
+<Columns>
+  <Card heading="The decider" eyebrow="PIECE 1" badge="pure" tone="info" meta={["routeWorkSubmit", "workstreamGraph.ts"]}>
+    One function, no I/O: the child's gate state plus the outcome string in, one of six decisions out — `terminal`, `resolve`, `loop`, `cap-breach`, `yield`, `attention`. The submit tool runs it once to refuse early and name the report file; the orchestrator arm runs it again and emits the events.
+  </Card>
+  <Card heading="The gate" eyebrow="PIECE 2" badge="derived, not stored" tone="neutral" meta={["routes on the reviewer", "pendingRework on the coder"]}>
+    A gate is the pair *reviewer* (the thread spawned with `gate: { rework: coderId }`, which carries two routes) and *coder* (the thread those routes name). `needs_rework` loops; `clean` and `fixed_inline` resolve. Nothing else about it is stored — it exists while the reviewer is unfinished.
+  </Card>
+  <Card heading="The dispatcher pass" eyebrow="PIECE 3" badge="every event + 60 s" tone="neutral" meta={["WorkstreamDispatcher.ts", "rails.ts"]}>
+    An idempotent recompute from durable state. It delivers the gate's rework and re-verify messages, kicks off released children, and composes every wake you receive — each under a deterministic id, so a wake lands exactly once.
+  </Card>
+  <Card heading="The flags" eyebrow="PIECE 4" badge="holds" tone="warning" meta={["awaiting_orchestrator", "needs_guidance", "awaiting_acceptance"]}>
+    An attention flag is a *hold*: the child is paused, not finished. `awaiting_orchestrator` is the yield — you own the next move. The other two pull in a human. A hold clears only when a human writes to the child, its parent prompts it, or its outcome is set.
+  </Card>
+</Columns>
+
+## 2. How it works
+
+### 2.1 The decision, in order
+
+The whole rule set is the table below; the rows are in the order the code tests them. "Who is told" is the wake you, the parent, receive.
+
+<Table
+  density="compact"
+  columns={["You submit", "When", "Decision", "Child's outcome", "Flag raised", "Who is told, how"]}
+  rows={[
+    [
+      "`quiescent` (control plane only)",
+      "the child ended a turn without submitting and stayed quiet past the grace",
+      { badge: { label: "yield", tone: "warning" } },
+      "unchanged (null)",
+      "`awaiting_orchestrator`",
+      "you — steered yield card, marked *synthesised*",
+    ],
+    [
+      "`needs_human`",
+      "always",
+      { badge: { label: "attention", tone: "warning" } },
+      "unchanged (null)",
+      "`needs_guidance`",
+      "you — steered pause notice; the board shows the flag for the human",
+    ],
+    [
+      "`needs_rework` (reviewer)",
+      "rounds used so far are fewer than `maxRounds` and the coder is not cancelled",
+      { badge: { label: "loop", tone: "info" } },
+      "unchanged (null); the coder is **reopened** if it was done",
+      "none",
+      "the **coder** — steered *Review gate: rework requested (round n)*. You hear nothing.",
+    ],
+    [
+      "`needs_rework` (reviewer)",
+      "rounds used equal `maxRounds` and the coder is not cancelled",
+      { badge: { label: "cap-breach", tone: "warning" } },
+      "unchanged (null)",
+      "`awaiting_orchestrator`",
+      "you — steered yield card with **both** parties' latest reports",
+    ],
+    [
+      "`needs_rework` (reviewer)",
+      "the coder is cancelled or missing",
+      { badge: { label: "yield", tone: "warning" } },
+      "unchanged (null)",
+      "`awaiting_orchestrator`",
+      "you — steered yield card",
+    ],
+    {
+      tone: "success",
+      cells: [
+        "`clean` / `fixed_inline` (reviewer)",
+        "always",
+        { badge: { label: "resolve", tone: "success" } },
+        "**done** — and the coder is set done too if it is not already",
+        "none (any flags cleared)",
+        "you — one *Gate resolved* line in the next FYI digest, once both are done",
+      ],
+    },
+    [
+      "anything except `needs_human` (coder)",
+      "the coder holds an open rework round (`pendingRework`) and the reviewer is unfinished",
+      { badge: { label: "loop-back", tone: "info" } },
+      "unchanged (null)",
+      "none",
+      "the **reviewer** — steered *Review gate: re-verify (round n)*. You hear nothing.",
+    ],
+    {
+      tone: "success",
+      cells: [
+        "`done`, or no outcome",
+        "none of the above matched",
+        { badge: { label: "terminal", tone: "success" } },
+        "**done**; dependents released at commit",
+        "none (any flags cleared)",
+        "you — a ☑️ *Completed* line in the next FYI digest",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "any other token (`rework_approach`, `blocked`, a verdict outside a gate…)",
+        "none of the above matched",
+        { badge: { label: "yield", tone: "warning" } },
+        "unchanged (null)",
+        "`awaiting_orchestrator`",
+        "you — steered yield card with the report and a decision menu",
+      ],
+    },
+  ]}
+/>
+
+Two refusals sit in front of the table. A submit on a thread that is already `done` or `cancelled` is refused (except the one case of a coder its parent set done mid-round, whose loop-back to the reviewer is still honoured). And a submit whose decision would be `terminal` or `resolve` is refused while the child holds `awaiting_acceptance` or `needs_guidance` — completing would erase the hold and release the dependents the hold was meant to gate. The refusal text tells the child to submit again with a short non-`done` outcome, which yields with the flag standing. Note that the hold may have been raised by _you_ on the child, not only by the child itself; the refusal applies either way.
+
+The function itself, for the reader who wants the line rather than the row:
+
+<AnnotatedCode
+  filename="packages/shared/src/workstreamGraph.ts"
+  language="ts"
+  code={
+    'export const routeWorkSubmit = (thread, threads, outcome) => {\n  const base = { round: thread.gateRounds, routeTo: null, resolveWith: null };\n  if (outcome === "quiescent") return { ...base, decision: "yield" };\n  if (outcome === "needs_human") return { ...base, decision: "attention" };\n  if (outcome !== "done") {\n    const route = thread.routes.find((entry) => entry.on.includes(outcome));\n    if (route?.kind === "loop" && route.to !== undefined) {\n      const target = threads.find((entry) => entry.id === route.to);\n      if (target === undefined || target.outcome === "cancelled") {\n        return { ...base, decision: "yield" };\n      }\n      return thread.gateRounds < (route.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS)\n        ? { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo: route.to }\n        : { ...base, decision: "cap-breach" };\n    }\n    if (route?.kind === "resolve") {\n      const loopTo = gateLoopTargetOf(thread);\n      const counterpart = loopTo === null ? undefined : threads.find((entry) => entry.id === loopTo);\n      return {\n        ...base,\n        decision: "resolve",\n        resolveWith: counterpart !== undefined && !isTerminal(counterpart.outcome) ? counterpart.id : null,\n      };\n    }\n  }\n  if (thread.pendingRework) {\n    const source = gateSourceFor(thread.id, threads);\n    if (source !== null) {\n      return { ...base, decision: "loop", round: source.gateRounds, routeTo: source.id };\n    }\n  }\n  return { ...base, decision: outcome === "done" ? "terminal" : "yield" };\n};\n'
+  }
+  annotations={[
+    {
+      lines: "3",
+      label: "quiet first",
+      note: "A synthesised submit yields before anything else — a coder that goes quiet mid-round is parked, never handed to its reviewer as a round report.",
+    },
+    {
+      lines: "5",
+      label: "done skips routes",
+      note: "`done` never matches a route. A reviewer submitting `done` falls through to line 32 and completes alone — the first surprise.",
+    },
+    {
+      lines: "12-14",
+      label: "the cap",
+      note: "`gateRounds` counts loops already taken. With the default 2, the first two `needs_rework` loop; the third breaches.",
+    },
+    {
+      lines: "26-31",
+      label: "the interception",
+      note: "A coder with an open round cannot complete: whatever it submits (except `needs_human`) routes back to the reviewer. Only while the reviewer is unfinished — `gateSourceFor` requires a non-terminal source.",
+    },
+    {
+      lines: "32",
+      label: "escalation is the default",
+      note: "Nothing but `done` can silently become done. Any unknown token yields.",
+    },
+  ]}
+/>
+
+### 2.2 Plain completion — `done` — and how you hear about it
+
+**Input:** a child outside any gate submits `done` (or omits the outcome). **What happens, all in one transaction:** the report is written to `<stateDir>/workstream-reports/<threadId>.md` (`~/.t3/userdata/workstream-reports/` on the live install), the child's outcome becomes `done`, any attention flag it held is cleared, and every sibling whose `blockedBy` names it is released — the next pass kicks those off. The child's tool result reads:
+
+<Code
+  language="text"
+  wrap
+  code={
+    "Work submitted: report recorded, outcome done (dependents released).\nReport: /home/carl/.t3/userdata/workstream-reports/c4a9e0b2-researcher.md\n"
+  }
+/>
+
+**Output to you:** nothing immediate. A completion is an _FYI item_, withheld and delivered as one digest per parent — as its own turn only when you are idle (`start_if_idle`), and only once your workstream is quiet (no child running or briefed-and-ready) or the oldest withheld item is two minutes old. If a steered wake (a yield, a hold, a brief-needed notice) goes to you first, the withheld items ride on it under _Also, FYI since you last heard_. The line you see:
+
+<Code
+  language="markdown"
+  wrap
+  code={
+    "[T3 Workstream control plane — automated notice, not from the human]\n\nFYI digest — thread updates since you last heard. Nothing below is blocked on you.\n\n### ☑️ researcher `c4a9e0b2` — done\n_2026-10-13 10:02Z_ · released: coder `e71b0c55`\n\nReport reference: `/home/carl/.t3/userdata/workstream-reports/c4a9e0b2-researcher.md` (read the full report on demand)\n\nThe routing rules are in `explainers/workstream-outcome-routing/explainer.mdx`; three code-vs-prose discrepancies …\n\n_[excerpt truncated — read the full report via the reference above]_\n\nNo first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look.\n"
+  }
+/>
+
+The excerpt is the first 400 characters of the report; the full report is the file. The ☑️ marks an _unreviewed_ completion — the closing line asks you for the usual first look, as against a ✅ gate resolution, which a reviewer already verified.
+
+<Callout tone="info" title="Release is immediate; the digest is not">
+  Dependents start on the next pass after the `done` commits — well before the digest tells you. If
+  you want to see a completion before anything downstream moves, the dependency edge is the only
+  brake; the digest is a notification, not a gate.
+</Callout>
+
+### 2.3 The review gate — one worked example, one rework round
+
+The gate is two threads: a **coder** `e71b0c55` and a **reviewer** `a93d4f21` spawned with `gate: { rework: "e71b0c55" }`, which gives the reviewer two routes — `needs_rework` loops to the coder, `clean` / `fixed_inline` resolve — and adds the coder to the reviewer's `blockedBy`. A **downstream** child `5b8e2d07` is blocked on the reviewer. The round cap is the default, 2.
+
+<Steps>
+  <Step
+    at="10:02"
+    title="The coder submits `done`."
+    badge="terminal"
+    aside="Coder: done. Dependents on the coder released now."
+  >
+    Report `e71b0c55.md`. The coder is done; the reviewer's dependency is satisfied, so the next
+    pass kicks it off with its brief and the line *You are inside a review gate: a `gate` names
+    thread e71b0c55 as the work you verify*. You hear nothing: the coder is the target of an
+    unfinished gate, and the digest holds it back until the gate resolves.
+  </Step>
+  <Step
+    at="10:31"
+    title="The reviewer submits `needs_rework`."
+    badge="loop · round 1"
+    aside="Reviewer: not done. Coder: reopened, pendingRework."
+  >
+    `gateRounds` is 0, fewer than 2, so the decision is `loop`, round 1. The reviewer's report is
+    written as `a93d4f21.round-1.md` — each routed round keeps its own file — and the reviewer's
+    tool result says *findings routed to the coder for rework (round 1) — you are NOT done; you will
+    be resumed to re-verify the rework.* The next pass sends the coder one steered message under the
+    id `server:workstream-gate:a93d4f21:1:rework`: it reopens the coder (outcome back to null,
+    `pendingRework` set), quotes the findings, and tells it its next submit routes back to the
+    reviewer. Had anything started on the coder's earlier `done`, a
+    `reopened-with-started-dependents` event is recorded — and shown to nobody (§4). **You hear
+    nothing.**
+  </Step>
+  <Step
+    at="10:48"
+    title="The coder submits — any outcome."
+    badge="loop-back · round 1"
+    aside="Coder: still not done."
+  >
+    The coder holds an open round, so `done`, `fixed`, `findings_unimplementable` — anything except
+    `needs_human` — is intercepted and routed back. Report `e71b0c55.round-1.md`; tool result
+    *routed to the reviewer for re-verification (round 1) — you are NOT done yet.* The pass sends
+    the reviewer `…:1:reverify` — *This is a DELTA review*; the coder's `pendingRework` was already
+    cleared by its submit. **You hear nothing.**
+  </Step>
+  <Step
+    at="11:05"
+    title="The reviewer submits `clean`."
+    badge="resolve"
+    tone="success"
+    aside="Both done. Dependents on the reviewer released."
+  >
+    Decision `resolve`, `resolveWith` the coder (it is unfinished). The reviewer is done; the pass
+    runs `…:1:resolve`, which sets the coder done too and clears its flags. The downstream child
+    `5b8e2d07` starts on the next pass. The reviewer's report is `a93d4f21.md` (no round suffix).
+  </Step>
+  <Step
+    at="11:07"
+    title="You hear about it — once."
+    badge="FYI digest"
+    tone="success"
+    aside="One section for the pair."
+  >
+    The digest waits until *both* parties are done, then reports them as one `gate-resolved` item:
+    *✅ Gate resolved `clean` — reviewer `a93d4f21` + coder `e71b0c55` (1 rework round)*, with the
+    reviewer's verdict excerpt and the coder's round report by reference only — *verified by the
+    gate*. No first look is owed.
+  </Step>
+</Steps>
+
+**The other ending.** Had the reviewer submitted `needs_rework` at 11:05, `gateRounds` 1 is still fewer than 2: round 2 loops the same way. A third `needs_rework`, with `gateRounds` at 2, is a **cap-breach**: the reviewer is flagged `awaiting_orchestrator` and you get a steered yield card headed _A sub-thread yielded to you (review-gate round cap exhausted, 2/2)_ carrying both the reviewer's and the coder's latest round reports, and this instruction:
+
+<Code
+  language="markdown"
+  wrap
+  code={
+    "The decision is yours: resume it with guidance (`mcp__t3-code__workstream_prompt` — your prompt clears `awaiting_orchestrator` when its turn starts), accept its work as-is (`mcp__t3-code__workstream_set_outcome` done, which releases dependents and dissolves the gate), re-plan around it (spawn a replacement and `mcp__t3-code__workstream_set_outcome` cancelled on it), or escalate to the human. Adjudicate the open findings yourself before choosing: they are claims, not verdicts — judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met.\n"
+  }
+/>
+
+<Callout tone="risk" title="The stranded coder">
+  Setting the reviewer `done` — on a cap-breach, or because the reviewer itself submitted plain
+  `done` instead of a verdict — dissolves the gate but **never touches the coder's outcome**. A
+  coder that was reopened for rework and has since routed its round back sits at outcome null with
+  no flag: it is not a gate member any more (the reviewer is finished), not a quiescence candidate
+  (its last turn ended with a submit), and no rail reports it. It shows in
+  `mcp__t3-code__workstream_list` as in progress with no activity, and anything blocked on it never
+  starts. When you finish a reviewer by hand, finish the coder by hand too. Only `clean` /
+  `fixed_inline` finish both.
+</Callout>
+
+### 2.4 Yield — an unmatched token hands the turn to you
+
+**Input:** a researcher child, no gate, submits `outcome: "rework_approach"` with its report. **What happens:** no route matches, so the decision is `yield`; the report is written to `<threadId>.md`, the outcome stays null, and `awaiting_orchestrator` is raised. The child's tool result:
+
+<Code
+  language="text"
+  wrap
+  code={
+    "Work submitted with outcome 'rework_approach': no route matched, so you YIELDED to your parent orchestrator — you are NOT done; it will be woken with your report and decides what happens next.\nReport: /home/carl/.t3/userdata/workstream-reports/c4a9e0b2-researcher.md\n"
+  }
+/>
+
+**Output to you:** on the next pass, one steered message under `server:workstream-yield:c4a9e0b2:<outcome-event-id>` — steered means it is folded into your running turn between model rounds, or starts a turn if you are idle — rendered as a _yield_ card titled _Yielded to you — outcome `rework_approach`_ with the report excerpt and the same decision menu as above (minus the gate clause). The text leads:
+
+<Code
+  language="markdown"
+  wrap
+  code={
+    "[T3 Workstream control plane — automated notice, not from the human]\n\nYour Workstream sub-thread researcher `c4a9e0b2` YIELDED to you: it submitted its work with outcome `rework_approach`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries `awaiting_orchestrator` — it has NOT finished and its dependents stay gated.\n\nReport reference: `/home/carl/.t3/userdata/workstream-reports/c4a9e0b2-researcher.md` (read the full report on demand).\n"
+  }
+/>
+
+The flag stands until you act. Your four moves and what each does to the child:
+
+<Table
+  density="compact"
+  columns={["Your move", "What it does", "Child's outcome after"]}
+  rows={[
+    [
+      "`mcp__t3-code__workstream_prompt`",
+      "starts its next turn with your message; **every** attention flag it holds clears at turn start (not only `awaiting_orchestrator`)",
+      "null — it works on; its next submit routes afresh",
+    ],
+    [
+      "`mcp__t3-code__workstream_set_outcome` done",
+      "accepts the work as handed back; clears flags; releases dependents; no digest line follows — the yield card already told you",
+      "done",
+    ],
+    [
+      "`mcp__t3-code__workstream_set_outcome` cancelled",
+      "abandons it; cascades to its descendants; dependents stay blocked (a cancelled dependency never releases — they are flagged `needs_guidance` as wedged)",
+      "cancelled",
+    ],
+    [
+      "`mcp__t3-code__workstream_request_attention` on it",
+      "adds a human hold on top; the yield stays",
+      "null",
+    ],
+  ]}
+/>
+
+A yielded child that also holds `awaiting_acceptance` (it raised the human hold, then submitted a non-`done` outcome to hand the report back with the hold intact) is called out in the card: _either prompting it or setting it done clears that hold — do so only once you hold the human's approval_. Setting it done anyway succeeds with a warning telling you to reopen and re-raise if you do not hold that approval.
+
+### 2.5 `needs_human` and the flags — holds, not labels
+
+**Input:** a child submits `outcome: "needs_human"`. **What happens:** the report is written, the decision is `attention`, the outcome stays null, and `needs_guidance` is raised (the same flag a human stop from the board raises, and the one `mcp__t3-code__workstream_request_attention` raises for that reason). The child's tool result: _report recorded and needs_guidance raised — a human has been flagged; you are not done._ **Output to you:** a steered _attention_ notice — _Your Workstream sub-thread … is paused and needs attention … It has NOT finished — this is a pause notice, not a result_ — once per raise episode, plus the flag on the board for the human.
+
+The four flags, and how each meets a submit:
+
+<Table
+  density="compact"
+  columns={["Flag", "Who raises it", "Meaning", "What clears it", "Submit while it stands"]}
+  rows={[
+    [
+      { badge: { label: "awaiting_orchestrator", tone: "warning" } },
+      "the server only — every `yield` and `cap-breach`, including the synthesised quiescent submit",
+      "the child handed its turn to you; your move",
+      "your prompt (at turn start), a human's message, or an outcome set",
+      "n/a — the child is idle; a resubmit after your prompt routes afresh",
+    ],
+    [
+      { badge: { label: "needs_guidance", tone: "risk" } },
+      "the child (`request_attention`, or `needs_human`), you on a child, a human stop, the control plane for a wedged or unbriefable child",
+      "cannot proceed without a human",
+      "a human's message or your prompt (turn start), or an outcome set — nothing else; re-pointing a wedged child's dependencies does not clear it",
+      "a completing submit (`done` / resolving verdict) is **refused**; a non-`done` outcome yields with the flag standing",
+    ],
+    [
+      { badge: { label: "awaiting_acceptance", tone: "risk" } },
+      "the child, or you on a child",
+      "a human must accept this output before it may be done",
+      "same as above; your `done` on it clears it **with a warning**",
+      "same refusal; yield with a non-`done` outcome to hand the report back and keep the hold",
+    ],
+    [
+      { badge: { label: "error", tone: "risk" } },
+      "the server only (liveness sweep)",
+      "the child looks dead, stalled or looping",
+      "same as above; a later `done` reaches you as *recovered* rather than a second completion",
+      "a `done` is allowed and supersedes the alarm",
+    ],
+  ]}
+/>
+
+Two consequences worth holding. A child that raises `awaiting_acceptance` and then submits plain `done` in the same turn is refused — the 2026-08-21 audit the code cites found half of such raises erased seconds later by the raiser's own submit — so a child that wants to hand back _and_ keep the hold submits a short token like `blocked`, which yields. And your `mcp__t3-code__workstream_prompt` is a blunt instrument: it clears every flag the child holds when its turn starts, so prompting a `needs_guidance` child is you answering on the human's behalf.
+
+### 2.6 Going quiet — the synthesised report
+
+**Input:** a started child ends its turn (its last run completed) without calling submit. **What happens:** the quiescence rail considers it a candidate when, all at once, it has no outcome, no flag, no running or queued turn, no open question to the human, no unfinished children of its own, any earlier submit of its own predates the end of the previous run (so a child that submitted _from_ this turn is never synthesised over), and it has been quiet — measured from the later of the run's end and its record's last change — for the grace: **10 minutes** for a turn the control plane or you started, and **never, by default**, for a turn a human started (`quiescenceHumanGraceMs` is null unless set). A gate party parked for its counterpart is exempt.
+
+Then the rail writes `<threadId>.quiescent-ordinal_<n>.md` from the child's last assistant message under this header and submits `quiescent` on its behalf (a reserved token no agent may pass):
+
+<Code
+  language="markdown"
+  wrap
+  code={
+    "> **Synthesised report.** This thread ended its turn without calling `mcp__t3-code__workstream_submit`.\n> The control plane wrote this file from its last assistant message after 10 minutes of silence\n> and yielded it to the parent. Nothing below was written as a hand-back.\n"
+  }
+/>
+
+**Output:** the decider's first rule — `quiescent` yields before anything, so a quiet coder mid-round is parked rather than handed to its reviewer as a round. The child gets `awaiting_orchestrator`; you get the steered yield card titled _Went quiet — report synthesised_, heading _A sub-thread went quiet; its report was synthesised_, and `mcp__t3-code__workstream_list` shows it as _went quiet; report synthesised_. Your menu is the same as for any yield. A child you paused with `mcp__t3-code__workstream_stop` and never resumed takes this road too, since the stop raises no flag (provided no message is queued behind the stop — a queued run keeps it out of the candidate set).
+
+### 2.7 How a wake reaches you — tiers, timing and the card
+
+Every control message is built by one function (`controlMessage`) and carries a `controlPayload` the client renders as a collapsed card; the text the model reads and the card's items come from one traversal, so they cannot disagree. Two delivery tiers:
+
+<Columns>
+  <Card
+    heading="Steered"
+    badge="queue_after_active"
+    tone="warning"
+    meta={["yield", "attention", "gate legs", "brief-needed", "deadlock", "notify"]}
+  >
+    Decision-bearing. Folded into your running turn between model rounds, or starts a turn if you
+    are idle. Withheld FYI items piggyback on it. Brief-needed and deadlock notices wait up to 10
+    minutes for a busy parent; yields and holds do not wait.
+  </Card>
+  <Card
+    heading="FYI"
+    badge="start_if_idle"
+    tone="neutral"
+    meta={["digest: terminal", "gate-resolved", "recovered", "slow-tool", "human-message"]}
+  >
+    Deferred while you are busy, with no receipt, so the next pass recomputes and sends it once,
+    coalesced, when you go idle. If FYI items wait on you for 10 minutes while you read busy but
+    show no activity, the control plane flags *you* `needs_guidance` as wedged and tells your
+    parent, if you have one.
+  </Card>
+</Columns>
+
+The pass that composes these runs on every outcome, route, flag and brief-set event, on every run ending, and on a 60-second tick. Each wake has a deterministic command id (`server:workstream-yield:<child>:<event>`, `server:workstream-attention:<child>:<reason>:<episode>`, `server:workstream-digest:<parent>:<hash>`), and a receipt makes it exactly-once: a yield is sent once per submit, an attention notice once per raise episode, a digest once per item set. "Already told" for FYI items is read back from the control messages stored on your thread, never from dispatcher memory, so a restart repeats nothing.
+
+## 3. What this means for you
+
+- **Read the first line of a card for the road.** _Yielded to you_ and _Went quiet_ mean the child is **not done** and owes you a move; _Needs attention_ means it is paused for a human; a _Gate resolved_ or _Completed_ digest line is the only wording that means finished.
+- **Wire downstream work on the reviewer, never the coder alone.** The coder's round-0 `done` releases its dependents before any review; a rework round reopens the coder under them.
+- **Silence during a gate is the gate working.** Rework and re-verify messages go to the two parties; expect your first word at resolution (digest) or on a breach (yield). If you must know mid-round, `mcp__t3-code__workstream_list` shows the round and flags.
+- **When you finish a reviewer by hand, finish the coder by hand too.** A reviewer's `done` — yours or its own — dissolves the gate and leaves a routed-back coder at no outcome with no wake (§2.3). Tell reviewers in their brief that the only finishing outcomes are `clean` and `fixed_inline`.
+- **Prompting clears every flag.** Prompt a `needs_guidance` or `awaiting_acceptance` child only when you hold the human's answer; otherwise leave it and let the branch wait.
+- **Accepting a yield is `set_outcome done`.** That releases dependents and produces no further digest line (the yield card already told you); a yield is never auto-accepted.
+- **A human-started turn never goes quiet by default.** If a human wrote into a child and it stops without submitting, no synthesised yield comes; you have to look.
+
+## 4. Open edges — where the tool prose and the code disagree
+
+Every rule above was checked against the code. Three places where what an agent is told differs from what happens, and one warning that is written but never shown:
+
+<Table
+  density="compact"
+  columns={["Where", "The prose says", "The code does", "Consequence"]}
+  rows={[
+    {
+      tone: "risk",
+      cells: [
+        "the re-verify message to the reviewer (`gateLegs.ts`)",
+        "“`clean` or `fixed_inline` resolves the gate … `needs_rework` loops again … **any other outcome yields you to the orchestrator**”",
+        "`done` (or an omitted outcome) is not “any other outcome”: it falls through to `terminal` and completes the reviewer alone (`routeWorkSubmit` line 5 skips route matching for `done`)",
+        "a reviewer that submits `done` after a rework round finishes itself and strands the coder (§2.3); the reviewer's own tool result reads as a clean completion",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "the yield card's decision menu (`yield.ts`)",
+        "“accept its work as-is (`workstream_set_outcome` done, which releases dependents **and dissolves the gate**)”",
+        "setting the reviewer done dissolves the gate but leaves the coder's outcome untouched; nothing then reports or releases the coder",
+        "a cap-breach accepted this way looks resolved on the card and is not; the parent has to set the coder done separately",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "`workstream_submit` description and the refusal text",
+        "a completing submit is refused “while an attention flag **you raised** stands”; the hold “clears only when a human writes to you or your parent prompts you”",
+        "the refusal keys on any standing raisable flag, including one the parent raised on the child; a hold also clears on any outcome set (`done` / `cancelled`) and on a gate resolve",
+        "harmless in practice — the child is refused in strictly more cases than it is told, and the extra clearing paths are the parent's",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "the rework reopen (`gateLeg` in `Orchestrator.loom.ts`)",
+        "a coder reopened after its dependents started emits a `reopened-with-started-dependents` gate warning naming them",
+        "the event is committed and the projection ignores it (`loomProjection.ts`: “Phase 3b surfaces it”); only a `set_outcome` call echoes gate warnings, and the gate path is not one",
+        "a dependent that built on the coder's round-0 work keeps running through the rework with nobody told; the spawn guideline (wire on the reviewer) is the only guard",
+      ],
+    },
+  ]}
+/>
+
+What this document does not cover: how the liveness sweep decides `error`, `spinning` and `slow-tool` advisories (the advisories join the FYI digest, `error` is a steered notice, and none changes an outcome), and how a notify from another thread is delivered (steered, but outside the submit path).

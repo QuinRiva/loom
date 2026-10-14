@@ -2,7 +2,9 @@ import {
   Component,
   type ErrorInfo,
   type ReactNode,
+  type RefObject,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -107,15 +109,21 @@ export function assignBlockIds(root: HTMLElement): void {
  *   positioned or `w-full`, so max-content reports ~nothing; they take the
  *   budget outright.
  *
+ * `columns` hugs too: a grid of short items stays at the measure, while a grid
+ * of prose-bearing cards takes the panel's width, so four cards sit side by
+ * side instead of three plus an orphan (each track stays a readable column).
+ *
  * Deliberately absent: prose-bearing blocks (`callout`, `card`, `checklist`,
  * `details`, `review-choice`, `question-form`, `api-endpoint`,
- * `visual-questions`) keep the readable measure, and `wireframe`/`design`
+ * `visual-questions`) keep the readable measure (a lone card hugging its
+ * paragraph would take the whole budget as one line), and `wireframe`/`design`
  * artboards are sized by their device preset, which is semantic, not a
  * rendering accident.
  */
 const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
   "annotated-code": "hug",
   code: "hug",
+  columns: "hug",
   "data-model": "hug",
   diff: "hug",
   "field-diff": "hug",
@@ -127,6 +135,9 @@ const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
   canvas: "stretch",
   html: "stretch",
   prototype: "stretch",
+  // vocabulary v2: stats — a strip of short tiles has no useful max-content;
+  // it takes the budget and the tiles share it, so four sit on one line.
+  stats: "stretch",
 };
 
 /** The attribute {@link stampBleedingBlocks} writes; also the annotation
@@ -139,7 +150,14 @@ export const PLAN_BLEED_ATTR = "data-plan-bleed";
  * of its container. Exported for verification. */
 function stampBleedingBlocks(root: HTMLElement): void {
   for (const child of Array.from(root.children)) {
-    const mode = BLEED_MODE_BY_BLOCK_TYPE[child.getAttribute("data-plan-block-type") ?? ""];
+    // vocabulary v2: table — a GFM table in prose hugs like the `<Table>` block.
+    // A prose-language `<Code>` (a quoted message, a markdown excerpt) stays at
+    // the measure: its max-content is one long line and would take the budget.
+    if (child.hasAttribute("data-plan-code-prose")) continue;
+    const mode =
+      child.tagName === "TABLE"
+        ? "hug"
+        : BLEED_MODE_BY_BLOCK_TYPE[child.getAttribute("data-plan-block-type") ?? ""];
     if (mode) child.setAttribute(PLAN_BLEED_ATTR, mode);
   }
 }
@@ -147,6 +165,71 @@ function stampBleedingBlocks(root: HTMLElement): void {
 interface MdxPlanRendererProps {
   source: string;
   className?: string;
+  /** Rendered at the end of the sticky header row the outline lives in (the
+   * annotation layer's "n of m decided" pill), so the two never overlap. */
+  stickyEnd?: ReactNode;
+}
+
+/** A document with at least this many top-level sections gets an outline. */
+const OUTLINE_MIN_SECTIONS = 4;
+
+type OutlineItem = { id: string; text: string };
+
+/** The document's top-level sections, read once per render from the H2s
+ * `headingAnchors` stamped ids on. Headings nested in blocks are not sections. */
+const readOutline = (root: HTMLElement): OutlineItem[] =>
+  Array.from(root.querySelectorAll<HTMLElement>(":scope > h2[id]"), (heading) => ({
+    id: heading.id,
+    text: heading.textContent?.trim() ?? "",
+  }));
+
+/**
+ * The sticky header row above the document: a section outline (one chip per H2,
+ * click to jump) once the document is long enough to need one, plus the host's
+ * `stickyEnd` slot. It sits OUTSIDE `[data-plan-root]` on purpose — inside, it
+ * would take a top-level block id (shifting every persisted `plan-block-N`
+ * anchor after it) and add its text to the text-quote search space. No scroll
+ * listener and no current-section tracking: it is static chrome that sticks.
+ */
+function PlanStickyHeader({
+  outline,
+  rootRef,
+  stickyEnd,
+}: {
+  outline: OutlineItem[];
+  rootRef: RefObject<HTMLDivElement | null>;
+  stickyEnd: ReactNode;
+}) {
+  if (outline.length < OUTLINE_MIN_SECTIONS) {
+    return stickyEnd ? (
+      <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">{stickyEnd}</div>
+    ) : null;
+  }
+  return (
+    <div className="sticky top-0 z-30 flex items-center border-b border-border bg-background pr-2">
+      <nav
+        aria-label="Sections"
+        className="mx-auto flex min-w-0 max-w-4xl flex-1 gap-1 overflow-x-auto px-6 py-1.5"
+      >
+        {outline.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="max-w-64 shrink-0 truncate rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() =>
+              rootRef.current
+                // Slug ids are [a-z0-9-] but may start with a digit, which `#id` rejects.
+                ?.querySelector(`[id="${item.id}"]`)
+                ?.scrollIntoView({ block: "start", behavior: "smooth" })
+            }
+          >
+            {item.text}
+          </button>
+        ))}
+      </nav>
+      {stickyEnd}
+    </div>
+  );
 }
 
 function PlanCompilingNotice() {
@@ -173,13 +256,14 @@ function PlanErrorNotice({ message }: { message: string }) {
   );
 }
 
-export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
+export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendererProps) {
   const [content, setContent] = useState<{
     Component: PlanMdxComponent;
     sections: PlanSections;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(true);
+  const [outline, setOutline] = useState<OutlineItem[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const referenceLinks = useReferenceLinkRules();
   const peekDocument = useMemo(
@@ -216,6 +300,11 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
     stampBleedingBlocks(containerRef.current);
   }, [content]);
 
+  // Before paint, so the outline row never pops in above an already-painted page.
+  useLayoutEffect(() => {
+    if (containerRef.current) setOutline(readOutline(containerRef.current));
+  }, [content]);
+
   if (error !== null) {
     return <PlanErrorNotice message={error} />;
   }
@@ -225,17 +314,20 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
 
   const { Component: MdxContent } = content;
   return (
-    <div
-      ref={containerRef}
-      data-plan-root
-      className={cn("plan-mdx mx-auto max-w-4xl px-6 py-5", className)}
-    >
-      <PlanRenderErrorBoundary key={source} onError={(cause) => setError(cause.message)}>
-        {/* The source + registry a question's "peek" re-renders one section with. */}
-        <PlanPeekContext.Provider value={peekDocument}>
-          <MdxContent components={PLAN_BLOCK_COMPONENTS} />
-        </PlanPeekContext.Provider>
-      </PlanRenderErrorBoundary>
-    </div>
+    <>
+      <PlanStickyHeader outline={outline} rootRef={containerRef} stickyEnd={stickyEnd} />
+      <div
+        ref={containerRef}
+        data-plan-root
+        className={cn("plan-mdx mx-auto max-w-4xl px-6 py-5", className)}
+      >
+        <PlanRenderErrorBoundary key={source} onError={(cause) => setError(cause.message)}>
+          {/* The source + registry a question's "peek" re-renders one section with. */}
+          <PlanPeekContext.Provider value={peekDocument}>
+            <MdxContent components={PLAN_BLOCK_COMPONENTS} />
+          </PlanPeekContext.Provider>
+        </PlanRenderErrorBoundary>
+      </div>
+    </>
   );
 }

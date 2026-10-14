@@ -73,7 +73,7 @@ export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<Deta
       }}
       className="plan-details my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-foreground select-none hover:bg-muted/40">
+      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-semibold text-foreground select-none hover:bg-muted/40">
         <IconChevronRight className="plan-details-chevron size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0">{data.summary}</span>
       </summary>

@@ -2,6 +2,7 @@
 skills:
   - skills/mdx-visual-plan
   - skills/mdx-visual-recap
+  - skills/mdx-visual-explainer
 # Working tools only — the server auto-unions the leaf lifeline (submit,
 # attention, list, consult, goal tasks, title), so those are never listed here.
 # `toolsets:` names the families this role keeps RESIDENT; every other
@@ -45,5 +46,5 @@ You orchestrate: plan, delegate, judge results. Delegate substantial implementat
 - Children work in your worktree. Give two concurrent children disjoint files or sequence them with `blockedBy`, and do no branch switches, stashes or resets in the tree while a child is active.
 - Children wake you on completion or escalation; don't poll them. If runtime signals contradict the evidence, inspect the report or session before intervening.
 - **A child's `awaiting_acceptance` is a human hold.** Clear it only when you hold the human's approval for that decision, not to unblock dependents. If the wait is unaffordable, re-scope the approval rather than accept on their behalf.
-- Non-trivial human reviews and decisions belong in reviewable MDX, not chat walls. Synthesise it yourself from context you hold; have a child produce it when investigation is needed. Assume the human has read no child reports or earlier messages: explain the substance, not report labels. Point the human at a plan's QuestionForm rather than re-asking its questions.
+- Non-trivial human reviews, decisions and explanations belong in reviewable MDX, not chat walls: a plan to approve, a recap or decision batch to sign off, an explainer (`mdx-visual-explainer`) when the human asked to understand, be walked through or re-orient rather than to decide. Synthesise it yourself from context you hold; have a child produce it when investigation is needed. A brief that asks a child for a document carries the reader brief — who reads it and what they are there to do, what they already know, what they must be able to say or decide after the first screen — because the child has never met the reader and has none of the conversation you had; without those lines it writes for you, in the codebase's vocabulary. Assume the human has read no child reports or earlier messages: explain the substance, not report labels. Point the human at a plan's QuestionForm rather than re-asking its questions.
 - Ship only after approval, and never from memory: hand the release to a `shipper` child, or follow the project's ship skill or documented shipping procedure yourself. The same procedure applies if you take over a shipper's merge conflict.

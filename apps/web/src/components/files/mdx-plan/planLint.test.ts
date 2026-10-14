@@ -17,6 +17,17 @@ const warningText = async (source: string) =>
     .filter((f) => f.severity === "warning")
     .map((f) => f.message)
     .join("\n");
+const READER = [
+  "---",
+  "reader:",
+  "  who: a reviewer deciding whether to approve",
+  "  knows: the product, not this change",
+  "  after_first_screen: what changes and why",
+  "---",
+  "",
+].join("\n");
+/** Lint a body that carries a reader brief, so a clean document has no findings. */
+const lintWithReader = (source: string) => lintPlanSource(READER + source);
 
 describe("lintPlanSource", () => {
   it("passes a valid plan with no findings", async () => {
@@ -27,7 +38,15 @@ describe("lintPlanSource", () => {
       "",
       '<Table columns={["a", "b"]} rows={[["1", "2"]]} />',
     ].join("\n");
-    expect(await lintPlanSource(source)).toEqual([]);
+    expect(await lintWithReader(source)).toEqual([]);
+  });
+
+  it("warns (not errors) when frontmatter lacks a complete reader brief", async () => {
+    expect(await warningText("# Plan\n")).toContain("No reader brief");
+    const signed = READER.replace("---\n\n", "manager_sessions:\n  - role: plan\n---\n\n");
+    expect(await lintPlanSource(`${signed}# Plan\n`)).toEqual([]);
+    const partial = await lintPlanSource("---\nreader:\n  who: someone\n---\n\n# Plan\n");
+    expect(partial.map((f) => f.severity)).toEqual(["warning"]);
   });
 
   // loom: question `refs` peek at a plan section by heading slug; an anchor that
@@ -96,7 +115,7 @@ describe("lintPlanSource", () => {
     expect(
       await errors(board('<Annotation targetId="ghost" x={5} y={5}>n</Annotation>')),
     ).toHaveLength(0);
-    expect(await lintPlanSource(board('<Connector from="a1" to="a1" />'))).toEqual([]);
+    expect(await lintWithReader(board('<Connector from="a1" to="a1" />'))).toEqual([]);
   });
 
   it("checks Diagram edge endpoints and duplicate block ids", async () => {
@@ -118,7 +137,7 @@ describe("lintPlanSource", () => {
     );
     expect(await warningText('<Mermaid source="" />')).toContain("empty");
     expect(
-      await lintPlanSource('<Mermaid source={"flowchart LR\\n  A[Hi] --> B[There]"} />'),
+      await lintWithReader('<Mermaid source={"flowchart LR\\n  A[Hi] --> B[There]"} />'),
     ).toEqual([]);
   });
 
@@ -127,7 +146,7 @@ describe("lintPlanSource", () => {
       await errorText('<ReviewChoice itemId="a1" />\n\n<ReviewChoice itemId="a1" />'),
     ).toContain("Duplicate <ReviewChoice");
     expect(
-      await lintPlanSource('<ReviewChoice itemId="a1" />\n\n<ReviewChoice itemId="a2" />'),
+      await lintWithReader('<ReviewChoice itemId="a1" />\n\n<ReviewChoice itemId="a2" />'),
     ).toEqual([]);
   });
 
@@ -136,6 +155,30 @@ describe("lintPlanSource", () => {
     expect(
       await warningText('<TabsBlock>\n  <Callout tone="info">not a tab</Callout>\n</TabsBlock>'),
     ).toContain("phantom");
+  });
+
+  // vocabulary v2: raw lowercase HTML is closed outside a small unstyled allow-list,
+  // and a <Columns> of bare cards is the prescribed shape, not phantom UI.
+  it("rejects disallowed raw HTML and warns when an allowed tag loses its attributes", async () => {
+    const [finding, ...rest] = await errors('# t\n\n<div style="position:fixed">x</div>\n');
+    expect(rest).toEqual([]);
+    expect(finding?.message).toContain("Raw HTML <div>");
+    expect(finding?.line).toBe(3);
+    expect(await errorText('A <iframe src="https://x.test" /> frame.')).toContain("<iframe>");
+    const allowed = await lintWithReader('Press <kbd class="x">Esc</kbd> to <mark>close</mark>.');
+    expect(allowed.map((f) => f.severity)).toEqual(["warning"]);
+    expect(allowed[0]?.message).toContain("<kbd> attributes are stripped");
+  });
+
+  it("accepts a <Columns> of cards and warns only when slots and bare blocks mix", async () => {
+    const card = (n: number) =>
+      `  <Card eyebrow="Rule ${n}" heading="Rule ${n}" badges={["x", { "label": "y", "tone": "risk" }]}>Body.</Card>`;
+    expect(
+      await lintWithReader(`<Columns columns={3}>\n${[1, 2, 3].map(card).join("\n")}\n</Columns>`),
+    ).toEqual([]);
+    expect(
+      await warningText(`<Columns>\n  <Column label="a">x</Column>\n${card(1)}\n</Columns>`),
+    ).toContain("mixes <Column> slots with bare blocks");
   });
 
   it("warns approaching, and errors above, the transport size ceiling", async () => {

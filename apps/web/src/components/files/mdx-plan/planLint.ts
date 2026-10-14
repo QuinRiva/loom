@@ -1,3 +1,6 @@
+import { fromYaml } from "@t3tools/shared/schemaYaml";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMdx from "remark-mdx";
@@ -6,11 +9,14 @@ import { unified } from "unified";
 import { z } from "zod";
 
 import type { PlanQuestion } from "./blocks/questionForm";
+import { rowParts, type TableData } from "./blocks/table";
 import { assignHeadingAnchors } from "./headingAnchors";
 import { attributeValue, type MdxAttrExpression } from "./mdxAttrs";
 import { compilePlanMdx } from "./mdxCompileOptions";
+import { ALLOWED_HTML_TAGS, rawHtmlTagMessage } from "./planBlockTags";
 import { planBlockByTag } from "./registry";
 import { sanitizeWireframeHtml } from "./sanitizeWireframeHtml";
+import { toneSchema } from "./tones";
 
 /**
  * Agent-facing validator for MDX visual plans (`plans/<slug>/plan.mdx`) — checks
@@ -46,6 +52,7 @@ interface Point {
 interface MdastNode {
   type: string;
   name?: string;
+  value?: string;
   children?: MdastNode[];
   attributes?: JsxAttrNode[];
   position?: { start: Point; end?: Point };
@@ -84,6 +91,34 @@ export function planSizeFinding(source: string): PlanLintFinding | null {
   return {
     severity: "warning",
     message: `Plan source is ${mb} MB, approaching the 8 MiB transport ceiling — compile stays multi-second even off the main thread. Consider splitting the document or trimming embedded evidence.`,
+  };
+}
+
+/**
+ * The reader brief `skills/mdx-doc-core/references/document-quality.md` §1 asks
+ * every plan, recap and explainer to declare in frontmatter. Parsed as YAML
+ * because `sign_document` appends `manager_sessions:` to the same block.
+ */
+const hasReaderBrief = Schema.is(
+  Schema.Struct({
+    reader: Schema.Struct({
+      who: Schema.NonEmptyString,
+      knows: Schema.NonEmptyString,
+      after_first_screen: Schema.NonEmptyString,
+    }),
+  }),
+);
+const decodeFrontmatter = Schema.decodeUnknownOption(fromYaml(Schema.Unknown));
+
+// TODO: promote to an error once the exemplar document set lands (brief author's request).
+function readerBriefFinding(tree: MdastNode): PlanLintFinding | null {
+  const yaml = tree.children?.find((node) => node.type === "yaml");
+  if (hasReaderBrief(Option.getOrUndefined(decodeFrontmatter(yaml?.value ?? "")))) return null;
+  return {
+    severity: "warning",
+    ...at(yaml),
+    message:
+      "No reader brief in frontmatter — declare `reader:` with non-empty `who`, `knows` and `after_first_screen` (see skills/mdx-doc-core/references/document-quality.md §1) so the document is written for a named reader.",
   };
 }
 
@@ -186,6 +221,8 @@ function suggestTag(name: string): string | undefined {
 const REQUIRED_PARENT: Record<string, string[]> = {
   Tab: ["TabsBlock"],
   Column: ["Columns"],
+  // vocabulary v2: steps
+  Step: ["Steps"],
   Artboard: ["DesignBoard", "Section"],
   Section: ["DesignBoard"],
   Connector: ["DesignBoard", "Section"],
@@ -195,7 +232,8 @@ const REQUIRED_PARENT: Record<string, string[]> = {
 /** Container tags whose JSX children outside this set render as phantom UI. */
 const EXPECTED_CHILDREN: Record<string, string[]> = {
   TabsBlock: ["Tab"],
-  Columns: ["Column"],
+  // vocabulary v2: steps
+  Steps: ["Step"],
   DesignBoard: ["Artboard", "Section", "Connector", "Annotation"],
   Section: ["Artboard", "Connector", "Annotation"],
 };
@@ -234,6 +272,9 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   // anchor is valid" and "this is the section it opens" cannot disagree.
   const headingSlugs = new Set(Object.keys(assignHeadingAnchors(tree)));
 
+  const readerFinding = readerBriefFinding(tree);
+  if (readerFinding) findings.push(readerFinding);
+
   const authoredIds = new Map<string, Point | undefined>();
   const reviewChoiceIds = new Map<string, Point | undefined>();
   const boardStack: BoardScope[] = [];
@@ -255,6 +296,19 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
     const isJsx = node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement";
     const name = isJsx ? node.name : undefined;
     let pushedBoard = false;
+
+    // vocabulary v2: raw HTML guard — mirrors `remarkUnknownBlockFallback`.
+    if (name && /^[a-z]/.test(name)) {
+      if (!ALLOWED_HTML_TAGS.has(name)) {
+        findings.push({ severity: "error", ...at(node), message: rawHtmlTagMessage(name) });
+      } else if (node.attributes?.length) {
+        findings.push({
+          severity: "warning",
+          ...at(node),
+          message: `<${name}> attributes are stripped — raw HTML renders unstyled. For a pill use <Badge tone>.`,
+        });
+      }
+    }
 
     if (name && /^[A-Z]/.test(name)) {
       const entry = planBlockByTag.get(name);
@@ -377,27 +431,39 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         message: `<${tag}> must be a direct child of ${requiredParents.map((p) => `<${p}>`).join(" or ")}${parentName ? ` (found inside <${parentName}>)` : ""}.`,
       });
     }
-    const expectedChildren = EXPECTED_CHILDREN[tag];
-    if (expectedChildren) {
-      // Inline-authored blocks arrive wrapped in a paragraph as text elements.
-      const jsxChildren = (node.children ?? []).flatMap((child) =>
+    // Block children (capitalised JSX); inline-authored blocks arrive wrapped
+    // in a paragraph as text elements.
+    const blockChildren = (node.children ?? [])
+      .flatMap((child) =>
         child.type === "paragraph"
           ? (child.children ?? []).filter((c) => c.type === "mdxJsxTextElement")
           : [child],
-      );
-      for (const child of jsxChildren) {
-        if (
-          child.type.startsWith("mdxJsx") &&
-          child.name &&
-          /^[A-Z]/.test(child.name) &&
-          !expectedChildren.includes(child.name)
-        ) {
+      )
+      .filter((child) => child.type.startsWith("mdxJsx") && /^[A-Z]/.test(child.name ?? ""));
+    const expectedChildren = EXPECTED_CHILDREN[tag];
+    if (expectedChildren) {
+      for (const child of blockChildren) {
+        if (!expectedChildren.includes(child.name!)) {
           findings.push({
             severity: "warning",
             ...at(child),
             message: `<${child.name}> is not a ${expectedChildren.map((c) => `<${c}>`).join("/")} — direct children of <${tag}> outside that set render as broken phantom UI.`,
           });
         }
+      }
+    }
+
+    // vocabulary v2: Columns — a direct child is a <Column> slot or a bare block
+    // (cards are columns); mixing the two renders a labelled slot beside a bare
+    // block at different heights.
+    if (tag === "Columns") {
+      const slots = blockChildren.filter((child) => child.name === "Column").length;
+      if (slots && slots < blockChildren.length) {
+        findings.push({
+          severity: "warning",
+          ...at(node),
+          message: `<Columns> mixes <Column> slots with bare blocks — they render at different heights. Use <Column> for every side, or none (a row of <Card>s needs no wrappers).`,
+        });
       }
     }
 
@@ -522,18 +588,57 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
       } else {
         mermaidChecks.push({ source: data.source, node });
       }
+      // vocabulary v2: mermaid — a `tone-*` node class or edge colour
+      // (`linkStyle N stroke:tone-risk`) outside the palette (and not the
+      // author's own `classDef`) silently styles nothing.
+      const defined = new Set(
+        [...data.source.matchAll(/^\s*classDef\s+([\w,-]+)/gm)].flatMap((m) => m[1]!.split(",")),
+      );
+      const used = [
+        ...data.source.matchAll(/:::(tone-\w+(?:-\w+)*)/g),
+        ...data.source.matchAll(/^\s*class\s+\S+\s+(tone-\w+(?:-\w+)*)/gm),
+        ...data.source.matchAll(/(?:stroke|fill|color):(tone-\w+(?:-\w+)*)/g),
+      ].map((m) => m[1]!);
+      for (const name of new Set(used)) {
+        if (defined.has(name) || toneSchema.safeParse(name.slice(5)).success) continue;
+        findings.push({
+          severity: "warning",
+          ...at(node),
+          message: `<Mermaid> "${name}" is not a palette tone, so it styles nothing. Tones: ${toneSchema.options.map((tone) => `tone-${tone}`).join(", ")}.`,
+        });
+      }
     }
+    // vocabulary v2: table — rows may be `{ tone, cells }`; cells may be objects.
     if (tag === "Table") {
-      const columns = (data.columns as string[] | undefined) ?? [];
-      const rows = (data.rows as string[][] | undefined) ?? [];
-      const ragged = rows.flatMap((row, index) =>
-        row.length === columns.length ? [] : [index + 1],
+      const { columns, rows, align } = data as TableData;
+      const cellRows = rows.map((row) => rowParts(row).cells);
+      const ragged = cellRows.flatMap((cells, index) =>
+        cells.length === columns.length ? [] : [index + 1],
       );
       if (columns.length && ragged.length) {
         findings.push({
           severity: "warning",
           ...at(node),
           message: `<Table> row${ragged.length > 1 ? "s" : ""} ${ragged.join(", ")} ${ragged.length > 1 ? "do" : "does"} not have ${columns.length} cells to match the columns — the grid renders ragged.`,
+        });
+      }
+      const empty = cellRows.flatMap((cells, row) =>
+        cells.flatMap((cell, col) =>
+          typeof cell === "object" && !cell.md && !cell.badge ? [`${row + 1}:${col + 1}`] : [],
+        ),
+      );
+      if (empty.length) {
+        findings.push({
+          severity: "warning",
+          ...at(node),
+          message: `<Table> cell object${empty.length > 1 ? "s" : ""} at row:column ${empty.join(", ")} ${empty.length > 1 ? "have" : "has"} neither "md" nor "badge" — it renders empty.`,
+        });
+      }
+      if (align && align.length !== columns.length) {
+        findings.push({
+          severity: "warning",
+          ...at(node),
+          message: `<Table> "align" has ${align.length} entr${align.length === 1 ? "y" : "ies"} for ${columns.length} columns — extra entries are ignored and missing ones default to left.`,
         });
       }
     }

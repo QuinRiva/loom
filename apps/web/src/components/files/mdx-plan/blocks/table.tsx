@@ -5,47 +5,91 @@ import { z } from "zod";
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { InlineMarkdown } from "../inlineMarkdown";
+import { badgeSpecSchema, resolveBadge, toneSchema, type Tone } from "../tones";
+import { PlanBadge } from "./badge";
 
 /**
- * The `<Table>` block — a simple grid of header columns + string rows for
- * comparisons, parameters, or structured lists. Schema + MDX round-trip ported
- * verbatim from `@agent-native/core` `table.config.ts` (`columns`/`rows` are
- * JSON attributes; `density` is dropped when "normal").
+ * The `<Table>` block — a grid of header columns + rows for comparisons,
+ * parameters, statuses or structured lists. `columns`/`rows`/`align` are JSON
+ * attributes; `density` is dropped when "normal".
+ *
+ * A cell is inline markdown, or `{ md?, badge?, tone? }` to carry a pill (before
+ * the text; a bare-string badge takes the cell's tone) and/or a tint. A row is a
+ * cell array, or `{ tone?, cells }` to tint the whole row. Filter and sort read
+ * {@link cellText}: the badge label then the markdown source.
  */
 
 const TABLE_DENSITIES = ["compact", "normal", "relaxed"] as const;
 export type TableDensity = (typeof TABLE_DENSITIES)[number];
+const TABLE_ALIGNS = ["left", "center", "right"] as const;
 
-export interface TableData {
-  columns: string[];
-  rows: string[][];
-  density?: TableDensity;
-  filterable?: boolean;
-}
-
+const cellSchema = z.union([
+  z.string(),
+  z.object({
+    md: z.string().optional(),
+    badge: badgeSpecSchema.optional(),
+    tone: toneSchema.optional(),
+  }),
+]);
+const rowSchema = z.union([
+  z.array(cellSchema),
+  z.object({ tone: toneSchema.optional(), cells: z.array(cellSchema) }),
+]);
 const tableSchema = z.object({
   columns: z.array(z.string()),
-  rows: z.array(z.array(z.string())),
+  rows: z.array(rowSchema),
+  align: z.array(z.enum(TABLE_ALIGNS)).optional(),
   density: z.enum(TABLE_DENSITIES).optional(),
   filterable: z.boolean().optional(),
-}) as unknown as z.ZodType<TableData>;
+});
+
+export type TableCell = z.infer<typeof cellSchema>;
+export type TableRow = z.infer<typeof rowSchema>;
+export type TableData = z.infer<typeof tableSchema>;
 
 export const tableMdx: BlockMdxConfig<TableData> = {
   tag: "Table",
   toAttrs: (data) => ({
     columns: data.columns,
     rows: data.rows,
+    align: data.align,
     density: data.density && data.density !== "normal" ? data.density : undefined,
     filterable: data.filterable ? true : undefined,
   }),
   fromAttrs: (attrs) =>
     ({
       columns: attrs.array<string>("columns") ?? [],
-      rows: attrs.array<string[]>("rows") ?? [],
+      rows: attrs.array<TableRow>("rows") ?? [],
+      align: attrs.array<(typeof TABLE_ALIGNS)[number]>("align"),
       density: parseDensity(attrs.string("density")),
       filterable: attrs.bool("filterable"),
     }) as TableData,
 };
+
+/** A row's cells and tint, whichever shape it was authored in. */
+export const rowParts = (row: TableRow): { cells: TableCell[]; tone?: Tone | undefined } =>
+  Array.isArray(row) ? { cells: row } : row;
+
+/** The searchable/sortable text of a cell: badge label, then markdown source. */
+export const cellText = (cell: TableCell): string =>
+  typeof cell === "string"
+    ? cell
+    : [cell.badge && resolveBadge(cell.badge).label, cell.md].filter(Boolean).join(" ");
+
+const softTone = (tone: Tone | undefined) =>
+  tone ? { background: `var(--plan-tone-${tone}-soft)` } : undefined;
+
+function CellContent({ cell }: { cell: TableCell }) {
+  if (typeof cell === "string") return <InlineMarkdown text={cell} />;
+  return (
+    <>
+      {cell.badge && <PlanBadge spec={cell.badge} hostTone={cell.tone ?? "neutral"} />}
+      {cell.badge && cell.md ? " " : null}
+      {cell.md && <InlineMarkdown text={cell.md} />}
+    </>
+  );
+}
 
 function parseDensity(value: string | undefined): TableDensity | undefined {
   return value && TABLE_DENSITIES.includes(value as TableDensity)
@@ -65,8 +109,10 @@ function withKeys<T>(items: T[], keyOf: (item: T) => string): { key: string; ite
   });
 }
 
+const JUSTIFY = { left: "", center: "justify-center", right: "justify-end" } as const;
+
 const CELL_PAD: Record<TableDensity, string> = {
-  compact: "px-2.5 py-1",
+  compact: "px-3 py-1.5",
   normal: "px-3 py-2",
   relaxed: "px-4 py-3",
 };
@@ -97,19 +143,26 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState | null>(null);
 
+  const align = (index: number) => data.align?.[index];
+
   const filtered = useMemo(() => {
-    if (!filterable) return rows;
+    const parts = rows.map(rowParts);
+    if (!filterable) return parts;
     const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) => row.some((cell) => cell.toLowerCase().includes(needle)));
+    if (!needle) return parts;
+    return parts.filter((row) =>
+      row.cells.some((cell) => cellText(cell).toLowerCase().includes(needle)),
+    );
   }, [rows, query, filterable]);
 
   const visibleRows = useMemo(() => {
     if (!filterable || !sort) return filtered;
     const factor = sort.dir === "asc" ? 1 : -1;
-    return [...filtered].sort(
-      (a, b) => factor * compareCells(a[sort.col] ?? "", b[sort.col] ?? ""),
-    );
+    const sortText = (row: (typeof filtered)[number]) => {
+      const cell = row.cells[sort.col];
+      return cell === undefined ? "" : cellText(cell);
+    };
+    return [...filtered].sort((a, b) => factor * compareCells(sortText(a), sortText(b)));
   }, [filtered, sort, filterable]);
 
   // Header-click sort cycles asc → desc → unsorted for the clicked column.
@@ -148,16 +201,16 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
         <table className="w-full border-collapse text-sm">
           {columns.length > 0 && (
             <thead>
-              <tr className="border-b border-border bg-muted/40 text-left">
+              <tr className="border-b border-border bg-muted text-left">
                 {withKeys(columns, (column) => column).map(({ key, item: column }, index) => {
                   const active = sort?.col === index;
                   const headerClass = cn(
-                    "font-semibold uppercase tracking-wide text-2xs text-muted-foreground",
+                    "font-mono font-semibold uppercase tracking-widest text-3xs text-muted-foreground",
                     pad,
                   );
                   if (!filterable) {
                     return (
-                      <th key={key} className={headerClass}>
+                      <th key={key} className={headerClass} style={{ textAlign: align(index) }}>
                         {column}
                       </th>
                     );
@@ -170,6 +223,7 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
                         onClick={() => toggleSort(index)}
                         className={cn(
                           "flex w-full items-center gap-1 text-left uppercase",
+                          JUSTIFY[align(index) ?? "left"],
                           pad,
                           active ? "text-foreground" : "hover:text-foreground",
                         )}
@@ -192,12 +246,27 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
             </thead>
           )}
           <tbody>
-            {withKeys(visibleRows, (row) => row.join("\u241F")).map(
+            {withKeys(visibleRows, (row) => row.cells.map(cellText).join("\u241F")).map(
               ({ key: rowKey, item: row }) => (
-                <tr key={rowKey} className="border-t border-border/60 align-top">
-                  {withKeys(row, (cell) => cell).map(({ key: cellKey, item: cell }) => (
-                    <td key={`${rowKey}\u241F${cellKey}`} className={cn("text-foreground", pad)}>
-                      {cell}
+                <tr
+                  key={rowKey}
+                  className="border-t border-border/60 align-top"
+                  style={softTone(row.tone)}
+                >
+                  {withKeys(row.cells, cellText).map(({ key: cellKey, item: cell }, index) => (
+                    <td
+                      key={`${rowKey}\u241F${cellKey}`}
+                      className={cn(
+                        "text-foreground",
+                        pad,
+                        typeof cell === "object" && cell.badge && "whitespace-nowrap",
+                      )}
+                      style={{
+                        textAlign: align(index),
+                        ...softTone(typeof cell === "object" ? cell.tone : undefined),
+                      }}
+                    >
+                      <CellContent cell={cell} />
                     </td>
                   ))}
                 </tr>
