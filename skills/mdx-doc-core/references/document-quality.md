@@ -54,10 +54,25 @@ Open with what the reader came for, in this order:
 3. **The evidence** — causes, mechanism, per-item detail — in the numbered
    sections that follow.
 
+The paragraph directly under the title renders as the lede — a step up from
+body text — so it holds the answer; a version line, a date or a sources note
+placed there becomes the most prominent text on the page. Those go in the
+`kicker:` frontmatter line above the title, or in a `######` line, which the
+renderer styles as the document's small muted text (provenance, a sources
+footer) rather than as a sixth heading.
+
 When the answer has numbers — a count, a duration, a share — the lede states
 them and a `<Stats>` strip right under it shows them, one tile per number,
 toned by what the number means: the eye takes in four figures in a row faster
-than it finds them in a paragraph. The consequence (item 2) is a
+than it finds them in a paragraph. A tile earns its place when its number is
+part of the answer — what is affected, how long it hurt, what share; a
+constant the reader looks up once (a tick interval, a default limit) reads
+better in the sentence that uses it, and an answer that is a set of cases
+rather than a quantity is shown as the cases (a `<Columns>` of toned
+`<Card>`s), because a strip of incidental numbers takes the first screen's
+best position from the answer. Bold the few words a skimming reader should
+stop on — the case names, the deciding number; a whole bolded clause reads as
+body text again. The consequence (item 2) is a
 `<Callout focus title="What it means now">` directly under the lede or the
 strip, not a bold run-in inside the lede — a run-in is read as part of the
 summary, a titled box is read as the section it is.
@@ -105,7 +120,12 @@ cause`). A long document needs a spine the reader can hold and a question can
   the reader learns the colour once and finds every occurrence by eye. In a
   table, that state is a badge cell and the rows that need finding carry a
   tone — a reader should locate the lost item by colour before reading a word
-  of the table.
+  of the table. When the document is organised around a few classes (the
+  outcomes, the severities), each class keeps one tone in every block it
+  appears in — cards, diagram nodes, table badges, step markers — and two
+  classes share a tone only where the reader should treat them the same: the
+  colour then becomes a key learned once, and a merge that is convenient for
+  the writer costs the reader a distinction they needed.
 - **Emphasis where it earns it.** A toned callout for the one thing that is
   urgent, a card per option, bold on the number that decides: these are how the
   main idea is made obvious in the first viewport, and they belong in a serious
@@ -119,7 +139,9 @@ cause`). A long document needs a spine the reader can hold and a question can
   ("the fan-in deadlock — two threads each waiting for the other to finish"); a thread id or report label is replaced by what it refers to
   ("the reviewer thread", "the earlier research found …") rather than cited.
   This is the rule that already governed `<QuestionForm>` fields, extended to
-  the body, because the body is where the reader meets the label first.
+  the body, because the body is where the reader meets the label first. A
+  numbered-section reference ("the evidence is in §5") is the sanctioned
+  cross-reference: the number is on the page, so it resolves without a lookup.
 
 ## 4. Choose the representation
 
@@ -128,24 +150,36 @@ Match the content to the representation that reads fastest, then consult
 structure beats a sentence; a sentence where it does not; and the block placed
 directly beside the prose it supports, not in a gallery at the end.
 
-| Content                                | Representation                                                                   |
-| -------------------------------------- | -------------------------------------------------------------------------------- |
-| The answer and its numbers             | Lede paragraph with the numbers in bold; a `<Callout>` for the one urgent thing  |
-| Options or causes compared             | `<Table>` for the overview, a `<Card tone badge meta>` per option for the detail |
-| A few fields of a record change        | `<FieldDiff>`                                                                    |
-| Line-oriented source change            | `<Diff>`                                                                         |
-| N similar items each needing a verdict | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table filterable>`         |
-| Bulk evidence / full records           | `<Details>` + `<Json>`/`<Code>` inside, `wrap` for prose-heavy values            |
-| Balanced judgement calls (few)         | bottom `<QuestionForm>` with `recommended`                                       |
-| Typed entities / API ops / change map  | `<DataModel>` / `<Endpoint>` / `<FileTree>` (the map in a `<Details>`)           |
-| Before / after, current / target       | `<Columns>` with labelled columns, each side holding real blocks                 |
-| A load-bearing file                    | `<AnnotatedCode>` with a few margin notes on the lines that change               |
-| A sequence in time or in stages        | `<Steps>`, one `<Step>` per moment, tone on the ones that went wrong             |
-| Genuine 2-D structure                  | `<Diagram>` / `<Mermaid>`, about ten nodes at most                               |
+| Content                                 | Representation                                                                                                                                                                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The answer and its numbers              | Lede paragraph with the numbers in bold; a `<Callout>` for the one urgent thing                                                                                                                                                                                     |
+| Options or causes compared              | `<Table>` for the overview, a `<Card tone badge meta>` per option for the detail: `success` + `RECOMMENDED` on the pick, `neutral` + `REJECTED` / `DEFERRED` on the rest, since a red card makes the reader look for a danger that a rejected option does not carry |
+| Rules tested in order, first match wins | A one-line chain (`a` → X; `b` → Y; …) or a `<Steps>` ladder (`at` = 1…n, `badge` = the result) first, then the full matrix as a `<Table>`: the order is the mechanism, and a matrix states it without showing it                                                   |
+| A few fields of a record change         | `<FieldDiff>`                                                                                                                                                                                                                                                       |
+| Line-oriented source change             | `<Diff>`                                                                                                                                                                                                                                                            |
+| N similar items each needing a verdict  | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table filterable>`                                                                                                                                                                                            |
+| Bulk evidence / full records            | `<Details>` + `<Json>`/`<Code>` inside, `wrap` for prose-heavy values                                                                                                                                                                                               |
+| Balanced judgement calls (few)          | bottom `<QuestionForm>` with `recommended`                                                                                                                                                                                                                          |
+| Typed entities / API ops / change map   | `<DataModel>` / `<Endpoint>` / `<FileTree>` (the map in a `<Details>`)                                                                                                                                                                                              |
+| Before / after, current / target        | `<Columns>` with labelled columns, each side holding real blocks; a table wider than three or four columns is stacked rather than paired, since each side gets half the width even when the row takes the panel's full width                                        |
+| A load-bearing file                     | `<AnnotatedCode>` with a few margin notes on the lines that change                                                                                                                                                                                                  |
+| A sequence in time or in stages         | `<Steps>`, one `<Step>` per moment, tone on the ones that went wrong                                                                                                                                                                                                |
+| Genuine 2-D structure                   | `<Diagram>` / `<Mermaid>`, about ten nodes at most                                                                                                                                                                                                                  |
 
 A table of times is not a timeline: a reader scans a rail, not a column of
 wrapped timestamps. Moments in order — a timeline, a ladder of options, a
 pipeline's stages — are a `<Steps>` rail even when each carries three facts.
+A table row whose cells run past three or four lines wants to be a `<Card>`
+— a badge for the class, a `>` quote of the contested text with its source,
+then the finding — with a one-line-per-row index table kept only when the
+batch is long: long cells in a narrow grid get read column by column, not row
+by row.
+
+When no block carries what the content needs — a device the vocabulary lacks
+— say so in place as one italic line, `*Vocabulary gap — what was wanted, and
+what stands in for it.*`, where the gap occurs: one form lets whoever
+maintains the vocabulary scan a document for them, and the reader learns why
+that passage is weaker than it could be.
 
 Three distinctions that are often got wrong:
 
@@ -205,7 +239,8 @@ the same sentence (§3, gloss). `subtitle` is the context slot: one sentence
 saying what the question turns on. `refs: [{ label, anchor }]` — usually one,
 at most four — chips the section a question depends on open beside it (`label`
 is the heading as written, `anchor` its slug: lowercased, runs of
-non-alphanumerics → `-`, so `## Delivery order` → `delivery-order`). Refs name
+non-alphanumerics → `-`, so `## Delivery order` → `delivery-order` and
+`## 1. The causes` → `1-the-causes`). Refs name
 headings, not blocks, and supplement the wording; a reader who does not open
 the chip still has to be able to answer. An option label states the outcome
 the reader commits to by clicking — "Yes — register the hub first as a
@@ -290,10 +325,16 @@ reserve a live instance for what genuinely needs interaction — annotation,
 real panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
-controls, poor contrast and unreadable diagrams before handing off. Check the
-visual surfaces in dark mode especially (the `--out` page renders dark, as the
-app does): a white mockup panel or low-contrast muted text is a defect —
-rewrite the HTML with `--wf-*` tokens and semantic helper classes. The check
+controls, poor contrast and unreadable diagrams before handing off. The page
+renders dark; the app follows the reader's theme, so a surface that reads
+here and is authored with `--wf-*` tokens and semantic helper classes reads
+in both — a white mockup panel or low-contrast muted text on this page is a
+defect to fix in the source. One block the page cannot show: a `<Mermaid>`
+appears as a `Rendering diagram…` placeholder, since it draws only in-app —
+so the diagram's safety is in its shape (few nodes, short labels, per
+`block-vocabulary.md`) and in the sentence under it saying how to read it,
+and an author who cannot open the app before handoff says so rather than
+hunting for a defect in the page. The check
 also reads the rendered _text_ for defects no static pass can see — literal
 `\uXXXX` escapes and latin-1 mojibake (`â€”`) written into captions and prose
 by a build script or a re-encoded file. Both are errors; fix the source that

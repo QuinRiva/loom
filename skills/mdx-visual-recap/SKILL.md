@@ -65,7 +65,10 @@ the latest message. Separate what _this_ work did from pre-existing dirty state
 and unrelated uncommitted edits; mention those only when they affect the
 review. When scope is genuinely ambiguous, state the assumption in the recap
 ("this covers the branch's diff against `main`, excluding the lockfile churn")
-and ask only if the ambiguity would materially change what you review.
+and ask only if the ambiguity would materially change what you review. Check
+whether the work being recapped is still in place — what has since been
+reverted, moved or made moot by later work is part of the verdict, because a
+recap read weeks later is about today, not the day it shipped.
 
 ## The decision-batch skeleton
 
@@ -117,6 +120,13 @@ Top to bottom (the worked version is in
    The `<FileTree>` change map in a `<Details>`.
 5. **`## 4. Still open`** — risks, follow-ups, and the pointer to a bottom
    `<QuestionForm>` if a direction is genuinely open.
+
+An **incident recap** — what happened, why, what was done about it — has no
+before/after delta for sections 1–3 to hold, so it takes the explainer's
+diagnosis shape instead: the moments in order as a `<Steps>` rail, the cause
+with what isolates it from its neighbours, the fix that shipped, then what is
+still in place today and what is open. The shipped recap exemplar in
+[`exemplar.md`](../mdx-doc-core/references/exemplar.md) is one.
 
 ## Budgets
 

@@ -127,7 +127,11 @@ colour and never set `font-family`.
 Tokens: `--wf-ink` (text), `--wf-muted` (secondary text), `--wf-line`
 (borders/dividers), `--wf-paper` (page background), `--wf-card` (container
 surface), `--wf-accent` / `--wf-accent-fg` / `--wf-accent-soft` (brand action),
-`--wf-warn`, `--wf-ok`, and `--wf-radius`.
+`--wf-warn`, `--wf-ok`, and `--wf-radius`. That is three hues — accent, warn,
+ok — plus muted, so up to three colour states can be told apart in a
+wireframe; a fourth state, or the product's own colour (a brand-coloured
+rail), is drawn with one of the three and named in the caption, or is what
+`<Design>` is for when the real colour is the point.
 
 Never use host/Tailwind theme classes (`bg-white`, `text-zinc-950`,
 `border-zinc-200`, `shadow-xl`, `bg-[#fff]`, …) in wireframe `html`: the
@@ -154,9 +158,12 @@ to the change under review.
 
 ## Lay children out so they never collide
 
-Use flex/grid with `gap`, `min-width:0`, and sensible overflow. Avoid negative
-margins, absolute positioning, or fixed child widths that can collide across
-light/dark or different zoom levels.
+Use flex/grid with `gap`, `min-width:0`, and sensible overflow. Negative
+margins and fixed child widths collide across light/dark and zoom levels. A
+`style` attribute holding `position:absolute`, `fixed` or `sticky` (or a huge
+`z-index`) is removed by the sanitiser in its entirety — every declaration in
+it, not only the offending one — so a rail, stripe or overlay is built as a
+static flex child (a 2 px `div` first in the row) rather than positioned.
 
 ## What our renderer does NOT do
 
