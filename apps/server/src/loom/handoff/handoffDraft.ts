@@ -60,10 +60,11 @@ export const buildDrafterTitle = (explanation: string) => curatedTitle("Handoff"
 /**
  * The drafter kickoff: draft focused brief(s), one `mcp__t3-code__goal_handoff` per independent
  * goal, do not do the work, do not write exhaustive briefs (the receiving agent
- * can consult this frozen fork), end the turn once every handoff is placed.
+ * can consult this frozen fork), end the turn silently once every handoff is
+ * placed — the drafter runs unattended, so any closing text is never read.
  */
 export const buildDrafterKickoffPrompt = (explanation: string) =>
-  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do — it plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs — omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. End your turn once every handoff is placed; you are then archived automatically.`;
+  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do — it plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs — omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. After your last \`mcp__t3-code__goal_handoff\` call, end your turn immediately without further response.`;
 
 const BLOCKING_RUN = new Set(["preparing", "starting", "running", "waiting"]);
 
