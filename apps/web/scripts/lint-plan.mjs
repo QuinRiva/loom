@@ -191,17 +191,25 @@ async function renderFindings(mdxSource) {
 }
 
 /** The rendered document as a standalone page: the app's compiled stylesheet
- * inlined, and the same root wrapper + width variable `MdxPlanRenderer` mounts
- * under, so blocks get the prose measure and the wide-block bleed they have
- * in-app. */
+ * inlined, the same root wrapper `MdxPlanRenderer` mounts under, and the same
+ * `data-plan-bleed` stamps it writes after mount, so blocks get the prose
+ * measure and the wide-block bleed they have in-app. The bleed budget keys off
+ * the window (`100vw`) the way the panel's keys off the panel, so the page
+ * opened in the app's HTML preview lays out at the panel's width. */
 async function writeStandalonePage(html, target) {
   const css = (await server.transformRequest("/src/index.css?direct"))?.code ?? "";
+  const { stampBleedingBlocks } = await server.ssrLoadModule(
+    "/src/components/files/mdx-plan/MdxPlanRenderer.tsx",
+  );
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  stampBleedingBlocks(root);
   // A `file://` src is unloadable in the app's HTML preview (an iframe on the app
   // origin), and the server resolves a preview's subresources by joining onto the
   // page's own directory — no `..` segments. So relative wins wherever the image
   // sits under the output directory, and `file://` stays for anything above it.
   const outDir = NodePath.dirname(target);
-  const body = html.replaceAll(/src="file:\/\/([^"]*)"/g, (match, encoded) => {
+  const body = root.innerHTML.replaceAll(/src="file:\/\/([^"]*)"/g, (match, encoded) => {
     const relative = NodePath.relative(outDir, decodeURI(encoded));
     return relative.startsWith("..") || NodePath.isAbsolute(relative)
       ? match
@@ -215,7 +223,7 @@ async function writeStandalonePage(html, target) {
 <title>${NodePath.basename(planPath)}</title>
 <style>${css}</style>
 </head>
-<body class="bg-background text-foreground" style="--timeline-available-width: 1180px">
+<body class="bg-background text-foreground" style="--timeline-available-width: 100vw">
 <div data-plan-root class="plan-mdx mx-auto max-w-4xl px-6 py-5">${body}</div>
 </body>
 </html>
