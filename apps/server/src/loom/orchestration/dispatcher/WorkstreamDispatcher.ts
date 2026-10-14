@@ -7,8 +7,8 @@
  * 2's re-drive reactor (DL-247).
  *
  * The steps run in `PASS_STEPS` order over one `PassContext`: re-drive and
- * promotion here, the quiescence rail in `quiescenceRail.ts`, the wake rails in
- * `rails.ts`. Every `server:` dispatch goes through `PassContext.dispatch`,
+ * promotion here, the self-snooze rail in `snoozeRail.ts`, the quiescence rail in
+ * `quiescenceRail.ts`, the wake rails in `rails.ts`. Every `server:` dispatch goes through `PassContext.dispatch`,
  * which applies the receipt discipline (`dispatchServerCommand`) and records
  * deferrals and dead episodes. Nothing here is persisted: "already told" is
  * read back from the target's stored control messages (`PassContext.delivered`)
@@ -72,6 +72,7 @@ import type { DigestExtra } from "./digest.ts";
 import { makeGateLegComposer } from "./gateLegs.ts";
 import { queuedSteerPromotion } from "./queuedSteerPromotion.ts";
 import { quiescenceRail } from "./quiescenceRail.ts";
+import { snoozeRail } from "./snoozeRail.ts";
 import {
   attentionRail,
   briefNeededRail,
@@ -339,6 +340,7 @@ const promotion: PassStep = {
 export const PASS_STEPS: ReadonlyArray<PassStep> = [
   reDrive,
   promotion,
+  snoozeRail,
   steerRedelivery,
   quiescenceRail,
   terminalDeltas,

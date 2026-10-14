@@ -24,6 +24,7 @@ import {
 } from "./handlers/goalTasks.ts";
 import { goalUpdate } from "./handlers/goalUpdate.ts";
 import { notifyThread } from "./handlers/notify.ts";
+import { snoozeThread } from "./handlers/snoozeThread.ts";
 import { setThreadTitle } from "./handlers/title.ts";
 import { workstreamList } from "./handlers/list.ts";
 import { workstreamSetOutcome } from "./handlers/outcome.ts";
@@ -49,6 +50,7 @@ const loomHandlers = {
   consult_thread: consultThread,
   notify_thread: notifyThread,
   set_thread_title: setThreadTitle,
+  snooze_thread: snoozeThread,
   thread_fork: threadFork,
   goal_task_list: goalTaskList,
   goal_task_add: goalTaskAdd,

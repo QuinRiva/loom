@@ -1,5 +1,5 @@
 /**
- * The 21 Loom tools served on `/mcp`: input schema, error mode and hints per
+ * The 22 Loom tools served on `/mcp`: input schema, error mode and hints per
  * tool, with the prose (description, snippet, guidelines) read from
  * `prose.ts`. The Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
@@ -314,6 +314,22 @@ const LOOM_TOOL_SPECS = {
     "Set Thread Title",
     Schema.Struct({
       title: described(Schema.String, "The new sidebar title for this thread (non-empty)."),
+    }),
+    "throw",
+    { idempotent: true },
+  ),
+  snooze_thread: spec(
+    "Snooze Thread",
+    Schema.Struct({
+      until: optionalText(
+        "ISO-8601 datetime at which the snooze lapses; must be in the future and at most 30 days ahead. Pass the same value on every re-snooze so the thread's quiet period does not creep.",
+      ),
+      cancel: Schema.optionalKey(
+        described(
+          Schema.Boolean,
+          "true withdraws the snooze requested earlier this turn; until is then ignored.",
+        ),
+      ),
     }),
     "throw",
     { idempotent: true },

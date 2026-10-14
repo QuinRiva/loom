@@ -21,7 +21,7 @@ The prose and the schema are separate files with separate authors.
 - **`apps/server/src/mcp/toolkits/workstream/prose.ts`** holds every text a
   model reads: `LOOM_TOOL_PROSE`, a typed record keyed by the tool's bare MCP
   name with `description`, `promptSnippet` and `promptGuidelines` (one rule per
-  line, or empty). It covers the 21 MCP tools and the one tool Loom's pi
+  line, or empty). It covers the 22 MCP tools and the one tool Loom's pi
   extension registers itself (`mcp__t3-code__ask_user_question`).
 - **`defs.ts`** (same directory) imports that record for its prose fields and
   adds what is mechanical — JSON-schema parameters with their per-field

@@ -273,6 +273,13 @@ export interface LoomGoalTaskInput {
   readonly position: number;
 }
 
+/** A thread's pending `mcp__t3-code__snooze_thread` request: the wake time, and when it was asked for. */
+export interface LoomSnoozeRequest {
+  readonly threadId: ThreadId;
+  readonly snoozedUntil: IsoDateTime;
+  readonly requestedAt: IsoDateTime;
+}
+
 /** A still-undelivered mcp__t3-code__notify_thread message, oldest first. */
 export interface LoomPendingPeerMessage {
   readonly recordId: string;
@@ -366,6 +373,14 @@ export interface LoomStoreV2Shape {
     /** Every plan `stopped`: at boot, when no pi process (and so no warmer) is alive. */
     readonly stopAll: Op<void>;
   };
+  /** `loom_thread_snooze_requests`: at most one deferred self-snooze per thread (the snooze rail applies it). */
+  readonly snoozeRequests: {
+    /** Records the thread's request, replacing any earlier one. */
+    readonly set: (request: LoomSnoozeRequest) => Op<void>;
+    /** Withdraws the thread's request (only the one made at `requestedAt`, when given); true when one was removed. */
+    readonly clear: (threadId: ThreadId, requestedAt?: IsoDateTime) => Op<boolean>;
+    readonly list: Op<ReadonlyArray<LoomSnoozeRequest>>;
+  };
   readonly peerMessages: {
     /** Pending messages (all targets when omitted), oldest first. */
     readonly listPending: (targetThreadId?: ThreadId) => Op<ReadonlyArray<LoomPendingPeerMessage>>;
@@ -389,6 +404,11 @@ const ConsultSummaryRow = Schema.Struct({
 const PeerMessageSummaryRow = Schema.Struct({
   senderThreadId: ThreadId,
   ...LoomThreadPeerMessageSummary.fields,
+});
+const SnoozeRequestRow = Schema.Struct({
+  threadId: ThreadId,
+  snoozedUntil: IsoDateTime,
+  requestedAt: IsoDateTime,
 });
 const PendingPeerMessageRow = Schema.Struct({
   recordId: Schema.String,
@@ -938,6 +958,28 @@ const make = Effect.gen(function* () {
       },
       stopAll: sql`UPDATE loom_thread_cache SET warming = 'stopped'
           WHERE warming IS NOT 'stopped'`.pipe(Effect.asVoid, run("cache.stopAll")),
+    },
+    snoozeRequests: {
+      set: ({ threadId, snoozedUntil, requestedAt }) =>
+        sql`INSERT INTO loom_thread_snooze_requests ${sql.insert({
+          thread_id: threadId,
+          snoozed_until: snoozedUntil,
+          requested_at: requestedAt,
+        })} ON CONFLICT (thread_id) DO UPDATE SET snoozed_until = excluded.snoozed_until,
+            requested_at = excluded.requested_at`.pipe(Effect.asVoid, run("snoozeRequests.set")),
+      clear: (threadId, requestedAt) =>
+        sql<{ readonly threadId: string }>`DELETE FROM loom_thread_snooze_requests
+            WHERE thread_id = ${threadId}
+              AND requested_at = COALESCE(${requestedAt ?? null}, requested_at)
+            RETURNING thread_id AS "threadId"`.pipe(
+          Effect.map((rows) => rows.length > 0),
+          run("snoozeRequests.clear"),
+        ),
+      list: sql`SELECT thread_id AS "threadId", snoozed_until AS "snoozedUntil",
+            requested_at AS "requestedAt" FROM loom_thread_snooze_requests`.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SnoozeRequestRow))),
+        run("snoozeRequests.list"),
+      ),
     },
     peerMessages: {
       listPending: (targetThreadId) =>
