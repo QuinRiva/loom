@@ -5,7 +5,8 @@
 // waves) draws as dashed cross-edges; a gated pair carries its loop edge with a ⟲ rounds/cap badge.
 // Position encodes dispatch order; status is colour only (theme tokens).
 //
-// Gestures: click a node to enter its thread; hover (~300ms) for quick facts
+// Gestures: click a node to enter its thread (a consult edge or badge: the
+// asker's thread at that consult); hover (~300ms) for quick facts
 // and a dependency highlight; middle-click for its timeline; right-click (or
 // Shift+F10 / ContextMenu on a focused node) for actions. No animation loops.
 
@@ -40,6 +41,7 @@ import {
   COLUMN_LABELS,
   COLUMN_ORDER,
   COLUMN_STYLES,
+  type ConversationAnchor,
   formatCompactAge,
   getGateLoopCap,
   formatStepAge,
@@ -102,6 +104,7 @@ export default function WorkstreamGraph({
   rollupOf,
   titleOf,
   onOpenThread,
+  onJump,
   onOpenTimeline,
   onNodeContextMenu,
 }: {
@@ -113,6 +116,8 @@ export default function WorkstreamGraph({
   readonly rollupOf: (threadId: ThreadId) => WorkstreamRollup | null;
   readonly titleOf: (threadId: ThreadId) => string;
   readonly onOpenThread: (threadId: ThreadId) => void;
+  /** Open a thread scrolled to an anchored moment (loom/conversationJump). */
+  readonly onJump: (anchor: ConversationAnchor) => void;
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onNodeContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
 }) {
@@ -328,7 +333,7 @@ export default function WorkstreamGraph({
             <ConsultGraphEdge
               key={edge.key}
               edge={edge}
-              onOpenThread={onOpenThread}
+              onJump={onJump}
               dimmed={
                 hoveredId !== null &&
                 edge.askerId !== hoveredId &&
@@ -368,6 +373,7 @@ export default function WorkstreamGraph({
                 onHoverEnd={cancelHover}
                 onFocusStart={(el) => focusHover(node.thread.id, el)}
                 externalConsult={consultOverlay.externalByAskerId.get(node.thread.id)}
+                onJump={onJump}
               />
             ),
           )}
@@ -553,19 +559,20 @@ function GraphEdge({
 }
 
 // Directed consult cross-edge (dotted): the asker consulted the target's frozen
-// session. Clicking opens the asker; a badge counts repeat consults.
+// session. Clicking opens the asker at its latest consult of the target (any
+// earlier ones are above it); a badge counts repeat consults.
 function ConsultGraphEdge({
   edge,
-  onOpenThread,
+  onJump,
   dimmed,
 }: {
   readonly edge: ConsultEdge;
-  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onJump: (anchor: ConversationAnchor) => void;
   readonly dimmed: boolean;
 }) {
   const midX = (edge.x1 + edge.x2) / 2;
   const badge = edge.badge ?? { x: midX, y: (edge.y1 + edge.y2) / 2 };
-  const open = () => onOpenThread(edge.askerId);
+  const open = () => onJump({ threadId: edge.askerId, at: edge.anchorAtIso, consult: true });
   const d = edge.points
     ? roundedPath(edge.points)
     : `M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`;
@@ -585,7 +592,7 @@ function ConsultGraphEdge({
       aria-label={`Consulted: ${edge.preview}`}
       tabIndex={0}
     >
-      <title>{`Consulted: ${edge.preview}`}</title>
+      <title>{`Consulted: ${edge.preview}\nClick to open the latest consult`}</title>
       <path d={d} fill="none" stroke="transparent" strokeWidth="10" />
       <path
         className={FOCUS_RING_CLASS}
@@ -736,6 +743,7 @@ function GraphNode({
   onHoverEnd,
   onFocusStart,
   externalConsult,
+  onJump,
 }: {
   readonly laid: Extract<LaidNode, { kind: "thread" }>;
   readonly byId: WorkstreamNodeIndex;
@@ -749,6 +757,7 @@ function GraphNode({
   readonly onHoverEnd: () => void;
   readonly onFocusStart: (el: Element) => void;
   readonly externalConsult: ExternalConsult | undefined;
+  readonly onJump: (anchor: ConversationAnchor) => void;
 }) {
   // The laid node is a structural snapshot; resolve the live one for status.
   const node = byId.get(laid.thread.id) ?? laid.thread;
@@ -895,16 +904,6 @@ function GraphNode({
               />
             </CornerBadge>
           ) : null}
-          {externalConsult ? (
-            <CornerBadge
-              cx={consultBadgeX}
-              cy={y + h - 12}
-              stroke={CONSULT_STROKE}
-              title={`Consulted outside this graph: ${externalConsult.targetTitles.join(", ")}`}
-            >
-              {externalConsult.count > 9 ? "9+" : externalConsult.count}
-            </CornerBadge>
-          ) : null}
           {node.column === "in_progress" ? (
             <g
               className="fill-muted-foreground"
@@ -933,6 +932,74 @@ function GraphNode({
           ) : null}
         </g>
       </g>
+      {externalConsult ? (
+        <ExternalConsultBadge
+          consult={externalConsult}
+          cx={consultBadgeX}
+          cy={y + h - 12}
+          opacity={dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1}
+          onOpen={() =>
+            onJump({ threadId: node.id, at: externalConsult.anchorAtIso, consult: true })
+          }
+        />
+      ) : null}
+    </g>
+  );
+}
+
+/**
+ * The consults a card draws no edge for (to the root orchestrator, or outside
+ * the graph). Its own button beside the card's, so a click lands on the latest
+ * of them in the asker's chat rather than opening the thread at its end; the
+ * consult card there links the target, and any earlier consults are above it.
+ */
+function ExternalConsultBadge({
+  consult,
+  cx,
+  cy,
+  opacity,
+  onOpen,
+}: {
+  readonly consult: ExternalConsult;
+  readonly cx: number;
+  readonly cy: number;
+  readonly opacity: number;
+  readonly onOpen: () => void;
+}) {
+  const title = [
+    ...consult.targets.map(
+      (target) =>
+        `${target.orchestrator ? "Consulted the orchestrator" : "Consulted outside this graph"}: ${target.title}${target.count > 1 ? ` (×${target.count})` : ""}`,
+    ),
+    "Click to open the latest consult",
+  ].join("\n");
+  return (
+    <g
+      className="group cursor-pointer outline-none"
+      opacity={opacity}
+      role="button"
+      aria-label={title}
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <circle
+        className={FOCUS_RING_CLASS}
+        cx={cx}
+        cy={cy}
+        fill="none"
+        r="11"
+        stroke="var(--color-ring)"
+        strokeWidth="2"
+      />
+      <CornerBadge cx={cx} cy={cy} stroke={CONSULT_STROKE} title={title}>
+        {consult.count > 9 ? "9+" : consult.count}
+      </CornerBadge>
     </g>
   );
 }

@@ -90,6 +90,7 @@ function GraphFixture() {
           rollupOf={rollupOf}
           titleOf={titleOf}
           onOpenThread={noop}
+          onJump={noop}
           onOpenTimeline={noop}
           onNodeContextMenu={noop}
         />

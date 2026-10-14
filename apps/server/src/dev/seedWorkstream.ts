@@ -97,10 +97,16 @@ const taskId = (n: number) => GoalTaskId.make(`00000000-0000-4000-8000-000000000
 const runGit = (cwd: string, args: ReadonlyArray<string>) =>
   NodeChildProcess.execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
 
+/** A turn whose message carries `[seed-consult:<threadId>]` answers it with a consult card. */
+const SEED_CONSULT = /\[seed-consult:([^\]]+)\]/g;
+const SEED_CONSULT_QUESTION = "Which config keys does the loader own, and which stay with the CLI?";
+const SEED_CONSULT_ANSWER = "The loader owns `paths.*` and `limits.*`; the CLI keeps its flags.";
+
 /**
  * An in-process pi stand-in: every turn appends a line to `seed-notes/<thread>.md`
  * in the run's checkout (so its checkpoint has a real diff), then completes
- * with one assistant message. No provider process exists.
+ * with one assistant message, after a `consult_thread` call per consult marker.
+ * No provider process exists.
  */
 const seedAdapter: ProviderAdapterV2["Service"] = {
   instanceId,
@@ -164,7 +170,37 @@ const seedAdapter: ProviderAdapterV2["Service"] = {
             const providerTurnId = ProviderTurnId.make(
               `provider-turn:seed:${turn.threadId}:${turn.runOrdinal}`,
             );
+            const item = (n: number) => ({
+              id: TurnItemId.make(`turn-item:seed:${turn.threadId}:${turn.runOrdinal}:${n}`),
+              threadId: turn.threadId,
+              runId: turn.runId,
+              nodeId: turn.rootNodeId,
+              providerThreadId: turn.providerThread.id,
+              providerTurnId,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: turn.runOrdinal * 100 + n,
+              status: "completed" as const,
+              title: null,
+              startedAt: at,
+              completedAt: at,
+              updatedAt: at,
+            });
+            const consults = [...turn.message.text.matchAll(SEED_CONSULT)].map(
+              ([, target], index) => ({
+                type: "turn_item.updated" as const,
+                driver,
+                turnItem: {
+                  ...item(10 + index),
+                  type: "dynamic_tool" as const,
+                  toolName: "mcp__t3-code__consult_thread",
+                  input: { threadId: target, question: SEED_CONSULT_QUESTION },
+                  output: SEED_CONSULT_ANSWER,
+                },
+              }),
+            );
             yield* PubSub.publishAll(events, [
+              ...consults,
               // A context-window reading, so the web's context chip has a value (3d-4).
               {
                 type: "provider_thread.updated",
@@ -197,20 +233,7 @@ const seedAdapter: ProviderAdapterV2["Service"] = {
                 type: "turn_item.updated",
                 driver,
                 turnItem: {
-                  id: TurnItemId.make(`turn-item:seed:${turn.threadId}:${turn.runOrdinal}`),
-                  threadId: turn.threadId,
-                  runId: turn.runId,
-                  nodeId: turn.rootNodeId,
-                  providerThreadId: turn.providerThread.id,
-                  providerTurnId,
-                  nativeItemRef: null,
-                  parentItemId: null,
-                  ordinal: turn.runOrdinal * 100 + 1,
-                  status: "completed",
-                  title: null,
-                  startedAt: at,
-                  completedAt: at,
-                  updatedAt: at,
+                  ...item(50),
                   type: "assistant_message",
                   messageId: MessageId.make(`message:seed:${turn.threadId}:${turn.runOrdinal}`),
                   text: `Seed turn ${turn.runOrdinal}: noted in \`seed-notes/${turn.threadId}.md\`.`,
@@ -409,6 +432,32 @@ const seedProgram = Effect.gen(function* () {
       ...extra,
     });
 
+  /** A turn on `asker` consulting each target (its consult cards), the records the
+   * graph reads, then later turns so the consult sits above the first screen. */
+  const consultTurn = (asker: ThreadId, targets: ReadonlyArray<readonly [ThreadId, string]>) =>
+    Effect.gen(function* () {
+      yield* message(
+        asker,
+        `seed:consult:${asker}`,
+        `${targets.map(([id]) => `[seed-consult:${id}]`).join(" ")} Check the config contract.`,
+      );
+      for (const [targetThreadId, targetTitle] of targets)
+        yield* dispatch({
+          type: "thread.consult.record",
+          commandId: CommandId.make(`seed:consult-record:${asker}:${targetThreadId}`),
+          threadId: asker,
+          createdAt: iso(),
+          targetThreadId,
+          targetTitle,
+          question: SEED_CONSULT_QUESTION,
+          answer: SEED_CONSULT_ANSWER,
+          resolved: true,
+          durationMs: 42_000,
+        });
+      for (let step = 1; step <= 6; step += 1)
+        yield* message(asker, `seed:after-consult:${asker}:${step}`, `Carry on (step ${step}).`);
+    });
+
   const reDrive = runReDrivePass(seedGateLeg, dispatchServerCommand).pipe(
     Effect.mapError((cause) => new Error(`re-drive pass failed: ${String(cause)}`)),
   );
@@ -460,6 +509,11 @@ const seedProgram = Effect.gen(function* () {
     anchorTaskId: taskId(4),
   });
   yield* kickoff(SEED.coderDone);
+  // Consults the root orchestrator (bridges only) and a thread outside this graph.
+  yield* consultTurn(SEED.coderDone, [
+    [SEED.root, "Deliver the workstream fixture"],
+    [SEED.needsGuidanceRoot, "Plan the migration (needs guidance)"],
+  ]);
   yield* submit(
     SEED.coderDone,
     "done",
@@ -520,6 +574,7 @@ const seedProgram = Effect.gen(function* () {
     spawnGeneration: "seed-wave-survey",
   });
   yield* kickoff(SEED.quiescent);
+  yield* consultTurn(SEED.quiescent, [[SEED.coderDone, "Add config loader"]]); // an in-graph edge
   const quietRun = (yield* settle(SEED.quiescent)).at(-1)!;
   yield* dispatch({
     type: "thread.work.submit",

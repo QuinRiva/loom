@@ -558,10 +558,18 @@ export interface ConsultEdge {
   y2: number;
 }
 
-/** Aggregate of an asker's consults to targets NOT present in this graph. */
+/** An asker's consults that draw no edge: to the root
+ * orchestrator (drawn only as bridges, so no card to point at) or to a thread
+ * outside this graph. */
 export interface ExternalConsult {
   readonly count: number;
-  readonly targetTitles: ReadonlyArray<string>;
+  readonly targets: ReadonlyArray<{
+    readonly title: string;
+    readonly count: number;
+    readonly orchestrator: boolean;
+  }>;
+  /** Latest of these consults — the anchor for a click-through into the asker's chat. */
+  readonly anchorAtIso: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -813,8 +821,8 @@ function routeInversion(
 /**
  * Consults are global — a target may live outside this workstream's graph. For
  * in-graph targets draw a directed edge (entering the target's near side); for
- * out-of-tree targets return a per-asker annotation instead of inventing a
- * phantom node.
+ * the root orchestrator (bridges only) and out-of-tree targets return a
+ * per-asker annotation instead of inventing a phantom node.
  */
 export function deriveConsultOverlay(
   nodes: ReadonlyArray<LaidNode>,
@@ -825,6 +833,12 @@ export function deriveConsultOverlay(
   for (const node of nodes) {
     if (node.kind === "thread") centerById.set(node.thread.id, node);
   }
+  // The root orchestrator has bridges but no card of its own.
+  const bridgeOnlyIds = new Set(
+    nodes.flatMap((node) =>
+      node.kind === "bridge" && !centerById.has(node.orchestratorId) ? [node.orchestratorId] : [],
+    ),
+  );
   const edges: ConsultEdge[] = [];
   const externalByAskerId = new Map<ThreadId, ExternalConsult>();
   // ONE post-clearance lane registry for every back-edge on the graph. Seed it
@@ -926,9 +940,18 @@ export function deriveConsultOverlay(
         }
       } else {
         const prior = externalByAskerId.get(asker.id);
+        const target = {
+          title: consult.targetTitle,
+          count: consult.count,
+          orchestrator: bridgeOnlyIds.has(consult.targetThreadId),
+        };
         externalByAskerId.set(asker.id, {
           count: (prior?.count ?? 0) + consult.count,
-          targetTitles: [...(prior?.targetTitles ?? []), consult.targetTitle],
+          targets: [...(prior?.targets ?? []), target],
+          anchorAtIso:
+            prior && prior.anchorAtIso > consult.lastConsultAt
+              ? prior.anchorAtIso
+              : consult.lastConsultAt,
         });
       }
     }
