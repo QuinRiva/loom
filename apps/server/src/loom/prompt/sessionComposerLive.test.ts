@@ -378,14 +378,14 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect(
-    "a retro reviewer composes its own identity with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
+    "a retro reviewer (a fresh root) composes with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
     () =>
       withComposer(0, (composer) =>
         Effect.gen(function* () {
           const { threadId: source, projectId } = yield* seedRoot("drafted", tempCheckout());
           const { threadId: unlaunched } = yield* seedRoot("upstream-only", tempCheckout());
           const createdAt = DateTime.formatIso(yield* DateTime.now);
-          const drafter = (id: string, role: string, from: ThreadId) =>
+          const drafter = (id: string, role: string, from: ThreadId | null) =>
             Effect.as(
               dispatch({
                 type: "thread.spawn",
@@ -405,13 +405,13 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
                 role,
                 purpose: null,
                 goalId: null,
-                forkFromThreadId: from,
+                ...(from === null ? {} : { forkFromThreadId: from }),
               }),
               ThreadId.make(id),
             );
           const sourceFields = yield* composer.compose(source);
 
-          const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, source);
+          const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, null);
           const reviewed = (yield* composer.compose(reviewer)).appendSystemPrompt;
           assert.isTrue(
             reviewed.startsWith(

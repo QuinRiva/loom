@@ -2,8 +2,8 @@
  * The emergent goal (P3-16) on the real orchestrator with a stub generator: a
  * goal-less root gets `goal:emergent:<threadId>` (published, attached under
  * `server:loom:emergent-goal:<threadId>`) once; run 1 needs a confident answer,
- * a forced derivation (run 2, or a goal tool) takes the best guess; a child never derives one;
- * a goal set while the generation runs is never overwritten.
+ * a forced derivation (run 2, or a goal tool) takes the best guess; a child or a `/retro`
+ * reviewer never derives one; a goal set while the generation runs is never overwritten.
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
@@ -15,6 +15,7 @@ import * as PubSub from "effect/PubSub";
 
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
@@ -104,6 +105,14 @@ it.layer(TestLayer)("Loom emergent goal", (it) => {
       yield* deriveEmergentGoal({ threadId: child, force: true });
       assert.lengthOf(prompts, 2);
       assert.isNull(yield* store.goals.get(emergentGoalId(child)));
+
+      // A `/retro` reviewer root is goal-less by design, forced or not.
+      const reviewer = ThreadId.make("emergent-retro");
+      yield* spawnChild({ parentThreadId: null, threadId: reviewer, role: RETRO_REVIEWER_ROLE });
+      yield* talk(reviewer);
+      yield* deriveEmergentGoal({ threadId: reviewer, force: true });
+      assert.lengthOf(prompts, 2);
+      assert.isNull((yield* store.getWorkstream(reviewer))!.goalId);
     }).pipe(Effect.scoped),
   );
 

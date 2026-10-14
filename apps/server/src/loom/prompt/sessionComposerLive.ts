@@ -10,11 +10,10 @@
  * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
  * that first launch only: the fork's next compose is its own (DL-740, V1's
  * fork-once replay).
- * Two drafter exceptions (DL-450): a `retro-reviewer` diverges in role from the thread it reviews, so
- * it composes its own identity with its server-owned overlay (V1's
- * `forkIdentity: "compose"`); a `handoff-drafter` replays its source when the
- * source has a record and composes fresh when it has none (an upstream-only
- * thread the human was chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
+ * A `retro-reviewer` (a fresh root, not a fork) composes with its server-owned
+ * overlay. A `handoff-drafter` replays its source when the source has a record
+ * and composes fresh when it has none (an upstream-only thread the human was
+ * chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
  * arm for life, and, per launch, the agent git identity, whose shim directory rides
  * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
@@ -175,10 +174,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       const own = yield* readLaunchIdentity(identityDir, thread.id);
       if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
       const firstLaunch = Option.isNone(own);
-      const forkFrom =
-        !firstLaunch || workstream?.role === RETRO_REVIEWER_ROLE
-          ? null
-          : (workstream?.forkFromThreadId ?? null);
+      const forkFrom = firstLaunch ? (workstream?.forkFromThreadId ?? null) : null;
       const sourceThreadId =
         forkFrom ??
         (firstLaunch && thread.lineage.relationshipToParent === "fork"

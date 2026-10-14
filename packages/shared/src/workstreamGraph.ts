@@ -414,14 +414,6 @@ export interface GraphViewThread extends GraphThread {
   readonly held: boolean;
   /** When the first turn was delivered; null = not started. */
   readonly kickoffAt: string | null;
-  /**
-   * Fork provenance (mcp__t3-code__thread_fork / handoff drafter / retro reviewer). A
-   * parentless fork root carries its source here; `graphViewFor` treats the
-   * fork edge as lineage FOR SCOPE ONLY, so a fork root can inspect its
-   * source's workstream graph (and the source tree sees the fork). Absent /
-   * null for ordinary threads.
-   */
-  readonly forkFromThreadId?: ThreadId | null;
   /** Short scaffold purpose — title + purpose are what make the render evaluable. */
   readonly purpose: string | null;
   /** Symbolic scaffold key (unique-forever per parent), null for legacy/spawned nodes. */
@@ -485,22 +477,8 @@ export const graphViewFor = <T extends GraphViewThread>(
   threads: ReadonlyArray<T>,
   sessionPathFor?: (id: ThreadId) => string | null,
 ): GraphView => {
-  // Fork provenance joins the READ scope: for the root walk and membership
-  // collection (only), a parentless fork root is treated as a child of its
-  // fork source. A retro reviewer forked from an orchestrator therefore sees
-  // the orchestrator's whole tree, and threads in that tree see the fork.
-  // The emitted nodes/lineage edges keep the REAL parent edges — the fork
-  // stays a root in the rendered view; only visibility widens.
-  const ids = new Set(threads.map((thread) => thread.id));
-  const scoped = threads.map((thread) =>
-    thread.parentThreadId === null &&
-    thread.forkFromThreadId != null &&
-    ids.has(thread.forkFromThreadId)
-      ? { ...thread, parentThreadId: thread.forkFromThreadId }
-      : thread,
-  );
-  const rootId = rootOfInIndex(callerId, buildIndex(scoped));
-  const memberIds = new Set(subtreeOf(rootId, scoped).map((thread) => thread.id));
+  const rootId = rootOfInIndex(callerId, buildIndex(threads));
+  const memberIds = new Set(subtreeOf(rootId, threads).map((thread) => thread.id));
   const members = threads.filter((thread) => memberIds.has(thread.id));
   const nodes: GraphViewNode[] = members.map((thread) => ({
     id: thread.id,

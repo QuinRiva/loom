@@ -15,15 +15,18 @@ import { LEAF_CORE, TOOLSETS } from "../../mcp/toolkits/workstream/families.ts";
 const DEFAULT_ROLE = "orchestrator";
 const OVERLAY_DIR = NodePath.join(".t3code", "roles");
 
-/** The built-in roles ship with the server: `<repo>/roles`, five levels above
- * this source file, or three above the `dist/` chunk the bundle inlines it into.
- * A release without it is a broken install, so the miss fails at import rather
- * than as a roleless thread at launch. */
-const BUILTIN_ROLES_DIR = NodePath.resolve(
+/** The running server's own checkout (a dev worktree, or the release directory):
+ * five levels above this source file, or three above the `dist/` chunk the
+ * bundle inlines it into. Built-in roles and repo skills resolve against it. */
+export const LOOM_REPO_ROOT = NodePath.resolve(
   import.meta.dirname,
   import.meta.url.endsWith(".ts") ? "../../../../.." : "../../..",
-  "roles",
 );
+
+/** The built-in roles ship with the server: `<repo>/roles`. A release without it
+ * is a broken install, so the miss fails at import rather than as a roleless
+ * thread at launch. */
+const BUILTIN_ROLES_DIR = NodePath.join(LOOM_REPO_ROOT, "roles");
 if (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {
   throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);
 }

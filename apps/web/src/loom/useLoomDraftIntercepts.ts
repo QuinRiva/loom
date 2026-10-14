@@ -33,7 +33,7 @@ import { loomCommands } from "./loomGoalState";
 
 export interface LoomDraftInterceptPorts {
   readonly source: ScopedThreadRef;
-  /** The source is mid-turn: the server forks once that turn ends. */
+  /** The source is mid-turn: `/retro` stays on it and offers the reviewer in a toast. */
   readonly sourceMidTurn: boolean;
   readonly submittedPrompt: string;
   readonly trimmedPrompt: string;
@@ -131,13 +131,13 @@ export function useLoomDraftIntercepts() {
                     params: buildThreadRouteParams(reviewer),
                   });
               });
-            // Mid-turn, the reviewer stays empty until this turn ends: say so, and stay here.
+            // Mid-turn, stay with the running source and offer the reviewer instead.
             if (ports.sourceMidTurn)
               toastManager.add(
                 stackedThreadToast({
                   type: "info",
-                  title: "Retro queued",
-                  description: "The retro reviewer starts when this turn finishes.",
+                  title: "Retro started",
+                  description: "The retro reviewer is running in its own thread.",
                   actionProps: { children: "Open retro", onClick: open },
                 }),
               );
