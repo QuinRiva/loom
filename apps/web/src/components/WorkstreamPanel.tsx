@@ -21,6 +21,7 @@ import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/Work
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useThreadShell } from "../state/entities"; // loom: agent-started origin title
+import { threadStartOriginOf } from "@t3tools/client-runtime/state/loom/threadOrigin"; // loom: agent-started origin
 import { buildThreadLineage } from "../threadRouteLineage";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { Badge } from "./ui/badge";
@@ -79,15 +80,17 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const forkedFrom = node?.forkFromThreadId
     ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
     : null;
-  // The thread a `goal_handoff` root was started from; archived origins resolve through `nodes`.
-  const origin = node?.handoffOrigin ?? null;
+  // loom: the thread a started root came from (a handoff's origin, a continuation's
+  // predecessor); archived origins resolve through `nodes`.
+  const startOrigin = node ? threadStartOriginOf(node) : null;
+  const originId = startOrigin?.threadId ?? null;
   const originTitle = useThreadShell(
-    origin && scopeThreadRef(threadRef.environmentId, origin.threadId),
+    originId ? scopeThreadRef(threadRef.environmentId, originId) : null,
   )?.title;
   const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
-  const startedBy = origin && {
-    ...origin,
-    title: nodes.get(origin.threadId)?.title ?? originTitle ?? "an archived thread",
+  const startedBy = startOrigin && {
+    ...startOrigin,
+    title: nodes.get(startOrigin.threadId)?.title ?? originTitle ?? "an archived thread",
   };
 
   // Right-click / keyboard menu on a node: the app's canonical context menu.
@@ -140,7 +143,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
             startedBy={startedBy}
             onNavigateToThread={onOpenThread}
             // loom: the agent-started chip opens its origin at the handoff
-            onOpenStartedBy={() => origin && openHandoffOrigin(origin.threadId, threadRef.threadId)}
+            onOpenStartedBy={() => originId && openHandoffOrigin(originId, threadRef.threadId)}
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">

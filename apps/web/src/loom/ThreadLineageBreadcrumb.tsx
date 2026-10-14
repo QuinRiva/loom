@@ -1,10 +1,12 @@
-import type { HandoffOrigin, ThreadId } from "@t3tools/contracts";
+import type { ThreadStart } from "@t3tools/client-runtime/state/loom/threadOrigin";
+import type { ThreadId } from "@t3tools/contracts";
 import { BotIcon, ChevronRightIcon, CornerLeftUpIcon, GitForkIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { cn } from "../lib/utils";
 import type { LineageSegment } from "../threadRouteLineage";
+import { THREAD_START_LEAD } from "./ThreadStart";
 
 const MAX_VISIBLE_LINEAGE_SEGMENTS = 3;
 
@@ -45,8 +47,9 @@ function LineageChip({
  * middle elides past three. A `forkFrom` child also shows its fork source (the
  * sidecar's `forkFromThreadId` — the shell carries no context-transfer edge;
  * upstream's Lineage panel draws that from the thread projection). A
- * `goal_handoff` root also shows who started it (`startedBy`); it opens the
- * origin at the handoff, as the sidebar hover line does (`ThreadStart.tsx`).
+ * handed-off or continued root also shows the thread it came from (`startedBy`);
+ * it opens that thread at the handoff, as the sidebar hover line does
+ * (`ThreadStart.tsx`).
  */
 export function ThreadLineageBreadcrumb({
   lineage,
@@ -57,7 +60,11 @@ export function ThreadLineageBreadcrumb({
 }: {
   lineage: ReadonlyArray<LineageSegment>;
   forkedFrom: { readonly threadId: ThreadId; readonly title: string } | null;
-  startedBy: (HandoffOrigin & { readonly title: string }) | null;
+  startedBy: {
+    readonly start: ThreadStart;
+    readonly threadId: ThreadId;
+    readonly title: string;
+  } | null;
   onNavigateToThread: (threadId: ThreadId) => void;
   onOpenStartedBy: () => void;
 }) {
@@ -124,14 +131,13 @@ export function ThreadLineageBreadcrumb({
           label={
             <>
               <BotIcon className="size-3 shrink-0" />
-              <span className="max-w-48 truncate">Started by {startedBy.title}</span>
+              <span className="max-w-48 truncate">
+                {startedBy.start === "continued" ? "Continued from" : "Started by"}{" "}
+                {startedBy.title}
+              </span>
             </>
           }
-          tooltip={
-            startedBy.initiatedBy === "human"
-              ? `From your /handoff in ${startedBy.title}`
-              : `Started by an agent in ${startedBy.title}`
-          }
+          tooltip={`${THREAD_START_LEAD[startedBy.start]} ${startedBy.title}`}
           onClick={onOpenStartedBy}
         />
       ) : null}

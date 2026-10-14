@@ -106,6 +106,7 @@ export const workstream = (
   outcome: null,
   outcomeAt: null,
   kickoffAt: null,
+  kickoffOrigin: null,
   attention: [],
   blockedBy: [],
   dependenciesSince: null,

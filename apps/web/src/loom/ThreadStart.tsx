@@ -1,7 +1,8 @@
 /**
- * loom: the agent-started cue on sidebar rows. A root an agent started with
- * nobody pressing Send carries a 2 px left rail: an accent for an agent's own
- * `goal_handoff` (or an agent-made scheduled task), a muted one for the human's
+ * loom: the agent-started cue on sidebar rows. A root whose opening brief the
+ * human did not write carries a 2 px left rail: an accent for an agent's own
+ * `goal_handoff`, an agent-made scheduled task, or a `goal_continue` successor
+ * launched with the predecessor's brief unedited; a muted one for the human's
  * `/handoff`. The rail is colour-only, so the hover card names the origin, the
  * row's accessible name says it, and the Workstream panel's breadcrumb links it.
  *
@@ -11,7 +12,11 @@
  * (`useOpenHandoffOrigin`), resolved on click from the shell snapshot.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type ThreadStart, threadStartOf } from "@t3tools/client-runtime/state/loom/threadOrigin";
+import {
+  type ThreadStart,
+  threadStartOf,
+  threadStartOriginOf,
+} from "@t3tools/client-runtime/state/loom/threadOrigin";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
@@ -30,6 +35,14 @@ import { handoffReceiptRows } from "./loomTimelineRows";
 export const THREAD_START_LABEL: Record<ThreadStart, string> = {
   agent: "started by an agent",
   requested: "requested via /handoff",
+  continued: "continued by an agent",
+};
+
+/** How a started root names its origin thread (hover line, breadcrumb tooltip). */
+export const THREAD_START_LEAD: Record<ThreadStart, string> = {
+  agent: "Started by an agent in",
+  requested: "From your /handoff in",
+  continued: "Continued from",
 };
 
 /**
@@ -52,7 +65,7 @@ export function ThreadStartRail({
       data-thread-start={start}
       className={cn(
         "pointer-events-none absolute inset-y-1.5 left-0 z-20 w-0.5 rounded-full",
-        start === "agent" ? "bg-agent-start" : "bg-muted-foreground/70",
+        start === "requested" ? "bg-muted-foreground/70" : "bg-agent-start",
         dimmed &&
           "opacity-40 group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:opacity-100",
       )}
@@ -63,14 +76,14 @@ export function ThreadStartRail({
 /** The hover card's provenance line; renders nothing for the human's own threads. */
 export function ThreadStartHoverLine({ thread }: { thread: SidebarThreadSummary }) {
   const start = threadStartOf(thread.source);
-  const origin = thread.source.workstream?.handoffOrigin ?? null;
+  const originId = threadStartOriginOf(thread.source.workstream)?.threadId ?? null;
   if (start === null) return null;
   return (
     // Wraps rather than truncates: the origin's title is the link, so it must show.
     <div className="flex min-w-0 items-start gap-2">
       <BotIcon className="mt-0.5 size-3 shrink-0 stroke-muted-foreground" />
       <div className="min-w-0 text-foreground/75">
-        {origin === null ? (
+        {originId === null ? (
           // No handoff behind it: an agent-made scheduled task launched it.
           thread.source.workstream === undefined ? (
             "Started by a scheduled task"
@@ -81,7 +94,7 @@ export function ThreadStartHoverLine({ thread }: { thread: SidebarThreadSummary 
           <OriginText
             environmentId={thread.environmentId}
             start={start}
-            originId={origin.threadId}
+            originId={originId}
             destinationId={thread.id}
           />
         )}
@@ -103,11 +116,11 @@ function OriginText({
 }) {
   const title = useThreadShell(scopeThreadRef(environmentId, originId))?.title;
   const openOrigin = useOpenHandoffOrigin(environmentId);
-  const lead = start === "agent" ? "Started by an agent" : "From your /handoff";
-  if (title === undefined) return `${lead} (origin archived)`;
+  const lead = THREAD_START_LEAD[start];
+  if (title === undefined) return `${lead} an archived thread`;
   return (
     <>
-      {lead} in{" "}
+      {lead}{" "}
       <button
         type="button"
         className="cursor-pointer text-left text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground"
@@ -122,8 +135,8 @@ function OriginText({
 /**
  * Open a handed-off root's origin at the handoff: the receipt row the origin's
  * timeline draws for this destination (`handoffReceiptRows` — the
- * `goal_handoff` marker, or the `/handoff` drafter's row), else the
- * destination's creation, inside the handoff call. With neither in the
+ * `goal_handoff` marker, the `/handoff` drafter's row, or a `goal_continue`
+ * successor's row), else the destination's creation, inside the handoff call. With neither in the
  * snapshot it just opens the origin. Read once per click, never subscribed.
  */
 export function useOpenHandoffOrigin(environmentId: EnvironmentId) {

@@ -92,7 +92,9 @@ const foldWorkstream = (
     case "thread.outcome-set":
       return next({ outcome: event.payload.outcome, outcomeAt: at, outcomeEventId: event.id });
     case "thread.kickoff-recorded":
-      return row.kickoffAt === null ? next({ kickoffAt: event.payload.kickoffAt }) : undefined;
+      return row.kickoffAt === null
+        ? next({ kickoffAt: event.payload.kickoffAt, kickoffOrigin: event.payload.origin })
+        : undefined;
     case "thread.attention-raised": {
       const { reason } = event.payload;
       if (row.attention.includes(reason)) return undefined; // the first raise is the episode

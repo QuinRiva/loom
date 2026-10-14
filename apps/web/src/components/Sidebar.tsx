@@ -300,7 +300,10 @@ import { CacheHoverBlock } from "../loom/CacheHoverBlock"; // loom: prompt-cache
 import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
 import { PendingQuestionWaitAge } from "../loom/pendingUserInputLoom"; // loom: S4
 // loom: agent-started cue — the row rail, hover line and accessible-name suffix.
-import { threadStartOf } from "@t3tools/client-runtime/state/loom/threadOrigin";
+import {
+  threadStartOf,
+  threadStartOriginOf,
+} from "@t3tools/client-runtime/state/loom/threadOrigin";
 import { THREAD_START_LABEL, ThreadStartHoverLine, ThreadStartRail } from "../loom/ThreadStart";
 import { readLoomGoal } from "../loom/loomGoalState";
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
@@ -486,8 +489,8 @@ function SidebarThreadTooltip({
       side="right"
       align="start"
       sideOffset={4}
-      // loom: a handed-off root's card links its origin, so the pointer may enter it
-      className={thread.source.workstream?.handoffOrigin ? "pointer-events-auto" : undefined}
+      // loom: a started root's card links its origin, so the pointer may enter it
+      className={threadStartOriginOf(thread.source.workstream) ? "pointer-events-auto" : undefined}
       // loom: React bubbles the portalled card's presses to the row's <li>; keep them off its drag sensor
       onPointerDown={(event) => event.stopPropagation()}
     >

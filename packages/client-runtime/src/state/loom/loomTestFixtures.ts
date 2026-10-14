@@ -29,6 +29,7 @@ export const workstreamFields = (
   outcome: null,
   outcomeAt: null,
   kickoffAt: null,
+  kickoffOrigin: null,
   attention: [],
   blockedBy: [],
   dependenciesSince: null,
