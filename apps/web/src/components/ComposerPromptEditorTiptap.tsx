@@ -180,6 +180,8 @@ export interface ComposerPromptEditorProps {
   onPageScrollKeyUp?: (key: string) => void;
   onPageScrollRelease?: () => void;
   onCitationSubmitAndSend?: () => void;
+  /** loom: a citation comment pop-up mounted (true) or unmounted (false). */
+  onCitationCommentOpenChange?: (open: boolean) => void;
   onPaste: React.ClipboardEventHandler<HTMLElement>;
   editorRef: React.RefObject<ComposerPromptEditorHandle | null>;
 }
@@ -205,7 +207,13 @@ const ComposerCitationCommentContext = createContext<{
   openComment: OpenCitationComment | null;
   onOpenChange: (citeKey: string, open: boolean) => void;
   onSubmitAndSend: () => void;
-}>({ openComment: null, onOpenChange: () => {}, onSubmitAndSend: () => {} });
+  onCommentMounted: (open: boolean) => void; // loom
+}>({
+  openComment: null,
+  onOpenChange: () => {},
+  onSubmitAndSend: () => {},
+  onCommentMounted: () => {}, // loom
+});
 
 const RichComposerSkillsContext = createContext<ReadonlyArray<ServerProviderSkill>>([]);
 
@@ -384,6 +392,15 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
   const citeKey = node.attrs.citeKey as string;
   const commentTarget =
     commentContext.openComment?.key === citeKey ? commentContext.openComment : null;
+  // loom: the pop-up's comment draft lives only while it is mounted, so the composer
+  // holds approval/question takeovers (which would replace this node) until it closes.
+  const commentMounted = commentTarget !== null;
+  const { onCommentMounted } = commentContext;
+  useEffect(() => {
+    if (!commentMounted) return;
+    onCommentMounted(true);
+    return () => onCommentMounted(false);
+  }, [commentMounted, onCommentMounted]);
 
   const nodePos = useCallback(() => {
     const pos = typeof getPos === "function" ? getPos() : null;
@@ -843,6 +860,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     onPageScrollKeyUp,
     onPageScrollRelease,
     onCitationSubmitAndSend,
+    onCitationCommentOpenChange, // loom
     onPaste,
     editorRef,
   } = props;
@@ -929,6 +947,15 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   const citationRequestRef = useRef<ComposerCitationCommentRequest | null>(null);
   const [openCitation, setOpenCitation] = useState<OpenCitationComment | null>(null);
   const [isEmpty, setIsEmpty] = useState(value.length === 0);
+  // loom: stable, so a context refresh never reads as the pop-up closing and reopening.
+  const onCitationCommentOpenChangeRef = useRef(onCitationCommentOpenChange);
+  useEffect(() => {
+    onCitationCommentOpenChangeRef.current = onCitationCommentOpenChange;
+  }, [onCitationCommentOpenChange]);
+  const onCommentMounted = useCallback(
+    (open: boolean) => onCitationCommentOpenChangeRef.current?.(open),
+    [],
+  );
 
   const citationCommentActions = useMemo(
     () => ({
@@ -943,8 +970,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         });
       },
       onSubmitAndSend: onCitationSubmitAndSend ?? (() => {}),
+      onCommentMounted, // loom
     }),
-    [onCitationSubmitAndSend, openCitation],
+    [onCitationSubmitAndSend, onCommentMounted, openCitation],
   );
 
   const handleEditorChange = useCallback(

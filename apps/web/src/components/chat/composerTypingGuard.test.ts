@@ -86,4 +86,24 @@ describe("composer typing guard", () => {
       }).held,
     ]).toEqual([]);
   });
+
+  // loom: a takeover replaces the composer document, unmounting the Cite comment
+  // pop-up and its unsaved text, so the request waits for the pop-up to close.
+  it("holds requests while a citation comment is open, through pauses and blur", () => {
+    let state = updateComposerTypingGuard(createComposerTypingGuardState(), {
+      type: "comment",
+      open: true,
+    });
+    state = updateComposerTypingGuard(state, {
+      type: "requests",
+      requestIds: ["question"],
+      now: 60_000,
+    });
+    for (const type of ["idle", "blur", "send"] as const) {
+      state = updateComposerTypingGuard(state, { type });
+    }
+    expect([...state.held]).toEqual(["question"]);
+    state = updateComposerTypingGuard(state, { type: "comment", open: false });
+    expect([...state.held]).toEqual([]);
+  });
 });

@@ -1833,6 +1833,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onFocus: onTypingGuardFocus,
     onBlur: onTypingGuardBlur,
     onSend: onTypingGuardSend,
+    onCommentOpenChange: onTypingGuardCommentOpenChange, // loom
   } = useComposerTypingGuard(composerDraftTargetKey, [
     ...pendingApprovals.map((request) => request.requestId),
     ...incomingPendingUserInputs.map((request) => request.requestId),
@@ -7597,6 +7598,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onPageScrollKeyUp={onPageScrollKeyUp}
                     onPageScrollRelease={onPageScrollRelease}
                     onCitationSubmitAndSend={submitCitationAndSend}
+                    // loom: an open citation comment holds approval/question takeovers.
+                    onCitationCommentOpenChange={onTypingGuardCommentOpenChange}
                     onPaste={onComposerPaste}
                     placeholder={
                       isComposerApprovalState

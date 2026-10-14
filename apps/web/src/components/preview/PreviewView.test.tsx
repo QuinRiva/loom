@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   addPreviewAnnotation: vi.fn(),
   addImage: vi.fn(),
   toggleAnnotation: null as (() => void) | null,
+  pickActive: false,
   pictureInPicture: false,
   showEmptyState: false,
   loading: false,
@@ -233,6 +234,7 @@ vi.mock("./PreviewChromeRow", () => ({
   PreviewChromeRow: (props: {
     onSubmit: (url: string) => void;
     onPickElement?: () => void;
+    pickActive?: boolean;
     onPictureInPicture?: () => void;
     pictureInPicture?: boolean;
     trailingActions?: {
@@ -241,6 +243,7 @@ vi.mock("./PreviewChromeRow", () => ({
   }) => {
     mocks.submittedUrl = props.onSubmit;
     mocks.toggleAnnotation = props.onPickElement ?? null;
+    mocks.pickActive = props.pickActive ?? false;
     mocks.togglePictureInPicture = props.onPictureInPicture ?? null;
     mocks.toggleNativePictureInPicture =
       props.trailingActions?.props.actions?.toggleNativePictureInPicture ?? null;
@@ -365,6 +368,7 @@ describe("PreviewView navigation", () => {
     vi.mocked(toastManager.add).mockClear();
     mocks.addImage.mockClear();
     mocks.toggleAnnotation = null;
+    mocks.pickActive = false;
     mocks.pictureInPicture = false;
     mocks.showEmptyState = false;
     mocks.loading = false;
@@ -652,6 +656,69 @@ describe("PreviewView navigation", () => {
       await act(async () => mocks.toggleAnnotation?.());
       expect(mocks.setAnnotationSendEnabled).toHaveBeenLastCalledWith(TEST_RUNTIME_TAB_ID, true);
       expect(onSendAnnotation).toHaveBeenCalledWith(annotation, null);
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // loom: the pop-up and its note live in the page, which outlives the view
+  it("keeps an in-progress annotation when the view unmounts and remounts", async () => {
+    const annotation = {
+      id: "annotation-remount",
+      pageUrl: "https://example.com/dashboard",
+      pageTitle: "Dashboard",
+      comment: "Typed while the panel switched away",
+      elements: [],
+      regions: [],
+      strokes: [],
+      styleChanges: [],
+      screenshot: null,
+      createdAt: "2026-10-14T00:00:00.000Z",
+    };
+    let submitPick: (() => void) | undefined;
+    mocks.pickElement.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          submitPick = () => resolve({ annotation, submission: "attach" });
+        }),
+    );
+    const document = installTestDom();
+    const { createRoot } = await import("react-dom/client");
+    const mount = async () => {
+      const root = createRoot(document.createElement("div") as unknown as Element);
+      await act(async () =>
+        root.render(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />),
+      );
+      return root;
+    };
+    let root = await mount();
+    try {
+      await act(async () => mocks.toggleAnnotation?.());
+      expect(submitPick).toBeDefined();
+
+      // An automatic Diff open or a thread switch unmounts the view mid-note.
+      await act(async () => root.unmount());
+      root = await mount();
+      expect(mocks.cancelPickElement).not.toHaveBeenCalled();
+      expect(mocks.pickActive).toBe(true);
+
+      await act(async () => submitPick!());
+      expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, annotation);
+      expect(mocks.pickActive).toBe(false);
+
+      // An explicit cancel still ends a pick that a previous view started.
+      let settleCancelled: ((result: null) => void) | undefined;
+      mocks.pickElement.mockImplementationOnce(
+        () => new Promise((resolve) => (settleCancelled = resolve)),
+      );
+      await act(async () => mocks.toggleAnnotation?.());
+      await act(async () => root.unmount());
+      root = await mount();
+      await act(async () => mocks.toggleAnnotation?.());
+      expect(mocks.cancelPickElement).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID);
+      await act(async () => settleCancelled!(null));
+      expect(mocks.pickActive).toBe(false);
     } finally {
       await act(async () => root.unmount());
       vi.unstubAllGlobals();

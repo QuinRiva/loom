@@ -92,6 +92,13 @@ import {
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { observeResize } from "~/lib/observeResize";
+// loom: annotation picks are per tab, not per mounted view
+import {
+  beginPreviewPick,
+  endPreviewPick,
+  previewPick,
+  usePreviewPickActive,
+} from "~/loom/previewAnnotationPicks";
 
 interface Props {
   threadRef: ScopedThreadRef;
@@ -150,13 +157,10 @@ export function PreviewView({
   onSendAnnotation,
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
-  const [pickActive, setPickActive] = useState(false);
   const canSendAnnotation =
     useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope) &&
     Boolean(onSendAnnotation);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
-  const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
-  const isMountedRef = useRef(true);
   // Kept in sync so the title effect can depend on the stable thread key
   // instead of the thread object, which is recreated on every update.
   const threadRefRef = useRef(threadRef);
@@ -185,17 +189,12 @@ export function PreviewView({
 
   usePreviewSession(threadRef);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
   const tabId = requestedTabId ?? previewState.activeTabId;
   const runtimeTabId = tabId
     ? previewRuntimeTabId(threadRef, previewState.serverEpoch, tabId)
     : null;
+  // loom: the pick belongs to the tab, so it outlives this view (see previewAnnotationPicks)
+  const pickActive = usePreviewPickActive(runtimeTabId);
   const recordingRuntimeTabId =
     tabId && runtimeTabId
       ? activeRecordingTabIds.has(runtimeTabId)
@@ -803,8 +802,9 @@ export function PreviewView({
 
   const handlePickElement = useCallback(() => {
     if (!previewBridge || !runtimeTabId) return;
-    if (pickActiveRef.current) {
-      pickActiveRef.current.cancelled = true;
+    const activePick = previewPick(runtimeTabId); // loom: per-tab pick
+    if (activePick) {
+      activePick.cancelled = true;
       void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
       return;
     }
@@ -815,10 +815,8 @@ export function PreviewView({
     // every pick they'd have to click back into the textarea.
     const previouslyFocused =
       typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
-    const pickRequest = { cancelled: false };
+    const pickRequest = beginPreviewPick(runtimeTabId); // loom: per-tab pick
     let submitted = false;
-    pickActiveRef.current = pickRequest;
-    setPickActive(true);
     void (async () => {
       try {
         await previewBridge.setAnnotationSendEnabled?.(
@@ -832,11 +830,7 @@ export function PreviewView({
         // The user has submitted. Nothing that happens after this point (a
         // second picker click, a tab change, unmount) may discard it, so the
         // pick stops being cancellable here rather than in `finally`.
-        if (pickActiveRef.current === pickRequest) {
-          pickActiveRef.current = null;
-          if (isMountedRef.current) setPickActive(false);
-          submitted = true;
-        }
+        if (endPreviewPick(runtimeTabId, pickRequest)) submitted = true; // loom: per-tab pick
         const { annotation: picked, submission, screenshotFailed = false } = result;
         // The structured annotation is still sendable when its optional crop
         // stalls or fails, so tell the user what they lost and keep going
@@ -886,13 +880,8 @@ export function PreviewView({
         // Picker failed (e.g. webview navigated). Treat as silent cancel.
       } finally {
         // A submitted pick already released itself above; a cancelled or
-        // failed one releases here. Avoid `setState on unmounted component`
-        // if the panel/thread closed while the pick was in flight.
-        const isCurrentPick = pickActiveRef.current === pickRequest;
-        if (isCurrentPick) {
-          pickActiveRef.current = null;
-          if (isMountedRef.current) setPickActive(false);
-        }
+        // failed one releases here.
+        const isCurrentPick = endPreviewPick(runtimeTabId, pickRequest); // loom: per-tab pick
         // Best-effort: restore focus to whatever the user had before the
         // pick stole it into the guest webContents. Skip if the previously-
         // focused element was unmounted or is no longer focusable.
@@ -919,20 +908,10 @@ export function PreviewView({
       .catch(() => undefined);
   }, [canSendAnnotation, pickActive, runtimeTabId]);
 
-  // If the active tab changes mid-pick (close, thread switch, hot restart),
-  // tell main to tear down the in-flight session AND reset our local toggle
-  // state so the button doesn't get stuck pressed against a stale tab id.
-  useEffect(() => {
-    return () => {
-      if (!pickActiveRef.current) return;
-      pickActiveRef.current.cancelled = true;
-      pickActiveRef.current = null;
-      if (previewBridge && runtimeTabId) {
-        void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
-      }
-      if (isMountedRef.current) setPickActive(false);
-    };
-  }, [runtimeTabId]);
+  // loom: no cancel on unmount or tab change. The pop-up and the note typed
+  // into it live in the page, which outlives this view; tearing them down here
+  // lost the note whenever the panel switched away (an automatic Diff/PR open,
+  // a thread switch). Closing the tab or its page settles the pick in main.
 
   // Subscribe only while visible; `toggle-panel` is owned by ChatView's
   // URL-aware handler regardless of whether the panel is currently mounted.
