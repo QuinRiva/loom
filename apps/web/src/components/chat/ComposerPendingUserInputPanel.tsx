@@ -1,4 +1,4 @@
-import { type RuntimeRequestId } from "@t3tools/contracts";
+import { type RuntimeRequestId, type ScopedThreadRef } from "@t3tools/contracts";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
@@ -9,10 +9,10 @@ import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
-// loom: 3d-4 — DT-36 additions (markdown body with file chips and its one-line summary, reply in chat instead).
+import ChatMarkdown from "../ChatMarkdown";
+// loom: 3d-4 — DT-36 additions (the body's one-line summary, reply in chat instead).
 import {
   PendingQuestionAge, // loom: S4
-  PendingQuestionBody,
   questionSummary,
   ReplyInChatInsteadButton,
   useLoomPendingInputHost,
@@ -20,6 +20,9 @@ import {
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
+  /** Resolves file links in the question text. */
+  cwd: string | undefined;
+  threadRef: ScopedThreadRef;
   disabled?: boolean;
   respondingRequestIds: RuntimeRequestId[];
   answers: Record<string, PendingUserInputDraftAnswer>;
@@ -31,6 +34,8 @@ interface PendingUserInputPanelProps {
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
   pendingUserInputs,
+  cwd,
+  threadRef,
   disabled = false,
   respondingRequestIds,
   answers,
@@ -47,6 +52,8 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
     <ComposerPendingUserInputCard
       key={activePrompt.requestId}
       prompt={activePrompt}
+      cwd={cwd}
+      threadRef={threadRef}
       disabled={disabled}
       isResponding={respondingRequestIds.includes(activePrompt.requestId)}
       answers={answers}
@@ -60,6 +67,8 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
 
 const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard({
   prompt,
+  cwd,
+  threadRef,
   disabled,
   isResponding,
   answers,
@@ -69,6 +78,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onDismiss,
 }: {
   prompt: PendingUserInput;
+  cwd: string | undefined;
+  threadRef: ScopedThreadRef;
   disabled: boolean;
   isResponding: boolean;
   answers: Record<string, PendingUserInputDraftAnswer>;
@@ -255,8 +266,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
-            {/* loom: 3d-4 — markdown body with file chips (DT-36). */}
-            <PendingQuestionBody text={activeQuestion.question} host={loomHost} />
+            <ChatMarkdown
+              text={activeQuestion.question}
+              cwd={cwd}
+              threadRef={threadRef}
+              className="text-foreground/85"
+              lineBreaks // loom: agents' single newlines stay line breaks (DT-36)
+            />
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}

@@ -7,7 +7,6 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
-import { claimServerHome } from "../workspace/serverHomeGuard.loom.ts"; // loom:
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
@@ -24,15 +23,13 @@ const runServerCommand = (
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     // loom: two servers on one database corrupt live state. `resolveServerConfig`
-    // refuses before it touches the home; claiming it here, before `runServer`
-    // opens the database, extends that refusal over our own migration window.
-    // Kept beside upstream's `rejectRunningServer` preflight, which skips `serve`
-    // and the migration window (DL-87).
+    // refuses before it touches the home (`serve` included, which upstream's
+    // `rejectRunningServer` preflight skips); upstream's ownership lock in
+    // `runServer` covers the migration window (DL-87, pull 11).
     const config = yield* resolveServerConfig(flags, logLevel, {
       ...options,
       refuseWhenHomeIsLive: true,
     });
-    yield* claimServerHome(config);
     return yield* runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
   });
 

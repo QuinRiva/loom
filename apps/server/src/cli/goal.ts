@@ -48,7 +48,7 @@ export class GoalCliError extends Schema.TaggedError<GoalCliError>()("GoalCliErr
 }) {}
 
 const fail = (message: string) => Effect.fail(new GoalCliError({ message }));
-const uuid = Effect.flatMap(Crypto.Crypto, (crypto) => crypto.randomUUIDv4);
+const uuid = Effect.flatMap(Crypto.Crypto, (crypto) => crypto.randomUUIDv4());
 
 const store = LoomStore.LoomStoreV2;
 

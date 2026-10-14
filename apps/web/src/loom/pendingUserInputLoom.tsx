@@ -1,16 +1,15 @@
 /**
  * loom: 3d-4 (DT-36, P3-27) — Loom's additions to upstream's RuntimeRequest
  * panel (`components/chat/ComposerPendingUserInputPanel.tsx`), so a question
- * read cold is answerable: a markdown body whose paths are chat's file chips,
- * and "reply in chat instead", which sends the composer text as an ordinary
+ * read cold is answerable: its one-line summary and age (the markdown body
+ * itself is upstream's), and "reply in chat instead", which sends the composer text as an ordinary
  * message (the server settles the set as superseded, 3a). Digit-select never
  * submitting is a guard inside the panel itself.
  *
- * ChatView hosts the request (it owns the send path and the markdown context);
+ * ChatView hosts the request (it owns the send path);
  * the panel reads its host by request id, so ChatComposer — which sits between
  * them — carries no Loom props.
  */
-import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { Nodes } from "mdast";
 import { useEffect, useRef } from "react";
 import remarkGfm from "remark-gfm";
@@ -18,7 +17,6 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { create } from "zustand";
 
-import ChatMarkdown from "../components/ChatMarkdown";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { formatElapsedDurationLabel } from "../timestampFormat";
 
@@ -51,9 +49,6 @@ export function PendingQuestionAge({ createdAt }: { createdAt: string }) {
 }
 
 export interface LoomPendingInputHost {
-  /** Where the body's relative paths resolve and which panel their chips open in. */
-  readonly cwd: string | undefined;
-  readonly threadRef: ScopedThreadRef | undefined;
   /** Sends the composer's text as a plain chat message. */
   readonly onReplyInChat: () => void;
 }
@@ -68,17 +63,16 @@ export function useHostLoomPendingInput(requestId: string | null, host: LoomPend
   useEffect(() => {
     replyRef.current = host.onReplyInChat;
   });
-  const { cwd, threadRef } = host;
   useEffect(() => {
     if (requestId === null) return;
-    const entry: LoomPendingInputHost = { cwd, threadRef, onReplyInChat: () => replyRef.current() };
+    const entry: LoomPendingInputHost = { onReplyInChat: () => replyRef.current() };
     useHosts.setState((state) => ({ hosts: { ...state.hosts, [requestId]: entry } }));
     return () =>
       useHosts.setState((state) => {
         const { [requestId]: _removed, ...hosts } = state.hosts;
         return { hosts };
       });
-  }, [cwd, requestId, threadRef]);
+  }, [requestId]);
 }
 
 /** The panel: its request's host, or undefined (preview harness, unhosted surfaces). */
@@ -89,24 +83,6 @@ export function useLoomPendingInputHost(requestId: string): LoomPendingInputHost
 /** Test/preview seam: host a request without a ChatView. */
 export const hostLoomPendingInputForPreview = (requestId: string, host: LoomPendingInputHost) =>
   useHosts.setState((state) => ({ hosts: { ...state.hosts, [requestId]: host } }));
-
-export function PendingQuestionBody({
-  text,
-  host,
-}: {
-  readonly text: string;
-  readonly host: LoomPendingInputHost | undefined;
-}) {
-  return (
-    <ChatMarkdown
-      text={text}
-      cwd={host?.cwd}
-      threadRef={host?.threadRef}
-      className="text-sm text-foreground/85"
-      lineBreaks
-    />
-  );
-}
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
 const BLOCK_PARENTS = new Set(["root", "list", "listItem", "blockquote", "table", "tableRow"]);

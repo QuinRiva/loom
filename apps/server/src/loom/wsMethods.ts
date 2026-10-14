@@ -169,7 +169,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
           const tree = resolveTaskRewrite(goal, input);
           if (typeof tree === "string") return yield* fail(LOOM_WS_METHODS.goalTaskRewrite, tree);
           const fresh = (yield* Effect.forEach(idlessNodes(tree), () =>
-            crypto.randomUUIDv4.pipe(Effect.orDie),
+            crypto.randomUUIDv4().pipe(Effect.orDie),
           ))[Symbol.iterator]();
           return yield* loomStore.tasks.replaceTree(
             goal.id,

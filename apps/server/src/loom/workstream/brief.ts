@@ -26,7 +26,7 @@ export const writeWorkstreamBrief = Effect.fn("loom.writeWorkstreamBrief")(funct
   const dir = loomPaths(yield* ServerConfig).workstreamBriefsDir;
   const fs = yield* FileSystem.FileSystem;
   const filePath = (yield* Path.Path).join(dir, `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}.md`);
-  const tempPath = `${filePath}.tmp-${yield* (yield* Crypto.Crypto).randomUUIDv4}`;
+  const tempPath = `${filePath}.tmp-${yield* (yield* Crypto.Crypto).randomUUIDv4()}`;
   yield* fs.makeDirectory(dir, { recursive: true });
   yield* fs.writeFileString(tempPath, markdown);
   yield* fs.rename(tempPath, filePath).pipe(

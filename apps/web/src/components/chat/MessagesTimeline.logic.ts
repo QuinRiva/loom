@@ -99,7 +99,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
   if (toolPresentation) return toolPresentation.displayName;
   const item = entry.structuredPayload;
-  const title = item?.type === "dynamic_tool" ? dynamicToolTitle(item.toolName, item.input) : null;
+  const title =
+    item?.type === "dynamic_tool" ? dynamicToolTitle(item.toolName, item.input, item.title) : null;
   if (title) return title;
   // A lone web search keeps its heading; the query stays in its detail.
   if (entry.itemType === "web_search") return entry.toolTitle ?? "Web search";
@@ -159,7 +160,8 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   const providerRetry =
     entry.projectedItem?.item.type === "error" && entry.projectedItem.item.retry !== undefined;
   const item = entry.structuredPayload;
-  const title = item?.type === "dynamic_tool" ? dynamicToolTitle(item.toolName, item.input) : null;
+  const title =
+    item?.type === "dynamic_tool" ? dynamicToolTitle(item.toolName, item.input, item.title) : null;
   if (title) return title;
   const compactDetail = entry.detail?.trim();
   const detailIsSearchOutput =
@@ -944,6 +946,12 @@ function timelineEntryStartsResponse(entry: TimelineEntry): boolean {
   );
 }
 
+function responseBoundaryRunId(entry: TimelineEntry): RunId | null {
+  if (entry.kind === "message") return entry.message.runId ?? null;
+  if (entry.kind === "work") return entry.entry.runId ?? null;
+  return null;
+}
+
 /**
  * A promptless provider restart replaces the native turn without adding a
  * user message. Keep every provider turn since the initiating prompt in one
@@ -1027,7 +1035,12 @@ function deriveTurnFolds(input: {
   completeSupersededReplyEntryIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   const interruptedRunIds = new Set<RunId>();
-  for (const entry of input.timelineEntries) {
+  const promptIndexByRunId = new Map<RunId, number>();
+  for (const [index, entry] of input.timelineEntries.entries()) {
+    if (timelineEntryStartsResponse(entry)) {
+      const runId = responseBoundaryRunId(entry);
+      if (runId !== null && !promptIndexByRunId.has(runId)) promptIndexByRunId.set(runId, index);
+    }
     if (
       entry.kind === "event" &&
       entry.projectedItem.item.runId !== null &&
@@ -1058,6 +1071,7 @@ function deriveTurnFolds(input: {
   // stable key of its own. Decide per prompt, not per thread: a V1 thread's
   // first V2 run must not unfold every imported turn above it.
   let runlessKey: RunId | null = null;
+  let responseKey: RunId | null = null;
   let pendingBoundary: { createdAt: string; anchorEntryId: string } | null = null;
   for (const [index, entry] of input.timelineEntries.entries()) {
     if (timelineEntryStartsResponse(entry)) {
@@ -1065,19 +1079,22 @@ function deriveTurnFolds(input: {
       pendingBoundary = nextEntry
         ? { createdAt: entry.createdAt, anchorEntryId: nextEntry.id }
         : null;
-      const boundaryRunId =
-        entry.kind === "message"
-          ? entry.message.runId
-          : entry.kind === "work"
-            ? entry.entry.runId
-            : null;
+      const boundaryRunId = responseBoundaryRunId(entry);
       runlessKey = boundaryRunId == null ? RunId.make(`runless:${entry.id}`) : null;
+      responseKey = boundaryRunId ?? runlessKey;
       continue;
     }
-    const runId = timelineEntryFoldRunId(entry, runlessKey);
-    if (!runId) {
+    const ownRunId = timelineEntryFoldRunId(entry, runlessKey);
+    if (!ownRunId) {
       continue;
     }
+    // Resuming a subagent moves its item to the resuming run, but the item
+    // keeps its place in the turn that started it. It folds with that turn,
+    // so the later run's fold still opens under its own prompt.
+    const runId =
+      responseKey !== null && (promptIndexByRunId.get(ownRunId) ?? -1) > index
+        ? responseKey
+        : ownRunId;
     if (runId === runlessKey && timelineEntryFailedItem(entry) !== null) {
       runlessFailedKeys.add(runId);
     }
@@ -1506,9 +1523,10 @@ export function deriveMessagesTimelineRows(input: {
       } else if ((entry.attempt?.id ?? null) !== tailAttemptId) {
         break;
       }
-      activeToolEntries.unshift(entry);
+      activeToolEntries.push(entry);
     }
   }
+  activeToolEntries.reverse();
   const visibleActiveToolEntries = activeToolEntries.filter((entry) =>
     workEntryIsVisibleInGroup(entry.entry, true),
   );
