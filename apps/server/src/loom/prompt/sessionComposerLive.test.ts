@@ -4,8 +4,7 @@
  * output, the write-once launch identity, first-launch fork replay and the drafter
  * exceptions to it, the child
  * readership clause, cache retention, the extension path and the relocation
- * clause; a goal-less root's first launch joining its emergent goal, and the once-per-change
- * goal notice for a goal that differs from the frozen prompt's.
+ * clause; and the once-per-change goal notice for a goal that differs from the frozen prompt's.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -42,7 +41,6 @@ import * as ServerSettings from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
 import { loomPaths } from "../loomPaths.ts";
-import * as EmergentGoalGate from "../orchestration/emergentGoalGate.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
 import {
   completeSeededRun,
@@ -70,12 +68,7 @@ const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
 const STUB_SESSION_CWD = "/workspace/loom-test";
 
 const composerDeps = (rootCacheLongShare: number) =>
-  Layer.mergeAll(
-    ProjectionStore.layer,
-    ProjectStore.layer,
-    LoomExtensionPathLive,
-    EmergentGoalGate.layer,
-  ).pipe(
+  Layer.mergeAll(ProjectionStore.layer, ProjectStore.layer, LoomExtensionPathLive).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-composer-" })),
     Layer.provideMerge(ServerSettings.layerTest({ rootCacheLongShare })),
     Layer.provideMerge(NodeServices.layer),
@@ -526,25 +519,6 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
     ),
   );
 
-  it.effect("waits on a goal-less root's first launch for its emergent goal", () =>
-    withComposer(0, (composer) =>
-      Effect.gen(function* () {
-        const { threadId, projectId } = yield* seedRoot("emergent", tempCheckout());
-        const goal = yield* addGoal(projectId, "emergent-first");
-        const context = yield* Effect.context<Orchestrator.OrchestratorV2>();
-        yield* (yield* EmergentGoalGate.EmergentGoalGate).bind((id) =>
-          setGoal(id, goal.id, "emergent").pipe(
-            Effect.provideContext(context),
-            Effect.orDie,
-            Effect.asVoid,
-          ),
-        );
-        const { appendSystemPrompt } = yield* composer.compose(threadId);
-        assert.include(appendSystemPrompt, `Active goal \`${goal.id}\``);
-      }),
-    ),
-  );
-
   it.effect("tells the agent once when its goal differs from its frozen prompt's", () =>
     withComposer(0, (composer) =>
       Effect.gen(function* () {
@@ -559,7 +533,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
 
         yield* setGoal(threadId, second.id, "second");
         const notice = (yield* composer.goalNotice(threadId, run(2)))!;
-        assert.include(notice, "has changed since your system prompt was written");
+        assert.include(notice, "goal has changed since your system prompt was written");
         assert.include(notice, `Active goal \`${second.id}\``);
         // Once per change; a retry of the run that carried it repeats it.
         assert.isNull(yield* composer.goalNotice(threadId, run(3)));
@@ -590,10 +564,9 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.isNull(yield* composer.goalNotice(threadId, RunId.make("run:late:1")));
         const goal = yield* addGoal(projectId, "late-goal");
         yield* setGoal(threadId, goal.id, "late");
-        assert.include(
-          (yield* composer.goalNotice(threadId, RunId.make("run:late:2")))!,
-          `Active goal \`${goal.id}\``,
-        );
+        const notice = (yield* composer.goalNotice(threadId, RunId.make("run:late:2")))!;
+        assert.include(notice, "This thread now has a goal");
+        assert.include(notice, `Active goal \`${goal.id}\``);
       }),
     ),
   );

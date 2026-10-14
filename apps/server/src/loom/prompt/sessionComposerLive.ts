@@ -18,9 +18,8 @@
  * arm for life, and, per launch, the agent git identity, whose shim directory rides
  * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
- * A goal-less root's first compose waits, bounded, for its emergent goal; a goal that differs
- * from the frozen identity's later reaches the agent as a turn notice (`goalNotice`), never as a
- * prompt rewrite.
+ * A goal that differs from the frozen identity's (a re-goal, or the emergent goal landing after
+ * the first launch) reaches the agent as a turn notice (`goalNotice`), never as a prompt rewrite.
  *
  * @module loom/prompt/sessionComposerLive
  */
@@ -62,7 +61,6 @@ import {
   readLaunchIdentity,
   writeLaunchIdentity,
 } from "../workstream/launchIdentity.ts";
-import * as EmergentGoalGate from "../orchestration/emergentGoalGate.ts";
 import { goalChangeNotice, goalContextInstruction, promptGoalId } from "./goalContext.ts";
 import {
   CHILD_READERSHIP_CLAUSE,
@@ -87,15 +85,6 @@ export const LOOM_HIDDEN_TOOLS_ENV = {
   ),
 };
 
-/**
- * How long a goal-less root's first launch waits for its emergent goal (`EmergentGoalGate`) so
- * the goal lands in the launch identity. The derivation takes about 7 s from the user's message
- * (11.5 s at most across 43 recorded ones); worktree preparation overlaps part of it. Past the
- * cap a stuck generation would only hold up the first turn (and an effect-worker slot); its goal
- * still reaches the agent as a goal-change notice.
- */
-const FIRST_LAUNCH_GOAL_WAIT = "15 seconds";
-
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(
   "LoomForkSourceIdentityMissing",
@@ -114,7 +103,6 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const extensionPath = yield* LoomExtensionPath;
   const identityDir = loomPaths(config).workstreamLaunchIdentityDir;
-  const emergentGoals = yield* EmergentGoalGate.EmergentGoalGate;
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
   const gitShimDir = yield* materializeGitShim(
     (yield* Path.Path).join(config.providerStatusCacheDir, "loom-bin"),
@@ -215,20 +203,9 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         return yield* Effect.fail(
           new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
         );
-      // A goal-less root's first launch waits (bounded) for its emergent goal, then re-reads.
-      const settled =
-        firstLaunch && Option.isNone(source) && (workstream?.goalId ?? null) === null
-          ? yield* emergentGoals
-              .settle(thread.id)
-              .pipe(
-                Effect.timeout(FIRST_LAUNCH_GOAL_WAIT),
-                Effect.ignore({ log: true }),
-                Effect.andThen(loomStore.getWorkstream(thread.id)),
-              )
-          : workstream;
       const record = Option.isSome(source)
         ? source.value
-        : yield* composeIdentity(thread, settled, projectRoot, longShare);
+        : yield* composeIdentity(thread, workstream, projectRoot, longShare);
       yield* writeLaunchIdentity(identityDir, thread.id, record);
       return record;
     });
@@ -303,7 +280,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         goalNotice: { goalId: goal?.id ?? null, runId },
       });
       const { thread } = yield* projections.getThreadRecords(threadId, []);
-      return goalChangeNotice(goal, {
+      return goalChangeNotice(goal, seenGoalId !== null, {
         asChildBackground: thread.lineage.relationshipToParent === "subagent",
         anchorTaskId: workstream?.anchorTaskId ?? null,
       });
@@ -326,7 +303,6 @@ export const LoomSessionComposerRealLive = Layer.effect(
       ProjectStore.layer,
       LoomStore.layer,
       LoomExtensionPathLive,
-      EmergentGoalGate.layer,
     ),
   ),
 );

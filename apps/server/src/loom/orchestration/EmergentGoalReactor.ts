@@ -8,9 +8,7 @@
  * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
  * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
  * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
- * first turn can lay out its plan. Run 1's derivation is shared with the session composer
- * through `EmergentGoalGate`, which waits for it before freezing the launch identity.
- * Workstream children never derive one (they inherit the parent's goal), and a goal set
+ * first turn can lay out its plan. Workstream children never derive one (they inherit the parent's goal), and a goal set
  * while the generation runs wins: the derivation re-checks before writing, and the
  * orchestrator drops an emergent `thread.goal.set` on a thread that already has a goal.
  *
@@ -47,7 +45,6 @@ import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTi
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { makePiOneShot } from "../textGeneration/piOneShot.ts";
-import { EmergentGoalGate } from "./emergentGoalGate.ts";
 
 const GENERATION_TIMEOUT = "180 seconds";
 const MAX_EMERGENT_GOAL_RUNS = 2;
@@ -186,28 +183,27 @@ export const EmergentGoalsLive = Layer.effect(
       OrchestratorV2 | LoomStoreV2 | LoomGoalBroadcast | EmergentGoalGenerator
     >();
     const threadLocks = yield* KeyedLock.make<ThreadId>();
-    const derive = (input: { readonly threadId: ThreadId; readonly force: boolean }) =>
-      threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
+    return {
+      derive: (input) =>
+        threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
+          ),
+          Effect.provideContext(services),
         ),
-        Effect.provideContext(services),
-      );
-    yield* (yield* EmergentGoalGate).bind((threadId) => derive({ threadId, force: false }));
-    return { derive };
+    };
   }),
 );
 
 /**
  * Started post-activation: each of a goal-less root's first two runs is tried once per
  * process, at its creation (the user's message), forked so a generation never holds up
- * the event stream. Run 1 goes through the gate the session composer joins.
+ * the event stream.
  */
 export const EmergentGoalReactorLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
     const emergentGoals = yield* EmergentGoals;
-    const gate = yield* EmergentGoalGate;
     const scope = yield* Effect.scope;
     const attempted = new Set<RunId>();
     yield* forkParked(
@@ -220,11 +216,9 @@ export const EmergentGoalReactorLive = Layer.effectDiscard(
           return Effect.void;
         }
         attempted.add(event.payload.id);
-        return (
-          event.payload.ordinal > 1
-            ? emergentGoals.derive({ threadId: event.threadId, force: true })
-            : gate.settle(event.threadId)
-        ).pipe(Effect.forkIn(scope), Effect.asVoid);
+        return emergentGoals
+          .derive({ threadId: event.threadId, force: event.payload.ordinal > 1 })
+          .pipe(Effect.forkIn(scope), Effect.asVoid);
       }),
     );
   }),

@@ -3,8 +3,7 @@
  * goal-less root gets `goal:emergent:<threadId>` (published, attached under
  * `server:loom:emergent-goal:<threadId>`) once; run 1 needs a confident answer,
  * a forced derivation (run 2, or a goal tool) takes the best guess; a child never derives one;
- * a goal set while the generation runs is never overwritten; run 1's derivation is shared
- * through the gate the session composer joins.
+ * a goal set while the generation runs is never overwritten.
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
@@ -29,9 +28,7 @@ import {
   EmergentGoalGenerator,
   emergentGoalCommandId,
   emergentGoalId,
-  EmergentGoalsLive,
 } from "./EmergentGoalReactor.ts";
-import * as EmergentGoalGate from "./emergentGoalGate.ts";
 
 let confidence: "high" | "low" = "high";
 const prompts: Array<string> = [];
@@ -47,10 +44,7 @@ const generatorLayer = Layer.succeed(EmergentGoalGenerator, {
       }),
     ),
 });
-const TestLayer = EmergentGoalsLive.pipe(
-  Layer.provideMerge(
-    Layer.mergeAll(LoomGoalBroadcast.layer, generatorLayer, EmergentGoalGate.layer),
-  ),
+const TestLayer = Layer.mergeAll(LoomGoalBroadcast.layer, generatorLayer).pipe(
   Layer.provideMerge(LoomOrchestratorTestLayer),
 );
 
@@ -162,21 +156,5 @@ it.layer(TestLayer)("Loom emergent goal", (it) => {
         });
         assert.equal((yield* store.getWorkstream(root))!.goalId, chosen.id);
       }),
-  );
-
-  it.effect("shares run 1's derivation between the reactor and the session composer", () =>
-    Effect.gen(function* () {
-      const store = yield* LoomStoreV2;
-      const gate = yield* EmergentGoalGate.EmergentGoalGate;
-      const root = ThreadId.make("emergent-gated-root");
-      yield* seedThread({ threadId: root });
-      yield* talk(root);
-      confidence = "high";
-      const before = prompts.length;
-      yield* Effect.all([gate.settle(root), gate.settle(root)], { concurrency: "unbounded" });
-      yield* gate.settle(root);
-      assert.lengthOf(prompts, before + 1);
-      assert.equal((yield* store.getWorkstream(root))!.goalId, emergentGoalId(root));
-    }),
   );
 });

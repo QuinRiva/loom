@@ -79,8 +79,14 @@ export const promptGoalId = (prompt: string): GoalId | null => {
  */
 export const goalChangeNotice = (
   goal: Parameters<typeof goalContextInstruction>[0] | null,
+  /** The agent was last told of a goal (its prompt's goal block, or an earlier notice). */
+  hadGoal: boolean,
   opts: Parameters<typeof goalContextInstruction>[1],
 ): string =>
   goal === null
     ? `${WORKSTREAM_CONTROL_PLANE_MARKER}\nThis thread no longer belongs to a goal. Disregard the goal block in your system prompt.`
-    : `${WORKSTREAM_CONTROL_PLANE_MARKER}\nThis thread's goal has changed since your system prompt was written. The goal block below replaces any goal named there.\n\n${goalContextInstruction(goal, opts)}`;
+    : `${WORKSTREAM_CONTROL_PLANE_MARKER}\n${
+        hadGoal
+          ? "This thread's goal has changed since your system prompt was written. The goal block below replaces the one there."
+          : "This thread now has a goal, set after your system prompt was written:"
+      }\n\n${goalContextInstruction(goal, opts)}`;

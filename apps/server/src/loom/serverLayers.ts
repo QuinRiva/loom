@@ -40,7 +40,6 @@ import {
   EmergentGoalReactorLive,
   EmergentGoalsLive,
 } from "./orchestration/EmergentGoalReactor.ts";
-import * as EmergentGoalGate from "./orchestration/emergentGoalGate.ts";
 import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
 import * as LoomCacheBroadcast from "./projection/LoomCacheBroadcast.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
@@ -163,9 +162,7 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
  * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
  * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures,
  * the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671),
- * and the model behind `mcp__t3-code__goal_handoff`'s duplicate check. The emergent-goal gate is
- * the session composer's instance (the same layer reference), so its first launch can join run 1's
- * derivation.
+ * and the model behind `mcp__t3-code__goal_handoff`'s duplicate check.
  * Also the writer persisting cache touches from {@link LoomProviderHealthLive}'s broadcast.
  */
 export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
@@ -176,7 +173,6 @@ export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
       LoomThreadConsult.layer,
       LoomCacheBroadcast.touchWriterLive,
       HandoffDuplicateJudgePiLive,
-      EmergentGoalGate.layer,
     ),
   ),
   Layer.provideMerge(LoomStore.layer),
