@@ -89,7 +89,8 @@ Top to bottom (worked versions, for UI and for backend work, are in
    The first screen as a whole (recommendation, bets, cost, what is being
    approved) reads best under about 300 words; past that the reader is into
    the evidence before they hold the answer, so for a plan with several
-   defects or bets, "done" means opens `## 1` and the approval ask stays.
+   defects or bets, the "done" line can open `## 1` while the approval ask
+   stays on the first screen.
 3. **Numbered sections for the approach** — the key decisions with their
    rationale, each as settled prose or a `<Callout tone="decision">` with a
    `<Columns>` weighing the rejected alternative; the `<DataModel>` /

@@ -613,7 +613,8 @@ current/target pair:
 ```
 
 A `<Columns>` of `<Card>`s needs no `<Column>` wrappers: cards are columns, and
-a `<Column label>` around a single headed card shows its title twice. Use
+a `<Column label>` around a single headed card stacks a second heading over
+its own. Use
 `<Column label>` when a side needs a label or holds several blocks (and then use
 it for every side). `columns={3}` caps the row at three across; it still
 collapses on a narrow panel.
