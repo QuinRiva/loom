@@ -38,6 +38,12 @@ files directly; the scanner and the extracts below are the read path (the
 retro that hand-grepped one child instead spent its budget there for two
 weak hits).
 
+The evidence is this run's directory and the source tree. Every other run
+directory under `~/loom-retro/runs/`, `~/loom-retro/proposals/` and
+`INDEX.md` are off-limits until §5, including an earlier run of the same
+tree: your proposals must be independent of earlier retros. The one
+exception is the aggregate table `retro_signal_stats.py` prints (§4).
+
 ### 1.1 Scan the whole tree (free, seconds)
 
 ```
@@ -76,23 +82,37 @@ numbers, and the Tree table carries each full thread id for `--extract` and
 python3 "$SKILL_DIR/scripts/retro_scan.py" --manifest "$RUN/manifest.json" --extract <source root id>
 ```
 
-Writes `$RUN/extract-<id>.md` and prints its path and size: the orchestrator's human
-turns, control notices, assistant prose, thinking and the full arguments of
-every brief-writing call (`workstream_spawn`, `workstream_scaffold`,
-`workstream_brief`, `workstream_prompt`), with other tool results dropped
-except errors. This is the orchestrator's own account of why it shaped the
-graph as it did and what it told each child, at a sixth to a tenth of the
-transcript's size.
+Writes `$RUN/extract-<id>.md` and prints its path and size: the
+orchestrator's human turns, control notices (FYI digests collapsed to their
+per-child header lines), assistant prose, thinking and steers
+(`workstream_prompt`), with other tool results dropped except errors. Each
+brief-writing call (`workstream_spawn`, `workstream_scaffold`,
+`workstream_brief`) is a one-line stub naming the target thread as `#n` and
+the brief's size, because briefs are the bulk of an orchestrator's transcript
+and most are never in question. This is the orchestrator's own account of
+why it shaped the graph as it did.
 
-- Up to about 80k tokens (the printed figure): read it whole.
-- Above that (busy trees reach 130k): index it first and read the ranges
-  the digest points at — the brief-writing calls for every flagged child,
-  and the stretch after each human message and each control notice. The
-  human messages themselves are already in the digest.
+Read it against the size the command printed:
+
+- Up to about 70k tokens: read it whole.
+- Above that: index it, then read the stretch after each human message
+  that corrected or re-scoped (you have already read them all in the
+  digest), the stretch after each non-digest control notice, and the stretch
+  before each flagged child's stub. Skip the rest.
 
   ```
-  grep -n -e '— HUMAN' -e '— CONTROL NOTICE' -e '— `mcp__' "$RUN/extract-<id>.md"
+  grep -n -e '— HUMAN' -e '— CONTROL NOTICE' -e '— `workstream_' "$RUN/extract-<id>.md"
   ```
+
+To see what a child was actually told, pull only its brief-writing calls:
+
+```
+python3 "$SKILL_DIR/scripts/retro_scan.py" --manifest "$RUN/manifest.json" --extract <source root id> --briefs 28,31
+```
+
+Writes `$RUN/briefs-28-31.md` (the scaffold node, brief, spawn and steers
+addressed to those `#n`, in full). Pull briefs only for the children you are
+taking to a proposal, not for every flagged one.
 
 ### 1.3 Triage order
 
@@ -103,9 +123,10 @@ become proposals, which need a child's own account, and which §2 drops:
 2. the structural flags (Outliers, Tool errors, Tool-set gaps);
 3. the orchestrator extract;
 4. the catalogue hits and report tells, each read with its excerpt;
-5. for a flagged child, its report (`reportPath` in the manifest) and, when
-   the report does not explain the flag, its extract
-   (`--extract <child id>`, typically 10–15k tokens);
+5. for a flagged child, its report (`reportPath` in the manifest), its
+   brief (`--briefs <n>`) and, when neither explains the flag, its own
+   extract (`--extract <child id>`; the printed size tells you whether to
+   read it whole by the same rule as above);
 6. one batched consult of the orchestrator (§1.4);
 7. consults of flagged children (§1.4).
 
@@ -229,12 +250,17 @@ recommended verdict. Shape:
 Lint with the release copy, which works from any project:
 
 ```
-node /home/Carl/loom-releases/current/apps/web/scripts/lint-plan.mjs "$RUN/recap.mdx" --out "$RUN/render.html"
+node /home/Carl/loom-releases/current/apps/web/scripts/lint-plan.mjs "$RUN/recap.mdx"
 ```
 
-Fix every error and read each warning; exit 0 is the bar. Then end the turn
-with the recap's absolute path in inline code and ask the human to open and
-triage it in-app. Expect discussion over one or more turns — the human may
+Fix every error and read each warning; exit 0 is the final check — the
+script itself renders the document headlessly and lists the blocks that
+mounted. Do not render, open or screenshot
+the recap yourself, and do not load browser tools to do so: a tool loaded
+mid-run invalidates the cached context (the retro that screenshotted its
+lint-clean recap re-wrote its whole context for the picture, a third of its
+cost). Then end the turn with the recap's absolute path in inline code and
+ask the human to open and triage it in-app. Expect discussion over one or more turns — the human may
 refine wording, contest evidence or drop proposals; update the recap as it
 settles. Triage has settled when the human says so, or when their review
 verdicts cover every item and their last turn raises nothing new; if unsure,
@@ -260,8 +286,8 @@ a **Signal review** section:
      _about_ refusals, _about_ token budgets); give the current pattern,
      the proposed one, and the excerpt that over-fired;
    - a **retirement** — a signal with no useful hit across its runs so far
-     (`python3 "$SKILL_DIR/scripts/retro_signal_stats.py"` shows precision
-     per signal across all runs).
+     (`python3 "$SKILL_DIR/scripts/retro_signal_stats.py"` prints precision
+     per signal across all runs; read that table, not the runs behind it).
 
    A proposed tell quotes at least one excerpt from this run that a human
    would agree was friction; a tell that fires on subject matter is narrowed

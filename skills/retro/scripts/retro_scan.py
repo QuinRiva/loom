@@ -3,8 +3,11 @@
 
   retro_scan.py --manifest <runDir>/manifest.json [--out <dir>]
       → <out>/digest.md + <out>/scan.json  (out defaults to the manifest's directory)
-  retro_scan.py --manifest <runDir>/manifest.json --extract <thread-id> [--out <dir>]
+  retro_scan.py --manifest <runDir>/manifest.json --extract <thread-id> [--briefs 7,28|all] [--out <dir>]
       → <out>/extract-<thread-id>.md  (':' and '/' in the id become '_'; an id prefix is enough)
+        Brief-writing calls (spawn/scaffold/brief) are one-line stubs naming the target thread
+        and the brief's size. With --briefs the output is instead <out>/briefs-<n-n>.md: only the
+        calls addressed to those digest #n threads, in full (scaffold node, brief, spawn, steers).
 
 The manifest is the JSON the /retro launcher writes into the run directory. The signal
 catalogue is ../signals.yaml (PyYAML: the catalogue is edited by people and agents and
@@ -34,17 +37,37 @@ EXCERPT, PER_SIGNAL = 200, 6
 def est_tokens(text):
     """Claude tokens, not chars/4: these id-, path- and markup-dense files measured 2.2–2.5 chars
     a token on a live run (digest 50.7k chars → 23k tokens; extract 293k → 117k)."""
-    return len(text) * 10 // 23
+    return (text if isinstance(text, int) else len(text)) * 10 // 23
 
 
 def text_of(blocks):
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 
 
+def _review_comment(block):
+    """One review-comment context → one line: the passage, its section and the human's comment."""
+    f = lambda k: (re.search(rf"^{k}:(?:\n((?:  .*\n?)+)| (.*))", block, re.M) or [None, "", ""])
+    field = lambda k: " ".join(x.strip() for x in (f(k)[1] or f(k)[2] or "").splitlines()).strip()
+    return f"[review of \u201c{field('quoted passage')}\u201d ({field('section')}): {field('comment')}]"
+
+
+def _citations(block):
+    try:
+        items = json.loads(block)
+    except ValueError:
+        return block
+    return "\n".join(f"[{c['id']}] \u201c{c['citation'].get('text', '')}\u201d" +
+                     (f" \u2014 {c['citation']['comment']}" if c['citation'].get('comment') else "") for c in items)
+
+
 def clean_human(text):
-    """Human text verbatim, minus attachment metadata: images become [image]."""
+    """The human's words verbatim; machine metadata around them compacted: images become [image],
+    review-comment contexts become one line each, citation JSON keeps only each quote and comment."""
     text = re.sub(r"\[Image: [^\]]*\]", "[image]", text)
     text = re.sub(r'<context kind="image"[^>]*>.*?</context>\n?', "", text, flags=re.S)
+    text = re.sub(r"(?:\[Review comment: [^\]]*\] ?){2,}", lambda m: f"[{m.group(0).count('[Review comment')} review comments:]", text)
+    text = re.sub(r'<context kind="review-comment"[^>]*>\n?(.*?)</context>\n?', lambda m: _review_comment(m.group(1)) + "\n", text, flags=re.S)
+    text = re.sub(r"<assistant_citations>\n(?:The following citations[^\n]*\n)?(\[.*?\])\n</assistant_citations>", lambda m: _citations(m.group(1)), text, flags=re.S)
     return re.sub(r"\n*<t3_context version=\"1\">\s*</t3_context>", "", text).strip()
 
 
@@ -61,7 +84,7 @@ def notice_kind(text):
 def parse_session(path, root):
     """One pass over a pi session jsonl; everything later sections need, nothing kept from tool results but errors."""
     s = dict(turns=0, calls=0, cost=0.0, ctx=0, image=0, tools=set(), errors=[], users=[], texts=[], events=[],
-             first=None, last=None)
+             spawned={}, first=None, last=None)
     seen = Counter()
     for line in open(path, encoding="utf-8"):
         e = json.loads(line)
@@ -97,12 +120,16 @@ def parse_session(path, root):
                 elif b.get("type") == "toolCall":
                     s["calls"] += 1
                     seen[(b.get("name"), json.dumps(b.get("arguments"), sort_keys=True))] += 1
-                    s["events"].append(("call", ts, (b.get("name") or "", b.get("arguments"))))
+                    s["events"].append(("call", ts, (b.get("name") or "", b.get("arguments"), b.get("id"))))
         elif role == "toolResult" and m.get("isError"):
             text = text_of(blocks)
             s["errors"].append((m.get("toolName") or "?", ts, text))
             s["texts"].append(("tool_error", ts, text))
             s["events"].append(("error", ts, (m.get("toolName") or "?", text)))
+        elif role == "toolResult" and (m.get("toolName") or "").endswith(("workstream_scaffold", "workstream_spawn")):
+            # "key → thread:…" pairs (scaffold) or the spawned id: what each later brief call targets
+            s["spawned"][m.get("toolCallId")] = dict(re.findall(r"(\S+) \u2192 (thread:[\w-]+(?::[\w-]+)*)", text_of(blocks))) or \
+                {"*": next(iter(re.findall(r"sub-thread (thread:[\w-]+(?::[\w-]+)*)", text_of(blocks))), None)}
     s["repeated"] = sum(n - 1 for n in seen.values())
     return s
 
@@ -324,11 +351,29 @@ def render_args(v, indent=""):
     return "\n".join(f"{indent}  {l}" for l in str(v).splitlines())
 
 
-def extract(manifest, tid, out):
-    t = next((x for x in manifest["threads"] if x["id"] == tid), None) or next(x for x in manifest["threads"] if x["id"].startswith(tid))
+def collapse_digest(text, label):
+    """An FYI digest keeps its per-child header lines (who, outcome, released) and drops the report
+    excerpts: the child's words are in its report file (reportPath in the manifest), read for flagged threads."""
+    keep = ["FYI digest:"] + [l for l in text.splitlines() if l.startswith(("### ", "_20"))]
+    return relabel("\n".join(keep), label)
+
+
+def relabel(text, label):
+    """Thread ids → their digest `#n title` labels, so notices and stubs read as the tree."""
+    return re.sub(r"`?(thread:[\w-]+(?::[\w-]+)*)`?", lambda m: label.get(m.group(1), m.group(0)), text)
+
+
+def extract(manifest, tid, out, briefs=""):
+    threads = manifest["threads"]
+    t = next((x for x in threads if x["id"] == tid), None) or next(x for x in threads if x["id"].startswith(tid))
     if not (t.get("sessionPath") and Path(t["sessionPath"]).exists()):
         raise SystemExit(f"{t['id']} has no session file (never launched?)")
     s = parse_session(t["sessionPath"], t.get("parentId") is None)
+    num = {x["id"]: i for i, x in enumerate(threads, 1)}
+    label = {x["id"]: f"#{num[x['id']]} \u201c{one_line(x.get('title') or x['id'], 48)}\u201d" for x in threads}
+    full = set(num.values()) if briefs == "all" else {int(n) for n in briefs.split(",") if n.strip()}
+    by_title = {x.get("title"): x["id"] for x in threads}
+    keys = {}  # scaffold node key → thread id, as the results arrive
     L = [f"# Extract: {t.get('title')}", "", f"`{t['id']}` · {t.get('role') or 'orchestrator'} · {t.get('model')} · session `{t['sessionPath']}`", ""]
     pending = Counter()
 
@@ -336,25 +381,59 @@ def extract(manifest, tid, out):
         if pending:
             L.append("_[tools: " + ", ".join(f"{n} ×{c}" if c > 1 else n for n, c in pending.items()) + "]_\n")
             pending.clear()
+
+    def targets(name, args, call_id):
+        """Thread ids a brief-writing call addresses, from the spawn/scaffold results (title as a fallback)."""
+        spawned = s["spawned"].get(call_id, {})
+        if name.endswith("workstream_scaffold"):
+            keys.update(spawned)
+            return [spawned.get(n.get("key")) or by_title.get(n.get("title")) for n in args.get("nodes", [])]
+        if name.endswith("workstream_spawn"):
+            return [spawned.get("*") or by_title.get(args.get("title"))]
+        if name.endswith("workstream_brief"):
+            return [keys.get(args.get("node"))]
+        ref = args.get("threadId") or ""
+        return [next((i for i in num if i == ref or i.endswith(ref)), None)]
+
     for kind, ts, x in s["events"]:
         if kind == "call" and not x[0].endswith(BRIEF_TOOLS):
             pending[x[0].removeprefix("mcp__t3-code__")] += 1
+            continue
+        if kind == "call":
+            name, args, call_id = x
+            args = args if isinstance(args, (dict, list)) else {"arguments": args}
+            tids = [i for i in targets(name, args, call_id) if i in num] if isinstance(args, dict) else []
+            head = f"### {ts} — `{name.removeprefix('mcp__t3-code__')}` → " + (", ".join(label[i] for i in tids) or "?")
+            if full:
+                if any(num[i] in full for i in tids):
+                    L += [head, "", render_args(args), ""]
+                continue
+            flush()
+            # steers are short and are themselves a signal; briefs are stubbed to their target and size
+            if name.endswith("workstream_prompt") or not tids:
+                L += [head, "", render_args(args), ""]
+            else:
+                size = len(json.dumps(args))
+                L += [head + f" — {size:,} chars (~{est_tokens(size):,} tokens); `--briefs {','.join(str(num[i]) for i in tids)}` for the full text", ""]
+            continue
+        if full:
             continue
         flush()
         if kind == "user":
             who = user_kind(x, t.get("parentId") is None)
             L += [f"## {ts} — {'HUMAN' if who == 'human' else 'CONTROL NOTICE' if who == 'control' else 'AGENT MESSAGE'}", "",
-                  clean_human(x) if who == "human" else x, ""]
+                  clean_human(x) if who == "human" else collapse_digest(x, label) if who == "control" and notice_kind(x) == "digest" else relabel(x, label) if who == "control" else x, ""]
         elif kind == "thinking":
             L += [f"_thinking {ts}_", "", *[f"> {l}" if l else ">" for l in x.strip().splitlines()], ""]
         elif kind == "assistant":
             L += [f"**assistant {ts}**", "", x.strip(), ""]
-        elif kind == "call":
-            L += [f"### {ts} — `{x[0]}`", "", render_args(x[1] if isinstance(x[1], (dict, list)) else {"arguments": x[1]}), ""]
         elif kind == "error":
             L += [f"_tool error {ts} — `{x[0]}`:_", "", "```", x[1][:1500], "```", ""]
     flush()
-    path = out / f"extract-{re.sub(r'[:/]', '_', t['id'])}.md"
+    stem = re.sub(r"[:/]", "_", t["id"])
+    path = out / (f"briefs-{briefs.replace(',', '-')}.md" if full else f"extract-{stem}.md")
+    if full:
+        L = [f"# Briefs, steers and spawn calls from {t.get('title')} to #{briefs}", ""] + L[4:]
     path.write_text(text := "\n".join(L) + "\n")
     print(f"{path}: {len(text):,} chars (~{est_tokens(text):,} tokens)")
 
@@ -364,11 +443,12 @@ def main():
     ap.add_argument("--manifest", required=True, type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--extract", metavar="THREAD_ID")
+    ap.add_argument("--briefs", default="", metavar="N,N|all", help="with --extract: write only the brief-writing calls addressed to these digest #n threads, in full")
     a = ap.parse_args()
     manifest = json.loads(a.manifest.read_text())
     out = a.out or a.manifest.parent
     out.mkdir(parents=True, exist_ok=True)
-    extract(manifest, a.extract, out) if a.extract else scan(manifest, out)
+    extract(manifest, a.extract, out, a.briefs) if a.extract else scan(manifest, out)
 
 
 if __name__ == "__main__":
