@@ -5,7 +5,7 @@
  * anchored moment is loaded, unfolds the turn and opens the tool group that
  * hold it, scrolls the row at or before that instant into view and flashes it
  * once. A dispatch's anchor is the child's creation, inside the parent's
- * spawn call.
+ * spawn call; a consult's is its record, landing on the consult card.
  *
  * @module loom/conversationJump
  */
@@ -19,6 +19,7 @@ import type { MessagesTimelineRow } from "../components/chat/MessagesTimeline.lo
 import type { MessagesTimelineHistoryControls } from "../components/chat/MessagesTimeline";
 import type { ConversationAnchor } from "../lib/workstreamPresentation";
 import type { TimelineEntry } from "../session-logic";
+import { isConsultToolItem } from "./consultTool";
 
 /** Matches the citation navigator's bound on how far back a jump pages. */
 const MAX_HISTORY_PAGES = 20;
@@ -77,8 +78,15 @@ export function useConversationJump({
     if (request === null || request.threadId !== threadId || entries.length === 0) return;
     if (tried.current.request !== request)
       tried.current = { request, pages: new Set(), opened: new Set() };
-    const { at } = request;
-    const target = entries.findLast((entry) => entry.createdAt <= at);
+    const { at, consult } = request;
+    // A consult anchor lands on the consult card itself, not on whatever row
+    // ran alongside it, and pages back until that card is loaded.
+    const atOrBefore = (entry: TimelineEntry | MessagesTimelineRow) =>
+      entry.createdAt !== null && entry.createdAt <= at;
+    const isTarget = (entry: TimelineEntry | MessagesTimelineRow) =>
+      atOrBefore(entry) &&
+      (!consult || (entry.kind === "event" && isConsultToolItem(entry.projectedItem.item)));
+    const target = entries.findLast(isTarget);
     if (target === undefined && history?.hasMoreHistory) {
       if (history.loading) return;
       const cursor = entries[0]?.id ?? "";
@@ -88,8 +96,12 @@ export function useConversationJump({
         return;
       }
     }
-    const runId = target === undefined ? null : entryRunId(target);
+    const landing = target ?? entries.findLast(atOrBefore);
+    const runId = landing === undefined ? null : entryRunId(landing);
+    const targetIndex = rows.findLastIndex(isTarget);
+    // A consult card never folds into its turn, so a shown one needs no unfold.
     if (
+      !(consult && targetIndex >= 0) &&
       runId !== null &&
       !tried.current.opened.has(runId) &&
       rows.some((row) => row.kind === "turn-fold" && row.runId === runId && !row.expanded)
@@ -98,10 +110,7 @@ export function useConversationJump({
       onExpandRun(runId);
       return;
     }
-    const index = Math.max(
-      0,
-      rows.findLastIndex((row) => row.createdAt !== null && row.createdAt <= at),
-    );
+    const index = Math.max(0, targetIndex >= 0 ? targetIndex : rows.findLastIndex(atOrBefore));
     const row = rows[index]!;
     // A collapsed tool group opens, so the very call shows.
     if (row.kind === "work-toggle" && !row.expanded && !tried.current.opened.has(row.groupId)) {

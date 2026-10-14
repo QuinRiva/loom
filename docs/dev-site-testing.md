@@ -50,7 +50,10 @@ gated coder/reviewer pair mid-round (the reviewer looped findings, the coder
 holds rework round 1); a quiescent researcher (synthesised report, attention
 `awaiting_orchestrator`) with a blocked dependent; an unbriefed child; a
 cancelled lead with its own cancelled grandchild; a root holding a stored
-`needs_guidance`; and a staged (`held`) root with a kickoff brief. The root
+`needs_guidance`; and a staged (`held`) root with a kickoff brief. The done
+coder consults the root and the out-of-graph `needs_guidance` root (the card's
+consult badge) and the researcher consults the coder (a consult edge), each a
+consult card mid-thread for the graph's click-through to land on. The root
 carries one control card of each seam-6 kind (a digest with every item kind, a
 synthesised yield, one notice per notice kind). Turns run against an in-process
 stub adapter, so every started thread has real checkpoint refs (the Diff

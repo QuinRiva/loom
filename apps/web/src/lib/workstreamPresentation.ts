@@ -566,6 +566,9 @@ export function buildNodeContextMenuItems(
 export interface ConversationAnchor {
   readonly threadId: ThreadId;
   readonly at: string;
+  /** Land on the latest `consult_thread` card at or before `at` (a consult is
+   * recorded when it answers, so `at` trails the card's start). */
+  readonly consult?: true;
 }
 
 export interface TimelineRow {

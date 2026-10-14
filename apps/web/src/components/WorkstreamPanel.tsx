@@ -185,6 +185,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
                     rollupOf={rollupOf}
                     titleOf={titleOf}
                     onOpenThread={onOpenThread}
+                    onJump={onJump}
                     onOpenTimeline={(member) => setTimelineId(member.id)}
                     onNodeContextMenu={(member, position) =>
                       void onNodeContextMenu(member, position)
