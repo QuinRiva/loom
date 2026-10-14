@@ -10,8 +10,7 @@ import {
   childrenOf,
   descendantsOf,
   type GateNode,
-  graphViewFor,
-  type GraphViewThread,
+  type GraphThread,
   holdErasedByCompletion,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
@@ -26,22 +25,14 @@ import {
 const tid = (id: string) => id as ThreadId;
 
 const node = (
-  overrides: Omit<Partial<GraphViewThread>, "id"> & { readonly id: string },
-): GraphViewThread => ({
+  overrides: Omit<Partial<GraphThread>, "id"> & { readonly id: string },
+): GraphThread => ({
   parentThreadId: null,
   spawnGeneration: null,
   outcome: null,
-  held: false,
-  kickoffAt: null,
   attention: [],
   role: null,
   title: null,
-  purpose: null,
-  graphKey: null,
-  reportPath: null,
-  blockedBy: [],
-  lastActivityAt: null,
-  lastActivitySummary: null,
   ...overrides,
   id: tid(overrides.id),
 });
@@ -179,102 +170,6 @@ describe("isTerminalForJoin", () => {
 
   it("does NOT treat an open, unflagged node as terminal", () => {
     expect(isTerminalForJoin(joinNode({}))).toBe(false);
-  });
-});
-
-describe("graphViewFor", () => {
-  it("returns the caller's whole tree from any member, with lineage + report flags", () => {
-    const withReport = [
-      node({ id: "root-a", role: "orchestrator", title: "Root" }),
-      node({
-        id: "child-1",
-        parentThreadId: tid("root-a"),
-        role: "coder",
-        reportPath: "child-1.md",
-      }),
-      node({ id: "child-2", parentThreadId: tid("root-a"), role: "reviewer" }),
-      node({ id: "grandchild", parentThreadId: tid("child-2") }),
-      node({ id: "root-b" }),
-      node({ id: "other", parentThreadId: tid("root-b") }),
-    ];
-    // Called from a child, it still returns the full tree (discovery for siblings).
-    const view = graphViewFor(tid("child-1"), withReport);
-    expect(view.rootId).toBe("root-a");
-    expect(view.nodes.map((n) => n.id).sort()).toEqual([
-      "child-1",
-      "child-2",
-      "grandchild",
-      "root-a",
-    ]);
-    // Out-of-tree threads are excluded.
-    expect(view.nodes.some((n) => n.id === "other")).toBe(false);
-    expect(view.nodes.find((n) => n.id === "child-1")?.hasReport).toBe(true);
-    expect(view.nodes.find((n) => n.id === "child-2")?.hasReport).toBe(false);
-    // Scaffold shape-review fields are projected through to the node.
-    const scaffolded = graphViewFor(tid("root-a"), [
-      node({ id: "root-a", role: "orchestrator" }),
-      node({
-        id: "child-1",
-        parentThreadId: tid("root-a"),
-        graphKey: "api",
-        purpose: "Adds the merge endpoint.",
-      }),
-    ]).nodes.find((n) => n.id === "child-1");
-    expect(scaffolded?.graphKey).toBe("api");
-    expect(scaffolded?.purpose).toBe("Adds the merge endpoint.");
-    expect(view.lineageEdges).toContainEqual({ from: tid("root-a"), to: tid("child-1") });
-    expect(view.lineageEdges).toContainEqual({ from: tid("child-2"), to: tid("grandchild") });
-  });
-
-  it("emits waits-on edges only for in-tree dependencies", () => {
-    const withDeps = [
-      node({ id: "root-a" }),
-      node({ id: "coder", parentThreadId: tid("root-a") }),
-      node({
-        id: "reviewer",
-        parentThreadId: tid("root-a"),
-        blockedBy: [tid("coder"), tid("ghost")],
-      }),
-    ];
-    const view = graphViewFor(tid("reviewer"), withDeps);
-    expect(view.waitsOnEdges).toEqual([{ from: tid("reviewer"), to: tid("coder") }]);
-  });
-
-  it("widens scope across fork provenance: a parentless fork root sees its source's tree", () => {
-    const withFork = [
-      node({ id: "root-a", role: "orchestrator" }),
-      node({ id: "child-1", parentThreadId: tid("root-a"), role: "coder" }),
-      node({ id: "retro", role: "retro-reviewer", forkFromThreadId: tid("root-a") }),
-      node({ id: "root-b" }),
-    ];
-    // Called from the fork, the view is rooted at the SOURCE's root and includes
-    // the whole source tree plus the fork itself.
-    const view = graphViewFor(tid("retro"), withFork);
-    expect(view.rootId).toBe("root-a");
-    expect(view.nodes.map((n) => n.id).sort()).toEqual(["child-1", "retro", "root-a"]);
-    // The fork stays a ROOT in the emitted shape — no lineage edge to it.
-    expect(view.nodes.find((n) => n.id === "retro")?.parentThreadId).toBeNull();
-    expect(view.lineageEdges.some((e) => e.to === tid("retro"))).toBe(false);
-    // And the source tree sees the fork symmetrically.
-    const fromSource = graphViewFor(tid("child-1"), withFork);
-    expect(fromSource.nodes.some((n) => n.id === "retro")).toBe(true);
-  });
-
-  it("forked-from-a-child fork joins that child's whole tree", () => {
-    const withFork = [
-      node({ id: "root-a" }),
-      node({ id: "child-1", parentThreadId: tid("root-a") }),
-      node({ id: "fork", forkFromThreadId: tid("child-1") }),
-    ];
-    const view = graphViewFor(tid("fork"), withFork);
-    expect(view.rootId).toBe("root-a");
-    expect(view.nodes.map((n) => n.id).sort()).toEqual(["child-1", "fork", "root-a"]);
-  });
-
-  it("ignores a dangling fork source (fork stays its own root)", () => {
-    const view = graphViewFor(tid("fork"), [node({ id: "fork", forkFromThreadId: tid("gone") })]);
-    expect(view.rootId).toBe("fork");
-    expect(view.nodes.map((n) => n.id)).toEqual(["fork"]);
   });
 });
 

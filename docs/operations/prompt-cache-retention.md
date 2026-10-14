@@ -19,9 +19,9 @@ Hand-edit the file; the server watches it, so no restart and no code change.
 Children are always 5-minute.
 
 A **root** is a thread with no parent (`parent_thread_id IS NULL`). That includes
-`mcp__t3-code__thread_fork` forks, goal handoff/continue successors, and the `/handoff` and
-`/retro` fork threads. Pi text generation (titles, commit messages) and every child are
-always short. The read-only `mcp__t3-code__consult_thread` fork is launched like its target
+`mcp__t3-code__thread_fork` forks, goal handoff/continue successors, `/handoff` fork
+threads and `/retro` reviewers. Pi text generation (titles, commit messages) and every child
+are always short. The read-only `mcp__t3-code__consult_thread` fork is launched like its target
 (same tools, prompt and extensions), so it reads the target's warm cache on either arm while
 its own throwaway writes stay on the short arm.
 

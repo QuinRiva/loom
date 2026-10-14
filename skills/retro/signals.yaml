@@ -1,0 +1,164 @@
+# Retro signal catalogue — read by scripts/retro_scan.py.
+#
+# kind:    structural (a named check over session/manifest data) | phrase (a regex)
+# scope:   phrase signals: thinking | assistant | report | tool_error
+#          structural signals: session | manifest
+# pattern: phrase signals only — a Python regex, matched case-insensitively
+# check:   structural signals only — the named check in retro_scan.py; params tune it
+# status:  seed | promoted | retired — retired entries are never scanned; they stay
+#          here so no future retro re-adds them
+# origin:  which retro (or design pass) added or last changed the entry
+#
+# Hit counts live in each run's scan.json, never here (see retro_signal_stats.py).
+
+signals:
+  # ── structural: free, precise, see what the parent cannot ──────────────────
+  - id: tool-error
+    kind: structural
+    scope: session
+    check: tool_error
+    params: { outlier_min: 5 }
+    why: Tool calls that failed — environment, permission or capability friction the child may never report. Grouped by normalised signature in the digest; a thread with outlier_min or more is an outlier.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: repeated-call
+    kind: structural
+    scope: session
+    check: repeated_call
+    params: { outlier_min: 10 }
+    why: Identical tool name + arguments issued more than once — a thread fighting a tool or polling. Counts calls minus distinct (name, args) pairs.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: turn-outlier
+    kind: structural
+    scope: session
+    check: turn_outlier
+    params: { factor: 2, min_role_size: 3 }
+    why: Turns or cost above factor × the median for the role (roles with at least min_role_size threads) or for the whole tree — work that was harder, or went worse, than its peers.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: control-decision
+    kind: structural
+    scope: manifest
+    check: control_decision
+    why: A yield, hold, rework round, wedge/error/deadlock notice or synthesised report — the control plane had to intervene. Taken from the manifest's last decision plus the control-plane notices the parent received.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: missing-tool
+    kind: structural
+    scope: session
+    check: missing_tool
+    params: { roles: [coder, assessor, reviewer], tools: [bash, edit] }
+    why: A thread launched without a tool its role needs to verify its own work (e.g. an assessor that cannot run lint).
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  # ── phrase: first-person, tool-facing tells; grow by evidence only ─────────
+  - id: admits-mistake
+    kind: phrase
+    scope: thinking
+    pattern: '\bI (?:reali[sz]e|notice)d?,? (?:that )?(?:I|my)\b[^.\n]{0,80}?\b(?:mistake|wrong|accidentally|misread|forgot)|\bmy mistake\b|\bI (?:made a mistake|accidentally|misread)\b'
+    why: The agent caught itself in an error — what tripped it is often a guidance or tooling gap. The object must be the agent ("I realize I…", "my…"); "I notice the deed cites the wrong lease" is subject matter.
+    origin: retro-redesign design scan (2026-10); narrowed to first-person objects by the scanner build (4 of 5 hits on a lease-review tree were subject matter)
+    status: seed
+
+  - id: tool-unavailable
+    kind: phrase
+    scope: thinking
+    pattern: '\b(?:don''t|do not) have (?:a |an |any )?(?:bash|shell|edit|execution|browser) ?(?:tool|access)|\bno (?:bash|shell|edit|execution|browser) (?:tool|access)\b|\bI can''t run\b'
+    why: The thread lacked a capability its task needed. The looser "I can't" over-fires and is excluded.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: tool-puzzlement
+    kind: phrase
+    scope: thinking
+    pattern: '(?:\bpuzzl\w*|\bit(?:''s| is) (?:strange|odd|weird)|\bunexpectedly)[^.\n]{0,120}?\b(?:bash|read tool|edit tool|rg|tool|browser|screenshot|command|consult|submit|workstream_\w+)\b'
+    why: The agent found a tool behaving inconsistently (e.g. bash and Read seeing different /tmp). Requires a tool named after the puzzlement; unqualified "odd" fires on CSS.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: deferred-not-fixed
+    kind: phrase
+    scope: thinking
+    pattern: '\b(?:flag|note|mention) (?:it|this|that) in (?:the|my) report\b|\brather than fix(?:ing)? it\b'
+    why: A scope decision to report rather than fix — worth checking whether the issue was ever picked up.
+    origin: retro-redesign design scan (2026-10); "out of scope here" dropped by the scanner build (reviewers use it to bound their review, 21 hits in 15 threads on the Pull 9 tree)
+    status: seed
+
+  - id: brief-mismatch
+    kind: phrase
+    scope: thinking
+    pattern: '\b(?:even though|although|though|but|while) (?:the|my) brief (?:says|said|asks|asked|assumes|assumed|claims|claimed)\b|\b(?:the|my) brief (?:says|said|assumes|assumed|claims|claimed)\b[^.\n]{0,100}?\b(?:but|however|yet|wrong|stale|doesn''t|does not|isn''t|no longer|actually)\b|\b(?:the|my) brief (?:is|was) (?:wrong|stale|mistaken|outdated)\b|\bcontrary to the brief\b|\bbrief error\b'
+    why: The child found its brief wrong, stale or in tension with the code or other guidance — the brief-quality signal. Requires a contrast word near "the brief says"; the bare form was mostly restatements ("since the brief says not to commit").
+    origin: retro-redesign design scan (2026-10); narrowed by the scanner build after 11 hits on the HTML-vs-MDX tree were mostly restatements
+    status: seed
+
+  - id: call-refused
+    kind: phrase
+    scope: tool_error
+    pattern: '^Refused:|\bno route matched\b|\bmatched no route\b'
+    why: The control plane refused a call (e.g. a submit refused for an attention flag the thread never raised). Precise because it is scoped to error results.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  - id: report-departure
+    kind: phrase
+    scope: report
+    pattern: '\bdepart(?:ed|ure|ing) from (?:the |your |my )?brief\b|\b(?:could not|couldn''t|unable to|did not|didn''t) (?:verify|run|test)\b|\blimitation\b|\bblocked (?:by|on)\b'
+    why: A report admitting a departure from the brief, an unverified claim or a blocker — a place the parent may have read past.
+    origin: retro-redesign design scan (2026-10)
+    status: seed
+
+  # ── retired: over-fire on subject matter or planning language ──────────────
+  - id: bare-wait
+    kind: phrase
+    scope: thinking
+    pattern: '\bwait\b'
+    why: Planning filler; fires hundreds of times per tree.
+    origin: retro-redesign design scan (2026-10)
+    status: retired
+
+  - id: bare-actually
+    kind: phrase
+    scope: thinking
+    pattern: '\bactually\b'
+    why: Planning filler; part of the 900-hit should/actually/instead set.
+    origin: retro-redesign design scan (2026-10)
+    status: retired
+
+  - id: should-have
+    kind: phrase
+    scope: thinking
+    pattern: '\bshould have\b'
+    why: Mostly hypotheticals about the code under work, not self-correction.
+    origin: retro-redesign design scan (2026-10)
+    status: retired
+
+  - id: bare-instead
+    kind: phrase
+    scope: thinking
+    pattern: '\binstead\b'
+    why: Ordinary design-choice language; no friction signal.
+    origin: retro-redesign design scan (2026-10)
+    status: retired
+
+  - id: refus-anywhere
+    kind: phrase
+    scope: thinking
+    pattern: "refus"
+    why: Fired 19 times in one thread whose subject was Loom's refusal semantics. Kept only as call-refused, scoped to tool errors.
+    origin: retro-redesign design scan (2026-10)
+    status: retired
+
+  - id: context-tokens
+    kind: phrase
+    scope: thinking
+    pattern: '\b(?:context|tokens)\b'
+    why: Fires on any thread about context budgets or token costs; subject matter, not friction.
+    origin: retro-redesign design scan (2026-10)
+    status: retired

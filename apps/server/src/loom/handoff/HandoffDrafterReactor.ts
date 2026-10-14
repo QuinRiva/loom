@@ -13,9 +13,9 @@
  *   thread the human typed `/handoff` in) when it has a live Loom row, else on the
  *   drafter, which then stays visible as the recovery surface.
  *
- * It also launches a drafter or `/retro` reviewer whose source was mid-turn: the
- * fork deferred, so once a run ends the pass re-sends the fork and kickoff
- * (`dispatchDraftFork`); a refused fork raises `needs_guidance` as above.
+ * It also launches a drafter whose source was mid-turn: the fork deferred, so
+ * once a run ends the pass re-sends the fork and kickoff (`dispatchDraftFork`);
+ * a refused fork raises `needs_guidance` as above.
  *
  * Every command has a deterministic `server:` id under the receipt discipline
  * (`dispatchServerCommand`), so a pass is an idempotent recompute: a coalescing
@@ -51,7 +51,6 @@ import {
   dispatchDraftFork,
   HANDOFF_DRAFTER_ROLE,
 } from "./handoffDraft.ts";
-import { buildRetroKickoffPrompt, RETRO_REVIEWER_ROLE } from "./retroDraft.ts";
 
 /**
  * Grace before a kickoff that has not finished is declared hung. The zero-handoff
@@ -128,10 +127,7 @@ const make = Effect.gen(function* () {
             buildDraftForkLaunch({
               drafterThreadId: row.threadId,
               sourceThreadId: row.forkFromThreadId!,
-              kickoff:
-                row.role === HANDOFF_DRAFTER_ROLE
-                  ? buildDrafterKickoffPrompt(row.purpose ?? "")
-                  : buildRetroKickoffPrompt(row.purpose ?? undefined),
+              kickoff: buildDrafterKickoffPrompt(row.purpose ?? ""),
               createdAt,
             }),
           )
@@ -139,7 +135,7 @@ const make = Effect.gen(function* () {
       const action: HandoffSettlementAction =
         launch?.status === "dead"
           ? { kind: "guidance", reasonKey: "fork-failed" }
-          : pendingLaunch || row.role !== HANDOFF_DRAFTER_ROLE
+          : pendingLaunch
             ? { kind: "none" }
             : classifyHandoffSettlement(
                 row,
@@ -193,8 +189,7 @@ const make = Effect.gen(function* () {
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     for (const row of yield* loomStore.listActiveWorkstreams()) {
-      if (row.role === HANDOFF_DRAFTER_ROLE || row.role === RETRO_REVIEWER_ROLE)
-        yield* settle(row, nowMs);
+      if (row.role === HANDOFF_DRAFTER_ROLE) yield* settle(row, nowMs);
     }
   }).pipe(
     Effect.provideContext(services),

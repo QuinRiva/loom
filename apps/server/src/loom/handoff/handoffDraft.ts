@@ -17,8 +17,6 @@
  * `thread.fork` would leave the drafter without a sidecar row, and the role is
  * what `mcp__t3-code__goal_handoff`, the composer's overlay and the reactor key on.
  *
- * `/retro` (`retroDraft.ts`) reuses `launchDraftFork` with its own role and kickoff.
- *
  * @module loom/handoff/handoffDraft
  */
 import {

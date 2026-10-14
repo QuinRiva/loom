@@ -8,8 +8,8 @@
  * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
  * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
  * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
- * first turn can lay out its plan. Workstream children never derive one (they inherit the parent's goal), and a goal set
- * while the generation runs wins: the derivation re-checks before writing, and the
+ * first turn can lay out its plan. Workstream children never derive one (they inherit the parent's goal), nor does a `/retro`
+ * reviewer (goal-less by design). A goal set while the generation runs wins: the derivation re-checks before writing, and the
  * orchestrator drops an emergent `thread.goal.set` on a thread that already has a goal.
  *
  * The generation is Loom's Pi one-shot (`makePiOneShot`) on the text-generation
@@ -40,6 +40,7 @@ import * as Stream from "effect/Stream";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { LOOM_EMERGENT_GOAL_PREFIX } from "../../orchestration-v2/Orchestrator.loom.ts";
 import { forkParked } from "../../serverActivation.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { buildEmergentGoalPrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
 import { goalShellItem, LoomGoalBroadcast } from "../projection/LoomGoalBroadcast.ts";
@@ -114,6 +115,8 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
     thread.lineage.parentThreadId !== null ||
     workstream?.parentThreadId != null ||
     (workstream?.goalId ?? null) !== null ||
+    // A `/retro` reviewer is goal-less by design: its goal tools refuse rather than mint one.
+    workstream?.role === RETRO_REVIEWER_ROLE ||
     thread.archivedAt !== null ||
     thread.deletedAt !== null
   ) {

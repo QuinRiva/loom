@@ -29,7 +29,7 @@ export const LOOM_DRAFT_SLASH_ITEMS = [
     type: "slash-command",
     command: "retro",
     label: "/retro",
-    description: "Fork a retro reviewer over this thread\u2019s development process",
+    description: "Start a retro reviewer over this thread\u2019s process",
   },
 ] as const satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
 

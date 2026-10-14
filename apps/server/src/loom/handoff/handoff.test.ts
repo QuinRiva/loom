@@ -1,5 +1,5 @@
 /**
- * The `/handoff` and `/retro` drafters on the real orchestrator (DT-24, DL-384):
+ * The `/handoff` drafter and `/retro` reviewer on the real orchestrator (DT-24, DL-384):
  * `loom.handoffDraft` forks an idle pi source into a `handoff-drafter` root whose
  * first message is the kickoff (a pending native `fork` transfer from the source's
  * finished run — or, for a V1-imported source with no V2 run, its bound pi
@@ -8,7 +8,8 @@
  * refused before anything is created. `HandoffDrafterReactor` archives a
  * drafter whose run ended with a handoff recorded, and raises `needs_guidance` —
  * on the source when it has a Loom row, else on the drafter — for a run that ended
- * with none or a kickoff hung past the grace.
+ * with none or a kickoff hung past the grace. `/retro` starts a fresh goal-less
+ * reviewer at once, its run directory's manifest carrying the source's whole tree.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -24,9 +25,11 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as ServerConfig from "../../config.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
@@ -37,8 +40,10 @@ import {
   completeSeededRun,
   dispatch,
   LoomOrchestratorTestLayer,
+  loomEvent,
   seedRunningRun,
   seedThread,
+  spawnChild,
   testModelSelection,
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
@@ -54,7 +59,14 @@ import {
   HandoffDrafterReactor,
   HandoffDrafterReactorServiceLive,
 } from "./HandoffDrafterReactor.ts";
-import { RETRO_BRIEF_PATH, RETRO_REVIEWER_ROLE } from "./retroDraft.ts";
+import {
+  buildRetroKickoffPrompt,
+  buildRetroTitle,
+  launchRetro,
+  RETRO_SKILL_PATH,
+  type RetroManifest,
+} from "./retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "./retroRole.ts";
 
 const pi = ProviderDriverKind.make("pi");
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -65,6 +77,7 @@ const TestLayer = Layer.mergeAll(
   LoomGoalBroadcast.layer,
   LoomUsageLedger.layer,
   Layer.mock(LoomThreadConsult)({}),
+  ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-retro-" }),
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 
 /** An idle source whose one turn finished on `driver`; with `goal`, it is a Loom root with a row. */
@@ -286,27 +299,104 @@ it.layer(TestLayer)("Loom drafters", (it) => {
     }),
   );
 
-  it.effect("/retro forks a visible retro-reviewer root on the retro brief", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const source = yield* seedSource("retro-source");
-      const { reviewerThreadId } = yield* Effect.flatMap(makeLoomWsHandlers, (handlers) =>
-        handlers[LOOM_WS_METHODS.retroDraft]({ sourceThreadId: source, focus: "review gates" }),
-      );
-      assert.deepInclude(yield* row(reviewerThreadId), {
-        role: RETRO_REVIEWER_ROLE,
-        forkFromThreadId: source,
-        goalId: null,
-      });
-      const projection = yield* orchestrator.getThreadProjection(reviewerThreadId);
-      assert.equal(projection.thread.title, "Retro: Thread retro-source");
-      assert.include(projection.messages[0]?.text ?? "", RETRO_BRIEF_PATH);
-      assert.include(projection.messages[0]?.text ?? "", "Focus: review gates");
-      // The reactor never touches a reviewer.
-      yield* completeOpenRuns(reviewerThreadId);
-      yield* settlePass;
-      assert.deepInclude(yield* row(reviewerThreadId), { archivedAt: null, attention: [] });
-    }),
+  it.effect(
+    "/retro on a mid-turn source starts a fresh goal-less reviewer at once, with the whole tree in its manifest",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const runsDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "retro-runs-" });
+        const root = ThreadId.make("retro-root");
+        const child = ThreadId.make("retro-child");
+        const grandchild = ThreadId.make("retro-grandchild");
+        yield* seedThread({ threadId: root, title: "Ship the Retro tree!" });
+        yield* seedRunningRun({ threadId: root, driver: pi });
+        yield* spawnChild({ parentThreadId: root, threadId: child });
+        yield* spawnChild({ parentThreadId: child, threadId: grandchild, role: "reviewer" });
+        yield* writeEvents([
+          yield* loomEvent("thread.attention-raised", child, { reason: "needs_guidance" }),
+          yield* loomEvent("thread.outcome-recorded", grandchild, {
+            outcome: "needs_rework",
+            decision: "loop",
+            round: 1,
+            counts: { mustFix: 2, niceToHave: 1 },
+          }),
+        ]);
+        const launch = launchRetro({ sourceThreadId: root, focus: "review gates", runsDir });
+        const reviewer = yield* launch;
+
+        assert.deepInclude(yield* row(reviewer), {
+          role: RETRO_REVIEWER_ROLE,
+          parentThreadId: null,
+          forkFromThreadId: null,
+          goalId: null,
+          purpose: `Retro of thread ${root}; focus: review gates`,
+        });
+        const projection = yield* orchestrator.getThreadProjection(reviewer);
+        assert.equal(projection.thread.title, buildRetroTitle("Ship the Retro tree!"));
+        const { contextTransfers } = yield* orchestrator.getThreadRecords(reviewer, [
+          "contextTransfers",
+        ]);
+        assert.lengthOf(contextTransfers, 0);
+
+        const [runName] = yield* fileSystem.readDirectory(runsDir);
+        assert.match(runName ?? "", /^\d{4}-\d{2}-\d{2}-ship-the-retro-tree$/);
+        const runDir = `${runsDir}/${runName}`;
+        const manifest = JSON.parse(
+          yield* fileSystem.readFileString(`${runDir}/manifest.json`),
+        ) as RetroManifest;
+        assert.deepInclude(manifest, { version: 1, focus: "review gates", runDir });
+        assert.deepEqual(manifest.source, {
+          threadId: root,
+          rootThreadId: root,
+          title: "Ship the Retro tree!",
+          goalTitle: null,
+        });
+        assert.sameMembers(
+          manifest.threads.map((thread) => thread.id),
+          [root, child, grandchild],
+        );
+        assert.deepInclude(
+          manifest.threads.find((thread) => thread.id === child),
+          {
+            parentId: root,
+            role: "coder",
+            attentionEpisodes: 1,
+          },
+        );
+        assert.deepInclude(
+          manifest.threads.find((thread) => thread.id === grandchild),
+          {
+            parentId: child,
+            lastDecision: {
+              outcome: "needs_rework",
+              decision: "loop",
+              round: 1,
+              counts: { mustFix: 2, niceToHave: 1 },
+            },
+            reportSynthesised: false,
+          },
+        );
+
+        // The kickoff is the brief on disk, delivered at once although the source is mid-turn.
+        const [kickoff] = projection.messages;
+        assert.equal(kickoff?.text, buildRetroKickoffPrompt(manifest, RETRO_SKILL_PATH));
+        assert.equal(kickoff?.loom?.origin, "kickoff");
+        assert.equal(
+          yield* fileSystem.readFileString((yield* row(reviewer)).kickoffBriefPath!),
+          kickoff?.text,
+        );
+        assert.include(kickoff?.text ?? "", runDir);
+        assert.include(kickoff?.text ?? "", "skills/retro/SKILL.md");
+
+        // A second retro of the same tree claims the next run directory.
+        yield* launch;
+        assert.isTrue(yield* fileSystem.exists(`${runDir}-2/manifest.json`));
+        // The reactor never touches a reviewer.
+        yield* completeOpenRuns(reviewer);
+        yield* settlePass;
+        assert.deepInclude(yield* row(reviewer), { archivedAt: null, attention: [] });
+      }),
   );
 
   it.effect("the reactor archives a drafter once its handoff is recorded", () =>

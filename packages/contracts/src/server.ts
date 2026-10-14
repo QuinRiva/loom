@@ -587,10 +587,11 @@ export const HandoffDraftResult = Schema.Struct({
 });
 export type HandoffDraftResult = typeof HandoffDraftResult.Type;
 
-// `/retro` fork-reviewer: the human's composer intercept sends this application
-// operation; the message never becomes a turn on the source. The server forks
-// the source into a VISIBLE `retro-reviewer` root and injects the retro kickoff
-// as its first turn. `focus` is optional free-text narrowing the review.
+// loom: `/retro` reviewer: the human's composer intercept sends this application
+// operation; the message never becomes a turn on the source. The server starts a
+// fresh, VISIBLE `retro-reviewer` root over the source's whole workstream and
+// injects the retro kickoff as its first turn. `focus` is optional free-text
+// narrowing the review.
 export const RetroDraftInput = Schema.Struct({
   sourceThreadId: ThreadId,
   focus: Schema.optional(TrimmedNonEmptyString),

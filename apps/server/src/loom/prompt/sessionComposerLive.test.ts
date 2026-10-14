@@ -39,7 +39,8 @@ import {
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
-import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
+import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { loomPaths } from "../loomPaths.ts";
 import * as LoomStore from "../projection/LoomStore.ts";
 import {
@@ -378,14 +379,14 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
   );
 
   it.effect(
-    "a retro reviewer composes its own identity with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
+    "a retro reviewer (a fresh root) composes with its overlay; a handoff drafter replays its source, or composes fresh when the source never launched",
     () =>
-      withComposer(0, (composer) =>
+      withComposer(0, (composer, identityDir) =>
         Effect.gen(function* () {
           const { threadId: source, projectId } = yield* seedRoot("drafted", tempCheckout());
           const { threadId: unlaunched } = yield* seedRoot("upstream-only", tempCheckout());
           const createdAt = DateTime.formatIso(yield* DateTime.now);
-          const drafter = (id: string, role: string, from: ThreadId) =>
+          const drafter = (id: string, role: string, from: ThreadId | null) =>
             Effect.as(
               dispatch({
                 type: "thread.spawn",
@@ -405,14 +406,21 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
                 role,
                 purpose: null,
                 goalId: null,
-                forkFromThreadId: from,
+                ...(from === null ? {} : { forkFromThreadId: from }),
               }),
               ThreadId.make(id),
             );
           const sourceFields = yield* composer.compose(source);
 
-          const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, source);
+          const reviewer = yield* drafter("thread:composer-retro", RETRO_REVIEWER_ROLE, null);
           const reviewed = (yield* composer.compose(reviewer)).appendSystemPrompt;
+          // A tool profile, not pi's full tool surface.
+          const reviewerIdentity = JSON.parse(
+            yield* (yield* FileSystem.FileSystem).readFileString(
+              identityFile(identityDir, reviewer),
+            ),
+          );
+          assert.deepEqual(reviewerIdentity.tools, RETRO_REVIEWER_TOOLS);
           assert.isTrue(
             reviewed.startsWith(
               `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(reviewer)}\n\n${RETRO_REVIEWER_OVERLAY_PROMPT}`,

@@ -39,7 +39,7 @@ import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
-import { buildRetroDraftTurnStart } from "./handoff/retroDraft.ts";
+import { launchRetro, RETRO_RUNS_DIR } from "./handoff/retroDraft.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
 import { promptCapturePathsOf } from "./loomPaths.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
@@ -188,14 +188,12 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.map((drafterThreadId) => ({ drafterThreadId })),
         Effect.provideContext(draftServices),
       ),
-    // `/retro`: a visible `retro-reviewer` fork of the source, kicked off on the retro brief.
+    // `/retro`: a fresh, visible `retro-reviewer` root over the source's whole tree.
     [LOOM_WS_METHODS.retroDraft]: (input: RetroDraftInput) =>
-      launchDraftFork({
-        method: LOOM_WS_METHODS.retroDraft,
-        verb: "reviewed",
+      launchRetro({
         sourceThreadId: input.sourceThreadId,
-        build: (fork, source) =>
-          buildRetroDraftTurnStart({ ...fork, sourceTitle: source.title, focus: input.focus }),
+        focus: input.focus,
+        runsDir: RETRO_RUNS_DIR,
       }).pipe(
         Effect.map((reviewerThreadId) => ({ reviewerThreadId })),
         Effect.provideContext(draftServices),
