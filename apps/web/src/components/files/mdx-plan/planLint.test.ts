@@ -98,7 +98,22 @@ describe("lintPlanSource", () => {
   });
 
   it("reports zod prop failures with paths", async () => {
-    expect(await errorText('<Callout tone="banana">x</Callout>')).toContain("tone");
+    expect(await errorText('<Callout tone="banana">x</Callout>')).toMatch(
+      /: tone: Invalid enum value\. Expected .*received 'banana'$/,
+    );
+  });
+
+  it("names the failing branch of a union-typed prop instead of 'Invalid input'", async () => {
+    const card = await errorText(
+      '<Card heading="h" badges={["ok", { "label": "y", "tone": "sucess" }]}>Body.</Card>',
+    );
+    expect(card).toMatch(/badges\.1\.tone: Invalid enum value\. .*received 'sucess'$/);
+    expect(card).not.toContain("Invalid input");
+    const table = await errorText(
+      '<Table columns={["a", "b"]} rows={[["1", "2"], ["3", { "md": "4", "tone": "sucess" }]]} />',
+    );
+    expect(table).toMatch(/rows\.1\.1\.tone: Invalid enum value\. .*received 'sucess'$/);
+    expect(table).not.toMatch(/Invalid input|Expected (string|object)/);
   });
 
   it("warns on unknown props (silently stripped by the renderer)", async () => {

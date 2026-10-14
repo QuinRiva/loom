@@ -207,6 +207,21 @@ function mdxErrorFinding(cause: unknown): PlanLintFinding {
 
 /* ------------------------------ tag utilities ----------------------------- */
 
+/**
+ * zod reports a failed union as one `invalid_union` "Invalid input" issue at the
+ * union's path. Descend into its branches and keep the one whose failure goes
+ * deepest — the shape the author was attempting (a cell object with a bad `tone`
+ * beats "expected string") — so the message names the real problem. Branches
+ * tied at that depth are all kept.
+ */
+function specificIssues(issue: z.ZodIssue): z.ZodIssue[] {
+  if (issue.code !== "invalid_union") return [issue];
+  const branches = issue.unionErrors.map((error) => error.issues.flatMap(specificIssues));
+  const depth = (issues: z.ZodIssue[]) => Math.max(...issues.map((i) => i.path.length));
+  const deepest = Math.max(...branches.map(depth));
+  return branches.filter((branch) => depth(branch) === deepest).flat();
+}
+
 const KNOWN_TAGS = [...planBlockByTag.keys()];
 
 function suggestTag(name: string): string | undefined {
@@ -397,6 +412,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
     const result = schema.safeParse(props);
     if (!result.success) {
       const issues = result.error.issues
+        .flatMap(specificIssues)
         .map((issue) => `${issue.path.length ? `${issue.path.join(".")}: ` : ""}${issue.message}`)
         .join("; ");
       findings.push({

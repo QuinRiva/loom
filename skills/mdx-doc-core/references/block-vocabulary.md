@@ -92,6 +92,10 @@ responses. `method` and `path` are required; `params[].in` is
 ### `<FileTree>` — the file/change map
 
 Slash-delimited paths with per-file change badges, notes, and optional snippets.
+Entries render in the order written — there is no sorting — so list them in the
+order the reader should read them (e.g. a pipeline in processing order). A path
+ending in `/` is a folder: its `note` and `change` sit on the folder row, and
+later entries under that path nest inside it.
 
 ```mdx
 <FileTree
