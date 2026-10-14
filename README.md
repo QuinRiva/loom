@@ -1,141 +1,95 @@
-# T3 Code
+# Loom
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+Loom is a fork of [T3 Code](https://github.com/pingdotgg/t3code), the open-source "agent harness control surface". It keeps T3 Code's server, web app and agent-driving core, and adds what you need once agents are doing real work unattended: a clear view of what every agent is doing and what it costs, a control plane that notices when one goes wrong, and cheap ways to step in.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+Loom drives agents through [pi](https://github.com/badlogic/pi-mono). Codex, Claude, Cursor and the other vendors' models are reached through pi rather than their own CLIs.
 
-## "Wait, what are you selling me?"
+<img src="./docs/screenshots/readme/workstream-graph.png" width="100%" alt="A workstream graph" />
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+<sub>A workstream: planner, coder, reviewer and benchmark-runner threads wired by dependencies and a review loop, with the live thread's model, cost and state on hover.</sub>
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+## Why fork?
 
-## Installation
+I love pi, but I wanted to multi-task on an always-on remote server, and doing that in a terminal was a pain in the arse. SSH'ing in from different machines gave me different interfaces with their own quirks, and keeping track of what I was working on became a chore. I needed a web interface where I could see the threads I had running, jump between them and pick up where I was. I tried a handful of platforms and landed on T3 Code: it has the ergonomics, the attention to detail, and it's snappy.
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+In 2025 agents were getting there, but they weren't mature, and they still aren't. They loop, run commands that never return, drift from instructions, go quiet without reporting, or burn a quota. Loom assumes this _will_ happen: make it obvious what is going on, detect failures deterministically, fix the ones a nudge can fix, and hand the rest back to the orchestrating agent (or you) for steering instead of halting silently.
 
-### Command line
+## What Loom adds
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+### See what agents are doing, how they plan to work, and what it costs
 
-On Windows, in PowerShell:
+- **Workstreams.** Delegated work is a graph of real, durable threads, not in-turn subagents. Each child has its own transcript, role and model. You _can_ open it, read it and talk to it, or ignore it altogether.
+- **Goals and task trees.** Every piece of work has a goal, a north star, so it's always clear what you're working towards. Sure, it keeps the agents aligned, but it's really for you: jump into any thread and you can immediately see what the goal is and how far along it is.
+- **Plans, recaps and explainers reviewed in-app.** You're not going to read a wall of markdown, and HTML plans look great until the agent hands you 18k lines of it. Agents get the building blocks for compact, grokable documents that won't make your eyes glaze over, and you annotate and decide on them in place.
+- **Diffs per thread.** Diffs are viewed per sub-thread, so you know which agent wrote what.
+- **Cost.** Quota windows against your burn rate, spend per thread and per workstream, and whether the prompt cache is warm (cheap) or cold (expensive) before you reply.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+<table>
+  <tr>
+    <td valign="top"><img src="./docs/screenshots/readme/goal-tasks.png" width="440" alt="The goal panel" /></td>
+    <td valign="top"><img src="./docs/screenshots/readme/prompt-cache.png" width="300" alt="The prompt-cache panel" /></td>
+    <td valign="top"><img src="./docs/screenshots/readme/thread-spend.png" width="250" alt="The context-window and spend panel" /></td>
+  </tr>
+  <tr>
+    <td valign="top"><sub>The goal and its task tree: 4 of 6 done, and which thread is on it.</sub></td>
+    <td valign="top"><sub>Prompt cache: warm for another 1h 30m, and what the next reply costs now versus after it goes cold.</sub></td>
+    <td valign="top"><sub>Context window and spend: this thread, its three descendants, and each one's share.</sub></td>
+  </tr>
+</table>
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+<img src="./docs/screenshots/readme/mdx-plan.png" width="720" alt="An MDX plan rendered in-app" />
 
-To try it once without installing, run `npx t3@latest` instead.
+<sub>A plan rendered in-app: recommendation first, the numbers that justify it, what changes for you, then the evidence with annotated code. Comment on any line and decide in place.</sub>
 
-### Desktop app
+### Catch things going wrong, and intervene
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+- **Nothing halts silently.** Every active thread is continuously classified: dead, stalled, spinning (busy, producing nothing) or stuck in a slow tool call. A stall gets one nudge, then escalates to its parent. A child that goes quiet without reporting gets a report synthesised from its last message, so its parent is never left waiting.
+- **Bounded loops.** Review gates run a coder and reviewer for a capped number of rounds before yielding; deadlocks in the dependency graph are flagged rather than waited on.
+- **Quota failover.** When a model's quota runs out, the thread _can_ move to a healthy model from another vendor and carry on.
+- **Inter-agent comms without context pollution.** Work is split up, so agents need to talk to each other. A thread consults another through an ephemeral fork, gets its answer, and only reaches the human if it's truly ambiguous. Threads can launch new threads, hand off work, and send instructions to each other.
+- **A human when it matters.** A thread that needs you raises a flag and holds; the inbox shows what's waiting on you and why. Open any thread and talk to it directly, or steer it through its parent.
 
-#### Windows (`winget`)
+## How it differs from T3 Code
 
-```bash
-winget install T3Tools.T3Code
-```
+- **Pi first.** The other providers can be switched back on, but they won't get the Loom features, which reach the agent through a pi extension.
+- **Web first.** The desktop and mobile apps are barely touched (for now); Loom's features live in the web client.
+- **Personal fork.** One maintainer, and most commits are written by agents running inside Loom. Expect sharp edges.
 
-#### Windows (`scoop`)
+## A short history
 
-```bash
-scoop install extras/t3code
-```
+Loom and T3 Code have grown alongside each other, and the line between them has moved, they're actually now much closer to each other than when I started this project.
 
-#### macOS (Homebrew)
+- **Pi.** Loom drove agents through pi long before upstream added a pi driver, and still bundles its own patched pi.
+- **Usage meters.** I needed a usage meter that worked across multiple subscriptions. Upstream has one now; Loom keeps its own because quota-versus-burn-rate is the view that matters when agents run unattended.
+- **Subagents.** Upstream has since added in-turn subagents. Loom took a different path: delegated work is a workstream of durable threads you can inspect and steer, not a call inside a turn.
+- **Question card.** Just let me pick the option from a list. Now replaced by T3 Code's version.
+- **Cache warmth.** Knowing whether the cache is warm or cold before you reply. Still Loom's.
+- **DB and WebSockets.** Oh dear god this was buggy as fuck, although I think T3 Code has patched most of the issues now.
 
-```bash
-brew install --cask t3-code
-```
+## Running it
 
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
+Prerequisites: Node 24, git ≥ 2.41, and the [`vp`](https://viteplus.dev/guide/) CLI.
 
 ```bash
-yay -S t3code-bin
+git clone https://github.com/QuinRiva/loom
+cd loom
+vp i
+pnpm build
+pnpm cockpit   # serves on port 13900 with state in ~/.t3/cockpit
 ```
 
-Nightly:
+For development, `vp run dev` starts the server and web app against a worktree-local `.t3`. See [docs/operations/development.md](./docs/operations/development.md).
 
-```bash
-yay -S t3code-nightly-bin
-```
+## Staying in sync with upstream
 
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+Loom pulls from upstream regularly. Every Loom change to an upstream file is marked `// loom:` (the ship gate enforces it); larger additions live in `*.loom.ts` modules, `apps/server/src/loom/` and `apps/web/src/loom/`; database migrations run in a separate `1001+` ledger so upstream's stay intact. The doctrine is in [docs/upstream-sync/](./docs/upstream-sync/).
 
 ## Documentation
 
-Full docs live in [docs/](./docs). There's no docs site yet.
+T3 Code's [user docs](./docs/user/) still apply to everything Loom inherits. Loom's own design is in [docs/design/](./docs/design/), [docs/architecture/](./docs/architecture/) and [docs/operations/](./docs/operations/). Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
 
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
+## Contributing
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
+Loom is not accepting contributions. Issues are welcome. Upstream feature requests belong in [T3 Code's discussions](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
 
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
-
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+MIT licensed, as is T3 Code.
