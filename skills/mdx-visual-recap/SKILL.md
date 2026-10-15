@@ -97,7 +97,9 @@ Top to bottom (the worked version is in
      A/B with the one fact that frames it. A heading that names the topic
      ("check the class before the period") gives the reader a vague idea; the
      question gives them the decision.
-   - **The answer**, in the first line, with its one-sentence reason.
+   - **The answer**, in the first line, with its one-sentence reason — a
+     reader who trusts the writer can decide from the header; one who does
+     not meets the facts already knowing what they are testing.
    - **The facts of the case as fields**, not prose: a compact `<Table>`, one
      fact per row — the literal value, a plain-words gloss (a date relative
      to the date that matters: "ended two days before the audit date"), and

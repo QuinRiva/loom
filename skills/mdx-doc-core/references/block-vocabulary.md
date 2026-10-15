@@ -453,8 +453,8 @@ renders only for `mode: "freeform"` or when the question sets
 instead. `submitLabel` is accepted for the wire round-trip but not rendered:
 answers ride the review turn per question, so there is no submit button.
 The block's own props are `questions` and `submitLabel`: a block-level
-`title` is dropped without a finding, so the section name goes in a heading
-above the block; a question's kind is `mode`, not `type` — a question written
+`title` is not rendered (the lint warns of an unknown prop), so the section
+name goes in a heading above the block; a question's kind is `mode`, not `type` — a question written
 with `type` fails validation and the form renders as an error card.
 
 Every question is answered by someone who only skimmed the body: put the one
@@ -569,8 +569,8 @@ Lengths the schema enforces: `eyebrow` up to 40 characters, `badge` up to 60,
 `heading` up to 300, each `meta` chip up to 120 (eight chips at most). A
 longer value fails validation and the whole card renders as an error card, so
 a question-length heading fits and a sentence-length badge or eyebrow does
-not — the subject goes in the heading or a meta chip, the eyebrow keeps the
-label (`DECISION B · Leidos`).
+not — a long subject goes in the heading or a meta chip, the eyebrow keeps the
+label and a short subject (`DECISION B · Leidos`).
 
 ```mdx
 <Card
