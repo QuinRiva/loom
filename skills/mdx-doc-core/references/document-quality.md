@@ -108,6 +108,13 @@ cause`). A long document needs a spine the reader can hold and a question can
   described. Readers of these documents have said that abstract explanations
   without a worked example are meaningless to them; one example per claim is
   what turns a label into something they can picture.
+- **Facts as fields, not prose.** A passage carrying more than two or three
+  facts the reader must hold together — values, dates, parties, sources —
+  is a compact `<Table>` or a field list, each fact with where it came from
+  and as of when, and a fact the reader will want that nobody recorded stated
+  as unknown. A paragraph of facts is re-derived by every reader; a table is
+  read once, and the source column answers "where does this come from"
+  before it is asked.
 - **Judgement rides the block, not the sentence.** Where a verdict, state or
   class fits a `<Card>` `tone`, `badge` or `meta` chip, a `<Callout>` tone or a
   table column, put it there and let the prose carry the _why_. A badge reading
@@ -142,6 +149,8 @@ cause`). A long document needs a spine the reader can hold and a question can
   the body, because the body is where the reader meets the label first. A
   numbered-section reference ("the evidence is in §5") is the sanctioned
   cross-reference: the number is on the page, so it resolves without a lookup.
+  A word that means two things in one passage (the key's _row_, the rule's
+  _row_) is glossed or replaced, because the reader cannot tell which is meant.
 
 ## 4. Choose the representation
 
@@ -181,12 +190,18 @@ what stands in for it.*`, where the gap occurs: one form lets whoever
 maintains the vocabulary scan a document for them, and the reader learns why
 that passage is weaker than it could be.
 
-Three distinctions that are often got wrong:
+Four distinctions that are often got wrong:
 
 - **`<FieldDiff>` vs `<Diff>`.** A change to a few fields of a record or config
   is a `<FieldDiff>`: it wraps long values and aligns them per field. `<Diff>`
   is for line-oriented source. A JSON string in a line diff is one
   horizontally-scrolled line, twice, and is what `<FieldDiff>` exists to retire.
+- **A before/after vs two readings.** `<FieldDiff>`'s panels are a change —
+  current → proposed, as keyed → recommended — and a reader meets them as
+  before/after whatever the labels say. Two parties' conclusions about the
+  same record are readings, not a change: a `<Table>` with a column per party
+  (its name, basis and date in the header, outcomes as badges) or a
+  `<Columns>` pair, so no direction is implied.
 - **A card per item vs one flat list.** When a document reviews N similar items
   each needing a verdict, each gets its own `<Card tone>` so the batch can be
   triaged by colour before it is read, with the evidence and the decision

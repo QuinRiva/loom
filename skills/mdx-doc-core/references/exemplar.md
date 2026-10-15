@@ -6,9 +6,10 @@ holds spelled out — because the first screen is where these documents have mos
 often gone wrong. The skeletons' subjects are invented; the shipped exemplar
 is a real document.
 
-> **One exemplar is shipped: the recap** (its section below points at the
-> document). The plan and explainer sections name candidate documents that
-> are written under these skeletons but not yet approved as canonical —
+> **Two exemplars are shipped: the recap, and the decision card** (their
+> sections below point at the documents). The plan and explainer sections
+> name candidate documents that are written under these skeletons but not
+> yet approved as canonical —
 > read them for the register, and take the skeleton as the bar where they
 > differ. Once an exemplar is approved, read it before the skeleton and treat
 > a conflict between them as the exemplar winning.
@@ -79,20 +80,29 @@ A sign-off over N items — a taxonomy review, an audit, a PR-style review:
    (subject, verdict class, recommendation), so the batch is scannable before
    the detail; `filterable` adds client-side filter and header-click sort.
 3. **`## 2. The items`** — one `<Card>` per item: `tone` = verdict class,
-   `badge` naming the class, `meta` chips for pack / confidence / recommended
-   action. Inside, in order: one or two sentences of _why_; the decisive
-   evidence as a `<FieldDiff>` (its null / absent / kept distinctions carry
-   meaning); a `<Details>` holding the bulk evidence (full production entry,
-   counterpart pack); a `<ReviewChoice itemId>` with an id unique in the
-   document — a duplicate id silently collapses two widgets onto one decision.
-   The renderer shows a sticky "N of M decided" counter whenever a document
-   has `<ReviewChoice>` items.
+   `badge` naming the recommended answer, `eyebrow` the item's label and
+   subject, `meta` chips for scope / confidence / what changes. Inside, the
+   card answers the reader's questions in the order they ask them: the
+   question as the heading; the answer with its reason in the first line; the
+   facts of the case as a compact `<Table>` with a source column, an unknown
+   stated as unknown; the rule at stake, quoted; the readings as a `<Table>`
+   whose column labels name the party, basis and date (a `<FieldDiff>` where
+   there is a genuine before/after); the change if accepted and the file it
+   goes into; the cost of leaving it undecided, in one line; then a
+   `<Details>` holding the bulk evidence and a `<ReviewChoice itemId>` with an
+   id unique in the document — a duplicate id silently collapses two widgets
+   onto one decision. A simpler item takes fewer parts in the same order. The
+   parts with their reasons are in `mdx-visual-recap/SKILL.md`.
 4. **A bottom `<QuestionForm>`** for the genuinely balanced calls only
    (rollout strategy, a schema name) — not a second copy of the per-item
    decisions.
 
-The renderer test fixture at `plans/mdx-review-blocks/plan.mdx` shows every
-review block in situ; it is a fixture, not a model of the writing.
+**The shipped decision-card exemplar** is Decision B in
+`recaps/decision-item-anatomy/recap.mdx` §2 — every part above on a real
+audit cell, with the original card it replaced in a drill-down beneath it so
+the two can be read side by side. The renderer test fixture at
+`plans/mdx-review-blocks/plan.mdx` shows every review block in situ; it is a
+fixture, not a model of the writing.
 
 ## A recap (recap genre)
 
