@@ -86,17 +86,54 @@ Top to bottom (the worked version is in
    row filter and header-click sort (asc → desc → unsorted, numeric-aware), so
    a large batch can be navigated by subject or by class; the evidence stays in
    each item's collapsed drill-down, so the table stays cheap.
-3. **`## 2. The items`** — one `<Card>` per item, `tone` = the verdict class
-   with the `badge` naming it (colour triages; the badge carries the meaning),
-   `meta` chips for pack / confidence / recommended action. Inside, in order:
-   one or two sentences of _why_; the decisive evidence as a `<FieldDiff>`
-   (its null / absent / kept distinctions carry meaning — a JSON string in a
-   line `<Diff>` is the shape it exists to retire); a `<Details>` holding the
-   bulk evidence (full production entry, counterpart pack); a
-   `<ReviewChoice itemId>` whose id is unique in the document — a duplicate id
-   silently collapses two widgets onto one decision, and the lint reports it
-   as an error. The renderer shows a sticky "N of M decided" counter whenever
-   `<ReviewChoice>` items are present; it counts explicit decisions only.
+3. **`## 2. The items`** — one `<Card>` per item, `tone` = the verdict class,
+   `badge` naming the recommended answer (colour triages; the badge carries
+   the meaning), `eyebrow` for the item's label and subject, `meta` chips for
+   scope / confidence / what changes. Inside, the card answers the reader's
+   questions in the order they will ask them — each part a default with its
+   reason, and a simpler item (a scope call) takes fewer parts in the same
+   order: the question, the answer, one fact and the change.
+   - **The question**, as the heading — what is being decided, as a yes/no or
+     A/B with the one fact that frames it. A heading that names the topic
+     ("check the class before the period") gives the reader a vague idea; the
+     question gives them the decision.
+   - **The answer**, in the first line, with its one-sentence reason — a
+     reader who trusts the writer can decide from the header; one who does
+     not meets the facts already knowing what they are testing.
+   - **The facts of the case as fields**, not prose: a compact `<Table>`, one
+     fact per row — the literal value, a plain-words gloss (a date relative
+     to the date that matters: "ended two days before the audit date"), and
+     where it came from and as of when. A fact the reader will want that
+     nobody recorded is a row saying so; an honest unknown stops the hunt.
+     Facts in a paragraph are re-derived by every reader; in a table they are
+     read once.
+   - **The rule at stake**, quoted with where it lives, after the facts and
+     before the readings — where the reader needs it to follow them, rather
+     than alluded to by name in the first sentence.
+   - **The readings**, when parties or rule lines disagree: what each
+     concluded, from what, and when, as a `<Table>` (or `<Columns>` of two
+     cards) whose labels name the party, its basis and its date, outcomes as
+     badges; another party's reading (a historic model run, a sub-agent)
+     earns a column when it is the error the decision guards against. A
+     `<FieldDiff>` is for a genuine before/after — as keyed → recommended,
+     current → proposed — because a reader meets its two panels as
+     before/after whatever they are labelled, so two readings are not a diff.
+   - **The change if accepted**, literally: the text and the file or table it
+     goes into ("add three lines" leaves the reader asking where), then
+     **what happens if nothing is decided**, in one line, so the visible card
+     ends on the stakes.
+   - A `<Details>` holding the bulk evidence (the record, the full rationale,
+     the inserted text as a `<Diff>`), then a `<ReviewChoice itemId>` whose id
+     is unique in the document — a duplicate id silently collapses two widgets
+     onto one decision, and the lint reports it as an error. The renderer
+     shows a sticky "N of M decided" counter whenever `<ReviewChoice>` items
+     are present; it counts explicit decisions only.
+
+   The visible card is read once, top to bottom; what the reader needs only
+   if they doubt a fact is in the drill-down. The worked example is Decision B
+   in `recaps/decision-item-anatomy/recap.mdx` §2 (Decision J in §3 shows the
+   same order on a rule-gap item with no second party).
+
 4. **A bottom `<QuestionForm>`** for the genuinely balanced calls only
    (rollout strategy, a schema question), not a second copy of the per-item
    decisions.

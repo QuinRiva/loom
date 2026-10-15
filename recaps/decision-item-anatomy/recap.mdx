@@ -1,0 +1,311 @@
+---
+kicker: "Proposal · the anatomy of a decision card · mdx-visual-recap item 3 · from Carl's read of the tenant-audit pilot review · 15 Oct 2026"
+reader:
+  who: Carl, loom's owner and the reader of nearly every decision document an agent writes here, deciding whether this card anatomy becomes the recap skill's default
+  knows: the problem intimately (his own read of Decision B in the tenant-audit pilot review is the evidence here) and the MDX block vocabulary; has not read the skill text he is being asked to change
+  after_first_screen: the anatomy in one breath; whether the rewritten Decision B is something he could have grokked on one pass; that approving changes one item of the recap skill (mirrored in its exemplar) and two lines of the shared quality bar, nothing else
+manager_sessions:
+  - id: 01a13dc7-67f4-7413-b83c-e1b93b251b5c
+    name: "Decision-item anatomy: design + worked rewrite"
+    role: plan
+    authored_at: 2026-10-15T04:31:06.079Z
+---
+
+# A decision card answers the reader's questions in the order they ask them
+
+**Question, answer, facts, rule, readings, change, cost of inaction — then the evidence folds away.** Each part is there because you asked for it, in that order, while reading Decision B: *what is this about → what is the lapsed-cover rule → what do these dates mean → is this stale → where does this come from → what did each side conclude and why → where do the three lines go.* The card you read held every one of those answers in nine sentences and a diff whose panels were two model names; it made you reconstruct the case. The rewrite in §2 puts the facts in fields with their source, labels the two readings as readings, names the file the three lines go into, and says plainly what nobody recorded (whether the documents were refreshed).
+
+<Table
+  density="compact"
+  columns={["Part", "What it answers before the reader asks", "Carried by"]}
+  rows={[
+    ["**Question**", "What am I deciding? — as a yes/no or A/B, with the one fact that frames it", "`Card heading`"],
+    ["**Answer**", "What do you recommend, and in one sentence why?", "`Card badge` + the first line"],
+    ["**Facts of the case**", "Who, what, the literal values, the dates glossed against the date that matters, where each came from and as of when — and what is unknown", "compact `<Table>`, one fact per row, a source column"],
+    ["**Rule at stake**", "What rule am I applying? — quoted, with where it lives", "a `>` quote with its source line"],
+    ["**Readings**", "What did each party conclude, from what, and when?", "`<Table>` with the parties as columns, outcomes as badges"],
+    ["**The change**", "If I accept, what text changes, in which file or table?", "prose naming the destination; the literal text as a `<Diff>` in `<Details>`"],
+    ["**If nothing is decided**", "What does leaving it cost?", "one line"],
+    ["**Evidence**", "Show me the record if I doubt a fact", "one `<Details>` at the bottom, then the `<ReviewChoice>`"],
+  ]}
+/>
+
+<Callout tone="decision" title="What you are approving" focus>
+  Three things, each with its own choice at the end: **the anatomy** above as the default shape of a decision card (§1); **Decision B as rewritten** (§2) as the worked example the skill points at, with Decision J (§3) showing it holds for a rule-gap item; and **the skill text** in §4 — a rewrite of one numbered item in `mdx-visual-recap/SKILL.md` and two added lines in the shared `document-quality.md`. It is written as defaults with their reasons: a simpler item takes fewer parts, in the same order. Nothing is applied yet; a coder folds in what you accept. An item you leave undecided takes its recommendation.
+</Callout>
+
+## 1. The anatomy, and why this order
+
+The order is your trace, read as a list of questions. You read the title and got "a vague idea" — so the heading is the question itself. You tried the paragraph and gave up — so no paragraph: the facts are rows with a source column, because six of your fourteen questions were *where does this come from* or *is this stale*. You re-read the dates three times — so every date carries its gloss ("ended 2 days before the audit date"). You asked "what is the lapsed-cover rule" in the first sentence — so the rule is quoted, after the facts and before the readings, where you need it to follow them. You read the `FieldDiff` as before/after — so two parties' conclusions are a table whose column labels name the party, its model, its date and what it was looking at; `FieldDiff` stays for a genuine before/after (as keyed → recommended). You asked "where are they being added, what is a row" — so the change names the file, and a word that means two things in one card (the key's *row*, the rule's *row*) is glossed or replaced.
+
+<Details summary="The reasoning in full: budgets, what the outside formats agree on, and where the hypothesis was tested and changed">
+  **Question before answer, both above the fold.** The brief's hypothesis put the question first and left open whether the recommendation precedes it. Both fit in the card header: the heading is the question, the badge is the recommended answer, and the body's first line is the answer with its reason. A reader who trusts the writer accepts from the header; a reader who does not has the question framed before the facts arrive. Putting the recommendation in the heading instead (as the original did — "check the cover class before the period") reads as a title for a topic, which is what produced "a vague idea".
+
+  **Facts as fields, with a source column, and unknowns stated.** The original's second sentence onward is a fact table told as prose; every reader re-derives it. A table is read once. The source column is the direct answer to "is it from the PDF or from the extraction?", "did we sync the documents?", "is this a known exception?" — and where the pack does not say, the cell says *not recorded*, because an honest unknown is what you wanted and it stops the reader hunting.
+
+  **Rule after facts, before readings.** IRAC — the case-brief form (issue, rule, application, conclusion), with the material facts stated before the issue in its FIRAC variant — and the one-page decision memo (decision requested → recommendation → facts → options → risks) agree on the one thing that matters here: the facts are separated from anyone's analysis of them, the question is stated as a question, and the action asked for is literal. The readings are applications of the rule to the facts, so the rule precedes them. Quoting the operative line costs two lines and removes the reader's first unknown.
+
+  **Readings are not a diff.** `FieldDiff` renders two panels; a reader meets them as before/after whatever the labels say, and the original's panels were "3.1 Pro history" and "Key (as keyed)" — two readings. A `<Table>` with the parties as columns carries the same cells with no implied direction, and the column label has room for the party's basis and date ("production run 15 Aug 2026, that day's extraction — reasoning only"), which is how the reader learns the two sides were not even looking at the same payload. `<Columns>` of two small cards works too when each reading needs a paragraph; the table is the default because it keeps the altitude low.
+
+  **The change, literally.** "Add three lines to the instructions" left you asking where. Naming the file (`key/reader_brief.md`), the paragraph (the lapsed-cover convention), and showing the inserted text as a `<Diff>` in the drill-down answers it; nothing else in the batch's eleven cards names its destination either.
+
+  **Cost of inaction.** A decision reader weighs the recommendation against doing nothing; one line makes that explicit and tells them whether the item is urgent.
+
+  **Budget — and the cost.** The original card was 790 px tall and unreadable, so height is not the defect; shape is. The rewrite is about 1,700 px: twice the height, read once instead of three times. The lever to shorten it is the second balanced call at the end (when to show another party's reading). The default bound is that the visible card is read once, top to bottom, with no back-reference: about six fact rows, four reading rows, one quoted rule line, three lines of change. What the reader needs only if they doubt a fact — the extracted node, the gold's note, a model's full rationale, the key entry — goes in one `<Details>` directly above the `<ReviewChoice>`.
+
+  **A batch of eleven.** The index table above the cards already makes the batch scannable; inside the cards, the fixed order is what makes eleven of them cheap — the reader learns once that the facts are the first table and the readings the second, and the eyebrow carries the subject so a scan of eyebrows reads as a list. Simpler items (the batch's C, D and I — a scope call, a scorer flag) take the question, the answer, one fact and the change; the order holds, the parts are defaults.
+
+  **Tested and changed from the hypothesis.** The hypothesis listed the readings before the rule; the trace says the rule was the first unknown, so it moved up. The hypothesis had "what happens if he does nothing" last; it stays last but before the `<Details>`, so the visible card ends on the stakes rather than on evidence.
+</Details>
+
+## 2. Decision B, rewritten
+
+The same decision, every fact from the source document or the pack behind it (the key entry, the reader's notes, the extracted certificate node, the gold's note, Gemini's August rationale). Where the pack does not say, the card says so.
+
+<Card id="dec-b-new" eyebrow="DECISION B · Leidos · PL insurance held" heading="Leidos's only insurance certificate is professional liability, not public liability. Should the key expect **review** (no certificate of the right class) or **investigate** (a lapsed certificate)?" tone="accent" badge="recommend: review, as keyed" meta={["1 pilot cell", "adds 3 sentences to the reader instructions", "pilot outcome unchanged"]}>
+  **Recommended: review, as the reader keyed it.** A certificate of another class is no certificate for this field, so the rule's "requirement with no evidence of compliance on either side" line applies; the lapsed-cover line's **investigate** needs an ERP that claims cover is held, and this ERP holds nothing.
+
+  <Table
+    density="compact"
+    columns={["The facts, in plain words", "Where each comes from"]}
+    rows={[
+      ["**What the field asks.** Does Leidos hold the **public-liability** cover its lease requires? The lease requires **$20M**.", "Lease, Reference Schedule Item 19 — extraction node `375179f5e5ff`"],
+      ["**What the documents hold.** One certificate: **professional liability** (incl. pollution and cyber), $25M per claim, **26 Oct 2025 → 12 Oct 2026**. No public-liability line on it.", "Certificate file `002335_101436_Tenant Insurance_Umbrella Liability_….md` p.1, extraction node `a68ba2e8a79a`. The gold — a separate read of the same PDF — agrees: \"No public liability or umbrella limit is populated\""],
+      ["**Audit date: 14 Oct 2026.** The certificate's period ended **2 days before it**. Whether a newer certificate exists is **not recorded** — the pack does not say when the document set was last refreshed.", "Benchmark constant (`key/README.md`). The payload is frozen by hash, so every arm sees these same documents"],
+      ["**What the ERP holds.** No public-liability insurance record at all.", "ERP insurance table filtered to type `PL` → nothing (`drv_tgt_public_liability_insurance_held_2`)"],
+      ["**Material?** Yes — insurance is a compliance obligation.", "Canonical field flags"],
+    ]}
+  />
+
+  **The rule at stake.** The last line of the production Severity Decision Rule's defaults table (`severity_rule.py`, rendered into every adjudicator's prompt):
+
+  > The lease requires the tenant to hold something (insurance, a guarantee) and there is no evidence of compliance on either side → **review**; a certificate or guarantee the documents evidence and the ERP contradicts is a disagreement row above.
+
+  The key-reader instructions add one convention on top (`key/reader_brief.md`, "A lapsed certificate is not cover held"): a certificate *of this class* whose period ended before the audit date is no cover in force, and an ERP that says "held" against it is **investigate**. Your worked example for that is Collective Engineering, whose public-liability certificate lapsed 10 May 2026 while the ERP shows cover held.
+
+  <Table
+    density="compact"
+    columns={["", "Key reader (Opus 5.5 · 15 Oct 2026 · this payload)", "Gemini 3.1 Pro (production run 15 Aug 2026 · that day's extraction and ERP · reasoning only, not scored)"]}
+    rows={[
+      ["Read the certificate as", "professional liability — the wrong class for this field", "\"$25,000,000 in public liability insurance\" — a class error; no public-liability figure is on the certificate"],
+      ["Rule line applied", "requirement, no evidence of compliance on either side", "documents state a value, ERP holds nothing, material"],
+      ["Outcome", { "badge": { "label": "review", "tone": "warning" }, "md": "missing" }, { "badge": { "label": "investigate", "tone": "risk" }, "md": "missing" }],
+      ["In its own words", "\"no certificate of the public-liability class in the documents → ABSENT. The only certificate is professional liability, and its period ended 2026-10-12, before the audit date\"", "\"Source shows tenant holds $25M in insurance, satisfying the lease limit, but target system fails to log this compliance data\""],
+    ]}
+  />
+
+  Gemini's run was in **August**, while the certificate was still in force, so the lapse was never in play for it: its error is the class. In that August extraction the deterministic engine itself offered $25M as public liability held; in the benchmark payload the engine declines the class and the gold agrees — not an extraction defect here, but the trap an arm falls into if it reads the dollar figure before the class.
+
+  **What changes if you accept.** The key entry for this cell stays as keyed: expected **review**. Three sentences go into the lapsed-cover convention in `key/reader_brief.md`, the instructions each of the 13 key readers receives:
+  - A certificate of another class is no certificate for this field.
+  - The **investigate** branch applies only when the ERP holds cover.
+  - A lapsed certificate of the right class against an empty ERP is **review**, from the requirement line — not **acceptable** from the stated-nil line: a requirement nobody can show is met is not confirmed.
+
+  The production audit rule does not change.
+
+  **If nothing is decided:** the pilot is unaffected (the entry already says review), but the 13 readers meet Collective Engineering's lapsed public-liability certificate, and any certificate like Leidos's, with no sentence telling them to check the class before the period — and each improvises.
+
+  <Details summary="Evidence: the certificate as extracted, the gold's note, Gemini's full rationale, the inserted text, the key entry">
+    **The certificate, as the extraction read it** (node `a68ba2e8a79a`, source `002335_101436_Tenant Insurance_Umbrella Liability_e46f55d430314a5e891528760b6e0585.md`, page 1, sections "CERTIFICATE OF LIABILITY INSURANCE" and "COVERAGES"):
+
+    <Json title="a68ba2e8a79a · coc_states[0] (trimmed)" collapsedDepth={2} wrap json={"{\"insurance_coverage_source_document_type\": \"certificate_of_currency\", \"insurance_policy_period_start_date\": \"2025-10-26\", \"insurance_coverage_period_end_date\": \"2026-10-12\", \"insurance_coverage_description\": \"Professional Liability including Contractors Pollution Legal Liab and Cyber Liability\", \"insurance_coverages\": [{\"insurance_cover_class\": \"Professional Liability including Contractors Pollution Legal Liab and Cyber Liability\", \"insurance_cover_limit_amount\": 25000000.0, \"insurance_cover_limit_currency\": \"AUD\", \"insurance_cover_limit_basis\": \"per_claim\", \"insurance_cover_aggregate_amount\": 25000000.0}]}"} />
+
+    **The gold's note on the same document** (`insurance_cover_observations.d05`): "Actual cover is professional liability including pollution/cyber. No public liability or umbrella limit is populated." Policy B080130966P25, issued 24 October 2025, 26 October 2025 to 12 October 2026.
+
+    **The ERP side** (`drv_tgt_public_liability_insurance_held_2`): status `not_applicable`, "No relevant ERP records found for this field", filter `insurance WHERE insuranceTypeCode='PL' → coverAmount`.
+
+    **Gemini 3.1 Pro, production run 2026-08-15, in full** (`historic.md`; a different extraction and a live ERP of that day, so its node ids are not in this payload):
+
+    > deterministic source values: `[25000000.0]`; ERP values: `[]` · source_not_derivable: false · severity_rationale: Source shows tenant holds $25M in insurance, satisfying the lease limit, but target system fails to log this compliance data. · risk_description: Source documents confirm the tenant holds $25,000,000 in public liability insurance, but the target system does not track this compliance record. · recommended_action: Record the $25,000,000 public liability insurance coverage in the target system compliance register. · confidence: 1.0
+
+    The same `historic.md` header records that 3.1 Pro "waved through lapsed certificates in 15 of 15 earlier trials".
+
+    **The inserted text**, in place:
+
+    <Diff
+      mode="unified"
+      wrap
+      before={"- **A lapsed certificate is not cover held** (`lapsed_cover`). For `public_liability_insurance_held`, `gold.value` and the\n  attainable value are `\"NIL\"` when the documents evidence a certificate for this class of cover whose stated period ended before\n  the audit date (no cover in force), and `\"ABSENT\"` when they evidence no certificate for this class at all. Where the\n  deterministic engine reports the limit as held but the payload's certificate text gives a period that ended before the audit\n  date, the cell is `R2` with the period text as its chain, and the expected outcome is the rule's disagreement row: the documents\n  evidence a certificate the ERP's \"held\" contradicts, on a material field → `investigate`. Where the documents are silent on this\n  class of cover, the rule's silent-documents row applies instead.\n"}
+      after={"- **A lapsed certificate is not cover held** (`lapsed_cover`). For `public_liability_insurance_held`, `gold.value` and the\n  attainable value are `\"NIL\"` when the documents evidence a certificate for this class of cover whose stated period ended before\n  the audit date (no cover in force), and `\"ABSENT\"` when they evidence no certificate for this class at all. Check the class\n  before the period: a certificate of another class is no certificate for this field. Where the\n  deterministic engine reports the limit as held but the payload's certificate text gives a period that ended before the audit\n  date, the cell is `R2` with the period text as its chain, and the expected outcome is the rule's disagreement row: the documents\n  evidence a certificate the ERP's \"held\" contradicts, on a material field → `investigate`. That branch applies only when the\n  ERP holds cover. A lapsed certificate of the right class against an empty ERP is `review` from the requirement row, not\n  `acceptable` from the stated-nil row: a requirement nobody can show is met is not confirmed. Where the documents are silent on this\n  class of cover, the rule's silent-documents row applies instead.\n"}
+    />
+
+    **The key entry** (`key/pilot/002335_leidos-australia.jsonl`, trimmed to the scored fields):
+
+    <Json title="public_liability_insurance_held · expected" collapsedDepth={2} wrap json={"{\"gold\": {\"value\": \"ABSENT\", \"class\": \"asof\"}, \"ruling\": \"R0\", \"attainable_value\": \"ABSENT\", \"must_cite\": [{\"id\": \"a68ba2e8a79a\", \"fact\": \"the certificate is professional liability, not public liability, and its period ended 2026-10-12, before the 2026-10-14 audit date\"}, {\"id\": \"375179f5e5ff\", \"fact\": \"the lease requires $20M public liability cover\"}, {\"id\": \"drv_tgt_public_liability_insurance_held_2\", \"fact\": \"the ERP holds no PL insurance record\"}], \"expected\": {\"verdict\": \"missing\", \"adjusted_severity\": \"review\", \"erp_shown_wrong\": false, \"consequence_material\": true, \"erp_positively_confirmed\": false, \"values_equivalent\": false, \"source_not_derivable\": true, \"repair\": \"none\"}, \"hard\": true, \"conventions\": [\"lapsed_cover\"], \"confidence_band\": \"strong\"}"} />
+  </Details>
+
+  <ReviewChoice itemId="dec-b-new" label="B · check the class before the period (rewritten)" />
+</Card>
+
+<Details summary="The original Decision B, verbatim, as you read it">
+  Copied from `key/pilot/review.mdx` lines 77–98; only the ids are changed so they do not collide with the rewrite. Its decision widget is a copy, not the live one.
+
+  <Card id="dec-b-orig" eyebrow="DECISION B" heading="Insurance certificates: check the cover class before the period" tone="accent" badge="clarify the rule" meta={["Leidos", "public_liability_insurance_held", "recommend: accept row, add three lines"]}>
+    The instructions' lapsed-cover rule says a certificate of the right class whose period ended before the audit date is no cover held. If the ERP shows cover held, the outcome is **investigate**: that is your Collective Engineering worked example. Leidos's only certificate is **professional liability** (including pollution and cyber), $25M a claim, for 26 October 2025 to 12 October 2026. That period ended two days before the 14 October audit date. The ERP holds no public-liability record. The reader ruled that there is no public-liability certificate at all. The audit's row "the lease requires the tenant to hold something … no evidence of compliance on either side" then gives **review**, not investigate. The 3.1 Pro history read the certificate as "$25,000,000 in public liability insurance" and said investigate. That reading is a class error and, on the value, a hallucination.
+
+    <FieldDiff
+      title="Leidos · public_liability_insurance_held"
+      beforeLabel="3.1 Pro history"
+      afterLabel="Key (as keyed)"
+      fields={[
+        { "name": "certificate", "before": "taken as $25M public liability", "after": "professional liability; lapsed 12 Oct 2026" },
+        { "name": "documented value", "before": "$25,000,000", "after": "no public-liability certificate" },
+        { "name": "ERP", "before": null, "after": null, "kept": true },
+        { "name": "expected", "before": "investigate", "after": "review, missing" }
+      ]}
+    />
+
+    **Recommendation: accept the row, and add three lines to the instructions:**
+    - A certificate of another class is no certificate for this field.
+    - The investigate branch applies only when the ERP holds cover.
+    - A lapsed certificate of the right class against an empty ERP is **review**, from the requirement row. It is not **acceptable** from the stated-nil row: a requirement nobody can show is met is not confirmed.
+
+    <ReviewChoice itemId="dec-b-orig" label="B · insurance class before period (original copy)" />
+  </Card>
+</Details>
+
+<Details summary="Reading the rewrite cold: where each question from your trace is answered">
+  <Table
+    density="compact"
+    columns={["Your question, in the order you asked it", "Answered by", "Where in the card"]}
+    rows={[
+      ["What is this decision about?", "the heading: a wrong-class certificate; review or investigate", "header"],
+      ["What is the lapsed-cover rule?", "quoted, with the convention on top of it and where each lives", "rule, after the facts"],
+      ["Is it saying an expired certificate is no coverage?", "yes — the convention's sentence says so in plain words", "rule"],
+      ["What do these dates mean?", "\"26 Oct 2025 → 12 Oct 2026 … ended 2 days before the audit date\"", "facts, rows 2–3"],
+      ["Is this an old document set? Did we sync?", "\"not recorded — the pack does not say when the document set was last refreshed\"; payload frozen by hash", "facts, row 3"],
+      ["Why professional indemnity? The test is public liability", "row 1 names the field's question; row 2 says the only certificate is the wrong class", "facts, rows 1–2"],
+      ["Extraction problem? PDF or extraction?", "node id and source file named; the gold's independent read agrees; the August engine did read it as PL", "facts, row 2; paragraph after the readings"],
+      ["No ERP record — known issue? exception?", "\"no public-liability insurance record at all\", filter named; whether Leidos is an exception is not in the pack (the lease requires $20M)", "facts, rows 1 and 4"],
+      ["Should they hold it at all?", "the lease requires $20M public liability", "facts, row 1"],
+      ["Review makes sense", "the badge and first line say so, with the reason", "header"],
+      ["Gemini read it as PL — what was its reasoning?", "its rationale quoted; its run was in August, on another extraction, while the certificate was in force", "readings table; paragraph after"],
+      ["Gemini vs the sub-agent reached different conclusions?", "two columns named by party, model, date and payload", "readings table"],
+      ["Where are the three lines added? What is a row?", "`key/reader_brief.md`, the lapsed-cover convention; \"line\" of the rule table and \"entry\" of the key are kept apart", "change; Diff in the drill-down"],
+    ]}
+  />
+</Details>
+
+## 3. Decision J, rewritten: the same anatomy on a rule-gap item
+
+No two parties here; the readings are two lines of the same rule. The facts are the rule's own text and the one pilot cell that touches it.
+
+<Card id="dec-j-new" eyebrow="DECISION J · the audit's severity rule" heading="When a lease states a term does not exist and the ERP holds nothing, the audit's rule gives two answers. Which should the key expect: **acceptable** or **investigate**?" tone="risk" badge="recommend: acceptable, investigate also right" meta={["tag as possible rule bug", "found in review, not by the readers", "1 pilot cell, hypothetically", "will hit Bayside and any \"Incentive: Nil\" among the 13", "filed as AIT-274"]}>
+  **Recommended: the key expects acceptable, scores investigate as also right, and tags the cell "possible rule bug".** The rule has a dedicated line for a stated nil and its own third question counts a stated nil against an empty ERP as confirmed; a general line contradicts both. The contradiction is the audit's to fix (AIT-274), not the key's to resolve by penalising whichever reading an arm takes.
+
+  <Table
+    density="compact"
+    columns={["The facts, in plain words", "Where each comes from"]}
+    rows={[
+      ["**Where the rule lives.** `severity_rule.py`, rendered into every adjudicator's prompt as the table \"Defaults by the shape of the evidence\" and the three questions above it.", "The adjudicator prompt (`payload.md`, Severity section)"],
+      ["**The field.** `renewal_option_summary` — does the tenant hold an option to renew? **Material.**", "Canonical field flags"],
+      ["**What the lease says.** \"Option to renew **N.A.**\" — a stated nil: the form expressly grants no option.", "Just Cuts lease form I01 p.1; gold `options = []`"],
+      ["**What the payload shows.** Nothing: every option strategy runs only while a term is active, and this term ended 15 Jun 2024. So the pilot cell is decided by the both-empty line regardless; the contradiction bites on the \"had the payload shown it\" outcome and on the 13.", "`drv_src_renewal_option_summary_1` and `_3`, both skipped (\"No entry found where lease_term_start_date <= 2026-10-14 < lease_term_expiry_date\")"],
+      ["**What the ERP holds.** No option record.", "`drv_tgt_renewal_option_summary_5`"],
+    ]}
+  />
+
+  **The rule at stake**, two lines of one table and the question they both answer:
+
+  > Documents state a value **(including a stated nil or $0)**; ERP holds nothing; field is material → shown wrong, material → **investigate**
+
+  > Documents state the term does not exist (nil, none, $0); ERP holds nothing → confirmed → **acceptable**
+
+  > `erp_positively_confirmed` — Does the evidence show the ERP state is right? Values agreeing in substance; **a stated nil against an empty ERP**; …
+
+  <Table
+    density="compact"
+    columns={["", "By the general line", "By the dedicated line and question 3"]}
+    rows={[
+      ["The shape it matches", "documents state a value — a stated nil counts; ERP holds nothing; material", "documents state the term does not exist; ERP holds nothing"],
+      ["Presumed answers", "shown wrong, material", "confirmed"],
+      ["Outcome", { "badge": { "label": "investigate", "tone": "risk" }, "md": "" }, { "badge": { "label": "acceptable", "tone": "success" }, "md": "" }],
+      ["Who took it", "nobody in the pilot; an instruction-following arm would, and be marked wrong for obeying the prompt", "the key reader, for the \"had the payload shown it\" outcome, without flagging the conflict"],
+    ]}
+  />
+
+  **What changes if you accept.** For any cell of this shape the key expects **acceptable**, lists **investigate** in `defensible`, and carries the tag "possible rule bug" under plan §4.4 so the reader does not mark an arm's investigate as an adjudicator error. The production rule is not changed here; its contradiction is filed as **AIT-274**. Among the 13 this shape is certain to occur: Bayside's bank guarantee ("no bank guarantee will apply while Alfred Health is the tenant") and any lease stating "Incentive: Nil".
+
+  **If nothing is decided:** an arm that follows the general line is scored wrong for doing what the prompt says, and the audit's rule stays contradictory in production with nobody holding the ticket.
+
+  <Details summary="Evidence: the key entry and the contested-cell card it depends on">
+    <Json title="renewal_option_summary · key entry (trimmed)" collapsedDepth={2} wrap json={"{\"gold\": {\"value\": \"NIL\", \"class\": \"derived\", \"evidence\": \"I01 p.1 Form option: 'Option to renew N.A.' (options = [])\"}, \"ruling\": \"N-silent\", \"attribution\": \"strategy-gap\", \"missing_link\": \"The lease form's 'Option to renew N.A.' statement. Every source strategy is gated on an active term, so the payload is silent on options.\", \"expected\": {\"verdict\": \"missing\", \"adjusted_severity\": \"acceptable\", \"erp_shown_wrong\": false, \"consequence_material\": true, \"erp_positively_confirmed\": true, \"values_equivalent\": true, \"source_not_derivable\": true}, \"truth_outcome\": {\"verdict\": \"missing\", \"adjusted_severity\": \"acceptable\"}, \"hard\": true, \"confidence_band\": \"weak\"}"} />
+
+    The reader's note on the cell: "If S\* were the gold NIL: 'Documents state the term does not exist; ERP holds nothing' → acceptable. So there is no upstream cost in severity, only in evidence." The note does not mention the general line; the contradiction was found in review.
+  </Details>
+
+  <ReviewChoice itemId="dec-j-new" label="J · stated nil vs empty ERP (rewritten)" />
+</Card>
+
+## 4. The skill text, proposed
+
+One numbered item in `skills/mdx-visual-recap/SKILL.md` ("The decision-batch skeleton", item 3) is rewritten; the same item in `mdx-doc-core/references/exemplar.md` follows it and points at the Decision B card above as the worked example. Two lines go into `document-quality.md` because they are not genre-specific. Register: defaults with their reasons, so a writer can tell when to depart.
+
+<Diff
+  mode="unified"
+  wrap
+  before={"3. **`## 2. The items`** — one `<Card>` per item, `tone` = the verdict class\n   with the `badge` naming it (colour triages; the badge carries the meaning),\n   `meta` chips for pack / confidence / recommended action. Inside, in order:\n   one or two sentences of _why_; the decisive evidence as a `<FieldDiff>`\n   (its null / absent / kept distinctions carry meaning — a JSON string in a\n   line `<Diff>` is the shape it exists to retire); a `<Details>` holding the\n   bulk evidence (full production entry, counterpart pack); a\n   `<ReviewChoice itemId>` whose id is unique in the document — a duplicate id\n   silently collapses two widgets onto one decision, and the lint reports it\n   as an error. The renderer shows a sticky \"N of M decided\" counter whenever\n   `<ReviewChoice>` items are present; it counts explicit decisions only.\n"}
+  after={"3. **`## 2. The items`** — one `<Card>` per item, `tone` = the verdict class,\n   `badge` naming the recommended answer (colour triages; the badge carries\n   the meaning), `eyebrow` for the item's label and subject, `meta` chips for\n   scope / confidence / what changes. The card answers the reader's questions\n   in the order they will ask them, each part a default with its reason:\n   - **The question**, as the heading — what is being decided, as a yes/no or\n     A/B with the one fact that frames it. A heading that names the topic\n     (\"check the class before the period\") gives the reader a vague idea; the\n     question gives them the decision.\n   - **The answer**, in the first line, with its one-sentence reason.\n   - **The facts of the case as fields**, not prose: a compact `<Table>`, one\n     fact per row, with the literal value, a plain-words gloss (a date\n     relative to the date that matters: \"ended two days before the audit\n     date\"), and where it came from and as of when. A fact the reader will\n     want that nobody recorded is a row saying so — an honest unknown stops\n     the hunt. Facts in a paragraph are re-derived by every reader; in a\n     table they are read once.\n   - **The rule at stake**, quoted with where it lives, placed after the facts\n     and before the readings — where the reader needs it to follow them, not\n     alluded to by name in the first sentence.\n   - **The readings**, when parties or rule lines disagree: what each\n     concluded, from what, and when, as a `<Table>` (or `<Columns>` of two\n     cards) whose labels name the party, its basis and its date, outcomes as\n     badges. A `<FieldDiff>` is for a genuine before/after — as keyed →\n     recommended, current → proposed; a reader meets its two panels as\n     before/after whatever they are labelled, so two readings are not a diff.\n   - **The change if accepted**, literally: the text and the file or table it\n     goes into (\"add three lines\" names the destination), then **what\n     happens if nothing is decided**, in one line.\n   - A `<Details>` holding the bulk evidence (the record, the full rationale,\n     the inserted text as a `<Diff>`); a `<ReviewChoice itemId>` whose id is\n     unique in the document — a duplicate id silently collapses two widgets\n     onto one decision, and the lint reports it as an error. The renderer\n     shows a sticky \"N of M decided\" counter whenever `<ReviewChoice>` items\n     are present; it counts explicit decisions only.\n\n   A simpler item takes fewer parts in the same order — a scope call needs\n   the question, the answer, one fact and the change. The visible card is\n   read once, top to bottom; what the reader needs only if they doubt a fact\n   is in the drill-down. A word that means two things in one card (the key's\n   *row*, the rule's *row*) is glossed or replaced. The worked example is\n   Decision B in `recaps/decision-item-anatomy/recap.mdx`.\n"}
+/>
+
+<Details summary="The two lines for document-quality.md, and the exemplar.md change">
+  **`document-quality.md` §3 (Hierarchy)**, a new bullet after "One literal example beside each claim":
+
+  > - **Facts as fields, not prose.** When a passage carries more than two or three facts the reader must hold together — values, dates, parties, sources — it is a compact `<Table>` or a field list, each fact with where it came from and as of when, and an unknown the reader will want stated as unknown. A paragraph of facts is re-parsed by every reader; a table is read once, and the source column answers "where does this come from" before it is asked.
+
+  **`document-quality.md` §4 ("Three distinctions that are often got wrong")**, a fourth:
+
+  > - **A before/after vs two readings.** `<FieldDiff>`'s panels are a change — current → proposed, as keyed → recommended — and a reader meets them as before/after whatever the labels say. Two parties' conclusions about the same record are readings, not a change: a `<Table>` with a column per party (its name, basis and date in the header, outcomes as badges) or a `<Columns>` pair, so no direction is implied.
+
+  **`exemplar.md`, "A decision batch (recap genre)" item 3** takes the same text as the SKILL.md item above, and its closing line names `recaps/decision-item-anatomy/recap.mdx` §2 as the worked decision card alongside the existing shipped recap exemplar.
+</Details>
+
+## 5. Your decisions
+
+<Card id="approve-anatomy" heading="The anatomy as the default shape of a decision card" tone="accent" badge="recommend: accept" meta={["§1", "defaults, not a template"]}>
+  Question, answer, facts as fields with sources, the rule quoted, readings labelled as readings, the literal change and its destination, the cost of inaction, then the evidence folded away.
+
+  <ReviewChoice itemId="approve-anatomy" label="Anatomy as default" placeholder="Which part to drop, move or make optional…" />
+</Card>
+
+<Card id="approve-exemplar" heading="Decision B (rewritten) as the card the skill points at" tone="accent" badge="recommend: accept" meta={["§2", "Decision J shows the rule-gap shape"]}>
+  The test is yours: read §2 cold and say whether you could have grokked it on one pass. If not, the note here is the most valuable thing in this document.
+
+  <ReviewChoice itemId="approve-exemplar" label="Decision B as worked example" placeholder="Where it still made you work…" />
+</Card>
+
+<Card id="approve-skill-text" heading="The skill text in §4, for a coder to fold into SKILL.md, exemplar.md and document-quality.md" tone="accent" badge="recommend: accept" meta={["§4", "three files", "no other item changes"]}>
+  Nothing is applied yet. On accept, a coder makes exactly these edits and runs the skill's own lint on the shipped documents.
+
+  <ReviewChoice itemId="approve-skill-text" label="Skill text" placeholder="Register or length concerns…" />
+</Card>
+
+<QuestionForm
+  questions={[
+    {
+      id: "heading",
+      mode: "single",
+      title: "What should a decision card's heading carry?",
+      subtitle: "The rewrite puts the question in the heading and the recommended answer in the badge; the original put the recommendation in the heading as a topic title.",
+      refs: [{ label: "1. The anatomy, and why this order", anchor: "1-the-anatomy-and-why-this-order" }],
+      options: [
+        { id: "question", label: "The question — what is being decided, as yes/no or A/B; the badge carries the answer", recommended: true },
+        { id: "answer", label: "The recommended answer, written as a verdict (\"expect review, not investigate\"); the question in the first line" },
+        { id: "writer", label: "Leave it to the writer; the skill names both and the reason for each" }
+      ]
+    },
+    {
+      id: "other-party",
+      mode: "single",
+      title: "When should a card show another party's reading (a historic model run, a sub-agent) beside the recommended one?",
+      subtitle: "Decision B's Gemini column explains the trap the arms will fall into, but it is a reading from another payload and another month, and it doubled the card's second table.",
+      options: [
+        { id: "trap", label: "Only when that reading is the error the decision guards against — then with its basis and date in the column header", recommended: true },
+        { id: "always", label: "Whenever one exists; the reader should see every reading that was made" },
+        { id: "details", label: "Only in the drill-down; the visible card shows the recommended reading alone" }
+      ]
+    }
+  ]}
+/>
+
+###### Sources: Carl's read of Decision B (the spawn brief, verbatim); `key/pilot/review.mdx`, `002335_leidos-australia.jsonl` and `.notes.md`, `450107_just-cuts.jsonl` and `.notes.md`, `key/reader_brief.md`, `key/README.md`, `key/packs/002335_leidos-australia/{payload,gold,historic}.md` via `key/slice.py`; `skills/mdx-visual-recap/SKILL.md` and `mdx-doc-core/references/{document-quality,exemplar,block-vocabulary}.md`; IRAC/FIRAC case-brief structure (Monash legal problem-solving guide) and the one-page decision memo form.
