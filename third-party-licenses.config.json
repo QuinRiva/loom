@@ -569,15 +569,6 @@
     },
     {
       "license": "MIT",
-      "name": "@earendil-works/chord",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/chord",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
-      }
-    },
-    {
-      "license": "MIT",
       "name": "@earendil-works/pi-agent-core",
       "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/agent",
       "generatedNotice": {

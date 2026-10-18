@@ -9,7 +9,7 @@
  import { dirname, join } from "path";
  import lockfile from "proper-lockfile";
  import { setTimeout as sleep } from "timers/promises";
-@@ -30,6 +30,36 @@
+@@ -42,6 +42,36 @@
              writeFileSync(this.authPath, "{}", AUTH_FILE_WRITE_OPTIONS);
          }
      }
@@ -46,7 +46,7 @@
      acquireLockSyncWithRetry(path) {
          const maxAttempts = 10;
          const delayMs = 20;
-@@ -63,7 +93,7 @@
+@@ -68,7 +98,7 @@
              const current = existsSync(this.authPath) ? readFileSync(this.authPath, "utf-8") : undefined;
              const { result, next } = fn(current);
              if (next !== undefined) {
@@ -55,7 +55,7 @@
              }
              return result;
          }
-@@ -137,7 +167,7 @@
+@@ -144,7 +174,7 @@
              throwIfCompromised();
              options?.signal?.throwIfAborted();
              if (next !== undefined) {

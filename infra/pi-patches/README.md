@@ -91,7 +91,7 @@ for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
 0001/0002 were authored against pi **0.82.1** and 0003/0004 against **1.1.0**; all
-four diffs apply to **1.1.0**
+four diffs apply to **1.3.0**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
@@ -141,6 +141,16 @@ controls (no override → refusal), which hold either way.
 paths, no `renameSync`), stock `args.js` still has no `--cwd` and
 `rpc-mode.js`/`rpc-types.d.ts` are byte-identical to 1.0.2, and the contract
 test against the stock 1.1.0 bundle fails the same 7 of 9.
+
+**1.3.0 outcomes** (1.2.0 skipped). All four still needed. 0002: stock
+`auth-storage.js` only gained a Windows `EPERM` lock retry; both lock paths
+still `writeFileSync` with no `renameSync`. 0001: `args.js`, `args.d.ts`,
+`rpc-mode.js` and `rpc-types.d.ts` are byte-identical to 1.1.0, and the
+contract test against the stock 1.3.0 bundle fails the same 7 of 9. 0003:
+`cache-warmer.js` byte-identical to 1.1.0 (still the hard-coded
+`MAX_IDLE_WARMING_AGE_MS`). 0004: `sdk.js` byte-identical (identity compare)
+and `_refreshFinalizedContext` unchanged; the 0004 harness on the 1.3.0 bundle
+with only 0004 reverted → repro no ping, `REPRO=off` control one ping at +54.0.
 
 ### 1. Move the version pins
 
@@ -341,6 +351,11 @@ flag, so its two hunks moved one and eleven lines (re-derived, contexts
 unchanged); every other 0001 file applied at zero offset. The bundle keeps the
 0.99 layout (`main()` and the RPC loop in `chunk-OIM2DMFI.js`, auth storage in
 `chunk-MXTZIDYW.js`) and all nine 0001 anchors matched first try.
+1.3.0 drift: `main.js` gained a theme-validator move and an `inlineApiKey`
+line above the patched region, so hunks 5–6 moved three lines (re-derived);
+every other 0001 file is byte-identical to 1.1.0. Same chunk layout (`main()`
+and the RPC loop in `chunk-66G7ITPS.js`, auth storage in `chunk-5GTPJSRI.js`),
+all nine anchors matched first try, contract test 9 of 9.
 
 ## 0002 — atomic `auth.json` write
 
@@ -396,7 +411,10 @@ again, and `atomic-window.mjs` against the resolved 1.0.2 copy read ~6.9 k good
 and zero zero-byte/unparseable/empty per reader. 1.1.0: `auth-storage.js`
 byte-identical to 1.0.2 (auth chunk now `chunk-MXTZIDYW.js`), stored diff
 byte-identical, and the harness against the resolved 1.1.0 copy read ~7.1 k
-good and zero of everything else per reader.
+good and zero of everything else per reader. 1.3.0: upstream added a
+Windows-only `EPERM` lock retry, shifting the hunks 5–12 lines (re-derived,
+content unchanged); auth chunk `chunk-5GTPJSRI.js`; the harness against the
+resolved 1.3.0 copy read ~6.9 k good and zero of everything else per reader.
 
 ## 0003 — configurable idle cache-warming horizon (`PI_CACHE_WARMING_IDLE_MAX_MS`)
 
@@ -418,7 +436,7 @@ economics gate does too, except that Loom's extension (`cacheWarmingGate`)
 answers `warm` to a 1-hour root's idle decision: pi prices a miss at the
 5-minute write rate, which would skip the ~54-minute ping for most contexts.
 
-**How the horizon counts, in pi 1.1.0** (`dist/core/cache-warmer.js`):
+**How the horizon counts, in pi 1.1.0–1.3.0** (`dist/core/cache-warmer.js`, byte-identical across them):
 
 - Idle age is measured from `run.startedAt`, the moment the **last real
   session request was dispatched** (`CacheWarmer.start`, called from the
@@ -455,7 +473,9 @@ the turn settles reads `Inactive (30-minute idle safety limit reached)` unset
 and `Decision in 54m (… -> warm)` with `5400000`.
 
 Files: `dist/core/cache-warmer.js` (plus the bundle: two anchors in the CLI
-chunk, `chunk-OIM2DMFI.js` on 1.1.0 — the constant once, the stop reason twice).
+chunk, `chunk-66G7ITPS.js` on 1.3.0 — the constant once, the stop reason twice).
+On 1.3.0 the 0004 harness's `REPRO=off` run doubles as the 0003 check: one
+ping at +54.0 with `5400000` on the patched bundle, none on stock.
 Upstreamable as a setting rather than an env var.
 
 ## 0004 — idle cache warming survives pi's post-turn message rebuild
@@ -491,13 +511,14 @@ message per turn; `PI_ROOT=<pi root> node run.mjs <label> [compactAtMin]`).
 minutes. On 1.1.0: without 0004, repro → no ping (control with `REPRO=off` →
 one ping at +54.0); with 0004, repro → one ping at +54.0 and a `cache_warm`
 entry; with 0004 and a compaction at +20 (`AGENT_DIR=agentdir-compact`) → no
-ping.
+ping. 1.3.0 reproduces all four results (the "without 0004" runs on the
+patched 1.3.0 bundle with only the 0004 anchor reverted).
 
 Files: `dist/core/sdk.js` (plus the bundle: one anchor in the CLI chunk,
-`chunk-OIM2DMFI.js` on 1.1.0, and the `__loomSameRequestMessage` header).
+`chunk-66G7ITPS.js` on 1.3.0, and the `__loomSameRequestMessage` header).
 Upstream issue drafted at `/home/Carl/scratch/prompt-cache-idle-gap/pi-upstream-issue.md`.
 
 > Note: `pnpm patch` byte-compares the whole package, so
-> `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~650–700 KB — the
+> `patches/@earendil-works__pi-coding-agent@<version>.patch` is ~0.65–1 MB — the
 > edited minified chunk lines dominate it. The readable diffs in this directory
 > are the reviewable form of the same change.
