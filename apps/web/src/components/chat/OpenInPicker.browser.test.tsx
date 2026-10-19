@@ -35,11 +35,6 @@ vi.mock(import("../../state/session"), async (importOriginal) => {
       )) as never,
   };
 });
-// loom: OpenInPicker/editorPreferences read the zed-ssh host from the primary server config.
-vi.mock("../../state/server", async () => {
-  const { Atom } = await import("effect/reactivity");
-  return { primaryServerConfigAtom: Atom.make(null) };
-});
 vi.mock(import("../../state/use-atom-command"), async (importOriginal) => ({
   ...(await importOriginal()),
   useAtomCommand: (() => state.run) as never,
