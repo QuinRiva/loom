@@ -121,6 +121,22 @@ function useStructuralLayout(threads: ReadonlyArray<WorkstreamNode>) {
   return layout;
 }
 
+/**
+ * The laid-out graph, the live consult overlay on it, and the fit-all view box.
+ * Kept in one hook so no later hook call splits the compiler's cache for them:
+ * the view box must keep its identity, or the re-fit effect loops.
+ */
+function useGraphGeometry(threads: ReadonlyArray<WorkstreamNode>, byId: WorkstreamNodeIndex) {
+  const { nodes, edges } = useStructuralLayout(threads);
+  const consultOverlay = deriveConsultOverlay(nodes, byId, edges);
+  return {
+    nodes,
+    edges,
+    consultOverlay,
+    base: computeForkJoinViewBox(nodes, edges, consultOverlay.edges),
+  };
+}
+
 export default function WorkstreamGraph({
   viewKey,
   nodes: threads,
@@ -145,9 +161,7 @@ export default function WorkstreamGraph({
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onNodeContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
 }) {
-  const { nodes, edges } = useStructuralLayout(threads);
-  const consultOverlay = deriveConsultOverlay(nodes, byId, edges);
-  const base = computeForkJoinViewBox(nodes, edges, consultOverlay.edges);
+  const { nodes, edges, consultOverlay, base } = useGraphGeometry(threads, byId);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);

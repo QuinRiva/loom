@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { observeResize } from "~/lib/observeResize";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import {
@@ -608,8 +609,10 @@ export function MdxPlanAnnotationLayer({
   const dismissComposer = () => setComposer(null);
 
   /** Offer the floating "Comment" button for the selection in `doc` — the host
-   * document, or an HtmlBlock frame's (whose rects are moved into host space). */
-  const handleMouseUp = (doc: Document = document) => {
+   * document, or an HtmlBlock frame's (whose rects are moved into host space).
+   * Stable (it reads the wrapper ref, which the compiler will not cache), so
+   * the frame-wiring effect below does not re-wire on every render. */
+  const handleMouseUp = useStableCallback((doc: Document = document) => {
     requestAnimationFrame(() => {
       const selection = doc.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
@@ -630,10 +633,10 @@ export function MdxPlanAnnotationLayer({
         left: last.right - wrapperRect.left,
       });
     });
-  };
+  });
 
   /** Show the per-block comment affordance for the block under `target`. */
-  const hoverOver = (target: Element) => {
+  const hoverOver = useStableCallback((target: Element) => {
     const block = target.closest?.("[data-plan-block-id]");
     if (!root || !block || !root.contains(block)) {
       if (hoverBlockIdRef.current !== null) {
@@ -652,7 +655,7 @@ export function MdxPlanAnnotationLayer({
       top: rect.top - wrapperRect.top + 4,
       left: rect.right - wrapperRect.left - 30,
     });
-  };
+  });
 
   // HtmlBlock frames are separate (same-origin) documents: selections, hovers,
   // clicks and scrolls inside one never reach the wrapper's handlers, so listen

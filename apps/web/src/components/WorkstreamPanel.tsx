@@ -38,6 +38,9 @@ const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
  * orchestration the open thread belongs to, with its active strip, header
  * (total spend, settled count, lineage) and the node timeline drawer.
  */
+const startOriginIdOf = (node: WorkstreamNode | undefined) =>
+  (node ? threadStartOriginOf(node)?.threadId : null) ?? null;
+
 export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const navigate = useNavigate();
   const { nodes, rollupOf } = useWorkstreamNodes(threadRef.environmentId);
@@ -63,7 +66,21 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const timelineNode = timelineId === null ? undefined : nodes.get(timelineId);
   const history = useThreadHistory(threadRef.environmentId, timelineNode);
 
+  // loom: the thread a started root came from (a handoff's origin, a continuation's
+  // predecessor); archived origins resolve through `nodes`.
+  const originId = startOriginIdOf(nodes.get(threadRef.threadId));
+  const originTitle = useThreadShell(
+    originId ? scopeThreadRef(threadRef.environmentId, originId) : null,
+  )?.title;
+  const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
+
+  // Derived after the last hook call: a value still in use across a hook call
+  // is one the compiler will not cache.
   const node = nodes.get(threadRef.threadId);
+  const forkedFrom = node?.forkFromThreadId
+    ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
+    : null;
+  const startOrigin = node ? threadStartOriginOf(node) : null;
   const live = liveNodes(nodes.values());
   const rootId = node ? rootOf(node.id, live) : null;
   const subtree = rootId ? subtreeOf(rootId, live) : [];
@@ -72,17 +89,6 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   // The whole workstream, archived threads included: its root and every descendant.
   const all = [...nodes.values()];
   const workstream = node ? subtreeOf(rootOf(node.id, all), all).map((member) => member.id) : [];
-  const forkedFrom = node?.forkFromThreadId
-    ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
-    : null;
-  // loom: the thread a started root came from (a handoff's origin, a continuation's
-  // predecessor); archived origins resolve through `nodes`.
-  const startOrigin = node ? threadStartOriginOf(node) : null;
-  const originId = startOrigin?.threadId ?? null;
-  const originTitle = useThreadShell(
-    originId ? scopeThreadRef(threadRef.environmentId, originId) : null,
-  )?.title;
-  const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
   const startedBy = startOrigin && {
     ...startOrigin,
     title: nodes.get(startOrigin.threadId)?.title ?? originTitle ?? "an archived thread",
