@@ -32,7 +32,8 @@ it.layer(NodeServices.layer)("providerMaintenance (loom)", (it) => {
         env: { PATH: process.env.PATH ?? "" },
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, noSpawn));
 
-      expect(capabilities).toEqual({
+      // Upstream also reports the resolved `installPath`; only the refusal matters here.
+      expect(capabilities).toMatchObject({
         provider: "pi",
         packageName: "@earendil-works/pi-coding-agent",
         update: null,
