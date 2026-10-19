@@ -230,12 +230,11 @@ export function UsageLimitsSection({
     selectedEnvironmentIds === null
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
-  const accounts = collectLimitAccounts(selected); // loom: shared with the login alerts
-  const pools = collectLimitPools(accounts, now);
+  const pools = collectLimitPools(collectLimitAccounts(selected), now);
   const notices = collectLimitNotices(selected);
   // loom: failing logins and usage sources no hub account matches
   const loginAlerts = [
-    ...loginAlertNotices(accounts, now),
+    ...loginAlertNotices(selected, now),
     ...unlinkedUsageSources(selected).map((source) => source.notice),
   ];
   const externalLinks = collectExternalUsageLinks(selected);

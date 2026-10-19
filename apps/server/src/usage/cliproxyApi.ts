@@ -10,13 +10,14 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { codexPlanLabel } from "../provider/CodexProvider.ts";
 import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
 import { claudeUsageResponseToLimits } from "../provider/claudeUsageLimits.ts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { cliproxyLogin } from "./cliproxyLogin.loom.ts"; // loom
+import type { HubAuthFileFacts } from "./hubLogins.loom.ts"; // loom
 
 const AuthFile = Schema.Struct({
   id: Schema.String,
@@ -28,6 +29,9 @@ const AuthFile = Schema.Struct({
   status: Schema.optional(Schema.String),
   status_message: Schema.optional(Schema.String),
   last_refresh: Schema.optional(Schema.String),
+  // loom: for the login record (`hubLogins.loom.ts`).
+  modtime: Schema.optional(Schema.String),
+  created_at: Schema.optional(Schema.String),
   id_token: Schema.optional(
     Schema.Struct({
       chatgpt_account_id: Schema.optional(Schema.String),
@@ -36,6 +40,24 @@ const AuthFile = Schema.Struct({
   ),
 });
 const AuthFiles = Schema.Struct({ files: Schema.Array(AuthFile) });
+export type CliproxyAuthFile = typeof AuthFile.Type; // loom
+// loom: the fields of a downloaded auth file the login record reads. The file
+// carries live tokens: only these are decoded, and the access token only to hash.
+const DownloadedAuthFile = Schema.Struct({
+  claude_device_ids: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  access_token: Schema.optional(Schema.String),
+  refresh_token: Schema.optional(Schema.NullOr(Schema.String)),
+  last_refresh: Schema.optional(Schema.String),
+  expired: Schema.optional(Schema.String),
+  is_setup_token: Schema.optional(Schema.Boolean),
+});
+const decodeDownloadedAuthFile = Schema.decodeUnknownEffect(DownloadedAuthFile);
+const decodeAuthUrl = Schema.decodeUnknownEffect(
+  Schema.Struct({ url: Schema.String, state: Schema.String }),
+);
+const decodeAuthStatus = Schema.decodeUnknownEffect(
+  Schema.Struct({ status: Schema.String, error: Schema.optional(Schema.String) }),
+);
 const ApiResponse = Schema.Struct({ status_code: Schema.Number, body: Schema.String });
 const CodexWindow = Schema.Struct({
   used_percent: Schema.Number,
@@ -118,6 +140,23 @@ export const carriedAccounts = (
       now - Date.parse(account.usageLimits.checkedAt) < CARRY_FORWARD_MS,
   );
 
+/** loom: a hub refusal as one line, with the hub's own `error` text when it gave one. */
+const hubRefusal = (status: number, body: unknown) => {
+  const error =
+    typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+      ? body.error.trim().slice(0, 200)
+      : "";
+  return error
+    ? `The hub refused the request: ${error}.`
+    : `The hub management request failed (HTTP ${status}).`;
+};
+
+/** loom: the later of two ISO clocks, either possibly absent. */
+const fresherClock = (left: string | undefined, right: string | undefined) =>
+  left === undefined || (right !== undefined && Date.parse(right) > Date.parse(left))
+    ? right
+    : left;
+
 const CODEX_BASE = "https://chatgpt.com/backend-api/wham";
 const CREDIT_URL = `${CODEX_BASE}/rate-limit-reset-credits`;
 
@@ -162,11 +201,20 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const response = yield* client
       .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
       .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap((response) => response.json),
+        // loom: a refusal names the hub's own `error` text (the login dialog shows it).
+        Effect.flatMap((response) =>
+          response.json.pipe(
+            Effect.filterOrFail(
+              () => response.status >= 200 && response.status < 300,
+              (body) => new UsageLimitSourceError({ detail: hubRefusal(response.status, body) }),
+            ),
+          ),
+        ),
         Effect.timeout("15 seconds"),
-        Effect.mapError(
-          () => new UsageLimitSourceError({ detail: "The hub management request failed." }),
+        Effect.mapError((error) =>
+          isUsageLimitSourceError(error)
+            ? error
+            : new UsageLimitSourceError({ detail: "The hub management request failed." }),
         ),
       );
     return response;
@@ -228,14 +276,84 @@ export const makeCliproxyApi = Effect.gen(function* () {
       .toSorted((a, b) => Date.parse(a.expires_at) - Date.parse(b.expires_at));
   });
 
+  // loom: the login record's reads and cliproxy's OAuth flow (`hubLogins.loom.ts`).
+  const downloadAuthFile = Effect.fn("CliproxyApi.downloadAuthFile")(function* (
+    config: UsageLimitSourceConfig,
+    id: string,
+  ): Effect.fn.Return<HubAuthFileFacts, UsageLimitSourceError> {
+    const file = yield* management(
+      config,
+      `auth-files/download?name=${encodeURIComponent(id)}`,
+    ).pipe(
+      Effect.flatMap(decodeDownloadedAuthFile),
+      Effect.mapError(
+        () => new UsageLimitSourceError({ detail: "The hub could not return an auth file." }),
+      ),
+    );
+    const tokenHash = file.access_token
+      ? Hex.encode(
+          new Uint8Array(
+            yield* crypto
+              .digest("SHA-256", new TextEncoder().encode(file.access_token))
+              .pipe(Effect.orDie),
+          ),
+        )
+      : undefined;
+    return {
+      ...(file.claude_device_ids?.[0] ? { deviceId: file.claude_device_ids[0] } : {}),
+      ...(tokenHash ? { tokenHash } : {}),
+      ...(file.last_refresh ? { lastRefresh: file.last_refresh } : {}),
+      ...(file.expired ? { expired: file.expired } : {}),
+      refreshable: Boolean(file.refresh_token),
+      setupToken: file.is_setup_token === true,
+    };
+  });
+
+  const authUrl = Effect.fn("CliproxyApi.authUrl")(function* (config: UsageLimitSourceConfig) {
+    return yield* management(config, "anthropic-auth-url").pipe(
+      Effect.flatMap(decodeAuthUrl),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub returned no sign-in URL." }),
+      ),
+    );
+  });
+
+  const oauthCallback = Effect.fn("CliproxyApi.oauthCallback")(function* (
+    config: UsageLimitSourceConfig,
+    body: Readonly<Record<string, string>>,
+  ) {
+    yield* management(config, "oauth-callback", { provider: "anthropic", ...body });
+  });
+
+  const authStatus = Effect.fn("CliproxyApi.authStatus")(function* (
+    config: UsageLimitSourceConfig,
+    state: string,
+  ) {
+    return yield* management(config, `get-auth-status?state=${encodeURIComponent(state)}`).pipe(
+      Effect.flatMap(decodeAuthStatus),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub returned an unreadable login status." }),
+      ),
+    );
+  });
+
   const readAccount = Effect.fn("CliproxyApi.readAccount")(function* (
     config: UsageLimitSourceConfig,
     account: typeof AuthFile.Type,
     carried: UsageLimitSourceAccount | undefined, // loom: last good reading
+    diskRefresh: string | undefined, // loom: the auth file's own clock, which a re-login resets
   ) {
     const now = yield* DateTime.now;
     const checkedAt = DateTime.formatIso(now);
-    const login = cliproxyLogin(account, DateTime.toEpochMillis(now)); // loom
+    // loom: the fresher of the hub's in-memory refresh clock and the file's.
+    const login = cliproxyLogin(
+      { ...account, last_refresh: fresherClock(account.last_refresh, diskRefresh) },
+      DateTime.toEpochMillis(now),
+    );
     const base = {
       id: account.id,
       driver: ProviderDriverKind.make(account.provider === "codex" ? "codex" : "claudeAgent"),
@@ -356,12 +474,9 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const readAccounts = Effect.fn("CliproxyApi.readAccounts")(function* (
     config: UsageLimitSourceConfig,
     previous: ReadonlyArray<UsageLimitSourceAccount>, // loom: carry-forward source
+    accounts: ReadonlyArray<typeof AuthFile.Type>, // loom: listed once by the caller
+    diskRefresh: (email: string | undefined) => string | undefined = () => undefined, // loom
   ): Effect.fn.Return<ReadonlyArray<UsageLimitSourceAccount>, UsageLimitSourceError> {
-    const accounts = yield* authFiles(config).pipe(
-      Effect.mapError(
-        () => new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
-      ),
-    );
     const carried = carriedAccounts(previous, DateTime.toEpochMillis(yield* DateTime.now)); // loom
     return yield* Effect.forEach(
       accounts.filter(
@@ -373,6 +488,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
           config,
           account,
           carried.find((candidate) => candidate.id === account.id), // loom
+          diskRefresh(account.email), // loom
         ),
       { concurrency: 4 },
     );
@@ -430,5 +546,20 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ),
     );
   });
-  return { readAccounts, consume };
+  // loom: `listAccounts` and the login calls for `UsageLimitSources`.
+  const listAccounts = (config: UsageLimitSourceConfig) =>
+    authFiles(config).pipe(
+      Effect.mapError(
+        () => new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
+      ),
+    );
+  return {
+    listAccounts,
+    readAccounts,
+    consume,
+    downloadAuthFile,
+    authUrl,
+    oauthCallback,
+    authStatus,
+  };
 });

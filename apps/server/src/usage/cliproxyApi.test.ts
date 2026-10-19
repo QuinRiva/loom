@@ -46,6 +46,11 @@ const RequestBody = Schema.Struct({
 type RequestBody = typeof RequestBody.Type;
 const decodeRequest = Schema.decodeUnknownSync(Schema.fromJsonString(RequestBody));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+type Api = Effect.Success<typeof makeCliproxyApi>;
+const readAll = (api: Api, previous: Parameters<Api["readAccounts"]>[1]) =>
+  api
+    .listAccounts(config)
+    .pipe(Effect.flatMap((files) => api.readAccounts(config, previous, files)));
 
 function fixture(
   options: {
@@ -130,7 +135,7 @@ describe("CLIProxyAPI built-in management API", () => {
         yield* TestClock.setTime(1788710400000);
         const test = fixture();
         const api = yield* test.api;
-        const result = yield* api.readAccounts(config, []);
+        const result = yield* readAll(api, []);
         expect(result.map((account) => account.usageLimits.resetCredits)).toEqual([
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
@@ -162,7 +167,7 @@ describe("CLIProxyAPI built-in management API", () => {
             : { status: 200, body: { rate_limit: { primary_window: { used_percent: 12 } } } },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(result[0]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(result[0]?.usageLimits.resetCredits).toBeUndefined();
     }),
@@ -182,7 +187,7 @@ describe("CLIProxyAPI built-in management API", () => {
               },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(result[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
       expect(result[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(encodeJson(result)).not.toContain("do-not-publish");
@@ -216,7 +221,7 @@ describe("CLIProxyAPI built-in management API", () => {
       });
       const recent = good("first.json", "2026-09-30T11:35:00.000Z");
 
-      const carried = yield* api.readAccounts(config, [
+      const carried = yield* readAll(api, [
         recent,
         good("gone.json", recent.usageLimits.checkedAt),
       ]);
@@ -227,7 +232,7 @@ describe("CLIProxyAPI built-in management API", () => {
       expect(carried[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
 
       const old = good("first.json", "2026-09-30T11:29:00.000Z");
-      const expired = yield* api.readAccounts(config, [old]);
+      const expired = yield* readAll(api, [old]);
       expect(expired[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
     }),
   );
@@ -249,7 +254,7 @@ describe("CLIProxyAPI built-in management API", () => {
         ],
       });
       const api = yield* test.api;
-      const [account] = yield* api.readAccounts(config, [
+      const [account] = yield* readAll(api, [
         {
           id: "first.json",
           driver: ProviderDriverKind.make("claudeAgent"),
@@ -287,7 +292,7 @@ describe("CLIProxyAPI built-in management API", () => {
         }),
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(
         result[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
       ).toEqual([
@@ -352,7 +357,7 @@ describe("CLIProxyAPI built-in management API", () => {
     Effect.gen(function* () {
       const test = fixture({ accounts: [{ ...accounts[0]!, disabled: true }] });
       const api = yield* test.api;
-      expect(yield* api.readAccounts(config, [])).toEqual([]);
+      expect(yield* readAll(api, [])).toEqual([]);
       expect((yield* api.consume(config, "first.json", "credit").pipe(Effect.result))._tag).toBe(
         "Failure",
       );

@@ -16,6 +16,7 @@ import {
   type ServerSettings, // loom
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceId, // loom
   type UsageLimitSourceLogin,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
@@ -585,18 +586,130 @@ export function loginAlertText(login: UsageLimitSourceLogin, now: number): strin
   return `Login refresh is failing: stops working ${when}. Log in to this account again.`;
 }
 
+/** loom: what a hub login needs from the user now, most urgent first. */
+export type LoginAttention = "dead" | "refreshFailing" | "overdue" | "due";
+const ATTENTION_ORDER: readonly LoginAttention[] = ["dead", "refreshFailing", "overdue", "due"];
+
+/** loom: the precedence for one account: dead › failing › overdue › due › nothing. */
+export function loginAttention(
+  login: UsageLimitSourceLogin | null | undefined,
+): LoginAttention | null {
+  if (!login) return null;
+  if (login.status !== "healthy") return login.status;
+  const phase = login.relogin?.phase;
+  return phase === "due" || phase === "overdue" ? phase : null;
+}
+
+const DAY_FORMAT = { weekday: "short", day: "numeric", month: "short" } as const;
+/** loom: `Fri 30 Oct` (the year too when it is not this one), in `timeZone` or local time. */
+function formatDay(at: number, now: number, timeZone?: string): string {
+  const sameYear =
+    new Intl.DateTimeFormat("en-GB", { year: "numeric", ...(timeZone ? { timeZone } : {}) }).format(
+      at,
+    ) === new Intl.DateTimeFormat("en-GB", { year: "numeric" }).format(now);
+  return new Intl.DateTimeFormat("en-GB", {
+    ...DAY_FORMAT,
+    ...(sameYear ? {} : { year: "numeric" }),
+    ...(timeZone ? { timeZone } : {}),
+  })
+    .format(at)
+    .replace(",", "");
+}
+
 /**
- * loom: `carl3@: …` lines for every account a pooled view should lead with,
- * named by the email's local part as the subscription meter names them.
+ * loom: the re-login reminder for an account named `name` (`caaarl@`), or
+ * null while it is not yet due. An account someone else logs in (a lead of
+ * more than a weekday) is asked of its owner.
  */
-export function loginAlertNotices(accounts: readonly LimitAccount[], now: number): string[] {
-  return accounts.flatMap((account) =>
-    account.login && account.login.status !== "healthy"
-      ? [
-          `${account.email ? `${account.email.split("@")[0]}@` : (account.displayName ?? account.key)}: ${loginAlertText(account.login, now)}`,
-        ]
-      : [],
-  );
+export function reloginText(
+  login: UsageLimitSourceLogin,
+  name: string,
+  now: number,
+): string | null {
+  const relogin = login.relogin;
+  if (!relogin || relogin.phase === "later") return null;
+  if (!relogin.mayExpireAt) return `${name}: no login date on record. Log in to start its clock.`;
+  const due = formatDay(Date.parse(relogin.dueBy), now, "UTC");
+  const expires = formatDay(Date.parse(relogin.mayExpireAt), now);
+  if (relogin.kind === "token") {
+    return relogin.phase === "overdue"
+      ? `${name}'s one-year token is overdue for re-minting — it expires ${expires}.`
+      : `Re-mint ${name}'s one-year token by ${due} (claude setup-token, then account add-token). It expires ${expires}.`;
+  }
+  if (relogin.phase === "overdue")
+    return `${name} is overdue — re-log it now. It could expire from ${expires}.`;
+  const owner = name.replace(/@.*$/, "");
+  const ask =
+    relogin.leadWeekdays > 1
+      ? `Ask ${owner.charAt(0).toUpperCase()}${owner.slice(1)} to re-log ${name}`
+      : `Re-log ${name}`;
+  return `${ask} by ${due}${relogin.early ? " — early, to keep the accounts spread out" : ""}. It could expire from ${expires}.`;
+}
+
+/** loom: the line for an account that needs attention, naming it; null when it needs none. */
+export function loginAttentionText(
+  login: UsageLimitSourceLogin | null | undefined,
+  name: string,
+  now: number,
+): string | null {
+  const attention = loginAttention(login);
+  if (!login || attention === null) return null;
+  return attention === "dead" || attention === "refreshFailing"
+    ? `${name}: ${loginAlertText(login, now)}`
+    : reloginText(login, name, now);
+}
+
+/** loom: one hub account whose login needs the user, with where to log it in. */
+export interface LoginAlert {
+  readonly email: string;
+  /** `caaarl@`, as the subscription meter names accounts. */
+  readonly name: string;
+  readonly attention: LoginAttention;
+  readonly text: string;
+  readonly login: UsageLimitSourceLogin;
+  readonly environmentId: EnvironmentId;
+  readonly sourceId: UsageLimitSourceId;
+}
+
+/**
+ * loom: every hub account across the environments whose login needs the
+ * user, most urgent first: one per email, from the freshest hub reading.
+ * Read from the hub snapshots directly, so an account whose usage could not
+ * be read is still named.
+ */
+export function loginAlerts(presentations: LimitPresentations, now: number): LoginAlert[] {
+  const freshest = new Map<string, LoginAlert & { readonly checkedAt: number }>();
+  for (const [environmentId, presentation] of presentations) {
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      for (const account of source.accounts) {
+        const name = account.email ? `${account.email.split("@")[0]}@` : account.id;
+        const text = loginAttentionText(account.login, name, now);
+        const attention = loginAttention(account.login);
+        const key = account.email ?? `${source.id}:${account.id}`;
+        const checkedAt = Date.parse(source.checkedAt);
+        if (text === null || attention === null || !account.login) continue;
+        if ((freshest.get(key)?.checkedAt ?? Number.NEGATIVE_INFINITY) >= checkedAt) continue;
+        freshest.set(key, {
+          email: account.email ?? account.id,
+          name,
+          attention,
+          text,
+          login: account.login,
+          environmentId,
+          sourceId: source.id,
+          checkedAt,
+        });
+      }
+    }
+  }
+  return [...freshest.values()]
+    .sort((a, b) => ATTENTION_ORDER.indexOf(a.attention) - ATTENTION_ORDER.indexOf(b.attention))
+    .map(({ checkedAt: _checkedAt, ...alert }) => alert);
+}
+
+/** loom: the alert lines alone, for surfaces with no Log in… action (mobile). */
+export function loginAlertNotices(presentations: LimitPresentations, now: number): string[] {
+  return loginAlerts(presentations, now).map((alert) => alert.text);
 }
 
 // loom: linking pooled usage sources to hub accounts, through cliproxy renames.

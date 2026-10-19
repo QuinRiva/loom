@@ -1,6 +1,7 @@
 import { ReferenceLinksProvider } from "../loom/referenceLinks"; // loom:
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
+import { useHubLoginBannerItems } from "../loom/HubLoginBanner"; // loom
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
 import {
   resolveBackgroundDraftWorkspaceOptions,
@@ -7911,6 +7912,7 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const hubLoginBannerItems = useHubLoginBannerItems(); // loom
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [
@@ -7928,6 +7930,7 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
+        ...hubLoginBannerItems, // loom: re-log reminders and failing hub logins
         ...backgroundWorkItems,
       ];
     }
@@ -7937,6 +7940,7 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
+      ...hubLoginBannerItems, // loom: re-log reminders and failing hub logins
       ...backgroundWorkItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
@@ -7994,6 +7998,7 @@ export default function ChatView(props: ChatViewProps) {
     projectCloneBannerItem,
     showBranchMismatchBanner,
     systemComposerBannerItems,
+    hubLoginBannerItems, // loom
     usageLimitsBanner,
   ]);
 

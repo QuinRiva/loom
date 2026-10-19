@@ -19,7 +19,7 @@
  * @module loom/SubscriptionMeter
  */
 import { useAtomValue } from "@effect/atom-react";
-import { loginAlertText } from "@t3tools/shared/usageLimits";
+import { loginAttention, loginAttentionText } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
 import { memo, type ReactNode, useEffect, useState } from "react";
 
@@ -85,13 +85,31 @@ function rowName(row: MeterRow, pool: MeterPool): string {
   return row.label ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
 }
 
-/** loom: a dead login is red, a failing one amber; both outrank any quota mark. */
-const loginTone = (row: MeterRow): MeterTone | null =>
-  row.login === null ? null : row.login.status === "dead" ? "destructive" : "warning";
+/** loom: a dead or overdue login is red, a failing or due one amber; all outrank any quota mark. */
+const loginTone = (row: MeterRow): MeterTone | null => {
+  const attention = loginAttention(row.login);
+  return attention === null
+    ? null
+    : attention === "dead" || attention === "overdue"
+      ? "destructive"
+      : "warning";
+};
 
-/** Every row whose hub login is failing or dead, across pools. */
-const loginRows = (view: MeterView) =>
-  view.pools.flatMap((pool) => pool.rows.filter((row) => row.login !== null));
+/** loom: the row's short login tag: `⚠ log in`, `⚠ 1h 40m`, `⚠ by Fri`, `⚠ overdue`. */
+function loginTag(row: MeterRow, now: number): string {
+  const login = row.login;
+  const attention = loginAttention(login);
+  if (attention === "dead") return "⚠ log in";
+  if (attention === "overdue") return "⚠ overdue";
+  if (attention === "due" && login?.relogin) {
+    const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(
+      Date.parse(login.relogin.dueBy),
+    );
+    return login.relogin.mayExpireAt ? `⚠ by ${day}` : "⚠ log in";
+  }
+  const stopsAt = login?.expiresAt ? Date.parse(login.expiresAt) : null;
+  return `⚠ ${stopsAt === null ? "soon" : formatCountdown(stopsAt - now)}`;
+}
 
 /**
  * A window on an axis: its track from start to reset, the fill, the now-line
@@ -307,7 +325,7 @@ function RowPopover({
       </div>
       {row.login ? (
         <span className={cn("text-2xs font-medium", TEXT[loginTone(row) ?? "warning"])}>
-          {loginAlertText(row.login, now)}
+          {loginAttentionText(row.login, name, now)}
         </span>
       ) : null}
       {bar ? (
@@ -389,7 +407,6 @@ function AccountRow({
   const mark = row.mark ? MARK[row.mark] : null;
   const bar = row.bar;
   const login = loginTone(row);
-  const stopsAt = row.login?.expiresAt ? Date.parse(row.login.expiresAt) : null;
   return (
     <Popover>
       <PopoverTrigger
@@ -400,7 +417,7 @@ function AccountRow({
           <button
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
-            aria-label={`${name}: ${row.login ? `${loginAlertText(row.login, now)} ` : ""}5-hour ${Math.round(bar?.used ?? 0)}% used${
+            aria-label={`${row.login ? `${loginAttentionText(row.login, name, now)} ` : `${name}: `}5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
             className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -437,9 +454,7 @@ function AccountRow({
           <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
             {row.login ? (
               <span className={cn("font-medium", TEXT[login ?? "warning"])}>
-                {row.login.status === "dead"
-                  ? "⚠ log in"
-                  : `⚠ ${stopsAt === null ? "soon" : formatCountdown(stopsAt - now)}`}
+                {loginTag(row, now)}
               </span>
             ) : (
               <>
@@ -586,11 +601,15 @@ export function SubscriptionMeterChipView({
   const navigate = useNavigate();
   const pool = view.pools[0];
   const bar = pool?.pool ?? pool?.rows[0]?.bar;
-  // loom: failing or dead logins show even when no bar does.
-  const alerts = loginRows(view);
-  const dead = alerts.filter((row) => row.login?.status === "dead").length;
+  // loom: logins that need the user show even when no bar does.
+  const count = (...kinds: string[]) =>
+    view.logins.filter((alert) => kinds.includes(alert.attention)).length;
+  const dead = count("dead");
+  const failing = count("refreshFailing");
+  const due = count("due", "overdue");
+  const overdue = count("overdue");
   const unlinked = view.unlinked.length;
-  if (!bar && alerts.length === 0 && unlinked === 0) return null;
+  if (!bar && view.logins.length === 0 && unlinked === 0) return null;
   return (
     <Popover>
       <PopoverTrigger
@@ -602,8 +621,8 @@ export function SubscriptionMeterChipView({
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
             aria-label={`Subscription usage${
-              alerts.length > 0
-                ? `: ${dead} account${dead === 1 ? "" : "s"} signed out, ${alerts.length - dead} failing to refresh`
+              view.logins.length > 0
+                ? `: ${dead} account${dead === 1 ? "" : "s"} signed out, ${failing} failing to refresh, ${due} due to log in again`
                 : ""
             }${unlinked > 0 ? `: ${unlinked} usage source${unlinked === 1 ? "" : "s"} unlinked` : ""}${
               bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""
@@ -618,8 +637,13 @@ export function SubscriptionMeterChipView({
         {dead > 0 ? (
           <span className="font-semibold text-destructive">⚠ {dead} signed out</span>
         ) : null}
-        {alerts.length > dead ? (
-          <span className="font-semibold text-warning">⚠ {alerts.length - dead} login failing</span>
+        {failing > 0 ? (
+          <span className="font-semibold text-warning">⚠ {failing} login failing</span>
+        ) : null}
+        {due > 0 ? (
+          <span className={cn("font-semibold", overdue > 0 ? "text-destructive" : "text-warning")}>
+            ⚠ {due} login{due === 1 ? "" : "s"} due
+          </span>
         ) : null}
         {unlinked > 0 ? (
           <span className="font-semibold text-destructive">⚠ {unlinked} unlinked</span>

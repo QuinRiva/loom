@@ -29,6 +29,9 @@ import {
   elapsedShare,
   type LimitAccount,
   type LimitPresentations,
+  loginAlerts,
+  loginAttention,
+  type LoginAlert,
   unlinkedUsageSources,
 } from "@t3tools/shared/usageLimits";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
@@ -238,7 +241,7 @@ export interface MeterRow {
   readonly mark: MeterMark | null;
   /** A weekly clock at 100%: the row name turns red. */
   readonly exhausted: boolean;
-  /** The hub's failing or dead login: the row says so before anything else. */
+  /** The hub's failing, dead or due login: the row says so before anything else. */
   readonly login: UsageLimitSourceLogin | null;
 }
 
@@ -350,7 +353,7 @@ function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow 
     weeklies,
     mark: marks.has("risk") ? "risk" : marks.has("opp") ? "opp" : null,
     exhausted: weeklies.some((weekly) => weekly.used >= 100),
-    login: account.login?.status === "healthy" ? null : account.login,
+    login: loginAttention(account.login) === null ? null : account.login,
   };
 }
 
@@ -430,6 +433,8 @@ export interface MeterView {
   readonly pools: readonly (MeterPool & { readonly stale: boolean })[];
   /** Pooled usage sources no hub account matches: failover cannot see them. */
   readonly unlinked: readonly { readonly name: string; readonly notice: string }[];
+  /** Hub logins that need the user, most urgent first: the header chip counts them. */
+  readonly logins: readonly LoginAlert[];
 }
 
 /** One entry, shared by the footer meter and its header chip: they derive the same pools. */
@@ -465,7 +470,14 @@ export function readMeter(presentations: LimitPresentations, now: number): Meter
     ...pool,
     stale: !liveDrivers.has(pool.driver),
   }));
-  memo = { key, view: { pools, unlinked: unlinkedUsageSources(presentations) } };
+  memo = {
+    key,
+    view: {
+      pools,
+      unlinked: unlinkedUsageSources(presentations),
+      logins: loginAlerts(presentations, now),
+    },
+  };
   return memo.view;
 }
 

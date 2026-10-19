@@ -129,12 +129,24 @@ environment that will connect to the hub and enter its URL and management key.
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
+<!-- loom: hub login health, the re-login reminder and in-app login. -->
+
 A Claude account whose login the hub can no longer refresh is flagged in the subscription meter
 and at the top of **Usage → Limits** about four hours before it stops working, with the time it
 will stop; the hub itself still reports it as active until then. Once it has stopped, it shows as
 signed out with the hub's reason and no longer counts toward the pool. Log in to the account on
-the hub again to clear either warning. If you log in again while the account is still working, the
-early warning can stay up for up to four hours, until the hub's next scheduled refresh.
+the hub again to clear either warning; the warning clears within a few minutes of the new login.
+
+Claude browser logins last about four weeks, so Loom also reminds you to log in again before they
+expire, one account at a time: accounts are due at least four days apart, each by the last weekday
+before it could expire; the latest-expiring keeps its date and each earlier one is asked a little
+early if that keeps them spread out, so a holiday never takes the whole pool at once. The reminder
+appears above the composer from the weekday before the due day (three weekdays for an account
+someone else logs in), in the subscription meter, and on **Usage → Limits**. **Log in…** opens the
+sign-in: open the page (or copy the link to the account's owner), sign in as that account, and
+paste back the code claude.ai shows, or the whole address of the page it ends on. **Snooze until
+tomorrow** hides the composer reminder until 08:00 on that device only. Logins made outside Loom
+are picked up too. A one-year `claude setup-token` token is reminded two weeks before it expires.
 
 A provider's pooled usage sources find their hub accounts by email, so a re-login that renames the
 account's auth file needs no settings change. A usage source that matches no account the hub pools

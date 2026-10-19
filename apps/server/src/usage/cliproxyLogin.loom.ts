@@ -1,6 +1,6 @@
 /**
  * loom: a CLIProxyAPI account's login health, from its management
- * `auth-files` entry alone — pure, so the usage poller and anything else that
+ * `auth-files` entry and its file's clock — pure, so the usage poller and anything else that
  * watches the hub (an out-of-band alert) derive it the same way.
  *
  * The hub refreshes a Claude access token `refreshLead` before it expires and
@@ -16,15 +16,14 @@
  *
  * `dead` comes only from the hub, which flips the account within seconds of
  * the token running out (its refresh retry is capped at expiry). The clock
- * cannot say it: `last_refresh` is the hub's in-memory time of its last
- * successful refresh, and a re-login that rewrites an existing auth file keeps
- * it (`sdk/cliproxy/service_auth.go`), so after a re-login it stays stale until
- * the next refresh, ~4h on. A clock past expiry while the hub still serves the
- * account is that stale case: healthy. The same staleness means a re-login
- * during the warning keeps the warning up to ~4h; nothing in the list moves on
- * a re-login to tell the two apart without reading the token-bearing file.
- * After a hub restart `last_refresh` is absent until the first refresh, so the
- * warning is missed, never false.
+ * cannot say it: a clock past expiry while the hub still serves the account
+ * is a stale clock, so healthy.
+ *
+ * `last_refresh` here is the fresher of the management list's (the hub's
+ * in-memory refresh time, which a re-login does not reset and a hub restart
+ * clears) and the auth file's own, which `hubLogins.loom.ts` reads when the
+ * file changes and which a re-login resets: so the warning clears as soon as
+ * a re-login lands, and survives a hub restart.
  *
  * @module usage/cliproxyLogin.loom
  */
