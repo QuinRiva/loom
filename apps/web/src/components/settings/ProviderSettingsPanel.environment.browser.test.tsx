@@ -257,7 +257,9 @@ describe("EnvironmentProviderSettings routing", () => {
     await render();
     await expect.element(select("Codex")).toBeVisible();
     await expect.element(select("Claude")).toBeVisible();
-    for (const label of ["Cursor", "Grok", "Pi", "OpenCode", "Antigravity"]) {
+    // loom: pi is enabled by default (DL-84), so its slot is not an untouched disabled one.
+    await expect.element(select("Pi")).toBeVisible();
+    for (const label of ["Cursor", "Grok", "OpenCode", "Antigravity"]) {
       await expect.element(select(label)).not.toBeInTheDocument();
     }
   });
@@ -301,7 +303,8 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("routes refresh and provider update commands to the selected environment", async () => {
     await setProviders([provider()]);
-    await render();
+    // loom: Pi is the global default; explicitly open the Codex fixture under test.
+    await render({ targetInstanceId: codexId });
 
     await userEvent.click(refreshButton());
     expect(state.refresh).toHaveBeenCalledWith({
@@ -335,7 +338,8 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("saves model favorites and visibility on the selected environment", async () => {
     await setProviders([provider()]);
-    await render();
+    // loom: Pi is the global default; explicitly open the Codex fixture under test.
+    await render({ targetInstanceId: codexId });
 
     await userEvent.click(button("Add Chosen to favorites"));
     expect(state.toggleFavorite).toHaveBeenCalledExactlyOnceWith(codexId, "chosen");
@@ -422,7 +426,13 @@ describe("EnvironmentProviderSettings routing", () => {
         },
       },
       providerModelPreferences: {
-        [customId]: { hiddenModels: ["hidden"], modelOrder: ["model"] },
+        // loom: allow-list fields (DL-913)
+        [customId]: {
+          hiddenModels: ["hidden"],
+          modelOrder: ["model"],
+          selectedModels: [],
+          showOnlySelectedModels: false,
+        },
       },
       favorites: [{ provider: customId, model: "favorite" }],
     };

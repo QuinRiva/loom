@@ -1,7 +1,7 @@
 import type { EnvironmentId, FilesystemEntryMetadata } from "@t3tools/contracts";
-import { act, type ReactNode } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   __setMetadataFetcherForTests,
@@ -16,29 +16,24 @@ vi.mock("~/components/ui/toast", () => ({
   toastManager: { add: (...args: unknown[]) => toastAdd(...args) },
   stackedThreadToast: (options: unknown) => options,
 }));
-vi.mock("~/hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
-vi.mock("~/components/ui/tooltip", async () => {
-  const { cloneElement, isValidElement } = await import("react");
-  return {
-    Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-    TooltipTrigger: ({ render, children }: { render?: unknown; children?: ReactNode }) =>
-      isValidElement(render) ? cloneElement(render) : <>{children}</>,
-    TooltipPopup: () => null,
-  };
-});
 
 import { useVerifiedFileLinkChip, verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
 const ENV = "env-1" as EnvironmentId;
 const CWD = "/w";
 
-// The chip renders through ContextChip, so match only the DOM span it renders,
-// not the ContextChip element that carries the same props.
-function findMissingChips(renderer: ReactTestRenderer) {
-  return renderer.root.findAll(
-    (node) => node.type === "span" && node.props["data-file-missing"] === "true",
-  );
-}
+let root: Root;
+let container: HTMLDivElement;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+
+const missingChips = () => [...container.querySelectorAll('[data-file-missing="true"]')];
+const upstreamChips = () => [...container.querySelectorAll("[data-upstream-chip]")];
 
 function meta(filePath: string): MarkdownFileLinkMeta {
   return {
@@ -75,11 +70,7 @@ async function renderHarness(
       new Map(paths.map((path) => [path, kinds[path] ? { kind: kinds[path] } : null])),
     ),
   );
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  let renderer: ReactTestRenderer | undefined;
-  await act(async () => {
-    renderer = create(<Harness metas={metas} />);
-  });
+  await act(async () => root.render(<Harness metas={metas} />));
   if (settle) {
     // The shared store coalesces for 80ms before its batched stat. Wait on the
     // store itself (not a fixed sleep) so the assertion never races a slow box;
@@ -91,10 +82,11 @@ async function renderHarness(
       if (metas.every((entry) => readPathExistence(ENV, entry.filePath) !== undefined)) break;
     }
   }
-  return renderer!;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
   __setMetadataFetcherForTests(null);
   vi.unstubAllGlobals();
   toastAdd.mockClear();
@@ -102,28 +94,25 @@ afterEach(() => {
 
 describe("useVerifiedFileLinkChip", () => {
   it("keeps upstream's chip for a file that exists", async () => {
-    const renderer = await renderHarness([meta(`${CWD}/main.ts`)], { [`${CWD}/main.ts`]: "file" });
-    expect(renderer.root.findAllByType("b")).toHaveLength(1);
-    expect(findMissingChips(renderer)).toHaveLength(0);
-    await act(async () => renderer.unmount());
+    await renderHarness([meta(`${CWD}/main.ts`)], { [`${CWD}/main.ts`]: "file" });
+    expect(upstreamChips()).toHaveLength(1);
+    expect(missingChips()).toHaveLength(0);
   });
 
   it("replaces a chip whose file the server reports as gone with a labelled missing state", async () => {
-    const renderer = await renderHarness([meta(`${CWD}/gone.ts`)], {});
-    expect(renderer.root.findAllByType("b")).toHaveLength(0);
-    const missing = findMissingChips(renderer);
+    await renderHarness([meta(`${CWD}/gone.ts`)], {});
+    expect(upstreamChips()).toHaveLength(0);
+    const missing = missingChips();
     expect(missing).toHaveLength(1);
     // Clearly labelled, and inert: a span, so there is no dead click.
-    expect(String(missing[0]?.props["aria-label"])).toContain("Missing — moved or deleted?");
-    expect(missing[0]?.type).toBe("span");
-    await act(async () => renderer.unmount());
+    expect(missing[0]?.getAttribute("aria-label")).toContain("Missing — moved or deleted?");
+    expect(missing[0]?.tagName).toBe("SPAN");
   });
 
   it("keeps upstream's chip while a path is still unverified, so nothing flickers", async () => {
-    const renderer = await renderHarness([meta(`${CWD}/pending.ts`)], {}, { settle: false });
-    expect(renderer.root.findAllByType("b")).toHaveLength(1);
-    expect(findMissingChips(renderer)).toHaveLength(0);
-    await act(async () => renderer.unmount());
+    await renderHarness([meta(`${CWD}/pending.ts`)], {}, { settle: false });
+    expect(upstreamChips()).toHaveLength(1);
+    expect(missingChips()).toHaveLength(0);
   });
 
   // The window this closes: the chip was live when the message rendered, and
@@ -133,8 +122,8 @@ describe("useVerifiedFileLinkChip", () => {
     // The harness fetcher reads this map per stat, so deleting the entry is the
     // file moving underneath an already-rendered chip.
     const kinds: Record<string, Kind> = { [filePath]: "file" };
-    const renderer = await renderHarness([meta(filePath)], kinds);
-    expect(renderer.root.findAllByType("b")).toHaveLength(1);
+    await renderHarness([meta(filePath)], kinds);
+    expect(upstreamChips()).toHaveLength(1);
 
     delete kinds[filePath];
     let opened: boolean | undefined;
@@ -143,9 +132,8 @@ describe("useVerifiedFileLinkChip", () => {
     });
 
     expect(opened).toBe(false);
-    expect(findMissingChips(renderer)).toHaveLength(1);
+    expect(missingChips()).toHaveLength(1);
     expect(String(toastAdd.mock.calls[0]?.[0]?.title)).toBe("moved.ts has moved or been deleted");
-    await act(async () => renderer.unmount());
   });
 
   it("opens when the click-time stat fails, so an unhealthy RPC never blocks a live link", async () => {
@@ -159,9 +147,8 @@ describe("useVerifiedFileLinkChip", () => {
   // Artifact routing now lives in upstream's chip (`onOpenArtifact`), so the
   // seam only has to keep a missing artifact from rendering as a live chip.
   it("still reports a missing .html artifact — missing outranks artifact routing", async () => {
-    const renderer = await renderHarness([meta(`${CWD}/stale.html`)], {});
-    expect(renderer.root.findAllByType("b")).toHaveLength(0);
-    expect(findMissingChips(renderer)).toHaveLength(1);
-    await act(async () => renderer.unmount());
+    await renderHarness([meta(`${CWD}/stale.html`)], {});
+    expect(upstreamChips()).toHaveLength(0);
+    expect(missingChips()).toHaveLength(1);
   });
 });

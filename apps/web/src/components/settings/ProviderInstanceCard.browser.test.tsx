@@ -61,6 +61,11 @@ async function renderCard(
         onFavoriteModelsChange={() => undefined}
         onToggleFavorite={() => undefined}
         onModelOrderChange={() => undefined}
+        // loom: model allow-list props (settings.loom.ts LoomModelPreferenceFields)
+        selectedModels={[]}
+        showOnlySelectedModels={false}
+        onSelectedModelsChange={() => undefined}
+        onShowOnlySelectedModelsChange={() => undefined}
       />,
     ),
   );

@@ -126,6 +126,7 @@ vi.mock(import("./PullRequestCodeTab"), async (original) => ({
           onAddToAgentSelection?.({
             request: "Fix this line",
             comment: {
+              kind: "line", // loom: review comments carry their anchor kind
               id: "note-1",
               sectionId: "file:a.ts",
               sectionTitle: "a.ts",

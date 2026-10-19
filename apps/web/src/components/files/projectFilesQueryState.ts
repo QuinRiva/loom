@@ -319,7 +319,7 @@ export function useProjectAbsoluteFileQuery(
   const atom = getProjectAbsoluteFileQueryAtom(environmentId, absolutePath, maxBytes);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
-  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  const refresh = () => refreshAtom();
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
@@ -340,7 +340,7 @@ export function useProjectAbsoluteDirectoryQuery(
   const atom = getProjectAbsoluteDirectoryQueryAtom(environmentId, absolutePath);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
-  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  const refresh = () => refreshAtom();
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
