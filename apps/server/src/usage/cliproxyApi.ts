@@ -250,7 +250,7 @@ export const trafficUsageLimits = (quotas: ModelQuotas | null | undefined, now: 
 
 /**
  * loom: a hub refusal as one line, with the hub's own `error` text when it gave
- * one and the caller passed it. Only the login calls do: other refusals can
+ * one and the caller passed it. Only `oauth-callback` does: other refusals can
  * echo keys or tokens, so they name the status alone, as upstream's
  * `describeManagementFailure` does.
  */
@@ -316,7 +316,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const response = yield* client
       .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
       .pipe(
-        // loom: a refusal names its HTTP status, and on the login calls
+        // loom: a refusal names its HTTP status, and on `oauth-callback`
         // (`hubText`) the hub's own `error` text, which the login dialog shows.
         Effect.flatMap(
           (
