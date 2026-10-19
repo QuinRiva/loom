@@ -23,8 +23,7 @@ export const ModelChangeDivider = memo(function ModelChangeDivider({
     serverEnvironment.providersValueAtom(activeThreadEnvironmentId),
     (providers) => {
       const models =
-        getProviderInstanceEntry(providers ?? EMPTY_SERVER_PROVIDERS, row.instanceId)?.models ??
-        [];
+        getProviderInstanceEntry(providers ?? EMPTY_SERVER_PROVIDERS, row.instanceId)?.models ?? [];
       const name = (slug: string) => {
         const model = models.find((candidate) => candidate.slug === slug);
         return model === undefined ? slug : getTriggerDisplayModelName(model);
