@@ -1,8 +1,8 @@
-import { createThreadSearchIndex } from "../threadSearchIndex.loom.ts";
+import * as Effect from "effect/Effect";
 
 /**
- * Thread content search (plans/thread-content-search): the FTS5 index with its
- * triggers and backfill (including workstream report files), and the empty
- * per-root embeddings table the background sweep fills.
+ * Created the V1 thread-search index (FTS5 over the V1 projections). Upstream's
+ * 063 dropped its source tables and nothing read it after pull 9 (DL-82), so a
+ * fresh database skips it and 1060 drops it where it ran.
  */
-export default createThreadSearchIndex;
+export default Effect.void;

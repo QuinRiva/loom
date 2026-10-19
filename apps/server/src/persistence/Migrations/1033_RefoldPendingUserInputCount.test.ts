@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { runAllMigrations } from "../LoomMigrations.ts";
+import { runLoomMigrations } from "../LoomMigrations.ts";
+import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -66,7 +67,9 @@ const counts = Effect.gen(function* () {
 layer("1033_RefoldPendingUserInputCount", (it) => {
   it.effect("refolds deployed counts under terminal-wins and settles the stuck threads", () =>
     Effect.gen(function* () {
-      yield* runAllMigrations({ toLoomMigrationInclusive: 1032 });
+      // Upstream stops before 063, which drops the V1 activities this refolds.
+      yield* runMigrations({ toMigrationInclusive: 62 });
+      yield* runLoomMigrations({ toMigrationInclusive: 1032 });
 
       // Thread `57fbb002`, in the exact shape production still carries: a
       // `user-input.requested` whose terminal event is GENUINELY ABSENT (the
@@ -179,7 +182,7 @@ layer("1033_RefoldPendingUserInputCount", (it) => {
         createdAt: "2026-07-27T00:00:02.000Z",
       });
 
-      yield* runAllMigrations({ toLoomMigrationInclusive: 1033 });
+      yield* runLoomMigrations({ toMigrationInclusive: 1033 });
 
       assert.deepEqual(yield* counts, {
         // Genuinely still open: only the startup scan can settle it.

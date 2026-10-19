@@ -1,6 +1,8 @@
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
+import { whenV1TableExists } from "../v1Projections.loom.ts";
+
 /**
  * One-time refold of `pending_user_input_count` under the terminal-wins
  * algorithm (`@t3tools/shared/openRequests`).
@@ -24,10 +26,12 @@ import * as Effect from "effect/Effect";
  * touched; the derived `awaiting_input` attention flag needs no backfill because
  * it is unioned at read time from this very column.
  */
-export default Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+export default whenV1TableExists(
+  "projection_thread_activities",
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
+    yield* sql`
     UPDATE projection_threads
     SET pending_user_input_count = COALESCE((
       SELECT COUNT(DISTINCT requested.request_id)
@@ -47,4 +51,5 @@ export default Effect.gen(function* () {
       )
     ), 0)
   `;
-});
+  }),
+);
