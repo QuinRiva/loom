@@ -138,10 +138,11 @@ export interface AttentionActionNode {
   readonly reason: WorkstreamAttentionReason;
   /**
    * The reason is owed to the parent agent (a yield, a missing brief) and is
-   * still in agent hands: the parent has a run in flight, or none has finished
-   * since the reason arose (the server's wake follows the yield by a dispatcher
-   * pass), or the parent has already resumed the child. The human's only once
-   * the parent's turn ends without resolving it.
+   * still in agent hands: the parent or any of its children (this one, or a
+   * sibling whose finish will wake the parent) has a run in flight, or the
+   * parent has run none to completion since the reason arose (the server's wake
+   * follows the yield by a dispatcher pass). The human's only once the parent's
+   * turn ends without resolving it and nothing under it is running.
    */
   readonly withAgents: boolean;
 }
@@ -238,7 +239,13 @@ function withAgents(
 ): boolean {
   const parent = threadsById.get(thread.lineage.parentThreadId!);
   if (!PARENT_OWED.has(reason) || parent === undefined) return false;
-  if (runInFlight(parent) || runInFlight(thread)) return true;
+  if (
+    runInFlight(parent) ||
+    [...threadsById.values()].some(
+      (child) => child.lineage.parentThreadId === parent.id && runInFlight(child),
+    )
+  )
+    return true;
   const since = parentOwedSince(thread.workstream!, reason, byId);
   const answeredAt = parent.latestRunCompletedAt ?? null;
   return since !== null && (answeredAt === null || DateTime.toEpochMillis(answeredAt) < since);
