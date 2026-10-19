@@ -530,11 +530,29 @@ export const makeCliproxyApi = Effect.gen(function* () {
     return yield* read.pipe(
       // loom: a failed read takes the fresher of the hub's traffic reading and
       // the account's last good reading (checkedAt and all), under the current
-      // login; with neither, the hub's reason when it gave one.
+      // login; with neither, the hub's reason when it gave one. A browser
+      // login's traffic reading keeps the carried windows it lacks (the Fable
+      // weekly, when the account had no Fable traffic lately) rather than
+      // blanking them for a poll; a token seat's traffic is its only reading,
+      // so its stale windows drop as `trafficUsageLimits` says.
       Effect.catch((error) => {
         const traffic = trafficUsageLimits(account.model_quotas, DateTime.toEpochMillis(now));
+        const keep =
+          carried && !(record && isLongLived(record))
+            ? carried.usageLimits.windows.filter(
+                (window) => !traffic?.windows.some((fresh) => fresh.id === window.id),
+              )
+            : [];
         const fallback = [
-          ...(traffic ? [{ ...base, plan: "Claude Subscription", usageLimits: traffic }] : []),
+          ...(traffic
+            ? [
+                {
+                  ...base,
+                  plan: "Claude Subscription",
+                  usageLimits: { ...traffic, windows: [...traffic.windows, ...keep] },
+                },
+              ]
+            : []),
           ...(carried ? [{ ...carried, login }] : []),
         ].toSorted(
           (left, right) =>

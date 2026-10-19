@@ -380,6 +380,41 @@ describe("CLIProxyAPI built-in management API", () => {
       expect(login?.usageLimits.windows.map((window) => window.usedPercent)).toEqual([34, 65, 100]);
       expect(token?.usageLimits.unavailable?.message).toContain("one-year token");
       expect(test.requests.flatMap((request) => request.body?.auth_index ?? [])).toEqual(["a"]);
+
+      // A browser login's traffic with no Fable reading keeps the carried Fable weekly.
+      const opusOnly = yield* fixture({
+        accounts: [
+          {
+            ...accounts[0]!,
+            provider: "claude",
+            model_quotas: { "claude-opus-5-5": quotas["claude-opus-5-5"] },
+          },
+        ],
+        upstream: () => ({ status: 429, body: {} }),
+      }).api;
+      const [merged] = yield* readAll(opusOnly, [
+        {
+          id: "first.json",
+          driver: ProviderDriverKind.make("claudeAgent"),
+          usageLimits: {
+            checkedAt: "2026-10-19T06:00:00.000Z",
+            windows: [
+              { id: "seven_day", kind: "weekly", label: "Weekly", usedPercent: 60 },
+              {
+                id: "seven_day_fable",
+                kind: "weekly",
+                label: "Weekly \u00b7 Fable",
+                usedPercent: 80,
+              },
+            ],
+          },
+        },
+      ]);
+      expect(merged?.usageLimits.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+        ["five_hour", 34],
+        ["seven_day", 65],
+        ["seven_day_fable", 80],
+      ]);
     }),
   );
 
