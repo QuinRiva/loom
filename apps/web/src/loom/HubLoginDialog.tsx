@@ -6,8 +6,14 @@
  * sends the link to the account's owner), and pastes back what claude.ai shows.
  * The browser only ever talks to Loom and claude.ai, so it works remotely.
  */
+import { useAtomValue } from "@effect/atom-react";
 import type { UsageLimitSourceLoginStartResult } from "@t3tools/contracts";
-import type { LoginAlert } from "@t3tools/shared/usageLimits";
+import {
+  hubAccountLogin,
+  type LoginAlert,
+  loginAttentionText,
+  reloginDueDay,
+} from "@t3tools/shared/usageLimits";
 import { useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -21,6 +27,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { environmentPresentations } from "~/state/presentation";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { useHubLoginStore } from "./hubLoginStore";
@@ -41,8 +48,6 @@ export function HubLoginDialogHost() {
   );
 }
 
-type Outcome = { readonly tone: "success" | "warning"; readonly text: string };
-
 const failureText = (cause: unknown, fallback: string) =>
   typeof cause === "object" && cause !== null && "error" in cause && cause.error instanceof Error
     ? cause.error.message
@@ -56,8 +61,16 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // Who the hub says signed in: undefined until a login finishes, null when it could not tell.
+  const [loggedIn, setLoggedIn] = useState<string | null | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The account's schedule as the hub reads it now, so the text follows a login
+  // that reshuffled it (signing in as another pool account moves everyone on).
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const login = hubAccountLogin(presentations, alert.email);
+  const [now] = useState(() => Date.now()); // the dialog is short-lived
+  const reminder = loginAttentionText(login, alert.name, now);
+  const wrongAccount = loggedIn !== undefined && loggedIn !== null && loggedIn !== alert.email;
 
   // The dialog exists to sign in: mint the link as it opens rather than ask for one more click.
   const [attempt, setAttempt] = useState(0);
@@ -75,6 +88,15 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
     };
   }, [start, alert.environmentId, alert.sourceId, attempt]);
 
+  const retry = () => {
+    setLink(null);
+    setPasted("");
+    setCopied(false);
+    setError(null);
+    setLoggedIn(undefined);
+    setAttempt((count) => count + 1);
+  };
+
   const submit = async () => {
     if (!link || pasted.trim().length === 0) return;
     setBusy(true);
@@ -88,9 +110,14 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
       setError(failureText(result.cause, "The login did not finish."));
       return;
     }
-    const loggedIn = result.value.loggedIn;
-    setOutcome(
-      loggedIn === alert.email
+    setLoggedIn(result.value.loggedIn);
+  };
+
+  const dueDay = login ? reloginDueDay(login, now) : null;
+  const outcome =
+    loggedIn === undefined
+      ? null
+      : loggedIn === alert.email
         ? { tone: "success", text: `Logged in. ${alert.email}'s clock has restarted.` }
         : loggedIn === null
           ? {
@@ -99,28 +126,39 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
             }
           : {
               tone: "warning",
-              text: `You signed in as ${loggedIn}, not ${alert.email}: ${loggedIn}'s clock has been reset, and ${alert.email} is still due.`,
-            },
-    );
-  };
+              text: `You signed in as ${loggedIn}, not ${alert.email}, so ${loggedIn}'s clock restarted instead. ${
+                reminder
+                  ? `${alert.email} still needs logging in: ${reminder}`
+                  : `That moved the schedule on: ${alert.name} is ${dueDay ? `next due by ${dueDay}` : "not due now"}.`
+              }`,
+            };
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Log in to {alert.email}</DialogTitle>
-        <DialogDescription>{alert.text}</DialogDescription>
+        {outcome || !reminder ? null : <DialogDescription>{reminder}</DialogDescription>}
       </DialogHeader>
       <DialogPanel>
         <div className="grid gap-4">
           {outcome ? (
-            <p
-              role="status"
-              className={
-                outcome.tone === "success" ? "text-sm text-success" : "text-sm text-warning"
-              }
-            >
-              {outcome.text}
-            </p>
+            <>
+              <p
+                role="status"
+                className={
+                  outcome.tone === "success" ? "text-sm text-success" : "text-sm text-warning"
+                }
+              >
+                {outcome.text}
+              </p>
+              {wrongAccount ? (
+                <p className="text-sm text-muted-foreground">
+                  To log in {alert.name}
+                  {reminder ? "" : " anyway"}, switch claude.ai to {alert.email} (or open the link
+                  in a private window), then Try again.
+                </p>
+              ) : null}
+            </>
           ) : (
             <>
               <section className="grid gap-2">
@@ -177,23 +215,23 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
       </DialogPanel>
       <DialogFooter>
         {outcome ? (
-          <Button size="sm" onClick={close}>
-            Done
-          </Button>
+          <>
+            <Button size="sm" variant={wrongAccount ? "outline" : "default"} onClick={close}>
+              Done
+            </Button>
+            {wrongAccount ? (
+              <Button size="sm" onClick={retry}>
+                Try again as {alert.name}
+              </Button>
+            ) : null}
+          </>
         ) : (
           <>
             <Button size="sm" variant="outline" onClick={close}>
               Cancel
             </Button>
             {error && !link ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setError(null);
-                  setAttempt((count) => count + 1);
-                }}
-              >
+              <Button size="sm" variant="outline" onClick={retry}>
                 Try again
               </Button>
             ) : null}

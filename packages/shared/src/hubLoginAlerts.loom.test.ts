@@ -37,6 +37,9 @@ describe("reloginText", () => {
     expect(reloginText(relogin({ leadWeekdays: 3, dueBy: "2026-10-26" }), "jacob@", now)).toMatch(
       /^Ask Jacob to re-log jacob@ by Mon 26 Oct/,
     );
+    expect(reloginText(relogin({ leadWeekdays: 3, phase: "overdue" }), "jacob@", now)).toBe(
+      "Ask Jacob to re-log jacob@ now — it is overdue. It could expire from Sun 15 Nov.",
+    );
   });
 
   it("covers overdue, no date on record, a one-year token, and nothing yet", () => {

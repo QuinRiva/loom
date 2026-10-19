@@ -11,6 +11,7 @@ import { type LoginAlert, loginAlerts } from "@t3tools/shared/usageLimits";
 import { KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ComposerBanner } from "~/components/chat/ComposerBanner";
 import type { ComposerBannerStackItem } from "~/components/chat/ComposerBannerStack";
 import { Button } from "~/components/ui/button";
 import { environmentPresentations } from "~/state/presentation";
@@ -36,7 +37,10 @@ export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
       loginAlerts(presentations, now)
         .filter((alert) => urgent(alert) || (snoozedUntil[alert.email] ?? 0) <= now)
         .map((alert) => {
-          // The first sentence leads; the rest (the expiry, the hub's reason) follows.
+          // The first sentence leads; the rest (the expiry, the hub's reason) follows
+          // on its own wrapped line, never the stack's one-line description: that
+          // truncates, and loses its "details" popover when the actions share the
+          // title's line, so the expiry date could vanish.
           const split = alert.text.indexOf(". ");
           return {
             id: `hub-login:${alert.email}`,
@@ -44,7 +48,15 @@ export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
             priority: "urgent",
             icon: <KeyRoundIcon />,
             title: split === -1 ? alert.text : alert.text.slice(0, split),
-            ...(split === -1 ? {} : { description: alert.text.slice(split + 2) }),
+            ...(split === -1
+              ? {}
+              : {
+                  children: (
+                    <ComposerBanner.Body className="pe-2 pb-1.5 text-muted-foreground">
+                      {alert.text.slice(split + 2)}
+                    </ComposerBanner.Body>
+                  ),
+                }),
             actions: <HubLoginActions alert={alert} />,
           } satisfies ComposerBannerStackItem;
         }),

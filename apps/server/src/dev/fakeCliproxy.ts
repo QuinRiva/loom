@@ -132,7 +132,26 @@ export function makeFakeHub(
             disabled: false,
             created_at: iso(account.createdAt),
             modtime: iso(account.modtime),
-            ...(account.token ? {} : { last_refresh: iso(account.lastRefresh) }),
+            ...(account.token
+              ? {
+                  // A token seat's usage comes only from the hub's traffic headers.
+                  model_quotas: {
+                    "claude-opus-5-5": {
+                      observed_at: iso(now() - 4 * 60_000),
+                      signals: {
+                        "Anthropic-Ratelimit-Unified-5h-Utilization": String(account.five / 100),
+                        "Anthropic-Ratelimit-Unified-5h-Reset": String(
+                          Math.round((now() + 2 * HOUR) / 1000),
+                        ),
+                        "Anthropic-Ratelimit-Unified-7d-Utilization": String(account.week / 100),
+                        "Anthropic-Ratelimit-Unified-7d-Reset": String(
+                          Math.round((now() + 3 * DAY) / 1000),
+                        ),
+                      },
+                    },
+                  },
+                }
+              : { last_refresh: iso(account.lastRefresh) }),
           })),
         },
       };

@@ -638,14 +638,46 @@ export function reloginText(
       ? `${name}'s one-year token is overdue for re-minting (${remint}). It expires ${expires}.`
       : `Re-mint ${name}'s one-year token by ${due}: ${remint}. It expires ${expires}.`;
   }
-  if (relogin.phase === "overdue")
-    return `${name} is overdue — re-log it now. It could expire from ${expires}.`;
   const owner = name.replace(/@.*$/, "");
   const ask =
     relogin.leadWeekdays > 1
       ? `Ask ${owner.charAt(0).toUpperCase()}${owner.slice(1)} to re-log ${name}`
       : `Re-log ${name}`;
+  if (relogin.phase === "overdue")
+    return relogin.leadWeekdays > 1
+      ? `${ask} now — it is overdue. It could expire from ${expires}.`
+      : `${name} is overdue — re-log it now. It could expire from ${expires}.`;
   return `${ask} by ${due}${relogin.early ? " — early, to keep the accounts spread out" : ""}. It could expire from ${expires}.`;
+}
+
+/** loom: the day a hub login is next due by (`Fri 6 Nov`), as the reminder words it; null with none. */
+export function reloginDueDay(login: UsageLimitSourceLogin, now: number): string | null {
+  return login.relogin ? formatDay(Date.parse(login.relogin.dueBy), now, "UTC") : null;
+}
+
+/**
+ * loom: the freshest login any environment's hub reports for `email`, across
+ * the presentations `loginAlerts` reads; null when no hub names it.
+ */
+export function hubAccountLogin(
+  presentations: LimitPresentations,
+  email: string,
+): UsageLimitSourceLogin | null {
+  return (
+    [...presentations.values()]
+      .flatMap((presentation) => presentation.serverConfig?.usageLimitSources ?? [])
+      .flatMap((source) =>
+        source.accounts.flatMap((account) =>
+          account.email === email && account.login
+            ? [{ login: account.login, at: Date.parse(source.checkedAt) }]
+            : [],
+        ),
+      )
+      .reduce<{ login: UsageLimitSourceLogin; at: number } | null>(
+        (freshest, next) => (freshest && freshest.at >= next.at ? freshest : next),
+        null,
+      )?.login ?? null
+  );
 }
 
 /** loom: the line for an account that needs attention, naming it; null when it needs none. */
