@@ -136,6 +136,11 @@ signed out with the hub's reason and no longer counts toward the pool. Log in to
 the hub again to clear either warning. If you log in again while the account is still working, the
 early warning can stay up for up to four hours, until the hub's next scheduled refresh.
 
+A provider's pooled usage sources find their hub accounts by email, so a re-login that renames the
+account's auth file needs no settings change. A usage source that matches no account the hub pools
+is flagged as unlinked in the same places: failover cannot see that account until its token file
+path is corrected or the account is back in the hub's pool.
+
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.

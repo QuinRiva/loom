@@ -11,6 +11,7 @@ import {
   formatResetsIn,
   loginAlertNotices,
   remainingPercent,
+  unlinkedUsageSourceNotices, // loom
   type LimitAccount,
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
@@ -232,7 +233,11 @@ export function UsageLimitsSection({
   const accounts = collectLimitAccounts(selected); // loom: shared with the login alerts
   const pools = collectLimitPools(accounts, now);
   const notices = collectLimitNotices(selected);
-  const loginAlerts = loginAlertNotices(accounts, now); // loom
+  // loom: failing logins and usage sources no hub account matches
+  const loginAlerts = [
+    ...loginAlertNotices(accounts, now),
+    ...unlinkedUsageSourceNotices(selected),
+  ];
   const externalLinks = collectExternalUsageLinks(selected);
   const colors = useProviderColors();
   const cursorPromptAt =

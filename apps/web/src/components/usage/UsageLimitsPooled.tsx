@@ -13,6 +13,7 @@ import {
   type LimitPoolMember,
   type LimitPoolWindow,
   remainingPercent,
+  unlinkedUsageSourceNotices, // loom
 } from "@t3tools/shared/usageLimits";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
@@ -585,7 +586,11 @@ export function UsageLimitsPooled({
   const accounts = collectLimitAccounts(presentations); // loom: shared with the login alerts
   const pools = collectLimitPools(accounts, now);
   const notices = collectLimitNotices(presentations);
-  const loginAlerts = loginAlertNotices(accounts, now); // loom
+  // loom: failing logins and usage sources no hub account matches
+  const loginAlerts = [
+    ...loginAlertNotices(accounts, now),
+    ...unlinkedUsageSourceNotices(presentations),
+  ];
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =
     Math.max(

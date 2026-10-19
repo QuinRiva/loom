@@ -238,6 +238,7 @@ const withPoller = (
         ),
       ),
       FileSystem.layerNoop({
+        exists: () => Effect.succeed(true),
         readFileString: (path) =>
           Effect.succeed(
             String(path).endsWith("auth.json")

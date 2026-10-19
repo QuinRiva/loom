@@ -240,7 +240,7 @@ export function meterFixtureView(
     );
   }
   return {
-    view: { pools: pools.map((pool) => ({ ...pool, stale: false })) },
+    view: { pools: pools.map((pool) => ({ ...pool, stale: false })), unlinked: [] },
     now: midnight + state.now * MINUTE,
   };
 }

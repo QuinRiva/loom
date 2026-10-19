@@ -529,6 +529,11 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
 }) {
   return (
     <div className="flex w-full flex-col gap-px py-0.75 tabular-nums leading-none">
+      {view.unlinked.map((notice) => (
+        <span key={notice} className="pb-0.5 text-3xs font-medium leading-tight text-destructive">
+          ⚠ {notice}
+        </span>
+      ))}
       {view.pools.map((pool, index) => (
         <div key={pool.driver}>
           {index > 0 ? <div className="my-0.5 h-px bg-border/60" /> : null}
@@ -542,7 +547,9 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
 /** The meter for the sidebar footer. */
 export const SubscriptionMeter = memo(function SubscriptionMeter() {
   const { view, now } = useMeterReading();
-  return view.pools.length === 0 ? null : <SubscriptionMeterView view={view} now={now} />;
+  return view.pools.length === 0 && view.unlinked.length === 0 ? null : (
+    <SubscriptionMeterView view={view} now={now} />
+  );
 });
 
 /**
@@ -563,7 +570,8 @@ export function SubscriptionMeterChipView({
   // loom: failing or dead logins show even when no bar does.
   const alerts = loginRows(view);
   const dead = alerts.filter((row) => row.login?.status === "dead").length;
-  if (!pool || (!bar && alerts.length === 0)) return null;
+  const unlinked = view.unlinked.length;
+  if (!bar && alerts.length === 0 && unlinked === 0) return null;
   return (
     <Popover>
       <PopoverTrigger
@@ -578,10 +586,12 @@ export function SubscriptionMeterChipView({
               alerts.length > 0
                 ? `: ${dead} account${dead === 1 ? "" : "s"} signed out, ${alerts.length - dead} failing to refresh`
                 : ""
-            }${bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""}`}
+            }${unlinked > 0 ? `: ${unlinked} usage source${unlinked === 1 ? "" : "s"} unlinked` : ""}${
+              bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""
+            }`}
             className={cn(
               "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              pool.stale && "opacity-50",
+              pool?.stale && "opacity-50",
             )}
           />
         }
@@ -591,7 +601,10 @@ export function SubscriptionMeterChipView({
             ⚠ {dead > 0 ? `${dead} signed out` : `${alerts.length} login failing`}
           </span>
         ) : null}
-        {bar ? (
+        {unlinked > 0 ? (
+          <span className="font-semibold text-destructive">⚠ {unlinked} unlinked</span>
+        ) : null}
+        {pool && bar ? (
           <>
             <span className="text-muted-foreground/75">5h</span>
             <span className="h-3 w-14">
@@ -600,7 +613,7 @@ export function SubscriptionMeterChipView({
             <ResetText bar={bar} now={now} withReset={false} />
           </>
         ) : null}
-        {pool.carveOut ? (
+        {pool?.carveOut ? (
           <>
             <span className="h-3 w-px bg-border/60" />
             <span className="text-muted-foreground/75">{pool.carveOut.scope[0]}</span>

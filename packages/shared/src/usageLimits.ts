@@ -13,6 +13,7 @@ import {
   type ServerProviderSlashCommand,
   isProviderAvailable,
   type ServerProvider,
+  type ServerSettings, // loom
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type UsageLimitSourceLogin,
@@ -82,6 +83,8 @@ export type LimitPresentations = ReadonlyMap<
     readonly serverConfig: {
       readonly providers?: readonly ServerProvider[] | undefined;
       readonly usageLimitSources?: UsageLimitSourceSnapshots | undefined;
+      // loom: the pooled usage sources, for `unlinkedUsageSourceNotices`.
+      readonly settings?: Pick<ServerSettings, "providerInstances"> | undefined;
     } | null;
   }
 >;
@@ -594,6 +597,56 @@ export function loginAlertNotices(accounts: readonly LimitAccount[], now: number
         ]
       : [],
   );
+}
+
+// loom: linking pooled usage sources to hub accounts, through cliproxy renames.
+/**
+ * The hub accounts a pooled usage source (`tokenFile`) names. cliproxy
+ * renames an account's auth file on re-login (`claude-<email>.json` becomes
+ * `claude-<hash>-<email>.json`), so the email it reports is the stable key: a
+ * source names the account whose file it is, else the account whose email
+ * ends its file name — the longest such email, so `x-carl@` beats `carl@`.
+ * Several accounts come back when hubs share one.
+ */
+export function usageSourceAccounts<
+  A extends { readonly id: string; readonly email?: string | undefined },
+>(tokenFile: string, accounts: readonly A[]): A[] {
+  const name = tokenFile.slice(tokenFile.lastIndexOf("/") + 1);
+  const rank = (account: A) =>
+    account.id === name
+      ? Number.POSITIVE_INFINITY
+      : account.email && name.endsWith(`-${account.email}.json`)
+        ? account.email.length
+        : 0;
+  const best = Math.max(0, ...accounts.map(rank));
+  return best === 0 ? [] : accounts.filter((account) => rank(account) === best);
+}
+
+/**
+ * One line per pooled usage source that names no Claude account its
+ * environment's hubs report, so failover has no reading for it. Judged only
+ * while every hub read cleanly and reports some Claude account: a failed or
+ * empty hub already has its own notice, and with no hub the server reads the
+ * token file itself.
+ */
+export function unlinkedUsageSourceNotices(presentations: LimitPresentations): string[] {
+  return [...presentations.values()].flatMap(({ entry, serverConfig }) => {
+    const hubs = serverConfig?.usageLimitSources ?? [];
+    const accounts = hubs
+      .flatMap((hub) => hub.accounts)
+      .filter((account) => account.driver === "claudeAgent");
+    if (accounts.length === 0 || hubs.some((hub) => hub.error)) return [];
+    const prefix = presentations.size > 1 ? `${entry.target.label} · ` : "";
+    return Object.values(serverConfig?.settings?.providerInstances ?? {}).flatMap((instance) =>
+      (instance.usageSources ?? []).flatMap((source) =>
+        usageSourceAccounts(source.tokenFile, accounts).length > 0
+          ? []
+          : [
+              `${prefix}${source.label ?? source.tokenFile}: usage source ${source.tokenFile} matches no account the hub pools, so failover cannot see this account.`,
+            ],
+      ),
+    );
+  });
 }
 
 /** Quota left in the window, 0..100. Bars and labels show what remains, as Codex does. */
