@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
-import { makeCliproxyApi } from "./cliproxyApi.ts";
+import { makeCliproxyApi, trafficUsageLimits } from "./cliproxyApi.ts";
 
 const config = {
   kind: "cliproxy",
@@ -60,6 +60,7 @@ function fixture(
         status?: string;
         status_message?: string;
         last_refresh?: string;
+        model_quotas?: Parameters<typeof trafficUsageLimits>[0];
       }
     >;
     upstream?: (request: RequestBody) => { status: number; body: unknown };
@@ -300,6 +301,85 @@ describe("CLIProxyAPI built-in management API", () => {
         ["seven_day", 50],
         ["seven_day_fable", 80],
       ]);
+    }),
+  );
+
+  // loom: Anthropic's rate-limit headers as the hub saw them on real traffic.
+  const signals = (fiveHour: string, sevenDay: string, fable?: string) => ({
+    "Anthropic-Ratelimit-Unified-5h-Utilization": fiveHour,
+    "Anthropic-Ratelimit-Unified-5h-Reset": "1792395000",
+    "Anthropic-Ratelimit-Unified-7d-Utilization": sevenDay,
+    "Anthropic-Ratelimit-Unified-7d-Reset": "1792440000",
+    ...(fable
+      ? {
+          "Anthropic-Ratelimit-Unified-7d_oi-Utilization": fable,
+          "Anthropic-Ratelimit-Unified-7d_oi-Reset": "1792440000",
+        }
+      : {}),
+  });
+  const quotas = {
+    "claude-fable-5-1": {
+      observed_at: "2026-10-19T16:50:00+11:00",
+      signals: signals("0.26", "0.64", "1.0"),
+    },
+    "claude-opus-5-5": {
+      observed_at: "2026-10-19T17:14:14+11:00",
+      signals: signals("0.34", "0.65"),
+    },
+    "claude-opus-5": { observed_at: "2026-10-14T20:52:32+11:00", signals: signals("0.99", "0.99") },
+  };
+
+  it("maps the freshest traffic headers to windows, dated when the hub saw them", () => {
+    const limits = trafficUsageLimits(quotas, Date.parse("2026-10-19T17:15:00+11:00"));
+    expect(limits?.checkedAt).toBe("2026-10-19T06:14:14.000Z");
+    expect(
+      limits?.windows.map((window) => [
+        window.id,
+        window.label,
+        window.usedPercent,
+        window.resetsAt,
+      ]),
+    ).toEqual([
+      ["five_hour", "Session", 34, "2026-10-19T07:30:00.000Z"],
+      ["seven_day", "Weekly", 65, "2026-10-19T20:00:00.000Z"],
+      ["seven_day_fable", "Weekly \u00b7 Fable", 100, "2026-10-19T20:00:00.000Z"],
+    ]);
+    // Over 30 minutes on, a window is dropped unless it was exhausted: that
+    // holds until its reset; after that there is no reading.
+    const later = trafficUsageLimits(quotas, Date.parse("2026-10-19T19:00:00+11:00"));
+    expect(later?.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+      ["seven_day_fable", 100],
+    ]);
+    expect(later?.checkedAt).toBe("2026-10-19T05:50:00.000Z");
+    expect(trafficUsageLimits(quotas, Date.parse("2026-10-20T08:00:00+11:00"))).toBeUndefined();
+  });
+
+  it.effect("falls back to traffic headers, and never asks for a one-year token's usage", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-19T17:15:00+11:00"));
+      const test = fixture({
+        accounts: [
+          { ...accounts[0]!, provider: "claude", model_quotas: quotas },
+          { ...accounts[1]!, provider: "claude" },
+        ],
+        upstream: () => ({ status: 429, body: {} }),
+      });
+      const api = yield* test.api;
+      const [login, token] = yield* api
+        .listAccounts(config)
+        .pipe(
+          Effect.flatMap((files) =>
+            api.readAccounts(config, [], files, (email) =>
+              email === "second@example.com"
+                ? { fingerprint: "hash", lifetimeDays: 365 }
+                : undefined,
+            ),
+          ),
+        );
+      expect(login?.usageLimits.checkedAt).toBe("2026-10-19T06:14:14.000Z");
+      expect(login?.usageLimits.windows.map((window) => window.usedPercent)).toEqual([34, 65, 100]);
+      expect(token?.usageLimits.unavailable?.message).toContain("one-year token");
+      expect(test.requests.flatMap((request) => request.body?.auth_index ?? [])).toEqual(["a"]);
     }),
   );
 

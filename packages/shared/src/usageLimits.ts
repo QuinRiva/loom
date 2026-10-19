@@ -632,9 +632,11 @@ export function reloginText(
   const due = formatDay(Date.parse(relogin.dueBy), now, "UTC");
   const expires = formatDay(Date.parse(relogin.mayExpireAt), now);
   if (relogin.kind === "token") {
+    // `account add-token` re-mints in place; it takes any unique part of the email.
+    const remint = `claude setup-token, then ~/cli-proxy/account add-token ${name}`;
     return relogin.phase === "overdue"
-      ? `${name}'s one-year token is overdue for re-minting — it expires ${expires}.`
-      : `Re-mint ${name}'s one-year token by ${due} (claude setup-token). It expires ${expires}.`;
+      ? `${name}'s one-year token is overdue for re-minting (${remint}). It expires ${expires}.`
+      : `Re-mint ${name}'s one-year token by ${due}: ${remint}. It expires ${expires}.`;
   }
   if (relogin.phase === "overdue")
     return `${name} is overdue — re-log it now. It could expire from ${expires}.`;

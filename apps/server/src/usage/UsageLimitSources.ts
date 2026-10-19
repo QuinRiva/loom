@@ -215,7 +215,7 @@ export const make = Effect.gen(function* () {
       const files = yield* api.listAccounts(config);
       const known = yield* detectLogins(config, files);
       const read = yield* api.readAccounts(config, previous, files, (email) =>
-        email === undefined ? undefined : known[email]?.lastRefresh,
+        email === undefined ? undefined : known[email],
       );
       const schedule = reloginSchedule(
         claudeFiles(files).map((file) => [file.email!, known[file.email!]] as const),

@@ -53,7 +53,9 @@ describe("reloginText", () => {
         "carl4@",
         now,
       ),
-    ).toMatch(/^Re-mint carl4@'s one-year token by Mon 18 Oct 2027 /);
+    ).toMatch(
+      /^Re-mint carl4@'s one-year token by Mon 18 Oct 2027: claude setup-token, then ~\/cli-proxy\/account add-token carl4@\. /,
+    );
     expect(reloginText(relogin({ phase: "later" }), "carl@", now)).toBeNull();
   });
 });

@@ -79,7 +79,8 @@ export interface HubAuthFileStamp {
 }
 
 const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
-const isLongLived = (record: HubLoginRecord) =>
+/** A `claude setup-token` token rather than a browser login. */
+export const isLongLived = (record: HubLoginRecord) =>
   (record.lifetimeDays ?? OAUTH_LIFETIME_DAYS) >= LONG_LIVED_DAYS;
 
 /**
