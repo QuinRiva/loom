@@ -307,6 +307,21 @@ describe("workstreamBadgeTone", () => {
     expect(tone([yielded(null)])).toBe("needs_you");
   });
 
+  it("a yield the parent parked behind a running sibling stays with agents until the sibling finishes", () => {
+    // The parent's turn ended after the yield, but a sibling it spawned still runs and will wake it.
+    const sibling = (shell: Partial<OrchestrationV2ThreadShell>): Spec => ({
+      id: "b",
+      started: true,
+      shell,
+    });
+    expect(
+      tone([yielded("evt"), sibling({ activityRunStatus: "running" })], rootRanUntil(12)),
+    ).toBe("working");
+    expect(tone([yielded("evt"), sibling({ status: "completed" })], rootRanUntil(12))).toBe(
+      "needs_you",
+    );
+  });
+
   it("a brief owed since a dependency finished waits on the parent's next turn", () => {
     const specs: ReadonlyArray<Spec> = [
       { id: "a", brief: false, blockedBy: ["b"] },
