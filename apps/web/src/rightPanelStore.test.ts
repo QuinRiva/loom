@@ -869,6 +869,8 @@ describe("rightPanelStore", () => {
       id: "files",
       kind: "files",
       folderTrail: "apps/web/src",
+      revealPath: null, // loom: directory reveal fields
+      revealRequestId: 0,
     });
 
     // Reaching the end of the trail leaves no trail behind.
@@ -877,6 +879,7 @@ describe("rightPanelStore", () => {
     expect(state().surfaces[1]).toEqual({
       id: "file:apps/web/src",
       kind: "file",
+      absolutePath: null, // loom: absolute-path-aware file surface
       relativePath: "apps/web/src",
       revealLine: null,
       revealRequestId: 1,
@@ -892,7 +895,14 @@ describe("rightPanelStore", () => {
     const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.activeSurfaceId).toBe("file:apps");
     expect(state.surfaces).toEqual([
-      { id: "file:apps", kind: "file", relativePath: "apps", revealLine: null, revealRequestId: 1 },
+      {
+        id: "file:apps",
+        kind: "file",
+        absolutePath: null, // loom: absolute-path-aware file surface
+        relativePath: "apps",
+        revealLine: null,
+        revealRequestId: 1,
+      },
     ]);
   });
 
@@ -908,6 +918,7 @@ describe("rightPanelStore", () => {
       {
         id: "file:src/app.ts",
         kind: "file",
+        absolutePath: null, // loom: absolute-path-aware file surface
         relativePath: "src/app.ts",
         revealLine: 40,
         revealRequestId: 1,
@@ -922,6 +933,7 @@ describe("rightPanelStore", () => {
       {
         id: "file:src/app.ts",
         kind: "file",
+        absolutePath: null, // loom: absolute-path-aware file surface
         relativePath: "src/app.ts",
         revealLine: 40,
         revealRequestId: 1,
