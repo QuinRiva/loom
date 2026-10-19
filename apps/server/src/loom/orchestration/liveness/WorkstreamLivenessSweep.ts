@@ -41,10 +41,8 @@ import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 
 import { CommandReceiptStoreV2 } from "../../../orchestration-v2/CommandReceiptStore.ts";
-import {
-  isNativeMaintenanceCommand,
-  OrchestratorV2,
-} from "../../../orchestration-v2/Orchestrator.ts";
+import { isNativeMaintenanceCommand } from "../../../orchestration-v2/CommandPolicy.ts";
+import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import { ProviderSessionManagerV2 } from "../../../orchestration-v2/ProviderSessionManager.ts";
 import { forkParked } from "../../../serverActivation.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";

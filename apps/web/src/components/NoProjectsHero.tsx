@@ -1,5 +1,5 @@
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
-import { useCallback, type ReactNode } from "react"; // loom: header slot
+import type { ReactNode } from "react"; // loom: header slot
 
 import { openCommandPalette } from "../commandPaletteBus";
 import { isElectron } from "../env";
@@ -13,7 +13,6 @@ import { WorkspacePageHeader } from "./WorkspacePageHeader";
 // loom: header slot
 /** `header` renders inside the inset, above the hero — loom's routes put the thread-tabs strip there. */
 export function NoProjectsHero({ header }: { header?: ReactNode }) {
-  const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
   const scratchTargetEnvironmentId = scratchEnvironmentId(primaryEnvironmentId);
@@ -34,7 +33,7 @@ export function NoProjectsHero({ header }: { header?: ReactNode }) {
                   : "Add a project, or start without one."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">
-                <Button size="sm" onClick={openAddProject}>
+                <Button size="sm" onClick={() => openCommandPalette({ open: "add-project" })}>
                   <PlusIcon className="size-4" />
                   Add project
                 </Button>

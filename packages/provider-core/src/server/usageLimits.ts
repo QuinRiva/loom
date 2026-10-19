@@ -48,16 +48,6 @@ export function makeUnavailableUsageLimits(input: {
   };
 }
 
-/**
- * Fold a sparse runtime update into the limits a provider currently
- * publishes. Windows upsert by `id`; a window the update omits keeps its
- * previous values, and a window that arrives without `resetsAt` or
- * `windowDurationMins` keeps whatever the last probe resolved for it. An
- * update with no windows leaves `previous` untouched.
- *
- * An `unsupported` snapshot stays unsupported: an account that cannot have
- * subscription windows will not start reporting them mid-turn.
- */
 export function applyUsageLimitsUpdate(input: {
   readonly previous: ServerProviderUsageLimits | undefined;
   readonly update: ProviderUsageLimitsUpdate;
@@ -140,26 +130,13 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
 }
 
 /**
- * Choose what to publish after a status probe finishes. A probe that failed
- * this time must not wipe bars a previous probe or a turn already
- * established, so the last good snapshot stays; `unsupported` is
- * authoritative and replaces them.
- *
  * loom: a probe that carries no limits at all (`probed === undefined`) is
- * equally uninformative and keeps the published reading too. pi never reads
- * its own quota — the subscription-usage poller is its only feeder — and the
- * other drivers omit the field on their not-installed and timed-out paths for
- * the same "we did not look" reason. Signing out is the one silent probe that
- * is authoritative: those windows belong to an account that is gone, so an
- * `unauthenticated` probe clears them.
- *
- * A successful probe replaces the published windows outright, including any
- * runtime update that landed while it was running. That is a deliberate
- * trade-off: the Codex and Claude reads take a few seconds at most, the
- * probe is the fresher full read in every case except that window, and the
- * per-window epoch bookkeeping needed to reconcile the two was more code
- * than the sub-second regression it prevented. The next runtime event
- * corrects it.
+ * uninformative and keeps the published reading. pi never reads its own quota —
+ * the subscription-usage poller is its only feeder — and the other drivers omit
+ * the field on their not-installed and timed-out paths for the same "we did not
+ * look" reason. Signing out is the one silent probe that is authoritative: those
+ * windows belong to an account that is gone, so an `unauthenticated` probe
+ * clears them.
  */
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;

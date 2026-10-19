@@ -265,7 +265,6 @@ const randomId =
       ),
     );
 
-/** Deterministic id derivations; pure, so callers that only derive need no allocator. */
 // loom: every derive entry is deriveId (bounded digest), not joinId.
 export const derive: IdAllocatorV2Derive = {
   providerSession: (input) =>
