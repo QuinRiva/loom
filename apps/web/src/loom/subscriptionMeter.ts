@@ -102,7 +102,7 @@ export function meterAccounts(presentations: LimitPresentations): readonly Limit
     merged.set(key, {
       ...winner,
       email: winner.email ?? previous?.email ?? account.email,
-      loginAlert: winner.loginAlert ?? previous?.loginAlert ?? account.loginAlert,
+      login: winner.login ?? previous?.login ?? account.login,
     });
   }
   return namedFirst([...merged.values()]);
@@ -349,7 +349,7 @@ function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow 
     weeklies,
     mark: marks.has("risk") ? "risk" : marks.has("opp") ? "opp" : null,
     exhausted: weeklies.some((weekly) => weekly.used >= 100),
-    login: account.loginAlert,
+    login: account.login?.status === "healthy" ? null : account.login,
   };
 }
 

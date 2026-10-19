@@ -28,8 +28,10 @@ describe("cliproxyLogin", () => {
     });
   });
 
-  it("is dead once the access token has run out, even before the hub flips", () => {
-    expect(cliproxyLogin(claude(), refreshed + 8 * HOUR)).toEqual({ status: "dead", expiresAt });
+  // A re-login over an existing auth file keeps the hub's old `last_refresh`
+  // until its next refresh, ~4h on: the hub serving it outranks the clock.
+  it("trusts the hub over a stale clock once the old token's expiry has passed", () => {
+    expect(cliproxyLogin(claude(), refreshed + 9 * HOUR)).toEqual({ status: "healthy" });
   });
 
   it("is dead with the hub's reason when the hub has signed the account out", () => {

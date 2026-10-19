@@ -133,7 +133,8 @@ A Claude account whose login the hub can no longer refresh is flagged in the sub
 and at the top of **Usage → Limits** about four hours before it stops working, with the time it
 will stop; the hub itself still reports it as active until then. Once it has stopped, it shows as
 signed out with the hub's reason and no longer counts toward the pool. Log in to the account on
-the hub again to clear either warning.
+the hub again to clear either warning. If you log in again while the account is still working, the
+early warning can stay up for up to four hours, until the hub's next scheduled refresh.
 
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same

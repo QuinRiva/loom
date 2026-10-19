@@ -14,6 +14,18 @@
  * the clock is the provider's known lifetime. Providers with no known clock
  * (Codex) get only the hub's own verdict.
  *
+ * `dead` comes only from the hub, which flips the account within seconds of
+ * the token running out (its refresh retry is capped at expiry). The clock
+ * cannot say it: `last_refresh` is the hub's in-memory time of its last
+ * successful refresh, and a re-login that rewrites an existing auth file keeps
+ * it (`sdk/cliproxy/service_auth.go`), so after a re-login it stays stale until
+ * the next refresh, ~4h on. A clock past expiry while the hub still serves the
+ * account is that stale case: healthy. The same staleness means a re-login
+ * during the warning keeps the warning up to ~4h; nothing in the list moves on
+ * a re-login to tell the two apart without reading the token-bearing file.
+ * After a hub restart `last_refresh` is absent until the first refresh, so the
+ * warning is missed, never false.
+ *
  * @module usage/cliproxyLogin.loom
  */
 import type { UsageLimitSourceLogin } from "@t3tools/contracts";
@@ -54,9 +66,13 @@ export function cliproxyLogin(file: CliproxyAuthFileLogin, now: number): UsageLi
     expiresMs === null ? {} : { expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiresMs)) };
   const reason = file.status_message?.trim() ?? "";
   const signedOut = file.status === "error" && SIGNED_OUT.has(reason);
-  if (signedOut || (expiresMs !== null && now >= expiresMs))
-    return { status: "dead", ...expiresAt, ...(signedOut ? { reason } : {}) };
-  if (clock && expiresMs !== null && now > expiresMs - clock.refreshLeadMs + REFRESH_GRACE_MS)
+  if (signedOut) return { status: "dead", ...expiresAt, reason };
+  if (
+    clock &&
+    expiresMs !== null &&
+    now > expiresMs - clock.refreshLeadMs + REFRESH_GRACE_MS &&
+    now < expiresMs
+  )
     return { status: "refreshFailing", ...expiresAt };
   return { status: "healthy" };
 }

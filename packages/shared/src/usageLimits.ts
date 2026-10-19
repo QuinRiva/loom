@@ -194,10 +194,11 @@ export interface LimitAccount {
   } | null;
   readonly limits: ServerProviderUsageLimits;
   /**
-   * loom: the hub's failing or dead login for the account; null while it is
-   * healthy or unknown. A dead account has no windows and is left out of pools.
+   * loom: the hub's view of the account's login, from its freshest hub
+   * reading; null when no hub reports it. A dead account has no windows and is
+   * left out of pools.
    */
-  readonly loginAlert: UsageLimitSourceLogin | null;
+  readonly login: UsageLimitSourceLogin | null;
 }
 
 /**
@@ -261,7 +262,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       redeem:
         hubRedeems.get(key)?.redeem ??
         (creditSource ? creditSource.redeem : (winner.redeem ?? previous.redeem ?? next.redeem)),
-      loginAlert: winner.loginAlert ?? loser.loginAlert, // loom
+      login: winner.login ?? loser.login, // loom: a native reading knows no login
       limits: {
         ...winner.limits,
         ...(creditSource?.limits.resetCredits
@@ -293,7 +294,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         sourceLabel: null,
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
         limits: provider.usageLimits,
-        loginAlert: null, // loom
+        login: null, // loom
       });
     }
   }
@@ -331,7 +332,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
               }
             : null,
           limits: account.usageLimits,
-          loginAlert: account.login && account.login.status !== "healthy" ? account.login : null, // loom
+          login: account.login ?? null, // loom
         });
       }
     }
@@ -455,7 +456,7 @@ export function collectLimitPools(
 ): readonly LimitPool[] {
   const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
   // loom: a signed-out account is no capacity; the views list it on its own.
-  for (const account of accounts.filter((entry) => entry.loginAlert?.status !== "dead")) {
+  for (const account of accounts.filter((entry) => entry.login?.status !== "dead")) {
     const list = byDriver.get(account.driver);
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
@@ -587,9 +588,9 @@ export function loginAlertText(login: UsageLimitSourceLogin, now: number): strin
  */
 export function loginAlertNotices(accounts: readonly LimitAccount[], now: number): string[] {
   return accounts.flatMap((account) =>
-    account.loginAlert
+    account.login && account.login.status !== "healthy"
       ? [
-          `${account.email ? `${account.email.split("@")[0]}@` : (account.displayName ?? account.key)}: ${loginAlertText(account.loginAlert, now)}`,
+          `${account.email ? `${account.email.split("@")[0]}@` : (account.displayName ?? account.key)}: ${loginAlertText(account.login, now)}`,
         ]
       : [],
   );
