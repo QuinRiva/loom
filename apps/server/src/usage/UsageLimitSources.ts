@@ -136,6 +136,9 @@ export const make = Effect.gen(function* () {
     ),
   );
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // loom: when each email's recorded device id was last seen on the hub. In
+  // memory on purpose: after a restart a login Loom missed comes out undated.
+  const confirmedAt = new Map<string, number>();
 
   /**
    * loom: re-read every Claude auth file whose `modtime` moved, record what
@@ -152,11 +155,14 @@ export const make = Effect.gen(function* () {
       (file) => {
         const email = file.email!;
         const previous = known[email];
-        if (previous && file.modtime !== undefined && previous.modtime === file.modtime)
+        if (previous && file.modtime !== undefined && previous.modtime === file.modtime) {
+          confirmedAt.set(email, now);
           return Effect.succeed([] as const);
+        }
         return api.downloadAuthFile(config, file.id).pipe(
           Effect.map((facts) => {
-            const next = detectLogin(previous, file, facts, now);
+            const next = detectLogin(previous, file, facts, now, confirmedAt.get(email));
+            if (next) confirmedAt.set(email, now);
             return next ? ([[email, next]] as const) : ([] as const);
           }),
           Effect.tapError((cause) =>

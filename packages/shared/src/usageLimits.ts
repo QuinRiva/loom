@@ -634,7 +634,7 @@ export function reloginText(
   if (relogin.kind === "token") {
     return relogin.phase === "overdue"
       ? `${name}'s one-year token is overdue for re-minting — it expires ${expires}.`
-      : `Re-mint ${name}'s one-year token by ${due} (claude setup-token, then account add-token). It expires ${expires}.`;
+      : `Re-mint ${name}'s one-year token by ${due} (claude setup-token). It expires ${expires}.`;
   }
   if (relogin.phase === "overdue")
     return `${name} is overdue — re-log it now. It could expire from ${expires}.`;

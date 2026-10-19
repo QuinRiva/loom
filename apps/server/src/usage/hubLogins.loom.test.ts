@@ -56,6 +56,12 @@ describe("reloginSchedule", () => {
       dueBy: "2026-10-27",
       early: true,
     });
+    // A slip onto a weekend asks for the next weekday, still inside the account's own days.
+    expect(scheduleOf(seed, "2026-10-31T09:00:00+11:00")["caaarl@unseen.id"]).toEqual({
+      phase: "due",
+      dueBy: "2026-11-02",
+      early: true,
+    });
     expect(scheduleOf(seed, "2026-11-02T09:00:00+11:00")["jacob@unseen.id"]).toEqual({
       phase: "overdue",
       dueBy: "2026-10-30",
@@ -140,13 +146,17 @@ describe("detectLogin", () => {
         { modtime: "m2" },
         oauth(known.fingerprint, "2026-10-19T14:35:02+11:00"),
         now,
+        polled,
       ),
     ).toEqual({ ...known, modtime: "m2", lastRefresh: "2026-10-19T14:35:02+11:00" });
   });
 
-  it("times a new device id by a last_refresh under four hours old", () => {
+  // The previous poll saw the old device id five minutes ago.
+  const polled = at("2026-10-19T14:55:00+11:00");
+
+  it("times a new device id by a last_refresh under four hours after the old one was seen", () => {
     expect(
-      detectLogin(known, {}, oauth("new-device", "2026-10-19T14:59:30+11:00"), now),
+      detectLogin(known, {}, oauth("new-device", "2026-10-19T14:59:30+11:00"), now, polled),
     ).toMatchObject({
       fingerprint: "new-device",
       loggedInAt: "2026-10-19T03:59:30.000Z",
@@ -154,21 +164,27 @@ describe("detectLogin", () => {
     });
   });
 
-  it("leaves a new device id with an older last_refresh undated", () => {
-    const next = detectLogin(known, {}, oauth("new-device", "2026-10-19T06:00:00+11:00"), now);
-    expect(next?.fingerprint).toBe("new-device");
-    expect(next?.loggedInAt).toBeUndefined();
+  it("leaves a login Loom missed undated, though a refresh since keeps the clock fresh", () => {
+    // Logged in at 09:00 while Loom was down; the hub refreshed at 13:00; Loom polls at 15:00.
+    const missed = oauth("new-device", "2026-10-19T13:00:00+11:00");
+    const last = at("2026-10-19T08:30:00+11:00");
+    for (const seen of [last, undefined]) {
+      const next = detectLogin(known, {}, missed, now, seen);
+      expect(next?.fingerprint).toBe("new-device");
+      expect(next?.loggedInAt).toBeUndefined();
+    }
   });
 
   it("on first sight, takes a fresh last_refresh as the login only when the file was registered then", () => {
     const fresh = oauth("device", "2026-10-19T13:33:11+11:00");
     expect(
-      detectLogin(undefined, { created_at: "2026-10-19T13:33:11.95+11:00" }, fresh, now)
+      detectLogin(undefined, { created_at: "2026-10-19T13:33:11.95+11:00" }, fresh, now, undefined)
         ?.loggedInAt,
     ).toBe("2026-10-19T02:33:11.000Z");
     // jacob@ today: refreshed at 13:19, but its file dates from the 6 Oct login.
     expect(
-      detectLogin(undefined, { created_at: "2026-10-06T13:19:46+11:00" }, fresh, now)?.loggedInAt,
+      detectLogin(undefined, { created_at: "2026-10-06T13:19:46+11:00" }, fresh, now, undefined)
+        ?.loggedInAt,
     ).toBeUndefined();
   });
 
@@ -180,7 +196,7 @@ describe("detectLogin", () => {
       refreshable: false,
       setupToken: true,
     };
-    expect(detectLogin(known, { modtime: "m" }, token, now)).toEqual({
+    expect(detectLogin(known, { modtime: "m" }, token, now, polled)).toEqual({
       fingerprint: known.fingerprint,
       modtime: "m",
       expiresAt: "2027-10-19T04:53:00.000Z",
@@ -188,15 +204,16 @@ describe("detectLogin", () => {
       leadWeekdays: 10,
     });
     // Recognised by its shape too, without the flag.
-    expect(detectLogin(undefined, {}, { ...token, setupToken: false }, now)?.lifetimeDays).toBe(
-      365,
-    );
+    expect(
+      detectLogin(undefined, {}, { ...token, setupToken: false }, now, undefined)?.lifetimeDays,
+    ).toBe(365);
     // Undoing it restores the old login (same device id, last refreshed now): not a new login.
     const restored = detectLogin(
-      detectLogin(known, {}, token, now),
+      detectLogin(known, {}, token, now, polled),
       {},
       oauth(known.fingerprint, "2026-10-19T14:59:00+11:00"),
       now,
+      polled,
     );
     expect(restored).toMatchObject({ fingerprint: known.fingerprint, lifetimeDays: 27 });
     expect(restored?.loggedInAt).toBeUndefined();

@@ -84,8 +84,13 @@ const isLongLived = (record: HubLoginRecord) =>
 
 /**
  * The record after reading one auth file. A new device id is a login, timed
- * by the file's `last_refresh` while that is under 4h old, else unknown. With
- * no record yet, a fresh `last_refresh` is a login only when the hub
+ * by the file's `last_refresh` only when Loom confirmed the old device id
+ * (`confirmedAt`, in memory) less than 4h before that clock: the login came
+ * after the confirmation and the hub's first refresh comes 4h after a login,
+ * so such a clock can only be the login. Otherwise — Loom was down or not yet
+ * started across the login — the hub has refreshed since (every healthy file's
+ * `last_refresh` is under 4h old, locked to the login time), so the time is
+ * unknown and the account is asked for now. With no record yet, a fresh `last_refresh` is a login only when the hub
  * registered the file at that instant too (`created_at`): otherwise it is a
  * routine refresh of an older login. A long-lived token (`claude setup-token`)
  * is never a login: its expiry is the file's `expired`. Undoing one restores
@@ -96,6 +101,7 @@ export function detectLogin(
   stamp: HubAuthFileStamp,
   facts: HubAuthFileFacts,
   now: number,
+  confirmedAt: number | undefined,
 ): HubLoginRecord | undefined {
   const clocks = {
     ...(stamp.modtime ? { modtime: stamp.modtime } : {}),
@@ -119,10 +125,14 @@ export function detectLogin(
   const wasToken = previous !== undefined && isLongLived(previous);
   if (previous?.fingerprint === facts.deviceId && !wasToken) return { ...previous, ...clocks };
   const refreshed = Date.parse(facts.lastRefresh ?? "");
-  const recent = now - refreshed < LOGIN_WINDOW_MS && refreshed <= now + 60_000;
   const login = previous
-    ? previous.fingerprint !== facts.deviceId && recent
-    : recent && Math.abs(Date.parse(stamp.created_at ?? "") - refreshed) < 60_000;
+    ? previous.fingerprint !== facts.deviceId &&
+      confirmedAt !== undefined &&
+      // A minute's slack: the hub stamps whole seconds.
+      refreshed >= confirmedAt - 60_000 &&
+      refreshed - confirmedAt < LOGIN_WINDOW_MS
+    : now - refreshed < LOGIN_WINDOW_MS &&
+      Math.abs(Date.parse(stamp.created_at ?? "") - refreshed) < 60_000;
   return {
     fingerprint: facts.deviceId,
     ...clocks,
@@ -160,6 +170,8 @@ const isWeekend = (day: number) => [0, 6].includes((day + 4) % 7);
 /** The day itself when a weekday, else the Friday before. */
 const weekdayOnOrBefore = (day: number): number =>
   isWeekend(day) ? weekdayOnOrBefore(day - 1) : day;
+const weekdayOnOrAfter = (day: number): number =>
+  isWeekend(day) ? weekdayOnOrAfter(day + 1) : day;
 const weekdaysBefore = (day: number, count: number): number =>
   count <= 0 ? day : weekdaysBefore(weekdayOnOrBefore(day - 1), count - 1);
 const dayString = (day: number) => iso(day * DAY_MS).slice(0, 10);
@@ -198,8 +210,8 @@ export function reloginSchedule(
     for (const { email, record, expires, mustBy } of dated.toReversed()) {
       const spread = weekdayOnOrBefore(next === null ? mustBy : Math.min(mustBy, next - gap));
       // Never asked for the past for the spread's sake: an early ask that slips rolls
-      // forward a day at a time, and only an account past its own last day is overdue.
-      const due = Math.max(spread, Math.min(mustBy, today));
+      // forward to the next weekday, and only an account past its own last day is overdue.
+      const due = Math.max(spread, Math.min(mustBy, weekdayOnOrAfter(today)));
       next = due;
       const lead = record.leadWeekdays ?? 1;
       schedule.set(email, {
