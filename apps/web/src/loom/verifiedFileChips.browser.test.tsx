@@ -17,7 +17,7 @@ vi.mock("~/components/ui/toast", () => ({
   stackedThreadToast: (options: unknown) => options,
 }));
 
-import { useVerifiedFileLinkChip, verifyChipTargetBeforeOpen } from "./verifiedFileChips";
+import { makeVerifiedFileLinkChip, verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
 const ENV = "env-1" as EnvironmentId;
 const CWD = "/w";
@@ -47,7 +47,7 @@ function meta(filePath: string): MarkdownFileLinkMeta {
 
 /** Renders every meta through the wrapper; upstream's chip is a bare marker. */
 function Harness({ metas }: { metas: ReadonlyArray<MarkdownFileLinkMeta> }) {
-  const chip = useVerifiedFileLinkChip({
+  const chip = makeVerifiedFileLinkChip({
     environmentId: ENV,
     renderChip: (fileLinkMeta) => <b data-upstream-chip>{fileLinkMeta.basename}</b>,
   });
@@ -92,7 +92,7 @@ afterEach(async () => {
   toastAdd.mockClear();
 });
 
-describe("useVerifiedFileLinkChip", () => {
+describe("makeVerifiedFileLinkChip", () => {
   it("keeps upstream's chip for a file that exists", async () => {
     await renderHarness([meta(`${CWD}/main.ts`)], { [`${CWD}/main.ts`]: "file" });
     expect(upstreamChips()).toHaveLength(1);

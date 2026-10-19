@@ -130,8 +130,9 @@ import { isArtifactViewerPath } from "./artifact/artifactView";
 // loom: file-chip existence verification.
 import {
   useScannedPathTargets,
-  useUnanchoredInlineCodeChip,
-  useVerifiedFileLinkChip,
+  makeUnanchoredInlineCodeChip,
+  makeVerifiedFileLinkChip,
+  messageDirectoryBasesKey,
   useVerifiedScannedPath,
   verifyChipTargetBeforeOpen,
 } from "~/loom/verifiedFileChips";
@@ -2811,17 +2812,16 @@ function useChatMarkdownState({
 
   // loom: verify chip targets exist before they are clickable. An existing file
   // renders exactly upstream's chip.
-  const verifiedFileLinkChip = useVerifiedFileLinkChip({
+  const verifiedFileLinkChip = makeVerifiedFileLinkChip({
     environmentId,
     renderChip: fileLinkChip,
   });
   // loom: a bare `prices.json` or unprefixed `src/x.py` is a guess at a place,
   // so it stays plain code until a file is confirmed, and never says "missing?".
-  const unanchoredInlineCodeChip = useUnanchoredInlineCodeChip({
+  const unanchoredInlineCodeChip = makeUnanchoredInlineCodeChip({
     environmentId,
     cwd,
-    inlineCodeMetas: inlineCodeFileLinkMetaByText,
-    linkMetas: markdownFileLinkMetaByHref,
+    basesKey: messageDirectoryBasesKey(inlineCodeFileLinkMetaByText, markdownFileLinkMetaByHref),
     renderChip: fileLinkChip,
   });
 

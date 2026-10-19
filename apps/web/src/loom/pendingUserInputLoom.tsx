@@ -11,13 +11,14 @@
  * them — carries no Loom props.
  */
 import type { Nodes } from "mdast";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { create } from "zustand";
 
 import { useNowMinute } from "../hooks/useNowMinute";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { formatElapsedDurationLabel } from "../timestampFormat";
 
 /**
@@ -57,22 +58,20 @@ const useHosts = create<{ readonly hosts: Readonly<Record<string, LoomPendingInp
   hosts: {},
 }));
 
-/** ChatView: host the active request. The reply callback is read through a ref. */
+const withoutHost = (hosts: Readonly<Record<string, LoomPendingInputHost>>, requestId: string) => {
+  const { [requestId]: _removed, ...rest } = hosts;
+  return rest;
+};
+
+/** ChatView: host the active request. The reply callback keeps one identity. */
 export function useHostLoomPendingInput(requestId: string | null, host: LoomPendingInputHost) {
-  const replyRef = useRef(host.onReplyInChat);
-  useEffect(() => {
-    replyRef.current = host.onReplyInChat;
-  });
+  const onReplyInChat = useStableCallback(host.onReplyInChat);
   useEffect(() => {
     if (requestId === null) return;
-    const entry: LoomPendingInputHost = { onReplyInChat: () => replyRef.current() };
+    const entry: LoomPendingInputHost = { onReplyInChat };
     useHosts.setState((state) => ({ hosts: { ...state.hosts, [requestId]: entry } }));
-    return () =>
-      useHosts.setState((state) => {
-        const { [requestId]: _removed, ...hosts } = state.hosts;
-        return { hosts };
-      });
-  }, [requestId]);
+    return () => useHosts.setState((state) => ({ hosts: withoutHost(state.hosts, requestId) }));
+  }, [requestId, onReplyInChat]);
 }
 
 /** The panel: its request's host, or undefined (preview harness, unhosted surfaces). */

@@ -1,6 +1,6 @@
 import type { PlanCommentAnchor } from "@t3tools/contracts";
 import { Eye, GripVertical, MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
@@ -101,6 +101,9 @@ interface Overlay {
   collapsed?: CollapsedSurface;
 }
 
+const clampCardLeft = (left: number, wrapperWidth: number) =>
+  Math.max(8, Math.min(left, wrapperWidth - CARD_WIDTH - 8));
+
 interface ComposerState {
   id: string;
   anchor: PlanCommentAnchor;
@@ -199,6 +202,30 @@ function newCommentId(): string {
   return `mdx-anchor:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Collapsed annotations grouped by the surface they badge onto, so several
+ * hidden comments behind one closed <details>/tab collapse to one counted
+ * badge (the enclosing surface stays discoverable).
+ */
+function groupCollapsedOverlays(overlays: ReadonlyArray<Overlay>) {
+  const groups: { key: string; top: number; left: number; overlays: Overlay[] }[] = [];
+  for (const overlay of overlays) {
+    if (overlay.state !== "collapsed" || !overlay.collapsed) continue;
+    const existing = groups.find(
+      (group) => group.overlays[0]!.collapsed!.badgeElement === overlay.collapsed!.badgeElement,
+    );
+    if (existing) existing.overlays.push(overlay);
+    else
+      groups.push({
+        key: overlay.id,
+        top: overlay.badge.top,
+        left: overlay.badge.left,
+        overlays: [overlay],
+      });
+  }
+  return groups;
+}
+
 export function MdxPlanAnnotationLayer({
   source,
   filePath,
@@ -218,6 +245,8 @@ export function MdxPlanAnnotationLayer({
     null,
   );
   const [openCardId, setOpenCardId] = useState<string | null>(null);
+  // Measured with the overlays, so an open card clamps without reading the DOM in render.
+  const [wrapperWidth, setWrapperWidth] = useState(0);
 
   const draft = useComposerDraftStore((store) => store.getComposerDraft(composerDraftTarget));
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
@@ -226,148 +255,106 @@ export function MdxPlanAnnotationLayer({
   const setAnnotationDraft = useMdxAnnotationDraftStore((store) => store.setDraft);
   const clearAnnotationDraft = useMdxAnnotationDraftStore((store) => store.clearDraft);
   const annotationDrafts = useMdxAnnotationDraftStore((store) => store.drafts);
-  const fileComments = useMemo(
-    () => (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath)),
-    [draft?.reviewComments, filePath],
-  );
+  const fileComments = (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath));
   // Decision counter (C2): a 140-item tier-(b) batch is the real doc the review-
   // blocks spec deferred this for. `M` = every <ReviewChoice> authored in the
   // source (stable regardless of lazy-mount state inside <Details>); `N` = the
   // items with a persisted decision (the review-choice comment is the wire truth
   // for "decided"). Presentation only — no bulk actions.
-  const reviewChoiceTotal = useMemo(
-    () => (source.match(/<ReviewChoice[\s/>]/g) ?? []).length,
-    [source],
-  );
-  const decidedCount = useMemo(
-    () => fileComments.filter((c) => isReviewChoiceCommentId(c.id)).length,
-    [fileComments],
-  );
+  const reviewChoiceTotal = (source.match(/<ReviewChoice[\s/>]/g) ?? []).length;
+  const decidedCount = fileComments.filter((c) => isReviewChoiceCommentId(c.id)).length;
 
   // Question-answer comments are shown by the question blocks themselves (and as
   // composer chips), not as highlight overlays/badges — only freeform annotation
   // comments feed the overlay pipeline below.
-  const comments = useMemo(
-    () =>
-      fileComments.filter(
-        (c) => !isQuestionAnswerCommentId(c.id) && !isReviewChoiceCommentId(c.id),
-      ),
-    [fileComments],
+  const comments = fileComments.filter(
+    (c) => !isQuestionAnswerCommentId(c.id) && !isReviewChoiceCommentId(c.id),
   );
 
   // Interactive answer surface for `<QuestionForm>`/`<VisualQuestions>` blocks:
   // answers upsert a deterministic-id review comment (the wire truth — removing
   // the composer chip un-answers the question) while the structured option ids
   // persist in the annotation draft store.
-  const questionAnswers = useMemo<PlanQuestionAnswersApi>(
-    () => ({
-      getAnswer: (questionId) => {
-        if (!fileComments.some((c) => c.id === questionAnswerCommentId(filePath, questionId))) {
-          return EMPTY_QUESTION_ANSWER;
-        }
-        return parseQuestionAnswerDraft(
-          annotationDrafts[questionAnswerDraftKey(composerDraftTarget, filePath, questionId)] ??
-            null,
-        );
-      },
-      setAnswer: (question, blockElement, answer) => {
-        const draftKey = questionAnswerDraftKey(composerDraftTarget, filePath, question.id);
-        const commentId = questionAnswerCommentId(filePath, question.id);
-        if (isEmptyQuestionAnswer(answer)) {
-          clearAnnotationDraft(draftKey);
-          removeReviewComment(composerDraftTarget, commentId);
-          return;
-        }
-        setAnnotationDraft(draftKey, JSON.stringify(answer));
-        const anchored =
-          blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
-        const anchor: PlanCommentAnchor = anchored?.anchor ?? {
-          anchorKind: "visual",
-          targetKind: "control",
-          blockType: "question-form",
-        };
-        addReviewComment(composerDraftTarget, {
-          kind: "mdx-anchor",
-          id: commentId,
-          filePath,
-          sectionId: anchor.sectionId ?? `file:${filePath}`,
-          sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
-          rangeLabel: `answer: ${question.id}`,
-          text: formatQuestionAnswerText(question, answer),
-          anchor,
-          quotedText: question.title,
-        });
-      },
-    }),
-    [
-      fileComments,
-      annotationDrafts,
-      composerDraftTarget,
-      filePath,
-      root,
-      addReviewComment,
-      removeReviewComment,
-      setAnnotationDraft,
-      clearAnnotationDraft,
-    ],
-  );
+  const questionAnswers: PlanQuestionAnswersApi = {
+    getAnswer: (questionId) => {
+      if (!fileComments.some((c) => c.id === questionAnswerCommentId(filePath, questionId))) {
+        return EMPTY_QUESTION_ANSWER;
+      }
+      return parseQuestionAnswerDraft(
+        annotationDrafts[questionAnswerDraftKey(composerDraftTarget, filePath, questionId)] ?? null,
+      );
+    },
+    setAnswer: (question, blockElement, answer) => {
+      const draftKey = questionAnswerDraftKey(composerDraftTarget, filePath, question.id);
+      const commentId = questionAnswerCommentId(filePath, question.id);
+      if (isEmptyQuestionAnswer(answer)) {
+        clearAnnotationDraft(draftKey);
+        removeReviewComment(composerDraftTarget, commentId);
+        return;
+      }
+      setAnnotationDraft(draftKey, JSON.stringify(answer));
+      const anchored = blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
+      const anchor: PlanCommentAnchor = anchored?.anchor ?? {
+        anchorKind: "visual",
+        targetKind: "control",
+        blockType: "question-form",
+      };
+      addReviewComment(composerDraftTarget, {
+        kind: "mdx-anchor",
+        id: commentId,
+        filePath,
+        sectionId: anchor.sectionId ?? `file:${filePath}`,
+        sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
+        rangeLabel: `answer: ${question.id}`,
+        text: formatQuestionAnswerText(question, answer),
+        anchor,
+        quotedText: question.title,
+      });
+    },
+  };
 
   // Interactive decision surface for `<ReviewChoice>` blocks — mirror of the
   // question-answer channel above: a verdict/note upserts a deterministic-id
   // (`mdx-review:…`) review comment (the wire truth) while the structured
   // verdict/note persist in the annotation draft store.
-  const reviewChoices = useMemo<PlanReviewChoicesApi>(
-    () => ({
-      getChoice: (itemId) => {
-        if (!fileComments.some((c) => c.id === reviewChoiceCommentId(filePath, itemId))) {
-          return EMPTY_REVIEW_CHOICE;
-        }
-        return parseReviewChoiceDraft(
-          annotationDrafts[reviewChoiceDraftKey(composerDraftTarget, filePath, itemId)] ?? null,
-        );
-      },
-      setChoice: (item, blockElement, choice) => {
-        const draftKey = reviewChoiceDraftKey(composerDraftTarget, filePath, item.itemId);
-        const commentId = reviewChoiceCommentId(filePath, item.itemId);
-        if (isEmptyReviewChoice(choice)) {
-          clearAnnotationDraft(draftKey);
-          removeReviewComment(composerDraftTarget, commentId);
-          return;
-        }
-        setAnnotationDraft(draftKey, JSON.stringify(choice));
-        const anchored =
-          blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
-        const anchor: PlanCommentAnchor = anchored?.anchor ?? {
-          anchorKind: "visual",
-          targetKind: "control",
-          blockType: "review-choice",
-        };
-        const label = item.label ?? item.itemId;
-        addReviewComment(composerDraftTarget, {
-          kind: "mdx-anchor",
-          id: commentId,
-          filePath,
-          sectionId: anchor.sectionId ?? `file:${filePath}`,
-          sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
-          rangeLabel: `review: ${item.itemId}`,
-          text: formatReviewChoiceText(label, choice),
-          anchor,
-          quotedText: label,
-        });
-      },
-    }),
-    [
-      fileComments,
-      annotationDrafts,
-      composerDraftTarget,
-      filePath,
-      root,
-      addReviewComment,
-      removeReviewComment,
-      setAnnotationDraft,
-      clearAnnotationDraft,
-    ],
-  );
+  const reviewChoices: PlanReviewChoicesApi = {
+    getChoice: (itemId) => {
+      if (!fileComments.some((c) => c.id === reviewChoiceCommentId(filePath, itemId))) {
+        return EMPTY_REVIEW_CHOICE;
+      }
+      return parseReviewChoiceDraft(
+        annotationDrafts[reviewChoiceDraftKey(composerDraftTarget, filePath, itemId)] ?? null,
+      );
+    },
+    setChoice: (item, blockElement, choice) => {
+      const draftKey = reviewChoiceDraftKey(composerDraftTarget, filePath, item.itemId);
+      const commentId = reviewChoiceCommentId(filePath, item.itemId);
+      if (isEmptyReviewChoice(choice)) {
+        clearAnnotationDraft(draftKey);
+        removeReviewComment(composerDraftTarget, commentId);
+        return;
+      }
+      setAnnotationDraft(draftKey, JSON.stringify(choice));
+      const anchored = blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
+      const anchor: PlanCommentAnchor = anchored?.anchor ?? {
+        anchorKind: "visual",
+        targetKind: "control",
+        blockType: "review-choice",
+      };
+      const label = item.label ?? item.itemId;
+      addReviewComment(composerDraftTarget, {
+        kind: "mdx-anchor",
+        id: commentId,
+        filePath,
+        sectionId: anchor.sectionId ?? `file:${filePath}`,
+        sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
+        rangeLabel: `review: ${item.itemId}`,
+        text: formatReviewChoiceText(label, choice),
+        anchor,
+        quotedText: label,
+      });
+    },
+  };
 
   // Track the rendered plan root (a direct child of the wrapper) as it appears
   // after the async MDX compile / on re-render.
@@ -379,15 +366,17 @@ export function MdxPlanAnnotationLayer({
     const observer = new MutationObserver(find);
     observer.observe(wrapper, { childList: true });
     return () => observer.disconnect();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new source recompiles the plan, so its root is looked up again.
   }, [source]);
 
-  const recompute = useCallback(() => {
+  const recompute = () => {
     const wrapper = wrapperRef.current;
     if (!wrapper || !root) {
       setOverlays([]);
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
+    setWrapperWidth(wrapperRect.width);
     // Badges live in the gutter just outside the widest thing the document
     // paints, never on the last highlighted rect — for a block anchor that rect
     // lands mid-block (the floating "9"/"10" the reviewer saw). That is usually
@@ -539,7 +528,7 @@ export function MdxPlanAnnotationLayer({
         };
       }),
     );
-  }, [comments, root]);
+  };
 
   // Recompute overlays on any layout-affecting change to the plan DOM.
   useLayoutEffect(() => {
@@ -611,66 +600,59 @@ export function MdxPlanAnnotationLayer({
   }, []);
 
   const wrapperRectNow = () => wrapperRef.current?.getBoundingClientRect() ?? new DOMRect();
-  const clampLeft = (left: number) =>
-    Math.max(8, Math.min(left, wrapperRectNow().width - CARD_WIDTH - 8));
+  const clampLeft = (left: number) => clampCardLeft(left, wrapperRectNow().width);
 
   /** Close the composer, preserving its in-progress text as a cached draft so a
    * later reopen of the same target restores it (issue 6). Only submit/discard
    * clear the cache, so every dismissal path (Esc, click-away, Cancel) keeps. */
-  const dismissComposer = useCallback(() => setComposer(null), []);
+  const dismissComposer = () => setComposer(null);
 
   /** Offer the floating "Comment" button for the selection in `doc` — the host
    * document, or an HtmlBlock frame's (whose rects are moved into host space). */
-  const handleMouseUp = useCallback(
-    (doc: Document = document) => {
-      requestAnimationFrame(() => {
-        const selection = doc.getSelection();
-        if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-        const range = selection.getRangeAt(0);
-        const frame = root && hostFrameOf(range.startContainer, root);
-        if (!root || !(frame || root.contains(range.commonAncestorContainer))) {
-          setSelectionAffordance(null);
-          return;
-        }
-        const rects = range.getClientRects();
-        const lastRect = rects[rects.length - 1];
-        if (!lastRect) return;
-        const last = toHostRect(lastRect, frame);
-        const wrapperRect = wrapperRectNow();
-        pendingRangeRef.current = range.cloneRange();
-        setSelectionAffordance({
-          top: last.bottom - wrapperRect.top + 6,
-          left: last.right - wrapperRect.left,
-        });
-      });
-    },
-    [root],
-  );
-
-  /** Show the per-block comment affordance for the block under `target`. */
-  const hoverOver = useCallback(
-    (target: Element) => {
-      const block = target.closest?.("[data-plan-block-id]");
-      if (!root || !block || !root.contains(block)) {
-        if (hoverBlockIdRef.current !== null) {
-          hoverBlockIdRef.current = null;
-          setHoverBlock(null);
-        }
+  const handleMouseUp = (doc: Document = document) => {
+    requestAnimationFrame(() => {
+      const selection = doc.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      const frame = root && hostFrameOf(range.startContainer, root);
+      if (!root || !(frame || root.contains(range.commonAncestorContainer))) {
+        setSelectionAffordance(null);
         return;
       }
-      const id = block.getAttribute("data-plan-block-id");
-      if (!id || id === hoverBlockIdRef.current) return;
-      hoverBlockIdRef.current = id;
+      const rects = range.getClientRects();
+      const lastRect = rects[rects.length - 1];
+      if (!lastRect) return;
+      const last = toHostRect(lastRect, frame);
       const wrapperRect = wrapperRectNow();
-      const rect = block.getBoundingClientRect();
-      setHoverBlock({
-        id,
-        top: rect.top - wrapperRect.top + 4,
-        left: rect.right - wrapperRect.left - 30,
+      pendingRangeRef.current = range.cloneRange();
+      setSelectionAffordance({
+        top: last.bottom - wrapperRect.top + 6,
+        left: last.right - wrapperRect.left,
       });
-    },
-    [root],
-  );
+    });
+  };
+
+  /** Show the per-block comment affordance for the block under `target`. */
+  const hoverOver = (target: Element) => {
+    const block = target.closest?.("[data-plan-block-id]");
+    if (!root || !block || !root.contains(block)) {
+      if (hoverBlockIdRef.current !== null) {
+        hoverBlockIdRef.current = null;
+        setHoverBlock(null);
+      }
+      return;
+    }
+    const id = block.getAttribute("data-plan-block-id");
+    if (!id || id === hoverBlockIdRef.current) return;
+    hoverBlockIdRef.current = id;
+    const wrapperRect = wrapperRectNow();
+    const rect = block.getBoundingClientRect();
+    setHoverBlock({
+      id,
+      top: rect.top - wrapperRect.top + 4,
+      left: rect.right - wrapperRect.left - 30,
+    });
+  };
 
   // HtmlBlock frames are separate (same-origin) documents: selections, hovers,
   // clicks and scrolls inside one never reach the wrapper's handlers, so listen
@@ -752,7 +734,7 @@ export function MdxPlanAnnotationLayer({
       for (const stop of stopReflows) stop();
       cancelAnimationFrame(pending);
     };
-  }, [root, recompute, handleMouseUp, hoverOver]);
+  }, [root, recompute, handleMouseUp, hoverOver, hoverBlockIdRef]);
 
   const openComposerFromSelection = () => {
     const range = pendingRangeRef.current;
@@ -858,60 +840,37 @@ export function MdxPlanAnnotationLayer({
 
   const detached = overlays.filter((overlay) => overlay.state === "detached");
 
-  // Group collapsed annotations by the surface they badge onto, so several
-  // hidden comments behind one closed <details>/tab collapse to one counted
-  // badge (the enclosing surface stays discoverable).
-  const collapsedGroups = useMemo(() => {
-    const groups: { key: string; top: number; left: number; overlays: Overlay[] }[] = [];
-    for (const overlay of overlays) {
-      if (overlay.state !== "collapsed" || !overlay.collapsed) continue;
-      const existing = groups.find(
-        (group) => group.overlays[0]!.collapsed!.badgeElement === overlay.collapsed!.badgeElement,
-      );
-      if (existing) existing.overlays.push(overlay);
-      else
-        groups.push({
-          key: overlay.id,
-          top: overlay.badge.top,
-          left: overlay.badge.left,
-          overlays: [overlay],
-        });
-    }
-    return groups;
-  }, [overlays]);
+  const collapsedGroups = groupCollapsedOverlays(overlays);
 
   // Open every enclosing <details> / activate the tab for a collapsed group, then
   // (after the layout settles + observers recompute) scroll the now-visible
   // anchor into view. This is a user navigation action — the ONLY place details
   // `open` is mutated — never overlay recomputation.
-  const revealCollapsed = useCallback(
-    (group: { overlays: Overlay[] }) => {
-      for (const overlay of group.overlays) {
-        overlay.collapsed?.detailsToOpen.forEach((el) => {
-          el.open = true;
-        });
-        overlay.collapsed?.tabsToActivate.forEach((tab) => tab.click());
-      }
-      requestAnimationFrame(() => {
-        const first = group.overlays[0];
-        if (first && root) {
-          try {
-            const range = first.comment.anchor ? resolveAnchor(first.comment.anchor, root) : null;
-            const node = range?.startContainer;
-            const el =
-              node?.nodeType === Node.ELEMENT_NODE
-                ? (node as Element)
-                : (node?.parentElement ?? null);
-            el?.scrollIntoView({ block: "center", behavior: "smooth" });
-          } catch {
-            /* best-effort scroll */
-          }
-        }
-        recompute();
+  const revealCollapsed = (group: { overlays: Overlay[] }) => {
+    for (const overlay of group.overlays) {
+      overlay.collapsed?.detailsToOpen.forEach((el) => {
+        el.open = true;
       });
-    },
-    [root, recompute],
-  );
+      overlay.collapsed?.tabsToActivate.forEach((tab) => tab.click());
+    }
+    requestAnimationFrame(() => {
+      const first = group.overlays[0];
+      if (first && root) {
+        try {
+          const range = first.comment.anchor ? resolveAnchor(first.comment.anchor, root) : null;
+          const node = range?.startContainer;
+          const el =
+            node?.nodeType === Node.ELEMENT_NODE
+              ? (node as Element)
+              : (node?.parentElement ?? null);
+          el?.scrollIntoView({ block: "center", behavior: "smooth" });
+        } catch {
+          /* best-effort scroll */
+        }
+      }
+      recompute();
+    });
+  };
 
   return (
     <div
@@ -1012,7 +971,7 @@ export function MdxPlanAnnotationLayer({
           <AnnotationCard
             key={`card-${overlay.id}`}
             top={overlay.badge.top + 20}
-            left={clampLeft(overlay.badge.left)}
+            left={clampCardLeft(overlay.badge.left, wrapperWidth)}
             quotedText={overlay.comment.quotedText}
             text={overlay.comment.text}
             onEdit={() => openComposerForEdit(overlay.comment, overlay)}
@@ -1194,29 +1153,12 @@ function AnnotationComposer({
 }: AnnotationComposerProps) {
   const [text, setText] = useState(initialText);
   const [pos, setPos] = useState({ top, left });
-  const dragRef = useRef<{ startX: number; startY: number; top: number; left: number } | null>(
-    null,
-  );
 
   // Persist the in-progress draft as it changes so dismiss→reopen and reloads
   // both restore it (issue 6). Submit/discard clear it via the parent.
   useEffect(() => {
     onCacheDraft(draftKey, text);
   }, [draftKey, text, onCacheDraft]);
-
-  const onDragMove = useCallback((event: PointerEvent) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    setPos({
-      top: drag.top + (event.clientY - drag.startY),
-      left: drag.left + (event.clientX - drag.startX),
-    });
-  }, []);
-  const onDragEnd = useCallback(() => {
-    dragRef.current = null;
-    window.removeEventListener("pointermove", onDragMove);
-    window.removeEventListener("pointerup", onDragEnd);
-  }, [onDragMove]);
 
   // Dismiss on click-away / Esc — no longer Cancel-only (issue 5). Pointerdown
   // inside the composer is stopped below, so this only fires for outside clicks.
@@ -1245,11 +1187,15 @@ function AnnotationComposer({
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
-          dragRef.current = {
-            startX: event.clientX,
-            startY: event.clientY,
-            top: pos.top,
-            left: pos.left,
+          const drag = { startX: event.clientX, startY: event.clientY, ...pos };
+          const onDragMove = (move: PointerEvent) =>
+            setPos({
+              top: drag.top + (move.clientY - drag.startY),
+              left: drag.left + (move.clientX - drag.startX),
+            });
+          const onDragEnd = () => {
+            window.removeEventListener("pointermove", onDragMove);
+            window.removeEventListener("pointerup", onDragEnd);
           };
           window.addEventListener("pointermove", onDragMove);
           window.addEventListener("pointerup", onDragEnd);

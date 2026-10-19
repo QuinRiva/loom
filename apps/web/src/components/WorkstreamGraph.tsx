@@ -19,7 +19,6 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -59,6 +58,7 @@ import {
   wrapLabel,
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { useWorkstreamUiStore } from "../loom/workstreamUiStore";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -97,6 +97,30 @@ const loopStrokeOf = (source: WorkstreamNode | undefined) => {
   return verdict ? TONE_COLORS[verdict.tone] : LOOP_STROKE;
 };
 
+const savedGraphView = (viewKey: string) => useWorkstreamUiStore.getState().graphViewByKey[viewKey];
+
+/**
+ * The fork/join layout, recomputed only when the structure changes (lineage +
+ * generation + deps + loop routes + order); loop rounds and status resolve
+ * live at render, so a status-only shell update keeps the laid-out nodes.
+ */
+function useStructuralLayout(threads: ReadonlyArray<WorkstreamNode>) {
+  const key = threads
+    .map(
+      (t) =>
+        `${t.id}>${t.parentThreadId ?? ""}@${t.spawnGeneration ?? ""}#${t.createdAt}:${t.blockedBy.join(",")}~${t.routes
+          .filter((route) => route.kind === "loop")
+          .map((route) => route.to ?? "")
+          .join(",")}`,
+    )
+    .join("|");
+  const [state, setState] = useState(() => ({ key, layout: computeForkJoinLayout(threads) }));
+  if (state.key === key) return state.layout;
+  const layout = computeForkJoinLayout(threads);
+  setState({ key, layout });
+  return layout;
+}
+
 export default function WorkstreamGraph({
   viewKey,
   nodes: threads,
@@ -121,26 +145,9 @@ export default function WorkstreamGraph({
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onNodeContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
 }) {
-  // Layout depends only on structure (lineage + generation + deps + loop routes
-  // + order); loop rounds and status resolve live at render.
-  const structureKey = threads
-    .map(
-      (t) =>
-        `${t.id}>${t.parentThreadId ?? ""}@${t.spawnGeneration ?? ""}#${t.createdAt}:${t.blockedBy.join(",")}~${t.routes
-          .filter((route) => route.kind === "loop")
-          .map((route) => route.to ?? "")
-          .join(",")}`,
-    )
-    .join("|");
-  const { nodes, edges } = useMemo(() => computeForkJoinLayout(threads), [structureKey]);
-  const consultOverlay = useMemo(
-    () => deriveConsultOverlay(nodes, byId, edges),
-    [nodes, byId, edges],
-  );
-  const base = useMemo(
-    () => computeForkJoinViewBox(nodes, edges, consultOverlay.edges),
-    [nodes, edges, consultOverlay],
-  );
+  const { nodes, edges } = useStructuralLayout(threads);
+  const consultOverlay = deriveConsultOverlay(nodes, byId, edges);
+  const base = computeForkJoinViewBox(nodes, edges, consultOverlay.edges);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -148,15 +155,15 @@ export default function WorkstreamGraph({
   const dragRef = useRef<{ x: number; y: number; vb: ViewBox } | null>(null);
   // Session-scoped saved view: returning to this orchestration restores the
   // zoom/pan the user left; Reset snaps back to fit-all.
-  const saved = useWorkstreamUiStore.getState().graphViewByKey[viewKey];
   const setGraphView = useWorkstreamUiStore((store) => store.setGraphView);
-  const [viewBox, setViewBox] = useState<ViewBox>(saved?.viewBox ?? base);
-  const [adjusted, setAdjusted] = useState(saved?.adjusted ?? false);
+  const [viewBox, setViewBox] = useState<ViewBox>(() => savedGraphView(viewKey)?.viewBox ?? base);
+  const [adjusted, setAdjusted] = useState(() => savedGraphView(viewKey)?.adjusted ?? false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredId, setHoveredId] = useState<ThreadId | null>(null);
   const hovered = hoveredId === null ? undefined : byId.get(hoveredId);
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- A structural change re-fits a view the user has not zoomed or panned; once they have, viewBox is theirs.
     if (!adjusted) setViewBox(base);
   }, [base, adjusted]);
 
@@ -165,23 +172,22 @@ export default function WorkstreamGraph({
   }, [setGraphView, viewKey, viewBox, adjusted]);
 
   // The hovered node plus its structural and consult neighbours stay lit.
-  const litKeys = useMemo(() => {
-    if (hoveredId === null) return null;
-    const lit = new Set<string>([hoveredId]);
-    for (const edge of edges) {
-      if (edge.fromKey === hoveredId || edge.toKey === hoveredId) {
-        lit.add(edge.fromKey);
-        lit.add(edge.toKey);
-      }
-    }
-    for (const edge of consultOverlay.edges) {
-      if (edge.askerId === hoveredId || edge.targetThreadId === hoveredId) {
-        lit.add(edge.askerId);
-        lit.add(edge.targetThreadId);
-      }
-    }
-    return lit;
-  }, [hoveredId, edges, consultOverlay]);
+  const litKeys =
+    hoveredId === null
+      ? null
+      : new Set<string>([
+          hoveredId,
+          ...edges.flatMap((edge) =>
+            edge.fromKey === hoveredId || edge.toKey === hoveredId
+              ? [edge.fromKey, edge.toKey]
+              : [],
+          ),
+          ...consultOverlay.edges.flatMap((edge) =>
+            edge.askerId === hoveredId || edge.targetThreadId === hoveredId
+              ? [edge.askerId, edge.targetThreadId]
+              : [],
+          ),
+        ]);
 
   // Last pointer / focused-element position, so the card is placed the moment
   // it mounts (the dwell often fires while the pointer is still).
@@ -206,7 +212,7 @@ export default function WorkstreamGraph({
   };
   // Cursor-relative, flipped to stay inside the shell; imperative so tracking
   // the pointer never re-renders the SVG.
-  const positionFacts = (event: { clientX: number; clientY: number }) => {
+  const positionFacts = useStableCallback((event: { clientX: number; clientY: number }) => {
     const shell = shellRef.current;
     const card = factsRef.current;
     if (!shell || !card) return;
@@ -218,18 +224,23 @@ export default function WorkstreamGraph({
     if (y + cardH > rect.height) y = Math.max(6, rect.height - cardH - 10);
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
-  };
+  });
 
-  useEffect(() => () => cancelHover(), []);
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (hoveredId === null) return;
     const at = focusPosRef.current ?? pointerPosRef.current;
     if (at) positionFacts(at);
     focusPosRef.current = null;
-  }, [hoveredId]);
+  }, [hoveredId, positionFacts, focusPosRef, pointerPosRef]);
 
   // Zoom about a client-space anchor (wheel cursor); buttons zoom the centre.
-  const zoomBy = (factor: number, client?: { x: number; y: number }) => {
+  const zoomBy = useStableCallback((factor: number, client?: { x: number; y: number }) => {
     setAdjusted(true);
     setViewBox((vb) => {
       const w = clamp(vb.w * factor, base.w * 0.25, base.w * 4);
@@ -245,7 +256,7 @@ export default function WorkstreamGraph({
       }
       return { x: vb.x + (vb.w - w) * ax, y: vb.y + (vb.h - h) * ay, w, h };
     });
-  };
+  });
 
   const resetView = () => {
     setAdjusted(false);
@@ -261,7 +272,7 @@ export default function WorkstreamGraph({
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-  }, [base]);
+  }, [zoomBy]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
     if ((event.target as Element).closest("[data-graph-hit]")) return;
