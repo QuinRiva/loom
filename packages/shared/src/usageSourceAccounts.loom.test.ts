@@ -1,7 +1,7 @@
 import { EnvironmentId, ProviderDriverKind, UsageLimitSourceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { unlinkedUsageSourceNotices, usageSourceAccounts } from "./usageLimits.ts";
+import { unlinkedUsageSources, usageSourceAccounts } from "./usageLimits.ts";
 
 const hub = (id: string, email?: string) => ({ id, ...(email ? { email } : {}) });
 const accounts = [
@@ -33,7 +33,7 @@ describe("usageSourceAccounts", () => {
   });
 });
 
-describe("unlinkedUsageSourceNotices", () => {
+describe("unlinkedUsageSources", () => {
   const presentations = (error?: string) =>
     new Map([
       [
@@ -82,14 +82,16 @@ describe("unlinkedUsageSourceNotices", () => {
     ]);
 
   it("names each source no hub account matches", () => {
-    expect(unlinkedUsageSourceNotices(presentations())).toEqual([
-      "gone@: usage source ~/a/claude-gone@unseen.id.json matches no account the hub pools, so failover cannot see this account.",
+    expect(unlinkedUsageSources(presentations())).toEqual([
+      {
+        name: "gone@",
+        notice:
+          "gone@: usage source ~/a/claude-gone@unseen.id.json matches no account the hub pools, so failover cannot see this account.",
+      },
     ]);
   });
 
   it("stays quiet while a hub read failed", () => {
-    expect(unlinkedUsageSourceNotices(presentations("The hub could not list accounts."))).toEqual(
-      [],
-    );
+    expect(unlinkedUsageSources(presentations("The hub could not list accounts."))).toEqual([]);
   });
 });

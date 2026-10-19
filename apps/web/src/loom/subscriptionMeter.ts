@@ -29,7 +29,7 @@ import {
   elapsedShare,
   type LimitAccount,
   type LimitPresentations,
-  unlinkedUsageSourceNotices,
+  unlinkedUsageSources,
 } from "@t3tools/shared/usageLimits";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 
@@ -429,7 +429,7 @@ export interface MeterView {
   /** `stale`: every row is a held reading; no source of the driver is reporting. */
   readonly pools: readonly (MeterPool & { readonly stale: boolean })[];
   /** Pooled usage sources no hub account matches: failover cannot see them. */
-  readonly unlinked: readonly string[];
+  readonly unlinked: readonly { readonly name: string; readonly notice: string }[];
 }
 
 /** One entry, shared by the footer meter and its header chip: they derive the same pools. */
@@ -465,7 +465,7 @@ export function readMeter(presentations: LimitPresentations, now: number): Meter
     ...pool,
     stale: !liveDrivers.has(pool.driver),
   }));
-  memo = { key, view: { pools, unlinked: unlinkedUsageSourceNotices(presentations) } };
+  memo = { key, view: { pools, unlinked: unlinkedUsageSources(presentations) } };
   return memo.view;
 }
 

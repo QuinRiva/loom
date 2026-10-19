@@ -83,7 +83,7 @@ export type LimitPresentations = ReadonlyMap<
     readonly serverConfig: {
       readonly providers?: readonly ServerProvider[] | undefined;
       readonly usageLimitSources?: UsageLimitSourceSnapshots | undefined;
-      // loom: the pooled usage sources, for `unlinkedUsageSourceNotices`.
+      // loom: the pooled usage sources, for `unlinkedUsageSources`.
       readonly settings?: Pick<ServerSettings, "providerInstances"> | undefined;
     } | null;
   }
@@ -623,13 +623,16 @@ export function usageSourceAccounts<
 }
 
 /**
- * One line per pooled usage source that names no Claude account its
- * environment's hubs report, so failover has no reading for it. Judged only
+ * One entry per pooled usage source that names no Claude account its
+ * environment's hubs report, so failover has no reading for it: `name` for a
+ * narrow surface, `notice` the full line with the token file. Judged only
  * while every hub read cleanly and reports some Claude account: a failed or
  * empty hub already has its own notice, and with no hub the server reads the
  * token file itself.
  */
-export function unlinkedUsageSourceNotices(presentations: LimitPresentations): string[] {
+export function unlinkedUsageSources(
+  presentations: LimitPresentations,
+): { readonly name: string; readonly notice: string }[] {
   return [...presentations.values()].flatMap(({ entry, serverConfig }) => {
     const hubs = serverConfig?.usageLimitSources ?? [];
     const accounts = hubs
@@ -638,13 +641,16 @@ export function unlinkedUsageSourceNotices(presentations: LimitPresentations): s
     if (accounts.length === 0 || hubs.some((hub) => hub.error)) return [];
     const prefix = presentations.size > 1 ? `${entry.target.label} · ` : "";
     return Object.values(serverConfig?.settings?.providerInstances ?? {}).flatMap((instance) =>
-      (instance.usageSources ?? []).flatMap((source) =>
-        usageSourceAccounts(source.tokenFile, accounts).length > 0
-          ? []
-          : [
-              `${prefix}${source.label ?? source.tokenFile}: usage source ${source.tokenFile} matches no account the hub pools, so failover cannot see this account.`,
-            ],
-      ),
+      (instance.usageSources ?? []).flatMap((source) => {
+        if (usageSourceAccounts(source.tokenFile, accounts).length > 0) return [];
+        const name = `${prefix}${source.label ?? source.tokenFile.slice(source.tokenFile.lastIndexOf("/") + 1)}`;
+        return [
+          {
+            name,
+            notice: `${name}: usage source ${source.tokenFile} matches no account the hub pools, so failover cannot see this account.`,
+          },
+        ];
+      }),
     );
   });
 }

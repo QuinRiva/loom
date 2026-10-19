@@ -527,12 +527,31 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
   readonly view: MeterView;
   readonly now: number;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="flex w-full flex-col gap-px py-0.75 tabular-nums leading-none">
-      {view.unlinked.map((notice) => (
-        <span key={notice} className="pb-0.5 text-3xs font-medium leading-tight text-destructive">
-          ⚠ {notice}
-        </span>
+      {view.unlinked.map(({ name, notice }) => (
+        // The meter is narrow: a short line, the full notice (with the token file) on hover.
+        <Popover key={notice}>
+          <PopoverTrigger
+            openOnHover
+            delay={150}
+            closeDelay={0}
+            render={
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/usage" })}
+                aria-label={notice}
+                className="truncate rounded-sm pb-0.5 text-left text-3xs font-medium leading-tight text-destructive outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              />
+            }
+          >
+            ⚠ {name} unlinked from the hub
+          </PopoverTrigger>
+          <PopoverPopup tooltipStyle side="right" align="start" className="w-64 max-w-none">
+            {notice}
+          </PopoverPopup>
+        </Popover>
       ))}
       {view.pools.map((pool, index) => (
         <div key={pool.driver}>
@@ -596,10 +615,11 @@ export function SubscriptionMeterChipView({
           />
         }
       >
-        {alerts.length > 0 ? (
-          <span className={cn("font-semibold", dead > 0 ? "text-destructive" : "text-warning")}>
-            ⚠ {dead > 0 ? `${dead} signed out` : `${alerts.length} login failing`}
-          </span>
+        {dead > 0 ? (
+          <span className="font-semibold text-destructive">⚠ {dead} signed out</span>
+        ) : null}
+        {alerts.length > dead ? (
+          <span className="font-semibold text-warning">⚠ {alerts.length - dead} login failing</span>
         ) : null}
         {unlinked > 0 ? (
           <span className="font-semibold text-destructive">⚠ {unlinked} unlinked</span>

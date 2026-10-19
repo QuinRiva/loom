@@ -489,7 +489,7 @@ const make = Effect.gen(function* () {
         }
         const reading = accounts.find((account) => !account.usageLimits.unavailable);
         if (!reading) {
-          // loom: clients flag a source no hub account matches (`unlinkedUsageSourceNotices`).
+          // loom: clients flag a source no hub account matches (`unlinkedUsageSources`).
           yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
             tokenFile: source.tokenFile,
           });
