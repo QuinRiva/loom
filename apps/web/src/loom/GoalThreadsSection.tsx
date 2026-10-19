@@ -10,7 +10,6 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { loomAttentionOf } from "../components/Sidebar.logic.loom";
@@ -50,25 +49,21 @@ export function GoalThreadsSection({
   shells: ReadonlyArray<EnvironmentThreadShell>;
 }) {
   const navigate = useNavigate();
-  const rows = useMemo(
-    () =>
-      orderGoalThreadsByHandoff(
-        shells
-          .filter(
-            (thread) =>
-              thread.environmentId === environmentId &&
-              thread.archivedAt === null &&
-              thread.lineage.parentThreadId === null &&
-              thread.source.workstream?.goalId === goalId,
-          )
-          .map((thread) => ({
-            id: thread.id,
-            createdAt: thread.createdAt,
-            continuesThreadId: thread.source.workstream?.continuesThreadId ?? null,
-            shell: thread,
-          })),
-      ),
-    [shells, environmentId, goalId],
+  const rows = orderGoalThreadsByHandoff(
+    shells
+      .filter(
+        (thread) =>
+          thread.environmentId === environmentId &&
+          thread.archivedAt === null &&
+          thread.lineage.parentThreadId === null &&
+          thread.source.workstream?.goalId === goalId,
+      )
+      .map((thread) => ({
+        id: thread.id,
+        createdAt: thread.createdAt,
+        continuesThreadId: thread.source.workstream?.continuesThreadId ?? null,
+        shell: thread,
+      })),
   );
 
   return (

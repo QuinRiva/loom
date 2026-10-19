@@ -1,6 +1,6 @@
 import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
-import { forwardRef, useContext, useMemo } from "react";
+import { forwardRef, useContext } from "react";
 
 import {
   ATTENTION_COLORS,
@@ -133,10 +133,7 @@ function SubtreeRow({
   readonly byId: WorkstreamNodeIndex;
 }) {
   const environmentId = useContext(WorkstreamEnvironmentContext);
-  const descendantIds = useMemo(
-    () => descendantsOf(node.id, [...byId.values()]).map((member) => member.id),
-    [node.id, byId],
-  );
+  const descendantIds = descendantsOf(node.id, [...byId.values()]).map((member) => member.id);
   const own = useThreadSpend(environmentId, node.id)?.costUsd ?? 0;
   const descendants = useTotalSpend(environmentId, descendantIds);
   const { plan, activity, attention } = rollup;

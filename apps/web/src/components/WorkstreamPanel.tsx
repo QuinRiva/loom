@@ -3,7 +3,7 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import { NetworkIcon } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import {
   buildNodeContextMenuItems,
@@ -43,21 +43,18 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const { nodes, rollupOf } = useWorkstreamNodes(threadRef.environmentId);
   const commands = useWorkstreamCommands(threadRef.environmentId);
   const [timelineId, setTimelineId] = useState<ThreadId | null>(null);
-  const onOpenThread = useCallback(
-    (threadId: ThreadId) =>
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
-      }),
-    [navigate, threadRef.environmentId],
-  );
+  const onOpenThread = (threadId: ThreadId) =>
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
+    });
   // Reports are absolute paths outside any worktree: open them read-only in
   // THIS panel (the open thread's right panel).
   const onOpenReport = (reportPath: string) => {
     if (isAbsolutePreviewablePath(reportPath))
       useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath);
   };
-  const titleOf = useCallback((id: ThreadId) => nodes.get(id)?.title ?? id, [nodes]);
+  const titleOf = (id: ThreadId) => nodes.get(id)?.title ?? id;
   // Park the anchor, then open its thread: that timeline scrolls to it (loom/conversationJump).
   const onJump = (anchor: ConversationAnchor) => {
     useConversationJumpStore.getState().setRequest(anchor);
@@ -67,17 +64,14 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const history = useThreadHistory(threadRef.environmentId, timelineNode);
 
   const node = nodes.get(threadRef.threadId);
-  const live = useMemo(() => liveNodes(nodes.values()), [nodes]);
+  const live = liveNodes(nodes.values());
   const rootId = node ? rootOf(node.id, live) : null;
-  const subtree = useMemo(() => (rootId ? subtreeOf(rootId, live) : []), [live, rootId]);
+  const subtree = rootId ? subtreeOf(rootId, live) : [];
   const rollup = rootId ? rollupOf(rootId) : null;
-  const lineage = useMemo(() => (node ? buildThreadLineage(nodes, node.id) : []), [nodes, node]);
+  const lineage = node ? buildThreadLineage(nodes, node.id) : [];
   // The whole workstream, archived threads included: its root and every descendant.
-  const workstream = useMemo(() => {
-    if (!node) return [];
-    const all = [...nodes.values()];
-    return subtreeOf(rootOf(node.id, all), all).map((member) => member.id);
-  }, [nodes, node]);
+  const all = [...nodes.values()];
+  const workstream = node ? subtreeOf(rootOf(node.id, all), all).map((member) => member.id) : [];
   const forkedFrom = node?.forkFromThreadId
     ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
     : null;

@@ -1,5 +1,5 @@
 import { IconChevronRight, IconFile, IconFolder } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -218,7 +218,7 @@ function TreeLevel({ node, depth }: { node: TreeNode; depth: number }) {
 }
 
 function FileTreeRead({ data, blockId }: PlanBlockReadProps<FileTreeData>) {
-  const tree = useMemo(() => buildTree(data.entries ?? []), [data.entries]);
+  const tree = buildTree(data.entries ?? []);
   return (
     <section
       data-plan-block-id={blockId}

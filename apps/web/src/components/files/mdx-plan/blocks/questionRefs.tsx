@@ -1,5 +1,5 @@
 import { IconChevronRight, IconX } from "@tabler/icons-react";
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "~/lib/utils";
@@ -197,16 +197,16 @@ export function QuestionRefChips({ refs }: { refs: QuestionRef[] }) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
   const popoverId = useId();
-  const getPlanRoot = useCallback(() => rowRef.current?.closest("[data-plan-root]") ?? null, []);
+  const getPlanRoot = () => rowRef.current?.closest("[data-plan-root]") ?? null;
 
-  const close = useCallback(() => {
+  const close = () => {
     // Only pull focus back when it is ours to move (Escape, the close button) —
     // a click elsewhere on the page must keep the focus it just took.
     if (open !== null && popoverRef.current?.contains(document.activeElement)) {
       chipRefs.current.get(open)?.focus();
     }
     setOpen(null);
-  }, [open]);
+  };
 
   useEffect(() => {
     if (open === null) return;

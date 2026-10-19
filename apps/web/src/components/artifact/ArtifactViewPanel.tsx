@@ -1,7 +1,7 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Code2, LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { resolveAssetUrl } from "~/assets/assetUrls";
 import { buildArtifactFrameSrc } from "./artifactView";
@@ -53,10 +53,10 @@ export default function ArtifactViewPanel({
   const [state, setState] = useState<ArtifactViewState>({ status: "minting" });
   const [frameLoaded, setFrameLoaded] = useState(false);
 
-  const reload = useCallback(() => {
+  const reload = () => {
     setFrameLoaded(false);
     setMintNonce((nonce) => nonce + 1);
-  }, []);
+  };
 
   const threadId = threadRef.threadId;
 

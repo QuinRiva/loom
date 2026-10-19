@@ -5,7 +5,7 @@ import {
   IconKey,
   IconLink,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -192,7 +192,7 @@ function effectiveRelations(data: DataModelData): DataModelRelation[] {
 
 function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
   const entities = data.entities ?? [];
-  const relations = useMemo(() => effectiveRelations(data), [data]);
+  const relations = effectiveRelations(data);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
@@ -205,11 +205,11 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const toggle = useCallback((id: string) => {
+  const toggle = (id: string) => {
     setExpanded((current) => ({ ...current, [id]: !current[id] }));
-  }, []);
+  };
 
-  const focusEntity = useCallback((targetId: string | undefined, scroll: boolean) => {
+  const focusEntity = (targetId: string | undefined, scroll: boolean) => {
     if (!targetId) {
       setHighlighted(null);
       return;
@@ -219,7 +219,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
       setExpanded((current) => ({ ...current, [targetId]: true }));
       cardRefs.current[targetId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, []);
+  };
 
   return (
     <section data-plan-block-id={blockId} data-plan-block-type="data-model" className="my-4">

@@ -11,7 +11,6 @@ import type {
   LoomGoalShell,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { useCallback } from "react";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -64,36 +63,30 @@ export const showWithLoomGoalMenu =
 export function useLoomGoalActions() {
   const update = useAtomCommand(loomCommands.goalUpdate, { reportFailure: false });
 
-  const renameGoal = useCallback(
-    async (environmentId: EnvironmentId, goal: LoomGoalShell) => {
-      const form = await promptGoalForm({ title: goal.title, description: goal.description });
-      if (!form || (form.title === goal.title && form.description === goal.description)) return;
-      reportFailure("Could not rename the goal")(
-        await update({
-          environmentId,
-          input: { goalId: goal.id, title: form.title, description: form.description },
-        }),
-      );
-    },
-    [update],
-  );
+  const renameGoal = async (environmentId: EnvironmentId, goal: LoomGoalShell) => {
+    const form = await promptGoalForm({ title: goal.title, description: goal.description });
+    if (!form || (form.title === goal.title && form.description === goal.description)) return;
+    reportFailure("Could not rename the goal")(
+      await update({
+        environmentId,
+        input: { goalId: goal.id, title: form.title, description: form.description },
+      }),
+    );
+  };
 
   /** Runs a "Goal ▸" submenu entry; false when `clicked` is not one of them. */
-  const runGoalMenuAction = useCallback(
-    (
-      clicked: string | null | undefined,
-      goal: LoomGoalShell | null,
-      threadRef: ScopedThreadRef,
-    ): clicked is LoomGoalMenuId => {
-      if (!clicked?.startsWith("loom-goal")) return false;
-      if (goal === null) return true;
-      const { environmentId } = threadRef;
-      if (clicked === "loom-goal:tasks") useRightPanelStore.getState().open(threadRef, "tasks");
-      if (clicked === "loom-goal:rename") void renameGoal(environmentId, goal);
-      return true;
-    },
-    [renameGoal],
-  );
+  const runGoalMenuAction = (
+    clicked: string | null | undefined,
+    goal: LoomGoalShell | null,
+    threadRef: ScopedThreadRef,
+  ): clicked is LoomGoalMenuId => {
+    if (!clicked?.startsWith("loom-goal")) return false;
+    if (goal === null) return true;
+    const { environmentId } = threadRef;
+    if (clicked === "loom-goal:tasks") useRightPanelStore.getState().open(threadRef, "tasks");
+    if (clicked === "loom-goal:rename") void renameGoal(environmentId, goal);
+    return true;
+  };
 
   return { runGoalMenuAction };
 }

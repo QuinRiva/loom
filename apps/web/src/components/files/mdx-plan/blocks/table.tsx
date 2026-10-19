@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronsUpDown, ChevronUp, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -145,25 +145,23 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
 
   const align = (index: number) => data.align?.[index];
 
-  const filtered = useMemo(() => {
-    const parts = rows.map(rowParts);
-    if (!filterable) return parts;
-    const needle = query.trim().toLowerCase();
-    if (!needle) return parts;
-    return parts.filter((row) =>
-      row.cells.some((cell) => cellText(cell).toLowerCase().includes(needle)),
-    );
-  }, [rows, query, filterable]);
-
-  const visibleRows = useMemo(() => {
-    if (!filterable || !sort) return filtered;
-    const factor = sort.dir === "asc" ? 1 : -1;
-    const sortText = (row: (typeof filtered)[number]) => {
-      const cell = row.cells[sort.col];
-      return cell === undefined ? "" : cellText(cell);
-    };
-    return [...filtered].sort((a, b) => factor * compareCells(sortText(a), sortText(b)));
-  }, [filtered, sort, filterable]);
+  const parts = rows.map(rowParts);
+  const needle = filterable ? query.trim().toLowerCase() : "";
+  const filtered = needle
+    ? parts.filter((row) => row.cells.some((cell) => cellText(cell).toLowerCase().includes(needle)))
+    : parts;
+  const sortText = (row: (typeof filtered)[number], col: number) => {
+    const cell = row.cells[col];
+    return cell === undefined ? "" : cellText(cell);
+  };
+  const visibleRows =
+    filterable && sort
+      ? filtered.toSorted(
+          (a, b) =>
+            (sort.dir === "asc" ? 1 : -1) *
+            compareCells(sortText(a, sort.col), sortText(b, sort.col)),
+        )
+      : filtered;
 
   // Header-click sort cycles asc → desc → unsorted for the clicked column.
   const toggleSort = (col: number) =>

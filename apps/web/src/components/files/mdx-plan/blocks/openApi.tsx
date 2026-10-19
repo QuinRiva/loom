@@ -1,5 +1,5 @@
 import { IconChevronRight, IconLock } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -634,7 +634,7 @@ function TagGroup({ group, defaultOpen }: { group: NormalizedTagGroup; defaultOp
 }
 
 function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
-  const parsed = useMemo(() => parseSpec(data.spec), [data.spec]);
+  const parsed = parseSpec(data.spec);
   return (
     <section
       data-plan-block-id={blockId}

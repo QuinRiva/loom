@@ -4,7 +4,6 @@ import {
   isValidElement,
   useContext,
   useId,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -80,7 +79,7 @@ function TabPanelSlot({
   panelId,
   children,
 }: TabPanelState & { children: ReactNode }) {
-  const value = useMemo(() => ({ active, tabId, panelId }), [active, tabId, panelId]);
+  const value = { active, tabId, panelId };
   return <TabPanelContext.Provider value={value}>{children}</TabPanelContext.Provider>;
 }
 

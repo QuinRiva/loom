@@ -1,4 +1,4 @@
-import { isValidElement, type ReactNode, useMemo, useState } from "react";
+import { isValidElement, type ReactNode, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -89,7 +89,7 @@ const PROSE_LANGUAGES = new Set(["text", "txt", "plain", "plaintext", "markdown"
 function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
   const language = data.language?.trim() || "text";
   const prose = PROSE_LANGUAGES.has(language.toLowerCase());
-  const lines = useMemo(() => data.code.split("\n"), [data.code]);
+  const lines = data.code.split("\n");
   const maxLines = data.maxLines ?? DEFAULT_CODE_MAX_LINES;
   const collapsible = maxLines > 0 && lines.length > maxLines;
   const [expanded, setExpanded] = useState(false);

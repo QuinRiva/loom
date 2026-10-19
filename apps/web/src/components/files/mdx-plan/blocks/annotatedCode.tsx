@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -107,12 +107,8 @@ function AnnotatedCodeBody({
 function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeData>) {
   const language = data.language?.trim() || "text";
   const [wrap, setWrap] = useState(data.wrap ?? false);
-  const annotations = useMemo(
-    () =>
-      [...(data.annotations ?? [])].sort(
-        (a, b) => parseLineStart(a.lines) - parseLineStart(b.lines),
-      ),
-    [data.annotations],
+  const annotations = [...(data.annotations ?? [])].sort(
+    (a, b) => parseLineStart(a.lines) - parseLineStart(b.lines),
   );
 
   return (

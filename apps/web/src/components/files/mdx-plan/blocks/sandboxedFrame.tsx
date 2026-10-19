@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { useTheme } from "~/hooks/useTheme";
@@ -209,10 +209,8 @@ function SandboxedHtmlFrame({
 }: SandboxedHtmlFrameProps) {
   // A theme flip rebuilds the srcdoc with the new token values (and reloads it).
   const dark = useTheme().resolvedTheme === "dark";
-  const srcDoc = useMemo(() => {
-    const doc = buildSrcDoc(html, csp, dark);
-    return inert ? inertSrcDoc(doc) : doc;
-  }, [html, csp, inert, dark]);
+  const doc = buildSrcDoc(html, csp, dark);
+  const srcDoc = inert ? inertSrcDoc(doc) : doc;
   // Auto-height: measure the content on load, then again on resize only — the
   // frame's viewport (a panel-width change) or its content (a <details> toggle).
   const [autoHeight, setAutoHeight] = useState<number>();

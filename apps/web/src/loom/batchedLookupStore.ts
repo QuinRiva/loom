@@ -1,5 +1,5 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 /**
  * Reactive, cross-component store for a per-environment server lookup that is
@@ -259,10 +259,8 @@ export function createBatchedLookupStore<V>(options: {
       // would turn a failed batch's notify() into a tight re-enqueue loop).
       return register(environmentId, keysKey.split("\u0000"));
     }, [environmentId, keysKey]);
-    return useCallback(
-      (key: string) => (environmentId ? snapshot.get(stateKey(environmentId, key)) : undefined),
-      [environmentId, snapshot],
-    );
+    return (key: string) =>
+      environmentId ? snapshot.get(stateKey(environmentId, key)) : undefined;
   }
 
   /** Test-only: override the fetcher and reset all state. */

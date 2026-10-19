@@ -5,7 +5,6 @@ import {
   type RefObject,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -306,10 +305,11 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
   const [outline, setOutline] = useState<OutlineItem[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const referenceLinks = useReferenceLinkRules();
-  const peekDocument = useMemo(
-    () => ({ source, sections: content?.sections ?? {}, components: PLAN_BLOCK_COMPONENTS }),
-    [source, content],
-  );
+  const peekDocument = {
+    source,
+    sections: content?.sections ?? {},
+    components: PLAN_BLOCK_COMPONENTS,
+  };
 
   useEffect(() => {
     let active = true;
