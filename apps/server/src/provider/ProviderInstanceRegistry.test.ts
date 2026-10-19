@@ -529,7 +529,10 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
         message: "Claude Agent CLI failed while checking account status.",
       });
       expect(accountChangedFailure.checkedAt).not.toBe(first.checkedAt);
-      expect(accountChangedFailure.usageLimits).toBeUndefined();
+      // loom: a probe with no limits keeps the published reading unless signed out
+      // (`resolveUsageLimitsAfterProbe`, for pi's poller-fed card); Claude is not in
+      // Loom's Pi-only registry, so this path is dormant here (DL-1291).
+      expect(accountChangedFailure.usageLimits).toEqual(first.usageLimits);
       expect(accountChangedFailure.slashCommands).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ name: "last-good" })]),
       );
