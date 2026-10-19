@@ -16,6 +16,7 @@ import { codexPlanLabel } from "../provider/CodexProvider.ts";
 import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
 import { claudeUsageResponseToLimits } from "../provider/claudeUsageLimits.ts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
+import { cliproxyLogin } from "./cliproxyLogin.loom.ts"; // loom
 
 const AuthFile = Schema.Struct({
   id: Schema.String,
@@ -23,6 +24,10 @@ const AuthFile = Schema.Struct({
   provider: Schema.String,
   email: Schema.optional(Schema.String),
   disabled: Schema.optional(Schema.Boolean),
+  // loom: the hub's login state, for `cliproxyLogin`.
+  status: Schema.optional(Schema.String),
+  status_message: Schema.optional(Schema.String),
+  last_refresh: Schema.optional(Schema.String),
   id_token: Schema.optional(
     Schema.Struct({
       chatgpt_account_id: Schema.optional(Schema.String),
@@ -228,7 +233,9 @@ export const makeCliproxyApi = Effect.gen(function* () {
     account: typeof AuthFile.Type,
     carried: UsageLimitSourceAccount | undefined, // loom: last good reading
   ) {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    const now = yield* DateTime.now;
+    const checkedAt = DateTime.formatIso(now);
+    const login = cliproxyLogin(account, DateTime.toEpochMillis(now)); // loom
     const base = {
       id: account.id,
       driver: ProviderDriverKind.make(account.provider === "codex" ? "codex" : "claudeAgent"),
@@ -236,7 +243,20 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ...(account.id_token?.chatgpt_account_id?.trim()
         ? { workspaceId: account.id_token.chatgpt_account_id.trim() }
         : {}),
+      login, // loom
     };
+    // loom: a signed-out account cannot be read, and its last reading must not
+    // stand in for it: it has no quota to offer until it is logged in again.
+    if (login.status === "dead") {
+      return {
+        ...base,
+        usageLimits: makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: `Signed out${login.reason ? ` (the hub reports "${login.reason}")` : ""}. Log in to this account again.`,
+        }),
+      } satisfies UsageLimitSourceAccount;
+    }
     const read = Effect.gen(function* () {
       if (account.provider === "claude") {
         const body = yield* apiCall(config, account, "https://api.anthropic.com/api/oauth/usage");
@@ -312,17 +332,23 @@ export const makeCliproxyApi = Effect.gen(function* () {
       };
     });
     return yield* read.pipe(
-      // loom: a failed read keeps the account's last good reading, checkedAt and all.
-      Effect.orElseSucceed(
-        (): UsageLimitSourceAccount =>
-          carried ?? {
-            ...base,
-            usageLimits: makeUnavailableUsageLimits({
-              checkedAt,
-              reason: "probeFailed",
-              message: "The hub could not read this account's usage.",
-            }),
-          },
+      // loom: a failed read keeps the account's last good reading, checkedAt and
+      // all, under the current login; with none, the hub's reason when it gave one.
+      Effect.catch((error) =>
+        Effect.succeed<UsageLimitSourceAccount>(
+          carried
+            ? { ...carried, login }
+            : {
+                ...base,
+                usageLimits: makeUnavailableUsageLimits({
+                  checkedAt,
+                  reason: "probeFailed",
+                  message: isUsageLimitSourceError(error)
+                    ? error.detail
+                    : "The hub could not read this account's usage.",
+                }),
+              },
+        ),
       ),
     );
   });

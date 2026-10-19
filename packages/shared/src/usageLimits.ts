@@ -15,6 +15,7 @@ import {
   type ServerProvider,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceLogin,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 
@@ -192,6 +193,11 @@ export interface LimitAccount {
     readonly input: ProviderConsumeResetCreditInput;
   } | null;
   readonly limits: ServerProviderUsageLimits;
+  /**
+   * loom: the hub's failing or dead login for the account; null while it is
+   * healthy or unknown. A dead account has no windows and is left out of pools.
+   */
+  readonly loginAlert: UsageLimitSourceLogin | null;
 }
 
 /**
@@ -240,6 +246,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       ),
     ];
     const winner = fresher ? next : previous;
+    const loser = fresher ? previous : next; // loom
     // Credits and their redemption target travel together. A failed credit
     // probe must not erase a successful read from another environment.
     const creditSource = creditSources.get(key);
@@ -254,6 +261,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       redeem:
         hubRedeems.get(key)?.redeem ??
         (creditSource ? creditSource.redeem : (winner.redeem ?? previous.redeem ?? next.redeem)),
+      loginAlert: winner.loginAlert ?? loser.loginAlert, // loom
       limits: {
         ...winner.limits,
         ...(creditSource?.limits.resetCredits
@@ -285,6 +293,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         sourceLabel: null,
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
         limits: provider.usageLimits,
+        loginAlert: null, // loom
       });
     }
   }
@@ -298,7 +307,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         ? `${presentation.entry.target.label} · ${source.label}`
         : source.label;
       for (const account of source.accounts) {
-        if (limitsNotice(account.usageLimits) !== null) continue;
+        // loom: a signed-out account stays, so every view can say so.
+        const dead = account.login?.status === "dead";
+        if (limitsNotice(account.usageLimits) !== null && !dead) continue;
         const key = `${source.id}:${account.id}${account.workspaceId ? `:${account.workspaceId}` : ""}`;
         merge(resolveKey(account) ?? key, {
           key,
@@ -320,6 +331,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
               }
             : null,
           limits: account.usageLimits,
+          loginAlert: account.login && account.login.status !== "healthy" ? account.login : null, // loom
         });
       }
     }
@@ -442,7 +454,8 @@ export function collectLimitPools(
   now: number,
 ): readonly LimitPool[] {
   const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
-  for (const account of accounts) {
+  // loom: a signed-out account is no capacity; the views list it on its own.
+  for (const account of accounts.filter((entry) => entry.loginAlert?.status !== "dead")) {
     const list = byDriver.get(account.driver);
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
@@ -551,6 +564,35 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
     return limits.unavailable.message ?? "Could not read limits.";
   }
   return limits.windows.length === 0 ? "No limits reported." : null;
+}
+
+/**
+ * loom: one line for an account whose hub login is failing or dead: what
+ * happens and when, and that it needs logging in again.
+ */
+export function loginAlertText(login: UsageLimitSourceLogin, now: number): string {
+  const at = login.expiresAt ? Date.parse(login.expiresAt) : Number.NaN;
+  if (login.status === "dead") {
+    const since = Number.isFinite(at) && at <= now ? ` ${formatDuration(now - at)} ago` : "";
+    const reason = login.reason ? ` (the hub reports "${login.reason}")` : "";
+    return `Signed out${since}${reason}. Log in to this account again.`;
+  }
+  const when = Number.isFinite(at) ? `in ${formatDuration(at - now)}` : "soon";
+  return `Login refresh is failing: stops working ${when}. Log in to this account again.`;
+}
+
+/**
+ * loom: `carl3@: …` lines for every account a pooled view should lead with,
+ * named by the email's local part as the subscription meter names them.
+ */
+export function loginAlertNotices(accounts: readonly LimitAccount[], now: number): string[] {
+  return accounts.flatMap((account) =>
+    account.loginAlert
+      ? [
+          `${account.email ? `${account.email.split("@")[0]}@` : (account.displayName ?? account.key)}: ${loginAlertText(account.loginAlert, now)}`,
+        ]
+      : [],
+  );
 }
 
 /** Quota left in the window, 0..100. Bars and labels show what remains, as Codex does. */
@@ -772,6 +814,12 @@ export function collectProviderUsageLimits(
   for (const source of sources) {
     const matching = source.accounts.filter((account) => account.driver === selected.driver);
     for (const account of matching) {
+      // loom: a failing login warns while its bars still draw; a dead one says so in its limits.
+      if (account.login?.status === "refreshFailing") {
+        notices.push(
+          `${source.label} · ${account.email ?? account.id}: ${loginAlertText(account.login, now)}`,
+        );
+      }
       const key = resolveKey(account);
       if (key && nativeAccounts.has(key)) continue;
       accounts.push({

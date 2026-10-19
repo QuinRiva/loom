@@ -129,6 +129,12 @@ environment that will connect to the hub and enter its URL and management key.
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
+A Claude account whose login the hub can no longer refresh is flagged in the subscription meter
+and at the top of **Usage → Limits** about four hours before it stops working, with the time it
+will stop; the hub itself still reports it as active until then. Once it has stopped, it shows as
+signed out with the hub's reason and no longer counts toward the pool. Log in to the account on
+the hub again to clear either warning.
+
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.

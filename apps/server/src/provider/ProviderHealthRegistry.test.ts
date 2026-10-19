@@ -347,4 +347,37 @@ describe("ProviderHealthRegistry live telemetry", () => {
       expect(yield* registry.isExhausted("claudeAgent", "claude-fable-5")).toBe(false);
     }).pipe(Effect.provide(live)),
   );
+
+  // loom: a dead login's last good reading must not pass for the pool's headroom.
+  it.effect("counts a signed-out pooled account as no capacity", () =>
+    Effect.gen(function* () {
+      const registry = yield* ProviderHealthRegistry;
+      const pooled = (label: string, usedPercent: number, extra = {}) =>
+        snapshot([{ kind: "primary", usedPercent, resetsAt: FUTURE, windowDurationMins: 300 }], {
+          providerName: "pi",
+          providerInstanceId: "pi",
+          accountLabel: label,
+          ...extra,
+        });
+      yield* registry.applyUsage(pooled("live@", 100));
+      yield* registry.applyUsage(pooled("dead@", 10));
+      expect(yield* registry.isExhausted("pi")).toBe(false);
+      yield* registry.applyUsage({
+        ...pooled("dead@", 0),
+        windows: [],
+        limitReached: true,
+        signedOut: true,
+      });
+      expect(yield* registry.isExhausted("pi")).toBe(true);
+      // Every account signed out: exhausted until one is logged in again.
+      yield* registry.applyUsage({
+        ...pooled("live@", 0),
+        windows: [],
+        limitReached: true,
+        signedOut: true,
+      });
+      expect(yield* registry.exhaustedUntil("pi")).toBe(null);
+      expect(yield* registry.isExhausted("pi")).toBe(true);
+    }).pipe(Effect.provide(live)),
+  );
 });

@@ -9,6 +9,7 @@ import {
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
+  loginAlertNotices,
   remainingPercent,
   type LimitAccount,
   type LimitPoolWindow,
@@ -228,8 +229,10 @@ export function UsageLimitsSection({
     selectedEnvironmentIds === null
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
-  const pools = collectLimitPools(collectLimitAccounts(selected), now);
+  const accounts = collectLimitAccounts(selected); // loom: shared with the login alerts
+  const pools = collectLimitPools(accounts, now);
   const notices = collectLimitNotices(selected);
+  const loginAlerts = loginAlertNotices(accounts, now); // loom
   const externalLinks = collectExternalUsageLinks(selected);
   const colors = useProviderColors();
   const cursorPromptAt =
@@ -239,8 +242,31 @@ export function UsageLimitsSection({
     ) + 1;
   return (
     <View className="gap-6">
+      {/* loom: a failing or dead login leads, above the pools it is missing from */}
+      {loginAlerts.length > 0 ? (
+        <View
+          accessible
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          className="flex-row items-start gap-2 rounded-xl border border-danger-border bg-danger px-3.5 py-3"
+        >
+          <SymbolView
+            name="exclamationmark.triangle"
+            size={16}
+            tintColorClassName="accent-danger-foreground"
+          />
+          <View className="min-w-0 flex-1 gap-0.5">
+            {loginAlerts.map((alert) => (
+              <Text key={alert} className="text-sm font-t3-medium text-danger-foreground">
+                {alert}
+              </Text>
+            ))}
+          </View>
+        </View>
+      ) : null}
       {pools.length === 0 &&
       notices.length === 0 &&
+      loginAlerts.length === 0 &&
       failedLabels.length === 0 &&
       !cursorPrompt &&
       externalLinks.length === 0 ? (

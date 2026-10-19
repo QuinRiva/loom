@@ -814,6 +814,7 @@ describe("pools", () => {
           environments: [],
           sourceLabel: null,
           redeem: null,
+          loginAlert: null,
           limits: {
             checkedAt,
             windows: [
@@ -860,6 +861,7 @@ describe("pooled account columns", () => {
     environments: [],
     sourceLabel: "Hub",
     redeem: null,
+    loginAlert: null,
     limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows },
   });
   const keys = (pool: ReturnType<typeof collectLimitPools>[number]) =>
@@ -944,6 +946,7 @@ describe("Cursor limit presentation", () => {
     environments: [],
     sourceLabel: "Cursor",
     redeem: null,
+    loginAlert: null,
     limits: {
       checkedAt: "2026-09-03T11:00:00.000Z",
       windows: [

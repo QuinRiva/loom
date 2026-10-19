@@ -7,6 +7,7 @@ import {
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
+  loginAlertNotices,
   type LimitAccount,
   type LimitPool,
   type LimitPoolMember,
@@ -581,8 +582,10 @@ export function UsageLimitsPooled({
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
 }) {
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+  const accounts = collectLimitAccounts(presentations); // loom: shared with the login alerts
+  const pools = collectLimitPools(accounts, now);
   const notices = collectLimitNotices(presentations);
+  const loginAlerts = loginAlertNotices(accounts, now); // loom
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =
     Math.max(
@@ -591,7 +594,13 @@ export function UsageLimitsPooled({
     ) + 1;
   return (
     <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && !cursorPrompt && externalLinks.length === 0 ? (
+      {/* loom: a failing or dead login leads, above the pools it is missing from */}
+      <LimitNotices notices={loginAlerts} variant="error" />
+      {pools.length === 0 &&
+      notices.length === 0 &&
+      loginAlerts.length === 0 &&
+      !cursorPrompt &&
+      externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No provider on the selected environments reports subscription limits.
         </p>
@@ -639,10 +648,16 @@ export function UsageLimitsPooled({
 }
 
 /** Sources and providers that could not be read, so a missing bar is not mistaken for a full one. */
-function LimitNotices({ notices }: { readonly notices: readonly string[] }) {
+function LimitNotices({
+  notices,
+  variant = "warning", // loom: "error" for login alerts
+}: {
+  readonly notices: readonly string[];
+  readonly variant?: "warning" | "error";
+}) {
   if (notices.length === 0) return null;
   return (
-    <Alert variant="warning" controlAlignment="first-line">
+    <Alert variant={variant} controlAlignment="first-line">
       <AlertTriangleIcon />
       {notices.map((notice) => (
         <AlertTitle key={notice} className="break-words">

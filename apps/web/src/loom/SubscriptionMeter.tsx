@@ -19,6 +19,7 @@
  * @module loom/SubscriptionMeter
  */
 import { useAtomValue } from "@effect/atom-react";
+import { loginAlertText } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
 import { memo, type ReactNode, useEffect, useState } from "react";
 
@@ -83,6 +84,14 @@ function useMeterReading(): { readonly view: MeterView; readonly now: number } {
 function rowName(row: MeterRow, pool: MeterPool): string {
   return row.label ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
 }
+
+/** loom: a dead login is red, a failing one amber; both outrank any quota mark. */
+const loginTone = (row: MeterRow): MeterTone | null =>
+  row.login === null ? null : row.login.status === "dead" ? "destructive" : "warning";
+
+/** Every row whose hub login is failing or dead, across pools. */
+const loginRows = (view: MeterView) =>
+  view.pools.flatMap((pool) => pool.rows.filter((row) => row.login !== null));
 
 /**
  * A window on an axis: its track from start to reset, the fill, the now-line
@@ -296,6 +305,11 @@ function RowPopover({
           <span className="truncate text-3xs text-muted-foreground/45">{row.email}</span>
         ) : null}
       </div>
+      {row.login ? (
+        <span className={cn("text-2xs font-medium", TEXT[loginTone(row) ?? "warning"])}>
+          {loginAlertText(row.login, now)}
+        </span>
+      ) : null}
       {bar ? (
         <PopoverWindow
           name="5-hour"
@@ -374,6 +388,8 @@ function AccountRow({
   const name = rowName(row, pool);
   const mark = row.mark ? MARK[row.mark] : null;
   const bar = row.bar;
+  const login = loginTone(row);
+  const stopsAt = row.login?.expiresAt ? Date.parse(row.login.expiresAt) : null;
   return (
     <Popover>
       <PopoverTrigger
@@ -384,7 +400,7 @@ function AccountRow({
           <button
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
-            aria-label={`${name}: 5-hour ${Math.round(bar?.used ?? 0)}% used${
+            aria-label={`${name}: ${row.login ? `${loginAlertText(row.login, now)} ` : ""}5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
             className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -397,26 +413,44 @@ function AccountRow({
             <span
               className={cn(
                 "truncate text-3xs",
-                row.exhausted
-                  ? "font-medium text-destructive"
-                  : mark
-                    ? cn("font-medium", mark.className)
-                    : "text-muted-foreground",
+                login
+                  ? cn("font-medium", TEXT[login])
+                  : row.exhausted
+                    ? "font-medium text-destructive"
+                    : mark
+                      ? cn("font-medium", mark.className)
+                      : "text-muted-foreground",
               )}
             >
               {name}
             </span>
           </span>
           <span className="h-3">
-            {bar ? <TimeBar bar={bar} axis={pool.axis} now={now} height={4} /> : null}
+            {row.login?.status === "dead" ? (
+              <span className="block truncate text-3xs font-medium text-destructive">
+                signed out
+              </span>
+            ) : bar ? (
+              <TimeBar bar={bar} axis={pool.axis} now={now} height={4} />
+            ) : null}
           </span>
           <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
-            {mark ? (
-              <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
-            ) : null}
-            <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
-              {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
-            </span>
+            {row.login ? (
+              <span className={cn("font-medium", TEXT[login ?? "warning"])}>
+                {row.login.status === "dead"
+                  ? "⚠ log in"
+                  : `⚠ ${stopsAt === null ? "soon" : formatCountdown(stopsAt - now)}`}
+              </span>
+            ) : (
+              <>
+                {mark ? (
+                  <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
+                ) : null}
+                <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
+                  {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
+                </span>
+              </>
+            )}
           </span>
         </Grid>
       </PopoverTrigger>
@@ -526,7 +560,10 @@ export function SubscriptionMeterChipView({
   const navigate = useNavigate();
   const pool = view.pools[0];
   const bar = pool?.pool ?? pool?.rows[0]?.bar;
-  if (!pool || !bar) return null;
+  // loom: failing or dead logins show even when no bar does.
+  const alerts = loginRows(view);
+  const dead = alerts.filter((row) => row.login?.status === "dead").length;
+  if (!pool || (!bar && alerts.length === 0)) return null;
   return (
     <Popover>
       <PopoverTrigger
@@ -537,7 +574,11 @@ export function SubscriptionMeterChipView({
           <button
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
-            aria-label={`Subscription usage: 5-hour ${Math.round(bar.used)}% used`}
+            aria-label={`Subscription usage${
+              alerts.length > 0
+                ? `: ${dead} account${dead === 1 ? "" : "s"} signed out, ${alerts.length - dead} failing to refresh`
+                : ""
+            }${bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""}`}
             className={cn(
               "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               pool.stale && "opacity-50",
@@ -545,11 +586,20 @@ export function SubscriptionMeterChipView({
           />
         }
       >
-        <span className="text-muted-foreground/75">5h</span>
-        <span className="h-3 w-14">
-          <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
-        </span>
-        <ResetText bar={bar} now={now} withReset={false} />
+        {alerts.length > 0 ? (
+          <span className={cn("font-semibold", dead > 0 ? "text-destructive" : "text-warning")}>
+            ⚠ {dead > 0 ? `${dead} signed out` : `${alerts.length} login failing`}
+          </span>
+        ) : null}
+        {bar ? (
+          <>
+            <span className="text-muted-foreground/75">5h</span>
+            <span className="h-3 w-14">
+              <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
+            </span>
+            <ResetText bar={bar} now={now} withReset={false} />
+          </>
+        ) : null}
         {pool.carveOut ? (
           <>
             <span className="h-3 w-px bg-border/60" />

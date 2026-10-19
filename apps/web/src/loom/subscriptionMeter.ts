@@ -22,6 +22,7 @@ import {
   ProviderDriverKind,
   type ServerProvider,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceLogin,
 } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
@@ -98,7 +99,11 @@ export function meterAccounts(presentations: LimitPresentations): readonly Limit
     const fresher =
       !previous || Date.parse(account.limits.checkedAt) > Date.parse(previous.limits.checkedAt);
     const winner = fresher ? account : previous;
-    merged.set(key, { ...winner, email: winner.email ?? previous?.email ?? account.email });
+    merged.set(key, {
+      ...winner,
+      email: winner.email ?? previous?.email ?? account.email,
+      loginAlert: winner.loginAlert ?? previous?.loginAlert ?? account.loginAlert,
+    });
   }
   return namedFirst([...merged.values()]);
 }
@@ -232,6 +237,8 @@ export interface MeterRow {
   readonly mark: MeterMark | null;
   /** A weekly clock at 100%: the row name turns red. */
   readonly exhausted: boolean;
+  /** The hub's failing or dead login: the row says so before anything else. */
+  readonly login: UsageLimitSourceLogin | null;
 }
 
 export interface MeterPool {
@@ -342,6 +349,7 @@ function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow 
     weeklies,
     mark: marks.has("risk") ? "risk" : marks.has("opp") ? "opp" : null,
     exhausted: weeklies.some((weekly) => weekly.used >= 100),
+    login: account.loginAlert,
   };
 }
 

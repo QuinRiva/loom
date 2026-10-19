@@ -49,7 +49,14 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 function fixture(
   options: {
-    accounts?: Array<(typeof accounts)[number] & { disabled?: boolean }>;
+    accounts?: Array<
+      (typeof accounts)[number] & {
+        disabled?: boolean;
+        status?: string;
+        status_message?: string;
+        last_refresh?: string;
+      }
+    >;
     upstream?: (request: RequestBody) => { status: number; body: unknown };
     cooldownStatus?: number;
   } = {},
@@ -213,7 +220,7 @@ describe("CLIProxyAPI built-in management API", () => {
         recent,
         good("gone.json", recent.usageLimits.checkedAt),
       ]);
-      expect(carried[0]).toBe(recent);
+      expect(carried[0]).toEqual({ ...recent, login: { status: "healthy" } });
       // Only the failed account is carried; the other is read fresh, and a
       // previous account the hub no longer lists is not resurrected.
       expect(carried.map((account) => account.id)).toEqual(["first.json", "second.json"]);
@@ -222,6 +229,40 @@ describe("CLIProxyAPI built-in management API", () => {
       const old = good("first.json", "2026-09-30T11:29:00.000Z");
       const expired = yield* api.readAccounts(config, [old]);
       expect(expired[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+    }),
+  );
+
+  // loom: the hub's real reason, not the generic probe failure, and no reading
+  // (fresh or carried) for an account that cannot serve a request.
+  it.effect("reports a signed-out account with the hub's reason and does not read it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-19T02:16:00.000Z"));
+      const test = fixture({
+        accounts: [
+          {
+            ...accounts[0]!,
+            provider: "claude",
+            status: "error",
+            status_message: "token expired",
+            last_refresh: "2026-10-18T22:26:29+11:00",
+          },
+        ],
+      });
+      const api = yield* test.api;
+      const [account] = yield* api.readAccounts(config, [
+        {
+          id: "first.json",
+          driver: ProviderDriverKind.make("claudeAgent"),
+          usageLimits: { checkedAt: "2026-10-19T02:10:00.000Z", windows: [] },
+        },
+      ]);
+      expect(account?.login).toEqual({
+        status: "dead",
+        expiresAt: "2026-10-18T19:26:29.000Z",
+        reason: "token expired",
+      });
+      expect(account?.usageLimits.unavailable?.message).toContain("token expired");
+      expect(test.requests.filter((request) => request.body?.url)).toEqual([]);
     }),
   );
 

@@ -80,6 +80,21 @@ export const ProviderUsageLimitsUpdate = Schema.Struct({
 });
 export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 
+// loom: hub login health (`apps/server/src/usage/cliproxyLogin.loom.ts`).
+/**
+ * Whether the source can still sign in to an account. `refreshFailing`
+ * is the warning: the hub's refreshes are failing but the current access token
+ * still works until `expiresAt`. `dead` means requests on the account fail
+ * until it is logged in again; `expiresAt` is then when it stopped, when known.
+ * `reason` is the hub's own status text (`token expired`, `unauthorized`).
+ */
+export const UsageLimitSourceLogin = Schema.Struct({
+  status: Schema.Literals(["healthy", "refreshFailing", "dead"]),
+  expiresAt: Schema.optional(IsoDateTime),
+  reason: Schema.optional(TrimmedNonEmptyString),
+});
+export type UsageLimitSourceLogin = typeof UsageLimitSourceLogin.Type;
+
 /**
  * One account a usage-limit source reports on. `driver` is the provider the
  * account belongs to, for the icon and colour clients already have; the
@@ -95,6 +110,8 @@ export const UsageLimitSourceAccount = Schema.Struct({
   /** The workspace the quota belongs to, when the source names one; see `ServerProviderAuth`. */
   workspaceId: Schema.optional(TrimmedNonEmptyString),
   usageLimits: ServerProviderUsageLimits,
+  // loom: absent when the source says nothing about the account's login.
+  login: Schema.optional(UsageLimitSourceLogin),
 });
 export type UsageLimitSourceAccount = typeof UsageLimitSourceAccount.Type;
 

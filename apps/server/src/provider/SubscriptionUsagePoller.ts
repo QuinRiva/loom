@@ -444,15 +444,23 @@ const make = Effect.gen(function* () {
       // when the hub took it, and nothing is published (the hub draws the bar).
       if (yield* standDownForHub) {
         const tokenFile = path.basename(expandHome(source.tokenFile));
-        const reading = (yield* usageLimitSources.current)
+        const accounts = (yield* usageLimitSources.current)
           .flatMap((hub) => hub.accounts)
-          .filter(
-            (account) =>
-              account.id === tokenFile &&
-              account.driver === "claudeAgent" &&
-              !account.usageLimits.unavailable,
-          )
-          .toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt))[0];
+          .filter((account) => account.id === tokenFile && account.driver === "claudeAgent")
+          .toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt));
+        // loom: a signed-out account is no headroom, however good its last reading.
+        const dead = accounts[0];
+        if (dead?.login?.status === "dead") {
+          yield* health.applyUsage({
+            ...attribution,
+            windows: [],
+            limitReached: true,
+            signedOut: true,
+            observedAt: dead.usageLimits.checkedAt,
+          });
+          return;
+        }
+        const reading = accounts.find((account) => !account.usageLimits.unavailable);
         if (!reading) {
           yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
             tokenFile,
