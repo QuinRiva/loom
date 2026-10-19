@@ -65,7 +65,7 @@ const byPriority = (left: WorkstreamAttentionReason, right: WorkstreamAttentionR
 export const ownAttentionOf = (
   thread: Pick<WorkstreamRollupThread, "workstream">,
 ): ReadonlyArray<WorkstreamAttentionReason> =>
-  (thread.workstream?.attention ?? []).toSorted(byPriority);
+  [...(thread.workstream?.attention ?? [])].sort(byPriority);
 
 /**
  * An unsettled thread whose latest run failed with a known class other than a
