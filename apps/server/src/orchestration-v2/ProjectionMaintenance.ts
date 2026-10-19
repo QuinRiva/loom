@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { HISTORY_EVENT_TYPES as LOOM_HISTORY_EVENT_TYPES } from "../loom/projection/LoomHistoryEvents.ts"; // loom: V1 workstream history survives compaction
 import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -225,6 +226,7 @@ export const layer: Layer.Layer<
 
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
+    const loomHistoryEventTypes = new Set<string>(LOOM_HISTORY_EVENT_TYPES); // loom:
     // Keep subagent.updated and turn-item.updated rows: slimmed payloads reference their prompts.
     // Discovery runs on the shared synchronous connection; json_extract over
     // large payloads made 500-row pages block the event loop for ~90ms.
@@ -303,7 +305,8 @@ export const layer: Layer.Layer<
         const obsolete: number[] = [];
         for (const row of rows) {
           if (row.imported_legacy_thread === 1) {
-            obsolete.push(row.sequence);
+            // loom: these V1 rows are the workstream timeline's only copy (LoomStore.history).
+            if (!loomHistoryEventTypes.has(row.event_type)) obsolete.push(row.sequence);
           } else if (row.application_event_version === 2) {
             if (
               row.aggregate_kind === "thread" &&
