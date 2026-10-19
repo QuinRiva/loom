@@ -606,7 +606,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
   const inbox = (thread: EnvironmentThreadShell) =>
-    workingShelfEnabled && isSidebarThreadWorking(thread) && loomAttentionOf(thread.source) === null // loom: 3d-3 — a flagged thread stays in the inbox
+    workingShelfEnabled && isSidebarThreadWorking(thread) && loomAttentionOf(thread) === null // loom: 3d-3 — a flagged thread stays in the inbox
       ? working
       : active;
   const snoozed: EnvironmentThreadShell[] = [];
@@ -1684,7 +1684,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  const loomAttention = loomAttentionOf(thread.source); // loom: 3d-3
+  const loomAttention = loomAttentionOf(thread); // loom: 3d-3
   const loomSubThreadsUnsettled = useLoomSubThreadsUnsettled(threadKey); // loom: badge Q5
   const shouldRecede =
     loomAttention === null && // loom: 3d-3 — a flagged row never recedes

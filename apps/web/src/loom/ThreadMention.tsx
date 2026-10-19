@@ -98,8 +98,6 @@ const STATUS_DOTS = {
   ready: HOLLOW_MUTED_DOT,
   cancelled: HOLLOW_MUTED_DOT,
   error: ATTENTION_DOT,
-  awaiting_approval: ATTENTION_DOT,
-  awaiting_input: ATTENTION_DOT,
   awaiting_acceptance: ATTENTION_DOT,
   needs_guidance: ATTENTION_DOT,
   awaiting_orchestrator: ATTENTION_DOT,

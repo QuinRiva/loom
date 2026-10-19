@@ -7,8 +7,6 @@ import type { WorkstreamAttentionReason } from "@t3tools/client-runtime/state/lo
 
 const LABELS: Record<WorkstreamAttentionReason, string> = {
   error: "Error",
-  awaiting_approval: "Approval",
-  awaiting_input: "Input",
   awaiting_acceptance: "Accept?",
   needs_guidance: "Needs you",
   awaiting_orchestrator: "Yielded",

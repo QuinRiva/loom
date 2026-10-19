@@ -37,21 +37,18 @@ export type WorkstreamRollupThread = Pick<
   | "status"
   | "lastErrorClass"
   | "latestRunCompletedAt"
-  | "pendingRuntimeRequest"
   | "archivedAt"
 >;
 
-/** Stored reasons plus the three the client derives. */
-export type WorkstreamAttentionReason =
-  | LoomAttentionReason
-  | "awaiting_input"
-  | "awaiting_approval"
-  | "brief-needed";
+/**
+ * Stored reasons plus `brief-needed`. A pending question or approval is not a
+ * reason here: upstream's `pendingSubagentRequest` already carries it to every
+ * ancestor (pull 12, §7.1 row 1), so the rollup would show it twice.
+ */
+export type WorkstreamAttentionReason = LoomAttentionReason | "brief-needed";
 
 const ATTENTION_PRIORITY: Record<WorkstreamAttentionReason, number> = {
   error: 7,
-  awaiting_approval: 6,
-  awaiting_input: 5,
   awaiting_acceptance: 4,
   needs_guidance: 3,
   awaiting_orchestrator: 2,
@@ -62,21 +59,13 @@ const byPriority = (left: WorkstreamAttentionReason, right: WorkstreamAttentionR
   ATTENTION_PRIORITY[right] - ATTENTION_PRIORITY[left];
 
 /**
- * A thread's own attention reasons, highest priority first: the sidecar's
- * stored reasons, plus `awaiting_input` / `awaiting_approval` from the pending
- * runtime request (every request kind but `user_input` is an approval). Enough
- * for a root, which is never brief-needed; a graph surface reads
- * `attentionReasonsOf`.
+ * A thread's own stored attention reasons, highest priority first. Enough for a
+ * root, which is never brief-needed; a graph surface reads `attentionReasonsOf`.
  */
-export function ownAttentionOf(
-  thread: Pick<WorkstreamRollupThread, "workstream" | "pendingRuntimeRequest">,
-): ReadonlyArray<WorkstreamAttentionReason> {
-  const request = thread.pendingRuntimeRequest?.kind;
-  const reasons: WorkstreamAttentionReason[] = [...(thread.workstream?.attention ?? [])];
-  if (request !== undefined)
-    reasons.push(request === "user_input" ? "awaiting_input" : "awaiting_approval");
-  return reasons.sort(byPriority);
-}
+export const ownAttentionOf = (
+  thread: Pick<WorkstreamRollupThread, "workstream">,
+): ReadonlyArray<WorkstreamAttentionReason> =>
+  (thread.workstream?.attention ?? []).toSorted(byPriority);
 
 /**
  * An unsettled thread whose latest run failed with a known class other than a
@@ -98,10 +87,7 @@ const runFailed = (
  * child, or one still queued behind an unfinished sibling, is not owed a brief yet.
  */
 export function attentionReasonsOf(
-  thread: Pick<
-    WorkstreamRollupThread,
-    "workstream" | "pendingRuntimeRequest" | "status" | "lastErrorClass"
-  >,
+  thread: Pick<WorkstreamRollupThread, "workstream" | "status" | "lastErrorClass">,
   byId: WorkstreamIndex,
 ): ReadonlyArray<WorkstreamAttentionReason> {
   const own = ownAttentionOf(thread);

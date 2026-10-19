@@ -5,28 +5,27 @@ import {
   ownAttentionOf,
   type WorkstreamAttentionReason,
 } from "@t3tools/client-runtime/state/loom/rollup";
-import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
 import { attentionLabel } from "../loom/loomAttention";
 
-/** The reasons upstream's own status already shows (its Approval / Input pills). */
-const UPSTREAM_SHOWN: ReadonlySet<WorkstreamAttentionReason> = new Set([
-  "awaiting_approval",
-  "awaiting_input",
-]);
-
 /**
  * The Loom attention a row shows instead of its upstream state, or null.
- * Attention outranks state: the highest reason by `ownAttentionOf`'s priority
- * (error > approval > input > acceptance > guidance > orchestrator) wins; when
- * that is a request upstream already renders (approval / input) upstream's own
- * pill stays. A row is never a workstream child, so never brief-needed.
+ * Attention outranks state, except that a pending approval or question — the
+ * row's own or a subagent's (upstream's Approval / Input pills, pull 12 §7.1
+ * row 1) — outranks every Loom reason but `error`. A row is never a workstream
+ * child, so never brief-needed.
  */
 export function loomAttentionOf(
-  thread: Pick<OrchestrationV2ThreadShell, "workstream" | "pendingRuntimeRequest">,
+  thread: Pick<
+    EnvironmentThreadShell,
+    "source" | "hasPendingApprovals" | "hasPendingUserInput" | "pendingSubagentRequest"
+  >,
 ): WorkstreamAttentionReason | null {
-  const top = ownAttentionOf(thread)[0];
-  return top === undefined || UPSTREAM_SHOWN.has(top) ? null : top;
+  const top = ownAttentionOf(thread.source)[0];
+  const upstreamShows =
+    thread.hasPendingApprovals || thread.hasPendingUserInput || thread.pendingSubagentRequest;
+  return top === undefined || (upstreamShows && top !== "error") ? null : top;
 }
 
 /** The row's top-status override for a Loom attention reason (theme tokens only). */

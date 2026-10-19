@@ -339,7 +339,7 @@ export const loomPreviewThreads = {
       attention: ["needs_guidance"],
     }),
   ),
-  /** Derived `awaiting_approval` from a pending command approval. */
+  /** A pending command approval (upstream rolls it up; not Loom attention). */
   awaitingApproval: shell(
     "Run the migration",
     workstream("seed-thread-awaiting-approval" as ThreadId, started),
@@ -353,7 +353,7 @@ export const loomPreviewThreads = {
       },
     },
   ),
-  /** Derived `awaiting_input` from a pending question. */
+  /** A pending question (upstream rolls it up; not Loom attention). */
   awaitingInput: shell(
     "Choose the parser",
     workstream("seed-thread-awaiting-input" as ThreadId, started),

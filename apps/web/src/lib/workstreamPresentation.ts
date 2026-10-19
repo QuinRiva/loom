@@ -185,8 +185,6 @@ export const COLUMN_STYLES = {
 
 export const ATTENTION_LABELS = {
   error: "Error / stalled",
-  awaiting_approval: "Awaiting approval",
-  awaiting_input: "Awaiting input",
   awaiting_acceptance: "Awaiting acceptance",
   needs_guidance: "Needs guidance",
   awaiting_orchestrator: "Yielded · needs orchestrator",
@@ -196,8 +194,6 @@ export const ATTENTION_LABELS = {
 /** The hover card's status-line form: short, so the line's figures never truncate. */
 export const ATTENTION_SHORT_LABELS = {
   error: "stalled",
-  awaiting_approval: "needs approval",
-  awaiting_input: "needs input",
   awaiting_acceptance: "needs acceptance",
   needs_guidance: "needs guidance",
   awaiting_orchestrator: "yielded",
@@ -207,8 +203,6 @@ export const ATTENTION_SHORT_LABELS = {
 /** Badge variant per reason (`components/ui/badge`). */
 export const ATTENTION_BADGE_VARIANTS = {
   error: "error",
-  awaiting_approval: "warning",
-  awaiting_input: "warning",
   awaiting_acceptance: "info",
   needs_guidance: "warning",
   awaiting_orchestrator: "secondary",
@@ -218,8 +212,6 @@ export const ATTENTION_BADGE_VARIANTS = {
 /** The token colour of a reason, for the graph's attention ring. */
 export const ATTENTION_COLORS = {
   error: "var(--color-error)",
-  awaiting_approval: "var(--color-warning)",
-  awaiting_input: "var(--color-warning)",
   awaiting_acceptance: "var(--color-info)",
   needs_guidance: "var(--color-warning)",
   awaiting_orchestrator: "var(--color-info)",
@@ -344,18 +336,18 @@ export const getPurpose = (node: Pick<WorkstreamNode, "purpose">) =>
 /** One short phrase for what the thread is doing, attention first. */
 export function getActivity(node: WorkstreamNode): string {
   const reason = node.reasons[0];
+  if (reason === "error") return "stalled — needs you";
   // Which question waits and for how long (S4), so the card says whether it
-  // is a five-second pick or needs real thought.
-  if (reason === "awaiting_input")
+  // is a five-second pick or needs real thought. The thread's own state, not
+  // an attention reason: upstream rolls it up to the ancestors.
+  if (node.pendingQuestion)
     return [
       "waiting for your input",
-      node.pendingQuestion?.header,
-      node.pendingQuestion && formatCompactAge(node.pendingQuestion.since),
+      node.pendingQuestion.header,
+      formatCompactAge(node.pendingQuestion.since),
     ]
       .filter(Boolean)
       .join(" · ");
-  if (reason === "awaiting_approval") return "approval required";
-  if (reason === "error") return "stalled — needs you";
   if (reason === "needs_guidance") return "stuck — needs guidance";
   if (reason === "awaiting_acceptance") return "awaiting your acceptance";
   if (reason === "awaiting_orchestrator")
@@ -593,8 +585,6 @@ const attentionLabel = (reason: string) =>
 const ATTENTION_TONES: Record<string, Tone> = {
   error: "error",
   needs_guidance: "warning",
-  awaiting_approval: "warning",
-  awaiting_input: "warning",
   awaiting_acceptance: "info",
 };
 
