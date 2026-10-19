@@ -417,6 +417,54 @@ describe("PreviewView", () => {
     expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
   });
 
+  // loom: the pop-up and its note live in the page, which outlives the view
+  it("keeps an in-progress annotation when the view unmounts and remounts", async () => {
+    const annotateButton = () => page.getByRole("button", { name: "Annotate preview" });
+    const cancelButton = () => page.getByRole("button", { name: "Cancel annotation" });
+    // An automatic Diff open or a thread switch unmounts the view mid-note.
+    const remount = async () => {
+      await act(async () => root.unmount());
+      roots.splice(roots.indexOf(root), 1);
+      root = createRoot(document.body.appendChild(document.createElement("div")));
+      roots.push(root);
+      await render(view());
+    };
+    const picked = annotation("annotation-remount");
+    let submitPick: (() => void) | undefined;
+    mocks.pickElement.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          submitPick = () => resolve({ annotation: picked, submission: "attach" });
+        }),
+    );
+    await render(view());
+    await userEvent.click(annotateButton());
+    await vi.waitFor(() => expect(submitPick).toBeDefined());
+
+    await remount();
+    expect(mocks.cancelPickElement).not.toHaveBeenCalled();
+    await expect.element(cancelButton()).toBeVisible();
+
+    await act(async () => submitPick!());
+    await vi.waitFor(() =>
+      expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, picked),
+    );
+    await expect.element(annotateButton()).toBeVisible();
+
+    // An explicit cancel still ends a pick that a previous view started.
+    let settleCancelled: ((result: null) => void) | undefined;
+    mocks.pickElement.mockImplementationOnce(
+      () => new Promise((resolve) => (settleCancelled = resolve)),
+    );
+    await userEvent.click(annotateButton());
+    await vi.waitFor(() => expect(settleCancelled).toBeDefined());
+    await remount();
+    await userEvent.click(cancelButton());
+    expect(mocks.cancelPickElement).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID);
+    await act(async () => settleCancelled!(null));
+    await expect.element(annotateButton()).toBeVisible();
+  });
+
   it("warns when main dropped the crop before handing over the pick", async () => {
     const picked = annotation("annotation-3");
     const onSendAnnotation = vi.fn();

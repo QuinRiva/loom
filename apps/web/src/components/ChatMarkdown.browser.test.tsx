@@ -653,6 +653,24 @@ describe("ChatMarkdown Windows file links", () => {
   });
 });
 
+// loom: the two loose path scanners — plain prose and inside a fenced block —
+// must leave the text exactly as written, with the path substring itself the
+// clickable span (not replaced by a basename chip).
+describe("loom scanned path links", () => {
+  it("makes a prose path clickable in place without rewriting the sentence", async () => {
+    const container = await renderText("see apps/web/src/ChatView.tsx here");
+    expect(container.textContent).toContain("see apps/web/src/ChatView.tsx here");
+    const link = container.querySelector("a.chat-scanned-path-link");
+    expect(link?.getAttribute("data-markdown-copy")).toBe("apps/web/src/ChatView.tsx");
+    expect(container.querySelector(".chat-markdown-file-link")).toBeNull();
+  });
+
+  it("leaves a quoted path plain — it belongs to a literal the renderer kept", async () => {
+    const container = await renderText('run --out="/tmp/project/report.xlsx" now');
+    expect(container.querySelector(".chat-scanned-path-link")).toBeNull();
+  });
+});
+
 describe("ChatMarkdown in-page links", () => {
   it.each([true, false])(
     "scrolls a table-of-contents link to its heading without touching the URL (parseRawHtml=%s)",

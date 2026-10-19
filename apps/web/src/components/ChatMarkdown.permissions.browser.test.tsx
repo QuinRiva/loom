@@ -12,6 +12,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
+import { __setMetadataFetcherForTests } from "./chat/usePathExistence"; // loom: click-time chip verify
 import { useRightPanelStore } from "../rightPanelStore";
 
 const state = vi.hoisted(() => ({
@@ -145,11 +146,14 @@ beforeEach(() => {
   state.openExternal.mockReset().mockResolvedValue(undefined);
   state.copy.mockReset().mockResolvedValue(undefined);
   useRightPanelStore.setState({ openFile: state.openFile });
+  // loom: a chip click stats its target before opening; an unanswered stat opens.
+  __setMetadataFetcherForTests(() => Promise.resolve(new Map()));
   vi.spyOn(navigator.clipboard, "writeText").mockImplementation(state.copy);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 });
 
 afterEach(async () => {
+  __setMetadataFetcherForTests(null); // loom
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.replaceChildren();
   vi.restoreAllMocks();
@@ -198,7 +202,10 @@ it("removes host actions after revocation while keeping file preview and copying
   expect(offeredActions()).toEqual(["copy-relative", "copy-full"]);
   await vi.waitFor(() => expect(state.copy).toHaveBeenCalledWith("/work/docs/readme.md"));
   await act(async () => anchor().click());
-  expect(state.openFile).toHaveBeenCalledWith(threadRef, "docs/readme.md", undefined);
+  // loom: the open follows the click-time stat (verifyChipTargetBeforeOpen), so it lands a tick later.
+  await vi.waitFor(() =>
+    expect(state.openFile).toHaveBeenCalledWith(threadRef, "docs/readme.md", undefined),
+  );
   expect(state.openEditor).not.toHaveBeenCalled();
 });
 
