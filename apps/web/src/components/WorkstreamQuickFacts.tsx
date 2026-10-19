@@ -3,8 +3,6 @@ import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 import { forwardRef, useContext } from "react";
 
 import {
-  ATTENTION_COLORS,
-  ATTENTION_SHORT_LABELS,
   COLUMN_SHORT_LABELS,
   COLUMN_STYLES,
   formatCompactAge,
@@ -14,6 +12,7 @@ import {
   getStep,
   getVerdictChip,
   legibleHue,
+  nodeAttentionOf,
   type WorkstreamNode,
   type WorkstreamNodeIndex,
 } from "../lib/workstreamPresentation";
@@ -40,7 +39,7 @@ export const WorkstreamQuickFacts = forwardRef<
     readonly rollup: WorkstreamRollup | null;
   }
 >(function WorkstreamQuickFacts({ node, byId, rollup }, ref) {
-  const reason = node.reasons[0];
+  const attention = nodeAttentionOf(node);
   const step = getStep(node);
   const lastOutcome = node.lastOutcome;
   const status = [
@@ -60,18 +59,11 @@ export const WorkstreamQuickFacts = forwardRef<
 
       <div className="mt-2 flex flex-col gap-1">
         <div className="truncate text-xs text-foreground/80">
-          <span
-            style={{ color: reason ? ATTENTION_COLORS[reason] : COLUMN_STYLES[node.column].color }}
-          >
-            ●
-          </span>{" "}
-          {reason ? (
+          <span style={{ color: attention?.color ?? COLUMN_STYLES[node.column].color }}>●</span>{" "}
+          {attention ? (
             <>
-              <span
-                className="font-semibold"
-                style={{ color: legibleHue(ATTENTION_COLORS[reason]) }}
-              >
-                {ATTENTION_SHORT_LABELS[reason]}
+              <span className="font-semibold" style={{ color: legibleHue(attention.color) }}>
+                {attention.shortLabel}
               </span>
               {" · "}
             </>

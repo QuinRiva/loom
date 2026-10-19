@@ -3,8 +3,6 @@ import type { ThreadId } from "@t3tools/contracts";
 import { useContext } from "react";
 
 import {
-  ATTENTION_COLORS,
-  ATTENTION_LABELS,
   COLUMN_STYLES,
   formatRelativeAge,
   formatStepAge,
@@ -13,6 +11,7 @@ import {
   getStep,
   isRunning,
   legibleHue,
+  nodeAttentionOf,
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -41,13 +40,13 @@ export function WorkstreamActiveStrip({
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const now = Date.parse(`${useNowMinute()}:00Z`);
-  const flagged = new Map(rollup.attention.nodes.map((entry) => [entry.id, entry.reason]));
   const inflight = nodes
-    .filter((node) => flagged.has(node.id) || isRunning(node))
+    .map((node) => ({ node, attention: nodeAttentionOf(node) }))
+    .filter(({ node, attention }) => attention || isRunning(node))
     .toSorted(
       (left, right) =>
-        Number(flagged.has(right.id)) - Number(flagged.has(left.id)) ||
-        right.lastActivityAt.localeCompare(left.lastActivityAt),
+        Number(right.attention !== null) - Number(left.attention !== null) ||
+        right.node.lastActivityAt.localeCompare(left.node.lastActivityAt),
     );
   if (inflight.length === 0) return null;
 
@@ -67,9 +66,8 @@ export function WorkstreamActiveStrip({
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        {inflight.map((node) => {
-          const reason = flagged.get(node.id);
-          const color = reason ? ATTENTION_COLORS[reason] : COLUMN_STYLES[node.column].color;
+        {inflight.map(({ node, attention }) => {
+          const color = attention?.color ?? COLUMN_STYLES[node.column].color;
           const step = getStep(node, now);
           const stepAge = step && formatStepAge(step.since, now);
           return (
@@ -81,7 +79,7 @@ export function WorkstreamActiveStrip({
                     onClick={() => onOpenThread(node.id)}
                     className="flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
                     style={
-                      reason
+                      attention
                         ? { borderColor: `color-mix(in srgb, ${color} 45%, transparent)` }
                         : undefined
                     }
@@ -113,7 +111,7 @@ export function WorkstreamActiveStrip({
                       style={{ backgroundColor: color }}
                     />
                     <span className="min-w-0 flex-1 truncate">
-                      {reason ? `${ATTENTION_LABELS[reason]} · ` : ""}
+                      {attention ? `${attention.label} · ` : ""}
                       {node.preview ? <i>› {node.preview}</i> : getActivity(node)}
                     </span>
                     {step ? (

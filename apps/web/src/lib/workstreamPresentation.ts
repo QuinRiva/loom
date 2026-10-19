@@ -48,6 +48,8 @@ export interface WorkstreamNode extends LoomThreadShellFields {
   readonly activity: OrchestrationV2ThreadShell["activityRunStatus"];
   /** The question the thread waits on (S4), or null. */
   readonly pendingQuestion: ReturnType<typeof pendingQuestionOf>;
+  /** Since when the thread waits on an approval (upstream's `hasPendingApprovals` kinds), or null. */
+  readonly pendingApproval: { readonly since: string } | null;
   /** The latest visible message's text (`shell.latestVisibleMessage`). */
   readonly preview: string | null;
   readonly lastActivityAt: string;
@@ -87,6 +89,12 @@ export function buildWorkstreamNodes(
         reasons: attentionReasonsOf(shell, startIndex),
         activity: shell.activityRunStatus ?? null,
         pendingQuestion: pendingQuestionOf(shell),
+        pendingApproval:
+          shell.pendingRuntimeRequest &&
+          shell.pendingRuntimeRequest.kind !== "user_input" &&
+          shell.pendingRuntimeRequest.kind !== "auth_refresh"
+            ? { since: iso(shell.pendingRuntimeRequest.createdAt) }
+            : null,
         preview: shell.latestVisibleMessage?.text.trim() || null,
         lastActivityAt: iso(lastActivity),
         archived: shell.archivedAt !== null,
@@ -214,6 +222,43 @@ export const ATTENTION_COLORS = {
   "brief-needed": "var(--color-muted-foreground)",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
+/** A thread's own pending request, named like the attention reasons. */
+export const PENDING_REQUEST_LABELS = {
+  awaiting_approval: "Awaiting approval",
+  awaiting_input: "Awaiting input",
+};
+
+/**
+ * What a node's ring, strip chip and quick facts show, or null. The node's own
+ * pending approval or question outranks every reason but `error`, as upstream's
+ * row pills do. It is the node's own state, not a rollup reason: upstream
+ * carries it to the ancestors (DL-1270), so it never enters `reasons`.
+ */
+export function nodeAttentionOf(
+  node: Pick<WorkstreamNode, "reasons" | "pendingQuestion" | "pendingApproval">,
+): { readonly color: string; readonly label: string; readonly shortLabel: string } | null {
+  const reason = node.reasons[0];
+  if (reason !== "error" && node.pendingApproval)
+    return {
+      color: "var(--color-warning)",
+      label: PENDING_REQUEST_LABELS.awaiting_approval,
+      shortLabel: "needs approval",
+    };
+  if (reason !== "error" && node.pendingQuestion)
+    return {
+      color: "var(--color-warning)",
+      label: PENDING_REQUEST_LABELS.awaiting_input,
+      shortLabel: "needs input",
+    };
+  return reason
+    ? {
+        color: ATTENTION_COLORS[reason],
+        label: ATTENTION_LABELS[reason],
+        shortLabel: ATTENTION_SHORT_LABELS[reason],
+      }
+    : null;
+}
+
 // Review gates — the verdict chip, the gate-leg label, the loop round cap
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "error";
@@ -340,6 +385,8 @@ export function getActivity(node: WorkstreamNode): string {
     ]
       .filter(Boolean)
       .join(" · ");
+  if (node.pendingApproval)
+    return ["approval required", formatCompactAge(node.pendingApproval.since)].join(" · ");
   if (reason === "needs_guidance") return "stuck — needs guidance";
   if (reason === "awaiting_acceptance") return "awaiting your acceptance";
   if (reason === "awaiting_orchestrator")

@@ -35,8 +35,6 @@ import {
   type ViewBox,
 } from "../lib/forkJoinLayout";
 import {
-  ATTENTION_COLORS,
-  ATTENTION_LABELS,
   COLUMN_LABELS,
   COLUMN_ORDER,
   COLUMN_STYLES,
@@ -51,6 +49,7 @@ import {
   getVerdictChip,
   isRunning,
   legibleHue,
+  nodeAttentionOf,
   TONE_COLORS,
   truncateLabel,
   type WorkstreamNode,
@@ -790,7 +789,7 @@ function GraphNode({
   const color = COLUMN_STYLES[node.column].color;
   const verdict = getVerdictChip(node);
   const stateWord = getNodeStateWord(node, byId);
-  const reason = node.reasons[0];
+  const attention = nodeAttentionOf(node);
   const recede = node.column === "done" || node.column === "cancelled";
   const running = isRunning(node);
   // Ages and step durations tick on the shared minute clock (no per-node timer).
@@ -858,20 +857,20 @@ function GraphNode({
             x={x}
             y={y}
           />
-          {reason ? (
-            // Attention ring in the highest reason's colour (static — no pulse).
+          {attention ? (
+            // Attention ring in its colour (static — no pulse).
             <rect
               fill="none"
               height={h + 5}
               pointerEvents="none"
               rx="12"
-              stroke={ATTENTION_COLORS[reason]}
+              stroke={attention.color}
               strokeWidth={2}
               width={w + 5}
               x={x - 2.5}
               y={y - 2.5}
             >
-              <title>{ATTENTION_LABELS[reason]}</title>
+              <title>{attention.label}</title>
             </rect>
           ) : null}
           <path
