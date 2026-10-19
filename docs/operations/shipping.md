@@ -145,5 +145,5 @@ run `pnpm ship -m "<summary>" --merge-only`. In order, the script:
   **escalate to the orchestrator / human** with the conflicting files and what
   each side is trying to do. In a delegated shipper thread, that means a
   `mcp__t3-code__workstream_submit` with outcome `merge_conflict`, a yield to the
-  orchestrator (not `needs_human`, which flags the human); point the orchestrator back at
+  orchestrator; point the orchestrator back at
   this document so it can finish the ship itself.
