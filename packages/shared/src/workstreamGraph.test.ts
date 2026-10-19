@@ -173,9 +173,7 @@ describe("isTerminalForJoin", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §4–§6)
-// ---------------------------------------------------------------------------
 
 const gnode = (overrides: Omit<Partial<GateNode>, "id"> & { readonly id: string }): GateNode => ({
   outcome: null,

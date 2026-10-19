@@ -450,9 +450,7 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
   return { prompt, outputSchema };
 }
 
-// ---------------------------------------------------------------------------
 // loom: emergent goal ("every session has a goal")
-// ---------------------------------------------------------------------------
 
 export interface EmergentGoalPromptInput {
   message: string;

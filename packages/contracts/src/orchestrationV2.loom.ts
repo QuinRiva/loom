@@ -43,9 +43,7 @@ import type {
   OrchestrationV2ServerCommand,
 } from "./orchestrationV2.ts";
 
-// ---------------------------------------------------------------------------
 // Enums and small types
-// ---------------------------------------------------------------------------
 
 /**
  * Stored attention: the reasons a thread needs a human or its parent. The
@@ -266,9 +264,7 @@ export const LoomThreadPeerMessageSummary = Schema.Struct({
 });
 export type LoomThreadPeerMessageSummary = typeof LoomThreadPeerMessageSummary.Type;
 
-// ---------------------------------------------------------------------------
 // Goals (plain tables loom_goals / loom_goal_tasks, written by handlers)
-// ---------------------------------------------------------------------------
 
 export interface LoomGoalTask {
   readonly id: GoalTaskId;
@@ -347,9 +343,7 @@ export const isLoomGoalShellStreamItem = <Item extends { readonly kind: string }
 ): item is Extract<Item, { readonly kind: LoomGoalShellStreamItem["kind"] }> =>
   item.kind === "goal.updated" || item.kind === "goal.removed";
 
-// ---------------------------------------------------------------------------
 // The sidecar record and the shell fields
-// ---------------------------------------------------------------------------
 
 /**
  * One row per Loom thread (`loom_thread_workstream`), keyed by V2's ThreadId.
@@ -453,9 +447,7 @@ export const LoomActiveStep = Schema.Struct({
 });
 export type LoomActiveStep = typeof LoomActiveStep.Type;
 
-// ---------------------------------------------------------------------------
 // Live consults (unsequenced shell-stream items, never persisted)
-// ---------------------------------------------------------------------------
 
 /** One tool call of a running consult's fork, for the consult card's step log. */
 export const LoomConsultStep = Schema.Struct({
@@ -619,9 +611,7 @@ export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => 
 }));
 export type LoomThreadShellFields = typeof LoomThreadShellFields.Type;
 
-// ---------------------------------------------------------------------------
 // Commands — spliced at the HEAD of upstream's command unions
-// ---------------------------------------------------------------------------
 
 const LoomCommandFields = {
   commandId: CommandId,
@@ -850,12 +840,10 @@ export const makeLoomInternalCommandMembers = <
     }),
   ] as const;
 
-// ---------------------------------------------------------------------------
 // Events — spliced at the HEAD of OrchestrationV2DomainEvent and
 // OrchestrationV2DomainEventJson. Every Loom event's base `threadId` is the
 // sidecar row it changes; payload timestamps are IsoDateTime strings, so one
 // payload schema serves both the Type and the Json union.
-// ---------------------------------------------------------------------------
 
 export const LoomWorkstreamCreatedPayload = Schema.Struct({
   parentThreadId: Schema.NullOr(ThreadId),
@@ -1044,11 +1032,9 @@ export const makeLoomDomainEventMembers = <const Base extends Schema.Struct.Fiel
     }),
   ] as const;
 
-// ---------------------------------------------------------------------------
 // Narrowing guards. The listed string tuples are checked against the spliced
 // member tuples in BOTH directions, so an omission and a typo/extra entry are
 // each a compile error naming the offending literal.
-// ---------------------------------------------------------------------------
 
 type AssertNever<T extends never> = T;
 

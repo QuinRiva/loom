@@ -41,10 +41,8 @@ it("skips the legacy-import handoff for a thread bound to its native session (D8
   assert.isFalse(shouldPrepareLegacyImportHandoff({ ...input, hasStrongNativeRef: true }));
 });
 
-// ---------------------------------------------------------------------------
 // The fixture: one V1 `state.sqlite` (upstream lane 054, Loom lane 1045) whose
 // rows cover every lane × root/child and the plan's edge rows (gate g-fixture).
-// ---------------------------------------------------------------------------
 
 const PROJECT = "project-1";
 const GOAL = "goal-1";

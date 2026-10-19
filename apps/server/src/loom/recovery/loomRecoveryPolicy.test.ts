@@ -273,7 +273,6 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           createdAt,
           outcome: "done",
         });
-        // Cancelled.
         const cancelled = yield* child("cancelled");
         yield* seedRunningRun({ threadId: cancelled });
         yield* dispatch({

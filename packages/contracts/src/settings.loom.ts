@@ -157,10 +157,8 @@ export const ThreadSearchEmbeddingSettings = Schema.Union([
 ]);
 export type ThreadSearchEmbeddingSettings = typeof ThreadSearchEmbeddingSettings.Type;
 
-// ---------------------------------------------------------------------------
 // Struct field records (shape c). Each is spread — HEAD position — into the
 // upstream struct that owns it.
-// ---------------------------------------------------------------------------
 
 // Spread into the nested `providerModelPreferences` value struct in BOTH
 // `ClientSettingsSchema` and `ClientSettingsPatch` (byte-identical fields).

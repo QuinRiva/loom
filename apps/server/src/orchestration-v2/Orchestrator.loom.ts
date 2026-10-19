@@ -185,9 +185,7 @@ const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 export const NOTIFY_PAIR_HOURLY_CAP = 10;
 export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 
-// ---------------------------------------------------------------------------
 // The dispatchMessage helpers (DL-194, DL-195, §2 rules 1–5)
-// ---------------------------------------------------------------------------
 
 /**
  * DL-194, DL-245: the one human predicate. Upstream's `limit-resume` (createdBy
@@ -409,9 +407,7 @@ export const loomAskTakesAnswer = (requestId: string) =>
     return yield* (yield* LoomAskWaiters).isLive(requestId);
   });
 
-// ---------------------------------------------------------------------------
 // run.interrupt and thread.auto-settle hunks
-// ---------------------------------------------------------------------------
 
 /** A human stop (non-`server:` run.interrupt or thread.stop) on a live Loom thread raises needs_guidance. */
 export const loomHumanStopRaise = Effect.fn("loom.humanStopRaise")(function* (input: {
@@ -468,9 +464,7 @@ export const loomSettleBlockers = Effect.fn("loom.settleBlockers")(function* (
   };
 });
 
-// ---------------------------------------------------------------------------
 // Child threads (D6, D7)
-// ---------------------------------------------------------------------------
 
 /**
  * A Loom child's (or staged root's) V2 thread row from an explicit field list —
@@ -527,9 +521,7 @@ export const makeLoomChildThread = (input: {
   };
 };
 
-// ---------------------------------------------------------------------------
 // The arm
-// ---------------------------------------------------------------------------
 
 /** One graph node a spawn or scaffold creates, normalised for validation. */
 interface NewNode {
@@ -687,9 +679,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
   const ensureParentRow = (parent: OrchestrationV2AppThread, row: LoomThreadWorkstream | null) =>
     row !== null ? Effect.void : emit(loomBareWorkstreamCreated(parent, null, now));
 
-  // -------------------------------------------------------------------------
   // Multi-step cases
-  // -------------------------------------------------------------------------
 
   const workSubmit = (submit: CommandOf<"thread.work.submit">) =>
     Effect.gen(function* () {

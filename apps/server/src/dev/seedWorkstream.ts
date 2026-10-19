@@ -462,7 +462,7 @@ const seedProgram = Effect.gen(function* () {
     Effect.mapError((cause) => new Error(`re-drive pass failed: ${String(cause)}`)),
   );
 
-  // ---- goal + task tree (plain tables, LoomStoreV2) ----------------------------
+  // goal + task tree (plain tables, LoomStoreV2)
   yield* loomStore.goals.upsert({
     id: SEED.goalId,
     projectId: SEED.projectId,
@@ -489,7 +489,7 @@ const seedProgram = Effect.gen(function* () {
     })),
   );
 
-  // ---- the orchestrator root ---------------------------------------------------
+  // the orchestrator root
   yield* createRoot(SEED.root, "Deliver the workstream fixture", taskId(2));
   yield* message(
     SEED.root,
@@ -499,7 +499,7 @@ const seedProgram = Effect.gen(function* () {
     true,
   );
 
-  // ---- done coder (anchored to a task, with a report) ---------------------------
+  // done coder (anchored to a task, with a report)
   yield* spawn({
     threadId: SEED.coderDone,
     parent: SEED.root,
@@ -520,7 +520,7 @@ const seedProgram = Effect.gen(function* () {
     "# Config loader\n\nImplemented the loader module and wired it into startup.\n",
   );
 
-  // ---- gated pair, mid-round: reviewer looped findings, coder holds rework round 1 ----
+  // gated pair, mid-round: reviewer looped findings, coder holds rework round 1
   yield* spawn({
     threadId: SEED.gateCoder,
     parent: SEED.root,
@@ -564,7 +564,7 @@ const seedProgram = Effect.gen(function* () {
     true,
   );
 
-  // ---- quiescent child (synthesised report, awaiting_orchestrator) and its blocked dependent ----
+  // quiescent child (synthesised report, awaiting_orchestrator) and its blocked dependent
   yield* spawn({
     threadId: SEED.quiescent,
     parent: SEED.root,
@@ -609,7 +609,7 @@ const seedProgram = Effect.gen(function* () {
     blockedBy: [SEED.quiescent],
   });
 
-  // ---- cancelled subtree: a lead with its own grandchild, cancelled by cascade ----
+  // cancelled subtree: a lead with its own grandchild, cancelled by cascade
   yield* spawn({
     threadId: SEED.cancelledLead,
     parent: SEED.root,
@@ -635,7 +635,7 @@ const seedProgram = Effect.gen(function* () {
   });
   yield* reDrive;
 
-  // ---- a root owed a human decision, and a staged (held) mcp__t3-code__goal_continue root ----
+  // a root owed a human decision, and a staged (held) mcp__t3-code__goal_continue root
   yield* createRoot(SEED.needsGuidanceRoot, "Plan the migration (needs guidance)");
   yield* message(
     SEED.needsGuidanceRoot,
@@ -678,7 +678,7 @@ const seedProgram = Effect.gen(function* () {
     ),
   });
 
-  // ---- control cards on the root (seam 6): one digest, one synthesised yield, every notice ----
+  // control cards on the root (seam 6): one digest, one synthesised yield, every notice
   // Yields, digests and gate legs carry the wake notification production sends with them.
   const quiet = (yield* loomStore.getWorkstream(SEED.quiescent))!;
   const controlMessages = loomSeedControlMessages({
@@ -708,7 +708,7 @@ const seedProgram = Effect.gen(function* () {
     );
   }
 
-  // ---- inert on boot: nothing left for the re-drive pass, nothing in the outbox ----
+  // inert on boot: nothing left for the re-drive pass, nothing in the outbox
   const last = yield* reDrive;
   if (last.accepted.length + last.deferred.length + last.dead.length > 0) {
     return yield* Effect.fail(

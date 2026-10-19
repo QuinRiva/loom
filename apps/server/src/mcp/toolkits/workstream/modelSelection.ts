@@ -54,9 +54,7 @@ export const withUpstreamOptionIds = (selection: ModelSelection): ModelSelection
       }
     : selection;
 
-// ---------------------------------------------------------------------------
 // Catalogue validation
-// ---------------------------------------------------------------------------
 
 /** One usable instance and its known slugs; empty `models` = not yet loaded (slug unchecked). */
 export interface ModelCatalogueEntry {
@@ -155,9 +153,7 @@ const invalidModelSelectionMessage = (
     ? `${describeSource(source)} references instanceId "${validation.instanceId}", which is not a configured provider instance in this build. Valid instances: ${formatCatalogue(catalogue)}. Configured presets: ${presets.length > 0 ? presets.join(", ") : "none"}. Prefer a configured modelPreset (or omit both to inherit) rather than guessing instance ids/model slugs from another environment${source.kind === "preset" || source.kind === "role-preset" ? ", or fix the preset in server settings" : ""}. Nothing was spawned.`
     : `${describeSource(source)} references model "${validation.model}", which is not a known model for instance "${validation.instanceId}". ${nearMatchesLine(validation.model, validation.models)} Prefer a configured modelPreset or taskShape over a raw slug. Nothing was spawned.`;
 
-// ---------------------------------------------------------------------------
 // Headroom (plan §4 of the capability-selection design)
-// ---------------------------------------------------------------------------
 
 export type HeadroomBucket = "healthy" | "demoted" | "skipped";
 
@@ -211,9 +207,7 @@ export const headroomBucketFor = (
   return maxPercent >= HEADROOM_DEMOTE_PERCENT ? "demoted" : "healthy";
 };
 
-// ---------------------------------------------------------------------------
 // Task shapes
-// ---------------------------------------------------------------------------
 
 interface ScoredCandidate {
   readonly name: string;
@@ -374,9 +368,7 @@ const resolveShapeSelection = (input: {
   return fallThrough("matched profile(s) but none reference a configured instance/model", warnings);
 };
 
-// ---------------------------------------------------------------------------
 // The precedence
-// ---------------------------------------------------------------------------
 
 export interface SpawnModelInput {
   /** The decoded explicit selection; `null` when one was supplied but did not decode. */
@@ -461,9 +453,7 @@ export const resolveSpawnModelSelection = (input: SpawnModelInput): SpawnModelRe
   return { kind: "ok", selection: withUpstreamOptionIds(resolved.selection), warnings };
 };
 
-// ---------------------------------------------------------------------------
 // The effectful edge
-// ---------------------------------------------------------------------------
 
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 

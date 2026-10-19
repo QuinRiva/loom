@@ -175,12 +175,10 @@ export interface TerminalForJoinNode {
 
 export const isTerminalForJoin = (node: TerminalForJoinNode): boolean => isTerminal(node.outcome);
 
-// ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §4–§6) — the pure gate
 // predicates + the submit routing decision, shared by the decider (authoritative
 // routing), the dispatcher (traversal/suppression), the submit endpoint
 // (response echo + per-round report naming), and the web graph (waiting badges).
-// ---------------------------------------------------------------------------
 
 /**
  * The minimal gate-party shape. A GATE is not stored: it is the derived pair

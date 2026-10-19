@@ -59,9 +59,7 @@ export class LoomStoreError extends Schema.TaggedError<LoomStoreError>()("LoomSt
   }
 }
 
-// ---------------------------------------------------------------------------
 // Row ↔ record codec (the one place the column layout is spelled out)
-// ---------------------------------------------------------------------------
 
 /** `loom_thread_workstream` as stored: bits for booleans, JSON text for structures. */
 export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) => ({
@@ -246,9 +244,7 @@ const buildTaskTree = (rows: ReadonlyArray<TaskRow>): ReadonlyArray<LoomGoalTask
   return build("");
 };
 
-// ---------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------
 
 export interface LoomTreeQueryOptions {
   readonly includeArchived?: boolean;
