@@ -199,7 +199,11 @@ it.effect.each([
         }),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({
           launch: (input) => {
-            assert.equal(input.modelSelection.instanceId, instanceId);
+            assert.equal(
+              input.modelSelection.instanceId,
+              // loom: with no default selection the bootstrap falls back to pi, not codex (DL-85)
+              scenario === "disabled-default" ? instanceId : ProviderInstanceId.make("pi"),
+            );
             return scenario === "launch-failure"
               ? Effect.fail(
                   new ThreadLaunch.ThreadLaunchError({

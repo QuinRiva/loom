@@ -299,6 +299,7 @@ describe("VcsStatusBroadcaster", () => {
         ),
         Layer.provide(
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            resolveRemoteStatusRepository: () => Effect.succeed(null), // loom: the remote poller's repository batch
             localStatus: () =>
               Effect.suspend(() =>
                 failure === "recovery scan" && pullCalls > 0
