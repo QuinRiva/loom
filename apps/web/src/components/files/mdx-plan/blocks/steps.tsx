@@ -104,8 +104,6 @@ export const stepBlock: PlanBlock<StepData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
-
 const stepsSchema = z.object({}) as unknown as z.ZodType<Record<string, never>>;
 
 export function StepsRead({ blockId, children }: PlanBlockReadProps<Record<string, never>>) {

@@ -41,7 +41,7 @@ export interface PlanLintFinding {
   message: string;
 }
 
-/* ------------------------------- mdast types ------------------------------ */
+// Mdast types.
 
 interface Point {
   line: number;
@@ -110,7 +110,7 @@ const hasReaderBrief = Schema.is(
 );
 const decodeFrontmatter = Schema.decodeUnknownOption(fromYaml(Schema.Unknown));
 
-// TODO: promote to an error once the exemplar document set lands (brief author's request).
+// Promote to an error once the exemplar document set lands (brief author's request).
 function readerBriefFinding(tree: MdastNode): PlanLintFinding | null {
   const yaml = tree.children?.find((node) => node.type === "yaml");
   if (hasReaderBrief(Option.getOrUndefined(decodeFrontmatter(yaml?.value ?? "")))) return null;
@@ -122,7 +122,7 @@ function readerBriefFinding(tree: MdastNode): PlanLintFinding | null {
   };
 }
 
-/* ------------------- rendered-text defects (post-render) ------------------ */
+// Rendered-text defects (post-render).
 
 /** Literal escape sequences (`\u2014`) and UTF-8-read-as-latin-1 mojibake
  * (`â€”`, `Â `, `\uFFFD`) that reached the page as *visible text*. */
@@ -180,7 +180,7 @@ const at = (
 ): Pick<PlanLintFinding, "line" | "column"> =>
   node?.position ? { line: node.position.start.line, column: node.position.start.column } : {};
 
-/* --------------------------- friendly MDX errors -------------------------- */
+// Friendly MDX errors.
 
 const HINTS: Array<[RegExp, string]> = [
   [
@@ -205,7 +205,7 @@ function mdxErrorFinding(cause: unknown): PlanLintFinding {
   };
 }
 
-/* ------------------------------ tag utilities ----------------------------- */
+// Tag utilities.
 
 /**
  * zod reports a failed union as one `invalid_union` "Invalid input" issue at the
@@ -253,7 +253,7 @@ const EXPECTED_CHILDREN: Record<string, string[]> = {
   Section: ["Artboard", "Connector", "Annotation"],
 };
 
-/* --------------------------------- linter --------------------------------- */
+// Linter.
 
 interface BoardScope {
   ids: Set<string>;

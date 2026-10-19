@@ -66,6 +66,7 @@ export default function ArtifactViewPanel({
   // via `reloadToken` below, which also remounts the frame so `onLoad` re-fires.
   useEffect(() => {
     if (!httpBaseUrl) {
+      // oxlint-disable-next-line react/set-state-in-effect -- Minting waits on the environment's HTTP origin, which arrives from the connection.
       setState({ status: "minting" });
       return;
     }
@@ -104,8 +105,10 @@ export default function ArtifactViewPanel({
     httpBaseUrl,
     relativePath,
     threadId,
+    /* oxlint-disable react/exhaustive-effect-dependencies -- Reload and a chip re-click re-mint the same file. */
     reloadRequestId,
     mintNonce,
+    /* oxlint-enable react/exhaustive-effect-dependencies */
   ]);
 
   return (

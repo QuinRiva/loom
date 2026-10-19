@@ -1,6 +1,6 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { ChevronRight, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { PierreEntryIcon } from "~/components/chat/PierreEntryIcon";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -44,12 +44,13 @@ export default function AbsoluteDirectoryPanel({
   const { resolvedTheme } = useTheme();
   const normalizedRoot = rootPath.replace(/\/+$/, "") || rootPath;
   const [currentPath, setCurrentPath] = useState(normalizedRoot);
-
   // Reset navigation to the root whenever the surface is re-pointed at a
   // different absolute directory.
-  useEffect(() => {
+  const [shownRoot, setShownRoot] = useState(normalizedRoot);
+  if (shownRoot !== normalizedRoot) {
+    setShownRoot(normalizedRoot);
     setCurrentPath(normalizedRoot);
-  }, [normalizedRoot]);
+  }
 
   const directory = useProjectAbsoluteDirectoryQuery(environmentId, currentPath);
   const segments = relativeSegments(normalizedRoot, currentPath);

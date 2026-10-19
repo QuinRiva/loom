@@ -1128,6 +1128,7 @@ function useCodePathDecoration(content: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current && !isStreaming) decorateCodeBlock(ref.current);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- loom: new content is a re-highlighted block whose paths need decorating again.
   }, [content, decorateCodeBlock, isStreaming]);
   return ref;
 }

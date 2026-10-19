@@ -112,6 +112,7 @@ function PeekSection({
 
   useEffect(() => {
     let active = true;
+    // oxlint-disable-next-line react/set-state-in-effect -- A new anchor starts loading its section, so the previous one clears first.
     setContent(null);
     setTitle(findHeading(getPlanRoot(), anchor)?.textContent ?? null);
     const bounds = doc.sections[anchor];

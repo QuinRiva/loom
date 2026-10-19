@@ -110,8 +110,6 @@ export const tabBlock: PlanBlock<TabData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
-
 type TabElementProps = { label?: unknown; id?: unknown };
 
 export function TabsRead({ data, blockId, children }: PlanBlockReadProps<TabsData>) {

@@ -124,7 +124,7 @@ function TimelineFixture({ threadId }: { threadId: ThreadId }) {
   );
 }
 
-// ---- the sidebar rollup badge: one row per tone, the yield cases, the real rows ----
+// The sidebar rollup badge: one row per tone, the yield cases, the real rows.
 
 const BADGE_T0 = DateTime.makeUnsafe("2026-10-05T09:00:00.000Z");
 /** An ISO stamp `minutes` after the fixtures' clock. */

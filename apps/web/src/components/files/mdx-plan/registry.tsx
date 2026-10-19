@@ -175,9 +175,7 @@ export const PLAN_BLOCK_COMPONENTS: Record<string, FC<Record<string, unknown>>> 
   UnknownPlanBlock,
 };
 
-/* -------------------------------------------------------------------------- */
 /* Byte-stable MDX round-trip (authoring / import contract)                   */
-/* -------------------------------------------------------------------------- */
 
 /** Serialize block `data` → a self-closing MDX element string. */
 export function serializePlanBlock(entry: RegisteredBlock, data: unknown): string {

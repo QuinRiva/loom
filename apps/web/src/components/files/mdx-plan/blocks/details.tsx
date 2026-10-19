@@ -1,5 +1,5 @@
 import { IconChevronRight } from "@tabler/icons-react";
-import { type ReactNode, useContext, useEffect, useState } from "react";
+import { type ReactNode, useContext, useState } from "react";
 import { z } from "zod";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
@@ -58,9 +58,7 @@ export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<Deta
   // active draft's comments change. Mount-and-retain then, so a persisted
   // comment inside a never-opened disclosure resolves as `collapsed`, not
   // `detached`. Retained if eager later flips back to false.
-  useEffect(() => {
-    if (eager) setMounted(true);
-  }, [eager]);
+  if (eager && !mounted) setMounted(true);
   return (
     <details
       data-plan-block-id={blockId}

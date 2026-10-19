@@ -313,6 +313,7 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
 
   useEffect(() => {
     let active = true;
+    // oxlint-disable-next-line react/set-state-in-effect -- A new source starts a compile, which shows as compiling until it settles.
     setError(null);
     setCompiling(true);
     void loadPlanDocument(source, referenceLinks)
@@ -338,11 +339,13 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
     if (!containerRef.current) return;
     assignBlockIds(containerRef.current);
     stampBleedingBlocks(containerRef.current);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- New content is a freshly rendered document to stamp.
   }, [content]);
 
   // Before paint, so the outline row never pops in above an already-painted page.
   useLayoutEffect(() => {
     if (containerRef.current) setOutline(readOutline(containerRef.current));
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The outline is read from the DOM the new content rendered.
   }, [content]);
 
   if (error !== null) {

@@ -114,9 +114,7 @@ function namedFirst(accounts: readonly LimitAccount[]): readonly LimitAccount[] 
   return accounts.filter((account) => accountLabel(account) !== null || !named.has(account.driver));
 }
 
-// ---------------------------------------------------------------------------
 // Burn rate: a ring of the last readings per account-window.
-// ---------------------------------------------------------------------------
 
 interface Reading {
   readonly at: number;
@@ -185,9 +183,7 @@ function burnOf(readings: readonly Reading[], used: number, elapsedMs: number): 
   return elapsedMs >= RATE_MIN_SPAN ? { rate: (used / elapsedMs) * HOUR, coarse: true } : null;
 }
 
-// ---------------------------------------------------------------------------
 // Rows
-// ---------------------------------------------------------------------------
 
 export type MeterTone = "quiet" | "warning" | "destructive";
 export type MeterMark = "risk" | "opp";
@@ -403,9 +399,7 @@ export function derivePools(
   return pools.sort((left, right) => Number(right.pool !== null) - Number(left.pool !== null));
 }
 
-// ---------------------------------------------------------------------------
 // Reading the live presentations
-// ---------------------------------------------------------------------------
 
 /** How often the countdown moves, and the bucket the derive is cached in. */
 export const METER_TICK_MS = 30_000;

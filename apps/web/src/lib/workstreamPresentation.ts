@@ -106,9 +106,7 @@ export const liveNodes = (nodes: Iterable<WorkstreamNode>) =>
 export const isRunning = (node: Pick<WorkstreamNode, "activity">) =>
   node.activity === "preparing" || node.activity === "starting" || node.activity === "running";
 
-// ---------------------------------------------------------------------------
 // Columns
-// ---------------------------------------------------------------------------
 
 export const COLUMN_ORDER: ReadonlyArray<WorkstreamBoardColumn> = [
   "held",
@@ -179,9 +177,7 @@ export const COLUMN_STYLES = {
   },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
 
-// ---------------------------------------------------------------------------
 // Attention
-// ---------------------------------------------------------------------------
 
 export const ATTENTION_LABELS = {
   error: "Error / stalled",
@@ -218,9 +214,7 @@ export const ATTENTION_COLORS = {
   "brief-needed": "var(--color-muted-foreground)",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
-// ---------------------------------------------------------------------------
 // Review gates — the verdict chip, the gate-leg label, the loop round cap
-// ---------------------------------------------------------------------------
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "error";
 
@@ -323,9 +317,7 @@ export function getGateWaitLabel(node: WorkstreamNode, byId: WorkstreamNodeIndex
   };
 }
 
-// ---------------------------------------------------------------------------
 // Card copy
-// ---------------------------------------------------------------------------
 
 export const getRoleLabel = (node: Pick<WorkstreamNode, "role" | "parentThreadId">) =>
   node.role?.trim() || (node.parentThreadId === null ? "root" : "sub-thread");
@@ -471,9 +463,7 @@ export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): stri
   return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
 }
 
-// ---------------------------------------------------------------------------
 // Current step — the tool in flight, or the model between tool calls
-// ---------------------------------------------------------------------------
 
 /** A step this long reads amber: the signature of a stalled tool call or model request. */
 export const LONG_STEP_MS = 5 * 60_000;
@@ -508,9 +498,7 @@ export function formatStepAge(since: string, now: number): string | null {
   return seconds === null || seconds < 60 ? null : formatCompactAge(since, now);
 }
 
-// ---------------------------------------------------------------------------
 // Controls — the node menu (outcome replaces V1's lane select)
-// ---------------------------------------------------------------------------
 
 export type WorkstreamNodeMenuAction =
   | "open"
@@ -550,9 +538,7 @@ export function buildNodeContextMenuItems(
   ];
 }
 
-// ---------------------------------------------------------------------------
 // Timeline — the sidecar's milestones plus the thread's event history
-// ---------------------------------------------------------------------------
 
 /** A place in a thread's conversation: the latest row at or before `at`. */
 export interface ConversationAnchor {

@@ -135,6 +135,7 @@ export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThre
   useEffect(() => {
     const activeTab = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Switching threads scrolls the newly active tab into view.
   }, [activeRouteKey]);
 
   if (tabs.length === 0) return null;

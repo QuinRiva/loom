@@ -274,9 +274,7 @@ function SandboxedHtmlFrame({
   );
 }
 
-/* -------------------------------------------------------------------------- */
 /* <Prototype> (C4) — interactive sandboxed prototype                          */
-/* -------------------------------------------------------------------------- */
 
 export interface PrototypeData {
   /** Self-contained interactive HTML/JS document (runs in the opaque-origin sandbox). */
@@ -327,9 +325,7 @@ export const prototypeBlock: PlanBlock<PrototypeData> = {
   Read: PrototypeRead,
 };
 
-/* -------------------------------------------------------------------------- */
 /* <HtmlBlock> (B5) — static arbitrary-HTML display                            */
-/* -------------------------------------------------------------------------- */
 
 export interface HtmlBlockData {
   /** Arbitrary static HTML (rendered with scripts disabled by the sandbox). */

@@ -315,7 +315,7 @@ const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
 
 const BARE_EXTENSIONLESS_POSITION_PATTERN = /^[A-Za-z0-9_-]+(?::\d+){1,2}$/;
 
-// Any `Name:digits` shape also matches `error:1`, `port:3000`, `TODO:12`, so
+// Any `Name:digits` shape also matches `error:1`, `port:3000` or a todo marker, so
 // extensionless linking is limited to conventional filenames.
 const EXTENSIONLESS_FILE_NAMES = new Set([
   "Makefile",

@@ -104,6 +104,7 @@ export function SearchableModelList(props: {
   };
 
   useLayoutEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- A new result list resets the fades before paint; the measured ones follow a frame later.
     setShowTopScrollFade(false);
     setShowBottomScrollFade(visibleKeys.length > 5);
     let nestedFrame = 0;
