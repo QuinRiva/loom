@@ -7,15 +7,18 @@ import {
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
+  loginAlerts, // loom
   type LimitAccount,
   type LimitPool,
   type LimitPoolMember,
   type LimitPoolWindow,
   remainingPercent,
+  unlinkedUsageSources, // loom
 } from "@t3tools/shared/usageLimits";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
 
+import { HubLoginNotices } from "../../loom/HubLoginNotices"; // loom
 import { ensureLocalApi } from "../../localApi";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -583,6 +586,9 @@ export function UsageLimitsPooled({
 }) {
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
+  // loom: hub logins that need the user, and usage sources no hub account matches
+  const logins = loginAlerts(presentations, now);
+  const unlinked = unlinkedUsageSources(presentations).map((source) => source.notice);
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =
     Math.max(
@@ -591,7 +597,14 @@ export function UsageLimitsPooled({
     ) + 1;
   return (
     <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && !cursorPrompt && externalLinks.length === 0 ? (
+      {/* loom: a login that needs the user leads, above the pools it is missing from */}
+      <HubLoginNotices alerts={logins} />
+      <LimitNotices notices={unlinked} variant="error" />
+      {pools.length === 0 &&
+      notices.length === 0 &&
+      logins.length + unlinked.length === 0 &&
+      !cursorPrompt &&
+      externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No provider on the selected environments reports subscription limits.
         </p>
@@ -639,10 +652,16 @@ export function UsageLimitsPooled({
 }
 
 /** Sources and providers that could not be read, so a missing bar is not mistaken for a full one. */
-function LimitNotices({ notices }: { readonly notices: readonly string[] }) {
+function LimitNotices({
+  notices,
+  variant = "warning", // loom: "error" for login alerts
+}: {
+  readonly notices: readonly string[];
+  readonly variant?: "warning" | "error";
+}) {
   if (notices.length === 0) return null;
   return (
-    <Alert variant="warning" controlAlignment="first-line">
+    <Alert variant={variant} controlAlignment="first-line">
       <AlertTriangleIcon />
       {notices.map((notice) => (
         <AlertTitle key={notice} className="break-words">

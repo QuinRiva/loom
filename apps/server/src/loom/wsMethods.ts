@@ -7,8 +7,9 @@
  * Seam 21 (integrated): 3b's drafter methods, 3d's goal methods (each writes
  * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
  * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438),
- * the timeline's outcome history (DL-620), the consult card's Stop, and the
- * Prompt button's captured-prompt lookup.
+ * the timeline's outcome history (DL-620), the consult card's Stop, the
+ * Prompt button's captured-prompt lookup, and the hub login dialog's two calls
+ * (thin over `UsageLimitSources`).
  *
  * @module loom/wsMethods
  */
@@ -29,6 +30,8 @@ import {
   type LoomTopSpendInput,
   LoomWsMethodError,
   type RetroDraftInput,
+  type UsageLimitSourceLoginFinishInput,
+  type UsageLimitSourceLoginStartInput,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -43,6 +46,7 @@ import { launchRetro, RETRO_RUNS_DIR } from "./handoff/retroDraft.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
 import { promptCapturePathsOf } from "./loomPaths.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
+import { UsageLimitSources } from "../usage/UsageLimitSources.ts";
 import {
   type LoomGoalTaskInput,
   type LoomStoreError,
@@ -119,6 +123,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const usageLedger = yield* LoomUsageLedger;
   const consult = yield* LoomThreadConsult;
+  const usageLimitSources = yield* UsageLimitSources;
   const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
 
   const fail = (method: string, message: string, cause?: unknown) =>
@@ -228,6 +233,11 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
           );
         return { latest: yield* present(latest), first: yield* present(first) };
       }),
+    // The hub login reminder's Log in… dialog.
+    [LOOM_WS_METHODS.usageLimitSourceLoginStart]: (input: UsageLimitSourceLoginStartInput) =>
+      usageLimitSources.loginStart(input),
+    [LOOM_WS_METHODS.usageLimitSourceLoginFinish]: (input: UsageLimitSourceLoginFinishInput) =>
+      usageLimitSources.loginFinish(input),
   };
 });
 

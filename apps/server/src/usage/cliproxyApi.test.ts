@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
-import { makeCliproxyApi } from "./cliproxyApi.ts";
+import { makeCliproxyApi, trafficUsageLimits } from "./cliproxyApi.ts";
 
 const config = {
   kind: "cliproxy",
@@ -46,10 +46,23 @@ const RequestBody = Schema.Struct({
 type RequestBody = typeof RequestBody.Type;
 const decodeRequest = Schema.decodeUnknownSync(Schema.fromJsonString(RequestBody));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+type Api = Effect.Success<typeof makeCliproxyApi>;
+const readAll = (api: Api, previous: Parameters<Api["readAccounts"]>[1]) =>
+  api
+    .listAccounts(config)
+    .pipe(Effect.flatMap((files) => api.readAccounts(config, previous, files)));
 
 function fixture(
   options: {
-    accounts?: Array<(typeof accounts)[number] & { disabled?: boolean }>;
+    accounts?: Array<
+      (typeof accounts)[number] & {
+        disabled?: boolean;
+        status?: string;
+        status_message?: string;
+        last_refresh?: string;
+        model_quotas?: Parameters<typeof trafficUsageLimits>[0];
+      }
+    >;
     upstream?: (request: RequestBody) => { status: number; body: unknown };
     cooldownStatus?: number;
   } = {},
@@ -123,7 +136,7 @@ describe("CLIProxyAPI built-in management API", () => {
         yield* TestClock.setTime(1788710400000);
         const test = fixture();
         const api = yield* test.api;
-        const result = yield* api.readAccounts(config, []);
+        const result = yield* readAll(api, []);
         expect(result.map((account) => account.usageLimits.resetCredits)).toEqual([
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
           { availableCount: 2, nextCreditId: "first", nextExpiresAt: "2099-01-01T00:00:00.000Z" },
@@ -155,7 +168,7 @@ describe("CLIProxyAPI built-in management API", () => {
             : { status: 200, body: { rate_limit: { primary_window: { used_percent: 12 } } } },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(result[0]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(result[0]?.usageLimits.resetCredits).toBeUndefined();
     }),
@@ -175,7 +188,7 @@ describe("CLIProxyAPI built-in management API", () => {
               },
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(result[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
       expect(result[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
       expect(encodeJson(result)).not.toContain("do-not-publish");
@@ -209,19 +222,53 @@ describe("CLIProxyAPI built-in management API", () => {
       });
       const recent = good("first.json", "2026-09-30T11:35:00.000Z");
 
-      const carried = yield* api.readAccounts(config, [
+      const carried = yield* readAll(api, [
         recent,
         good("gone.json", recent.usageLimits.checkedAt),
       ]);
-      expect(carried[0]).toBe(recent);
+      expect(carried[0]).toEqual({ ...recent, login: { status: "healthy" } });
       // Only the failed account is carried; the other is read fresh, and a
       // previous account the hub no longer lists is not resurrected.
       expect(carried.map((account) => account.id)).toEqual(["first.json", "second.json"]);
       expect(carried[1]?.usageLimits.windows[0]?.usedPercent).toBe(12);
 
       const old = good("first.json", "2026-09-30T11:29:00.000Z");
-      const expired = yield* api.readAccounts(config, [old]);
+      const expired = yield* readAll(api, [old]);
       expect(expired[0]?.usageLimits.unavailable?.reason).toBe("probeFailed");
+    }),
+  );
+
+  // loom: the hub's real reason, not the generic probe failure, and no reading
+  // (fresh or carried) for an account that cannot serve a request.
+  it.effect("reports a signed-out account with the hub's reason and does not read it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-19T02:16:00.000Z"));
+      const test = fixture({
+        accounts: [
+          {
+            ...accounts[0]!,
+            provider: "claude",
+            status: "error",
+            status_message: "token expired",
+            last_refresh: "2026-10-18T22:26:29+11:00",
+          },
+        ],
+      });
+      const api = yield* test.api;
+      const [account] = yield* readAll(api, [
+        {
+          id: "first.json",
+          driver: ProviderDriverKind.make("claudeAgent"),
+          usageLimits: { checkedAt: "2026-10-19T02:10:00.000Z", windows: [] },
+        },
+      ]);
+      expect(account?.login).toEqual({
+        status: "dead",
+        expiresAt: "2026-10-18T19:26:29.000Z",
+        reason: "token expired",
+      });
+      expect(account?.usageLimits.unavailable?.message).toContain("token expired");
+      expect(test.requests.filter((request) => request.body?.url)).toEqual([]);
     }),
   );
 
@@ -246,12 +293,126 @@ describe("CLIProxyAPI built-in management API", () => {
         }),
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config, []);
+      const result = yield* readAll(api, []);
       expect(
         result[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
       ).toEqual([
         ["five_hour", 10],
         ["seven_day", 50],
+        ["seven_day_fable", 80],
+      ]);
+    }),
+  );
+
+  // loom: Anthropic's rate-limit headers as the hub saw them on real traffic.
+  const signals = (fiveHour: string, sevenDay: string, fable?: string) => ({
+    "Anthropic-Ratelimit-Unified-5h-Utilization": fiveHour,
+    "Anthropic-Ratelimit-Unified-5h-Reset": "1792395000",
+    "Anthropic-Ratelimit-Unified-7d-Utilization": sevenDay,
+    "Anthropic-Ratelimit-Unified-7d-Reset": "1792440000",
+    ...(fable
+      ? {
+          "Anthropic-Ratelimit-Unified-7d_oi-Utilization": fable,
+          "Anthropic-Ratelimit-Unified-7d_oi-Reset": "1792440000",
+        }
+      : {}),
+  });
+  const quotas = {
+    "claude-fable-5-1": {
+      observed_at: "2026-10-19T16:50:00+11:00",
+      signals: signals("0.26", "0.64", "1.0"),
+    },
+    "claude-opus-5-5": {
+      observed_at: "2026-10-19T17:14:14+11:00",
+      signals: signals("0.34", "0.65"),
+    },
+    "claude-opus-5": { observed_at: "2026-10-14T20:52:32+11:00", signals: signals("0.99", "0.99") },
+  };
+
+  it("maps the freshest traffic headers to windows, dated when the hub saw them", () => {
+    const limits = trafficUsageLimits(quotas, Date.parse("2026-10-19T17:15:00+11:00"));
+    expect(limits?.checkedAt).toBe("2026-10-19T06:14:14.000Z");
+    expect(
+      limits?.windows.map((window) => [
+        window.id,
+        window.label,
+        window.usedPercent,
+        window.resetsAt,
+      ]),
+    ).toEqual([
+      ["five_hour", "Session", 34, "2026-10-19T07:30:00.000Z"],
+      ["seven_day", "Weekly", 65, "2026-10-19T20:00:00.000Z"],
+      ["seven_day_fable", "Weekly \u00b7 Fable", 100, "2026-10-19T20:00:00.000Z"],
+    ]);
+    // Over 30 minutes on, a window is dropped unless it was exhausted: that
+    // holds until its reset; after that there is no reading.
+    const later = trafficUsageLimits(quotas, Date.parse("2026-10-19T19:00:00+11:00"));
+    expect(later?.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+      ["seven_day_fable", 100],
+    ]);
+    expect(later?.checkedAt).toBe("2026-10-19T05:50:00.000Z");
+    expect(trafficUsageLimits(quotas, Date.parse("2026-10-20T08:00:00+11:00"))).toBeUndefined();
+  });
+
+  it.effect("falls back to traffic headers, and never asks for a one-year token's usage", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-19T17:15:00+11:00"));
+      const test = fixture({
+        accounts: [
+          { ...accounts[0]!, provider: "claude", model_quotas: quotas },
+          { ...accounts[1]!, provider: "claude" },
+        ],
+        upstream: () => ({ status: 429, body: {} }),
+      });
+      const api = yield* test.api;
+      const [login, token] = yield* api
+        .listAccounts(config)
+        .pipe(
+          Effect.flatMap((files) =>
+            api.readAccounts(config, [], files, (email) =>
+              email === "second@example.com"
+                ? { fingerprint: "hash", lifetimeDays: 365 }
+                : undefined,
+            ),
+          ),
+        );
+      expect(login?.usageLimits.checkedAt).toBe("2026-10-19T06:14:14.000Z");
+      expect(login?.usageLimits.windows.map((window) => window.usedPercent)).toEqual([34, 65, 100]);
+      expect(token?.usageLimits.unavailable?.message).toContain("one-year token");
+      expect(test.requests.flatMap((request) => request.body?.auth_index ?? [])).toEqual(["a"]);
+
+      // A browser login's traffic with no Fable reading keeps the carried Fable weekly.
+      const opusOnly = yield* fixture({
+        accounts: [
+          {
+            ...accounts[0]!,
+            provider: "claude",
+            model_quotas: { "claude-opus-5-5": quotas["claude-opus-5-5"] },
+          },
+        ],
+        upstream: () => ({ status: 429, body: {} }),
+      }).api;
+      const [merged] = yield* readAll(opusOnly, [
+        {
+          id: "first.json",
+          driver: ProviderDriverKind.make("claudeAgent"),
+          usageLimits: {
+            checkedAt: "2026-10-19T06:00:00.000Z",
+            windows: [
+              { id: "seven_day", kind: "weekly", label: "Weekly", usedPercent: 60 },
+              {
+                id: "seven_day_fable",
+                kind: "weekly",
+                label: "Weekly \u00b7 Fable",
+                usedPercent: 80,
+              },
+            ],
+          },
+        },
+      ]);
+      expect(merged?.usageLimits.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+        ["five_hour", 34],
+        ["seven_day", 65],
         ["seven_day_fable", 80],
       ]);
     }),
@@ -311,7 +472,7 @@ describe("CLIProxyAPI built-in management API", () => {
     Effect.gen(function* () {
       const test = fixture({ accounts: [{ ...accounts[0]!, disabled: true }] });
       const api = yield* test.api;
-      expect(yield* api.readAccounts(config, [])).toEqual([]);
+      expect(yield* readAll(api, [])).toEqual([]);
       expect((yield* api.consume(config, "first.json", "credit").pipe(Effect.result))._tag).toBe(
         "Failure",
       );

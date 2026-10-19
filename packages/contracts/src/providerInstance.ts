@@ -127,7 +127,11 @@ export type ProviderUsageSourceKind = typeof ProviderUsageSourceKind.Type;
 
 export const ProviderUsageSource = Schema.Struct({
   kind: ProviderUsageSourceKind,
-  /** Path to a JSON token file on disk; leading `~` expands to the home dir. */
+  /**
+   * Path to a JSON token file on disk; leading `~` expands to the home dir.
+   * A cliproxy auth file is followed by its email through renames
+   * (`usageSourceAccounts` in `@t3tools/shared/usageLimits`).
+   */
   tokenFile: TrimmedNonEmptyString,
   /** Flat field holding the bearer token in that JSON. Default `access_token`. */
   tokenField: Schema.optional(TrimmedNonEmptyString),

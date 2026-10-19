@@ -35,6 +35,7 @@ import { NightlyMobileBetaNotice } from "../components/NightlyMobileBeta";
 import { LegacyThreadMigrationToast } from "../components/LegacyThreadMigrationToast";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { HandoffToastCoordinator } from "../loom/HandoffToastCoordinator"; // loom:
+import { HubLoginDialogHost } from "../loom/HubLoginDialog"; // loom
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { PullRequestGuideRunCoordinator } from "../components/pullRequest/guide/PullRequestGuideRunCoordinator";
@@ -268,6 +269,8 @@ function RootRouteView() {
           <ThreadNotificationCoordinator />
           {/* loom: a /handoff failure reaches you on any thread */}
           <HandoffToastCoordinator />
+          {/* loom: the hub login dialog, opened from the composer banner and the Usage page */}
+          <HubLoginDialogHost />
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />

@@ -8,10 +8,12 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
+  AuthProvidersManageScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   ThreadId,
   EnvironmentId,
+  LOOM_WS_METHODS,
   ScheduledTaskId,
   WS_METHODS,
   type AuthSessionState,
@@ -102,6 +104,34 @@ describe("command permissions", () => {
         );
         expect(registry.get(check.permissionAtom(env))).toBe(true);
         yield* check.authorize(registry, env);
+      }),
+    ),
+  );
+
+  // loom: the hub login dialog signs an account in on the destination's hub.
+  it.effect.each([
+    LOOM_WS_METHODS.usageLimitSourceLoginStart,
+    LOOM_WS_METHODS.usageLimitSourceLoginFinish,
+  ])("requires the destination providers grant for %s", (method) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const login = createCommandPermissions(runtime, method);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(login.permissionAtom(env))).toBe(false);
+        expect((yield* login.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthProvidersManageScope],
+            permissions: [AuthProvidersManageScope],
+          }),
+        );
+        expect(registry.get(login.permissionAtom(env))).toBe(true);
+        yield* login.authorize(registry, env);
       }),
     ),
   );

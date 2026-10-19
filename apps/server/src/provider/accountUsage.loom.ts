@@ -50,6 +50,12 @@ export interface AccountUsageSnapshot {
   readonly observedAt: string;
   /** Explicit provider exhaustion flag (Codex `limit_reached`), account-wide. */
   readonly limitReached?: boolean;
+  /**
+   * The account's login is dead: it has no quota to offer, so its windows are
+   * dropped rather than merged (a stale reading must not pass for headroom).
+   * Sent with `limitReached`, so a pool is exhausted once every account is.
+   */
+  readonly signedOut?: boolean;
 }
 
 type RoutingIdentity = Pick<AccountUsageSnapshot, "providerInstanceId" | "providerName">;
@@ -79,6 +85,7 @@ export const mergeAccountUsage = (
   const byKey = new Map(
     (existing?.windows ?? []).map((window) => [windowMergeKey(window), window] as const),
   );
+  if (incoming.signedOut) byKey.clear();
   for (const window of incoming.windows) byKey.set(windowMergeKey(window), window);
   const next = new Map(store);
   next.set(accountUsageStorageKey(incoming), {

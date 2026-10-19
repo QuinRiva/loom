@@ -21,6 +21,7 @@ import {
   type ServerSettings,
 } from "@t3tools/contracts";
 
+import { usageSourceAccounts } from "@t3tools/shared/usageLimits"; // loom
 import { encodeUsageWindowId, usageWindowAccountPrefix } from "@t3tools/shared/usageWindowId";
 
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -413,12 +414,36 @@ const make = Effect.gen(function* () {
   // Instance-scoped usage sources (§Option B): an instance's config can declare
   // its own token files (e.g. a router proxy pooling several subscriptions, each
   // kept fresh on disk). We read the token FRESH every cycle — never cache it,
-  // never attempt OAuth refresh; the external proxy owns refresh. A missing or
-  // unreadable token file is a quiet debug-level skip.
+  // never attempt OAuth refresh; the external proxy owns refresh. A token file
+  // that is gone fails the poll, which warns with backoff.
   const TokenFileSchema = Schema.Record(Schema.String, Schema.Unknown);
+  const readJson = (file: string) =>
+    fileSystem
+      .readFileString(file)
+      .pipe(Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(TokenFileSchema))));
+  // loom: cliproxy renames an auth file on re-login, so a configured file that
+  // is gone resolves to the file beside it naming the same account by email.
+  const resolveTokenFile = (tokenFile: string) =>
+    Effect.gen(function* () {
+      if (yield* fileSystem.exists(tokenFile)) return tokenFile;
+      const dir = path.dirname(tokenFile);
+      const files = yield* Effect.forEach(
+        (yield* fileSystem.readDirectory(dir)).filter((name) => name.endsWith(".json")),
+        (id) =>
+          readJson(path.join(dir, id)).pipe(
+            Effect.map((json) => ({
+              id,
+              email: typeof json.email === "string" ? json.email : undefined,
+            })),
+            Effect.orElseSucceed(() => ({ id, email: undefined })),
+          ),
+      );
+      const match = usageSourceAccounts(tokenFile, files)[0];
+      return match ? path.join(dir, match.id) : tokenFile;
+    });
   const readSourceToken = (source: ProviderUsageSource) =>
-    fileSystem.readFileString(expandHome(source.tokenFile)).pipe(
-      Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(TokenFileSchema))),
+    resolveTokenFile(expandHome(source.tokenFile)).pipe(
+      Effect.flatMap(readJson),
       Effect.map((json) => {
         const value = json[source.tokenField ?? "access_token"];
         return typeof value === "string" && value.length > 0 ? value : null;
@@ -437,25 +462,36 @@ const make = Effect.gen(function* () {
         providerInstanceId: instanceId,
         accountLabel: label,
       };
-      // These pooled accounts ARE the hub's: it reads the same auth file (its
-      // account id is the file's name) on its own refresh. Reading it here too
+      // These pooled accounts ARE the hub's: it reads the same auth file on its
+      // own refresh (linked by `usageSourceAccounts`, which survives the hub
+      // renaming the file on re-login). Reading it here too
       // doubled the load on a 429-ing endpoint, so failover — loom's only
       // per-account exhaustion signal — takes the hub's reading, stamped with
       // when the hub took it, and nothing is published (the hub draws the bar).
       if (yield* standDownForHub) {
-        const tokenFile = path.basename(expandHome(source.tokenFile));
-        const reading = (yield* usageLimitSources.current)
-          .flatMap((hub) => hub.accounts)
-          .filter(
-            (account) =>
-              account.id === tokenFile &&
-              account.driver === "claudeAgent" &&
-              !account.usageLimits.unavailable,
-          )
-          .toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt))[0];
+        const accounts = usageSourceAccounts(
+          source.tokenFile,
+          (yield* usageLimitSources.current)
+            .flatMap((hub) => hub.accounts)
+            .filter((account) => account.driver === "claudeAgent"),
+        ).toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt));
+        // loom: a signed-out account is no headroom, however good its last reading.
+        const dead = accounts[0];
+        if (dead?.login?.status === "dead") {
+          yield* health.applyUsage({
+            ...attribution,
+            windows: [],
+            limitReached: true,
+            signedOut: true,
+            observedAt: dead.usageLimits.checkedAt,
+          });
+          return;
+        }
+        const reading = accounts.find((account) => !account.usageLimits.unavailable);
         if (!reading) {
+          // loom: clients flag a source no hub account matches (`unlinkedUsageSources`).
           yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
-            tokenFile,
+            tokenFile: source.tokenFile,
           });
           return;
         }
@@ -466,14 +502,7 @@ const make = Effect.gen(function* () {
         });
         return;
       }
-      const token = yield* readSourceToken(source).pipe(
-        Effect.catch(() =>
-          Effect.logDebug(
-            `subscription-usage poller: ${label} token file missing/unreadable; skipping`,
-            { tokenFile: source.tokenFile },
-          ).pipe(Effect.as(null)),
-        ),
-      );
+      const token = yield* readSourceToken(source);
       if (!token) return;
       yield* feed(attribution, yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs));
     });
