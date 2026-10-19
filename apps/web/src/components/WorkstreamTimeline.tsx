@@ -49,6 +49,7 @@ export function useThreadHistory(
     return () => {
       cancelled = true;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A thread update re-reads its history.
   }, [environmentId, threadId, updatedAt, load]);
   return loaded !== null && loaded.threadId === threadId ? loaded.entries : null;
 }

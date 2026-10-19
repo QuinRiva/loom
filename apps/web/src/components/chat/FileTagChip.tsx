@@ -14,7 +14,6 @@ export function ThreadTagChipContent(props: { label: string }) {
   );
 }
 
-/** Icon and label for a file mention; render inside `<ContextChip kind="mention">`. */
 export function FileTagChipContent(props: {
   path: string;
   label: string;

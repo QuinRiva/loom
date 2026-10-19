@@ -198,7 +198,7 @@ describe("resolveInlineCodeFileLinkMeta", () => {
     });
   });
 
-  // --- false positives that must NOT linkify ---
+  // False positives that must NOT linkify.
 
   it("does not link property/method accesses", () => {
     expect(links("foo.bar")).toBeNull();

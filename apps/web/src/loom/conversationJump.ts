@@ -12,7 +12,7 @@
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { RunId } from "@t3tools/contracts";
-import { type RefObject, useEffect, useMemo, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 import { create } from "zustand";
 
 import type { MessagesTimelineRow } from "../components/chat/MessagesTimeline.logic";
@@ -64,10 +64,7 @@ export function useConversationJump({
   readonly onManualNavigation: () => void;
 }): boolean {
   const request = useConversationJumpStore((store) => store.request);
-  const threadId = useMemo(
-    () => parseScopedThreadKey(routeThreadKey)?.threadId ?? null,
-    [routeThreadKey],
-  );
+  const threadId = parseScopedThreadKey(routeThreadKey)?.threadId ?? null;
   // Per request: the history cursors already paged and the turns already unfolded.
   const tried = useRef({ request, pages: new Set<string>(), opened: new Set<string>() });
   const pending = request !== null && request.threadId === threadId;

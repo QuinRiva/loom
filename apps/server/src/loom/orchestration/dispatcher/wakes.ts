@@ -272,9 +272,7 @@ export const renderWakeSingle = (member: WakeMember): string => {
     .join("\n");
 };
 
-// ---------------------------------------------------------------------------
 // Slow-tool ladder (informational; the notice joins the parent's FYI digest).
-// ---------------------------------------------------------------------------
 
 /** First notice after 5 min of quiet, again at 15 and 30, then every 30 min. */
 const SLOW_TOOL_NOTICE_STEPS_MS: ReadonlyArray<number> = [300_000, 900_000, 1_800_000];
@@ -357,11 +355,9 @@ export const slowToolEstimateClause = (input: {
     : `child estimated ~${estimateMinutes} min, not yet reached — the honoured estimate was capped at the ${capMinutes}-min safety ceiling`;
 };
 
-// ---------------------------------------------------------------------------
 // Per-child notices (the attention rail's). V1's `idle` ("forgot to finish") is
 // gone: the quiescence rail replaces it and reaches the parent as a synthesised
 // yield (`yield.ts`); slow tools and recoveries are digest items (`digest.ts`).
-// ---------------------------------------------------------------------------
 
 /**
  * Composes a per-child notice: which child errored or paused, a reference to

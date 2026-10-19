@@ -1,6 +1,5 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { childrenOf, descendantsOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
-import { useMemo } from "react";
 
 import { formatCostUsd } from "./costFormat";
 import { useSpendOf } from "./threadSpend";
@@ -16,17 +15,16 @@ import { useWorkstreamNodes } from "./workstreamState";
  */
 export function LoomContextSpend({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const { nodes } = useWorkstreamNodes(threadRef.environmentId);
-  const { subtreeIds, branches } = useMemo(() => {
-    const all = [...nodes.values()];
-    return {
-      subtreeIds: [threadRef.threadId, ...descendantsOf(threadRef.threadId, all).map((n) => n.id)],
-      branches: childrenOf(threadRef.threadId, all).map((child) => ({
-        id: child.id,
-        title: child.title,
-        ids: subtreeOf(child.id, all).map((n) => n.id),
-      })),
-    };
-  }, [nodes, threadRef.threadId]);
+  const all = [...nodes.values()];
+  const subtreeIds = [
+    threadRef.threadId,
+    ...descendantsOf(threadRef.threadId, all).map((n) => n.id),
+  ];
+  const branches = childrenOf(threadRef.threadId, all).map((child) => ({
+    id: child.id,
+    title: child.title,
+    ids: subtreeOf(child.id, all).map((n) => n.id),
+  }));
   const descendantCount = subtreeIds.length - 1;
   const costOf = useSpendOf(threadRef.environmentId, subtreeIds);
   const own = costOf(threadRef.threadId);

@@ -147,9 +147,7 @@ export function detectLogin(
   };
 }
 
-// ---------------------------------------------------------------------------
 // The schedule, on calendar days numbered from the epoch (UTC midnights).
-// ---------------------------------------------------------------------------
 
 const dayFormat = new Map<string, Intl.DateTimeFormat>();
 /** The calendar day an instant falls on in `timeZone`. */
@@ -239,9 +237,7 @@ export function reloginSchedule(
   return schedule;
 }
 
-// ---------------------------------------------------------------------------
 // The record file.
-// ---------------------------------------------------------------------------
 
 /** The record, or none when the file is absent; a corrupt file is logged and replaced. */
 export const loadHubLogins = (path: string) =>

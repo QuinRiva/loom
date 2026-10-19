@@ -25,10 +25,11 @@ const at = "2026-01-01T00:00:00.000Z";
 // t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
 // (upstream lane at 054, Loom lane at 1045, with 1045's search triggers on the
 // goal tables) is copied to `statev2.sqlite` by `initializeV2Database` and
-// migrated by the live Sqlite layer: the Loom lane runs to its head (1059), V1's goal,
+// migrated by the live Sqlite layer: the Loom lane runs to its head (1060), V1's goal,
 // consult, peer-message and usage-ledger rows survive the renames (1048, 1049),
-// and upstream's ledger is exactly upstream's manifest.
-it.effect("migrates a copied V1 database to 1059 with the renamed tables' rows intact", () => {
+// upstream's ledger is exactly upstream's manifest, and the search index survives
+// with its goal triggers following the rename.
+it.effect("migrates a copied V1 database to 1060 with the renamed tables' rows intact", () => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-v1copy-"));
   const seed = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -65,7 +66,6 @@ it.effect("migrates a copied V1 database to 1059 with the renamed tables' rows i
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
       assert.deepEqual(loomLedger.slice(-10), [
-        { id: 1050, name: "LoomThreadReroute" },
         { id: 1051, name: "LoomLegacyImports" },
         { id: 1052, name: "LoomControlMessageRows" },
         { id: 1053, name: "LoomCardMetrics" },
@@ -75,6 +75,7 @@ it.effect("migrates a copied V1 database to 1059 with the renamed tables' rows i
         { id: 1057, name: "LoomThreadCacheWarming" },
         { id: 1058, name: "LoomKickoffOrigin" },
         { id: 1059, name: "LoomThreadSnoozeRequests" },
+        { id: 1060, name: "DropThreadSearchMessageTriggers" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;
@@ -158,17 +159,25 @@ it.effect("migrates a copied V1 database to 1059 with the renamed tables' rows i
       assert.isTrue(Exit.isFailure(yield* Effect.exit(turnRow("usage-5"))));
       // 1050: the reroute record exists and starts empty.
       assert.deepEqual(yield* sql`SELECT * FROM loom_thread_reroute`, []);
-      // The goal FK and 1045's search triggers followed the rename.
+      // The goal FK and the search triggers followed the rename; the index is kept.
       const fk = yield* sql<{ readonly table: string }>`
         SELECT "table" FROM pragma_foreign_key_list('loom_goal_tasks')`;
       assert.deepEqual(
         fk.map((row) => row.table),
         ["loom_goals"],
       );
-      const goalTriggers = yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'loom_goals'`;
-      assert.lengthOf(goalTriggers, 3);
+      assert.includeMembers(tables, ["loom_thread_search", "loom_thread_embeddings"]);
       yield* sql`UPDATE loom_goals SET title = 'Renamed' WHERE goal_id = 'goal-1'`;
+      assert.deepEqual(
+        yield* sql`SELECT kind, text FROM loom_thread_search WHERE goal_id = 'goal-1' ORDER BY kind`,
+        [
+          { kind: "goal", text: "Renamed\nWhy" },
+          { kind: "task", text: "First task" },
+          { kind: "task", text: "Nested task" },
+        ],
+      );
+      yield* sql`INSERT INTO projection_thread_messages (message_id, thread_id, role, text, is_streaming, created_at, updated_at)
+        VALUES ('message-1', 'thread-a', 'assistant', 'hi', 0, ${at}, ${at})`;
     }).pipe(Effect.provide(databaseLayer));
   }).pipe(
     Effect.provide(

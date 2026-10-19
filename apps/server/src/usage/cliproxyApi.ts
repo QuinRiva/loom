@@ -5,12 +5,13 @@ import {
   type UsageLimitSourceAccount,
   type UsageLimitSourceConfig,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientRequest } from "effect/http";
 
 import { codexPlanLabel } from "../provider/CodexProvider.ts";
 import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
@@ -124,6 +125,43 @@ const decodeCreditList = Schema.decodeUnknownEffect(Schema.fromJsonString(Credit
 const decodeClaudeUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(ClaudeUsage));
 const decodeCodexUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(CodexUsage));
 const isUsageLimitSourceError = Schema.is(UsageLimitSourceError);
+
+// Codes that mean the certificate chain is not trusted, which an extra CA can fix. Expired or
+// mismatched certificates are reported by code only.
+const UNTRUSTED_CERTIFICATE_CODES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+]);
+
+/** The Node error code under a failed fetch, which wraps it in a generic `TypeError`. */
+const nodeErrorCode = (cause: unknown) => {
+  for (let error = cause, depth = 0; error instanceof Error && depth < 3; depth += 1) {
+    const code = (error as { readonly code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z0-9_]{1,64}$/.test(code)) return code;
+    error = error.cause;
+  }
+  return undefined;
+};
+
+// Hub responses and nested error messages can carry keys or tokens, so only the failure's kind,
+// HTTP status, or Node error code reaches the client.
+const describeManagementFailure = (error: unknown) => {
+  if (Cause.isTimeoutError(error)) return "The hub did not answer within 15 seconds.";
+  if (HttpClientError.isHttpClientError(error)) {
+    const reason = error.reason;
+    if (reason._tag === "StatusCodeError") {
+      return `The hub answered with HTTP ${reason.response.status}.`;
+    }
+    const code = reason._tag === "TransportError" ? nodeErrorCode(reason.cause) : undefined;
+    if (code !== undefined && UNTRUSTED_CERTIFICATE_CODES.has(code)) {
+      return `The hub's TLS certificate is not trusted (${code}). If it comes from a private CA, add that CA to NODE_EXTRA_CA_CERTS.`;
+    }
+    if (code !== undefined) return `The hub request failed (${code}).`;
+  }
+  return "The hub management request failed.";
+};
 const decodeConsumeResponse = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Struct({
@@ -210,15 +248,18 @@ export const trafficUsageLimits = (quotas: ModelQuotas | null | undefined, now: 
   }).limits;
 };
 
-/** loom: a hub refusal as one line, with the hub's own `error` text when it gave one. */
+/**
+ * loom: a hub refusal as one line, with the hub's own `error` text when it gave
+ * one and the caller passed it. Only `oauth-callback` does: other refusals can
+ * echo keys or tokens, so they name the status alone, as upstream's
+ * `describeManagementFailure` does.
+ */
 const hubRefusal = (status: number, body: unknown) => {
   const error =
     typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
       ? body.error.trim().slice(0, 200)
       : "";
-  return error
-    ? `The hub refused the request: ${error}.`
-    : `The hub management request failed (HTTP ${status}).`;
+  return error ? `The hub refused the request: ${error}.` : `The hub answered with HTTP ${status}.`;
 };
 
 /** loom: the later of two ISO clocks, either possibly absent. */
@@ -230,7 +271,6 @@ const fresherClock = (left: string | undefined, right: string | undefined) =>
 const CODEX_BASE = "https://chatgpt.com/backend-api/wham";
 const CREDIT_URL = `${CODEX_BASE}/rate-limit-reset-credits`;
 
-// 6f1c2a9e-2d4b-4c1e-9a7f-3b8d5e0c1a42
 const CREDIT_REDEEM_NAMESPACE = new Uint8Array([
   0x6f, 0x1c, 0x2a, 0x9e, 0x2d, 0x4b, 0x4c, 0x1e, 0x9a, 0x7f, 0x3b, 0x8d, 0x5e, 0x0c, 0x1a, 0x42,
 ]);
@@ -260,9 +300,14 @@ export const makeCliproxyApi = Effect.gen(function* () {
     config: UsageLimitSourceConfig,
     path: string,
     body?: unknown,
+    hubText = false, // loom: see `hubRefusal`
   ) {
     const url = yield* Effect.try({
-      try: () => new URL(`/v0/management/${path}`, config.url).toString(),
+      try: () =>
+        new URL(
+          `v0/management/${path}`,
+          config.url.endsWith("/") ? config.url : `${config.url}/`,
+        ).toString(),
       catch: () => new UsageLimitSourceError({ detail: "The hub URL is not valid." }),
     });
     const request = (
@@ -271,20 +316,30 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const response = yield* client
       .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
       .pipe(
-        // loom: a refusal names the hub's own `error` text (the login dialog shows it).
-        Effect.flatMap((response) =>
-          response.json.pipe(
-            Effect.filterOrFail(
-              () => response.status >= 200 && response.status < 300,
-              (body) => new UsageLimitSourceError({ detail: hubRefusal(response.status, body) }),
-            ),
-          ),
+        // loom: a refusal names its HTTP status, and on `oauth-callback`
+        // (`hubText`) the hub's own `error` text, which the login dialog shows.
+        Effect.flatMap(
+          (
+            response,
+          ): Effect.Effect<unknown, UsageLimitSourceError | HttpClientError.HttpClientError> =>
+            response.status >= 200 && response.status < 300
+              ? response.json
+              : response.json.pipe(
+                  Effect.orElseSucceed(() => undefined),
+                  Effect.flatMap((reply) =>
+                    Effect.fail(
+                      new UsageLimitSourceError({
+                        detail: hubRefusal(response.status, hubText ? reply : undefined),
+                      }),
+                    ),
+                  ),
+                ),
         ),
         Effect.timeout("15 seconds"),
         Effect.mapError((error) =>
           isUsageLimitSourceError(error)
             ? error
-            : new UsageLimitSourceError({ detail: "The hub management request failed." }),
+            : new UsageLimitSourceError({ detail: describeManagementFailure(error) }),
         ),
       );
     return response;
@@ -394,7 +449,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     config: UsageLimitSourceConfig,
     body: Readonly<Record<string, string>>,
   ) {
-    yield* management(config, "oauth-callback", { provider: "anthropic", ...body });
+    yield* management(config, "oauth-callback", { provider: "anthropic", ...body }, true);
   });
 
   const authStatus = Effect.fn("CliproxyApi.authStatus")(function* (
@@ -496,7 +551,6 @@ export const makeCliproxyApi = Effect.gen(function* () {
                 : { windowDurationMins: window.limit_window_seconds / 60 }),
             }
           : null;
-      // A credits outage must not hide successfully fetched quota windows.
       const available = yield* credits(config, account).pipe(Effect.orElseSucceed(() => undefined));
       const next = available?.[0];
       return {
@@ -652,8 +706,10 @@ export const makeCliproxyApi = Effect.gen(function* () {
   // loom: `listAccounts` and the login calls for `UsageLimitSources`.
   const listAccounts = (config: UsageLimitSourceConfig) =>
     authFiles(config).pipe(
-      Effect.mapError(
-        () => new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
       ),
     );
   return {

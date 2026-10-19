@@ -64,7 +64,7 @@ export type PlanCommentTargetKind = typeof PlanCommentTargetKind.Type;
  */
 export const PlanCommentAnchor = Schema.Struct({
   anchorKind: Schema.optionalKey(PlanCommentAnchorKind),
-  // --- text-quote (first cut) ---
+  // text-quote (first cut)
   textQuote: Schema.optionalKey(Schema.String),
   snippet: Schema.optionalKey(Schema.String),
   contextBefore: Schema.optionalKey(Schema.String),
@@ -77,10 +77,10 @@ export const PlanCommentAnchor = Schema.Struct({
   tagName: Schema.optionalKey(Schema.String),
   x: Schema.optionalKey(Schema.Number),
   y: Schema.optionalKey(Schema.Number),
-  // --- routing + mentions ---
+  // routing + mentions
   resolutionTarget: Schema.optionalKey(PlanCommentResolutionTarget),
   mentions: Schema.optionalKey(Schema.Array(PlanCommentMention)),
-  // --- deferred tiers (wireframe node / canvas / visual) ---
+  // deferred tiers (wireframe node / canvas / visual)
   targetKind: Schema.optionalKey(PlanCommentTargetKind),
   targetNodeId: Schema.optionalKey(Schema.String),
   targetNodePath: Schema.optionalKey(Schema.String),

@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { whenV1TableExists } from "../v1Projections.loom.ts";
+
 // Agent-question arrival surfaces (plans/agent-question-redesign, increment 3):
 // the oldest open question's first header and its asked-at, so the sidebar row,
 // board card and notification can say WHICH question is waiting and for how
@@ -21,7 +23,9 @@ export default Effect.gen(function* () {
     yield* sql`ALTER TABLE projection_threads ADD COLUMN pending_user_input_since TEXT`;
   }
 
-  yield* sql`
+  yield* whenV1TableExists(
+    "projection_thread_activities",
+    sql`
     UPDATE projection_threads
     SET (pending_user_input_header, pending_user_input_since) = (
       SELECT
@@ -45,5 +49,6 @@ export default Effect.gen(function* () {
       LIMIT 1
     )
     WHERE pending_user_input_count > 0
-  `;
+  `,
+  );
 });

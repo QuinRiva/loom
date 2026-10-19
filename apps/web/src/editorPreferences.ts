@@ -14,7 +14,6 @@ import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
-import { useCallback, useMemo } from "react";
 import { shellEnvironment } from "./state/shell";
 import { useAtomCommand } from "./state/use-atom-command";
 // loom: client-side editor launch for remote (SSH) hosts
@@ -52,10 +51,10 @@ export class PreferredEditorUnavailableError extends Schema.TaggedError<Preferre
 export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
   const [lastEditor, setLastEditor] = useLocalStorage(LAST_EDITOR_KEY, null, EditorId);
 
-  const effectiveEditor = useMemo(() => {
-    if (lastEditor && availableEditors.includes(lastEditor)) return lastEditor;
-    return EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null;
-  }, [lastEditor, availableEditors]);
+  const effectiveEditor =
+    lastEditor && availableEditors.includes(lastEditor)
+      ? lastEditor
+      : (EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null);
 
   return [effectiveEditor, setLastEditor] as const;
 }
@@ -79,62 +78,59 @@ export function useOpenInPreferredEditor(
   const remoteEditorSshHost = useAtomValue(primaryServerConfigAtom)?.remoteEditorSshHost ?? null;
   type OpenInEditorError = AtomCommandFailure<Awaited<ReturnType<typeof openInEditor>>>;
 
-  return useCallback(
-    async (
-      targetPath: string,
-    ): Promise<
-      AtomCommandResult<
-        EditorId,
-        | OpenInEditorError
-        | PreferredEditorEnvironmentRequiredError
-        | PreferredEditorUnavailableError
-        | EnvironmentAuthorizationError
-      >
-    > => {
-      if (environmentId === null) {
-        return AsyncResult.failure(
-          Cause.fail(
-            new PreferredEditorEnvironmentRequiredError({
-              targetPath,
-            }),
-          ),
-        );
-      }
-      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
-        return AsyncResult.failure(
-          Cause.fail(
-            new EnvironmentAuthorizationError({
-              requiredScope: AuthOrchestrationOperateScope,
-              message: "This connection cannot open an editor on this environment.",
-            }),
-          ),
-        );
-      }
-      const editor = resolveAndPersistPreferredEditor(availableEditors);
-      if (!editor) {
-        return AsyncResult.failure(
-          Cause.fail(
-            new PreferredEditorUnavailableError({
-              environmentId,
-              targetPath,
-              availableEditorIds: availableEditors,
-            }),
-          ),
-        );
-      }
-      // loom: a remote host opens the editor on the client over SSH
-      if (tryClientEditorLaunch(editor, targetPath, remoteEditorSshHost)) {
-        return AsyncResult.success(editor);
-      }
-      const result = await openInEditor({
-        environmentId,
-        input: {
-          cwd: targetPath,
-          editor,
-        },
-      });
-      return mapAtomCommandResult(result, () => editor);
-    },
-    [availableEditors, environmentId, openInEditor, remoteEditorSshHost],
-  );
+  return async (
+    targetPath: string,
+  ): Promise<
+    AtomCommandResult<
+      EditorId,
+      | OpenInEditorError
+      | PreferredEditorEnvironmentRequiredError
+      | PreferredEditorUnavailableError
+      | EnvironmentAuthorizationError
+    >
+  > => {
+    if (environmentId === null) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new PreferredEditorEnvironmentRequiredError({
+            targetPath,
+          }),
+        ),
+      );
+    }
+    if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new EnvironmentAuthorizationError({
+            requiredScope: AuthOrchestrationOperateScope,
+            message: "This connection cannot open an editor on this environment.",
+          }),
+        ),
+      );
+    }
+    const editor = resolveAndPersistPreferredEditor(availableEditors);
+    if (!editor) {
+      return AsyncResult.failure(
+        Cause.fail(
+          new PreferredEditorUnavailableError({
+            environmentId,
+            targetPath,
+            availableEditorIds: availableEditors,
+          }),
+        ),
+      );
+    }
+    // loom: a remote host opens the editor on the client over SSH
+    if (tryClientEditorLaunch(editor, targetPath, remoteEditorSshHost)) {
+      return AsyncResult.success(editor);
+    }
+    const result = await openInEditor({
+      environmentId,
+      input: {
+        cwd: targetPath,
+        editor,
+      },
+    });
+    return mapAtomCommandResult(result, () => editor);
+  };
 }

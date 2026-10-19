@@ -12,7 +12,7 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";
 import { PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { LinkifiedText } from "../loom/referenceLinks";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
@@ -288,10 +288,7 @@ export function GoalPanelView({
   shells: ReadonlyArray<EnvironmentThreadShell>;
 }) {
   const rewrite = useAtomCommand(loomCommands.goalTaskRewrite);
-  const anchors = useMemo(
-    () => anchoredThreadsByTask(shells, goal.id, thread.environmentId),
-    [shells, goal.id, thread.environmentId],
-  );
+  const anchors = anchoredThreadsByTask(shells, goal.id, thread.environmentId);
   const [editing, setEditing] = useState<Editing>(null);
   const onEdit = (edit: GoalTaskEdit) => {
     const input = goalTaskRewriteFor(goal.tasks, edit);

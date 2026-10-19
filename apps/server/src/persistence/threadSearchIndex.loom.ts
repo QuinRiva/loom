@@ -7,11 +7,15 @@
  * Row identity is derived from the source row: `rowid = source.rowid * 8 + kind`,
  * so triggers delete and replace by primary key instead of scanning.
  *
- * Two hazards for future migrations:
- * - A migration that REBUILDS a source table (copy + rename) renumbers its
- *   rowids. It must re-run `rebuildThreadSearchIndex` afterwards.
- * - `ALTER TABLE … DROP COLUMN` fails on a column a trigger references. Bracket
- *   it with `dropThreadSearchTriggers` / `createThreadSearchTriggers`.
+ * Dormant until thread search is reimplemented (pull 12 DL-1320): nothing reads
+ * the index since pull 9 (DL-82), but its rows are kept. Assistant answers were
+ * identified through `projection_turns`, which upstream's 063 drops, so the
+ * turn triggers, the message insert/update triggers and the assistant backfill
+ * are gone (1060 drops the message pair where it ran), and a rebuild would lose
+ * the assistant rows already indexed.
+ *
+ * `ALTER TABLE … DROP COLUMN` fails on a column a trigger references. Bracket it
+ * with `dropThreadSearchTriggers` / `createThreadSearchTriggers`.
  *
  * @module threadSearchIndex
  */
@@ -45,9 +49,6 @@ const tables = [
     vector BLOB NOT NULL,
     updated_at TEXT NOT NULL
   )`,
-  // The message triggers and the backfill ask "is this some turn's final answer?".
-  `CREATE INDEX IF NOT EXISTS idx_projection_turns_assistant_message_id
-    ON projection_turns(assistant_message_id)`,
 ];
 
 const threadRows = `
@@ -57,25 +58,6 @@ const threadRows = `
     SELECT NEW.rowid*8+2, NEW.thread_id, 'purpose', NEW.purpose WHERE NEW.deleted_at IS NULL AND NEW.purpose <> '';
   INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
     SELECT NEW.rowid*8+3, NEW.thread_id, 'brief', NEW.brief WHERE NEW.deleted_at IS NULL AND NEW.brief <> '';`;
-
-// Streaming deltas UPDATE text with is_streaming = 1 and are never indexed.
-const messageRows = `
-  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
-    SELECT NEW.rowid*8+4, NEW.thread_id, 'user', NEW.text
-    WHERE NEW.role = 'user' AND (NEW.origin IS NULL OR NEW.origin NOT IN ('kickoff', 'control_notice'));
-  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
-    SELECT NEW.rowid*8+5, NEW.thread_id, 'assistant', NEW.text
-    WHERE NEW.role = 'assistant'
-      AND EXISTS (SELECT 1 FROM projection_turns WHERE assistant_message_id = NEW.message_id);`;
-
-// A turn's final message may be recorded before or after the message
-// finalises, so both sides index it; the derived rowid makes it idempotent.
-const turnRows = `
-  DELETE FROM loom_thread_search WHERE rowid IN (
-    SELECT rowid*8+5 FROM projection_thread_messages WHERE message_id = NEW.assistant_message_id);
-  INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
-    SELECT rowid*8+5, thread_id, 'assistant', text FROM projection_thread_messages
-    WHERE message_id = NEW.assistant_message_id AND role = 'assistant' AND is_streaming = 0;`;
 
 const goalRows = `
   INSERT INTO loom_thread_search(rowid, goal_id, kind, text)
@@ -100,31 +82,8 @@ const triggers = [
   `CREATE TRIGGER loom_ts_threads_ad AFTER DELETE ON projection_threads BEGIN
      DELETE FROM loom_thread_search WHERE rowid IN (OLD.rowid*8, OLD.rowid*8+1, OLD.rowid*8+2, OLD.rowid*8+3);
    END`,
-  `CREATE TRIGGER loom_ts_messages_ai AFTER INSERT ON projection_thread_messages
-   WHEN NEW.is_streaming = 0 BEGIN ${messageRows} END`,
-  `CREATE TRIGGER loom_ts_messages_au AFTER UPDATE OF text, is_streaming, origin, role ON projection_thread_messages
-   WHEN NEW.is_streaming = 0 AND (OLD.text IS NOT NEW.text OR OLD.is_streaming IS NOT NEW.is_streaming
-     OR OLD.origin IS NOT NEW.origin OR OLD.role IS NOT NEW.role)
-   BEGIN
-     DELETE FROM loom_thread_search WHERE rowid IN (NEW.rowid*8+4, NEW.rowid*8+5);
-     ${messageRows}
-   END`,
   `CREATE TRIGGER loom_ts_messages_ad AFTER DELETE ON projection_thread_messages BEGIN
      DELETE FROM loom_thread_search WHERE rowid IN (OLD.rowid*8+4, OLD.rowid*8+5);
-   END`,
-  `CREATE TRIGGER loom_ts_turns_ai AFTER INSERT ON projection_turns
-   WHEN NEW.assistant_message_id IS NOT NULL BEGIN ${turnRows} END`,
-  `CREATE TRIGGER loom_ts_turns_au AFTER UPDATE OF assistant_message_id ON projection_turns
-   WHEN OLD.assistant_message_id IS NOT NEW.assistant_message_id
-   BEGIN
-     DELETE FROM loom_thread_search WHERE rowid IN (
-       SELECT rowid*8+5 FROM projection_thread_messages WHERE message_id = OLD.assistant_message_id);
-     ${turnRows}
-   END`,
-  `CREATE TRIGGER loom_ts_turns_ad AFTER DELETE ON projection_turns
-   WHEN OLD.assistant_message_id IS NOT NULL BEGIN
-     DELETE FROM loom_thread_search WHERE rowid IN (
-       SELECT rowid*8+5 FROM projection_thread_messages WHERE message_id = OLD.assistant_message_id);
    END`,
   `CREATE TRIGGER loom_ts_goals_ai AFTER INSERT ON projection_goals BEGIN ${goalRows} END`,
   `CREATE TRIGGER loom_ts_goals_au AFTER UPDATE OF title, description, deleted_at ON projection_goals
@@ -157,10 +116,6 @@ const backfill = [
      SELECT rowid*8+4, thread_id, 'user', text FROM projection_thread_messages
      WHERE role = 'user' AND is_streaming = 0
        AND (origin IS NULL OR origin NOT IN ('kickoff', 'control_notice'))`,
-  `INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
-     SELECT rowid*8+5, thread_id, 'assistant', text FROM projection_thread_messages
-     WHERE role = 'assistant' AND is_streaming = 0
-       AND message_id IN (SELECT assistant_message_id FROM projection_turns WHERE assistant_message_id IS NOT NULL)`,
   `INSERT INTO loom_thread_search(rowid, goal_id, kind, text)
      SELECT rowid*8+6, goal_id, 'goal', title || char(10) || description FROM projection_goals
      WHERE deleted_at IS NULL`,
@@ -175,7 +130,7 @@ const runAll = (statements: ReadonlyArray<string>) =>
   });
 
 /** Latest report per thread wins: a gate round replaces the previous row. */
-export const upsertThreadSearchReport = (threadId: string, markdown: string) =>
+const upsertThreadSearchReport = (threadId: string, markdown: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`DELETE FROM loom_thread_search WHERE rowid IN (
@@ -208,11 +163,11 @@ export const dropThreadSearchTriggers = runAll(
   triggerNames.map((name) => `DROP TRIGGER IF EXISTS ${name}`),
 );
 
-/** Empty and refill the lexical index from the projection (and report files). */
-export const rebuildThreadSearchIndex = Effect.gen(function* () {
+/** Fill the new lexical index from the projection (and report files). */
+const backfillThreadSearchIndex = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const started = yield* Clock.currentTimeMillis;
-  yield* runAll([`DELETE FROM loom_thread_search`, ...backfill]);
+  yield* runAll(backfill);
   yield* backfillReports;
   yield* runAll([`INSERT INTO loom_thread_search(loom_thread_search) VALUES('optimize')`]);
   const [counts] = yield* sql<{
@@ -227,5 +182,5 @@ export const rebuildThreadSearchIndex = Effect.gen(function* () {
 export const createThreadSearchIndex = Effect.gen(function* () {
   yield* runAll(tables);
   yield* createThreadSearchTriggers;
-  yield* rebuildThreadSearchIndex;
+  yield* backfillThreadSearchIndex;
 });

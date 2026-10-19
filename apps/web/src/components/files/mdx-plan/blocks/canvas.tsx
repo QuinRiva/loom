@@ -82,9 +82,7 @@ function rectWithinSurface(
   return { left: r.left - s.left, top: r.top - s.top, width: r.width, height: r.height };
 }
 
-/* -------------------------------------------------------------------------- */
 /* DesignBoard \u2014 coordinate space + transform provider                        */
-/* -------------------------------------------------------------------------- */
 
 export interface DesignBoardData {
   title?: string;
@@ -126,6 +124,7 @@ export function DesignBoardRead({ data, blockId, children }: PlanBlockReadProps<
     };
     fit();
     return observeResize(surface, fit);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- New children are new items to fit the board around.
   }, [children, data.width, data.height, transform.boardScale]);
 
   return (
@@ -167,9 +166,7 @@ export const designBoardBlock: PlanBlock<DesignBoardData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
 /* Section \u2014 a labelled frame grouping artboards (visual only)                */
-/* -------------------------------------------------------------------------- */
 
 export interface SectionData {
   title?: string;
@@ -237,9 +234,7 @@ export const sectionBlock: PlanBlock<SectionData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
 /* Artboard \u2014 a positioned wireframe/design screen                            */
-/* -------------------------------------------------------------------------- */
 
 export interface ArtboardData {
   x: number;
@@ -307,9 +302,7 @@ export const artboardBlock: PlanBlock<ArtboardData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
 /* Annotation \u2014 an authored gutter note parked beside a target artboard       */
-/* -------------------------------------------------------------------------- */
 
 export type AnnotationPlacement = "left" | "right" | "top" | "bottom";
 
@@ -349,6 +342,7 @@ function AnnotationRead({ data, blockId, children }: PlanBlockReadProps<Annotati
     const place = () => {
       const target = data.targetId ? rectWithinSurface(surface, data.targetId) : null;
       if (!target) {
+        // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A free note re-places when its coordinates change, not when its object is rebuilt.
         if (free) setPos(free);
         return;
       }
@@ -409,9 +403,7 @@ export const annotationBlock: PlanBlock<AnnotationData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
 /* Connector \u2014 a flow line between two artboards                              */
-/* -------------------------------------------------------------------------- */
 
 export interface ConnectorData {
   from: string;

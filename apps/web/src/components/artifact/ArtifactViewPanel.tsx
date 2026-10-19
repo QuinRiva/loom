@@ -1,7 +1,7 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Code2, LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { resolveAssetUrl } from "~/assets/assetUrls";
 import { buildArtifactFrameSrc } from "./artifactView";
@@ -53,10 +53,10 @@ export default function ArtifactViewPanel({
   const [state, setState] = useState<ArtifactViewState>({ status: "minting" });
   const [frameLoaded, setFrameLoaded] = useState(false);
 
-  const reload = useCallback(() => {
+  const reload = () => {
     setFrameLoaded(false);
     setMintNonce((nonce) => nonce + 1);
-  }, []);
+  };
 
   const threadId = threadRef.threadId;
 
@@ -66,6 +66,7 @@ export default function ArtifactViewPanel({
   // via `reloadToken` below, which also remounts the frame so `onLoad` re-fires.
   useEffect(() => {
     if (!httpBaseUrl) {
+      // oxlint-disable-next-line react/set-state-in-effect -- Minting waits on the environment's HTTP origin, which arrives from the connection.
       setState({ status: "minting" });
       return;
     }
@@ -104,8 +105,10 @@ export default function ArtifactViewPanel({
     httpBaseUrl,
     relativePath,
     threadId,
+    /* oxlint-disable react/exhaustive-effect-dependencies -- Reload and a chip re-click re-mint the same file. */
     reloadRequestId,
     mintNonce,
+    /* oxlint-enable react/exhaustive-effect-dependencies */
   ]);
 
   return (

@@ -5,13 +5,8 @@ import { percentDecodedThreadLinkId } from "@t3tools/shared/threadLinks";
 import { useThreadShell } from "../../state/entities";
 import { ThreadMention } from "../../loom/ThreadMention"; // loom: status-led mention
 
-/**
- * A `t3-thread://` link in chat. It shows the thread's current title, so a rename
- * reaches every message that links to it. `label` is what the message wrote,
- * shown only when this client cannot see the thread. Opens the thread in the app.
- * loom: `ThreadMention` leads with the thread's live state instead of its project
- * favicon, keeping the favicon only for a thread in another project than `fromThreadRef`'s.
- */
+// loom: `ThreadMention` leads with the thread's live state instead of its project favicon,
+// keeping the favicon only for a thread in another project than `fromThreadRef`'s.
 export function MarkdownThreadLink(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;

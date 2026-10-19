@@ -1,5 +1,5 @@
 import { IconCheck, IconCircleCheck } from "@tabler/icons-react";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -301,7 +301,12 @@ function WriteInAnswer({
   onCommit: (text: string) => void;
 }) {
   const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
+  // A committed value from elsewhere replaces the local edit.
+  const [committed, setCommitted] = useState(value);
+  if (committed !== value) {
+    setCommitted(value);
+    setText(value);
+  }
   const commit = () => {
     if (text.trim() !== value) onCommit(text.trim());
   };

@@ -1,4 +1,5 @@
 import {
+  AuthStandardClientScopes,
   CommandId,
   EnvironmentHttpApi,
   EnvironmentHttpCommonError,
@@ -8,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -19,9 +21,9 @@ import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
-// loom: the CLI talks to the running server with a pre-provisioned token and
-// falls back to offline mode; the messages name the real failure.
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -39,8 +41,6 @@ import {
   readPersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { readPreProvisionedCliToken } from "./cliToken.ts";
-import { CLI_LIVE_SERVER_TIMEOUT, isRuntimeStateProcessAlive } from "./liveServer.ts";
 import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 type ProjectMutationTarget = {
@@ -76,9 +76,7 @@ export class ProjectLiveServerDeclaredResponseError extends Schema.TaggedError<P
   },
 ) {
   override get message(): string {
-    return this.code === "auth_invalid"
-      ? "The running server rejected the pre-provisioned CLI token; restart the server to refresh it."
-      : `Server request failed (${this.code}, trace ${this.traceId}).`;
+    return `Server request failed (${this.code}, trace ${this.traceId}).`;
   }
 }
 
@@ -103,9 +101,7 @@ export class ProjectLiveServerRequestError extends Schema.TaggedError<ProjectLiv
   },
 ) {
   override get message(): string {
-    return this.cause instanceof Error
-      ? `Failed to call the running server: ${this.cause.message}`
-      : "Failed to call the running server.";
+    return "Failed to call the running server.";
   }
 }
 
@@ -218,8 +214,22 @@ const layerProjectCliRuntime = RuntimeLayer.layerProjectService.pipe(
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
 
+const PROJECT_CLI_LIVE_SERVER_TIMEOUT = Duration.seconds(1);
+const withProjectCliSessionToken = <A, E, R>(
+  environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+  run: (token: string) => Effect.Effect<A, E, R>,
+) =>
+  Effect.acquireUseRelease(
+    environmentAuth.issueSession({
+      scopes: AuthStandardClientScopes,
+      label: "t3 project cli",
+    }),
+    (issued) => run(issued.token),
+    (issued) => environmentAuth.revokeSession(issued.sessionId).pipe(Effect.ignore({ log: true })),
+  );
+
 const withProjectCliLiveServerTimeout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.timeout(CLI_LIVE_SERVER_TIMEOUT));
+  effect.pipe(Effect.timeout(PROJECT_CLI_LIVE_SERVER_TIMEOUT));
 
 const makeLiveServerClient = (origin: string) =>
   HttpApiClient.make(EnvironmentHttpApi, {
@@ -338,41 +348,34 @@ const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
   return yield* projects.snapshot;
 });
 
-const readProjectCliBearerToken = readPreProvisionedCliToken().pipe(
-  Effect.mapError(
-    (cause) =>
-      new ProjectLiveServerRequestError({
-        operation: "callLiveServer",
-        cause,
-      }),
-  ),
-  Effect.flatMap(
-    Option.match({
-      onSome: Effect.succeed,
-      onNone: () =>
-        Effect.fail(
-          new ProjectLiveServerRequestError({
-            operation: "callLiveServer",
-            cause: new Error("The server is running but has not written the CLI token yet."),
-          }),
-        ),
-    }),
-  ),
-);
-
 const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecutionMode")(
-  function* (config: ServerConfig.ServerConfig["Service"]) {
+  function* (
+    environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+    config: ServerConfig.ServerConfig["Service"],
+  ) {
     const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    if (
-      Option.isNone(runtimeState) ||
-      !(yield* isRuntimeStateProcessAlive(runtimeState.value.pid))
-    ) {
-      return Option.none<{ readonly origin: string; readonly token: string }>();
+    if (Option.isNone(runtimeState)) {
+      return Option.none<{ readonly origin: string }>();
     }
-    return Option.some({
+
+    const attempt = withProjectCliSessionToken(environmentAuth, (token) =>
+      fetchLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
+        Effect.as({
+          origin: runtimeState.value.origin,
+        }),
+      ),
+    );
+
+    const attempted = yield* Effect.result(attempt);
+    if (attempted._tag === "Success") {
+      return Option.some(attempted.success);
+    }
+
+    yield* Effect.logDebug("Failed to connect to the persisted project CLI server.", {
       origin: runtimeState.value.origin,
-      token: yield* readProjectCliBearerToken,
+      cause: attempted.failure,
     });
+    return Option.none<{ readonly origin: string }>();
   },
 );
 
@@ -399,17 +402,22 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   const minimumLogLevel = config.logLevel;
 
   return yield* Effect.gen(function* () {
-    const liveMode = yield* tryResolveLiveProjectExecutionMode(config);
+    const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
+    const liveMode = yield* tryResolveLiveProjectExecutionMode(environmentAuth, config);
 
     if (Option.isSome(liveMode)) {
-      const { origin, token } = liveMode.value;
-      const snapshot = yield* fetchLiveOrchestrationSnapshot(origin, token);
-      const output = yield* run({
-        snapshot,
-        dispatch: (command) => dispatchLiveOrchestrationCommand(origin, token, command),
-        mode: "live",
-      });
-      return yield* Console.log(output);
+      return yield* withProjectCliSessionToken(environmentAuth, (token) =>
+        Effect.gen(function* () {
+          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token);
+          const output = yield* run({
+            snapshot,
+            dispatch: (command) =>
+              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command),
+            mode: "live",
+          });
+          yield* Console.log(output);
+        }),
+      );
     }
 
     const layerOfflineRuntime = layerProjectCliRuntime.pipe(
@@ -435,7 +443,7 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   }).pipe(
     Effect.scoped,
     Effect.provide(
-      Layer.mergeAll(ServerSecretStore.layer, WorkspacePaths.layer).pipe(
+      Layer.mergeAll(EnvironmentAuth.layerRuntime, WorkspacePaths.layer).pipe(
         Layer.provideMerge(FetchHttpClient.layer),
         Layer.provide(ServerConfig.layer(config)),
         Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),

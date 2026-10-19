@@ -528,13 +528,11 @@ export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
   return layoutOrchestrator(root.id, root.title, childrenByParent);
 }
 
-// ---------------------------------------------------------------------------
 // mcp__t3-code__consult_thread observability: cross-edges + out-of-tree annotations derived
 // from thread shells' consult summaries. Kept OUT of the memoised structural
 // layout (consults change at runtime and are additive) and resolved live from
 // the laid-out node positions — the same live-overlay pattern the renderer uses
 // for loop-edge rounds.
-// ---------------------------------------------------------------------------
 
 /** A directed asker→target consult edge whose endpoints are both in the graph. */
 export interface ConsultEdge {
@@ -572,14 +570,12 @@ export interface ExternalConsult {
   readonly anchorAtIso: string;
 }
 
-// ---------------------------------------------------------------------------
 // Obstacle-aware back-edge routing (loops + backward consults). A back-edge
 // exits a bottom port, runs a horizontal channel BELOW every node its span
 // crosses, and rises into the target's bottom port. Vertical drops use the
 // nearest CLEAR lane (the port's own x when nothing sits below it — the common
 // shallow case — else a jog into a clear gutter), so no segment ever crosses a
 // node body on a dense or nested graph.
-// ---------------------------------------------------------------------------
 
 // A vertical segment at `x` spanning [yTop, yBot] is clear when no node
 // rectangle straddles it.

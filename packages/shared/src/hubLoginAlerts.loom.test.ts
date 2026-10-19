@@ -77,6 +77,7 @@ describe("loginAlerts", () => {
       {
         entry: { target: { label: "Cockpit" } },
         serverConfig: {
+          providers: [], // loom: required since pull 12
           usageLimitSources: [
             {
               id: UsageLimitSourceId.make("hub"),

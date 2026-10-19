@@ -7,27 +7,28 @@
  * what a machine is doing, which outranks where the thread rests.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { ownAttentionOf } from "@t3tools/client-runtime/state/loom/rollup";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
+import { loomAttentionOf } from "../components/Sidebar.logic.loom";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
 import { attentionLabel } from "./loomAttention";
 
 function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: string } {
-  const reason = ownAttentionOf(thread.source)[0];
-  if (reason !== undefined) {
+  const reason = loomAttentionOf(thread);
+  if (reason !== null) {
     return {
       label: attentionLabel(reason),
       dot: reason === "error" ? "bg-red-400" : "bg-amber-400",
     };
   }
   const status = resolveSidebarThreadStatus(thread);
+  if (status === "approval" || status === "input")
+    return { label: status === "approval" ? "Approval" : "Input", dot: "bg-amber-400" };
   if (status === "working" || status === "waiting") return { label: "working", dot: "bg-blue-400" };
   if (status === "failed") return { label: "failed", dot: "bg-red-400" };
   const workstream = thread.source.workstream;
@@ -48,25 +49,21 @@ export function GoalThreadsSection({
   shells: ReadonlyArray<EnvironmentThreadShell>;
 }) {
   const navigate = useNavigate();
-  const rows = useMemo(
-    () =>
-      orderGoalThreadsByHandoff(
-        shells
-          .filter(
-            (thread) =>
-              thread.environmentId === environmentId &&
-              thread.archivedAt === null &&
-              thread.lineage.parentThreadId === null &&
-              thread.source.workstream?.goalId === goalId,
-          )
-          .map((thread) => ({
-            id: thread.id,
-            createdAt: thread.createdAt,
-            continuesThreadId: thread.source.workstream?.continuesThreadId ?? null,
-            shell: thread,
-          })),
-      ),
-    [shells, environmentId, goalId],
+  const rows = orderGoalThreadsByHandoff(
+    shells
+      .filter(
+        (thread) =>
+          thread.environmentId === environmentId &&
+          thread.archivedAt === null &&
+          thread.lineage.parentThreadId === null &&
+          thread.source.workstream?.goalId === goalId,
+      )
+      .map((thread) => ({
+        id: thread.id,
+        createdAt: thread.createdAt,
+        continuesThreadId: thread.source.workstream?.continuesThreadId ?? null,
+        shell: thread,
+      })),
   );
 
   return (

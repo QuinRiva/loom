@@ -2,7 +2,6 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useCallback, useMemo } from "react";
 
 import { FileTagChipContent, ThreadTagChipContent } from "~/components/chat/FileTagChip";
 import { ContextChip } from "~/components/ContextChip";
@@ -45,7 +44,7 @@ import {
  *    environment, e.g. the `/preview` harness, or a stat still in flight) keeps
  *    upstream's behaviour, so nothing flickers from live to missing and back.
  *    This optimistic polarity is only for references that name one place;
- *    unanchored inline code is {@link useUnanchoredInlineCodeChip}'s.
+ *    unanchored inline code is {@link makeUnanchoredInlineCodeChip}'s.
  *  - **click-time re-verification** ({@link verifyChipTargetBeforeOpen}): the
  *    store only revalidates at its TTL, so a chip can be clicked inside the
  *    window where its file has already moved. The click re-stats the path, and
@@ -80,9 +79,9 @@ function MissingFileChip(props: {
   const { environmentId, meta } = props;
   // The way back: a file that returns is otherwise only noticed at the store's
   // TTL, and hovering is exactly what a human does when they doubt this chip.
-  const recheck = useCallback(() => {
+  const recheck = () => {
     if (environmentId !== null) revalidatePathExistence(environmentId, meta.filePath);
-  }, [environmentId, meta.filePath]);
+  };
   return (
     <Tooltip>
       <TooltipTrigger
@@ -151,7 +150,7 @@ function VerifiedFileChip(props: {
   mediaSource?: string | undefined;
   renderChip: FileLinkChipRenderer;
 }) {
-  const paths = useMemo(() => [props.meta.filePath], [props.meta.filePath]);
+  const paths = [props.meta.filePath];
   const lookupExistence = usePathExistence(props.environmentId, paths);
   return lookupExistence(props.meta.filePath)?.exists === false ? (
     <MissingFileChip
@@ -165,24 +164,24 @@ function VerifiedFileChip(props: {
   );
 }
 
-/** Wraps upstream's chip renderer so every chip it renders stays verified. */
-export function useVerifiedFileLinkChip(input: {
+/**
+ * Wraps upstream's chip renderer so every chip it renders stays verified. A
+ * plain factory: the calling component's compiler cache keeps its identity.
+ */
+export function makeVerifiedFileLinkChip(input: {
   environmentId: EnvironmentId | null;
   renderChip: FileLinkChipRenderer;
 }): FileLinkChipRenderer {
   const { environmentId, renderChip } = input;
-  return useCallback(
-    (fileLinkMeta, copyMarkdown, className, mediaSource) => (
-      <VerifiedFileChip
-        environmentId={environmentId}
-        meta={fileLinkMeta}
-        copyMarkdown={copyMarkdown}
-        className={className}
-        mediaSource={mediaSource}
-        renderChip={renderChip}
-      />
-    ),
-    [environmentId, renderChip],
+  return (fileLinkMeta, copyMarkdown, className, mediaSource) => (
+    <VerifiedFileChip
+      environmentId={environmentId}
+      meta={fileLinkMeta}
+      copyMarkdown={copyMarkdown}
+      className={className}
+      mediaSource={mediaSource}
+      renderChip={renderChip}
+    />
   );
 }
 
@@ -204,19 +203,13 @@ function UnanchoredFileChip(props: {
   fallback: ReactNode;
 }) {
   const { environmentId, span, rootMeta, directoryBases, cwd } = props;
-  const candidates = useMemo(
-    () => unanchoredCandidates(span, rootMeta, directoryBases, cwd),
-    [cwd, directoryBases, rootMeta, span],
-  );
+  const candidates = unanchoredCandidates(span, rootMeta, directoryBases, cwd);
   const locateKey = cwd ? locateFileKey(cwd, unanchoredLocateReference(span)) : null;
   const lookupLocated = locatedFileStore.useLookup(environmentId, locateKey ? [locateKey] : []);
   const located = locateKey ? lookupLocated(locateKey) : null;
   // The index's answer is also stat'd so a file deleted since it was indexed
   // drops back to plain code; the binding does not wait on that stat.
-  const paths = useMemo(
-    () => [...candidates.map((meta) => meta.filePath), ...(located ? [located] : [])],
-    [candidates, located],
-  );
+  const paths = [...candidates.map((meta) => meta.filePath), ...(located ? [located] : [])];
   const lookupExistence = usePathExistence(environmentId, paths);
   // No connected environment (the `/preview` harness): nothing can be
   // verified, so the syntactic resolution renders as before.
@@ -228,39 +221,39 @@ function UnanchoredFileChip(props: {
 }
 
 /**
- * Renderer for unanchored inline-code spans, bound to one message: the
- * directories it names are collected once here rather than per span.
- * `renderChip` is upstream's unverified chip — this path is already verified,
- * and an unanchored guess must never render "missing?".
+ * The directories one message names, as a content key: a streaming message
+ * rebuilds its meta maps per token, and a string keeps the renderer below (and
+ * so every span) unchanged until the directories themselves change.
  */
-export function useUnanchoredInlineCodeChip(input: {
+export const messageDirectoryBasesKey = (
+  inlineCodeMetas: ReadonlyMap<string, MarkdownFileLinkMeta>,
+  linkMetas: ReadonlyMap<string, MarkdownFileLinkMeta>,
+) => collectMessageDirectoryBases([...inlineCodeMetas.values(), ...linkMetas.values()]).join("\n");
+
+/**
+ * Renderer for unanchored inline-code spans, bound to one message's directory
+ * bases (`messageDirectoryBasesKey`). `renderChip` is upstream's unverified
+ * chip — this path is already verified, and an unanchored guess must never
+ * render "missing?". A plain factory, like `makeVerifiedFileLinkChip`.
+ */
+export function makeUnanchoredInlineCodeChip(input: {
   environmentId: EnvironmentId | null;
   cwd: string | undefined;
-  inlineCodeMetas: ReadonlyMap<string, MarkdownFileLinkMeta>;
-  linkMetas: ReadonlyMap<string, MarkdownFileLinkMeta>;
+  basesKey: string;
   renderChip: FileLinkChipRenderer;
 }): (span: string, rootMeta: MarkdownFileLinkMeta, fallback: ReactNode) => ReactNode {
-  const { environmentId, cwd, inlineCodeMetas, linkMetas, renderChip } = input;
-  // Keyed by content so a streaming message's per-token map rebuilds do not
-  // re-render every span.
-  const basesKey = collectMessageDirectoryBases([
-    ...inlineCodeMetas.values(),
-    ...linkMetas.values(),
-  ]).join("\n");
-  const directoryBases = useMemo(() => (basesKey ? basesKey.split("\n") : []), [basesKey]);
-  return useCallback(
-    (span, rootMeta, fallback) => (
-      <UnanchoredFileChip
-        environmentId={environmentId}
-        span={span}
-        rootMeta={rootMeta}
-        directoryBases={directoryBases}
-        cwd={cwd}
-        renderChip={renderChip}
-        fallback={fallback}
-      />
-    ),
-    [cwd, directoryBases, environmentId, renderChip],
+  const { environmentId, cwd, basesKey, renderChip } = input;
+  const directoryBases = basesKey ? basesKey.split("\n") : [];
+  return (span, rootMeta, fallback) => (
+    <UnanchoredFileChip
+      environmentId={environmentId}
+      span={span}
+      rootMeta={rootMeta}
+      directoryBases={directoryBases}
+      cwd={cwd}
+      renderChip={renderChip}
+      fallback={fallback}
+    />
   );
 }
 
@@ -294,14 +287,26 @@ export function useVerifiedScannedPath(
   environmentId: EnvironmentId | null,
   meta: MarkdownFileLinkMeta | null,
 ): MarkdownFileLinkMeta | null {
-  const paths = useMemo(() => (meta ? [meta.filePath] : []), [meta]);
+  const paths = meta ? [meta.filePath] : [];
   const lookupExistence = usePathExistence(environmentId, paths);
   return meta && isLinkableTarget(environmentId, lookupExistence(meta.filePath)) ? meta : null;
 }
 
+/** One cache per (cwd, baseDir): the compiler re-creates it only when either changes. */
+function cachedMetaResolver(cwd: string | undefined, baseDir: string | undefined) {
+  const cache = new Map<string, MarkdownFileLinkMeta | null>();
+  return (rawPath: string) => {
+    const cached = cache.get(rawPath);
+    if (cached !== undefined) return cached;
+    const meta = resolveInlineCodeFileLinkMeta(rawPath, cwd, baseDir);
+    cache.set(rawPath, meta);
+    return meta;
+  };
+}
+
 /**
  * Resolver for loom's two *loose* path scanners — plain prose and inside fenced
- * code blocks. Their opposite polarity to {@link useVerifiedFileLinkChip} is the
+ * code blocks. Their opposite polarity to {@link makeVerifiedFileLinkChip} is the
  * whole point: a markdown link is an explicit authored reference, so it stays a
  * chip until proven missing, whereas a scanned substring is a guess and only
  * becomes clickable once the server confirms a **file** is there. Directories
@@ -321,43 +326,25 @@ export function useScannedPathTargets(input: {
   isStreaming: boolean;
 }): ScannedPaths {
   const { environmentId, cwd, baseDir, isStreaming, text } = input;
-  const resolveMeta = useMemo(() => {
-    const cache = new Map<string, MarkdownFileLinkMeta | null>();
-    return (rawPath: string) => {
-      const cached = cache.get(rawPath);
-      if (cached !== undefined) return cached;
-      const meta = resolveInlineCodeFileLinkMeta(rawPath, cwd, baseDir);
-      cache.set(rawPath, meta);
-      return meta;
-    };
-  }, [baseDir, cwd]);
-  const paths = useMemo(
-    () =>
-      isStreaming
-        ? []
-        : [
-            ...new Set(
-              extractMessagePathCandidates(text).flatMap((candidate) => {
-                const meta = resolveMeta(candidate);
-                return meta ? [meta.filePath] : [];
-              }),
-            ),
-          ],
-    [isStreaming, resolveMeta, text],
-  );
+  const resolveMeta = cachedMetaResolver(cwd, baseDir);
+  const paths = isStreaming
+    ? []
+    : [
+        ...new Set(
+          extractMessagePathCandidates(text).flatMap((candidate) => {
+            const meta = resolveMeta(candidate);
+            return meta ? [meta.filePath] : [];
+          }),
+        ),
+      ];
   const lookupExistence = usePathExistence(environmentId, paths);
-  return useMemo(
-    () => ({
-      resolveMeta,
-      resolveVerified: (rawPath: string) => {
-        const meta = resolveMeta(rawPath);
-        return meta && isLinkableTarget(environmentId, lookupExistence(meta.filePath))
-          ? meta
-          : null;
-      },
-    }),
-    [environmentId, lookupExistence, resolveMeta],
-  );
+  return {
+    resolveMeta,
+    resolveVerified: (rawPath: string) => {
+      const meta = resolveMeta(rawPath);
+      return meta && isLinkableTarget(environmentId, lookupExistence(meta.filePath)) ? meta : null;
+    },
+  };
 }
 
 /**

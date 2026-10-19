@@ -24,7 +24,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dn
 import { CSS } from "@dnd-kit/utilities";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ContextMenuItem, EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useRef } from "react";
 
 import { resolveThreadStatusPill } from "~/components/Sidebar.logic";
 import { ThreadStatusLabel } from "~/components/ThreadStatusIndicators";
@@ -69,86 +69,73 @@ export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThre
   const tabListRef = useRef<HTMLDivElement>(null);
   const activeRouteKey = activeRouteRef ? scopedThreadKey(activeRouteRef) : null;
 
-  const environmentLabelById = useMemo(() => {
-    const map = new Map<EnvironmentId, string>();
-    for (const environment of environments) {
-      map.set(environment.environmentId, environment.label);
-    }
-    return map;
-  }, [environments]);
+  const environmentLabelById = new Map<EnvironmentId, string>(
+    environments.map((environment) => [environment.environmentId, environment.label]),
+  );
 
-  const models = useMemo<TabModel[]>(() => {
-    return tabs.map((ref) => {
-      const key = scopedThreadKey(ref);
-      const isRemote = primaryEnvironmentId !== null && ref.environmentId !== primaryEnvironmentId;
-      return {
-        ref,
-        key,
-        isPreview: previewKey === key,
-        isActive: activeRouteKey === key,
-        environmentLabel: isRemote
-          ? (environmentLabelById.get(ref.environmentId) ?? "Remote")
-          : null,
-      };
-    });
-  }, [tabs, previewKey, activeRouteKey, primaryEnvironmentId, environmentLabelById]);
+  const models = tabs.map((ref): TabModel => {
+    const key = scopedThreadKey(ref);
+    const isRemote = primaryEnvironmentId !== null && ref.environmentId !== primaryEnvironmentId;
+    return {
+      ref,
+      key,
+      isPreview: previewKey === key,
+      isActive: activeRouteKey === key,
+      environmentLabel: isRemote ? (environmentLabelById.get(ref.environmentId) ?? "Remote") : null,
+    };
+  });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const activeRef = tabs.find((ref) => scopedThreadKey(ref) === active.id);
-      const overIndex = tabs.findIndex((ref) => scopedThreadKey(ref) === over.id);
-      if (!activeRef || overIndex < 0) return;
-      reorderTab(activeRef, overIndex);
-    },
-    [reorderTab, tabs],
-  );
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeRef = tabs.find((ref) => scopedThreadKey(ref) === active.id);
+    const overIndex = tabs.findIndex((ref) => scopedThreadKey(ref) === over.id);
+    if (!activeRef || overIndex < 0) return;
+    reorderTab(activeRef, overIndex);
+  };
 
-  const handleContextMenu = useCallback(
-    async (event: ReactMouseEvent, model: TabModel) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const api = readLocalApi();
-      if (!api) return;
-      const index = tabs.findIndex((ref) => scopedThreadKey(ref) === model.key);
-      if (index < 0) return;
-      const items: ContextMenuItem<TabContextMenuAction>[] = [
-        { id: "copy-link", label: "Copy link" },
-        { id: "close", label: "Close" },
-        { id: "close-others", label: "Close others", disabled: tabs.length <= 1 },
-        { id: "close-to-right", label: "Close to the right", disabled: index >= tabs.length - 1 },
-        { id: "close-all", label: "Close all", disabled: tabs.length === 0 },
-      ];
-      const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
-      switch (action) {
-        case "copy-link":
-          void navigator.clipboard?.writeText(threadUrl(model.ref));
-          break;
-        case "close":
-          actions.closeTab(model.ref);
-          break;
-        case "close-others":
-          actions.closeOthers(model.ref);
-          break;
-        case "close-to-right":
-          actions.closeToRight(model.ref);
-          break;
-        case "close-all":
-          actions.closeAll();
-          break;
-        case null:
-          break;
-      }
-    },
-    [actions, tabs],
-  );
+  const handleContextMenu = async (event: ReactMouseEvent, model: TabModel) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const api = readLocalApi();
+    if (!api) return;
+    const index = tabs.findIndex((ref) => scopedThreadKey(ref) === model.key);
+    if (index < 0) return;
+    const items: ContextMenuItem<TabContextMenuAction>[] = [
+      { id: "copy-link", label: "Copy link" },
+      { id: "close", label: "Close" },
+      { id: "close-others", label: "Close others", disabled: tabs.length <= 1 },
+      { id: "close-to-right", label: "Close to the right", disabled: index >= tabs.length - 1 },
+      { id: "close-all", label: "Close all", disabled: tabs.length === 0 },
+    ];
+    const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
+    switch (action) {
+      case "copy-link":
+        void navigator.clipboard?.writeText(threadUrl(model.ref));
+        break;
+      case "close":
+        actions.closeTab(model.ref);
+        break;
+      case "close-others":
+        actions.closeOthers(model.ref);
+        break;
+      case "close-to-right":
+        actions.closeToRight(model.ref);
+        break;
+      case "close-all":
+        actions.closeAll();
+        break;
+      case null:
+        break;
+    }
+  };
 
   useEffect(() => {
     const activeTab = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Switching threads scrolls the newly active tab into view.
   }, [activeRouteKey]);
 
   if (tabs.length === 0) return null;
@@ -223,18 +210,15 @@ function ThreadTab({
       })
     : null;
 
-  const handleMouseDown = useCallback((event: ReactMouseEvent) => {
+  const handleMouseDown = (event: ReactMouseEvent) => {
     if (event.button === 1) event.preventDefault();
-  }, []);
-  const handleAuxClick = useCallback(
-    (event: ReactMouseEvent) => {
-      if (event.button !== 1) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    },
-    [onClose],
-  );
+  };
+  const handleAuxClick = (event: ReactMouseEvent) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  };
 
   const label = model.environmentLabel ? `${title} · ${model.environmentLabel}` : title;
 

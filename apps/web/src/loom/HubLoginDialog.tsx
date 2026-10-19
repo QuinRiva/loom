@@ -36,12 +36,18 @@ import { loomCommands } from "./loomGoalState";
 export function HubLoginDialogHost() {
   const alert = useHubLoginStore((state) => state.dialog);
   const openDialog = useHubLoginStore((state) => state.openDialog);
+  // A retry remounts the flow: a fresh sign-in link and an empty paste.
+  const [attempt, setAttempt] = useState(0);
   return (
     <Dialog open={alert !== null} onOpenChange={(open) => (open ? undefined : openDialog(null))}>
       <DialogPopup>
         {alert ? (
           // Keyed per account: a fresh sign-in link and an empty paste each time.
-          <HubLoginFlow key={`${alert.environmentId}:${alert.email}`} alert={alert} />
+          <HubLoginFlow
+            key={`${alert.environmentId}:${alert.email}:${attempt}`}
+            alert={alert}
+            retry={() => setAttempt((count) => count + 1)}
+          />
         ) : null}
       </DialogPopup>
     </Dialog>
@@ -53,7 +59,13 @@ const failureText = (cause: unknown, fallback: string) =>
     ? cause.error.message
     : fallback;
 
-function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
+function HubLoginFlow({
+  alert,
+  retry,
+}: {
+  readonly alert: LoginAlert;
+  readonly retry: () => void;
+}) {
   const start = useAtomCommand(loomCommands.hubLoginStart, { reportFailure: false });
   const finish = useAtomCommand(loomCommands.hubLoginFinish, { reportFailure: false });
   const close = () => useHubLoginStore.getState().openDialog(null);
@@ -73,7 +85,6 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
   const wrongAccount = loggedIn !== undefined && loggedIn !== null && loggedIn !== alert.email;
 
   // The dialog exists to sign in: mint the link as it opens rather than ask for one more click.
-  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
     void start({ environmentId: alert.environmentId, input: { sourceId: alert.sourceId } }).then(
@@ -86,16 +97,7 @@ function HubLoginFlow({ alert }: { readonly alert: LoginAlert }) {
     return () => {
       live = false;
     };
-  }, [start, alert.environmentId, alert.sourceId, attempt]);
-
-  const retry = () => {
-    setLink(null);
-    setPasted("");
-    setCopied(false);
-    setError(null);
-    setLoggedIn(undefined);
-    setAttempt((count) => count + 1);
-  };
+  }, [start, alert.environmentId, alert.sourceId]);
 
   const submit = async () => {
     if (!link || pasted.trim().length === 0) return;

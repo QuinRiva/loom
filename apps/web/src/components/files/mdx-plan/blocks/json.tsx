@@ -1,5 +1,5 @@
 import { IconChevronRight } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -144,15 +144,17 @@ function JsonNode({
   );
 }
 
+function parseJson(json: string) {
+  try {
+    return { ok: true as const, value: JSON.parse(json) as unknown };
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
   const [wrap, setWrap] = useState(data.wrap ?? false);
-  const parsed = useMemo(() => {
-    try {
-      return { ok: true as const, value: JSON.parse(data.json) as unknown };
-    } catch (error) {
-      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
-    }
-  }, [data.json]);
+  const parsed = parseJson(data.json);
 
   return (
     <section

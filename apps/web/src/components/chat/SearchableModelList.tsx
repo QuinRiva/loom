@@ -2,10 +2,8 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
   type ReactElement,
   type ReactNode,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -70,9 +68,9 @@ export function SearchableModelList(props: {
   const listRef = useRef<LegendListRef | null>(null);
   const highlightedKeyRef = useRef<string | null>(null);
 
-  const focusSearchInput = useCallback(() => {
+  const focusSearchInput = () => {
     searchInputRef.current?.focus({ preventScroll: true });
-  }, []);
+  };
 
   const autoFocus = props.autoFocus ?? true;
   useLayoutEffect(() => {
@@ -97,15 +95,16 @@ export function SearchableModelList(props: {
     return () => window.cancelAnimationFrame(frame);
   }, [focusSignal, focusSearchInput]);
 
-  const updateScrollFades = useCallback(() => {
+  const updateScrollFades = () => {
     const scrollElement = listRef.current?.getScrollableNode();
     if (!(scrollElement instanceof HTMLElement)) return;
     const maxScrollOffset = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
     setShowTopScrollFade(scrollElement.scrollTop > 1);
     setShowBottomScrollFade(maxScrollOffset - scrollElement.scrollTop > 1);
-  }, []);
+  };
 
   useLayoutEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- A new result list resets the fades before paint; the measured ones follow a frame later.
     setShowTopScrollFade(false);
     setShowBottomScrollFade(visibleKeys.length > 5);
     let nestedFrame = 0;
@@ -254,42 +253,35 @@ export function SearchableModelPopover({
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
 
-  const optionByValue = useMemo(
-    () => new Map(options.map((option) => [option.value, option])),
-    [options],
-  );
-  const allKeys = useMemo(() => options.map((option) => option.value), [options]);
+  const optionByValue = new Map(options.map((option) => [option.value, option]));
+  const allKeys = options.map((option) => option.value);
 
   // One pipeline for both states. Array#sort is stable, so equal comparanda
   // keep the caller's original (namespace-grouped) order. Unfiltered: score 0,
   // ordered by group. Searching: fuzzy score over name + slug + group.
-  const visibleKeys = useMemo(
-    () =>
-      options
-        .map((option) => ({
-          option,
-          score: trimmed
-            ? scoreModelPickerSearch(
-                {
-                  name: option.name,
-                  driverKind: option.group,
-                  providerDisplayName: option.group,
-                  ...(option.secondary ? { subProvider: option.secondary } : {}),
-                },
-                trimmed,
-              )
-            : 0,
-        }))
-        .filter((r): r is { option: ModelPickerOption; score: number } => r.score !== null)
-        .sort((a, b) => {
-          if ((a.option.pinned ?? false) !== (b.option.pinned ?? false)) {
-            return a.option.pinned ? -1 : 1;
-          }
-          return trimmed ? a.score - b.score : a.option.group.localeCompare(b.option.group);
-        })
-        .map(({ option }) => option.value),
-    [options, trimmed],
-  );
+  const visibleKeys = options
+    .map((option) => ({
+      option,
+      score: trimmed
+        ? scoreModelPickerSearch(
+            {
+              name: option.name,
+              driverKind: option.group,
+              providerDisplayName: option.group,
+              ...(option.secondary ? { subProvider: option.secondary } : {}),
+            },
+            trimmed,
+          )
+        : 0,
+    }))
+    .filter((r): r is { option: ModelPickerOption; score: number } => r.score !== null)
+    .sort((a, b) => {
+      if ((a.option.pinned ?? false) !== (b.option.pinned ?? false)) {
+        return a.option.pinned ? -1 : 1;
+      }
+      return trimmed ? a.score - b.score : a.option.group.localeCompare(b.option.group);
+    })
+    .map(({ option }) => option.value);
 
   return (
     <Popover

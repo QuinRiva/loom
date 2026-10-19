@@ -1,9 +1,3 @@
-/**
- * PiTextGeneration — commit messages, PR content, branch names, and thread
- * titles generated through an ephemeral `pi --mode rpc --no-session` process.
- * No session file is written; the user's Pi configuration (default model,
- * auth, custom providers) still applies.
- */
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";

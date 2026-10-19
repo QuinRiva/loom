@@ -13,6 +13,8 @@ describe("threadMentionStatus", () => {
     ["a briefed child free to start", T.ready, "ready"],
     ["an unbriefed child free to start", T.briefNeeded, "brief-needed"],
     ["a yielded child", T.quiescent, "awaiting_orchestrator"],
+    ["a child waiting on an approval", T.awaitingApproval, "awaiting_approval"],
+    ["a child waiting on a question", T.awaitingInput, "awaiting_input"],
     ["a done child", T.done, "done"],
     ["a cancelled child", T.cancelled, "cancelled"],
     ["a root with a running turn", T.root, "running"],

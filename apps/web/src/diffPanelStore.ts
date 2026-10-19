@@ -13,7 +13,6 @@ export type DiffPanelSelection =
   // its latest when `turnId` is null.
   | { kind: "coder"; threadId: ThreadId; turnId: RunId | null };
 
-// "branch" is the Changes view: everything this checkout changed since its base.
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 
 interface DiffPanelStoreState {

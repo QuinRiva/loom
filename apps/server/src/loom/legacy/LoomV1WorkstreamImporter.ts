@@ -155,8 +155,8 @@ const isWorkstreamRow = (row: LegacyV1Thread) =>
 
 /**
  * The pure V1 → Loom mapping (plan §1 column mapping and six-lane mapping) for
- * one thread. `kickoffAt` is the thread's first turn request or user message
- * (null = never started).
+ * one thread. `kickoffAt` is the thread's first user message (null = never
+ * started); V1's turn rows are gone by import time (upstream's 063).
  */
 export const mapLegacyThread = (
   row: LegacyV1Thread,
@@ -511,12 +511,10 @@ const makeReconcile = (
     const importThread = (row: LegacyV1Thread) =>
       Effect.gen(function* () {
         const threadId = ThreadId.make(row.thread_id);
-        const [turn] = yield* sql<{ at: string | null }>`
-        SELECT MIN(requested_at) AS at FROM projection_turns WHERE thread_id = ${threadId}`;
         const [message] = yield* sql<{ at: string | null }>`
         SELECT MIN(created_at) AS at FROM projection_thread_messages
         WHERE thread_id = ${threadId} AND role = 'user'`;
-        const mapping = mapLegacyThread(row, turn?.at ?? message?.at ?? null, ctx);
+        const mapping = mapLegacyThread(row, message?.at ?? null, ctx);
         const [stored] = yield* sql<{ payload_json: string }>`
         SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}`;
         const current = Option.getOrThrowWith(

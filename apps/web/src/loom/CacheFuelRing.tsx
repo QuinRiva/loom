@@ -22,7 +22,7 @@ import {
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { LoomThreadCache } from "@t3tools/contracts";
 import { SnowflakeIcon } from "lucide-react";
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
@@ -63,10 +63,7 @@ const minuteIso = (nowMinute: string) => `${nowMinute}:00.000Z`;
 export function useCacheView(thread: SidebarThreadSummary, cache: LoomThreadCache): CacheView {
   const nowMinute = useNowMinute();
   const key = cacheStateKey(thread.environmentId, thread.id);
-  const subscribe = useCallback(
-    (listener: () => void) => subscribeCacheState(key, listener),
-    [key],
-  );
+  const subscribe = (listener: () => void) => subscribeCacheState(key, listener);
   const live = useSyncExternalStore(subscribe, () => getCacheState(key));
   // The minute tick is the clock: Date.now() between ticks would make renders disagree.
   const nowMs = Date.parse(minuteIso(nowMinute));

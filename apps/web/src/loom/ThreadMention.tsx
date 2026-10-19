@@ -34,13 +34,26 @@ import { Atom } from "effect/reactivity";
 
 import { ProjectFavicon, type ProjectFaviconProject } from "../components/ProjectFavicon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
-import { ATTENTION_LABELS, COLUMN_LABELS, isRunning } from "../lib/workstreamPresentation";
+import {
+  ATTENTION_LABELS,
+  COLUMN_LABELS,
+  isRunning,
+  PENDING_REQUEST_LABELS,
+} from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
 import { useProject } from "../state/entities";
 import { environmentThreadShells } from "../state/threads";
 
-/** What a mention shows: an attention reason, a child's board column, or a live root turn. */
-export type ThreadMentionStatus = WorkstreamAttentionReason | WorkstreamBoardColumn | "running";
+/**
+ * What a mention shows: an attention reason, the thread's own pending approval
+ * or question, a child's board column, or a live root turn.
+ */
+export type ThreadMentionStatus =
+  | WorkstreamAttentionReason
+  | "awaiting_approval"
+  | "awaiting_input"
+  | WorkstreamBoardColumn
+  | "running";
 
 /**
  * The mention's status, or null for nothing worth showing. A settled outcome
@@ -61,6 +74,10 @@ export function threadMentionStatus(
     ...(workstream?.blockedBy ?? []).flatMap((id) => index.get(id) ?? []),
   ]);
   const reason = attentionReasonsOf(thread, byId)[0];
+  // The thread's own request, not a rollup reason (DL-1270): it outranks all but `error`.
+  const request = thread.pendingRuntimeRequest?.kind;
+  if (reason !== "error" && request !== undefined && request !== "auth_refresh")
+    return request === "user_input" ? "awaiting_input" : "awaiting_approval";
   if (reason !== undefined) return reason;
   if (workstream && workstream.parentThreadId !== null) return deriveBoardColumn(workstream, byId);
   if (workstream?.held) return "held";
@@ -110,6 +127,7 @@ const STATUS_LABELS = {
   running: "Running",
   ...COLUMN_LABELS,
   ...ATTENTION_LABELS,
+  ...PENDING_REQUEST_LABELS,
 } satisfies Record<ThreadMentionStatus, string>;
 
 const UNAVAILABLE =

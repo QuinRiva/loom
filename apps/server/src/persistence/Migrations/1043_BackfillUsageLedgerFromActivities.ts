@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { whenV1TableExists } from "../v1Projections.loom.ts";
+
 /**
  * Restore the usage-ledger rows lost from 2026-09-23 while ingestion's inserts
  * ran on the read-only lane (see `ProjectionUsageLedgerReader` in SqliteLanes.ts). Every
@@ -10,9 +12,11 @@ import * as SqlClient from "effect/sql/SqlClient";
  * older gap predates the ledger and is deliberately left alone. INSERT OR IGNORE
  * keeps rows that did land.
  */
-export default Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  yield* sql`
+export default whenV1TableExists(
+  "projection_thread_activities",
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
     INSERT OR IGNORE INTO projection_usage_ledger (
       event_id, thread_id, turn_id, provider_instance_id,
       provider_id, requested_model, resolved_model,
@@ -37,4 +41,5 @@ export default Effect.gen(function* () {
       AND json_extract(payload_json, '$.usedTokens') > 0
       AND created_at >= '2026-09-23'
   `;
-});
+  }),
+);

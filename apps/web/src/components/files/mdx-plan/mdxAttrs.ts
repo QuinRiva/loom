@@ -16,9 +16,7 @@ import type { BlockAttrReader, MdxAttrValue } from "./blockTypes";
  * (via the estree literal walker, falling back to `JSON.parse`).
  */
 
-/* -------------------------------------------------------------------------- */
 /* Serialize                                                                  */
-/* -------------------------------------------------------------------------- */
 
 function jsonExpression(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -61,9 +59,7 @@ export function serializeBlockElement(
   return `<${tag}${attrStr} />`;
 }
 
-/* -------------------------------------------------------------------------- */
 /* Parse                                                                      */
-/* -------------------------------------------------------------------------- */
 
 export type MdxAttrExpression = { type: string; value: string; data?: unknown };
 export type MdxAttrNode = {
@@ -168,9 +164,7 @@ function literalNodeValue(node: EstreeNode | undefined | null): unknown {
   return undefined;
 }
 
-/* -------------------------------------------------------------------------- */
 /* Render-path guard: reject non-literal attribute expressions                */
-/* -------------------------------------------------------------------------- */
 
 const attrExprError = (name: string) =>
   new Error(

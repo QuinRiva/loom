@@ -41,10 +41,8 @@ it("skips the legacy-import handoff for a thread bound to its native session (D8
   assert.isFalse(shouldPrepareLegacyImportHandoff({ ...input, hasStrongNativeRef: true }));
 });
 
-// ---------------------------------------------------------------------------
 // The fixture: one V1 `state.sqlite` (upstream lane 054, Loom lane 1045) whose
 // rows cover every lane × root/child and the plan's edge rows (gate g-fixture).
-// ---------------------------------------------------------------------------
 
 const PROJECT = "project-1";
 const GOAL = "goal-1";
@@ -591,7 +589,7 @@ it.effect(
           const started = fixture.turns === true || fixture.userMessage === true;
           assert.strictEqual(
             row.kickoffAt,
-            fixture.turns ? turnAt(index) : fixture.userMessage ? messageAt(index) : null,
+            fixture.turns || fixture.userMessage ? messageAt(index) : null,
             label("kickoffAt"),
           );
           assert.strictEqual(row.held, expected.held, label("held"));
@@ -695,7 +693,7 @@ it.effect(
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream WHERE outcome_event_id IS NOT NULL OR unarchived_event_id IS NOT NULL OR last_route IS NOT NULL
         OR json_extract(last_outcome, '$.eventId') IS NOT NULL`);
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream w
-        WHERE kickoff_at IS NULL AND EXISTS (SELECT 1 FROM projection_turns u WHERE u.thread_id = w.thread_id)`);
+        WHERE kickoff_at IS NULL AND EXISTS (SELECT 1 FROM projection_thread_messages u WHERE u.thread_id = w.thread_id AND u.role = 'user')`);
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream w, json_each(w.blocked_by) d
         WHERE NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = d.value)
           AND NOT EXISTS (SELECT 1 FROM json_each(w.attention) a WHERE a.value = 'needs_guidance')`);

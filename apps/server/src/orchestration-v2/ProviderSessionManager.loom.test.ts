@@ -50,6 +50,8 @@ import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import * as CommandOutputHub from "./CommandOutputHub.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -138,7 +140,13 @@ const openWith = (
     const registry = ProviderAdapterRegistry.layerSingle(recordingAdapter(opens, closes));
     const ingestor = ProviderEventIngestor.layer.pipe(
       Layer.provide(
-        Layer.mergeAll(eventSink, IdAllocator.layer, stores, ThreadCommandExecutor.layer),
+        Layer.mergeAll(
+          eventSink,
+          IdAllocator.layer,
+          stores,
+          ThreadCommandExecutor.layer,
+          Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveBranchName: () => Effect.succeed(null) }),
+        ),
       ),
     );
     const manager = ProviderSessionManager.layerWithOptions({
@@ -150,6 +158,7 @@ const openWith = (
           eventSink,
           IdAllocator.layer,
           ingestor,
+          CommandOutputHub.layer.pipe(Layer.provide(Layer.merge(eventSink, stores))),
           mcpRegistry,
           McpProviderSessions.layer,
           stores,

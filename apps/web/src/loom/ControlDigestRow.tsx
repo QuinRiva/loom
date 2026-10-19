@@ -12,7 +12,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { MessageId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { memo, type ReactNode, use, useMemo } from "react";
+import { memo, type ReactNode, use } from "react";
 
 import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
 import { useThreadShells } from "~/state/entities";
@@ -33,7 +33,7 @@ export const ControlDigestRow = memo(function ControlDigestRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const loom = useLoomMessageFields(ctx.displayThreadKey ?? ctx.routeThreadKey, messageId);
-  const model = useMemo(() => controlCardModel(loom, text), [loom, text]);
+  const model = controlCardModel(loom, text);
   return model === null ? (
     fallback(controlBubble(loom))
   ) : (
@@ -54,18 +54,16 @@ function ConnectedCard({
   const shells = useThreadShells(
     model.kind === "card" && model.items.some((entry) => entry.item.threadId),
   );
-  const senderLabels = useMemo(() => {
-    const wanted = new Set(
-      model.kind === "card" ? model.items.flatMap((entry) => entry.item.threadId ?? []) : [],
-    );
-    return new Map<ThreadId, string>(
-      shells.flatMap((shell) =>
-        wanted.has(shell.id) && shell.environmentId === ctx.activeThreadEnvironmentId
-          ? [[shell.id, shell.title] as const]
-          : [],
-      ),
-    );
-  }, [model, shells, ctx.activeThreadEnvironmentId]);
+  const wanted = new Set(
+    model.kind === "card" ? model.items.flatMap((entry) => entry.item.threadId ?? []) : [],
+  );
+  const senderLabels = new Map<ThreadId, string>(
+    shells.flatMap((shell) =>
+      wanted.has(shell.id) && shell.environmentId === ctx.activeThreadEnvironmentId
+        ? [[shell.id, shell.title] as const]
+        : [],
+    ),
+  );
   return (
     <ControlDigestCardView
       model={model}

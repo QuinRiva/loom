@@ -43,9 +43,7 @@ describe("buildWorkstreamNodes", () => {
   it("reads attention as stored ∪ derived, highest first", () => {
     expect(node(T.quiescent).reasons).toEqual(["awaiting_orchestrator"]);
     expect(node(T.unbriefed).reasons).toEqual(["brief-needed"]);
-    expect(nodes.get("seed-thread-awaiting-input" as ThreadId)!.reasons).toEqual([
-      "awaiting_input",
-    ]);
+    expect(nodes.get("seed-thread-awaiting-input" as ThreadId)!.reasons).toEqual([]);
   });
 
   it("names a waiting question and its age on the card (S4)", () => {

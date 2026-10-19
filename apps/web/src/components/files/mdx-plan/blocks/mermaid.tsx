@@ -233,6 +233,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
   useEffect(() => {
     let active = true;
     if (!source) {
+      // oxlint-disable-next-line react/set-state-in-effect -- An emptied source clears the diagram a previous source rendered.
       setSvg(null);
       setError(null);
       return;

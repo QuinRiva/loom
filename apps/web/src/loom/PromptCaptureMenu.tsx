@@ -44,6 +44,7 @@ export function PromptCaptureMenu({
     return () => {
       cancelled = true;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A refresh re-reads the capture.
   }, [environmentId, threadId, refreshKey, load]);
   const capture = loaded?.threadId === threadId ? loaded.capture : null;
   const latest = previewable(capture?.latest);

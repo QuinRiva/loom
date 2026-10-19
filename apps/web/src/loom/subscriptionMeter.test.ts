@@ -117,7 +117,7 @@ describe("reading ring on the token-file path", () => {
         {
           ...presentation,
           serverConfig: {
-            ...presentation.serverConfig,
+            ...presentation.serverConfig!,
             providers: presentation.serverConfig!.providers!.map((provider) => ({
               ...provider,
               usageLimits: {
@@ -214,7 +214,7 @@ describe("pools across sources", () => {
         {
           ...presentation,
           serverConfig: {
-            ...presentation.serverConfig,
+            ...presentation.serverConfig!,
             usageLimitSources: hub.serverConfig!.usageLimitSources,
           },
         },
@@ -248,7 +248,7 @@ describe("held readings", () => {
         {
           ...presentation,
           serverConfig: {
-            ...presentation.serverConfig,
+            ...presentation.serverConfig!,
             usageLimitSources: presentation.serverConfig!.usageLimitSources!.map((source) => ({
               ...source,
               accounts: source.accounts.filter((account) =>

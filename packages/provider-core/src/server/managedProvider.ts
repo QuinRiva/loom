@@ -175,8 +175,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       yield* Fiber.interrupt(previousFiber).pipe(Effect.ignore);
     }
 
-    // Enrichment resolves binaries and package-manager state, which a disabled
-    // provider has no use for.
     if (!input.enrichSnapshot || !snapshot.enabled) {
       return;
     }
@@ -231,7 +229,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         const previous = state.snapshot.auth;
         const differs = (a: string | undefined, b: string | undefined) =>
           a !== undefined && b !== undefined && a !== b;
-        // Limits read without a workspace cannot be attributed to a new one.
         const switchedAccount =
           differs(probedSnapshot.auth.email?.toLowerCase(), previous.email?.toLowerCase()) ||
           (probedSnapshot.auth.workspaceId !== undefined &&
@@ -273,11 +270,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   const applySnapshot = (nextSettings: Settings, options?: { readonly forceRefresh?: boolean }) =>
     refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
 
-  /**
-   * Runtime usage updates arrive between probes. They patch only
-   * `usageLimits` on whatever snapshot is published and leave the enrichment
-   * generation alone, so an in-flight enrichment still lands.
-   */
   // loom: both usage-limit writers share this envelope "fold, republish only if
   // the fold moved something". The fold functions hand back the same object
   // when nothing changed, which is the common case for Codex's per-tick

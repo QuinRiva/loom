@@ -36,7 +36,7 @@ const instanceId = ProviderInstanceId.make("pi");
 
 export const loomPreviewEnvironmentId = EnvironmentId.make("preview-environment");
 
-// ---- goal with a nested task tree -----------------------------------------------
+// Goal with a nested task tree.
 
 const task = (
   n: number,
@@ -85,7 +85,7 @@ export const loomPreviewGoal: LoomGoalShell = {
   archivedAt: null,
 };
 
-// ---- thread shells: one per derived plan column, plus the attention cases -------
+// Thread shells: one per derived plan column, plus the attention cases.
 
 export const workstream = (
   threadId: ThreadId,
@@ -339,7 +339,7 @@ export const loomPreviewThreads = {
       attention: ["needs_guidance"],
     }),
   ),
-  /** Derived `awaiting_approval` from a pending command approval. */
+  /** A pending command approval (upstream rolls it up; not Loom attention). */
   awaitingApproval: shell(
     "Run the migration",
     workstream("seed-thread-awaiting-approval" as ThreadId, started),
@@ -353,7 +353,7 @@ export const loomPreviewThreads = {
       },
     },
   ),
-  /** Derived `awaiting_input` from a pending question. */
+  /** A pending question (upstream rolls it up; not Loom attention). */
   awaitingInput: shell(
     "Choose the parser",
     workstream("seed-thread-awaiting-input" as ThreadId, started),
@@ -390,7 +390,7 @@ export const loomPreviewShellSnapshot: OrchestrationV2ShellSnapshot = {
   goals: [loomPreviewGoal],
 };
 
-// ---- control messages on the root (seam 6) ------------------------------------
+// Control messages on the root (seam 6).
 
 export const loomPreviewControlMessages: ReadonlyArray<OrchestrationV2ConversationMessage> =
   loomSeedControlMessages({
@@ -417,7 +417,7 @@ export const loomPreviewControlMessages: ReadonlyArray<OrchestrationV2Conversati
     },
   }));
 
-// ---- a digest whose reports handed back documents (the card's chips) ------------
+// A digest whose reports handed back documents (the card's chips).
 
 /** The seed project's workspace: relative document paths resolve against it. */
 export const loomPreviewWorkspaceRoot = loomPreviewShellSnapshot.projects[0]!.workspaceRoot;

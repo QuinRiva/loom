@@ -48,6 +48,8 @@ export interface WorkstreamNode extends LoomThreadShellFields {
   readonly activity: OrchestrationV2ThreadShell["activityRunStatus"];
   /** The question the thread waits on (S4), or null. */
   readonly pendingQuestion: ReturnType<typeof pendingQuestionOf>;
+  /** Since when the thread waits on an approval (upstream's `hasPendingApprovals` kinds), or null. */
+  readonly pendingApproval: { readonly since: string } | null;
   /** The latest visible message's text (`shell.latestVisibleMessage`). */
   readonly preview: string | null;
   readonly lastActivityAt: string;
@@ -87,6 +89,12 @@ export function buildWorkstreamNodes(
         reasons: attentionReasonsOf(shell, startIndex),
         activity: shell.activityRunStatus ?? null,
         pendingQuestion: pendingQuestionOf(shell),
+        pendingApproval:
+          shell.pendingRuntimeRequest &&
+          shell.pendingRuntimeRequest.kind !== "user_input" &&
+          shell.pendingRuntimeRequest.kind !== "auth_refresh"
+            ? { since: iso(shell.pendingRuntimeRequest.createdAt) }
+            : null,
         preview: shell.latestVisibleMessage?.text.trim() || null,
         lastActivityAt: iso(lastActivity),
         archived: shell.archivedAt !== null,
@@ -106,9 +114,7 @@ export const liveNodes = (nodes: Iterable<WorkstreamNode>) =>
 export const isRunning = (node: Pick<WorkstreamNode, "activity">) =>
   node.activity === "preparing" || node.activity === "starting" || node.activity === "running";
 
-// ---------------------------------------------------------------------------
 // Columns
-// ---------------------------------------------------------------------------
 
 export const COLUMN_ORDER: ReadonlyArray<WorkstreamBoardColumn> = [
   "held",
@@ -179,14 +185,10 @@ export const COLUMN_STYLES = {
   },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
 
-// ---------------------------------------------------------------------------
 // Attention
-// ---------------------------------------------------------------------------
 
 export const ATTENTION_LABELS = {
   error: "Error / stalled",
-  awaiting_approval: "Awaiting approval",
-  awaiting_input: "Awaiting input",
   awaiting_acceptance: "Awaiting acceptance",
   needs_guidance: "Needs guidance",
   awaiting_orchestrator: "Yielded · needs orchestrator",
@@ -196,8 +198,6 @@ export const ATTENTION_LABELS = {
 /** The hover card's status-line form: short, so the line's figures never truncate. */
 export const ATTENTION_SHORT_LABELS = {
   error: "stalled",
-  awaiting_approval: "needs approval",
-  awaiting_input: "needs input",
   awaiting_acceptance: "needs acceptance",
   needs_guidance: "needs guidance",
   awaiting_orchestrator: "yielded",
@@ -207,8 +207,6 @@ export const ATTENTION_SHORT_LABELS = {
 /** Badge variant per reason (`components/ui/badge`). */
 export const ATTENTION_BADGE_VARIANTS = {
   error: "error",
-  awaiting_approval: "warning",
-  awaiting_input: "warning",
   awaiting_acceptance: "info",
   needs_guidance: "warning",
   awaiting_orchestrator: "secondary",
@@ -218,17 +216,50 @@ export const ATTENTION_BADGE_VARIANTS = {
 /** The token colour of a reason, for the graph's attention ring. */
 export const ATTENTION_COLORS = {
   error: "var(--color-error)",
-  awaiting_approval: "var(--color-warning)",
-  awaiting_input: "var(--color-warning)",
   awaiting_acceptance: "var(--color-info)",
   needs_guidance: "var(--color-warning)",
   awaiting_orchestrator: "var(--color-info)",
   "brief-needed": "var(--color-muted-foreground)",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
-// ---------------------------------------------------------------------------
+/** A thread's own pending request, named like the attention reasons. */
+export const PENDING_REQUEST_LABELS = {
+  awaiting_approval: "Awaiting approval",
+  awaiting_input: "Awaiting input",
+};
+
+/**
+ * What a node's ring, strip chip and quick facts show, or null. The node's own
+ * pending approval or question outranks every reason but `error`, as upstream's
+ * row pills do. It is the node's own state, not a rollup reason: upstream
+ * carries it to the ancestors (DL-1270), so it never enters `reasons`.
+ */
+export function nodeAttentionOf(
+  node: Pick<WorkstreamNode, "reasons" | "pendingQuestion" | "pendingApproval">,
+): { readonly color: string; readonly label: string; readonly shortLabel: string } | null {
+  const reason = node.reasons[0];
+  if (reason !== "error" && node.pendingApproval)
+    return {
+      color: "var(--color-warning)",
+      label: PENDING_REQUEST_LABELS.awaiting_approval,
+      shortLabel: "needs approval",
+    };
+  if (reason !== "error" && node.pendingQuestion)
+    return {
+      color: "var(--color-warning)",
+      label: PENDING_REQUEST_LABELS.awaiting_input,
+      shortLabel: "needs input",
+    };
+  return reason
+    ? {
+        color: ATTENTION_COLORS[reason],
+        label: ATTENTION_LABELS[reason],
+        shortLabel: ATTENTION_SHORT_LABELS[reason],
+      }
+    : null;
+}
+
 // Review gates — the verdict chip, the gate-leg label, the loop round cap
-// ---------------------------------------------------------------------------
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "error";
 
@@ -331,9 +362,7 @@ export function getGateWaitLabel(node: WorkstreamNode, byId: WorkstreamNodeIndex
   };
 }
 
-// ---------------------------------------------------------------------------
 // Card copy
-// ---------------------------------------------------------------------------
 
 export const getRoleLabel = (node: Pick<WorkstreamNode, "role" | "parentThreadId">) =>
   node.role?.trim() || (node.parentThreadId === null ? "root" : "sub-thread");
@@ -344,18 +373,20 @@ export const getPurpose = (node: Pick<WorkstreamNode, "purpose">) =>
 /** One short phrase for what the thread is doing, attention first. */
 export function getActivity(node: WorkstreamNode): string {
   const reason = node.reasons[0];
+  if (reason === "error") return "stalled — needs you";
   // Which question waits and for how long (S4), so the card says whether it
-  // is a five-second pick or needs real thought.
-  if (reason === "awaiting_input")
+  // is a five-second pick or needs real thought. The thread's own state, not
+  // an attention reason: upstream rolls it up to the ancestors.
+  if (node.pendingQuestion)
     return [
       "waiting for your input",
-      node.pendingQuestion?.header,
-      node.pendingQuestion && formatCompactAge(node.pendingQuestion.since),
+      node.pendingQuestion.header,
+      formatCompactAge(node.pendingQuestion.since),
     ]
       .filter(Boolean)
       .join(" · ");
-  if (reason === "awaiting_approval") return "approval required";
-  if (reason === "error") return "stalled — needs you";
+  if (node.pendingApproval)
+    return ["approval required", formatCompactAge(node.pendingApproval.since)].join(" · ");
   if (reason === "needs_guidance") return "stuck — needs guidance";
   if (reason === "awaiting_acceptance") return "awaiting your acceptance";
   if (reason === "awaiting_orchestrator")
@@ -479,9 +510,7 @@ export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): stri
   return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
 }
 
-// ---------------------------------------------------------------------------
 // Current step — the tool in flight, or the model between tool calls
-// ---------------------------------------------------------------------------
 
 /** A step this long reads amber: the signature of a stalled tool call or model request. */
 export const LONG_STEP_MS = 5 * 60_000;
@@ -516,9 +545,7 @@ export function formatStepAge(since: string, now: number): string | null {
   return seconds === null || seconds < 60 ? null : formatCompactAge(since, now);
 }
 
-// ---------------------------------------------------------------------------
 // Controls — the node menu (outcome replaces V1's lane select)
-// ---------------------------------------------------------------------------
 
 export type WorkstreamNodeMenuAction =
   | "open"
@@ -558,9 +585,7 @@ export function buildNodeContextMenuItems(
   ];
 }
 
-// ---------------------------------------------------------------------------
 // Timeline — the sidecar's milestones plus the thread's event history
-// ---------------------------------------------------------------------------
 
 /** A place in a thread's conversation: the latest row at or before `at`. */
 export interface ConversationAnchor {
@@ -593,8 +618,6 @@ const attentionLabel = (reason: string) =>
 const ATTENTION_TONES: Record<string, Tone> = {
   error: "error",
   needs_guidance: "warning",
-  awaiting_approval: "warning",
-  awaiting_input: "warning",
   awaiting_acceptance: "info",
 };
 

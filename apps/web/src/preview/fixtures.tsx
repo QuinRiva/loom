@@ -602,11 +602,9 @@ function userBubbleFixture(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Pending user-input panel — upstream's composer question wizard, driven by pi's
 // `mcp__t3-code__ask_user_question`. One question at a time, Next/Submit on the last, and a
 // Dismiss affordance whenever the request declares itself dismissible.
-// ---------------------------------------------------------------------------
 
 const PENDING_USER_INPUT_SINGLE: ReadonlyArray<UserInputQuestion> = [
   {

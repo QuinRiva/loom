@@ -1,5 +1,5 @@
 import { IconColumns, IconFileDiff, IconList } from "@tabler/icons-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -347,25 +347,18 @@ function DiffLine({
 }
 
 function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
-  const rows = useMemo(
-    () => buildRows(diffLines(data.before, data.after)),
-    [data.before, data.after],
-  );
+  const rows = buildRows(diffLines(data.before, data.after));
   const [mode, setMode] = useState<DiffMode>(data.mode ?? "split");
   const [showAll, setShowAll] = useState(false);
   const [wrap, setWrap] = useState(data.wrap ?? false);
-  const annotations = useMemo(
-    () =>
-      [...(data.annotations ?? [])].sort(
-        (a, b) => parseLineStart(a.lines) - parseLineStart(b.lines),
-      ),
-    [data.annotations],
+  const annotations = [...(data.annotations ?? [])].sort(
+    (a, b) => parseLineStart(a.lines) - parseLineStart(b.lines),
   );
 
   const added = rows.filter((r) => r.kind === "added").length;
   const removed = rows.filter((r) => r.kind === "removed").length;
   const unchanged = data.before === data.after;
-  const pairs = useMemo(() => (mode === "split" ? pairSplitRows(rows) : []), [mode, rows]);
+  const pairs = mode === "split" ? pairSplitRows(rows) : [];
   const total = mode === "split" ? pairs.length : rows.length;
   const truncate = !showAll && total > DEFAULT_VISIBLE_DIFF_LINES;
   const shownRows = truncate ? rows.slice(0, DEFAULT_VISIBLE_DIFF_LINES) : rows;

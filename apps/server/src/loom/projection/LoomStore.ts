@@ -14,7 +14,6 @@
  * @module loom/projection/LoomStore
  */
 import {
-  EventId,
   GoalId,
   GoalTaskId,
   HandoffOrigin,
@@ -24,8 +23,6 @@ import {
   type LoomActiveStep,
   type LoomCacheRetention,
   LoomContextUsage,
-  LoomOutcome,
-  LoomRouteKind,
   LoomRouteRecord,
   LoomThreadCache,
   type LoomThreadCachePatch,
@@ -37,7 +34,6 @@ import {
   NonNegativeInt,
   ProjectId,
   ThreadId,
-  TrimmedNonEmptyString,
   WorkOutcomeRecord,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -50,6 +46,8 @@ import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/sql/SqlClient";
 import type * as Statement from "effect/sql/Statement";
 
+import { HISTORY_EVENT_TYPES, HistoryEventRow } from "./LoomHistoryEvents.ts";
+
 export class LoomStoreError extends Schema.TaggedError<LoomStoreError>()("LoomStoreError", {
   operation: Schema.String,
   cause: Schema.optional(Schema.Defect()),
@@ -59,9 +57,7 @@ export class LoomStoreError extends Schema.TaggedError<LoomStoreError>()("LoomSt
   }
 }
 
-// ---------------------------------------------------------------------------
 // Row ↔ record codec (the one place the column layout is spelled out)
-// ---------------------------------------------------------------------------
 
 /** `loom_thread_workstream` as stored: bits for booleans, JSON text for structures. */
 export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) => ({
@@ -246,9 +242,7 @@ const buildTaskTree = (rows: ReadonlyArray<TaskRow>): ReadonlyArray<LoomGoalTask
   return build("");
 };
 
-// ---------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------
 
 export interface LoomTreeQueryOptions {
   readonly includeArchived?: boolean;
@@ -418,36 +412,7 @@ const PendingPeerMessageRow = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const historyRow = <const Type extends string, Payload extends Schema.Struct.Fields>(
-  type: Type,
-  payload: Payload,
-) =>
-  Schema.Struct({
-    type: Schema.Literal(type),
-    eventId: EventId,
-    at: IsoDateTime,
-    payload: Schema.fromJsonString(Schema.Struct(payload)),
-  });
-
-/** The event-log rows `history` folds. V1 rows carry extra payload fields and V1 reasons. */
-const HistoryEventRow = Schema.Union([
-  historyRow("thread.report-set", { reportPath: TrimmedNonEmptyString }),
-  historyRow("thread.outcome-recorded", Struct.omit(WorkOutcomeRecord.fields, ["eventId", "at"])),
-  historyRow("thread.attention-raised", { reason: TrimmedNonEmptyString }),
-  historyRow("thread.attention-cleared", { reason: Schema.optional(TrimmedNonEmptyString) }),
-  // V1's route-taken had no kind: every V1 route was a loop.
-  historyRow("thread.route-taken", {
-    to: ThreadId,
-    round: NonNegativeInt,
-    kind: Schema.optional(LoomRouteKind),
-  }),
-  historyRow("thread.gate-rework-accepted", { sourceThreadId: ThreadId, round: NonNegativeInt }),
-  historyRow("thread.outcome-set", { outcome: Schema.NullOr(LoomOutcome) }),
-  // V1's lane axis: a yield was the `yielded` lane, done/cancelled were lanes.
-  historyRow("thread.plan-lane-set", { planLane: Schema.String }),
-]);
 const decodeHistoryRow = Schema.decodeUnknownOption(HistoryEventRow);
-const HISTORY_EVENT_TYPES = HistoryEventRow.members.map((member) => member.fields.type.literal);
 
 /**
  * The predicate `loom_turn_items_tool_calls_idx` (migration 1053) is partial on,

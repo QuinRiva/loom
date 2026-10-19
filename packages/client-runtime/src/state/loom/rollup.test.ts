@@ -138,24 +138,17 @@ describe("workstream rollups", () => {
     expect(activity).toEqual({ running: 0, active: 0 });
   });
 
-  it("derives awaiting_approval and awaiting_input from the pending request, highest priority first", () => {
+  // Upstream's pendingSubagentRequest carries a descendant's question or
+  // approval to the root (pull 12, §7.1 row 1); the rollup leaves it alone.
+  it("a pending question or approval is not attention", () => {
     const { attention } = rollup([
-      { id: "a", request: "user_input" },
-      { id: "b", request: "command" },
-      { id: "c", outcome: "done" },
+      { id: "a", started: true, request: "user_input" },
+      { id: "b", started: true, request: "command" },
+      { id: "c", started: true, attention: ["needs_guidance"], request: "file-change" },
     ]);
     expect(attention.nodes.map(({ id, reason }) => ({ id, reason }))).toEqual([
-      { id: "b", reason: "awaiting_approval" },
-      { id: "a", reason: "awaiting_input" },
+      { id: "c", reason: "needs_guidance" },
     ]);
-  });
-
-  it("a stored error outranks a derived approval", () => {
-    const { attention } = rollup([
-      { id: "a", started: true, attention: ["error"] },
-      { id: "b", request: "file-change" },
-    ]);
-    expect(attention.highest).toBe("error");
   });
 
   it("a starting run is active but not running", () => {

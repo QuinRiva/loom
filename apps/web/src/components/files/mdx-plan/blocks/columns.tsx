@@ -52,8 +52,6 @@ export const columnBlock: PlanBlock<ColumnData> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
-
 /** Direct children are `<Column>` slots or bare blocks (a row of `<Card>`s needs
  * no wrappers); `columns` caps how many sit across — the grid still collapses
  * on a narrow panel. Uncapped, the row balances: all `n` across when they fit,

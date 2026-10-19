@@ -38,10 +38,8 @@ export function rewriteMarkdownFileUriHref(href: string | undefined): string | n
 }
 
 /**
- * Stricter gate for turning an inline-code span into a file link. Applies the
- * shared {@link isLinkablePathText} syntactic gate, then resolves the span to a
- * concrete target. Everything else is left as plain code.
- *
+ * loom: applies the shared {@link isLinkablePathText} syntactic gate, then
+ * resolves the span to a concrete target; everything else stays plain code.
  */
 export function resolveInlineCodeFileLinkMeta(
   rawText: string,
@@ -277,11 +275,6 @@ export function isAbsolutePreviewablePath(path: string): boolean {
   return path.startsWith("/");
 }
 
-/**
- * Prose in a workspace file names other files from the repo root (`docs/ai/design.md`),
- * unlike an explicit link. Single-segment names (`design.md:12`) and `./`, `../`
- * paths still read as siblings, and files outside the workspace keep their own base.
- */
 function inlineCodePathNamesFromWorkspaceRoot(
   candidate: string,
   cwd: string | undefined,
@@ -322,7 +315,7 @@ const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
 
 const BARE_EXTENSIONLESS_POSITION_PATTERN = /^[A-Za-z0-9_-]+(?::\d+){1,2}$/;
 
-// Any `Name:digits` shape also matches `error:1`, `port:3000`, `TODO:12`, so
+// Any `Name:digits` shape also matches `error:1`, `port:3000` or a todo marker, so
 // extensionless linking is limited to conventional filenames.
 const EXTENSIONLESS_FILE_NAMES = new Set([
   "Makefile",

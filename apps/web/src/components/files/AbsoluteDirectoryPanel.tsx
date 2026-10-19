@@ -1,6 +1,6 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { ChevronRight, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 
 import { PierreEntryIcon } from "~/components/chat/PierreEntryIcon";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -42,41 +42,33 @@ export default function AbsoluteDirectoryPanel({
   threadRef,
 }: AbsoluteDirectoryPanelProps) {
   const { resolvedTheme } = useTheme();
-  const normalizedRoot = useMemo(() => rootPath.replace(/\/+$/, "") || rootPath, [rootPath]);
+  const normalizedRoot = rootPath.replace(/\/+$/, "") || rootPath;
   const [currentPath, setCurrentPath] = useState(normalizedRoot);
-
   // Reset navigation to the root whenever the surface is re-pointed at a
   // different absolute directory.
-  useEffect(() => {
+  const [shownRoot, setShownRoot] = useState(normalizedRoot);
+  if (shownRoot !== normalizedRoot) {
+    setShownRoot(normalizedRoot);
     setCurrentPath(normalizedRoot);
-  }, [normalizedRoot]);
+  }
 
   const directory = useProjectAbsoluteDirectoryQuery(environmentId, currentPath);
-  const segments = useMemo(
-    () => relativeSegments(normalizedRoot, currentPath),
-    [normalizedRoot, currentPath],
-  );
+  const segments = relativeSegments(normalizedRoot, currentPath);
 
-  const navigateToDepth = useCallback(
-    (depth: number) => {
-      setCurrentPath(
-        depth <= 0 ? normalizedRoot : posixJoin(normalizedRoot, segments.slice(0, depth).join("/")),
-      );
-    },
-    [normalizedRoot, segments],
-  );
+  const navigateToDepth = (depth: number) => {
+    setCurrentPath(
+      depth <= 0 ? normalizedRoot : posixJoin(normalizedRoot, segments.slice(0, depth).join("/")),
+    );
+  };
 
-  const openEntry = useCallback(
-    (name: string, kind: "file" | "directory") => {
-      const childPath = posixJoin(currentPath, name);
-      if (kind === "directory") {
-        setCurrentPath(childPath);
-        return;
-      }
-      useRightPanelStore.getState().openFileAbsolute(threadRef, childPath);
-    },
-    [currentPath, threadRef],
-  );
+  const openEntry = (name: string, kind: "file" | "directory") => {
+    const childPath = posixJoin(currentPath, name);
+    if (kind === "directory") {
+      setCurrentPath(childPath);
+      return;
+    }
+    useRightPanelStore.getState().openFileAbsolute(threadRef, childPath);
+  };
 
   const entries = directory.data?.entries ?? [];
 

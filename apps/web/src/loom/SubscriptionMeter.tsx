@@ -72,7 +72,7 @@ const weekdayClock = (at: number) => `${WEEKDAYS[new Date(at).getDay()]} ${clock
 
 /** The pools to draw and the countdown clock. */
 function useMeterReading(): { readonly view: MeterView; readonly now: number } {
-  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), METER_TICK_MS);

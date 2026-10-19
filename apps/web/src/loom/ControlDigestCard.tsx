@@ -20,7 +20,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { ArrowUpRightIcon, ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
-import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -198,21 +198,16 @@ function ReportDocumentChips({
 }) {
   const [showAll, setShowAll] = useState(false);
   const environmentId: EnvironmentId | null = threadRef?.environmentId ?? null;
-  const metas = useMemo(() => {
-    // Unresolvable without a workspace (no `cwd`), a relative name is dropped rather than misopened.
-    const resolved = documents.flatMap((path) => {
-      const meta = resolveInlineCodeFileLinkMeta(path, cwd);
-      return meta && isAbsolutePreviewablePath(meta.filePath) ? [meta] : [];
-    });
-    return resolved.filter(
-      (meta, index) => resolved.findIndex((other) => other.filePath === meta.filePath) === index,
-    );
-  }, [cwd, documents]);
-  const visible = useMemo(
-    () => (showAll ? metas : metas.slice(0, VISIBLE_DOCUMENTS)),
-    [metas, showAll],
+  // Unresolvable without a workspace (no `cwd`), a relative name is dropped rather than misopened.
+  const resolved = documents.flatMap((path) => {
+    const meta = resolveInlineCodeFileLinkMeta(path, cwd);
+    return meta && isAbsolutePreviewablePath(meta.filePath) ? [meta] : [];
+  });
+  const metas = resolved.filter(
+    (meta, index) => resolved.findIndex((other) => other.filePath === meta.filePath) === index,
   );
-  const paths = useMemo(() => visible.map((meta) => meta.filePath), [visible]);
+  const visible = showAll ? metas : metas.slice(0, VISIBLE_DOCUMENTS);
+  const paths = visible.map((meta) => meta.filePath);
   const lookupExistence = usePathExistence(environmentId, paths);
   if (metas.length === 0) return null;
   const chip =

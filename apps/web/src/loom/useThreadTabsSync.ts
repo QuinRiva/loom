@@ -15,8 +15,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect } from "react";
 
+import { useStableCallback } from "../hooks/useStableCallback";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { isThreadGone, resolveThreadGroupKey, useThreadTabLineage } from "./threadTabGroups";
 import { findGroupKeyByTab, selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
@@ -42,13 +43,16 @@ export function useThreadTabsSync(
   const key = threadRef ? scopedThreadKey(threadRef) : null;
   const { bootstrapComplete, routeThreadExists } = options;
 
-  const refRef = useRef(threadRef);
-  refRef.current = threadRef;
-  // Lineage kept in a ref so the seed fires once per navigation (keyed on the
-  // thread) without re-seeding when lineage changes; regrouping is the first
-  // effect below. A thread the index does not know yet is its own group.
-  const lineageRef = useRef(lineage);
-  lineageRef.current = lineage;
+  // Reads the latest ref and lineage, so the seed fires once per navigation
+  // (keyed on the thread) without re-seeding when lineage changes; regrouping
+  // is the first effect below. A thread the index does not know yet is its own group.
+  const seed = useStableCallback(() => {
+    if (threadRef)
+      seedActiveTab(
+        threadRef,
+        resolveThreadGroupKey(lineage, threadRef) ?? scopedThreadKey(threadRef),
+      );
+  });
 
   // Runs before the seed, so a mixed bucket splits in its own order. Re-runs
   // only when the lineage index changes or the route thread does.
@@ -64,10 +68,8 @@ export function useThreadTabsSync(
   }, [lineage, key, regroupTabs]);
 
   useEffect(() => {
-    if (!key || !bootstrapComplete || !routeThreadExists) return;
-    const ref = refRef.current;
-    if (ref) seedActiveTab(ref, resolveThreadGroupKey(lineageRef.current, ref) ?? key);
-  }, [key, bootstrapComplete, routeThreadExists, seedActiveTab]);
+    if (key && bootstrapComplete && routeThreadExists) seed();
+  }, [key, bootstrapComplete, routeThreadExists, seed]);
 }
 
 export interface ThreadTabActions {
@@ -93,20 +95,17 @@ export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): Thr
   const navigate = useNavigate();
   const lineage = useThreadTabLineage();
 
-  const navigateToRef = useCallback(
-    (ref: ScopedThreadRef) => {
-      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
-    },
-    [navigate],
-  );
-  const navigateHome = useCallback(() => {
+  const navigateToRef = (ref: ScopedThreadRef) => {
+    void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+  };
+  const navigateHome = () => {
     void navigate({ to: "/" });
-  }, [navigate]);
+  };
 
   // After a structural close (others/right/all), navigate only if the current
   // view's thread was removed. The store has already set a deterministic
   // activeKey; navigation re-affirms it through the seed.
-  const reconcileAfterStructuralClose = useCallback(() => {
+  const reconcileAfterStructuralClose = () => {
     if (!activeRouteRef) return;
     const state = useThreadTabsStore.getState();
     const routeKey = scopedThreadKey(activeRouteRef);
@@ -117,42 +116,33 @@ export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): Thr
       : null;
     if (target) navigateToRef(target);
     else navigateHome();
-  }, [activeRouteRef, navigateHome, navigateToRef]);
+  };
 
-  const closeTab = useCallback(
-    (ref: ScopedThreadRef) => {
-      const wasActive =
-        activeRouteRef !== null && scopedThreadKey(activeRouteRef) === scopedThreadKey(ref);
-      const fallback = useThreadTabsStore.getState().closeTab(ref);
-      if (!wasActive) return;
-      if (fallback) navigateToRef(fallback);
-      else navigateHome();
-    },
-    [activeRouteRef, navigateHome, navigateToRef],
-  );
+  const closeTab = (ref: ScopedThreadRef) => {
+    const wasActive =
+      activeRouteRef !== null && scopedThreadKey(activeRouteRef) === scopedThreadKey(ref);
+    const fallback = useThreadTabsStore.getState().closeTab(ref);
+    if (!wasActive) return;
+    if (fallback) navigateToRef(fallback);
+    else navigateHome();
+  };
 
-  const closeOthers = useCallback(
-    (ref: ScopedThreadRef) => {
-      useThreadTabsStore.getState().closeOthers(ref);
-      reconcileAfterStructuralClose();
-    },
-    [reconcileAfterStructuralClose],
-  );
+  const closeOthers = (ref: ScopedThreadRef) => {
+    useThreadTabsStore.getState().closeOthers(ref);
+    reconcileAfterStructuralClose();
+  };
 
-  const closeToRight = useCallback(
-    (ref: ScopedThreadRef) => {
-      useThreadTabsStore.getState().closeToRight(ref);
-      reconcileAfterStructuralClose();
-    },
-    [reconcileAfterStructuralClose],
-  );
+  const closeToRight = (ref: ScopedThreadRef) => {
+    useThreadTabsStore.getState().closeToRight(ref);
+    reconcileAfterStructuralClose();
+  };
 
-  const closeAll = useCallback(() => {
+  const closeAll = () => {
     useThreadTabsStore.getState().closeAll();
     reconcileAfterStructuralClose();
-  }, [reconcileAfterStructuralClose]);
+  };
 
-  const reopenClosed = useCallback(() => {
+  const reopenClosed = () => {
     const state = useThreadTabsStore.getState();
     const nextRef = state.recentlyClosed[0];
     if (!nextRef) return;
@@ -160,40 +150,34 @@ export function useThreadTabActions(activeRouteRef: ScopedThreadRef | null): Thr
       resolveThreadGroupKey(lineage, nextRef) ?? scopedThreadKey(nextRef),
     );
     if (ref) navigateToRef(ref);
-  }, [navigateToRef, lineage]);
+  };
 
-  const goAdjacentTab = useCallback(
-    (direction: "previous" | "next") => {
-      const state = useThreadTabsStore.getState();
-      const tabs = selectActiveGroup(state)?.tabs ?? [];
-      if (tabs.length === 0) return false;
-      const activeKey = state.activeKey;
-      const index = activeKey ? tabs.findIndex((tab) => scopedThreadKey(tab) === activeKey) : -1;
-      let target: ScopedThreadRef | undefined;
-      if (index === -1) {
-        target = direction === "next" ? tabs[0] : tabs[tabs.length - 1];
-      } else {
-        const nextIndex = direction === "next" ? index + 1 : index - 1;
-        if (nextIndex < 0 || nextIndex >= tabs.length) return false;
-        target = tabs[nextIndex];
-      }
-      if (!target) return false;
-      navigateToRef(target);
-      return true;
-    },
-    [navigateToRef],
-  );
+  const goAdjacentTab = (direction: "previous" | "next") => {
+    const state = useThreadTabsStore.getState();
+    const tabs = selectActiveGroup(state)?.tabs ?? [];
+    if (tabs.length === 0) return false;
+    const activeKey = state.activeKey;
+    const index = activeKey ? tabs.findIndex((tab) => scopedThreadKey(tab) === activeKey) : -1;
+    let target: ScopedThreadRef | undefined;
+    if (index === -1) {
+      target = direction === "next" ? tabs[0] : tabs[tabs.length - 1];
+    } else {
+      const nextIndex = direction === "next" ? index + 1 : index - 1;
+      if (nextIndex < 0 || nextIndex >= tabs.length) return false;
+      target = tabs[nextIndex];
+    }
+    if (!target) return false;
+    navigateToRef(target);
+    return true;
+  };
 
-  const jumpToTab = useCallback(
-    (index: number) => {
-      const tabs = selectActiveGroup(useThreadTabsStore.getState())?.tabs ?? [];
-      const target = tabs[index];
-      if (!target) return false;
-      navigateToRef(target);
-      return true;
-    },
-    [navigateToRef],
-  );
+  const jumpToTab = (index: number) => {
+    const tabs = selectActiveGroup(useThreadTabsStore.getState())?.tabs ?? [];
+    const target = tabs[index];
+    if (!target) return false;
+    navigateToRef(target);
+    return true;
+  };
 
   return {
     activateTab: navigateToRef,

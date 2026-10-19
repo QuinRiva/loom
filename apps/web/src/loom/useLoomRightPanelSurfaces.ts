@@ -4,7 +4,7 @@
 // call/prop. Goal tasks (shortcut G) is RightPanelTabs' `onAddTasks` entry.
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { type LucideIcon, Network } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 
 import { useClientSettings } from "../hooks/useSettings";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -52,19 +52,16 @@ export function useLoomRightPanelSurfaces(
     if (threadRef) autoOpenLoomSurfaces(threadRef, { workstreamRoot, autoOpenWorkstreamPanel });
   }, [threadRef, workstreamRoot, autoOpenWorkstreamPanel]);
 
-  return useMemo(
-    () => [
-      {
-        label: "Workstream",
-        icon: Network,
-        shortcut: "W",
-        available: threadRef !== null && workstreamThread,
-        disabledReason: "Available on a workstream thread.",
-        onClick: () => {
-          if (threadRef) useRightPanelStore.getState().open(threadRef, "workstream");
-        },
+  return [
+    {
+      label: "Workstream",
+      icon: Network,
+      shortcut: "W",
+      available: threadRef !== null && workstreamThread,
+      disabledReason: "Available on a workstream thread.",
+      onClick: () => {
+        if (threadRef) useRightPanelStore.getState().open(threadRef, "workstream");
       },
-    ],
-    [threadRef, workstreamThread],
-  );
+    },
+  ];
 }

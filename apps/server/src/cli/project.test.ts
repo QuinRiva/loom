@@ -124,25 +124,8 @@ it("maps declared server failures into structural project command errors", () =>
   assert.strictEqual(error.cause, cause);
 });
 
-// loom: the CLI surfaces the cause message (upstream deliberately did not,
-// to avoid echoing a credential back); the generic fallback still applies to
-// non-Error failures.
-it("surfaces the cause message for unexpected Error failures", () => {
-  const cause = new Error("connect ECONNREFUSED 127.0.0.1:13900");
-
-  const error = projectCommandErrorFromLiveServerRequest(cause);
-
-  assert.instanceOf(error, ProjectLiveServerRequestError);
-  assert.strictEqual(error.operation, "callLiveServer");
-  assert.strictEqual(
-    error.message,
-    "Failed to call the running server: connect ECONNREFUSED 127.0.0.1:13900",
-  );
-  assert.strictEqual(error.cause, cause);
-});
-
-it("falls back to a generic message for non-Error failures", () => {
-  const cause = "boom";
+it("preserves unexpected server failures without deriving the message from them", () => {
+  const cause = new Error("credential abc123 was rejected");
 
   const error = projectCommandErrorFromLiveServerRequest(cause);
 

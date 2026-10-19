@@ -9,7 +9,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { type LoginAlert, loginAlerts } from "@t3tools/shared/usageLimits";
 import { KeyRoundIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ComposerBanner } from "~/components/chat/ComposerBanner";
 import type { ComposerBannerStackItem } from "~/components/chat/ComposerBannerStack";
@@ -32,36 +32,32 @@ export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
     const id = window.setInterval(() => setNow(Date.now()), MINUTE);
     return () => window.clearInterval(id);
   }, []);
-  return useMemo(
-    () =>
-      loginAlerts(presentations, now)
-        .filter((alert) => urgent(alert) || (snoozedUntil[alert.email] ?? 0) <= now)
-        .map((alert) => {
-          // The first sentence leads; the rest (the expiry, the hub's reason) follows
-          // on its own wrapped line, never the stack's one-line description: that
-          // truncates, and loses its "details" popover when the actions share the
-          // title's line, so the expiry date could vanish.
-          const split = alert.text.indexOf(". ");
-          return {
-            id: `hub-login:${alert.email}`,
-            variant: urgent(alert) ? "error" : "warning",
-            priority: "urgent",
-            icon: <KeyRoundIcon />,
-            title: split === -1 ? alert.text : alert.text.slice(0, split),
-            ...(split === -1
-              ? {}
-              : {
-                  children: (
-                    <ComposerBanner.Body className="pe-2 pb-1.5 text-muted-foreground">
-                      {alert.text.slice(split + 2)}
-                    </ComposerBanner.Body>
-                  ),
-                }),
-            actions: <HubLoginActions alert={alert} />,
-          } satisfies ComposerBannerStackItem;
-        }),
-    [presentations, now, snoozedUntil],
-  );
+  return loginAlerts(presentations, now)
+    .filter((alert) => urgent(alert) || (snoozedUntil[alert.email] ?? 0) <= now)
+    .map((alert) => {
+      // The first sentence leads; the rest (the expiry, the hub's reason) follows
+      // on its own wrapped line, never the stack's one-line description: that
+      // truncates, and loses its "details" popover when the actions share the
+      // title's line, so the expiry date could vanish.
+      const split = alert.text.indexOf(". ");
+      return {
+        id: `hub-login:${alert.email}`,
+        variant: urgent(alert) ? "error" : "warning",
+        priority: "urgent",
+        icon: <KeyRoundIcon />,
+        title: split === -1 ? alert.text : alert.text.slice(0, split),
+        ...(split === -1
+          ? {}
+          : {
+              children: (
+                <ComposerBanner.Body className="pe-2 pb-1.5 text-muted-foreground">
+                  {alert.text.slice(split + 2)}
+                </ComposerBanner.Body>
+              ),
+            }),
+        actions: <HubLoginActions alert={alert} />,
+      } satisfies ComposerBannerStackItem;
+    });
 }
 
 function HubLoginActions({ alert }: { readonly alert: LoginAlert }) {

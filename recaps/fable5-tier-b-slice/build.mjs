@@ -19,7 +19,7 @@ const entryById = new Map(production.map((e) => [e.type_id, e]));
 
 const TARGET_MIB = 1.15 * 1024 * 1024;
 
-/* --------------------------- MDX attr helpers ---------------------------- */
+// MDX attr helpers
 
 const SAFE = /^[\w .:/@#,+()[\]-]+$/;
 function attr(name, value) {
@@ -58,7 +58,7 @@ const out = [];
 const push = (s) => out.push(s);
 const bytes = () => Buffer.byteLength(out.join("\n\n"), "utf8");
 
-/* -------------------------------- header --------------------------------- */
+// header
 
 push(`# Tier-(b) taxonomy sign-off — Pack 2 (plan / drawing / spatial family)`);
 push(
@@ -77,7 +77,7 @@ push(
     `</Callout>`,
 );
 
-/* -------------------------- filterable master table ----------------------- */
+// filterable master table
 
 const rows = pack.tokens.map((t) => [
   `P2-${t.id}`,
@@ -104,7 +104,7 @@ push(
     ])}${attr("rows", rows)} />`,
 );
 
-/* --------------------------- per-token item cards ------------------------- */
+// per-token item cards
 
 push(`## Pack 2 tokens`);
 
@@ -156,7 +156,7 @@ for (const token of pack.tokens) {
   push(card);
 }
 
-/* ------------------------------ T-5 ruling -------------------------------- */
+// T-5 ruling
 
 const t5 = titles.items.find((i) => i.id === "T-5");
 push(`## Contested title`);
@@ -206,7 +206,7 @@ push(`## Contested title`);
   push(card);
 }
 
-/* ------------- appendix: real family neighbours to cross 1 MiB ------------ */
+// appendix: real family neighbours to cross 1 MiB
 
 const embedded = new Set();
 for (const token of pack.tokens) {
@@ -235,7 +235,7 @@ if (appendix.length) {
   for (const a of appendix) push(a);
 }
 
-/* ------------------------------ open questions ---------------------------- */
+// open questions
 
 push(
   `## Open questions\n\n<QuestionForm${attr("questions", [

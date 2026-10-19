@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { z } from "zod";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
@@ -111,8 +110,8 @@ function positioned(nodes: DiagramNode[]): (DiagramNode & { x: number; y: number
 }
 
 function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {
-  const nodes = useMemo(() => positioned(data.nodes ?? []), [data.nodes]);
-  const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const nodes = positioned(data.nodes ?? []);
+  const byId = new Map(nodes.map((node) => [node.id, node]));
   const edges = data.edges ?? [];
   const notes = data.notes ?? [];
 

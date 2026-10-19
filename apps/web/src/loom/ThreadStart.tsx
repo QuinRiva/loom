@@ -21,7 +21,6 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
 import { BotIcon } from "lucide-react";
-import { useCallback } from "react";
 
 import { cn } from "../lib/utils";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -141,23 +140,20 @@ function OriginText({
  */
 export function useOpenHandoffOrigin(environmentId: EnvironmentId) {
   const navigate = useNavigate();
-  return useCallback(
-    (originId: ThreadId, destinationId: ThreadId) => {
-      const threads = appAtomRegistry.get(environmentSnapshotAtom(environmentId))?.threads ?? [];
-      const destination = threads.find((thread) => thread.id === destinationId);
-      const at =
-        handoffReceiptRows(threads, originId).find((row) =>
-          row.destinations.some((candidate) => candidate.threadId === destinationId),
-        )?.createdAt ??
-        (destination && DateTime.formatIso(destination.createdAt));
-      useConversationJumpStore
-        .getState()
-        .setRequest(at === undefined ? null : { threadId: originId, at });
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(environmentId, originId)),
-      });
-    },
-    [environmentId, navigate],
-  );
+  return (originId: ThreadId, destinationId: ThreadId) => {
+    const threads = appAtomRegistry.get(environmentSnapshotAtom(environmentId))?.threads ?? [];
+    const destination = threads.find((thread) => thread.id === destinationId);
+    const at =
+      handoffReceiptRows(threads, originId).find((row) =>
+        row.destinations.some((candidate) => candidate.threadId === destinationId),
+      )?.createdAt ??
+      (destination && DateTime.formatIso(destination.createdAt));
+    useConversationJumpStore
+      .getState()
+      .setRequest(at === undefined ? null : { threadId: originId, at });
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, originId)),
+    });
+  };
 }

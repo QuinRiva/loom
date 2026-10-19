@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
@@ -114,9 +113,8 @@ export function ScreenRead({
   // Sanitise (trust boundary) then stamp node ids (annotation contract), memoised
   // on the raw html + tier so both DOM passes only run when either changes. The
   // design tier keeps branded theme classes; the wireframe tier strips them.
-  const safeHtml = useMemo(
-    () => stampWireframeNodes(sanitizeWireframeHtml(data.html, { preserveThemeClasses: design })),
-    [data.html, design],
+  const safeHtml = stampWireframeNodes(
+    sanitizeWireframeHtml(data.html, { preserveThemeClasses: design }),
   );
 
   return (

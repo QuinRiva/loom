@@ -11,7 +11,6 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, UsageSummaryInput } from "@t3tools/contracts";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
 
 import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -34,9 +33,8 @@ export function TopThreadSpend({
   const navigate = useNavigate();
   const { threads, isPending, failed } = useTopSpend(windowSince(window));
   const shells = useThreadShells();
-  const titles = useMemo(
-    () => new Map(shells.map((shell) => [`${shell.environmentId}:${shell.id}`, shell.title])),
-    [shells],
+  const titles = new Map(
+    shells.map((shell) => [`${shell.environmentId}:${shell.id}`, shell.title]),
   );
   // Selection narrows before the top-N cut.
   const rows = threads

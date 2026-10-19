@@ -15,7 +15,7 @@ import {
   type LoomLiveConsult,
   type ThreadId,
 } from "@t3tools/contracts";
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 const NONE: ReadonlyArray<LoomLiveConsult> = Object.freeze([]);
 /** The MCP request reaches the server a moment after pi opens the tool item. */
@@ -36,10 +36,8 @@ export function useLiveConsult(input: {
           input.askerThreadId,
           consultQuestionKey(input.question),
         );
-  const subscribe = useCallback(
-    (listener: () => void) => (key === null ? () => {} : subscribeLiveConsults(key, listener)),
-    [key],
-  );
+  const subscribe = (listener: () => void) =>
+    key === null ? () => {} : subscribeLiveConsults(key, listener);
   const consults = useSyncExternalStore(subscribe, () =>
     key === null ? NONE : getLiveConsults(key),
   );

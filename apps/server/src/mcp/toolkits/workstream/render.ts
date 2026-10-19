@@ -24,9 +24,7 @@ export const appendWarnings = (text: string, warnings: ReadonlyArray<string> = [
     ? text
     : [text, ...warnings.map((warning) => `Warning: ${warning}`)].join("\n");
 
-// ---------------------------------------------------------------------------
 // Report excerpts (wake and digest messages; P3-22)
-// ---------------------------------------------------------------------------
 
 /** Report characters a wake or digest item carries inline; the path carries the rest. */
 export const REPORT_EXCERPT_LIMIT = 400;
@@ -50,9 +48,7 @@ export const formatReportExcerpt = (report: string | null | undefined): string =
     : `\n\n${excerpt}`;
 };
 
-// ---------------------------------------------------------------------------
 // mcp__t3-code__workstream_list
-// ---------------------------------------------------------------------------
 
 /** What the list reads from one thread: the V2 shell joined with its sidecar fields. */
 export type WorkstreamListThread = Pick<
@@ -220,9 +216,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
   return lines.join("\n");
 };
 
-// ---------------------------------------------------------------------------
 // mcp__t3-code__workstream_submit echo
-// ---------------------------------------------------------------------------
 
 export interface SubmitOutcomeView {
   readonly decision: WorkOutcomeDecision;
@@ -253,9 +247,7 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
   }
 };
 
-// ---------------------------------------------------------------------------
 // mcp__t3-code__workstream_scaffold rejections
-// ---------------------------------------------------------------------------
 
 /**
  * A graph-validation message (spawn dialect, "Nothing was spawned.") relabelled
@@ -264,9 +256,7 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
 export const scaffoldNodeRejectionMessage = (nodeKey: string, graphMessage: string): string =>
   `node "${nodeKey}": ${graphMessage.replace(/Nothing was spawned\.$/, "Nothing was created.")}`;
 
-// ---------------------------------------------------------------------------
 // mcp__t3-code__consult_thread / mcp__t3-code__notify_thread
-// ---------------------------------------------------------------------------
 
 export interface ThreadCandidate {
   readonly threadId: string;

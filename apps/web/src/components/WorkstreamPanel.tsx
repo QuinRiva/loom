@@ -3,7 +3,7 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import { NetworkIcon } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import {
   buildNodeContextMenuItems,
@@ -38,26 +38,26 @@ const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
  * orchestration the open thread belongs to, with its active strip, header
  * (total spend, settled count, lineage) and the node timeline drawer.
  */
+const startOriginIdOf = (node: WorkstreamNode | undefined) =>
+  (node ? threadStartOriginOf(node)?.threadId : null) ?? null;
+
 export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const navigate = useNavigate();
   const { nodes, rollupOf } = useWorkstreamNodes(threadRef.environmentId);
   const commands = useWorkstreamCommands(threadRef.environmentId);
   const [timelineId, setTimelineId] = useState<ThreadId | null>(null);
-  const onOpenThread = useCallback(
-    (threadId: ThreadId) =>
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
-      }),
-    [navigate, threadRef.environmentId],
-  );
+  const onOpenThread = (threadId: ThreadId) =>
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
+    });
   // Reports are absolute paths outside any worktree: open them read-only in
   // THIS panel (the open thread's right panel).
   const onOpenReport = (reportPath: string) => {
     if (isAbsolutePreviewablePath(reportPath))
       useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath);
   };
-  const titleOf = useCallback((id: ThreadId) => nodes.get(id)?.title ?? id, [nodes]);
+  const titleOf = (id: ThreadId) => nodes.get(id)?.title ?? id;
   // Park the anchor, then open its thread: that timeline scrolls to it (loom/conversationJump).
   const onJump = (anchor: ConversationAnchor) => {
     useConversationJumpStore.getState().setRequest(anchor);
@@ -66,29 +66,29 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const timelineNode = timelineId === null ? undefined : nodes.get(timelineId);
   const history = useThreadHistory(threadRef.environmentId, timelineNode);
 
-  const node = nodes.get(threadRef.threadId);
-  const live = useMemo(() => liveNodes(nodes.values()), [nodes]);
-  const rootId = node ? rootOf(node.id, live) : null;
-  const subtree = useMemo(() => (rootId ? subtreeOf(rootId, live) : []), [live, rootId]);
-  const rollup = rootId ? rollupOf(rootId) : null;
-  const lineage = useMemo(() => (node ? buildThreadLineage(nodes, node.id) : []), [nodes, node]);
-  // The whole workstream, archived threads included: its root and every descendant.
-  const workstream = useMemo(() => {
-    if (!node) return [];
-    const all = [...nodes.values()];
-    return subtreeOf(rootOf(node.id, all), all).map((member) => member.id);
-  }, [nodes, node]);
-  const forkedFrom = node?.forkFromThreadId
-    ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
-    : null;
   // loom: the thread a started root came from (a handoff's origin, a continuation's
   // predecessor); archived origins resolve through `nodes`.
-  const startOrigin = node ? threadStartOriginOf(node) : null;
-  const originId = startOrigin?.threadId ?? null;
+  const originId = startOriginIdOf(nodes.get(threadRef.threadId));
   const originTitle = useThreadShell(
     originId ? scopeThreadRef(threadRef.environmentId, originId) : null,
   )?.title;
   const openHandoffOrigin = useOpenHandoffOrigin(threadRef.environmentId); // loom
+
+  // Derived after the last hook call: a value still in use across a hook call
+  // is one the compiler will not cache.
+  const node = nodes.get(threadRef.threadId);
+  const forkedFrom = node?.forkFromThreadId
+    ? { threadId: node.forkFromThreadId, title: titleOf(node.forkFromThreadId) }
+    : null;
+  const startOrigin = node ? threadStartOriginOf(node) : null;
+  const live = liveNodes(nodes.values());
+  const rootId = node ? rootOf(node.id, live) : null;
+  const subtree = rootId ? subtreeOf(rootId, live) : [];
+  const rollup = rootId ? rollupOf(rootId) : null;
+  const lineage = node ? buildThreadLineage(nodes, node.id) : [];
+  // The whole workstream, archived threads included: its root and every descendant.
+  const all = [...nodes.values()];
+  const workstream = node ? subtreeOf(rootOf(node.id, all), all).map((member) => member.id) : [];
   const startedBy = startOrigin && {
     ...startOrigin,
     title: nodes.get(startOrigin.threadId)?.title ?? originTitle ?? "an archived thread",
