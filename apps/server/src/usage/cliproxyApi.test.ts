@@ -147,7 +147,7 @@ describe("CLIProxyAPI hub failures", () => {
             }),
           }),
       );
-      const error = yield* Effect.flip(api.readAccounts(config));
+      const error = yield* Effect.flip(api.readAccounts(config, [])); // loom: no carried accounts
       expect(error.detail).toContain("UNABLE_TO_GET_ISSUER_CERT_LOCALLY");
       expect(error.detail).toContain("NODE_EXTRA_CA_CERTS");
     }),
@@ -164,7 +164,7 @@ describe("CLIProxyAPI hub failures", () => {
             }),
           }),
       );
-      const error = yield* Effect.flip(api.readAccounts(config));
+      const error = yield* Effect.flip(api.readAccounts(config, [])); // loom: no carried accounts
       expect(error.detail).toBe("The hub management request failed.");
     }),
   );
@@ -183,7 +183,7 @@ describe("CLIProxyAPI hub failures", () => {
         Effect.provideService(HttpClient.HttpClient, test),
         Effect.provide(NodeCrypto.layer),
       );
-      const error = yield* Effect.flip(api.readAccounts(config));
+      const error = yield* Effect.flip(api.readAccounts(config, [])); // loom: no carried accounts
       expect(error.detail).toContain("401");
       expect(error.detail).not.toContain("management-secret");
     }),
@@ -198,7 +198,8 @@ describe("CLIProxyAPI hub failures", () => {
         ),
         Effect.provide(NodeCrypto.layer),
       );
-      const pending = yield* Effect.flip(api.readAccounts(config)).pipe(
+      const pending = yield* Effect.flip(api.readAccounts(config, [])).pipe(
+        // loom: no carried accounts
         Effect.forkChild({ startImmediately: true }),
       );
       yield* TestClock.adjust("15 seconds");
@@ -218,7 +219,7 @@ describe("CLIProxyAPI hub failures", () => {
         Effect.provideService(HttpClient.HttpClient, test),
         Effect.provide(NodeCrypto.layer),
       );
-      const error = yield* Effect.flip(api.readAccounts(config));
+      const error = yield* Effect.flip(api.readAccounts(config, [])); // loom: no carried accounts
       expect(error.detail).toBe("The hub could not list accounts.");
     }),
   );
@@ -259,7 +260,7 @@ describe("CLIProxyAPI built-in management API", () => {
     Effect.gen(function* () {
       const test = fixture();
       const api = yield* test.api;
-      yield* api.readAccounts({ ...config, url: "https://tools.test/cliproxy" });
+      yield* api.readAccounts({ ...config, url: "https://tools.test/cliproxy" }, []); // loom: no carried accounts
       expect(test.requests.length).toBeGreaterThan(0);
       expect(
         test.requests.every((request) => request.path.startsWith("/cliproxy/v0/management/")),

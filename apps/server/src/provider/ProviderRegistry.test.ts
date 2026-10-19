@@ -1306,6 +1306,7 @@ it.layer(
                 refresh: Ref.get(nextProvider),
                 streamChanges: Stream.empty,
                 applyUsageLimits: () => Effect.void,
+                retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
               },
               orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2190,6 +2191,7 @@ it.layer(
             refresh: Effect.succeed(unhealthyProvider),
             streamChanges: Stream.empty,
             applyUsageLimits: () => Effect.void,
+            retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
           },
           snapshotForCwd: () => Ref.get(scanResult),
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
