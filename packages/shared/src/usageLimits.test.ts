@@ -810,7 +810,7 @@ describe("pools", () => {
           environments: [],
           sourceLabel: null,
           redeem: null,
-          login: null,
+          login: null, // loom: hub login (#407)
           limits: {
             checkedAt,
             windows: [
@@ -856,7 +856,7 @@ describe("pooled account columns", () => {
     environments: [],
     sourceLabel: "Hub",
     redeem: null,
-    login: null,
+    login: null, // loom: hub login (#407)
     limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows },
   });
   const keys = (pool: ReturnType<typeof collectLimitPools>[number]) =>
@@ -941,7 +941,7 @@ describe("Cursor limit presentation", () => {
     environments: [],
     sourceLabel: "Cursor",
     redeem: null,
-    login: null,
+    login: null, // loom: hub login (#407)
     limits: {
       checkedAt: "2026-09-03T11:00:00.000Z",
       windows: [
