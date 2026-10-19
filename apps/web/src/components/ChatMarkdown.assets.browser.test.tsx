@@ -27,10 +27,16 @@ vi.mock(import("../state/session"), async (original) => ({
 }));
 
 import ChatMarkdown from "./ChatMarkdown";
+import { __setMetadataFetcherForTests } from "./chat/usePathExistence"; // loom: click-time chip verify
 
 const roots: Root[] = [];
-beforeEach(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // loom: a chip click stats its target before opening; an unanswered stat opens.
+  __setMetadataFetcherForTests(() => Promise.resolve(new Map()));
+});
 afterEach(async () => {
+  __setMetadataFetcherForTests(null); // loom
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.replaceChildren();
   vi.unstubAllGlobals();
