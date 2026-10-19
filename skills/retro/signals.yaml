@@ -98,6 +98,14 @@ signals:
     origin: retro-redesign design scan (2026-10); narrowed by the scanner build after 11 hits on the HTML-vs-MDX tree were mostly restatements
     status: seed
 
+  - id: guidance-conflict
+    kind: phrase
+    scope: thinking
+    pattern: '\b(?:the|this) (?:skill|runbook|SKILL\.md|role file|AGENTS\.md|docs?)(?: instructions?)? (?:says?|said|tells? me)\b[^.\n]{0,120}?\b(?:conflict|contradict\w*|stale|outdated|no longer)\b|\bthere(?:''s| is) a conflict here\b|\b(?:SKILL\.md|skill|runbook|role file)\b[^.\n]{0,40}?\bstale (?:prose|docs?|instructions?|lines?)\b'
+    why: Guidance the agent is following (skill, runbook, role file, AGENTS.md) contradicts the tool, the policy or the code — the guidance-found-wanting signal that brief-mismatch cannot see. Requires a contrast word, not a bare "the skill says".
+    origin: retro 2026-10-19-update-pi-to-1-3-0-and-check-new-models
+    status: seed
+
   - id: call-refused
     kind: phrase
     scope: tool_error
