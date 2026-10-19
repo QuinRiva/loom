@@ -6,8 +6,11 @@ import {
   type ServerProviderSlashCommand,
   isProviderAvailable,
   type ServerProvider,
+  type ServerSettings, // loom
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceId, // loom
+  type UsageLimitSourceLogin,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 
@@ -69,6 +72,8 @@ export type LimitPresentations = ReadonlyMap<
     readonly serverConfig: {
       readonly providers: readonly ServerProvider[];
       readonly usageLimitSources?: UsageLimitSourceSnapshots | undefined;
+      // loom: the pooled usage sources, for `unlinkedUsageSources`.
+      readonly settings?: Pick<ServerSettings, "providerInstances"> | undefined;
     } | null;
   }
 >;
@@ -164,6 +169,12 @@ export interface LimitAccount {
     readonly input: ProviderConsumeResetCreditInput;
   } | null;
   readonly limits: ServerProviderUsageLimits;
+  /**
+   * loom: the hub's view of the account's login, from its freshest hub
+   * reading; null when no hub reports it. A dead account has no windows and is
+   * left out of pools.
+   */
+  readonly login: UsageLimitSourceLogin | null;
 }
 
 export function collectLimitAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
@@ -206,6 +217,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       ),
     ];
     const winner = fresher ? next : previous;
+    const loser = fresher ? previous : next; // loom
     const creditSource = creditSources.get(key);
     accounts.set(key, {
       ...previous,
@@ -217,6 +229,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       redeem:
         hubRedeems.get(key)?.redeem ??
         (creditSource ? creditSource.redeem : (winner.redeem ?? previous.redeem ?? next.redeem)),
+      login: winner.login ?? loser.login, // loom: a native reading knows no login
       limits: {
         ...winner.limits,
         ...(creditSource?.limits.resetCredits
@@ -248,6 +261,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         sourceLabel: null,
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
         limits: provider.usageLimits,
+        login: null, // loom
       });
     }
   }
@@ -258,7 +272,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         ? `${presentation.entry.target.label} · ${source.label}`
         : source.label;
       for (const account of source.accounts) {
-        if (limitsNotice(account.usageLimits) !== null) continue;
+        // loom: a signed-out account stays, so every view can say so.
+        const dead = account.login?.status === "dead";
+        if (limitsNotice(account.usageLimits) !== null && !dead) continue;
         const key = `${source.id}:${account.id}${account.workspaceId ? `:${account.workspaceId}` : ""}`;
         merge(resolveKey(account) ?? key, {
           key,
@@ -280,6 +296,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
               }
             : null,
           limits: account.usageLimits,
+          login: account.login ?? null, // loom
         });
       }
     }
@@ -372,7 +389,8 @@ export function collectLimitPools(
   now: number,
 ): readonly LimitPool[] {
   const byDriver = new Map<ServerProvider["driver"], LimitAccount[]>();
-  for (const account of accounts) {
+  // loom: a signed-out account is no capacity; the views list it on its own.
+  for (const account of accounts.filter((entry) => entry.login?.status !== "dead")) {
     const list = byDriver.get(account.driver);
     if (list) list.push(account);
     else byDriver.set(account.driver, [account]);
@@ -477,6 +495,250 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
     return limits.unavailable.message ?? "Could not read limits.";
   }
   return limits.windows.length === 0 ? "No limits reported." : null;
+}
+
+/**
+ * loom: one line for an account whose hub login is failing or dead: what
+ * happens and when, and that it needs logging in again.
+ */
+export function loginAlertText(login: UsageLimitSourceLogin, now: number): string {
+  const at = login.expiresAt ? Date.parse(login.expiresAt) : Number.NaN;
+  if (login.status === "dead") {
+    const since = Number.isFinite(at) && at <= now ? ` ${formatDuration(now - at)} ago` : "";
+    const reason = login.reason ? ` (the hub reports "${login.reason}")` : "";
+    return `Signed out${since}${reason}. Log in to this account again.`;
+  }
+  const when = Number.isFinite(at) ? `in ${formatDuration(at - now)}` : "soon";
+  return `Login refresh is failing: stops working ${when}. Log in to this account again.`;
+}
+
+/**
+ * loom: the hub readings alone, which `LimitPresentations` satisfies, so the
+ * login alerts need not subscribe to provider pushes (the composer banner).
+ */
+type HubPresentations = ReadonlyMap<
+  EnvironmentId,
+  {
+    readonly serverConfig: {
+      readonly usageLimitSources?: UsageLimitSourceSnapshots | undefined;
+    } | null;
+  }
+>;
+
+/** loom: what a hub login needs from the user now, most urgent first. */
+export type LoginAttention = "dead" | "refreshFailing" | "overdue" | "due";
+const ATTENTION_ORDER: readonly LoginAttention[] = ["dead", "refreshFailing", "overdue", "due"];
+
+/** loom: the precedence for one account: dead › failing › overdue › due › nothing. */
+export function loginAttention(
+  login: UsageLimitSourceLogin | null | undefined,
+): LoginAttention | null {
+  if (!login) return null;
+  if (login.status !== "healthy") return login.status;
+  const phase = login.relogin?.phase;
+  return phase === "due" || phase === "overdue" ? phase : null;
+}
+
+const DAY_FORMAT = { weekday: "short", day: "numeric", month: "short" } as const;
+/** loom: `Fri 30 Oct` (the year too when it is not this one), in `timeZone` or local time. */
+function formatDay(at: number, now: number, timeZone?: string): string {
+  const sameYear =
+    new Intl.DateTimeFormat("en-GB", { year: "numeric", ...(timeZone ? { timeZone } : {}) }).format(
+      at,
+    ) === new Intl.DateTimeFormat("en-GB", { year: "numeric" }).format(now);
+  return new Intl.DateTimeFormat("en-GB", {
+    ...DAY_FORMAT,
+    ...(sameYear ? {} : { year: "numeric" }),
+    ...(timeZone ? { timeZone } : {}),
+  })
+    .format(at)
+    .replace(",", "");
+}
+
+/**
+ * loom: the re-login reminder for an account named `name` (`caaarl@`), or
+ * null while it is not yet due. An account someone else logs in (a lead of
+ * more than a weekday) is asked of its owner.
+ */
+export function reloginText(
+  login: UsageLimitSourceLogin,
+  name: string,
+  now: number,
+): string | null {
+  const relogin = login.relogin;
+  if (!relogin || relogin.phase === "later") return null;
+  if (!relogin.mayExpireAt) return `${name}: no login date on record. Log in to start its clock.`;
+  const due = formatDay(Date.parse(relogin.dueBy), now, "UTC");
+  const expires = formatDay(Date.parse(relogin.mayExpireAt), now);
+  if (relogin.kind === "token") {
+    // `account add-token` re-mints in place; it takes any unique part of the email.
+    const remint = `claude setup-token, then ~/cli-proxy/account add-token ${name}`;
+    return relogin.phase === "overdue"
+      ? `${name}'s one-year token is overdue for re-minting (${remint}). It expires ${expires}.`
+      : `Re-mint ${name}'s one-year token by ${due}: ${remint}. It expires ${expires}.`;
+  }
+  const owner = name.replace(/@.*$/, "");
+  const ask =
+    relogin.leadWeekdays > 1
+      ? `Ask ${owner.charAt(0).toUpperCase()}${owner.slice(1)} to re-log ${name}`
+      : `Re-log ${name}`;
+  if (relogin.phase === "overdue")
+    return relogin.leadWeekdays > 1
+      ? `${ask} now — it is overdue. It could expire from ${expires}.`
+      : `${name} is overdue — re-log it now. It could expire from ${expires}.`;
+  return `${ask} by ${due}${relogin.early ? " — early, to keep the accounts spread out" : ""}. It could expire from ${expires}.`;
+}
+
+/** loom: the day a hub login is next due by (`Fri 6 Nov`), as the reminder words it; null with none. */
+export function reloginDueDay(login: UsageLimitSourceLogin, now: number): string | null {
+  return login.relogin ? formatDay(Date.parse(login.relogin.dueBy), now, "UTC") : null;
+}
+
+/**
+ * loom: the freshest login any environment's hub reports for `email`, across
+ * the presentations `loginAlerts` reads; null when no hub names it.
+ */
+export function hubAccountLogin(
+  presentations: HubPresentations,
+  email: string,
+): UsageLimitSourceLogin | null {
+  return (
+    [...presentations.values()]
+      .flatMap((presentation) => presentation.serverConfig?.usageLimitSources ?? [])
+      .flatMap((source) =>
+        source.accounts.flatMap((account) =>
+          account.email === email && account.login
+            ? [{ login: account.login, at: Date.parse(source.checkedAt) }]
+            : [],
+        ),
+      )
+      .reduce<{ login: UsageLimitSourceLogin; at: number } | null>(
+        (freshest, next) => (freshest && freshest.at >= next.at ? freshest : next),
+        null,
+      )?.login ?? null
+  );
+}
+
+/** loom: the line for an account that needs attention, naming it; null when it needs none. */
+export function loginAttentionText(
+  login: UsageLimitSourceLogin | null | undefined,
+  name: string,
+  now: number,
+): string | null {
+  const attention = loginAttention(login);
+  if (!login || attention === null) return null;
+  return attention === "dead" || attention === "refreshFailing"
+    ? `${name}: ${loginAlertText(login, now)}`
+    : reloginText(login, name, now);
+}
+
+/** loom: one hub account whose login needs the user, with where to log it in. */
+export interface LoginAlert {
+  readonly email: string;
+  /** `caaarl@`, as the subscription meter names accounts. */
+  readonly name: string;
+  readonly attention: LoginAttention;
+  readonly text: string;
+  readonly login: UsageLimitSourceLogin;
+  readonly environmentId: EnvironmentId;
+  readonly sourceId: UsageLimitSourceId;
+}
+
+/**
+ * loom: every hub account across the environments whose login needs the
+ * user, most urgent first: one per email, from the freshest hub reading.
+ * Read from the hub snapshots directly, so an account whose usage could not
+ * be read is still named.
+ */
+export function loginAlerts(presentations: HubPresentations, now: number): LoginAlert[] {
+  const freshest = new Map<string, LoginAlert & { readonly checkedAt: number }>();
+  for (const [environmentId, presentation] of presentations) {
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      for (const account of source.accounts) {
+        const name = account.email ? `${account.email.split("@")[0]}@` : account.id;
+        const text = loginAttentionText(account.login, name, now);
+        const attention = loginAttention(account.login);
+        const key = account.email ?? `${source.id}:${account.id}`;
+        const checkedAt = Date.parse(source.checkedAt);
+        if (text === null || attention === null || !account.login) continue;
+        if ((freshest.get(key)?.checkedAt ?? Number.NEGATIVE_INFINITY) >= checkedAt) continue;
+        freshest.set(key, {
+          email: account.email ?? account.id,
+          name,
+          attention,
+          text,
+          login: account.login,
+          environmentId,
+          sourceId: source.id,
+          checkedAt,
+        });
+      }
+    }
+  }
+  return [...freshest.values()]
+    .sort((a, b) => ATTENTION_ORDER.indexOf(a.attention) - ATTENTION_ORDER.indexOf(b.attention))
+    .map(({ checkedAt: _checkedAt, ...alert }) => alert);
+}
+
+/** loom: the alert lines alone, for surfaces with no Log in… action (mobile). */
+export function loginAlertNotices(presentations: HubPresentations, now: number): string[] {
+  return loginAlerts(presentations, now).map((alert) => alert.text);
+}
+
+// loom: linking pooled usage sources to hub accounts, through cliproxy renames.
+/**
+ * The hub accounts a pooled usage source (`tokenFile`) names. cliproxy
+ * renames an account's auth file on re-login (`claude-<email>.json` becomes
+ * `claude-<hash>-<email>.json`), so the email it reports is the stable key: a
+ * source names the account whose file it is, else the account whose email
+ * ends its file name — the longest such email, so `x-carl@` beats `carl@`.
+ * Several accounts come back when hubs share one.
+ */
+export function usageSourceAccounts<
+  A extends { readonly id: string; readonly email?: string | undefined },
+>(tokenFile: string, accounts: readonly A[]): A[] {
+  const name = tokenFile.slice(tokenFile.lastIndexOf("/") + 1);
+  const rank = (account: A) =>
+    account.id === name
+      ? Number.POSITIVE_INFINITY
+      : account.email && name.endsWith(`-${account.email}.json`)
+        ? account.email.length
+        : 0;
+  const best = Math.max(0, ...accounts.map(rank));
+  return best === 0 ? [] : accounts.filter((account) => rank(account) === best);
+}
+
+/**
+ * One entry per pooled usage source that names no Claude account its
+ * environment's hubs report, so failover has no reading for it: `name` for a
+ * narrow surface, `notice` the full line with the token file. Judged only
+ * while every hub read cleanly and reports some Claude account: a failed or
+ * empty hub already has its own notice, and with no hub the server reads the
+ * token file itself.
+ */
+export function unlinkedUsageSources(
+  presentations: LimitPresentations,
+): { readonly name: string; readonly notice: string }[] {
+  return [...presentations.values()].flatMap(({ entry, serverConfig }) => {
+    const hubs = serverConfig?.usageLimitSources ?? [];
+    const accounts = hubs
+      .flatMap((hub) => hub.accounts)
+      .filter((account) => account.driver === "claudeAgent");
+    if (accounts.length === 0 || hubs.some((hub) => hub.error)) return [];
+    const prefix = presentations.size > 1 ? `${entry.target.label} · ` : "";
+    return Object.values(serverConfig?.settings?.providerInstances ?? {}).flatMap((instance) =>
+      (instance.usageSources ?? []).flatMap((source) => {
+        if (usageSourceAccounts(source.tokenFile, accounts).length > 0) return [];
+        const name = `${prefix}${source.label ?? source.tokenFile.slice(source.tokenFile.lastIndexOf("/") + 1)}`;
+        return [
+          {
+            name,
+            notice: `${name}: usage source ${source.tokenFile} matches no account the hub pools, so failover cannot see this account.`,
+          },
+        ];
+      }),
+    );
+  });
 }
 
 export function remainingPercent(window: ServerProviderUsageWindow): number {
@@ -668,6 +930,12 @@ export function collectProviderUsageLimits(
   for (const source of sources) {
     const matching = source.accounts.filter((account) => account.driver === selected.driver);
     for (const account of matching) {
+      // loom: a failing login warns while its bars still draw; a dead one says so in its limits.
+      if (account.login?.status === "refreshFailing") {
+        notices.push(
+          `${source.label} · ${account.email ?? account.id}: ${loginAlertText(account.login, now)}`,
+        );
+      }
       const key = resolveKey(account);
       if (key && nativeAccounts.has(key)) continue;
       accounts.push({

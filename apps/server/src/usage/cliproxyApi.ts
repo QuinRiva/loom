@@ -11,12 +11,22 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientRequest } from "effect/http";
 
 import { codexPlanLabel } from "../provider/CodexProvider.ts";
 import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
 import { claudeUsageResponseToLimits } from "../provider/claudeUsageLimits.ts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
+import { cliproxyLogin } from "./cliproxyLogin.loom.ts"; // loom
+import { isLongLived, type HubAuthFileFacts, type HubLoginRecord } from "./hubLogins.loom.ts"; // loom
+
+// loom: the hub's latest `Anthropic-Ratelimit-Unified-*` response headers per
+// model, from real traffic (`trafficUsageLimits`).
+const ModelQuota = Schema.Struct({
+  observed_at: Schema.optional(Schema.String),
+  signals: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+});
+type ModelQuotas = Readonly<Record<string, typeof ModelQuota.Type>>;
 
 const AuthFile = Schema.Struct({
   id: Schema.String,
@@ -24,6 +34,14 @@ const AuthFile = Schema.Struct({
   provider: Schema.String,
   email: Schema.optional(Schema.String),
   disabled: Schema.optional(Schema.Boolean),
+  // loom: the hub's login state, for `cliproxyLogin`.
+  status: Schema.optional(Schema.String),
+  status_message: Schema.optional(Schema.String),
+  last_refresh: Schema.optional(Schema.String),
+  // loom: for the login record (`hubLogins.loom.ts`).
+  modtime: Schema.optional(Schema.String),
+  created_at: Schema.optional(Schema.String),
+  model_quotas: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, ModelQuota))), // loom
   id_token: Schema.optional(
     Schema.Struct({
       chatgpt_account_id: Schema.optional(Schema.String),
@@ -32,6 +50,24 @@ const AuthFile = Schema.Struct({
   ),
 });
 const AuthFiles = Schema.Struct({ files: Schema.Array(AuthFile) });
+export type CliproxyAuthFile = typeof AuthFile.Type; // loom
+// loom: the fields of a downloaded auth file the login record reads. The file
+// carries live tokens: only these are decoded, and the access token only to hash.
+const DownloadedAuthFile = Schema.Struct({
+  claude_device_ids: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  access_token: Schema.optional(Schema.String),
+  refresh_token: Schema.optional(Schema.NullOr(Schema.String)),
+  last_refresh: Schema.optional(Schema.String),
+  expired: Schema.optional(Schema.String),
+  is_setup_token: Schema.optional(Schema.Boolean),
+});
+const decodeDownloadedAuthFile = Schema.decodeUnknownEffect(DownloadedAuthFile);
+const decodeAuthUrl = Schema.decodeUnknownEffect(
+  Schema.Struct({ url: Schema.String, state: Schema.String }),
+);
+const decodeAuthStatus = Schema.decodeUnknownEffect(
+  Schema.Struct({ status: Schema.String, error: Schema.optional(Schema.String) }),
+);
 const ApiResponse = Schema.Struct({ status_code: Schema.Number, body: Schema.String });
 const CodexWindow = Schema.Struct({
   used_percent: Schema.Number,
@@ -151,6 +187,87 @@ export const carriedAccounts = (
       now - Date.parse(account.usageLimits.checkedAt) < CARRY_FORWARD_MS,
   );
 
+/**
+ * loom: an account's usage from the hub's own readings of Anthropic's
+ * rate-limit headers on real traffic (`model_quotas`), for when `oauth/usage`
+ * refuses: always for a one-year token, and for about half the reads of a
+ * browser login. Each window comes from the freshest model reading that
+ * carries it; the per-model weekly (`7d_oi`) is named for its model
+ * (`claude-fable-5-1` is `Fable`). A reading older than `CARRY_FORWARD_MS` is
+ * dropped, as a carried one would be, so a quiet account shows no usage rather
+ * than hours-old usage — except a window it shows exhausted, which stays so
+ * until its reset however long the account then goes without traffic.
+ * `checkedAt` is when the hub took the freshest reading used. Undefined when
+ * there is none.
+ */
+export const trafficUsageLimits = (quotas: ModelQuotas | null | undefined, now: number) => {
+  const readings = Object.entries(quotas ?? {})
+    .map(([model, quota]) => ({ model, at: Date.parse(quota.observed_at ?? ""), quota }))
+    .filter((reading) => Number.isFinite(reading.at))
+    .toSorted((left, right) => right.at - left.at);
+  const pick = (claim: string) =>
+    readings.flatMap(({ model, at, quota }) => {
+      const header = (field: string) =>
+        Number(quota.signals?.[`Anthropic-Ratelimit-Unified-${claim}-${field}`] ?? Number.NaN);
+      const used = Math.round(header("Utilization") * 100);
+      const reset = header("Reset") * 1000;
+      return Number.isFinite(used) && (now - at < CARRY_FORWARD_MS || (used >= 100 && reset > now))
+        ? [
+            {
+              model,
+              at,
+              window: {
+                utilization: used,
+                resets_at: reset > 0 ? DateTime.formatIso(DateTime.makeUnsafe(reset)) : null,
+              },
+            },
+          ]
+        : [];
+    })[0];
+  const [fiveHour, sevenDay, scoped] = [pick("5h"), pick("7d"), pick("7d_oi")];
+  const picked = [fiveHour, sevenDay, scoped].flatMap((entry) => (entry ? [entry.at] : []));
+  if (picked.length === 0) return undefined;
+  const family = scoped?.model.split("-")[1] ?? "";
+  return claudeUsageResponseToLimits({
+    checkedAt: DateTime.formatIso(DateTime.makeUnsafe(Math.max(...picked))),
+    response: {
+      rate_limits_available: true,
+      rate_limits: {
+        five_hour: fiveHour?.window ?? null,
+        seven_day: sevenDay?.window ?? null,
+        model_scoped: scoped
+          ? [
+              {
+                display_name: `${family.charAt(0).toUpperCase()}${family.slice(1)}`,
+                ...scoped.window,
+              },
+            ]
+          : [],
+      },
+    },
+  }).limits;
+};
+
+/**
+ * loom: a hub refusal as one line, with the hub's own `error` text when it gave
+ * one and the caller passed it. Only the login calls do: other refusals can
+ * echo keys or tokens, so they name the status alone, as upstream's
+ * `describeManagementFailure` does.
+ */
+const hubRefusal = (status: number, body: unknown) => {
+  const error =
+    typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+      ? body.error.trim().slice(0, 200)
+      : "";
+  return error ? `The hub refused the request: ${error}.` : `The hub answered with HTTP ${status}.`;
+};
+
+/** loom: the later of two ISO clocks, either possibly absent. */
+const fresherClock = (left: string | undefined, right: string | undefined) =>
+  left === undefined || (right !== undefined && Date.parse(right) > Date.parse(left))
+    ? right
+    : left;
+
 const CODEX_BASE = "https://chatgpt.com/backend-api/wham";
 const CREDIT_URL = `${CODEX_BASE}/rate-limit-reset-credits`;
 
@@ -183,6 +300,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     config: UsageLimitSourceConfig,
     path: string,
     body?: unknown,
+    hubText = false, // loom: see `hubRefusal`
   ) {
     const url = yield* Effect.try({
       try: () =>
@@ -198,11 +316,30 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const response = yield* client
       .execute(body === undefined ? request : request.pipe(HttpClientRequest.bodyJsonUnsafe(body)))
       .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap((response) => response.json),
+        // loom: a refusal names its HTTP status, and on the login calls
+        // (`hubText`) the hub's own `error` text, which the login dialog shows.
+        Effect.flatMap(
+          (
+            response,
+          ): Effect.Effect<unknown, UsageLimitSourceError | HttpClientError.HttpClientError> =>
+            response.status >= 200 && response.status < 300
+              ? response.json
+              : response.json.pipe(
+                  Effect.orElseSucceed(() => undefined),
+                  Effect.flatMap((reply) =>
+                    Effect.fail(
+                      new UsageLimitSourceError({
+                        detail: hubRefusal(response.status, hubText ? reply : undefined),
+                      }),
+                    ),
+                  ),
+                ),
+        ),
         Effect.timeout("15 seconds"),
-        Effect.mapError(
-          (error) => new UsageLimitSourceError({ detail: describeManagementFailure(error) }),
+        Effect.mapError((error) =>
+          isUsageLimitSourceError(error)
+            ? error
+            : new UsageLimitSourceError({ detail: describeManagementFailure(error) }),
         ),
       );
     return response;
@@ -264,12 +401,85 @@ export const makeCliproxyApi = Effect.gen(function* () {
       .toSorted((a, b) => Date.parse(a.expires_at) - Date.parse(b.expires_at));
   });
 
+  // loom: the login record's reads and cliproxy's OAuth flow (`hubLogins.loom.ts`).
+  const downloadAuthFile = Effect.fn("CliproxyApi.downloadAuthFile")(function* (
+    config: UsageLimitSourceConfig,
+    id: string,
+  ): Effect.fn.Return<HubAuthFileFacts, UsageLimitSourceError> {
+    const file = yield* management(
+      config,
+      `auth-files/download?name=${encodeURIComponent(id)}`,
+    ).pipe(
+      Effect.flatMap(decodeDownloadedAuthFile),
+      Effect.mapError(
+        () => new UsageLimitSourceError({ detail: "The hub could not return an auth file." }),
+      ),
+    );
+    const tokenHash = file.access_token
+      ? Hex.encode(
+          new Uint8Array(
+            yield* crypto
+              .digest("SHA-256", new TextEncoder().encode(file.access_token))
+              .pipe(Effect.orDie),
+          ),
+        )
+      : undefined;
+    return {
+      ...(file.claude_device_ids?.[0] ? { deviceId: file.claude_device_ids[0] } : {}),
+      ...(tokenHash ? { tokenHash } : {}),
+      ...(file.last_refresh ? { lastRefresh: file.last_refresh } : {}),
+      ...(file.expired ? { expired: file.expired } : {}),
+      refreshable: Boolean(file.refresh_token),
+      setupToken: file.is_setup_token === true,
+    };
+  });
+
+  const authUrl = Effect.fn("CliproxyApi.authUrl")(function* (config: UsageLimitSourceConfig) {
+    return yield* management(config, "anthropic-auth-url").pipe(
+      Effect.flatMap(decodeAuthUrl),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub returned no sign-in URL." }),
+      ),
+    );
+  });
+
+  const oauthCallback = Effect.fn("CliproxyApi.oauthCallback")(function* (
+    config: UsageLimitSourceConfig,
+    body: Readonly<Record<string, string>>,
+  ) {
+    yield* management(config, "oauth-callback", { provider: "anthropic", ...body }, true);
+  });
+
+  const authStatus = Effect.fn("CliproxyApi.authStatus")(function* (
+    config: UsageLimitSourceConfig,
+    state: string,
+  ) {
+    return yield* management(config, `get-auth-status?state=${encodeURIComponent(state)}`).pipe(
+      Effect.flatMap(decodeAuthStatus),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub returned an unreadable login status." }),
+      ),
+    );
+  });
+
   const readAccount = Effect.fn("CliproxyApi.readAccount")(function* (
     config: UsageLimitSourceConfig,
     account: typeof AuthFile.Type,
     carried: UsageLimitSourceAccount | undefined, // loom: last good reading
+    record: HubLoginRecord | undefined, // loom: the login record (`hubLogins.loom.ts`)
   ) {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    const now = yield* DateTime.now;
+    const checkedAt = DateTime.formatIso(now);
+    // loom: the fresher of the hub's in-memory refresh clock and the file's own,
+    // which a re-login resets.
+    const login = cliproxyLogin(
+      { ...account, last_refresh: fresherClock(account.last_refresh, record?.lastRefresh) },
+      DateTime.toEpochMillis(now),
+    );
     const base = {
       id: account.id,
       driver: ProviderDriverKind.make(account.provider === "codex" ? "codex" : "claudeAgent"),
@@ -277,9 +487,29 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ...(account.id_token?.chatgpt_account_id?.trim()
         ? { workspaceId: account.id_token.chatgpt_account_id.trim() }
         : {}),
+      login, // loom
     };
+    // loom: a signed-out account cannot be read, and its last reading must not
+    // stand in for it: it has no quota to offer until it is logged in again.
+    if (login.status === "dead") {
+      return {
+        ...base,
+        usageLimits: makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: `Signed out${login.reason ? ` (the hub reports "${login.reason}")` : ""}. Log in to this account again.`,
+        }),
+      } satisfies UsageLimitSourceAccount;
+    }
     const read = Effect.gen(function* () {
       if (account.provider === "claude") {
+        // loom: a one-year token's usage read always fails (403, then 429).
+        if (record && isLongLived(record)) {
+          return yield* new UsageLimitSourceError({
+            detail:
+              "A one-year token cannot read its usage, and the hub has seen no traffic on this account for 30 minutes.",
+          });
+        }
         const body = yield* apiCall(config, account, "https://api.anthropic.com/api/oauth/usage");
         const usage = yield* decodeClaudeUsage(body);
         const model_scoped = (usage.limits ?? []).flatMap((limit) =>
@@ -352,32 +582,58 @@ export const makeCliproxyApi = Effect.gen(function* () {
       };
     });
     return yield* read.pipe(
-      // loom: a failed read keeps the account's last good reading, checkedAt and all.
-      Effect.orElseSucceed(
-        (): UsageLimitSourceAccount =>
-          carried ?? {
+      // loom: a failed read takes the fresher of the hub's traffic reading and
+      // the account's last good reading (checkedAt and all), under the current
+      // login; with neither, the hub's reason when it gave one. A browser
+      // login's traffic reading keeps the carried windows it lacks (the Fable
+      // weekly, when the account had no Fable traffic lately) rather than
+      // blanking them for a poll; a token seat's traffic is its only reading,
+      // so its stale windows drop as `trafficUsageLimits` says.
+      Effect.catch((error) => {
+        const traffic = trafficUsageLimits(account.model_quotas, DateTime.toEpochMillis(now));
+        const keep =
+          carried && !(record && isLongLived(record))
+            ? carried.usageLimits.windows.filter(
+                (window) => !traffic?.windows.some((fresh) => fresh.id === window.id),
+              )
+            : [];
+        const fallback = [
+          ...(traffic
+            ? [
+                {
+                  ...base,
+                  plan: "Claude Subscription",
+                  usageLimits: { ...traffic, windows: [...traffic.windows, ...keep] },
+                },
+              ]
+            : []),
+          ...(carried ? [{ ...carried, login }] : []),
+        ].toSorted(
+          (left, right) =>
+            Date.parse(right.usageLimits.checkedAt) - Date.parse(left.usageLimits.checkedAt),
+        )[0];
+        return Effect.succeed<UsageLimitSourceAccount>(
+          fallback ?? {
             ...base,
             usageLimits: makeUnavailableUsageLimits({
               checkedAt,
               reason: "probeFailed",
-              message: "The hub could not read this account's usage.",
+              message: isUsageLimitSourceError(error)
+                ? error.detail
+                : "The hub could not read this account's usage.",
             }),
           },
-      ),
+        );
+      }),
     );
   });
 
   const readAccounts = Effect.fn("CliproxyApi.readAccounts")(function* (
     config: UsageLimitSourceConfig,
     previous: ReadonlyArray<UsageLimitSourceAccount>, // loom: carry-forward source
+    accounts: ReadonlyArray<typeof AuthFile.Type>, // loom: listed once by the caller
+    record: (email: string | undefined) => HubLoginRecord | undefined = () => undefined, // loom
   ): Effect.fn.Return<ReadonlyArray<UsageLimitSourceAccount>, UsageLimitSourceError> {
-    const accounts = yield* authFiles(config).pipe(
-      Effect.mapError((error) =>
-        isUsageLimitSourceError(error)
-          ? error
-          : new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
-      ),
-    );
     const carried = carriedAccounts(previous, DateTime.toEpochMillis(yield* DateTime.now)); // loom
     return yield* Effect.forEach(
       accounts.filter(
@@ -389,6 +645,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
           config,
           account,
           carried.find((candidate) => candidate.id === account.id), // loom
+          record(account.email), // loom
         ),
       { concurrency: 4 },
     );
@@ -446,5 +703,22 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ),
     );
   });
-  return { readAccounts, consume };
+  // loom: `listAccounts` and the login calls for `UsageLimitSources`.
+  const listAccounts = (config: UsageLimitSourceConfig) =>
+    authFiles(config).pipe(
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({ detail: "The hub could not list accounts." }),
+      ),
+    );
+  return {
+    listAccounts,
+    readAccounts,
+    consume,
+    downloadAuthFile,
+    authUrl,
+    oauthCallback,
+    authStatus,
+  };
 });

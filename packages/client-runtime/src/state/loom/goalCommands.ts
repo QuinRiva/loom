@@ -3,7 +3,8 @@
  * through `loom.goal.*`; the `/handoff` and `/retro` intercepts call 3b's
  * drafter methods by name. Results also arrive on the shell's goal stream, so
  * callers never patch local state. The two seam-11 spend reads (3d-4) are
- * query families: cost is a batched lookup, never a shell field.
+ * query families: cost is a batched lookup, never a shell field. The hub
+ * login dialog's two calls ride here too.
  *
  * @module state/loom/goalCommands
  */
@@ -26,6 +27,17 @@ export function createLoomCommandAtoms<R, E>(
     threadHistory: command(LOOM_WS_METHODS.threadHistory),
     consultCancel: command(LOOM_WS_METHODS.consultCancel),
     promptCapture: command(LOOM_WS_METHODS.promptCapture),
+    // The hub login dialog; a double-click must not post one code twice.
+    hubLoginStart: command(LOOM_WS_METHODS.usageLimitSourceLoginStart),
+    hubLoginFinish: createEnvironmentRpcCommand(runtime, {
+      label: `environment-data:${LOOM_WS_METHODS.usageLimitSourceLoginFinish}`,
+      tag: LOOM_WS_METHODS.usageLimitSourceLoginFinish,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.sourceId, input.state]),
+      },
+    }),
     threadSpend: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: `environment-data:${LOOM_WS_METHODS.threadSpend}`,
       tag: LOOM_WS_METHODS.threadSpend,

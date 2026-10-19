@@ -66,6 +66,72 @@ export const ProviderUsageLimitsUpdate = Schema.Struct({
 });
 export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 
+// loom: hub login health (`apps/server/src/usage/cliproxyLogin.loom.ts`).
+/**
+ * The pre-emptive re-login schedule for one hub account
+ * (`apps/server/src/usage/hubLogins.loom.ts`), judged on the server's local
+ * calendar. `later` until `leadWeekdays` weekdays before `dueBy`, `due` through
+ * `dueBy`, `overdue` after. `mayExpireAt` absent: no login date on record, so
+ * the account is due now. `early`: `dueBy` was pulled before the account's own
+ * last safe day to keep the pool's expiries spread out. `kind: "token"` is a
+ * long-lived `claude setup-token` token, re-minted rather than logged in.
+ */
+export const UsageLimitSourceRelogin = Schema.Struct({
+  phase: Schema.Literals(["later", "due", "overdue"]),
+  kind: Schema.Literals(["login", "token"]),
+  loggedInAt: Schema.optional(IsoDateTime),
+  mayExpireAt: Schema.optional(IsoDateTime),
+  /** A calendar day, `2026-10-30`. */
+  dueBy: TrimmedNonEmptyString,
+  early: Schema.Boolean,
+  leadWeekdays: NonNegativeInt,
+});
+export type UsageLimitSourceRelogin = typeof UsageLimitSourceRelogin.Type;
+
+/**
+ * Whether the source can still sign in to an account. `refreshFailing`
+ * is the warning: the hub's refreshes are failing but the current access token
+ * still works until `expiresAt`. `dead` means requests on the account fail
+ * until it is logged in again; `expiresAt` is then when it stopped, when known.
+ * `reason` is the hub's own status text (`token expired`, `unauthorized`).
+ */
+export const UsageLimitSourceLogin = Schema.Struct({
+  status: Schema.Literals(["healthy", "refreshFailing", "dead"]),
+  expiresAt: Schema.optional(IsoDateTime),
+  reason: Schema.optional(TrimmedNonEmptyString),
+  relogin: Schema.optional(UsageLimitSourceRelogin),
+});
+export type UsageLimitSourceLogin = typeof UsageLimitSourceLogin.Type;
+
+/**
+ * `usageLimitSource.login.start`: a sign-in URL minted on the hub. The URL is
+ * account-agnostic; whoever signs in is the account that gets logged in.
+ */
+export const UsageLimitSourceLoginStartInput = Schema.Struct({ sourceId: UsageLimitSourceId });
+export type UsageLimitSourceLoginStartInput = typeof UsageLimitSourceLoginStartInput.Type;
+export const UsageLimitSourceLoginStartResult = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  state: TrimmedNonEmptyString,
+  expiresAt: IsoDateTime,
+});
+export type UsageLimitSourceLoginStartResult = typeof UsageLimitSourceLoginStartResult.Type;
+
+/**
+ * `usageLimitSource.login.finish`: what claude.ai showed after sign-in — the
+ * `code#state` text or the whole address-bar URL. `loggedIn` is the account
+ * whose login the hub saved, when Loom could tell which one it was.
+ */
+export const UsageLimitSourceLoginFinishInput = Schema.Struct({
+  sourceId: UsageLimitSourceId,
+  state: TrimmedNonEmptyString,
+  pasted: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type UsageLimitSourceLoginFinishInput = typeof UsageLimitSourceLoginFinishInput.Type;
+export const UsageLimitSourceLoginFinishResult = Schema.Struct({
+  loggedIn: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type UsageLimitSourceLoginFinishResult = typeof UsageLimitSourceLoginFinishResult.Type;
+
 export const UsageLimitSourceAccount = Schema.Struct({
   id: TrimmedNonEmptyString,
   driver: ProviderDriverKind,
@@ -73,6 +139,8 @@ export const UsageLimitSourceAccount = Schema.Struct({
   plan: Schema.optional(TrimmedNonEmptyString),
   workspaceId: Schema.optional(TrimmedNonEmptyString),
   usageLimits: ServerProviderUsageLimits,
+  // loom: absent when the source says nothing about the account's login.
+  login: Schema.optional(UsageLimitSourceLogin),
 });
 export type UsageLimitSourceAccount = typeof UsageLimitSourceAccount.Type;
 

@@ -26,6 +26,13 @@ import {
   WorkOutcomeRecord,
 } from "./orchestrationV2.loom.ts";
 import {
+  UsageLimitSourceError,
+  UsageLimitSourceLoginFinishInput,
+  UsageLimitSourceLoginFinishResult,
+  UsageLimitSourceLoginStartInput,
+  UsageLimitSourceLoginStartResult,
+} from "./providerUsageLimits.ts";
+import {
   HandoffDraftInput,
   HandoffDraftResult,
   RetroDraftInput,
@@ -47,6 +54,9 @@ export const LOOM_WS_METHODS = {
   consultCancel: "loom.consult.cancel",
   // The workstream surface's Prompt button: where a thread's captured system prompt is.
   promptCapture: "loom.promptCapture",
+  // The hub login reminder's Log in… dialog: cliproxy's OAuth flow, run by the server.
+  usageLimitSourceLoginStart: "usageLimitSource.login.start",
+  usageLimitSourceLoginFinish: "usageLimitSource.login.finish",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -274,5 +284,16 @@ export const LoomWsRpcs = [
     payload: LoomPromptCaptureInput,
     success: LoomPromptCaptureResult,
     error: LoomWsError,
+  }),
+  // The hub's own error text reaches the dialog, so these fail with the source's error.
+  Rpc.make(LOOM_WS_METHODS.usageLimitSourceLoginStart, {
+    payload: UsageLimitSourceLoginStartInput,
+    success: UsageLimitSourceLoginStartResult,
+    error: Schema.Union([UsageLimitSourceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(LOOM_WS_METHODS.usageLimitSourceLoginFinish, {
+    payload: UsageLimitSourceLoginFinishInput,
+    success: UsageLimitSourceLoginFinishResult,
+    error: Schema.Union([UsageLimitSourceError, EnvironmentAuthorizationError]),
   }),
 ] as const;

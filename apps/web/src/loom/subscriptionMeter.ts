@@ -22,12 +22,17 @@ import {
   ProviderDriverKind,
   type ServerProvider,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceLogin,
 } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
   elapsedShare,
   type LimitAccount,
   type LimitPresentations,
+  loginAlerts,
+  loginAttention,
+  type LoginAlert,
+  unlinkedUsageSources,
 } from "@t3tools/shared/usageLimits";
 import { decodeUsageWindowId } from "@t3tools/shared/usageWindowId";
 
@@ -98,7 +103,11 @@ export function meterAccounts(presentations: LimitPresentations): readonly Limit
     const fresher =
       !previous || Date.parse(account.limits.checkedAt) > Date.parse(previous.limits.checkedAt);
     const winner = fresher ? account : previous;
-    merged.set(key, { ...winner, email: winner.email ?? previous?.email ?? account.email });
+    merged.set(key, {
+      ...winner,
+      email: winner.email ?? previous?.email ?? account.email,
+      login: winner.login ?? previous?.login ?? account.login,
+    });
   }
   return namedFirst([...merged.values()]);
 }
@@ -228,6 +237,8 @@ export interface MeterRow {
   readonly mark: MeterMark | null;
   /** A weekly clock at 100%: the row name turns red. */
   readonly exhausted: boolean;
+  /** The hub's failing, dead or due login: the row says so before anything else. */
+  readonly login: UsageLimitSourceLogin | null;
 }
 
 export interface MeterPool {
@@ -338,6 +349,7 @@ function rowOf(account: LimitAccount, now: number, ring: ReadingRing): MeterRow 
     weeklies,
     mark: marks.has("risk") ? "risk" : marks.has("opp") ? "opp" : null,
     exhausted: weeklies.some((weekly) => weekly.used >= 100),
+    login: loginAttention(account.login) === null ? null : account.login,
   };
 }
 
@@ -413,6 +425,10 @@ const HOLD_MS = 30 * MINUTE;
 export interface MeterView {
   /** `stale`: every row is a held reading; no source of the driver is reporting. */
   readonly pools: readonly (MeterPool & { readonly stale: boolean })[];
+  /** Pooled usage sources no hub account matches: failover cannot see them. */
+  readonly unlinked: readonly { readonly name: string; readonly notice: string }[];
+  /** Hub logins that need the user, most urgent first: the header chip counts them. */
+  readonly logins: readonly LoginAlert[];
 }
 
 /** One entry, shared by the footer meter and its header chip: they derive the same pools. */
@@ -448,7 +464,14 @@ export function readMeter(presentations: LimitPresentations, now: number): Meter
     ...pool,
     stale: !liveDrivers.has(pool.driver),
   }));
-  memo = { key, view: { pools } };
+  memo = {
+    key,
+    view: {
+      pools,
+      unlinked: unlinkedUsageSources(presentations),
+      logins: loginAlerts(presentations, now),
+    },
+  };
   return memo.view;
 }
 

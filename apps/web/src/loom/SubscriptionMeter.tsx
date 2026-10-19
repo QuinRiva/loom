@@ -19,6 +19,7 @@
  * @module loom/SubscriptionMeter
  */
 import { useAtomValue } from "@effect/atom-react";
+import { loginAttention, loginAttentionText } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
 import { memo, type ReactNode, useEffect, useState } from "react";
 
@@ -82,6 +83,32 @@ function useMeterReading(): { readonly view: MeterView; readonly now: number } {
 
 function rowName(row: MeterRow, pool: MeterPool): string {
   return row.label ?? providerClients.get(pool.driver)?.label ?? String(pool.driver);
+}
+
+/** loom: a dead or overdue login is red, a failing or due one amber; all outrank any quota mark. */
+const loginTone = (row: MeterRow): MeterTone | null => {
+  const attention = loginAttention(row.login);
+  return attention === null
+    ? null
+    : attention === "dead" || attention === "overdue"
+      ? "destructive"
+      : "warning";
+};
+
+/** loom: the row's short login tag: `⚠ log in`, `⚠ 1h 40m`, `⚠ by Fri`, `⚠ overdue`. */
+function loginTag(row: MeterRow, now: number): string {
+  const login = row.login;
+  const attention = loginAttention(login);
+  if (attention === "dead") return "⚠ log in";
+  if (attention === "overdue") return "⚠ overdue";
+  if (attention === "due" && login?.relogin) {
+    const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(
+      Date.parse(login.relogin.dueBy),
+    );
+    return login.relogin.mayExpireAt ? `⚠ by ${day}` : "⚠ log in";
+  }
+  const stopsAt = login?.expiresAt ? Date.parse(login.expiresAt) : null;
+  return `⚠ ${stopsAt === null ? "soon" : formatCountdown(stopsAt - now)}`;
 }
 
 /**
@@ -296,6 +323,11 @@ function RowPopover({
           <span className="truncate text-3xs text-muted-foreground/45">{row.email}</span>
         ) : null}
       </div>
+      {row.login ? (
+        <span className={cn("text-2xs font-medium", TEXT[loginTone(row) ?? "warning"])}>
+          {loginAttentionText(row.login, name, now)}
+        </span>
+      ) : null}
       {bar ? (
         <PopoverWindow
           name="5-hour"
@@ -374,6 +406,7 @@ function AccountRow({
   const name = rowName(row, pool);
   const mark = row.mark ? MARK[row.mark] : null;
   const bar = row.bar;
+  const login = loginTone(row);
   return (
     <Popover>
       <PopoverTrigger
@@ -384,7 +417,7 @@ function AccountRow({
           <button
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
-            aria-label={`${name}: 5-hour ${Math.round(bar?.used ?? 0)}% used${
+            aria-label={`${row.login ? `${loginAttentionText(row.login, name, now)} ` : `${name}: `}5-hour ${Math.round(bar?.used ?? 0)}% used${
               bar?.resetKnown ? `, resets in ${formatCountdown(bar.reset - now)}` : ""
             }${bar?.emptyAt ? `, empties in ~${formatCountdown(bar.emptyAt - now)}` : ""}`}
             className="block w-full rounded-sm text-left outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -397,26 +430,42 @@ function AccountRow({
             <span
               className={cn(
                 "truncate text-3xs",
-                row.exhausted
-                  ? "font-medium text-destructive"
-                  : mark
-                    ? cn("font-medium", mark.className)
-                    : "text-muted-foreground",
+                login
+                  ? cn("font-medium", TEXT[login])
+                  : row.exhausted
+                    ? "font-medium text-destructive"
+                    : mark
+                      ? cn("font-medium", mark.className)
+                      : "text-muted-foreground",
               )}
             >
               {name}
             </span>
           </span>
           <span className="h-3">
-            {bar ? <TimeBar bar={bar} axis={pool.axis} now={now} height={4} /> : null}
+            {row.login?.status === "dead" ? (
+              <span className="block truncate text-3xs font-medium text-destructive">
+                signed out
+              </span>
+            ) : bar ? (
+              <TimeBar bar={bar} axis={pool.axis} now={now} height={4} />
+            ) : null}
           </span>
           <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
-            {mark ? (
-              <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
-            ) : null}
-            <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
-              {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
-            </span>
+            {row.login ? (
+              <span className={cn("font-medium", TEXT[login ?? "warning"])}>
+                {loginTag(row, now)}
+              </span>
+            ) : (
+              <>
+                {mark ? (
+                  <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
+                ) : null}
+                <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
+                  {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
+                </span>
+              </>
+            )}
           </span>
         </Grid>
       </PopoverTrigger>
@@ -493,8 +542,32 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
   readonly view: MeterView;
   readonly now: number;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="flex w-full flex-col gap-px py-0.75 tabular-nums leading-none">
+      {view.unlinked.map(({ name, notice }) => (
+        // The meter is narrow: a short line, the full notice (with the token file) on hover.
+        <Popover key={notice}>
+          <PopoverTrigger
+            openOnHover
+            delay={150}
+            closeDelay={0}
+            render={
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/usage" })}
+                aria-label={notice}
+                className="truncate rounded-sm pb-0.5 text-left text-3xs font-medium leading-tight text-destructive outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              />
+            }
+          >
+            ⚠ {name} unlinked from the hub
+          </PopoverTrigger>
+          <PopoverPopup tooltipStyle side="right" align="start" className="w-64 max-w-none">
+            {notice}
+          </PopoverPopup>
+        </Popover>
+      ))}
       {view.pools.map((pool, index) => (
         <div key={pool.driver}>
           {index > 0 ? <div className="my-0.5 h-px bg-border/60" /> : null}
@@ -508,7 +581,9 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
 /** The meter for the sidebar footer. */
 export const SubscriptionMeter = memo(function SubscriptionMeter() {
   const { view, now } = useMeterReading();
-  return view.pools.length === 0 ? null : <SubscriptionMeterView view={view} now={now} />;
+  return view.pools.length === 0 && view.unlinked.length === 0 ? null : (
+    <SubscriptionMeterView view={view} now={now} />
+  );
 });
 
 /**
@@ -526,7 +601,15 @@ export function SubscriptionMeterChipView({
   const navigate = useNavigate();
   const pool = view.pools[0];
   const bar = pool?.pool ?? pool?.rows[0]?.bar;
-  if (!pool || !bar) return null;
+  // loom: logins that need the user show even when no bar does.
+  const count = (...kinds: string[]) =>
+    view.logins.filter((alert) => kinds.includes(alert.attention)).length;
+  const dead = count("dead");
+  const failing = count("refreshFailing");
+  const due = count("due", "overdue");
+  const overdue = count("overdue");
+  const unlinked = view.unlinked.length;
+  if (!bar && view.logins.length === 0 && unlinked === 0) return null;
   return (
     <Popover>
       <PopoverTrigger
@@ -537,20 +620,44 @@ export function SubscriptionMeterChipView({
           <button
             type="button"
             onClick={() => void navigate({ to: "/usage" })}
-            aria-label={`Subscription usage: 5-hour ${Math.round(bar.used)}% used`}
+            aria-label={`Subscription usage${
+              view.logins.length > 0
+                ? `: ${dead} account${dead === 1 ? "" : "s"} signed out, ${failing} failing to refresh, ${due} due to log in again`
+                : ""
+            }${unlinked > 0 ? `: ${unlinked} usage source${unlinked === 1 ? "" : "s"} unlinked` : ""}${
+              bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""
+            }`}
             className={cn(
               "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              pool.stale && "opacity-50",
+              pool?.stale && "opacity-50",
             )}
           />
         }
       >
-        <span className="text-muted-foreground/75">5h</span>
-        <span className="h-3 w-14">
-          <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
-        </span>
-        <ResetText bar={bar} now={now} withReset={false} />
-        {pool.carveOut ? (
+        {dead > 0 ? (
+          <span className="font-semibold text-destructive">⚠ {dead} signed out</span>
+        ) : null}
+        {failing > 0 ? (
+          <span className="font-semibold text-warning">⚠ {failing} login failing</span>
+        ) : null}
+        {due > 0 ? (
+          <span className={cn("font-semibold", overdue > 0 ? "text-destructive" : "text-warning")}>
+            ⚠ {due} login{due === 1 ? "" : "s"} due
+          </span>
+        ) : null}
+        {unlinked > 0 ? (
+          <span className="font-semibold text-destructive">⚠ {unlinked} unlinked</span>
+        ) : null}
+        {pool && bar ? (
+          <>
+            <span className="text-muted-foreground/75">5h</span>
+            <span className="h-3 w-14">
+              <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
+            </span>
+            <ResetText bar={bar} now={now} withReset={false} />
+          </>
+        ) : null}
+        {pool?.carveOut ? (
           <>
             <span className="h-3 w-px bg-border/60" />
             <span className="text-muted-foreground/75">{pool.carveOut.scope[0]}</span>
