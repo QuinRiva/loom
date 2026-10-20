@@ -3,7 +3,8 @@
  * credentials from the real `McpSessionRegistry`: the session profile's
  * `humanEngaged` reads only seam 14's stamp, a child's profile drops
  * `mcp__t3-code__ask_user_question`, ask + wait deliver an answer, the cache-warming plan
- * reaches the cache broadcast, and a credential without `workstream` is refused.
+ * reaches the cache broadcast, a parked gate coder is told to keep warm while its reviewer is
+ * live, and a credential without `workstream` is refused.
  */
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -235,6 +236,51 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
     }),
   );
 
+  it.effect(
+    "a coder parked under a live reviewer is kept warm until the reviewer is cancelled",
+    () =>
+      Effect.gen(function* () {
+        const { threadId: parent } = yield* seedThread({
+          threadId: "routes-gate-parent" as ThreadId,
+        });
+        const coder = "routes-gate-coder" as ThreadId;
+        const reviewer = "routes-gate-reviewer" as ThreadId;
+        yield* spawnChild({ parentThreadId: parent, threadId: coder, graphKey: "coder" });
+        yield* spawnChild({
+          parentThreadId: parent,
+          threadId: reviewer,
+          graphKey: "reviewer",
+          blockedBy: [coder],
+          routes: [
+            { on: ["needs_rework"], kind: "loop", to: coder },
+            { on: ["clean"], kind: "resolve" },
+          ],
+        });
+        const auth = yield* credential(coder, ["workstream"]);
+        const ask = () => call(auth, "GET", "/gate-keep-alive");
+        assert.deepEqual((yield* ask()).body, { keepAlive: false, counterpartThreadId: null });
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        yield* dispatch({
+          type: "thread.work.submit",
+          commandId: CommandId.make("command:routes:gate-submit"),
+          threadId: coder,
+          createdAt,
+          reportPath: "/reports/coder.md",
+        });
+        assert.deepEqual((yield* ask()).body, { keepAlive: true, counterpartThreadId: reviewer });
+        yield* dispatch({
+          type: "thread.outcome.set",
+          commandId: CommandId.make("command:routes:gate-cancel"),
+          threadId: reviewer,
+          createdAt,
+          outcome: "cancelled",
+        });
+        assert.deepEqual((yield* ask()).body, { keepAlive: false, counterpartThreadId: null });
+        const fork = yield* credential(coder, ["workstream"], true);
+        assert.equal((yield* call(fork, "GET", "/gate-keep-alive")).status, 403);
+      }),
+  );
+
   it.effect("a read-only consult fork cannot ask a human or touch the target's cache gauge", () =>
     Effect.gen(function* () {
       const { threadId } = yield* seedThread({ threadId: "routes-consult" as ThreadId });
@@ -274,6 +320,7 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
         ["POST", "/user-input/ask"],
         ["GET", "/user-input/loom-ask%3Ax/wait"],
         ["POST", "/cache-warming"],
+        ["GET", "/gate-keep-alive"],
       ] as const) {
         assert.equal((yield* call(auth, method, path, {})).status, 403);
         assert.equal((yield* call("Bearer nope", method, path, {})).status, 401);

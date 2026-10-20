@@ -441,12 +441,19 @@ describe("cacheWarmingGate part", () => {
   const idle = { type: "cache_warming_decision", continuationProbability: 0.15, action: "warm" };
   const streaming = { ...idle, continuationProbability: 1 };
   // The part reads PI_CACHE_RETENTION once, at load; pin it so the ambient env cannot leak in.
-  // Its plan reports go to a recording `loomFetch`.
-  const load = (retention = "short") => {
+  // Its plan reports go to a recording `loomFetch`; the gate keep-alive check answers `gate`.
+  const load = (
+    retention = "short",
+    gate: () => Promise<unknown> = () => Promise.resolve({ keepAlive: false }),
+  ) => {
     const ambient = process.env.PI_CACHE_RETENTION;
     process.env.PI_CACHE_RETENTION = retention;
     const reports: Array<unknown> = [];
     const handlers = loadPart(cacheWarmingGatePart, {}, [], (_ctx, method, path, body) => {
+      if (path === "/gate-keep-alive") {
+        expect(method).toBe("GET");
+        return gate();
+      }
       reports.push([method, path, body]);
       return Promise.resolve(null);
     });
@@ -486,17 +493,17 @@ describe("cacheWarmingGate part", () => {
     expect(long.reported()).toEqual(["scheduled", "stopped"]);
   });
 
-  it("reports each idle decision's final action and never an in-run one", () => {
+  it("reports each idle decision's final action and never an in-run one", async () => {
     const short = load("short");
-    short.decide(streaming);
+    await short.decide(streaming);
     expect(short.reported()).toEqual([]);
-    short.decide(idle);
-    short.decide({ ...idle, action: "stop" });
+    await short.decide(idle);
+    await short.decide({ ...idle, action: "stop" });
     expect(short.reported()).toEqual(["scheduled", "stopped"]);
     const long = load("long");
-    long.decide({ ...idle, action: "stop" });
+    await long.decide({ ...idle, action: "stop" });
     long.submit(false);
-    long.decide(idle);
+    await long.decide(idle);
     expect(long.reported()).toEqual(["scheduled", "stopped"]);
   });
 
@@ -505,51 +512,75 @@ describe("cacheWarmingGate part", () => {
       Promise.reject(new Error("down")),
     );
     await handlers.get("agent_settled")!({ type: "agent_settled" }, ctx);
-    expect(handlers.get("cache_warming_decision")!(idle, ctx)).toBeUndefined();
+    expect(await handlers.get("cache_warming_decision")!(idle, ctx)).toBeUndefined();
   });
 
-  it("stops idle warming after a successful submit, and leaves streaming refreshes alone", () => {
+  it("stops idle warming after a successful submit, and leaves streaming refreshes alone", async () => {
     const gate = load();
     expect(gate.submit(false)).toBeUndefined();
-    expect(gate.decide(idle)).toEqual({ action: "stop" });
-    expect(gate.decide(streaming)).toBeUndefined();
+    expect(await gate.decide(idle)).toEqual({ action: "stop" });
+    expect(await gate.decide(streaming)).toBeUndefined();
   });
 
-  it("does not interfere before a submit, after a failed one, or after other tools succeed", () => {
+  it("does not interfere before a submit, after a failed one, or after other tools succeed", async () => {
     const gate = load();
-    expect(gate.decide(idle)).toBeUndefined();
+    expect(await gate.decide(idle)).toBeUndefined();
     gate.submit(true);
-    expect(gate.decide(idle)).toBeUndefined();
+    expect(await gate.decide(idle)).toBeUndefined();
     const other = load();
     other.tool("bash");
-    expect(other.decide(idle)).toBeUndefined();
+    expect(await other.decide(idle)).toBeUndefined();
   });
 
-  it("lets a re-opened thread warm again until it submits again", () => {
+  it("lets a re-opened thread warm again until it submits again", async () => {
     const gate = load();
     gate.submit(false);
     expect(gate.input()).toBeUndefined();
-    expect(gate.decide(idle)).toBeUndefined();
+    expect(await gate.decide(idle)).toBeUndefined();
     gate.submit(false);
-    expect(gate.decide(idle)).toEqual({ action: "stop" });
+    expect(await gate.decide(idle)).toEqual({ action: "stop" });
   });
 
-  it("warms a 1-hour root's idle refresh and leaves its in-run refreshes to pi", () => {
+  it("warms a 1-hour root's idle refresh and leaves its in-run refreshes to pi", async () => {
     const gate = load("long");
-    expect(gate.decide({ ...idle, action: "stop" })).toEqual({ action: "warm" });
-    expect(gate.decide(streaming)).toBeUndefined();
+    expect(await gate.decide({ ...idle, action: "stop" })).toEqual({ action: "warm" });
+    expect(await gate.decide(streaming)).toBeUndefined();
   });
 
-  it("leaves a 5-minute thread's idle refresh to pi's economics", () => {
+  it("leaves a 5-minute thread's idle refresh to pi's economics", async () => {
     const gate = load("short");
-    expect(gate.decide({ ...idle, action: "stop" })).toBeUndefined();
-    expect(gate.decide(idle)).toBeUndefined();
+    expect(await gate.decide({ ...idle, action: "stop" })).toBeUndefined();
+    expect(await gate.decide(idle)).toBeUndefined();
   });
 
-  it("lets a submit stop idle warming even on a 1-hour thread", () => {
+  it("lets a submit stop idle warming even on a 1-hour thread", async () => {
     const gate = load("long");
     gate.submit(false);
-    expect(gate.decide(idle)).toEqual({ action: "stop" });
+    expect(await gate.decide(idle)).toEqual({ action: "stop" });
+  });
+
+  it("keeps a submitted gate member warm while Loom confirms a live counterpart", async () => {
+    const gate = load("short", () =>
+      Promise.resolve({ keepAlive: true, counterpartThreadId: "r" }),
+    );
+    gate.submit(false);
+    await gate.settle();
+    expect(await gate.decide({ ...idle, action: "stop" })).toEqual({ action: "warm" });
+    expect(await gate.decide(idle)).toBeUndefined();
+    expect(gate.reported()).toEqual(["scheduled", "scheduled", "scheduled"]);
+  });
+
+  it("stops a submitted thread when the gate check says no or fails", async () => {
+    for (const answer of [
+      () => Promise.resolve({ keepAlive: false, counterpartThreadId: null }),
+      () => Promise.reject(new Error("down")),
+    ]) {
+      const gate = load("long", answer);
+      gate.submit(false);
+      await gate.settle();
+      expect(await gate.decide(idle)).toEqual({ action: "stop" });
+      expect(gate.reported()).toEqual(["stopped", "stopped"]);
+    }
   });
 });
 
