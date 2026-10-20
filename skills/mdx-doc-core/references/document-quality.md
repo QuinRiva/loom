@@ -336,8 +336,8 @@ path). Open every slice with the `read` tool, which shows you the image. A
 slice is sized to stay legible at the resolution a model reads an image, and
 the cut falls wherever the page height does, so a block or heading continued
 across two slices is the slicing, not a defect. Do not load browser tools to
-look at the page instead: a tool loaded mid-session rewrites the whole cached
-context, and the slices show the same render. If the run cannot write the
+look at the page instead: the slices show the same render, and a loaded tool
+stays in your context for every later turn. If the run cannot write the
 slices (no chromium on this machine), the visual check is out of reach in
 this thread: say so in your report. Reserve a browser or a live instance for
 what genuinely needs interaction — annotation, `<Prototype>` flows, a

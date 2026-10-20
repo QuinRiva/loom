@@ -258,9 +258,8 @@ itself renders the document headlessly and lists the blocks that mounted.
 `--png` writes page-height PNG slices of the render beside the recap
 (`$RUN/render-1.png`, …; the run prints each path): `read` each one and fix
 what reads badly. That is the whole visual check; do not load browser tools
-to open the page instead: a tool loaded mid-run invalidates the cached
-context (the retro that screenshotted its lint-clean recap re-wrote its whole
-context for the picture, a third of its cost). Then end the turn with the
+to open the page instead: the slices show the same render, and a loaded tool
+stays in your context for every later turn. Then end the turn with the
 recap's absolute path in inline code and
 ask the human to open and triage it in-app. Expect discussion over one or more turns — the human may
 refine wording, contest evidence or drop proposals; update the recap as it
