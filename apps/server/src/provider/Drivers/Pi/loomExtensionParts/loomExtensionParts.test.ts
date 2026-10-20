@@ -2,6 +2,7 @@
 // Loom's extension parts (plan track 3c, seam 3), each built exactly as 3a's assembler
 // wraps it — `(pi, ctx) => { <source> }` — and driven through a stub pi. The search-guard
 // cases are quarantine's searchGuardExtension.test.ts, unchanged but for the loader.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -11,6 +12,7 @@ import { afterAll, describe, expect, it } from "vite-plus/test";
 import type { LoomExtensionPart } from "../loomExtension.ts";
 import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
 import { commandGuardsPart } from "./commandGuards.ts";
+import { pgrepSelfMatchPart } from "./pgrepSelfMatch.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
 
@@ -294,6 +296,37 @@ describe("search-guard part", () => {
       guard.toolCall({ toolName: "bash", toolCallId: "b2", input: { command: 42 } }, ctx),
     ).toBeUndefined();
     expect(guard.toolResult({ toolName: "bash", toolCallId: "nope" }, ctx)).toBeUndefined();
+  });
+});
+
+describe("pgrep-self-match part", () => {
+  const rewrite = (command: string) => {
+    const call = bashCall(command);
+    expect(loadPart(pgrepSelfMatchPart).get("tool_call")!(call, ctx)).toBeUndefined();
+    return (call.input as { command: string }).command;
+  };
+  // As pi runs it: `bash -c` with the shellCommandPrefix line, so bash never execs away.
+  const runAsPi = (command: string) =>
+    NodeChildProcess.spawnSync("bash", ["-c", `export LOOM_PREFIX=1\n${command}`], {
+      encoding: "utf8",
+    });
+
+  it("stops pgrep -f matching the tool shell that runs it", () => {
+    const marker = `loom-pgrep-self-match-${process.pid}`;
+    const command = `while pgrep -f "${marker} loop" >/dev/null; do exit 9; done; pgrep -f ${marker} || echo none`;
+
+    expect(runAsPi(command).status).toBe(9);
+    const rewritten = rewrite(command);
+    expect(rewritten).not.toContain(marker);
+    const result = runAsPi(rewritten);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("none");
+  });
+
+  it("leaves commands without pgrep/pkill untouched", () => {
+    for (const command of ["ls -la", "grep -r pgreps src", "echo pkilled"]) {
+      expect(rewrite(command)).toBe(command);
+    }
   });
 });
 

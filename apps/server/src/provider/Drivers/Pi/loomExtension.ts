@@ -7,7 +7,9 @@
  * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries) and
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard`, `command-guards` (rewrite or block shell commands agents
- * repeatedly mistype), `prompt-debug`, and `cacheWarmingGate` (no idle cache
+ * repeatedly mistype), `pgrep-self-match` (a bash call naming pgrep/pkill that the guard let
+ * through runs base64-encoded so its pattern never matches the tool shell's own argv),
+ * `prompt-debug`, and `cacheWarmingGate` (no idle cache
  * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
  * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
  * `consultGuard` (a consult fork refuses `edit` / `write`) and `systemHead` (pi's system message
@@ -34,6 +36,7 @@ import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
 import { cacheWarmingGatePart } from "./loomExtensionParts/cacheWarmingGate.ts";
 import { commandGuardsPart } from "./loomExtensionParts/commandGuards.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
+import { pgrepSelfMatchPart } from "./loomExtensionParts/pgrepSelfMatch.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
 import { systemHeadPart } from "./loomExtensionParts/systemHead.ts";
@@ -200,6 +203,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   askUserQuestionPart,
   searchGuardPart,
   commandGuardsPart,
+  pgrepSelfMatchPart,
   promptDebugPart,
   cacheWarmingGatePart,
   consultGuardPart,
