@@ -1,7 +1,8 @@
 /**
  * The REST routes beside `/mcp` (P3-3), for Loom's pi extension: the session
  * profile (seam 5), `mcp__t3-code__ask_user_question`'s ask + long-poll wait, and
- * the idle cache-warming plan report (the sidebar cache gauge).
+ * the idle cache-warming plan report (the sidebar cache gauge) and the review-gate keep-alive
+ * question a submitted thread asks before each idle ping.
  * The bearer is the thread's MCP credential, resolved through
  * `McpSessionRegistry.resolve` exactly as `/mcp` does; the caller is that
  * credential's thread and must hold the `workstream` capability.
@@ -9,6 +10,7 @@
  * @module loom/http/loomAgentRoutes
  */
 import { LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
+import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -190,9 +192,41 @@ const cacheWarmingRoute = HttpRouter.route(
   ),
 );
 
+/**
+ * The review-gate counterpart the caller's idle cache is kept warm for, or null. Gate parties
+ * are always siblings; the set includes archived rows as the went-quiet rail reads it.
+ */
+const gateKeepAliveOf = Effect.fn("loom.gateKeepAliveOf")(function* (threadId: ThreadId) {
+  const store = yield* LoomStoreV2;
+  const row = yield* store.getWorkstream(threadId);
+  if (row === null || row.parentThreadId === null) return null;
+  const siblings = (yield* store.listChildren(row.parentThreadId, { includeArchived: true })).map(
+    (sibling) => ({ ...sibling, id: sibling.threadId }),
+  );
+  const self = siblings.find((sibling) => sibling.id === threadId);
+  return self === undefined ? null : (gateKeepAliveCounterpart(self, siblings)?.id ?? null);
+});
+
+const gateKeepAliveRoute = HttpRouter.route(
+  "GET",
+  `${LOOM_AGENT_ROUTE_PREFIX}/gate-keep-alive`,
+  asWritingCaller((caller) =>
+    gateKeepAliveOf(caller.threadId).pipe(
+      Effect.orElseSucceed(() => null),
+      Effect.map((counterpartThreadId) =>
+        HttpServerResponse.jsonUnsafe({
+          keepAlive: counterpartThreadId !== null,
+          counterpartThreadId,
+        }),
+      ),
+    ),
+  ),
+);
+
 export const LoomAgentRoutesLive = HttpRouter.addAll([
   profileRoute,
   askRoute,
   waitRoute,
   cacheWarmingRoute,
+  gateKeepAliveRoute,
 ]);

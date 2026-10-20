@@ -2,6 +2,7 @@ import {
   DEFAULT_GATE_MAX_ROUNDS,
   type LoomAttentionReason,
   type LoomOutcome,
+  type LoomThreadWorkstream,
   type ThreadId,
   type WorkOutcomeDecision,
   type WorkstreamRoute,
@@ -261,6 +262,53 @@ export const isWaitingInGate = (
     }
   }
   return false;
+};
+
+/** The sidecar fields the keep-alive predicate reads beyond a GateNode. */
+export type KeepAliveNode = GateNode &
+  Pick<
+    LoomThreadWorkstream,
+    "attention" | "held" | "kickoffAt" | "blockedBy" | "archivedAt" | "deletedAt"
+  >;
+
+/**
+ * The review-gate counterpart whose hand-back a submitted thread is parked on, or null when
+ * none is coming soon: the reviewer of a done coder, or the party `isWaitingInGate` names for a
+ * reviewer that looped or a coder that routed back. Null when the thread itself is flagged (it
+ * waits on a human or its parent), or the counterpart is cancelled, archived, deleted, flagged,
+ * or neither launched nor ready to launch (held, or blocked on an undone sibling).
+ *
+ * The pi extension's idle cache warming asks this before every ping of a submitted thread and
+ * keeps the cache warm while it holds, overruling pi's economics: pi prices an idle reply at 15%
+ * likely, whereas a gate hand-back arrived inside 30 minutes nine times in ten (Sep–Oct 2026
+ * transcripts: median park 10 minutes coder-side, 5 reviewer-side).
+ */
+export const gateKeepAliveCounterpart = <T extends KeepAliveNode>(
+  thread: T,
+  siblings: ReadonlyArray<T>,
+): T | null => {
+  if (thread.attention.length > 0) return null;
+  const byId = new Map(siblings.map((sibling) => [sibling.id, sibling]));
+  const loopTarget = gateLoopTargetOf(thread);
+  const counterpart =
+    thread.outcome === "done"
+      ? gateSourceFor(thread.id, siblings)
+      : isWaitingInGate(thread, byId)
+        ? ((loopTarget === null ? undefined : byId.get(loopTarget)) ??
+          gateSourceFor(thread.id, siblings))
+        : null;
+  if (
+    !counterpart ||
+    counterpart.outcome === "cancelled" ||
+    counterpart.attention.length > 0 ||
+    counterpart.archivedAt !== null ||
+    counterpart.deletedAt !== null
+  )
+    return null;
+  return counterpart.kickoffAt !== null ||
+    (!counterpart.held && counterpart.blockedBy.every((dep) => byId.get(dep)?.outcome === "done"))
+    ? counterpart
+    : null;
 };
 
 /**

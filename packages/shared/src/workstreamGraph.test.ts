@@ -9,9 +9,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   childrenOf,
   descendantsOf,
+  gateKeepAliveCounterpart,
   type GateNode,
   type GraphThread,
   holdErasedByCompletion,
+  type KeepAliveNode,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
   isWaitingInGate,
@@ -403,6 +405,144 @@ describe("isWaitingInGate", () => {
     });
     const coder = gnode({ id: "coder", lastOutcome: { decision: "loop" } });
     expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(false);
+  });
+});
+
+describe("gateKeepAliveCounterpart", () => {
+  const knode = (
+    overrides: Omit<Partial<KeepAliveNode>, "id" | "blockedBy"> & {
+      readonly id: string;
+      readonly blockedBy?: ReadonlyArray<string>;
+    },
+  ): KeepAliveNode => ({
+    ...gnode(overrides),
+    attention: [],
+    held: false,
+    kickoffAt: "2026-10-20T00:00:00.000Z",
+    archivedAt: null,
+    deletedAt: null,
+    ...overrides,
+    id: tid(overrides.id),
+    blockedBy: (overrides.blockedBy ?? []).map(tid),
+  });
+  const looped = { decision: "loop" } as const;
+  const reviewing = { id: "reviewer", routes: loopRoutes("coder"), blockedBy: ["coder"] };
+  const cases: ReadonlyArray<
+    readonly [string, "coder" | "reviewer", ReadonlyArray<KeepAliveNode>, string | null]
+  > = [
+    [
+      "done coder, reviewer ready to launch",
+      "coder",
+      [knode({ id: "coder", outcome: "done" }), knode({ ...reviewing, kickoffAt: null })],
+      "reviewer",
+    ],
+    [
+      "done coder, reviewer blocked on an undone tester",
+      "coder",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ id: "tester" }),
+        knode({ ...reviewing, blockedBy: ["coder", "tester"], kickoffAt: null }),
+      ],
+      null,
+    ],
+    [
+      "done coder, held reviewer",
+      "coder",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ ...reviewing, kickoffAt: null, held: true }),
+      ],
+      null,
+    ],
+    [
+      "done coder, reviewer already launched though a blocker is undone",
+      "coder",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ id: "tester" }),
+        knode({ ...reviewing, blockedBy: ["coder", "tester"] }),
+      ],
+      "reviewer",
+    ],
+    [
+      "reviewer after needs_rework, coder reopened",
+      "reviewer",
+      [
+        knode({ id: "coder", pendingRework: true }),
+        knode({ ...reviewing, gateRounds: 1, lastOutcome: looped }),
+      ],
+      "coder",
+    ],
+    [
+      // isWaitingInGate reads this as a dead gate; the dispatcher's leg lands within seconds.
+      "reviewer after needs_rework, before the rework leg reopens the coder",
+      "reviewer",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ ...reviewing, gateRounds: 1, lastOutcome: looped }),
+      ],
+      null,
+    ],
+    [
+      "reviewer holding awaiting_orchestrator (cap breach)",
+      "reviewer",
+      [
+        knode({ id: "coder", pendingRework: true }),
+        knode({
+          ...reviewing,
+          gateRounds: 3,
+          lastOutcome: looped,
+          attention: ["awaiting_orchestrator"],
+        }),
+      ],
+      null,
+    ],
+    [
+      "reviewer whose coder was cancelled",
+      "reviewer",
+      [
+        knode({ id: "coder", outcome: "cancelled", pendingRework: true }),
+        knode({ ...reviewing, gateRounds: 1, lastOutcome: looped }),
+      ],
+      null,
+    ],
+    [
+      "done coder whose reviewer needs a human",
+      "coder",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ ...reviewing, attention: ["needs_guidance"] }),
+      ],
+      null,
+    ],
+    [
+      "coder after routing its rework back",
+      "coder",
+      [
+        knode({ id: "coder", lastOutcome: looped }),
+        knode({ ...reviewing, gateRounds: 1, lastOutcome: looped }),
+      ],
+      "reviewer",
+    ],
+    [
+      "both done (gate resolved)",
+      "coder",
+      [
+        knode({ id: "coder", outcome: "done" }),
+        knode({ ...reviewing, outcome: "done", gateRounds: 1 }),
+      ],
+      null,
+    ],
+  ];
+  it.each(cases)("%s", (_name, asking, threads, expected) => {
+    const thread = threads.find((entry) => entry.id === asking)!;
+    expect(gateKeepAliveCounterpart(thread, threads)?.id ?? null).toBe(expected);
+  });
+
+  it("a done child outside any gate has no counterpart", () => {
+    const child = knode({ id: "child", outcome: "done" });
+    expect(gateKeepAliveCounterpart(child, [child, knode({ id: "sibling" })])).toBeNull();
   });
 });
 

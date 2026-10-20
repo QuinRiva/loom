@@ -55,11 +55,19 @@ after the last request started, and only when its economics say the ping pays
 (`0.15 × miss cost − ping cost ≥ $0.05`). Each ping is a `usage` entry of kind
 `cache_warm` in the pi transcript.
 
-**A child stops warming once it has submitted.** After a successful
-`mcp__t3-code__workstream_submit`, Loom's pi extension
+**A child stops warming once it has submitted, unless it is parked in a review
+gate.** After a successful `mcp__t3-code__workstream_submit`, Loom's pi extension
 (`apps/server/src/provider/Drivers/Pi/loomExtensionParts/cacheWarmingGate.ts`)
-vetoes the child's idle pings. A new prompt, steer or follow-up re-opens it until
-it submits again. Warming during a run is never vetoed.
+asks the server before each idle ping (`GET /loom/agent/gate-keep-alive`, which
+reads `gateKeepAliveCounterpart` in `packages/shared/src/workstreamGraph.ts`)
+whether the child is a coder under review or a reviewer waiting on rework, with
+its counterpart live. If so it sends every ping, overruling pi's economics: a
+gate hand-back arrives inside 30 minutes about nine times in ten, against the
+15% pi assumes. The pings end at the first check after the gate resolves, the
+counterpart is cancelled or flagged, the child itself is flagged, or pi's
+30-minute horizon. Any other submitted child has its idle pings vetoed. A new
+prompt, steer or follow-up re-opens warming until it submits again. Warming
+during a run is never vetoed.
 
 ### 1-hour roots: one keep-alive ping at about 54 minutes
 
@@ -91,7 +99,8 @@ launched on pi: its `retention` (the arm), `request_started_at` and
 `request_ended_at` (the last real request's dispatch, which pi's keep-alive
 schedule counts from, and its end), `pinged_at` (the last keep-alive ping that
 landed) and `warming`, the plan for the current idle period: `scheduled` (pi
-will ping), `stopped` (it will not) or NULL (undecided: a 5-minute thread before
+will ping, as for a 1-hour root or a child parked in a review gate), `stopped`
+(it will not) or NULL (undecided: a 5-minute thread before
 pi's first idle decision at about 4.5 minutes). Loom's pi extension reports the
 plan when a run settles and at each idle decision; the server sets `stopped`
 when the pi process exits and, for every row, at boot. It is the quickest
@@ -212,6 +221,10 @@ is exported too (with 0003 applied).
   back to no idle pings with no error. Check that `cache_warm` entries, and
   `loom_thread_cache.pinged_at`, still move after a run has settled, and that a
   1-hour root's `warming` reads `scheduled` once its run settles.
+- **A gate check that fails goes cold for the round.** A parked gate member
+  whose keep-alive check cannot reach the server (a deploy, a 5-second timeout)
+  stops warming at that ping, and pi does not ask again until the next real
+  request.
 - **The env leaks to what a root spawns.** Anything a 1-hour root's pi process
   starts itself inherits `PI_CACHE_RETENTION=long` and the 90-minute horizon:
   `consult_manager`, pi-subagents runs, `pi` run from its bash. The readouts do
