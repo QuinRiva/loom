@@ -4,7 +4,8 @@
  * nudge could not steer; a child inside a printing tool is never a stall and
  * gets one slow-tool advisory; approval waits are exempt and questions are not;
  * a flat work product under an advancing heartbeat is a `spinning` advisory;
- * a sustained failed run is dead and `usage_limit` is not. The sweep's clock
+ * a provider failure is resumed once, and a failed resume is dead; `usage_limit`,
+ * a stop and a flagged child are never resumed. The sweep's clock
  * is the TestClock; each test builds its own layer so it starts at 0.
  */
 import { assert, it } from "@effect/vitest";
@@ -28,15 +29,19 @@ import { CommandReceiptStoreV2 } from "../../../orchestration-v2/CommandReceiptS
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import {
+  dispatch,
   LoomOrchestratorTestLayer,
+  loomEvent,
   seededRunIds,
   seedRunningRun,
   seedThread,
   spawnChild,
   writeEvents,
 } from "../../testkit/loomOrchestratorLayer.ts";
-import { stallNudgeCommandId } from "../dispatcher/controlMessage.ts";
+import { errorResumeCommandId, stallNudgeCommandId } from "../dispatcher/controlMessage.ts";
+import { WORKSTREAM_CONTROL_PLANE_MARKER } from "../dispatcher/wakes.ts";
 import { type AdviseInput, WorkstreamDispatcher } from "../dispatcher/WorkstreamDispatcher.ts";
+import { quiescenceCandidate } from "../quiescence.ts";
 import { LoomHeartbeat } from "./heartbeat.ts";
 import {
   classifyLiveness,
@@ -171,23 +176,28 @@ const pendingRequest = (threadId: ThreadId, kind: OrchestrationV2RuntimeRequest[
     }),
   );
 
-/** Ends the seeded run `failed` with a root error item of `failureClass`. */
-const failRun = (threadId: ThreadId, failureClass: OrchestrationV2ProviderFailureClass) =>
+/** Ends the thread's latest run `failed` with a root error item of `failureClass`. */
+const failRun = (
+  threadId: ThreadId,
+  failureClass: OrchestrationV2ProviderFailureClass,
+  message = "provider went away",
+) =>
   Effect.gen(function* () {
     const now = yield* DateTime.now;
-    const ids = seededRunIds(threadId);
-    const run = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(threadId))
-      .runs[0]!;
+    const run = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(threadId)).runs
+      .toSorted((a, b) => b.ordinal - a.ordinal)
+      .at(0)!;
     yield* writeEvents([
       yield* event(threadId, {
         type: "turn-item.updated",
+        runId: run.id,
         payload: {
-          id: TurnItemId.make(`turn-item:${threadId}:error`),
+          id: TurnItemId.make(`turn-item:${run.id}:error`),
           threadId,
-          runId: ids.runId,
-          nodeId: ids.nodeId,
-          providerThreadId: ids.providerThreadId,
-          providerTurnId: ids.providerTurnId,
+          runId: run.id,
+          nodeId: run.rootNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
           nativeItemRef: null,
           parentItemId: null,
           ordinal: 50,
@@ -197,19 +207,39 @@ const failRun = (threadId: ThreadId, failureClass: OrchestrationV2ProviderFailur
           completedAt: now,
           updatedAt: now,
           type: "error",
-          failure: {
-            class: failureClass,
-            message: "provider went away",
-            code: null,
-            retryable: null,
-          },
+          failure: { class: failureClass, message, code: null, retryable: null },
         },
       }),
       yield* event(threadId, {
         type: "run.updated",
+        runId: run.id,
         payload: { ...run, status: "failed", completedAt: now },
       }),
     ]);
+    return run.id;
+  });
+
+/** The sweep's error resumes on `threadId`. */
+const errorResumes = (threadId: ThreadId) =>
+  Effect.flatMap(Orchestrator.OrchestratorV2, (o) =>
+    Effect.map(o.getThreadProjection(threadId), (p) =>
+      p.messages.filter((message) => message.id.startsWith("message:server:loom:error-resume:")),
+    ),
+  );
+
+/** `quiescenceCandidate` as the rail reads it, with no grace at all. */
+const quietNow = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projection = yield* orchestrator.getThreadProjection(threadId);
+    return quiescenceCandidate({
+      shell: (yield* orchestrator.getThreadShell(threadId))!,
+      runs: projection.runs,
+      userMessages: projection.messages.filter((message) => message.role === "user"),
+      children: [],
+      now: yield* DateTime.now,
+      grace: { controlStartedMs: 0, humanStartedMs: 0 },
+    });
   });
 
 it("decideStallAction escalates a fresh episode the nudge cannot steer into", () => {
@@ -504,23 +534,86 @@ it.effect("a flat work product under an advancing heartbeat is one spinning advi
   ),
 );
 
-it.effect("three sweeps of a failed latest run raise error; usage_limit raises nothing", () =>
+const EOF_ERROR = '{"type":"error","error":{"type":"api_error","message":"unexpected EOF"}}';
+
+it.effect(
+  "a provider failure is resumed once, naming the error; the resume failing too raises error",
+  () =>
+    withSweep(
+      Effect.gen(function* () {
+        const { child } = yield* seedRunningChild("dead", false);
+        yield* writeEvents([
+          yield* loomEvent("thread.kickoff-recorded", child, {
+            kickoffAt: DateTime.formatIso(yield* DateTime.now),
+            messageId: seededRunIds(child).messageId,
+            origin: "kickoff",
+          }),
+        ]);
+        const failedRunId = yield* failRun(child, "transport_error", EOF_ERROR);
+        // Owed a resume: never quiet, whatever the grace, so the parent is not woken.
+        assert.isFalse(yield* quietNow(child));
+        yield* sweep;
+        const [resume, ...rest] = yield* errorResumes(child);
+        assert.lengthOf(rest, 0);
+        assert.equal(resume?.id, `message:${errorResumeCommandId(child, failedRunId)}`);
+        assert.equal(resume?.loom?.origin, "control_notice");
+        assert.include(resume?.text ?? "", WORKSTREAM_CONTROL_PLANE_MARKER);
+        assert.include(resume?.text ?? "", `\`${EOF_ERROR}\``);
+        assert.include(resume?.text ?? "", "Check what already landed before repeating a step.");
+        assert.isFalse(yield* quietNow(child));
+        for (let i = 0; i < 3; i++) yield* sweep;
+        assert.lengthOf(yield* errorResumes(child), 1);
+        assert.deepEqual(yield* attention(child), []);
+
+        // The resumed run fails too: State A's ladder, exactly as before, and no second resume.
+        const resumedRunId = yield* failRun(child, "provider_error", EOF_ERROR);
+        assert.notEqual(resumedRunId, failedRunId);
+        yield* sweep;
+        yield* sweep;
+        assert.deepEqual(yield* attention(child), []);
+        yield* sweep;
+        assert.equal(
+          (yield* receipt(livenessDeadCommandId(child, resumedRunId)))?.status,
+          "accepted",
+        );
+        assert.deepEqual(yield* attention(child), ["error"]);
+        assert.lengthOf(yield* errorResumes(child), 1);
+        assert.isNull(yield* receipt(errorResumeCommandId(child, resumedRunId)));
+      }),
+    ),
+);
+
+it.effect("usage_limit, an interrupted run and a flagged child are never resumed", () =>
   withSweep(
     Effect.gen(function* () {
-      const { child: dead } = yield* seedRunningChild("dead", false);
       const { child: limited } = yield* seedRunningChild("limited", false);
-      yield* failRun(dead, "transport_error");
+      const { child: stopped } = yield* seedRunningChild("stopped", false);
+      const { child: held } = yield* seedRunningChild("held", false);
       yield* failRun(limited, "usage_limit");
-      const runId = seededRunIds(dead).runId;
-      yield* sweep;
-      yield* sweep;
-      assert.deepEqual(yield* attention(dead), []);
-      yield* sweep;
-      assert.equal((yield* receipt(livenessDeadCommandId(dead, runId)))?.status, "accepted");
-      assert.deepEqual(yield* attention(dead), ["error"]);
+      // A human's or the parent's stop: pi ends the turn `interrupted` with no failure.
+      const run = (yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(stopped))
+        .runs[0]!;
+      yield* writeEvents([
+        yield* event(stopped, {
+          type: "run.updated",
+          payload: { ...run, status: "interrupted", completedAt: yield* DateTime.now },
+        }),
+      ]);
+      yield* dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make("held-guidance"),
+        threadId: held,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+        reason: "needs_guidance",
+      });
+      yield* failRun(held, "provider_error");
       for (let i = 0; i < 4; i++) yield* sweep;
+      for (const child of [limited, stopped, held]) assert.lengthOf(yield* errorResumes(child), 0);
       assert.deepEqual(yield* attention(limited), []);
+      assert.deepEqual(yield* attention(stopped), []);
       assert.isNull(yield* receipt(livenessDeadCommandId(limited, seededRunIds(limited).runId)));
+      // The flagged child can still die (State A raises error alongside its flag).
+      assert.deepEqual(yield* attention(held), ["needs_guidance", "error"]);
     }),
   ),
 );

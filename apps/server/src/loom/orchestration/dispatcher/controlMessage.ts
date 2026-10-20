@@ -123,6 +123,9 @@ export const rerouteBackCommandId = (threadId: ThreadId, reroutedAtMs: number) =
 /** Clause 3: the resume of a usage-limit failure upstream cannot arm (no future reset). */
 export const limitResumeCommandId = (threadId: ThreadId, runId: string) =>
   `server:loom:limit-resume:${threadId}:${runId}`;
+/** The liveness sweep's one resume of a run that failed on a provider error (`liveness/errorResume.ts`). */
+export const errorResumeCommandId = (threadId: ThreadId, runId: string) =>
+  `server:loom:error-resume:${threadId}:${runId}`;
 
 /** First 16 hex of sha256(text): the redelivery's episode key (seam 20). */
 export const steerHash = (text: string) =>

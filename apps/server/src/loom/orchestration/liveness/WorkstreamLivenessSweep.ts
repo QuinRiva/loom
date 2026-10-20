@@ -4,7 +4,9 @@
  * V2 shell, the in-memory heartbeat and its in-flight tool:
  *
  * - **dead** (State A) — the latest run `failed` with a provider failure class
- *   (`usage_limit` excluded: upstream's limit recovery parks and resumes it) for
+ *   (`usage_limit` excluded: upstream's limit recovery parks and resumes it).
+ *   The first sweep to see it sends ONE steered resume naming the error
+ *   (`errorResume.ts`), unless that run was itself the resume; otherwise, for
  *   `failureCap` consecutive sweeps → `thread.attention.raise error`.
  * - **waiting** (State B) — a pending approval-kind runtime request: exempt.
  * - **stalled** (State C) — a running run, no in-flight tool, heartbeat frozen
@@ -47,7 +49,11 @@ import { ProviderSessionManagerV2 } from "../../../orchestration-v2/ProviderSess
 import { forkParked } from "../../../serverActivation.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { dispatchServerCommand, type ThreadServerCommand } from "../redrive.ts";
-import { controlMessage, stallNudgeCommandId } from "../dispatcher/controlMessage.ts";
+import {
+  controlMessage,
+  errorResumeCommandId,
+  stallNudgeCommandId,
+} from "../dispatcher/controlMessage.ts";
 import { renderSlowToolDigestLine } from "../dispatcher/digest.ts";
 import {
   declaredEstimateMs,
@@ -56,6 +62,12 @@ import {
   WORKSTREAM_CONTROL_PLANE_MARKER,
 } from "../dispatcher/wakes.ts";
 import { WorkstreamDispatcher } from "../dispatcher/WorkstreamDispatcher.ts";
+import {
+  awaitsErrorResume,
+  errorResumeText,
+  isFailedSession,
+  submitSupersedesFailure,
+} from "./errorResume.ts";
 import { LoomHeartbeat, LoomHeartbeatLive } from "./heartbeat.ts";
 import {
   type InFlightTool,
@@ -138,32 +150,6 @@ export const WAITING_REQUEST_KINDS: ReadonlySet<string> = new Set([
 
 const msOf = (value: DateTime.Utc | null | undefined) =>
   value == null ? null : DateTime.toEpochMillis(value);
-
-/**
- * A failed observation: the latest run failed with a provider failure class
- * other than `usage_limit` (3c's park-and-resume owns that class).
- */
-export const isFailedSession = (
-  shell: Pick<OrchestrationV2ThreadShell, "status" | "lastErrorClass">,
-): boolean =>
-  shell.status === "failed" &&
-  shell.lastErrorClass != null &&
-  shell.lastErrorClass !== "usage_limit";
-
-/**
- * A successful submit is the strongest liveness proof: when the thread's last
- * recorded outcome is at or after its latest run ended, a stale failure is
- * superseded and must not out-vote it. Pure and timestamp-keyed (V1 2026-07-08
- * incident: a reviewer recovered from a provider error and submitted, yet was
- * marked dead). It also exempts a party parked waiting-in-gate post-submit.
- */
-export const submitSupersedesFailure = (
-  row: Pick<LoomThreadWorkstream, "lastOutcome">,
-  shell: Pick<OrchestrationV2ThreadShell, "latestRunCompletedAt" | "updatedAt">,
-): boolean =>
-  row.lastOutcome !== null &&
-  Date.parse(row.lastOutcome.at) >=
-    DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
 
 export interface LivenessClassifyInput {
   readonly shell: Pick<
@@ -460,6 +446,32 @@ const make = (thresholds: LivenessSweepThresholds) =>
         failureCounts.delete(row.threadId);
       });
 
+    // State A's first rung: the one resume per failure episode; true when it landed now.
+    const resumeAfterError = Effect.fn("loom.liveness.resumeAfterError")(function* (
+      row: LoomThreadWorkstream,
+      shell: OrchestrationV2ThreadShell,
+    ) {
+      const { runs } = yield* orchestrator.getThreadRecords(row.threadId, ["runs"]);
+      if (!awaitsErrorResume(shell, row, runs)) return false;
+      // Receipted (landed before, or dead) is not a second chance: the ladder takes over.
+      const { status } = yield* dispatchServerCommand(
+        controlMessage({
+          threadId: row.threadId,
+          id: errorResumeCommandId(row.threadId, shell.latestRunId!),
+          tier: "steered",
+          origin: "control_notice",
+          text: errorResumeText(shell.lastError),
+        }),
+      );
+      if (status !== "accepted") return false;
+      yield* Effect.logInfo("workstream.liveness.error-resumed", {
+        threadId: row.threadId,
+        failedRunId: shell.latestRunId,
+        error: shell.lastError,
+      });
+      return true;
+    });
+
     // The slow-tool advisory: once per ladder step of one in-flight call.
     const adviseSlowTool = Effect.fn("loom.liveness.adviseSlowTool")(function* (
       row: LoomThreadWorkstream,
@@ -568,6 +580,11 @@ const make = (thresholds: LivenessSweepThresholds) =>
         slowTools.delete(id);
         if (failureCount >= thresholds.failureCap && !row.attention.includes("error"))
           yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (flagged)`);
+        return;
+      }
+
+      if (failureObserved && (yield* resumeAfterError(row, shell))) {
+        failureCounts.delete(id);
         return;
       }
 
